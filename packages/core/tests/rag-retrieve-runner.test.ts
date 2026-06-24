@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { retrieveRagDocument } from '../src/index.js';
+import { retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -27,18 +27,99 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const INDEX_CHUNKING_DOC = DOC.replace(
+  'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+  'chunking name=Large source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+).replace(
+  'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+  'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=Large',
+);
+
+const LOCAL_PERSISTENT_STORE_DOC = DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+);
+
+const PROVIDER_RETRIEVE_DOC = RETRIEVE_DOC_PROVIDER(DOC, 'memory');
+
+const PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC = RETRIEVE_DOC_PROVIDER(DOC, 'local-persistent');
+
+const LOCAL_PERSISTENT_ESCAPE_DOC = LOCAL_PERSISTENT_STORE_DOC.replace('path="./index"', 'path="../outside"');
+
+const LOCAL_PERSISTENT_SYMLINK_DOC = LOCAL_PERSISTENT_STORE_DOC.replace('path="./index"', 'path="./index-link"');
+
+const LOCAL_PERSISTENT_NESTED_SYMLINK_DOC = LOCAL_PERSISTENT_STORE_DOC.replace(
+  'path="./index"',
+  'path="./a/index-link/subdir"',
+);
+
+const LOCAL_PERSISTENT_METADATA_DRIFT_DOC = LOCAL_PERSISTENT_STORE_DOC.replace(
+  'uri="./docs/**/*.md"',
+  'uri="docs/**/*.md"',
+);
+
+const LOCAL_PERSISTENT_SHARED_NAMESPACE_DOC = LOCAL_PERSISTENT_STORE_DOC.replace(
+  'path="./index"',
+  'path="./index" namespace=shared',
+).replace(
+  '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  `  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"
+ragIndex name=DocsIndexMirror corpus=Docs store=DocsMemory embed=DocsEmbedding
+  ragRetrieve name=FindDocsAgain index=DocsIndexMirror queryParam=question topK=1 output="RetrievedChunk[]"`,
+);
+
+function RETRIEVE_DOC_PROVIDER(source: string, storeKind: 'local-persistent' | 'memory'): string {
+  return source
+    .replace(
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=3 metric=cosine',
+    )
+    .replace(
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      storeKind === 'memory'
+        ? 'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine'
+        : 'vectorStore name=DocsMemory kind=local-persistent dims=3 metric=cosine path="./index"',
+    );
+}
+
+function fakeOpenAiFetch(counter?: { count: number }): typeof fetch {
+  return (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    counter && (counter.count += 1);
+    const body = JSON.parse(String(init?.body ?? '{}')) as { readonly input?: string | readonly string[] };
+    const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ''];
+    return new Response(
+      JSON.stringify({
+        data: inputs.map((text) => ({ embedding: providerVector(text) })),
+      }),
+      { headers: { 'content-type': 'application/json' }, status: 200 },
+    );
+  }) as typeof fetch;
+}
+
+function providerVector(text: string): number[] {
+  const normalized = text.toLowerCase();
+  if (normalized.includes('refund') || normalized.includes('money')) return [1, 0, 0];
+  if (normalized.includes('shipping') || normalized.includes('delivery')) return [0, 1, 0];
+  return [0, 0, 1];
+}
+
 describe('retrieveRagDocument', () => {
   let dir: string;
+  let outsideDir: string | undefined;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'kern-rag-retrieve-'));
+    outsideDir = undefined;
     mkdirSync(join(dir, 'docs'));
     writeFileSync(join(dir, 'spec.kern'), DOC);
     writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
     writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
   });
 
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    if (outsideDir) rmSync(outsideDir, { recursive: true, force: true });
+  });
 
   test('executes runtime retrieval contracts over declared local sources', () => {
     const report = retrieveRagDocument(DOC, {
@@ -93,5 +174,201 @@ describe('retrieveRagDocument', () => {
     expect(() => retrieveRagDocument(DYNAMIC_QUERY_DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /uses dynamic query=<expr>/u,
     );
+  });
+
+  test('async retrieval executes provider-backed memory vector stores', async () => {
+    const report = await retrieveRagDocumentAsync(PROVIDER_RETRIEVE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      providers: { openai: { apiKey: 'test-key', fetch: fakeOpenAiFetch() } },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('async retrieval fails closed when provider options are missing', async () => {
+    await expect(
+      retrieveRagDocumentAsync(PROVIDER_RETRIEVE_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).rejects.toThrow(/requires OpenAI provider options/u);
+  });
+
+  test('async retrieval reuses provider-backed local-persistent snapshots', async () => {
+    const calls = { count: 0 };
+    const options = {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      providers: { openai: { apiKey: 'test-key', fetch: fakeOpenAiFetch(calls) } },
+    };
+
+    const first = await retrieveRagDocumentAsync(PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC, options);
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
+    const firstCallCount = calls.count;
+    const second = await retrieveRagDocumentAsync(PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC, options);
+
+    expect(first.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
+    expect(firstCallCount).toBe(2);
+    expect(calls.count).toBe(3);
+  });
+
+  test('fails closed instead of ignoring index-level chunking overrides', () => {
+    expect(() =>
+      retrieveRagDocument(INDEX_CHUNKING_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/index 'DocsIndex' with chunking='Large'/u);
+  });
+
+  test('executes local-persistent vector stores and reuses matching snapshots', () => {
+    const first = retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(first.diagnostics).toEqual([]);
+    expect(first.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
+    const parsed = JSON.parse(firstSnapshot) as {
+      readonly fingerprint?: unknown;
+      readonly entries?: readonly { readonly chunk?: { readonly source?: string } }[];
+    };
+    expect(typeof parsed.fingerprint).toBe('string');
+    expect(parsed.entries?.some((entry) => entry.chunk?.source === 'docs/refunds.md')).toBe(true);
+
+    const second = retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
+  });
+
+  test('rejects local-persistent paths outside the declaring document directory', () => {
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_ESCAPE_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/path must stay inside/u);
+  });
+
+  test('rejects local-persistent symlinks outside the declaring document directory', () => {
+    outsideDir = mkdtempSync(join(tmpdir(), 'kern-rag-retrieve-outside-'));
+    symlinkSync(outsideDir, join(dir, 'index-link'), 'dir');
+
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_SYMLINK_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/path must stay inside/u);
+  });
+
+  test('rejects local-persistent nested symlinks outside the declaring document directory', () => {
+    outsideDir = mkdtempSync(join(tmpdir(), 'kern-rag-retrieve-outside-'));
+    mkdirSync(join(dir, 'a'));
+    symlinkSync(outsideDir, join(dir, 'a/index-link'), 'dir');
+
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_NESTED_SYMLINK_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/path must stay inside/u);
+  });
+
+  test('rejects local-persistent broken symlink path components', () => {
+    mkdirSync(join(dir, 'a'));
+    symlinkSync(join(tmpdir(), 'kern-rag-missing-outside-target'), join(dir, 'a/index-link'), 'dir');
+
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_NESTED_SYMLINK_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/path must stay inside/u);
+  });
+
+  test('rejects incompatible fingerprints sharing the same local-persistent file', () => {
+    expect(() =>
+      retrieveRagDocument(LOCAL_PERSISTENT_SHARED_NAMESPACE_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+      }),
+    ).toThrow(/multiple incompatible fingerprints/u);
+  });
+
+  test('rebuilds local-persistent vector stores when source content changes', () => {
+    retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const before = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly fingerprint: string };
+
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy now requires receipt approval\n');
+    const report = retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy receipt',
+    });
+    const after = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly fingerprint: string };
+
+    expect(report.retrievals[0]?.result.chunks[0]?.text).toContain('receipt approval');
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+  });
+
+  test('rebuilds local-persistent vector stores when chunk metadata changes', () => {
+    retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const before = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly fingerprint: string };
+
+    const report = retrieveRagDocument(LOCAL_PERSISTENT_METADATA_DRIFT_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    const after = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as {
+      readonly entries: readonly { readonly chunk: { readonly metadata?: { readonly sourceUri?: string } } }[];
+      readonly fingerprint: string;
+    };
+
+    expect(report.retrievals[0]?.result.chunks[0]?.metadata?.sourceUri).toBe('docs/**/*.md');
+    expect(after.entries[0]?.chunk.metadata?.sourceUri).toBe('docs/**/*.md');
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+  });
+
+  test('rebuilds local-persistent vector stores when stored chunks drift from the fingerprint', () => {
+    retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as {
+      entries: { chunk: { text: string } }[];
+    };
+    snapshot.entries[0].chunk.text = 'stale tampered text';
+    writeFileSync(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+
+    const report = retrieveRagDocument(LOCAL_PERSISTENT_STORE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    const after = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as {
+      readonly entries: readonly { readonly chunk: { readonly text: string } }[];
+    };
+
+    expect(report.retrievals[0]?.result.chunks[0]?.text).toContain('refund policy money back');
+    expect(after.entries.some((entry) => entry.chunk.text === 'stale tampered text')).toBe(false);
   });
 });

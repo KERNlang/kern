@@ -216,6 +216,7 @@ function isBodyStatementMisplaced(node: IRNode, ctx: WalkContext): boolean {
     case 'expression-v1':
     case 'return':
     case 'throw':
+    case 'print':
     case 'continue':
     case 'break':
     case 'while':

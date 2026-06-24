@@ -12,7 +12,7 @@ import {
   type RagVectorStoreConformanceReport,
   type RagVectorStoreKind,
   ragRetrieveCorpusSourceSummary,
-  retrieveRagDocument,
+  retrieveRagDocumentAsync,
   runRagVectorStoreConformance,
 } from '@kernlang/core';
 import { LocalPersistentRagVectorStoreAdapter } from '@kernlang/core/node';
@@ -22,7 +22,7 @@ import { join, resolve } from 'path';
 
 const USAGE =
   'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--openai-api-key <key>]\n' +
-  '       kern rag retrieve <file.kern> --query <text> [--param name=value]  (local embed models only)\n' +
+  '       kern rag retrieve <file.kern> --query <text> [--param name=value] [--openai-api-key <key>]\n' +
   '       kern rag conformance [--adapter memory|local-persistent] [--json]\n' +
   '       kern rag conformance --list [--json]';
 
@@ -34,7 +34,7 @@ export async function runRag(args: string[]): Promise<void> {
     return;
   }
   if (sub === 'retrieve') {
-    runRagRetrieve(args.slice(2));
+    await runRagRetrieve(args.slice(2));
     return;
   }
   if (sub === 'conformance') {
@@ -136,25 +136,41 @@ function createConformanceStore(
   fail(`unknown RAG adapter kind '${adapterKind}'.`);
 }
 
-function runRagRetrieve(args: string[]): void {
-  const { filePath, paramError, paramFlagPresent, query, queryFlagPresent, queryParams, unknownFlags } =
-    parseRagRetrieveArgs(args);
+async function runRagRetrieve(args: string[]): Promise<void> {
+  const {
+    filePath,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    paramError,
+    paramFlagPresent,
+    query,
+    queryFlagPresent,
+    queryParams,
+    unexpectedArgs,
+    unknownFlags,
+  } = parseRagRetrieveArgs(args);
   const resolvedFilePath = filePath ? resolve(filePath) : '';
   if (unknownFlags.length > 0) fail(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
   if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-')))
     fail(`missing value for --query.\n${USAGE}`);
   if (paramError) fail(`${paramError}.\n${USAGE}`);
   if (paramFlagPresent && Object.keys(queryParams).length === 0) fail(`missing value for --param.\n${USAGE}`);
+  if (openAiKeyFlagPresent && (!openAiApiKeyFlag?.trim() || openAiApiKeyFlag.startsWith('-'))) {
+    fail(`missing value for --openai-api-key.\n${USAGE}`);
+  }
   if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
 
   const source = readFileSync(resolvedFilePath, 'utf-8');
+  const providerOptions = ragProviderOptions(openAiApiKeyFlag);
   let report: RagRetrieveDocumentReport;
   try {
-    report = retrieveRagDocument(source, {
+    report = await retrieveRagDocumentAsync(source, {
       sourcePath: resolvedFilePath,
       ...(query !== undefined ? { query } : {}),
       queryParams,
+      ...providerOptions,
     });
   } catch (err) {
     fail(`retrieval failed: ${(err as Error).message}`);
@@ -185,9 +201,19 @@ function runRagRetrieve(args: string[]): void {
 }
 
 async function runRagEval(args: string[]): Promise<void> {
-  const { corpusFlagPresent, corpusPath, filePath, openAiApiKeyFlag, openAiKeyFlagPresent } = parseRagEvalArgs(args);
+  const {
+    corpusFlagPresent,
+    corpusPath,
+    filePath,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    unexpectedArgs,
+    unknownFlags,
+  } = parseRagEvalArgs(args);
 
   const resolvedFilePath = filePath ? resolve(filePath) : '';
+  if (unknownFlags.length > 0) fail(`unknown flag for eval: ${unknownFlags[0]}.\n${USAGE}`);
+  if (unexpectedArgs.length > 0) fail(`unexpected argument for eval: ${unexpectedArgs[0]}.\n${USAGE}`);
   if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
   if (corpusFlagPresent && (!corpusPath?.trim() || corpusPath.startsWith('-'))) {
     fail(`missing value for --corpus.\n${USAGE}`);
@@ -245,7 +271,13 @@ function ragProviderOptions(
   openAiApiKeyFlag: string | undefined,
 ): { readonly providers: { readonly openai: { readonly apiKey: string } } } | undefined {
   const openAiApiKey = (openAiApiKeyFlag ?? process.env.KERN_OPENAI_API_KEY ?? process.env.OPENAI_API_KEY)?.trim();
-  return openAiApiKey ? { providers: { openai: { apiKey: openAiApiKey } } } : undefined;
+  if (!openAiApiKey) return undefined;
+  const openai = {};
+  Object.defineProperty(openai, 'apiKey', {
+    value: openAiApiKey,
+    enumerable: false,
+  });
+  return { providers: { openai: openai as { readonly apiKey: string } } };
 }
 
 interface ParsedRagEvalArgs {
@@ -254,6 +286,8 @@ interface ParsedRagEvalArgs {
   readonly corpusFlagPresent: boolean;
   readonly openAiApiKeyFlag?: string;
   readonly openAiKeyFlagPresent: boolean;
+  readonly unexpectedArgs: readonly string[];
+  readonly unknownFlags: readonly string[];
 }
 
 function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
@@ -262,6 +296,8 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
   let corpusFlagPresent = false;
   let openAiApiKeyFlag: string | undefined;
   let openAiKeyFlagPresent = false;
+  const unexpectedArgs: string[] = [];
+  const unknownFlags: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -287,10 +323,26 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
       openAiApiKeyFlag = arg.slice('--openai-api-key='.length);
       continue;
     }
-    if (!arg.startsWith('-') && filePath === undefined) filePath = arg;
+    if (arg.startsWith('-')) {
+      unknownFlags.push(arg);
+      continue;
+    }
+    if (filePath === undefined) {
+      filePath = arg;
+      continue;
+    }
+    unexpectedArgs.push(arg);
   }
 
-  return { filePath, corpusPath, corpusFlagPresent, openAiApiKeyFlag, openAiKeyFlagPresent };
+  return {
+    filePath,
+    corpusPath,
+    corpusFlagPresent,
+    openAiApiKeyFlag,
+    openAiKeyFlagPresent,
+    unexpectedArgs,
+    unknownFlags,
+  };
 }
 
 interface ParsedRagConformanceArgs {
@@ -355,6 +407,9 @@ interface ParsedRagRetrieveArgs {
   readonly queryParams: Record<string, string>;
   readonly paramFlagPresent: boolean;
   readonly paramError?: string;
+  readonly openAiApiKeyFlag?: string;
+  readonly openAiKeyFlagPresent: boolean;
+  readonly unexpectedArgs: readonly string[];
   readonly unknownFlags: readonly string[];
 }
 
@@ -364,6 +419,9 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
   let queryFlagPresent = false;
   let paramFlagPresent = false;
   let paramError: string | undefined;
+  let openAiApiKeyFlag: string | undefined;
+  let openAiKeyFlagPresent = false;
+  const unexpectedArgs: string[] = [];
   const unknownFlags: string[] = [];
   const queryParams: Record<string, string> = {};
 
@@ -391,11 +449,26 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
       paramError ??= assignQueryParam(queryParams, arg.slice('--param='.length));
       continue;
     }
+    if (arg === '--openai-api-key') {
+      openAiKeyFlagPresent = true;
+      openAiApiKeyFlag = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--openai-api-key=')) {
+      openAiKeyFlagPresent = true;
+      openAiApiKeyFlag = arg.slice('--openai-api-key='.length);
+      continue;
+    }
     if (arg.startsWith('-')) {
       unknownFlags.push(arg);
       continue;
     }
-    if (filePath === undefined) filePath = arg;
+    if (filePath === undefined) {
+      filePath = arg;
+      continue;
+    }
+    unexpectedArgs.push(arg);
   }
 
   return {
@@ -405,6 +478,9 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
     queryParams,
     paramFlagPresent,
     ...(paramError ? { paramError } : {}),
+    ...(openAiApiKeyFlag !== undefined ? { openAiApiKeyFlag } : {}),
+    openAiKeyFlagPresent,
+    unexpectedArgs,
     unknownFlags,
   };
 }

@@ -4,7 +4,15 @@
 
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  defineBinding,
+  hasBinding,
+  hasOwnBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import {
   evalRegexGlobalMatchExpression,
   evalRegexMatchAllExpression,
@@ -63,7 +71,7 @@ function expressionSource(expr: unknown): string | undefined {
  *  abstain) instead of the runner misjudging it as the builtin and diverging from
  *  the emitted legs, which honor the user binding. */
 function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isDecimalValueExpression(parsed) && !env.bindings.has('Decimal');
+  return isDecimalValueExpression(parsed) && !hasBinding(env, 'Decimal');
 }
 
 // The runner executes `regexLit.test(str)` natively ONLY when `RegExp` is the
@@ -74,11 +82,11 @@ function routesToNativeDecimal(parsed: ReturnType<typeof parseExpression>, env: 
 // byte-identical constant both emit legs produce. (Re-admit is parity, not
 // laziness; moving `/g` to a gate-abstain would drop the runner's leg for `/g`.)
 function routesToNativeRegexTest(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isRegexTestExpression(parsed) && !env.bindings.has('RegExp');
+  return isRegexTestExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
 function routesToNativeRegexMatch(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isRegexMatchExpression(parsed) && !env.bindings.has('RegExp');
+  return isRegexMatchExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
 // SLICE-3 — `<str>.match(/pat/g)` (GLOBAL array result) and `<str>.matchAll(/pat/g)`
@@ -86,11 +94,11 @@ function routesToNativeRegexMatch(parsed: ReturnType<typeof parseExpression>, en
 // `.matchAll` without /g is deliberately ADMITTED by the gate and fail-closed inside
 // the eval so the precondition RE-ADMITS the shared REGEX_MATCHALL_NO_G_FAILCLOSE.
 function routesToNativeRegexGlobalMatch(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isRegexGlobalMatchExpression(parsed) && !env.bindings.has('RegExp');
+  return isRegexGlobalMatchExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
 function routesToNativeRegexMatchAll(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isRegexMatchAllExpression(parsed) && !env.bindings.has('RegExp');
+  return isRegexMatchAllExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
 // SLICE-4 — `<str>.split(/pat/)` (array result) and `<str>.replace`/`.replaceAll`
@@ -99,17 +107,17 @@ function routesToNativeRegexMatchAll(parsed: ReturnType<typeof parseExpression>,
 // /g, and a bad replacement `$`-surface are deliberately ADMITTED by the gate and
 // fail-closed inside the eval so the precondition RE-ADMITS the shared constants.
 function routesToNativeRegexSplit(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isRegexSplitExpression(parsed) && !env.bindings.has('RegExp');
+  return isRegexSplitExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
 function routesToNativeRegexReplace(parsed: ReturnType<typeof parseExpression>, env: SemanticEnv): boolean {
-  return isRegexReplaceExpression(parsed) && !env.bindings.has('RegExp');
+  return isRegexReplaceExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
 function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asExpressionV1Props(ir);
   if (!isPortableBindingName(props.name)) return false;
-  if (env.bindings.has(props.name)) return false;
+  if (hasOwnBinding(env, props.name)) return false;
   const expr = expressionSource(props.expr);
   if (!Object.hasOwn(ir.props ?? {}, 'expr') || expr === undefined || expr === '') return false;
   try {
@@ -223,17 +231,17 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   // (see routesToNativeDecimal) is NOT native — it falls through to portable eval.
   if (routesToNativeDecimal(parsed, env)) {
     const str = evalDecimalExpression(parsed, env);
-    env.bindings.set(name, makeDecimalValue(str));
+    defineBinding(env, name, makeDecimalValue(str));
     return { events: [{ op: 'assign', target: name, value: str }], completion: { kind: 'normal' } };
   }
   if (routesToNativeRegexTest(parsed, env)) {
     const value = evalRegexTestExpression(parsed, env);
-    env.bindings.set(name, value);
+    defineBinding(env, name, value);
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   if (routesToNativeRegexMatch(parsed, env)) {
     const value = evalRegexMatchExpression(parsed, env);
-    env.bindings.set(name, value === null ? null : makeRegExpMatchValue(value));
+    defineBinding(env, name, value === null ? null : makeRegExpMatchValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   // SLICE-3 — `<str>.match(/pat/g)` (GLOBAL): the Trace `assign.value` is the PLAIN
@@ -242,14 +250,14 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   // (downstream array value semantics are a later slice). No-match binds plain null.
   if (routesToNativeRegexGlobalMatch(parsed, env)) {
     const value = evalRegexGlobalMatchExpression(parsed, env);
-    env.bindings.set(name, value === null ? null : makeRegExpMatchListValue(value));
+    defineBinding(env, name, value === null ? null : makeRegExpMatchListValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   // SLICE-3 — `<str>.matchAll(/pat/g)`: always an array (possibly empty). Same
   // split — plain array in the Trace, tagged wrapper in the binding.
   if (routesToNativeRegexMatchAll(parsed, env)) {
     const value = evalRegexMatchAllExpression(parsed, env);
-    env.bindings.set(name, makeRegExpMatchListValue(value));
+    defineBinding(env, name, makeRegExpMatchListValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   // SLICE-4 — `<str>.split(/pat/)`: the Trace `assign.value` is the PLAIN array (the
@@ -258,18 +266,18 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   // value semantics are a later slice), same terminal boundary as matchAll.
   if (routesToNativeRegexSplit(parsed, env)) {
     const value = evalRegexSplitExpression(parsed, env);
-    env.bindings.set(name, makeRegExpMatchListValue(value));
+    defineBinding(env, name, makeRegExpMatchListValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   // SLICE-4 — `<str>.replace`/`.replaceAll`: a plain STRING scalar. The binding holds
   // the bare string (readable downstream), unlike the terminal-tagged array results.
   if (routesToNativeRegexReplace(parsed, env)) {
     const value = evalRegexReplaceExpression(parsed, env);
-    env.bindings.set(name, value);
+    defineBinding(env, name, value);
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   const value = evalPortableValue(parsed, env);
-  env.bindings.set(name, value);
+  defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 

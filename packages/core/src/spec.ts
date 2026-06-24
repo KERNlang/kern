@@ -129,6 +129,8 @@ export const NODE_TYPES = [
   'do',
   'continue',
   'break',
+  // Portable stdout primitive — `print value="<expr>"`
+  'print',
   // Native KERN handler-body control flow (slice 2c)
   'if',
   'while',

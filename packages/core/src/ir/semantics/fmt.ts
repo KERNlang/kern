@@ -30,7 +30,14 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  defineBinding,
+  hasOwnBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { evalPortableValue, isPortableBindingName, type PortableScalar } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
@@ -73,7 +80,7 @@ function fmtResult(ir: IRNode, env: SemanticEnv): { name: string; value: string 
     throw new Error('fmt: return-position form is outside this contract (no observable binding)');
   }
   if (!isPortableBindingName(props.name)) throw new Error('fmt: name must be a simple portable identifier');
-  if (env.bindings.has(props.name)) throw new Error(`fmt: "${props.name}" is already bound (redeclaration)`);
+  if (hasOwnBinding(env, props.name)) throw new Error(`fmt: "${props.name}" is already bound (redeclaration)`);
   if (typeof props.template !== 'string') throw new Error('fmt: template is required');
   const { quasis, expressions } = parseTemplate(props.template);
   let out = '';
@@ -99,7 +106,7 @@ function fmtPreconditions(ir: IRNode, env: SemanticEnv): boolean {
 
 function fmtEffects(ir: IRNode, env: SemanticEnv): Trace {
   const { name, value } = fmtResult(ir, env);
-  env.bindings.set(name, value);
+  defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 

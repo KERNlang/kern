@@ -51,6 +51,17 @@ export interface KernStdlibUsage {
    *  Optional for back-compat with callers that only build the result/option
    *  flags. */
   decimal?: boolean;
+  /** D1b — the EMITTED output of this module contains a `__kern_loose_eq(` call (the
+   *  emitter lowers a NATIVE-body loose `==`/`!=` through that helper, so `1 == "1"`
+   *  is FALSE — KERN loose `==` adds ONLY the null/undefined crossing on top of strict,
+   *  no JS coercion), so its one-time top-level definition must be injected. UNLIKE the
+   *  other flags this is NOT set by the IR-walk `detectKernStdlibUsage`: it is set by
+   *  each injection site from the emitted code via {@link emittedCodeUsesLooseEq}, so
+   *  detection equals emission exactly (an IR text-scan diverged for `==` inside `${…}`
+   *  interpolations and structured-IR differential fixtures → missing def → runtime
+   *  ReferenceError). Optional for back-compat with callers that only build the
+   *  result/option flags. */
+  looseEq?: boolean;
 }
 
 /** Regex anchored on word boundary + opening angle so a user identifier
@@ -82,6 +93,22 @@ const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
  *  table — div/mod/pow additionally need the guarded-ops HELPERS, which ride the
  *  same `usage.decimal` preamble block (see `kernStdlibPreamble`). */
 const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs|div|mod|pow|eq|ne|lt|lte|gt|gte|cmp)\s*\(/;
+
+/** D1b — `__kern_loose_eq` is detected from the EMITTED OUTPUT, not an IR text-scan.
+ *  The token below appears in generated TS exactly when the emitter lowered a loose
+ *  `==`/`!=` (it gates the call on `ctx.coerceJsValues`), so scanning the emitted code
+ *  is EXACT — detection equals emission by construction. An earlier IR-walk approach
+ *  diverged from emission (a `==` inside a `${…}` template interpolation, or a
+ *  structured-IR differential fixture, lowered to `__kern_loose_eq(...)` while a
+ *  string-prop token-scan missed it → missing def → runtime ReferenceError). See
+ *  {@link emittedCodeUsesLooseEq}; the per-target injection sites set `usage.looseEq`
+ *  from it (`packages/cli/src/shared.ts`, the differential TS leg, the conformance
+ *  harness). The only residual false-positive — a user STRING literal containing the
+ *  literal text `__kern_loose_eq(` — is harmless (one unused helper def) and the
+ *  `__kern_`-reserved prefix makes it astronomically unlikely. */
+export function emittedCodeUsesLooseEq(code: string): boolean {
+  return code.includes('__kern_loose_eq(');
+}
 
 /** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and
  *  string/template-literal CONTENT before applying {@link DECIMAL_PRODUCER_REGEX}
@@ -273,6 +300,8 @@ export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
   // short-circuit above can't skip a `lang="kern"` Decimal handler. Scoped to
   // `lang="kern"` handler subtrees (raw `lang="ts"` handlers own their imports).
   scanDecimalInKernHandlers(root, usage);
+  // D1b — `usage.looseEq` is NOT detected here: it is set by each injection site from
+  // the EMITTED output via `emittedCodeUsesLooseEq` (detection == emission, no IR walk).
   return usage;
 }
 
@@ -332,8 +361,35 @@ const UNWRAP_ERROR_CLASS = [
   '}',
 ];
 
+/** D1b — KERN loose-equality helper. The ONLY delta vs raw `===` is the
+ *  null/undefined crossing: KERN's loose `==` adds that ONE coercion on top of
+ *  strict equality and NOTHING else — it does NOT model JS `==` (no number↔string,
+ *  no boolean↔number). So `1 == "1"` → `1 === "1"` → false; `true == 1` → false;
+ *  `null == undefined` → true. Containers stay reference-`===` (the structural-vs-
+ *  identity container slice is separately deferred — the body must stay `a === b`,
+ *  NOT a deep equal). FUNCTION form, not inline expansion: it evaluates each operand
+ *  EXACTLY ONCE — an inlined `(nullish(a)&&nullish(b))?true:a===b` would double-call
+ *  a side-effecting operand (`foo() == bar()`). The `__kern_`-reserved name cannot
+ *  collide with a user identifier, and the def is injected at most once per module.
+ *  Byte-for-byte semantic mirror of the Python `_kern_loose_equal`.
+ *
+ *  The BODY is shared with the type-free {@link KERN_LOOSE_EQ_HELPER_JS} so the two
+ *  renderings can never drift; only the signature line carries the TS annotations. */
+const KERN_LOOSE_EQ_BODY = [
+  '  if ((a === null || a === undefined) && (b === null || b === undefined)) return true;',
+  '  return a === b;',
+  '}',
+];
+const KERN_LOOSE_EQ_HELPER = ['function __kern_loose_eq(a: unknown, b: unknown): boolean {', ...KERN_LOOSE_EQ_BODY];
+
+/** D1b — type-FREE rendering of the loose-equality helper for plain-JS execution
+ *  contexts that cannot run TypeScript (the differential TS leg's `vm` sandbox). The
+ *  production preamble keeps the typed {@link KERN_LOOSE_EQ_HELPER}; both share the
+ *  same `KERN_LOOSE_EQ_BODY`, so there is no drift. */
+export const KERN_LOOSE_EQ_HELPER_JS = ['function __kern_loose_eq(a, b) {', ...KERN_LOOSE_EQ_BODY].join('\n');
+
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
-  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal) return [];
+  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal && !usage.looseEq) return [];
 
   const lines: string[] = [];
   // DECIMAL Slice 2 (Finding 1) — the `decimal.js` import + canonical-context
@@ -376,6 +432,15 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   }
   if (usage.unwrap) {
     lines.push(...UNWRAP_ERROR_CLASS);
+  }
+  // D1b — the loose-equality helper. A plain top-level function (no ESM import
+  // constraint, so order vs the Decimal/Result/Option blocks is free); injected once
+  // per module. Its own label so a loose-eq-ONLY module still gets a clean header.
+  if (usage.looseEq) {
+    if (!usage.result && !usage.option && !usage.unwrap) {
+      lines.push('// ── KERN stdlib (auto-emitted) ──────────────────────────────────────');
+    }
+    lines.push(...KERN_LOOSE_EQ_HELPER);
   }
   lines.push('');
   return lines;

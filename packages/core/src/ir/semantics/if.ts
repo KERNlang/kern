@@ -18,8 +18,17 @@
  *   disagree on empty container truthiness.
  */
 
+import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
+import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -75,13 +84,19 @@ function conditionValue(cond: string, env: SemanticEnv): unknown {
     return parseStringLiteral(trimmed);
   }
   if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) {
-    if (!env.bindings.has(trimmed)) {
+    if (!hasBinding(env, trimmed)) {
       throw new Error(`if: binding "${trimmed}" not found in env`);
     }
-    return env.bindings.get(trimmed);
+    return getBinding(env, trimmed);
   }
   if (trimmed.startsWith('!')) return !portableTruthy(conditionValue(trimmed.slice(1), env));
-  throw new Error(`if: unsupported condition expression "${cond}" in semantic contract fixture`);
+  // Full expression condition (comparisons, boolean composition, member reads):
+  // evaluate through the portable expression evaluator — the same one `while` and
+  // `let`/`assign` use — so `if cond="x > 3"` no longer abstains. `portableTruthy`
+  // still fences the RESULT to the JS/Python-agreeing truthiness domain
+  // (bool/number/string), abstaining on divergent values (arrays/objects), so a
+  // non-portable condition fails closed rather than picking one host's answer.
+  return evalPortableValue(parseExpression(trimmed), env);
 }
 
 function parseStringLiteral(text: string): string {

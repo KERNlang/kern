@@ -26,7 +26,15 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  childEnv,
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -83,10 +91,10 @@ function evalExpressionInContractDomain(raw: unknown, env: SemanticEnv, label: s
   if (!isIdentifier(text)) {
     throw new Error(`branch: ${label} expression is outside the contract domain`);
   }
-  if (!env.bindings.has(text)) {
+  if (!hasBinding(env, text)) {
     throw new Error(`branch: binding "${text}" not found in env`);
   }
-  return assertPortableValue(env.bindings.get(text), label);
+  return assertPortableValue(getBinding(env, text), label);
 }
 
 function evalPathValue(path: IRNode, env: SemanticEnv): BranchValue {
@@ -155,12 +163,14 @@ function selectPath(ir: IRNode, env: SemanticEnv): IRNode | undefined {
 function branchEffects(ir: IRNode, env: SemanticEnv): Trace {
   const selected = selectPath(ir, env);
   if (!selected) return emptyTrace();
-  const childEnv: SemanticEnv = {
-    bindings: new Map(env.bindings),
-    seed: env.seed,
-    now: env.now,
-  };
-  return referenceRunSequence(selected.children ?? [], childEnv);
+  // Run the selected path body in a CHILD scope: path-local `let`s stay scoped to
+  // the case block (the "hoist path-local bindings out of their case block"
+  // forbidden rewrite) while an `assign` to an OUTER binding writes THROUGH to its
+  // declaring scope — so a branch nested in a loop accumulates correctly and stays
+  // byte-identical to the emitted TS switch / Python if-chain. (Previously forked
+  // `new Map(env.bindings)`: it discarded outer mutations AND severed the parent
+  // chain, making outer bindings invisible when a branch ran inside a child scope.)
+  return referenceRunSequence(selected.children ?? [], childEnv(env));
 }
 
 function branchCompletion(ir: IRNode, env: SemanticEnv) {

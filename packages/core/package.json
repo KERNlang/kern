@@ -22,6 +22,14 @@
       "types": "./dist/codegen/helpers.d.ts",
       "default": "./dist/codegen/helpers.js"
     },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "default": "./dist/runner.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"

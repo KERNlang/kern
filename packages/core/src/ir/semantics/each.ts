@@ -42,7 +42,16 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  childEnv,
+  defineBinding,
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -228,10 +237,10 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
     throw new Error('each: invariant violated — preconditions passed but shape is null');
   }
   const inName = p.in as string;
-  if (!env.bindings.has(inName)) {
+  if (!hasBinding(env, inName)) {
     throw new Error(`each: binding "${inName}" not found in env`);
   }
-  const collection = env.bindings.get(inName);
+  const collection = getBinding(env, inName);
   if (collection === null || collection === undefined) {
     throw new Error(`each: binding "${inName}" is nullish`);
   }
@@ -242,14 +251,15 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
   for (const step of iterateCollection(shape, collection, p)) {
     out.events.push({ op: 'iter-next', binding: step.primary[0], value: step.primary[1] });
 
-    const childEnv: SemanticEnv = {
-      bindings: new Map(env.bindings),
-      seed: env.seed,
-      now: env.now,
-    };
-    for (const [k, v] of step.bindings) childEnv.bindings.set(k, v);
+    // Fresh CHILD scope per element: the element binding(s) and any inner `let`
+    // live only here (fresh per element, no post-loop leak), while an `assign` to
+    // an OUTER binding writes THROUGH to its declaring scope — so an `each`
+    // accumulator persists across elements, byte-identical to the emitted loops.
+    // (Previously this forked `new Map(env.bindings)`, discarding outer mutations.)
+    const iterEnv = childEnv(env);
+    for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
-    const childTrace = referenceRunSequence(children, childEnv);
+    const childTrace = referenceRunSequence(children, iterEnv);
     out.events.push(...childTrace.events);
 
     const c = childTrace.completion;

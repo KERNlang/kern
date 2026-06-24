@@ -1955,6 +1955,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       trailingComment: { kind: 'string' },
     },
   },
+  print: {
+    description:
+      'Body-statement print — KERN\'s portable stdout primitive. Emits `console.log(`${value}`)` (TS) or `print(_kern_fmt(value))` (Python), appending exactly one newline on both targets. `value=` is evaluated over the portable-scalar domain; the reference runner fail-closes (abstains) on non-integer floats, UNSAFE integers (|n| > 2^53-1, which JS rounds but CPython does not), objects/arrays, and undefined. Only valid inside a `lang="kern"` handler body.',
+    example: 'print value="user.name"',
+    props: {
+      value: { required: true, kind: 'expression' },
+      trailingComment: { kind: 'string' },
+    },
+  },
   continue: {
     description:
       'Body-statement loop-continue — emits `continue;` (TS) or `continue` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `for`/`each` to express skip-this-iteration logic without dropping into a raw handler.',

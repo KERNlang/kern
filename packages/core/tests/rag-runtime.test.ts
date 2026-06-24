@@ -700,6 +700,11 @@ describe('RAG answer runtime contracts', () => {
       prompt: './answer.md',
       requireCitations: true,
       minGroundingCoverage: 1,
+      minCitedChunks: 1,
+      evidencePolicy: { minRetrievedChunks: 1, minTopScore: 0.8 },
+      abstained: false,
+      allowAbstain: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
       spans: [{ start: 0, end: answer.length, chunkIds: ['refunds'], required: true }],
     };
     const retrieval = {
@@ -725,6 +730,11 @@ describe('RAG answer runtime contracts', () => {
         prompt: './answer.md',
         requireCitations: true,
         minGroundingCoverage: 1,
+        minCitedChunks: 1,
+        evidencePolicy: { minRetrievedChunks: 1, minTopScore: 0.8 },
+        abstained: false,
+        allowAbstain: true,
+        abstainAnswer: 'I do not have enough evidence to answer.',
       }),
     );
     expect(contract.groundingSpans).toEqual([{ start: 0, end: answer.length, chunkIds: ['refunds'], required: true }]);
@@ -779,6 +789,186 @@ describe('RAG answer runtime contracts', () => {
         expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' }),
       ]),
     );
+  });
+
+  test('enforces grounded answer citation counts evidence policy and abstention', () => {
+    const retrieval = {
+      query: 'refund policy',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'Refunds are allowed for thirty days.',
+          score: 0.95,
+          source: 'docs/refunds.md',
+          citation: { uri: 'docs/refunds.md', locator: 'L1-L2' },
+        },
+        {
+          id: 'exceptions',
+          text: 'Final sale items are not refundable.',
+          score: 0.88,
+          source: 'docs/exceptions.md',
+          citation: { uri: 'docs/exceptions.md', locator: 'L8-L9' },
+        },
+      ],
+    };
+    const answer = 'Refunds are allowed for thirty days. Final sale items are not refundable.';
+    const commonContract = {
+      query: retrieval.query,
+      answer,
+      retrieval,
+      requireCitations: true,
+      minGroundingCoverage: 1,
+      minCitedChunks: 2,
+      evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.8 },
+    };
+
+    const valid = evaluateRagAnswerContract({
+      ...commonContract,
+      groundingSpans: [
+        { start: 0, end: 'Refunds are allowed for thirty days.'.length, chunkIds: ['refunds'], required: true },
+        { start: 'Refunds are allowed for thirty days. '.length, end: answer.length, chunkIds: ['exceptions'] },
+      ],
+    });
+    const fabricatedCitation = evaluateRagAnswerContract({
+      ...commonContract,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds', 'made-up'], required: true }],
+    });
+    const tooFewCitations = evaluateRagAnswerContract({
+      ...commonContract,
+      minGroundingCoverage: 0.4,
+      groundingSpans: [{ start: 0, end: 'Refunds are allowed for thirty days.'.length, chunkIds: ['refunds'] }],
+    });
+    const missingCitationMetadata = evaluateRagAnswerContract({
+      ...commonContract,
+      retrieval: {
+        ...retrieval,
+        chunks: [{ ...retrieval.chunks[0], citation: { uri: '' } }, retrieval.chunks[1]],
+      },
+      minCitedChunks: 1,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds'], required: true }],
+    });
+    const weakRetrieval = {
+      query: retrieval.query,
+      chunks: [{ ...retrieval.chunks[0], score: 0.3 }],
+    };
+    const lowEvidenceNoAbstain = evaluateRagAnswerContract({
+      query: weakRetrieval.query,
+      answer: 'Refunds are allowed for thirty days.',
+      retrieval: weakRetrieval,
+      minGroundingCoverage: 1,
+      evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.8 },
+      groundingSpans: [{ start: 0, end: 'Refunds are allowed for thirty days.'.length, chunkIds: ['refunds'] }],
+    });
+    const lowEvidenceAbstain = evaluateRagAnswerContract({
+      query: weakRetrieval.query,
+      answer: 'I do not have enough evidence to answer.',
+      retrieval: weakRetrieval,
+      abstained: true,
+      allowAbstain: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
+      requireCitations: true,
+      minGroundingCoverage: 1,
+      evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.8 },
+    });
+    const hallucinatedAbstain = evaluateRagAnswerContract({
+      query: weakRetrieval.query,
+      answer: 'Refunds are definitely allowed for ninety days.',
+      retrieval: weakRetrieval,
+      abstained: true,
+      allowAbstain: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
+      evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.8 },
+    });
+    const disallowedAbstain = evaluateRagAnswerContract({
+      query: weakRetrieval.query,
+      answer: 'I do not have enough evidence to answer.',
+      retrieval: weakRetrieval,
+      abstained: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
+      evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.8 },
+    });
+    const missingEvidencePolicyAbstain = evaluateRagAnswerContract({
+      query: weakRetrieval.query,
+      answer: 'I do not have enough evidence to answer.',
+      retrieval: weakRetrieval,
+      abstained: true,
+      allowAbstain: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
+    });
+    const vacuousEvidencePolicyAbstain = evaluateRagAnswerContract({
+      query: weakRetrieval.query,
+      answer: 'I do not have enough evidence to answer.',
+      retrieval: weakRetrieval,
+      abstained: true,
+      allowAbstain: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
+      evidencePolicy: { minRetrievedChunks: 0, minTopScore: 0 },
+    });
+    const unnecessaryAbstain = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer: 'I do not have enough evidence to answer.',
+      retrieval,
+      abstained: true,
+      allowAbstain: true,
+      abstainAnswer: 'I do not have enough evidence to answer.',
+      evidencePolicy: { minRetrievedChunks: 2, minTopScore: 0.8 },
+    });
+
+    expect(valid).toEqual(
+      expect.objectContaining({
+        passed: true,
+        status: 'grounded',
+        evidenceSufficient: true,
+        abstained: false,
+        citedChunkIds: ['exceptions', 'refunds'],
+        sources: ['docs/refunds.md', 'docs/exceptions.md'],
+        diagnostics: [],
+      }),
+    );
+    expect(fabricatedCitation.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'CHUNK_REF_UNKNOWN', chunkId: 'made-up' })]),
+    );
+    expect(tooFewCitations.diagnostics).toEqual([expect.objectContaining({ code: 'CITED_CHUNKS_BELOW_MINIMUM' })]);
+    expect(missingCitationMetadata.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'CITATION_REQUIRED' })]),
+    );
+    expect(lowEvidenceNoAbstain.passed).toBe(false);
+    expect(lowEvidenceNoAbstain.status).toBe('invalid');
+    expect(lowEvidenceNoAbstain.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'EVIDENCE_INSUFFICIENT' })]),
+    );
+    expect(lowEvidenceAbstain).toEqual(
+      expect.objectContaining({
+        passed: true,
+        status: 'abstained',
+        evidenceSufficient: false,
+        abstained: true,
+        diagnostics: [],
+      }),
+    );
+    expect(hallucinatedAbstain.diagnostics).toEqual([expect.objectContaining({ code: 'ABSTAIN_ANSWER_MISMATCH' })]);
+    expect(disallowedAbstain.diagnostics).toEqual([expect.objectContaining({ code: 'ABSTAIN_NOT_ALLOWED' })]);
+    expect(missingEvidencePolicyAbstain.diagnostics).toEqual([
+      expect.objectContaining({ code: 'ABSTAIN_EVIDENCE_POLICY_REQUIRED' }),
+    ]);
+    expect(vacuousEvidencePolicyAbstain.diagnostics).toEqual([
+      expect.objectContaining({ code: 'ABSTAIN_EVIDENCE_POLICY_REQUIRED' }),
+    ]);
+    expect(unnecessaryAbstain.diagnostics).toEqual([
+      expect.objectContaining({ code: 'ABSTAIN_WITH_SUFFICIENT_EVIDENCE' }),
+    ]);
+    expect(() =>
+      evaluateRagAnswerContract({
+        ...commonContract,
+        evidencePolicy: { minTopScore: 1.5 },
+      }),
+    ).toThrow('evidencePolicy.minTopScore');
+    expect(() =>
+      evaluateRagAnswerContract({
+        ...commonContract,
+        minCitedChunks: -1,
+      }),
+    ).toThrow('minCitedChunks');
   });
 
   test('reports invalid answer contracts for bad spans chunk refs and provenance mismatches', () => {

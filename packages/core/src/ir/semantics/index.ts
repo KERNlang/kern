@@ -28,6 +28,17 @@ import type { CompletionRecord, Trace } from './trace.js';
  */
 export interface SemanticEnv {
   bindings: Map<string, unknown>;
+  /**
+   * Enclosing lexical scope, if any. A `let` binds in THIS scope's `bindings`;
+   * reads and `assign` walk up `parent` to the declaring scope (write-through).
+   * A block that introduces fresh bindings (a loop-body iteration, a lambda
+   * call) runs in a child scope (see [[childEnv]]) so its inner `let`s are
+   * discarded when the scope ends, while mutations to OUTER bindings persist.
+   * Undefined on a root scope. NOTE: every contract MUST access bindings through
+   * the [[lookupBinding]] / [[hasBinding]] / [[defineBinding]] / [[assignBinding]]
+   * helpers, never `env.bindings.get/set/has` directly, or chain semantics break.
+   */
+  parent?: SemanticEnv;
   seed: number;
   now: number;
 }
@@ -53,6 +64,66 @@ function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
   const out = new Map<string, unknown>();
   for (const [key, value] of bindings) out.set(key, cloneSemanticValue(value));
   return out;
+}
+
+// ── Lexical scope chain ──────────────────────────────────────────────────────
+// Generalized from the closure-evaluator scope in `lambda.ts`. A flat env
+// (`parent === undefined`) makes every helper below behave IDENTICALLY to direct
+// `env.bindings.get/set/has` — so migrating contracts onto these helpers is
+// behavior-preserving until a child scope is actually introduced.
+
+/**
+ * Open a child scope nested under `parent`. `let` binds in the child; reads and
+ * `assign` fall through to `parent`. Used for lexically-scoped blocks (a loop
+ * body iteration, a lambda call) so inner declarations are fresh per scope and
+ * mutations to outer bindings write through to where they were declared.
+ */
+export function childEnv(parent: SemanticEnv): SemanticEnv {
+  return { bindings: new Map(), parent, seed: parent.seed, now: parent.now };
+}
+
+/** The nearest scope in the chain that declares `name`, or undefined if unbound. */
+function declaringScope(env: SemanticEnv, name: string): SemanticEnv | undefined {
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.bindings.has(name)) return cur;
+  }
+  return undefined;
+}
+
+/** True if `name` is bound anywhere in the scope chain. */
+export function hasBinding(env: SemanticEnv, name: string): boolean {
+  return declaringScope(env, name) !== undefined;
+}
+
+/** True if `name` is bound in the INNERMOST scope only (for `let`-redeclaration checks). */
+export function hasOwnBinding(env: SemanticEnv, name: string): boolean {
+  return env.bindings.has(name);
+}
+
+/** Read `name` walking the chain; returns `undefined` if unbound (pair with a prior has-check). */
+export function getBinding(env: SemanticEnv, name: string): unknown {
+  return declaringScope(env, name)?.bindings.get(name);
+}
+
+/** Declare `name` in the INNERMOST scope (`let`). Overwrites a same-scope binding. */
+export function defineBinding(env: SemanticEnv, name: string, value: unknown): void {
+  env.bindings.set(name, value);
+}
+
+/**
+ * Write `name` in its declaring scope (write-through, `assign`). If `name` is not
+ * declared anywhere in the chain, writes in the innermost scope — callers that
+ * require an existing binding must check [[hasBinding]] first (the `assign`
+ * contract does).
+ */
+export function assignBinding(env: SemanticEnv, name: string, value: unknown): void {
+  const scope = declaringScope(env, name) ?? env;
+  scope.bindings.set(name, value);
+}
+
+/** Delete `name` from the INNERMOST scope only (scope teardown). */
+export function deleteOwnBinding(env: SemanticEnv, name: string): void {
+  env.bindings.delete(name);
 }
 
 function cloneSemanticValue(value: unknown): unknown {
@@ -136,7 +207,13 @@ export {
   serializeMarkdown,
   snapshotRegistry,
 } from './doc-generator.js';
-export { type DifferentialResult, runAllContracts, runDifferential, type Verdict } from './harness.js';
+// NOTE: the differential-TEST harness (`runDifferential`, `runAllContracts`,
+// `DifferentialResult`, `Verdict`) is DELIBERATELY NOT re-exported here. It pulls
+// the in-process TS-emitter leg (`harness → ts-leg → body-ts → closure-eligibility
+// → typescript`, ~10MB) and is test-only. Keeping it out of this runtime barrel is
+// what lets the standalone runner entry (`@kernlang/core/runner`) stay typescript-
+// free. The harness lives in the sibling `./testing.js` barrel; the anti-rot guard
+// `tests/runner-entry-import-graph.test.ts` pins the runner closure to zero TS.
 export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './reference-runner.js';
 export { registerAllContracts } from './register-all.js';
 export type {

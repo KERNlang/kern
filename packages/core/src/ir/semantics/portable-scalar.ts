@@ -40,6 +40,7 @@ import {
 } from '../../decimal/probe-gates.js';
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
+import { getBinding, hasBinding } from './index.js';
 
 export type PortableScalar = string | number | boolean | null;
 
@@ -136,6 +137,41 @@ export function makeDecimalValue(canonical: string): DecimalValue {
   return Object.freeze({ [DECIMAL_VALUE_TAG]: true as const, canonical });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TAGGED runtime CAUGHT-ERROR VALUE — the runner's internal representation of an
+// error bound to a `catch name=…` binding (error-substrate Slice 1). Like the
+// Decimal tag above it is DELIBERATELY not a portable scalar, so any downstream
+// read of the catch binding OTHER than the admitted `.message` access hits
+// `assertPortableScalar` and throws → the precondition catches it → the runner
+// ABSTAINS (the fail-close fence: a bare `return e`, `e.name`, `e.stack` never
+// produce a divergent value). Only the `member` case below reads through the
+// tag, and ONLY for `.message`. The tag + recognition helpers live in
+// `portable-error.ts`; the VALUE shape lives here so the `member` case can read
+// it without a module cycle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Brand symbol marking a runtime CAUGHT-ERROR value (see `portable-error.ts`). */
+export const CAUGHT_ERROR_TAG: unique symbol = Symbol('kern.caughtError');
+
+/** The runner's tagged caught-error value: a frozen object carrying the brand,
+ *  the canonical error `kind`, and the evaluated literal `message`. NOT a
+ *  portable scalar. */
+export interface CaughtErrorValue {
+  readonly [CAUGHT_ERROR_TAG]: true;
+  readonly kind: string;
+  readonly message: string;
+}
+
+/** True iff `value` is a tagged caught-error value. */
+export function isCaughtErrorValue(value: unknown): value is CaughtErrorValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { [CAUGHT_ERROR_TAG]?: unknown })[CAUGHT_ERROR_TAG] === true &&
+    typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
 /** True iff `value` is a tagged runtime Decimal value produced by
  *  {@link makeDecimalValue}. */
 export function isDecimalValue(value: unknown): value is DecimalValue {
@@ -176,8 +212,8 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
     case 'nullLit':
       return null;
     case 'ident': {
-      if (!env.bindings.has(node.name)) throw new Error(`portable: binding "${node.name}" not found`);
-      return assertPortableScalar(env.bindings.get(node.name), `binding "${node.name}"`);
+      if (!hasBinding(env, node.name)) throw new Error(`portable: binding "${node.name}" not found`);
+      return assertPortableScalar(getBinding(env, node.name), `binding "${node.name}"`);
     }
     case 'unary': {
       const value = evalPortableValue(node.argument, env);
@@ -195,6 +231,31 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       return portableTruthy(evalPortableValue(node.test, env))
         ? evalPortableValue(node.consequent, env)
         : evalPortableValue(node.alternate, env);
+    case 'member': {
+      // Error-substrate Slice 1 — the ONLY admitted member read in the portable
+      // domain is `<caughtErrorBinding>.message` (a non-optional `.message` on
+      // an ident resolving to a tagged caught-error value). It returns the
+      // EVALUATED LITERAL message stored when the explicit `throw new Error("…")`
+      // was caught — byte-identical to TS `e.message` and Python `str(e)`.
+      // EVERYTHING else (a different property, an optional `?.`, a non-ident
+      // object, an ident that is not a caught error) throws → the runner
+      // ABSTAINS. This is the fail-close fence: `e.name`/`e.stack`/`e` (bare)
+      // and any non-caught-error member access never produce a one-leg value.
+      if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
+      if (node.object.kind !== 'ident') {
+        throw new Error('portable: member access is only admitted on a caught-error binding');
+      }
+      const obj = getBinding(env, node.object.name);
+      if (!isCaughtErrorValue(obj)) {
+        throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
+      }
+      if (node.property !== 'message') {
+        throw new Error(
+          `portable: caught error has no portable property "${node.property}" (only .message is admitted)`,
+        );
+      }
+      return obj.message;
+    }
     case 'typeAssert':
     case 'nonNull':
       return evalPortableValue(node.expression, env);
@@ -271,16 +332,22 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
       return sameType(left, right) ? left === right : false;
     case '!==':
       return sameType(left, right) ? left !== right : true;
-    // LOOSE `==`/`!=` cross-type still ABSTAINS — DEFERRED to D1b. The TS leg
-    // currently JS-coerces (`1 == "1"` → true) where core/Python yield false; until
-    // the TS `__kern_loose_eq` helper lands, computing a value here would assert a
-    // result the TS producer contradicts. (Same-type loose === strict for scalars.)
+    // D1b — LOOSE `==`/`!=` cross-type equality is now RECONCILED (was the last
+    // abstaining surface here). KERN's loose `==` is NOT JS `==`: it adds ONLY the
+    // null/undefined crossing on top of strict equality and does NOT model JS
+    // coercion, so un-same-typed scalars are simply NOT loose-equal (`1 == "1"` →
+    // false, `true == 1` → false), matching core-runtime's `kernLooseEqual` AND both
+    // emitted legs (TS now routes loose ops through the `__kern_loose_eq` helper;
+    // Python through `_kern_loose_equal`). Same-type → value compare (for scalars
+    // loose === strict). Identical kind-sensitive shape to the D1a strict relax
+    // above. The null/undefined crossing is NOT reachable in this reducer: undefined
+    // is non-portable → abstains UPSTREAM in `evalPortableValue` → `assertPortableScalar`
+    // (same as D1a), so no unreachable nullish handling is added here. A tagged
+    // Decimal (or any non-portable) operand still abstains UPSTREAM.
     case '==':
-      if (!sameType(left, right)) throw new Error('portable: equality operands must have the same portable type');
-      return left === right;
+      return sameType(left, right) ? left === right : false;
     case '!=':
-      if (!sameType(left, right)) throw new Error('portable: equality operands must have the same portable type');
-      return left !== right;
+      return sameType(left, right) ? left !== right : true;
     case '<':
     case '<=':
     case '>':
@@ -449,7 +516,7 @@ function evalDecimalNode(node: ValueIR, env: SemanticEnv, KDecimal: KDecimalCtor
   // the emitters lower through — so a wrapped producer evaluates natively.
   const inner = unwrapTransparent(node);
   if (inner.kind === 'ident') {
-    const bound = env.bindings.get(inner.name);
+    const bound = getBinding(env, inner.name);
     if (!isDecimalValue(bound)) {
       throw new Error(`portable-decimal: binding "${inner.name}" is not a Decimal value`);
     }
@@ -520,7 +587,7 @@ export function evalRunnerNativeDecimalScalarCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
 ): PortableScalar | undefined {
-  if (env.bindings.has('Decimal')) return undefined;
+  if (hasBinding(env, 'Decimal')) return undefined;
   const method = decimalNamespaceMethod(node);
   if (method === null || !RUNNER_DECIMAL_COMPARATOR_METHODS.has(method)) return undefined;
   if (node.args.length !== 2) {

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,11 @@ const DYNAMIC_RETRIEVE_DOC = RETRIEVE_DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const LOCAL_PERSISTENT_RETRIEVE_DOC = RETRIEVE_DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
+);
+
 function run(args: string[], cwd: string): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf-8' });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -58,6 +63,7 @@ describe('kern rag', () => {
     writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
     writeFileSync(join(dir, 'mydocs.kern'), DOC);
     writeFileSync(join(dir, 'retrieve.kern'), RETRIEVE_DOC);
+    writeFileSync(join(dir, 'persistent-retrieve.kern'), LOCAL_PERSISTENT_RETRIEVE_DOC);
     writeFileSync(join(dir, 'fixed-retrieve.kern'), FIXED_RETRIEVE_DOC);
     writeFileSync(join(dir, 'dynamic-retrieve.kern'), DYNAMIC_RETRIEVE_DOC);
   });
@@ -114,6 +120,18 @@ describe('kern rag', () => {
     expect(result.stderr).toContain('missing value for --openai-api-key');
   });
 
+  test('rejects unknown eval flags before reading files', () => {
+    const result = run(['rag', 'eval', '--openai-api-kee', 'sk-test', 'mydocs.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unknown flag for eval: --openai-api-kee');
+  });
+
+  test('rejects extra eval positional arguments', () => {
+    const result = run(['rag', 'eval', 'mydocs.kern', 'extra.kern'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unexpected argument for eval: extra.kern');
+  });
+
   test('reports empty declared source globs with the pattern', () => {
     rmSync(join(dir, 'docs'), { recursive: true, force: true });
     const result = run(['rag', 'eval', 'mydocs.kern'], dir);
@@ -137,6 +155,19 @@ describe('kern rag', () => {
     expect(result.stdout).toContain('kern rag retrieve retrieve.kern');
     expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex');
     expect(result.stdout).toContain('refunds');
+  });
+
+  test('runs local-persistent runtime ragRetrieve declarations across repeated CLI invocations', () => {
+    const first = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain('refunds');
+
+    const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+    const second = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
+
+    expect(second.status).toBe(0);
+    expect(second.stdout).toContain('refunds');
+    expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
 
   test('runs fixed literal runtime ragRetrieve declarations without CLI query input', () => {
@@ -174,7 +205,7 @@ describe('kern rag', () => {
     expect(emptyValue.stderr).toContain('missing value for --param');
   });
 
-  test('provider-backed runtime ragRetrieve specs fail closed in the local-only CLI path', () => {
+  test('provider-backed runtime ragRetrieve specs use the async provider path in the CLI', () => {
     const providerDoc = RETRIEVE_DOC.replace(
       'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
       'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
@@ -187,15 +218,29 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'provider-retrieve.kern', '--query', 'refund policy'], dir);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      "RAG embed model 'openai:text-embedding-3-small' requires async provider execution",
-    );
+    expect(result.stderr).toContain("RAG embed model 'openai:text-embedding-3-small' requires OpenAI provider options");
+    expect(result.stderr).not.toContain('requires async provider execution');
+  });
+
+  test('rejects retrieve --openai-api-key without a value', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund', '--openai-api-key'], dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('missing value for --openai-api-key');
   });
 
   test('rejects unknown retrieve flags before consuming their values as files', () => {
-    const result = run(['rag', 'retrieve', '--openai-api-key', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
+    const result = run(['rag', 'retrieve', '--openai-api-kee', 'sk-test', 'retrieve.kern', '--query', 'refund'], dir);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-key');
+    expect(result.stderr).toContain('unknown flag for retrieve: --openai-api-kee');
+  });
+
+  test('rejects extra retrieve positional arguments', () => {
+    const result = run(
+      ['rag', 'retrieve', 'retrieve.kern', 'extra.kern', '--param', 'question=refund policy money back'],
+      dir,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('unexpected argument for retrieve: extra.kern');
   });
 
   test('reports empty declared source globs for retrieve', () => {

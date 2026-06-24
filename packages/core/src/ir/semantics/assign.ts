@@ -29,7 +29,15 @@
 
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  assignBinding,
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { evalPortableValue, isPortableBindingName, type PortableScalar } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
@@ -70,10 +78,10 @@ function resolveAssign(ir: IRNode, env: SemanticEnv): ResolvedAssign {
   if (!Object.hasOwn(ir.props ?? {}, 'value') || props.value === '') {
     throw new Error('assign: value is required');
   }
-  if (!env.bindings.has(target)) {
+  if (!hasBinding(env, target)) {
     throw new Error(`assign: "${target}" is not an existing binding (implicit declaration diverges across targets)`);
   }
-  const current = env.bindings.get(target);
+  const current = getBinding(env, target);
   if (typeof current !== 'number' && typeof current !== 'string' && typeof current !== 'boolean') {
     throw new Error('assign: target must currently hold a number, string, or boolean');
   }
@@ -107,7 +115,7 @@ function assignPreconditions(ir: IRNode, env: SemanticEnv): boolean {
 
 function assignEffects(ir: IRNode, env: SemanticEnv): Trace {
   const { target, value } = resolveAssign(ir, env);
-  env.bindings.set(target, value);
+  assignBinding(env, target, value);
   return { events: [{ op: 'assign', target, value }], completion: { kind: 'normal' } };
 }
 

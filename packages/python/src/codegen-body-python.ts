@@ -260,6 +260,16 @@ interface BodyEmitContext {
   /** Depth of nested `finally` blocks. Propagation from finally would
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
+  /** Error-substrate Slice 1 — names currently bound by an enclosing
+   *  `except Exception as <name>:` (a body-statement `catch name=<name>`). A
+   *  caught binding's `.message` read lowers to `str(<name>)` (Python exceptions
+   *  have no `.message` attribute; `str(Exception("x"))` === TS
+   *  `Error("x").message`). Populated on catch-body entry, restored on exit
+   *  (a `Set`, so nested catches with distinct names stack; a re-bound same name
+   *  is idempotent). Only `.message` is rewritten — `.name`/`.stack`/etc. are NOT
+   *  in the parity domain and emit verbatim (the runner abstains on them, so they
+   *  never reach a certified differential row). */
+  caughtBindings: Set<string>;
   standaloneExpression: boolean;
   /** When true, helper-dependent JS value→string coercion is emitted
    *  (`__kern_add`, `_kern_fmt`-wrapped templates, the `_KERN_UNDEFINED`
@@ -350,6 +360,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     usedPropagation: false,
     tryDepth: 0,
     finallyDepth: 0,
+    caughtBindings: new Set<string>(),
     standaloneExpression: false,
     coerceJsValues: options?.coerceJsValues ?? true,
     traceHooks: options?.traceHooks,
@@ -489,6 +500,7 @@ const TRAILING_COMMENT_TYPES = new Set([
   'objectPick',
   'return',
   'throw',
+  'print',
   'do',
   'continue',
   'break',
@@ -586,12 +598,22 @@ function emitChildrenPy(
       } else if (child.type === 'set') {
         for (const line of emitSetPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'let') {
+        // Error-substrate Slice 1 (codex review: shadowing) — a `let` that rebinds
+        // a caught-error name SHADOWS the catch binding, so from here on its
+        // `.message` is an ordinary property access (matching TS), NOT `str(e)`.
+        // Drop it from the caught set so the rewrite no longer fires.
+        const letName = child.props?.name;
+        if (typeof letName === 'string') ctx.caughtBindings.delete(letName);
         for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'expression-v1') {
         for (const line of emitExpressionV1Py(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fn') {
         for (const line of emitFnPy(child, ctx, indent)) lines.push(line);
       } else if (child.type === 'assign') {
+        // Same shadowing guard for a bare-identifier assignment target: after
+        // `assign target="e" …`, `e` is no longer the caught error.
+        const tgt = child.props?.target;
+        if (typeof tgt === 'string' && /^[A-Za-z_$][\w$]*$/.test(tgt)) ctx.caughtBindings.delete(tgt);
         for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {
         for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);
@@ -611,6 +633,8 @@ function emitChildrenPy(
         for (const line of emitObjectPickPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'print') {
+        for (const line of emitPrintPy(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
         const condIR = parseExpr(condRaw);
@@ -734,7 +758,15 @@ function emitChildrenPy(
         if (catchNode !== null) {
           const errName = String(catchNode.props?.name ?? 'e');
           lines.push(`${indent}except Exception as ${errName}:`);
+          // Error-substrate Slice 1 — mark `errName` as a caught binding for the
+          // duration of the catch body so a `<errName>.message` read lowers to
+          // `str(<errName>)` (see `lowerChain`'s member case). Restore the prior
+          // membership on exit so a SHADOWED outer catch binding of the same name
+          // is unaffected and the flag never leaks past the catch block.
+          const hadCaught = ctx.caughtBindings.has(errName);
+          ctx.caughtBindings.add(errName);
           const catchInner = emitChildrenPy(catchNode.children ?? [], ctx, indent + INDENT_STEP);
+          if (!hadCaught) ctx.caughtBindings.delete(errName);
           if (catchInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
           for (const cl of catchInner) lines.push(cl);
         }
@@ -1949,6 +1981,21 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   return [`return ${emitPyExprCtx(valueIR, ctx)}`];
 }
 
+function emitPrintPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `print` requires `value=`.');
+  }
+  const valueIR = parseExpr(String(rawValue));
+  // Route through `_kern_fmt` so bool/None/int-valued-float render with JS
+  // value->string coercion semantics (true/false/null, base-10 ints) — byte
+  // identical to the TS `console.log(`${x}`)` leg and the reference runner.
+  // Python `print` then appends exactly one newline, matching `console.log`.
+  ctx.helpers.add(KERN_FMT_HELPER_PY);
+  return [`print(_kern_fmt(${emitPyExprCtx(valueIR, ctx)}))`];
+}
+
 function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawValue = props.value;
@@ -3046,6 +3093,17 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    // Error-substrate Slice 1 — a `<caughtBinding>.message` read lowers to
+    // `str(<caughtBinding>)`. Python exceptions have NO `.message` attribute
+    // (a bare `e.message` raises AttributeError), but `str(Exception("x"))`
+    // === V8 `Error("x").message`, so this restores cross-target parity for the
+    // ONE admitted error-binding read. Scoped exactly: a NON-optional `.message`
+    // on a bare ident that is currently a caught binding. `e?.message`, a member
+    // chain root (`e.cause.message`), or any non-caught ident is NOT rewritten
+    // and emits verbatim — out of the parity domain (the runner abstains there).
+    if (!node.optional && node.property === 'message' && obj.kind === 'ident' && ctx.caughtBindings.has(obj.name)) {
+      return { guard: null, expr: `str(${emitPyExprCtx(obj, ctx)})` };
+    }
     // Slice 2 — a bare property READ on a DIRECT regex LITERAL (`/x/.source`,
     // `/x/.flags`) launders the pattern/flags back into a string. Routed through
     // the SHARED classifier (via the ValueIR adapter) so this site agrees with

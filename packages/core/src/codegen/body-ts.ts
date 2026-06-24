@@ -213,6 +213,7 @@ const TRAILING_COMMENT_TYPES = new Set([
   'objectPick',
   'return',
   'throw',
+  'print',
   'do',
   'continue',
   'break',
@@ -264,6 +265,8 @@ function emitChildrenTS(
         for (const line of emitObjectPickTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'return') {
         for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
+      } else if (child.type === 'print') {
+        for (const line of emitPrintTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'if') {
         const condRaw = String(child.props?.cond ?? '');
         const condIR = parseExpr(condRaw);
@@ -1240,6 +1243,12 @@ function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
     // expression emitter's `registerStdlibRequirementTS` records `requires.ts`
     // (e.g. `decimal.js`) into the body emitter's result instead of dropping it.
     imports: ctx.imports,
+    // D1b — this is THE native-body→ExprEmitContext bridge (it backs both body-statement
+    // expression emission and body-statement `fn` param defaults; both are portable
+    // native semantics). Flag the context so loose `==`/`!=` lower through
+    // `__kern_loose_eq`. This is the ONLY site that opts in; every other ExprEmitContext
+    // (Ground/data/machines/top-level) leaves it absent → raw `==`, the safe default.
+    coerceJsValues: true,
   };
 }
 
@@ -1527,6 +1536,20 @@ function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `return ${tmp}.value;`];
   }
   return [`return ${emitValueTS(valueIR, ctx)};`];
+}
+
+function emitPrintTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `print` requires `value=`.');
+  }
+  const valueIR = parseExpr(String(rawValue));
+  // Wrap in a template literal so the value is coerced to a string with the
+  // SAME semantics the reference runner (`printText`) and the Python
+  // `_kern_fmt` helper use (true/false/null lowercase, base-10 ints, exact
+  // strings) — `console.log` then appends exactly one newline.
+  return [`console.log(\`\${${emitValueTS(valueIR, ctx)}}\`);`];
 }
 
 function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {

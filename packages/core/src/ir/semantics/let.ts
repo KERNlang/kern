@@ -28,7 +28,14 @@
 
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  defineBinding,
+  hasOwnBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
@@ -45,7 +52,7 @@ function asLetProps(ir: IRNode): LetProps {
 function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   const props = asLetProps(ir);
   if (!isPortableBindingName(props.name)) return false;
-  if (env.bindings.has(props.name)) return false;
+  if (hasOwnBinding(env, props.name)) return false;
   if (!Object.hasOwn(ir.props ?? {}, 'value') || props.value === '') return false;
   if (props.kind !== undefined && props.kind !== '' && props.kind !== 'let' && props.kind !== 'const') return false;
   try {
@@ -60,7 +67,7 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   const props = asLetProps(ir);
   const name = props.name as string;
   const value = evalPortableValue(parseExpression(String(props.value)), env);
-  env.bindings.set(name, value);
+  defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 
