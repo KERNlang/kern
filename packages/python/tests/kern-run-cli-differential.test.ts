@@ -180,6 +180,33 @@ const CERT: Array<[string, string[], string]> = [
     ['let name=xs value="[0,\\"k\\",true,null]"', 'each name=x in=xs', '  print value="x"'],
     '0\nk\ntrue\nnull\n',
   ],
+  // ── array INDEX read (slice-2b): in-bounds `xs[i]` is byte-identical 3-leg ───
+  // OOB / negative / non-integer indices ABSTAIN (TS undefined vs Py
+  // IndexError/wraparound/TypeError) so they are NOT certified here.
+  ['index 0 reads the first element', ['let name=xs value="[10,20,30]"', 'print value="xs[0]"'], '10\n'],
+  [
+    // Pins the upper edge: TS xs[2] === Py xs[2] === 30 (an off-by-one impl misses).
+    'last in-bounds index reads the last element',
+    ['let name=xs value="[10,20,30]"', 'print value="xs[2]"'],
+    '30\n',
+  ],
+  [
+    // The comma inside "b,c" must survive — index returns the WHOLE string element
+    // on every leg, never a join/flatten.
+    'index into a string array returns the comma-bearing element intact',
+    ['let name=xs value="[\\"a\\",\\"b,c\\"]"', 'print value="xs[1]"'],
+    'b,c\n',
+  ],
+  [
+    // A bool element read by index prints canonical lowercase on all three legs
+    // (not Python's "False") — the indexed value flows through the same `print`.
+    // Only BARE safe-integer LITERAL indices are certified; float-literal,
+    // division, arithmetic, unsafe-int, and variable indices abstain (Python list
+    // indices must be exact ints) and are NOT certified here.
+    'index into a boolean array prints canonical lowercase',
+    ['let name=xs value="[true,false]"', 'print value="xs[1]"'],
+    'false\n',
+  ],
 ];
 
 execDescribe('kern run — 3-leg CLI differential (kern-run === ts === py)', () => {

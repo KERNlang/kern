@@ -7,7 +7,8 @@
  * observably: string, finite number, boolean, null. Expressions are kept
  * deliberately small — literals, identifiers resolving to portable scalars,
  * arithmetic over numbers, comparisons over same-typed scalars, boolean /
- * nullish operators over portable truthiness, and conditional expressions.
+ * nullish operators over portable truthiness, in-bounds array index reads,
+ * and conditional expressions.
  * Same-type guards (`sameType`) keep the evaluator out of the divergent
  * corners (Python `bool == int`, mixed-type ordering, etc.); out-of-domain
  * inputs throw, and callers translate that throw into a precondition failure.
@@ -200,6 +201,29 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
   return typeof a === typeof b;
 }
 
+/** True iff `node` is a BARE non-negative safe-integer DECIMAL literal — the only
+ *  index form provably byte-identical across `kern run`, emitted TS, and emitted
+ *  Python. The raw text must be all digits that round-trip exactly through a safe
+ *  JS integer (`String(Number(raw)) === raw`), which rejects in ONE check:
+ *    - float / exponent literals (`1.0`, `1e3`) — Python list indices must be int;
+ *    - UNSAFE integer literals (`9007199254740993`) — JS rounds them, Python keeps
+ *      exact precision, so the index would diverge;
+ *    - LEADING-ZERO literals (`05`) — a SyntaxError in JS strict mode AND Python.
+ *
+ *  ARITHMETIC is deliberately EXCLUDED (not just `/`): integer `%` diverges on a
+ *  negative operand (JS `5 % -3 === 2`, Python `== -1`), and `+`/`-`/`*` over safe
+ *  literals can produce an intermediate that overflows 2^53 and rounds in JS while
+ *  Python stays exact — both verified real divergences. IDENTIFIERS and nested
+ *  index-reads are excluded too (they can resolve to a Python float). So a computed
+ *  or variable index ABSTAINS; dynamic indexing is deferred to a slice that proves
+ *  exact integer arithmetic (e.g. BigInt-checked) or carries integer provenance. */
+function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
+  if (node.kind !== 'numLit' || node.bigint) return false;
+  if (!/^[0-9]+$/.test(node.raw)) return false;
+  const n = Number(node.raw);
+  return Number.isSafeInteger(n) && String(n) === node.raw;
+}
+
 export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScalar {
   switch (node.kind) {
     case 'numLit':
@@ -255,6 +279,49 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
         );
       }
       return obj.message;
+    }
+    case 'index': {
+      // Array INDEX read (slice-2b). Certify ONLY an in-bounds, non-negative,
+      // safe-integer index whose SOURCE is a BARE integer LITERAL, into an
+      // ident-bound array, returning a PORTABLE SCALAR element. Everything else
+      // throws -> the runner ABSTAINS.
+      //
+      // The index is restricted to a literal ({@link isSafeIntegerLiteralIndex})
+      // because of TS<->Python divergences verified on real node+python3:
+      //   - INT vs FLOAT: Python list indices MUST be int — `xs[1.0]`, `xs[4/2]`
+      //     (Python `/` is float), and any ident bound to a float raise TypeError
+      //     in Python while JS + the reference collapse `1.0 === 1` and read xs[1].
+      //   - integer `%` diverges on a negative operand (`5 % -3` is 2 in JS, -1 in
+      //     Python), and `+`/`-`/`*` over safe literals can overflow 2^53 and round
+      //     in JS while Python stays exact — so ARITHMETIC indices abstain.
+      //   - JS has no int/float distinction and the emitters preserve the source
+      //     numeric form, so the reference cannot tell a Python int from a float by
+      //     VALUE — hence the syntactic literal gate, not a value check.
+      // Idents / nested index-reads abstain (a binding can hold a Python float);
+      // dynamic indexing is a later slice. Then OOB / NEGATIVE are caught at runtime
+      // (TS undefined vs Py IndexError / wraparound). Object restricted to an
+      // array-binding ident, so OBJECT-position nesting (`xs[0][1]`) and string
+      // index (`s[0]`) abstain; a nested-array element is not a portable scalar, so
+      // `assertPortableScalar` abstains on it.
+      if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
+      if (node.object.kind !== 'ident') {
+        throw new Error('portable: index access is only admitted on an array-binding identifier');
+      }
+      if (!isSafeIntegerLiteralIndex(node.index)) {
+        throw new Error('portable: array index must be a bare non-negative safe-integer literal');
+      }
+      if (!hasBinding(env, node.object.name)) {
+        throw new Error(`portable: binding "${node.object.name}" not found`);
+      }
+      const arr = getBinding(env, node.object.name);
+      if (!Array.isArray(arr)) {
+        throw new Error(`portable: index access on "${node.object.name}" requires an array binding`);
+      }
+      const idx = evalPortableValue(node.index, env);
+      if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= arr.length) {
+        throw new Error('portable: array index must be an in-bounds non-negative safe integer');
+      }
+      return assertPortableScalar(arr[idx], `element "${node.object.name}[${idx}]"`);
     }
     case 'typeAssert':
     case 'nonNull':

@@ -18,8 +18,9 @@
  * a value:
  *   - whole-array `print xs` (the shipped `print` contract already fail-closes
  *     arrays AND non-integer floats — the runner is a conservative subset),
- *   - index access `xs[i]` (core-runtime returns `undefined` on OOB, which is
- *     NOT 3-leg portable — a portable reference index is its own slice),
+ *   - OUT-OF-BOUNDS / negative / non-integer index access (TS undefined vs Py
+ *     IndexError/wraparound/TypeError — not 3-leg portable). In-bounds index
+ *     reads now CERTIFY (slice-2b, see runner-array-index.test.ts),
  *   - `.length`, `assign` to an array binding, methods / spread / concat.
  *
  * Every expected value here was verified empirically on the REAL emitters
@@ -107,8 +108,10 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     abstains([letArr('xs', '[1,2,3]'), print('xs')]);
   });
 
-  it('index access abstains (deferred — core OOB semantics are not 3-leg portable)', () => {
-    abstains([letArr('xs', '[1,2,3]'), print('xs[1]')]);
+  it('OUT-OF-BOUNDS index abstains (TS undefined vs Py IndexError — not 3-leg portable)', () => {
+    // In-bounds index now certifies (slice-2b, runner-array-index.test.ts); an
+    // OOB read stays fenced because the two emitter legs diverge on it.
+    abstains([letArr('xs', '[1,2,3]'), print('xs[5]')]);
   });
 
   it('.length access abstains (deferred)', () => {
