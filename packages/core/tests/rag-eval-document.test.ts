@@ -290,6 +290,33 @@ ragRetrieve name=NeedsRuntimeQuery index=DocsIndex queryParam=question topK=1 ou
     }
   });
 
+  test('declared-source async eval ignores unrelated runtime ragRetrieve declarations', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-eval-existing-retrieve-async-'));
+    try {
+      mkdirSync(join(dir, 'docs'));
+      writeFileSync(join(dir, 'docs/refunds.md'), 'Refund policy: refunds return money within thirty days.\n');
+      writeFileSync(join(dir, 'docs/shipping.md'), 'Shipping delivery courier tracking parcel.\n');
+      const sourcePath = join(dir, 'mydocs.kern');
+      const doc = `${INDEXED_DOC}
+ragRetrieve name=NeedsRuntimeQuery index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"
+`;
+      writeFileSync(sourcePath, doc);
+
+      const report = await evaluateRagEvalDocumentFromDeclaredSourcesAsync(doc, { sourcePath });
+
+      expect(report.passed).toBe(true);
+      expect(report.indexes).toEqual([
+        expect.objectContaining({
+          indexName: 'DocsIndex',
+          storeKind: 'local-persistent',
+          status: 'indexed',
+        }),
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('declared-source evals only retrieve chunks from the pipeline retriever corpus', () => {
     const doc = `corpus name=Docs title="Support docs"
   source name=docs kind=local uri="./docs/**/*.md" media=markdown
