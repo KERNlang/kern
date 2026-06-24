@@ -245,6 +245,17 @@ export interface RagSemanticRetrieverFact {
   readonly loc?: RagSemanticLocation;
 }
 
+export interface RagSemanticRetrievalProfileFact {
+  readonly name: string;
+  readonly queryParam?: string;
+  readonly topK?: number;
+  readonly minScore?: number;
+  readonly outputShape?: string;
+  readonly outputItemShape?: string;
+  readonly requireCitations?: boolean;
+  readonly loc?: RagSemanticLocation;
+}
+
 export interface RagSemanticVectorStoreFact {
   readonly name: string;
   readonly kind?: string;
@@ -270,6 +281,7 @@ export interface RagSemanticIndexFact {
 export interface RagSemanticRuntimeRetrieveFact {
   readonly name: string;
   readonly indexName: string;
+  readonly profileName?: string;
   readonly ragName?: string;
   readonly queryParam?: string;
   readonly query?: string;
@@ -412,6 +424,7 @@ export interface RagSemanticFacts {
   readonly vectorStores: readonly RagSemanticVectorStoreFact[];
   readonly indexes: readonly RagSemanticIndexFact[];
   readonly retrievers: readonly RagSemanticRetrieverFact[];
+  readonly retrievalProfiles: readonly RagSemanticRetrievalProfileFact[];
   readonly pipelines: readonly RagSemanticPipelineFact[];
   readonly runtimeRetrievals: readonly RagSemanticRuntimeRetrieveFact[];
   readonly mcpRetrievals: readonly RagSemanticMcpRetrievalFact[];
@@ -889,6 +902,12 @@ interface RagRetrieverInfo {
   embedName?: string;
 }
 
+interface RagRetrievalProfileInfo {
+  node: IRNode;
+  rootIndex: number;
+  name: string;
+}
+
 interface RagVectorStoreInfo {
   node: IRNode;
   rootIndex: number;
@@ -1000,6 +1019,7 @@ interface RagInfos {
   vectorStores: RagVectorStoreInfo[];
   indexes: RagIndexInfo[];
   retrievers: RagRetrieverInfo[];
+  retrievalProfiles: RagRetrievalProfileInfo[];
   pipelines: RagPipelineInfo[];
   runtimeRetrievals: RagRuntimeRetrieveInfo[];
   groundings: RagGroundingInfo[];
@@ -1028,6 +1048,7 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     infos.vectorStores.length === 0 &&
     infos.indexes.length === 0 &&
     infos.retrievers.length === 0 &&
+    infos.retrievalProfiles.length === 0 &&
     infos.pipelines.length === 0 &&
     infos.runtimeRetrievals.length === 0 &&
     infos.groundings.length === 0 &&
@@ -1049,6 +1070,7 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   const vectorStoreByName = new Map(infos.vectorStores.map((info) => [info.name, info]));
   const indexByName = new Map(infos.indexes.map((info) => [info.name, info]));
   const retrieverByName = new Map(infos.retrievers.map((info) => [info.name, info]));
+  const retrievalProfileByName = new Map(infos.retrievalProfiles.map((info) => [info.name, info]));
   const ragByName = new Map(infos.pipelines.map((info) => [info.name, info]));
   const mcpResourcesByName = collectRagMcpSymbolsByName(infos.mcpResources);
   const mcpCallableByName = new Map([
@@ -1079,11 +1101,21 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
   for (const retriever of infos.retrievers) {
     validateRagRetriever(retriever, corpusByName, embedByName, violations);
   }
+  for (const profile of infos.retrievalProfiles) {
+    validateRagRetrievalProfile(profile, violations);
+  }
   for (const pipeline of infos.pipelines) {
     validateRagPipeline(pipeline, retrieverByName, infos.groundings, violations);
   }
   for (const retrieval of infos.runtimeRetrievals) {
-    validateRagRuntimeRetrieve(retrieval, indexByName, ragByName, citationRequiredRagNames, violations);
+    validateRagRuntimeRetrieve(
+      retrieval,
+      indexByName,
+      retrievalProfileByName,
+      ragByName,
+      citationRequiredRagNames,
+      violations,
+    );
   }
   for (const grounding of infos.groundings) {
     validateRagGrounding(grounding, ragByName, violations);
@@ -1118,6 +1150,7 @@ function collectRagInfosForRoots(roots: readonly IRNode[]): RagInfos {
     vectorStores: [],
     indexes: [],
     retrievers: [],
+    retrievalProfiles: [],
     pipelines: [],
     runtimeRetrievals: [],
     groundings: [],
@@ -1218,6 +1251,9 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
       if (name && corpusName) {
         out.retrievers.push({ node, rootIndex, name, corpusName, embedName: stringProp(node, 'embed') });
       }
+    } else if (node.type === 'retrievalProfile') {
+      const name = stringProp(node, 'name');
+      if (name) out.retrievalProfiles.push({ node, rootIndex, name });
     } else if (node.type === 'rag') {
       const name = stringProp(node, 'name');
       const retrieverName = stringProp(node, 'retriever');
@@ -1353,6 +1389,7 @@ function validateRagUniqueNames(infos: RagInfos, violations: SemanticViolation[]
   validateRagUniqueNameSet('vector-store', infos.vectorStores, violations);
   validateRagUniqueNameSet('index', infos.indexes, violations);
   validateRagUniqueNameSet('retriever', infos.retrievers, violations);
+  validateRagUniqueNameSet('retrieval-profile', infos.retrievalProfiles, violations);
   validateRagUniqueNameSet('rag', infos.pipelines, violations);
   validateRagUniqueNameSet('runtime-retrieve', infos.runtimeRetrievals, violations);
   validateRagUniqueEvalNames(infos.evals, violations);
@@ -1881,9 +1918,57 @@ function validateRagRetriever(
   }
 }
 
+function validateRagRetrievalProfile(profile: RagRetrievalProfileInfo, violations: SemanticViolation[]): void {
+  const topK = numberProp(profile.node, 'topK');
+  if (invalidNumberProp(profile.node, 'topK') || (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))) {
+    pushRagViolation(
+      violations,
+      'rag-retrieval-profile-topk-invalid',
+      profile.node,
+      'RAG retrievalProfile topK must be a positive integer.',
+    );
+  }
+
+  const minScore = numberProp(profile.node, 'minScore');
+  if (invalidNumberProp(profile.node, 'minScore') || (minScore !== undefined && (minScore < 0 || minScore > 1))) {
+    pushRagViolation(
+      violations,
+      'rag-retrieval-profile-minscore-invalid',
+      profile.node,
+      'RAG retrievalProfile minScore must be between 0 and 1.',
+    );
+  }
+
+  const outputShape = stringProp(profile.node, 'output');
+  const hasOutput = Object.hasOwn(profile.node.props ?? {}, 'output');
+  if (hasOutput && !outputShape) {
+    pushRagViolation(
+      violations,
+      'rag-retrieval-profile-output-unknown',
+      profile.node,
+      'RAG retrievalProfile output must be RetrievedChunk[] for this slice.',
+    );
+  } else if (outputShape === RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE) {
+    pushRagViolation(
+      violations,
+      'rag-retrieval-profile-output-array-required',
+      profile.node,
+      'RAG retrievalProfile output must be RetrievedChunk[] because retrieval returns ranked context sets.',
+    );
+  } else if (outputShape && outputShape !== RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE) {
+    pushRagViolation(
+      violations,
+      'rag-retrieval-profile-output-unknown',
+      profile.node,
+      `RAG retrievalProfile output '${outputShape}' is not supported; use RetrievedChunk[] for this slice.`,
+    );
+  }
+}
+
 function validateRagRuntimeRetrieve(
   retrieval: RagRuntimeRetrieveInfo,
   indexByName: ReadonlyMap<string, RagIndexInfo>,
+  profileByName: ReadonlyMap<string, RagRetrievalProfileInfo>,
   ragByName: ReadonlyMap<string, RagPipelineInfo>,
   citationRequiredRagNames: ReadonlySet<string>,
   violations: SemanticViolation[],
@@ -1903,6 +1988,17 @@ function validateRagRuntimeRetrieve(
       'rag-retrieve-unknown-rag',
       retrieval.node,
       `RAG runtime retrieval '${retrieval.name}' references unknown rag '${retrieval.ragName}'.`,
+    );
+  }
+
+  const profileName = stringProp(retrieval.node, 'profile');
+  const profile = profileName ? profileByName.get(profileName) : undefined;
+  if (profileName && !profile) {
+    pushRagViolation(
+      violations,
+      'rag-retrieve-unknown-profile',
+      retrieval.node,
+      `RAG runtime retrieval '${retrieval.name}' references unknown retrievalProfile '${profileName}'.`,
     );
   }
 
@@ -1926,9 +2022,13 @@ function validateRagRuntimeRetrieve(
     );
   }
 
+  const hasQueryProp = retrieval.node.props?.query !== undefined;
   const queryText = expressionPropText(retrieval.node.props?.query)?.trim();
   const hasQuery = queryText !== undefined && queryText.length > 0;
-  const hasQueryParam = Boolean(stringProp(retrieval.node, 'queryParam'));
+  const queryParam =
+    stringProp(retrieval.node, 'queryParam') ??
+    (hasQuery || hasQueryProp || !profile ? undefined : stringProp(profile.node, 'queryParam'));
+  const hasQueryParam = Boolean(queryParam);
   if (!hasQuery && !hasQueryParam) {
     pushRagViolation(
       violations,
@@ -1967,9 +2067,19 @@ function validateRagRuntimeRetrieve(
     );
   }
 
-  const outputShape = stringProp(retrieval.node, 'output');
+  const outputShape = stringProp(retrieval.node, 'output') ?? (profile ? stringProp(profile.node, 'output') : undefined);
   const hasRequireCitations = Object.hasOwn(retrieval.node.props ?? {}, 'requireCitations');
-  if (!outputShape && (hasRequireCitations || targetRequiresCitations)) {
+  const hasProfileRequireCitations = Object.hasOwn(profile?.node.props ?? {}, 'requireCitations');
+  const retrievalRequiresCitations = ragBooleanProp(retrieval.node, 'requireCitations');
+  const profileRequiresCitations = profile ? ragBooleanProp(profile.node, 'requireCitations') : false;
+  const outputRequiresCitations =
+    (hasRequireCitations && retrievalRequiresCitations) ||
+    (!hasRequireCitations && hasProfileRequireCitations && profileRequiresCitations) ||
+    targetRequiresCitations;
+  if (
+    !outputShape &&
+    outputRequiresCitations
+  ) {
     pushRagViolation(
       violations,
       'rag-retrieve-output-required',
@@ -2805,6 +2915,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
   const indexNames = new Set(infos.indexes.map((info) => info.name));
   const chunkingNamesByCorpus = new Set(infos.chunking.map((info) => `${info.corpusName}\0${info.name}`));
   const retrieverNames = new Set(infos.retrievers.map((info) => info.name));
+  const retrievalProfileByName = new Map(infos.retrievalProfiles.map((info) => [info.name, info]));
   const ragNames = new Set(infos.pipelines.map((info) => info.name));
   const citationRequiredRagNames = collectRagCitationRequiredNames(infos.pipelines, infos.groundings);
   const mcpResourcesByName = collectRagMcpSymbolsByName(infos.mcpResources);
@@ -2820,6 +2931,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
     vectorStores: infos.vectorStores.map(ragVectorStoreFact),
     indexes: infos.indexes.map(ragIndexFact),
     retrievers: infos.retrievers.map(ragRetrieverFact),
+    retrievalProfiles: infos.retrievalProfiles.map(ragRetrievalProfileFact),
     pipelines: infos.pipelines.map((info) =>
       ragPipelineFact(
         info,
@@ -2831,7 +2943,9 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
         infos.answerSpans,
       ),
     ),
-    runtimeRetrievals: infos.runtimeRetrievals.map((info) => ragRuntimeRetrieveFact(info, citationRequiredRagNames)),
+    runtimeRetrievals: infos.runtimeRetrievals.map((info) =>
+      ragRuntimeRetrieveFact(info, citationRequiredRagNames, retrievalProfileByName),
+    ),
     mcpRetrievals: infos.mcpRetrievals.map((info) => ragMcpRetrievalFact(info, citationRequiredRagNames)),
     resourceFeedsCorpora: infos.sources
       .filter(
@@ -2998,32 +3112,75 @@ function ragRetrieverFact(info: RagRetrieverInfo): RagSemanticRetrieverFact {
   };
 }
 
-function ragRuntimeRetrieveFact(
-  info: RagRuntimeRetrieveInfo,
-  citationRequiredRagNames: ReadonlySet<string>,
-): RagSemanticRuntimeRetrieveFact {
+function ragRetrievalProfileFact(info: RagRetrievalProfileInfo): RagSemanticRetrievalProfileFact {
   const outputShape = stringProp(info.node, 'output');
-  const explicitRequiresCitations = ragBooleanProp(info.node, 'requireCitations');
-  const hasRequireCitations = Object.hasOwn(info.node.props ?? {}, 'requireCitations');
-  const effectiveRequiresCitations =
-    explicitRequiresCitations || (info.ragName ? citationRequiredRagNames.has(info.ragName) : false);
   return {
     name: info.name,
-    indexName: info.indexName,
-    ...optionalStringValue('ragName', info.ragName),
     ...optionalStringFact(info.node, 'queryParam', 'queryParam'),
-    ...optionalStringValue('query', expressionPropText(info.node.props?.query)),
-    ...(info.node.props?.query !== undefined
-      ? { queryKind: isExpressionObject(info.node.props.query) ? 'expression' : 'literal' }
-      : {}),
-    ...optionalStringFact(info.node, 'as', 'as'),
     ...optionalNumberFact(info.node, 'topK', 'topK'),
     ...optionalNumberFact(info.node, 'minScore', 'minScore'),
     ...optionalStringValue('outputShape', outputShape),
     ...(outputShape === RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE
       ? { outputItemShape: RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE }
       : {}),
-    ...(hasRequireCitations ? { requireCitations: explicitRequiresCitations } : {}),
+    ...(Object.hasOwn(info.node.props ?? {}, 'requireCitations')
+      ? { requireCitations: ragBooleanProp(info.node, 'requireCitations') }
+      : {}),
+    ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
+  };
+}
+
+function ragRuntimeRetrieveFact(
+  info: RagRuntimeRetrieveInfo,
+  citationRequiredRagNames: ReadonlySet<string>,
+  profileByName: ReadonlyMap<string, RagRetrievalProfileInfo>,
+): RagSemanticRuntimeRetrieveFact {
+  const profileName = stringProp(info.node, 'profile');
+  const profile = profileName ? profileByName.get(profileName) : undefined;
+  const outputShape = stringProp(info.node, 'output');
+  const profileOutputShape = profile ? stringProp(profile.node, 'output') : undefined;
+  const effectiveOutputShape = outputShape ?? profileOutputShape;
+  const explicitRequiresCitations = ragBooleanProp(info.node, 'requireCitations');
+  const hasRequireCitations = Object.hasOwn(info.node.props ?? {}, 'requireCitations');
+  const profileRequiresCitations = profile ? ragBooleanProp(profile.node, 'requireCitations') : false;
+  const hasProfileRequiresCitations = Object.hasOwn(profile?.node.props ?? {}, 'requireCitations');
+  const effectiveRequiresCitations =
+    explicitRequiresCitations ||
+    (!hasRequireCitations && profileRequiresCitations) ||
+    (info.ragName ? citationRequiredRagNames.has(info.ragName) : false);
+  const queryProp = info.node.props?.query;
+  const hasQueryProp = queryProp !== undefined;
+  const queryText = expressionPropText(queryProp);
+  const hasLocalQuery = queryText !== undefined && queryText.trim().length > 0;
+  return {
+    name: info.name,
+    indexName: info.indexName,
+    ...optionalStringValue('profileName', profileName),
+    ...optionalStringValue('ragName', info.ragName),
+    ...optionalStringValue(
+      'queryParam',
+      stringProp(info.node, 'queryParam') ??
+        (hasLocalQuery || hasQueryProp || !profile ? undefined : stringProp(profile.node, 'queryParam')),
+    ),
+    ...optionalStringValue('query', hasLocalQuery ? queryText : undefined),
+    ...(hasLocalQuery && queryProp !== undefined
+      ? { queryKind: isExpressionObject(queryProp) ? 'expression' : 'literal' }
+      : {}),
+    ...optionalStringFact(info.node, 'as', 'as'),
+    ...optionalNumberValue('topK', numberProp(info.node, 'topK') ?? (profile ? numberProp(profile.node, 'topK') : undefined)),
+    ...optionalNumberValue(
+      'minScore',
+      numberProp(info.node, 'minScore') ?? (profile ? numberProp(profile.node, 'minScore') : undefined),
+    ),
+    ...optionalStringValue('outputShape', effectiveOutputShape),
+    ...(effectiveOutputShape === RAG_RUNTIME_RETRIEVE_OUTPUT_SHAPE
+      ? { outputItemShape: RAG_RUNTIME_RETRIEVE_OUTPUT_ITEM_SHAPE }
+      : {}),
+    ...(hasRequireCitations
+      ? { requireCitations: explicitRequiresCitations }
+      : hasProfileRequiresCitations
+        ? { requireCitations: profileRequiresCitations }
+        : {}),
     effectiveRequiresCitations,
     ...(info.node.loc ? { loc: ragLocation(info.node) } : {}),
   };
@@ -3314,6 +3471,10 @@ function optionalStringValue(factName: string, value: string | undefined): Recor
 
 function optionalNumberFact(node: IRNode, prop: string, factName: string): Record<string, number> {
   const value = numberProp(node, prop);
+  return value === undefined ? {} : { [factName]: value };
+}
+
+function optionalNumberValue(factName: string, value: number | undefined): Record<string, number> {
   return value === undefined ? {} : { [factName]: value };
 }
 

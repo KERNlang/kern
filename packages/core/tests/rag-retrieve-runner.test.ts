@@ -27,6 +27,22 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const PROFILE_DOC = DOC.replace(
+  'rag name=AnswerDocs retriever=DocsSearch citations=true',
+  [
+    'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0.1 output="RetrievedChunk[]"',
+    'rag name=AnswerDocs retriever=DocsSearch citations=true',
+  ].join('\n'),
+).replace(
+  '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  '  ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+);
+
+const PROFILE_OVERRIDE_DOC = PROFILE_DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault query="refund policy money back" topK=1 minScore=0',
+);
+
 const INDEX_CHUNKING_DOC = DOC.replace(
   'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
   'chunking name=Large source=manuals strategy=window maxTokens=2 overlap=0 unit=tokens',
@@ -173,6 +189,35 @@ describe('retrieveRagDocument', () => {
       }),
     );
     expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('inherits runtime retrieval options from a named retrieval profile', () => {
+    const report = retrieveRagDocument(PROFILE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy money back',
+        retrieveOptions: { topK: 2, minScore: 0.1 },
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks.length).toBeLessThanOrEqual(2);
+  });
+
+  test('lets ragRetrieve override named retrieval profile defaults', () => {
+    const report = retrieveRagDocument(PROFILE_OVERRIDE_DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy money back',
+        retrieveOptions: { topK: 1, minScore: 0 },
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
   });
 
   test('fails closed for dynamic fixed-query expressions in the synchronous runner', () => {

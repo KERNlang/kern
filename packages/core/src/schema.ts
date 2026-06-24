@@ -2519,6 +2519,19 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: [],
   },
+  retrievalProfile: {
+    description: 'RAG retrieval profile — reusable query-time retrieval defaults for ragRetrieve declarations.',
+    example: 'retrievalProfile name=SupportDefault queryParam=question topK=4 minScore=0.2 output="RetrievedChunk[]"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      queryParam: { kind: 'identifier' },
+      topK: { kind: 'number' },
+      minScore: { kind: 'number' },
+      output: { kind: 'typeAnnotation' },
+      requireCitations: { kind: 'boolean' },
+    },
+    allowedChildren: [],
+  },
   rag: {
     description:
       'RAG pipeline declaration — connects a query/answer flow to a retriever and grounding/evaluation requirements.',
@@ -2540,6 +2553,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       index: { required: true, kind: 'identifier' },
+      profile: { kind: 'identifier' },
       rag: { kind: 'identifier' },
       queryParam: { kind: 'identifier' },
       query: { kind: 'expression' },

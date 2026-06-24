@@ -22,6 +22,7 @@ describe('RAG language semantics', () => {
       'vectorStore',
       'ragIndex',
       'retriever',
+      'retrievalProfile',
       'rag',
       'ragRetrieve',
       'grounding',
@@ -152,6 +153,134 @@ describe('RAG language semantics', () => {
         ],
       }),
     ]);
+  });
+
+  test('collects retrieval profiles and resolves ragRetrieve profile defaults', () => {
+    const source = [
+      'corpus name=Docs',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+      'retrievalProfile name=SupportDefault queryParam=question topK=3 minScore=0.2 output="RetrievedChunk[]" requireCitations=true',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+      'ragRetrieve name=OverrideDocs index=DocsIndex profile=SupportDefault query="refund policy" topK=1 requireCitations=false',
+    ].join('\n');
+    const parsed = parseDocumentWithDiagnostics(source);
+    const root = parsed.root;
+
+    expect(parsed.diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
+    expect(validateSchema(root)).toEqual([]);
+    expect(validateSemantics(root)).toEqual([]);
+    const facts = collectRagSemanticFacts(root);
+
+    expect(facts.retrievalProfiles).toEqual([
+      expect.objectContaining({
+        name: 'SupportDefault',
+        queryParam: 'question',
+        topK: 3,
+        minScore: 0.2,
+        outputShape: 'RetrievedChunk[]',
+        outputItemShape: 'RetrievedChunk',
+        requireCitations: true,
+      }),
+    ]);
+    expect(facts.runtimeRetrievals).toEqual([
+      expect.objectContaining({
+        name: 'FindDocs',
+        profileName: 'SupportDefault',
+        queryParam: 'question',
+        topK: 3,
+        minScore: 0.2,
+        outputShape: 'RetrievedChunk[]',
+        requireCitations: true,
+        effectiveRequiresCitations: true,
+      }),
+      expect.objectContaining({
+        name: 'OverrideDocs',
+        profileName: 'SupportDefault',
+        query: 'refund policy',
+        topK: 1,
+        minScore: 0.2,
+        requireCitations: false,
+        effectiveRequiresCitations: false,
+      }),
+    ]);
+  });
+
+  test('decompiles RAG retrieval profiles and ragRetrieve profile references re-parseably', () => {
+    const source = [
+      'retrievalProfile name=SupportDefault queryParam=question topK=3 minScore=0.2 output="RetrievedChunk[]" requireCitations=true',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryParam=question output="RetrievedChunk[]"',
+    ].join('\n');
+    const code = decompile(parseRoot(source)).code;
+
+    expect(code).toContain(
+      'retrievalProfile name=SupportDefault queryParam=question topK=3 minScore=0.2 output="RetrievedChunk[]" requireCitations=true',
+    );
+    expect(code).toContain(
+      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryParam=question output="RetrievedChunk[]"',
+    );
+    expect(parseDocumentWithDiagnostics(code).diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual(
+      [],
+    );
+  });
+
+  test('rejects unknown and malformed RAG retrieval profiles', () => {
+    const source = [
+      'corpus name=Docs',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory',
+      'retrievalProfile name=BadProfile topK=0 minScore=2 output=RetrievedChunk',
+      'retrievalProfile name=EmptyOutput output=""',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=MissingProfile',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining([
+        'rag-retrieval-profile-topk-invalid',
+        'rag-retrieval-profile-minscore-invalid',
+        'rag-retrieval-profile-output-array-required',
+        'rag-retrieve-unknown-profile',
+      ]),
+    );
+  });
+
+  test('allows retrievalProfile requireCitations=false without forcing retrieval output', () => {
+    const source = [
+      'corpus name=Docs',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory',
+      'retrievalProfile name=LooseProfile queryParam=question requireCitations=false',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=LooseProfile',
+    ].join('\n');
+
+    expect(rulesFor(source)).not.toContain('rag-retrieve-output-required');
+  });
+
+  test('lets local ragRetrieve citation and query props override retrieval profile defaults', () => {
+    const localCitationOverride = [
+      'corpus name=Docs',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory',
+      'retrievalProfile name=StrictProfile queryParam=question requireCitations=true',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=StrictProfile requireCitations=false',
+    ].join('\n');
+    const emptyLocalQuery = [
+      'corpus name=Docs',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory',
+      'retrievalProfile name=SupportDefault queryParam=question',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault query=""',
+    ].join('\n');
+
+    expect(rulesFor(localCitationOverride)).not.toContain('rag-retrieve-output-required');
+    expect(collectRagSemanticFacts(parseRoot(localCitationOverride)).runtimeRetrievals[0]).toEqual(
+      expect.objectContaining({
+        requireCitations: false,
+        effectiveRequiresCitations: false,
+      }),
+    );
+    expect(rulesFor(emptyLocalQuery)).toContain('rag-retrieve-query-required');
   });
 
   test('collects runtime RAG vector store index and retrieval contracts without emitting JS', () => {

@@ -793,6 +793,7 @@ export const CORE_NODE_TYPES = new Set([
   'vectorStore',
   'ragIndex',
   'retriever',
+  'retrievalProfile',
   'rag',
   'ragRetrieve',
   'grounding',
@@ -1102,6 +1103,7 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       case 'vectorStore':
       case 'ragIndex':
       case 'retriever':
+      case 'retrievalProfile':
       case 'rag':
       case 'ragRetrieve':
       case 'grounding':
