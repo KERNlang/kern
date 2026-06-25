@@ -39,6 +39,7 @@ import {
   RAG_RETRIEVE_FILTER_PROPS,
   type RagMetadataFilter,
 } from './rag-metadata-filter.js';
+import { parseRagQueryTemplate } from './rag-query-template.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -256,6 +257,7 @@ export interface RagSemanticRetrieverFact {
 export interface RagSemanticRetrievalProfileFact {
   readonly name: string;
   readonly queryParam?: string;
+  readonly queryTemplate?: string;
   readonly topK?: number;
   readonly minScore?: number;
   readonly metadataFilter?: RagMetadataFilter;
@@ -295,6 +297,7 @@ export interface RagSemanticRuntimeRetrieveFact {
   readonly queryParam?: string;
   readonly query?: string;
   readonly queryKind?: 'literal' | 'expression';
+  readonly queryTemplate?: string;
   readonly as?: string;
   readonly topK?: number;
   readonly minScore?: number;
@@ -1984,6 +1987,20 @@ function validateRagRetrievalProfile(profile: RagRetrievalProfileInfo, violation
     'RAG retrievalProfile metadata filter',
     violations,
   );
+  validateRagQueryTemplateProp(
+    profile.node,
+    'rag-retrieval-profile-query-template-invalid',
+    'RAG retrievalProfile queryTemplate',
+    violations,
+  );
+  if (Object.hasOwn(profile.node.props ?? {}, 'queryParam') && Object.hasOwn(profile.node.props ?? {}, 'queryTemplate')) {
+    pushRagViolation(
+      violations,
+      'rag-retrieval-profile-query-exclusive',
+      profile.node,
+      'RAG retrievalProfile must use either queryParam=<name> or queryTemplate=<text>, not both.',
+    );
+  }
 
   const topK = numberProp(profile.node, 'topK');
   if (invalidNumberProp(profile.node, 'topK') || (topK !== undefined && (!Number.isInteger(topK) || topK <= 0))) {
@@ -2045,6 +2062,12 @@ function validateRagRuntimeRetrieve(
     retrieval.node,
     'rag-retrieve-filter-empty',
     'RAG runtime retrieval metadata filter',
+    violations,
+  );
+  validateRagQueryTemplateProp(
+    retrieval.node,
+    'rag-retrieve-query-template-invalid',
+    'RAG runtime retrieval queryTemplate',
     violations,
   );
 
@@ -2145,25 +2168,32 @@ function validateRagRuntimeRetrieve(
   const hasQueryProp = retrieval.node.props?.query !== undefined;
   const queryText = expressionPropText(retrieval.node.props?.query)?.trim();
   const hasQuery = queryText !== undefined && queryText.length > 0;
+  const hasQueryTemplateProp = Object.hasOwn(retrieval.node.props ?? {}, 'queryTemplate');
+  const hasQueryParamProp = Object.hasOwn(retrieval.node.props ?? {}, 'queryParam');
+  const localQueryTemplate = stringProp(retrieval.node, 'queryTemplate');
+  const localQueryParam = stringProp(retrieval.node, 'queryParam');
+  const hasLocalQuerySource = hasQuery || hasQueryProp || hasQueryTemplateProp || hasQueryParamProp;
   const queryParam =
-    stringProp(retrieval.node, 'queryParam') ??
-    (hasQuery || hasQueryProp || !profile ? undefined : stringProp(profile.node, 'queryParam'));
+    localQueryParam ?? (hasLocalQuerySource || !profile ? undefined : stringProp(profile.node, 'queryParam'));
+  const queryTemplate =
+    localQueryTemplate ?? (hasLocalQuerySource || !profile ? undefined : stringProp(profile.node, 'queryTemplate'));
   const hasQueryParam = Boolean(queryParam);
-  if (!hasQuery && !hasQueryParam) {
+  const hasQueryTemplate = Boolean(queryTemplate);
+  if (!hasQuery && !hasQueryParam && !hasQueryTemplate) {
     pushRagViolation(
       violations,
       'rag-retrieve-query-required',
       retrieval.node,
-      'RAG runtime retrieval requires query=<expr> for a fixed query or queryParam=<name> for a runtime query.',
+      'RAG runtime retrieval requires query=<expr>, queryParam=<name>, or queryTemplate=<text>.',
     );
   }
 
-  if (hasQuery && hasQueryParam) {
+  if ([hasQuery, hasQueryParam, hasQueryTemplate].filter(Boolean).length > 1) {
     pushRagViolation(
       violations,
       'rag-retrieve-query-exclusive',
       retrieval.node,
-      'RAG runtime retrieval must use either query=<expr> or queryParam=<name>, not both.',
+      'RAG runtime retrieval must use only one of query=<expr>, queryParam=<name>, or queryTemplate=<text>.',
     );
   }
 
@@ -2236,6 +2266,25 @@ function validateRagMetadataFilterProps(
     if (Object.hasOwn(node.props ?? {}, prop) && (typeof raw !== 'string' || raw.trim().length === 0)) {
       pushRagViolation(violations, rule, node, `${label} ${prop}= must be a non-empty string.`);
     }
+  }
+}
+
+function validateRagQueryTemplateProp(
+  node: IRNode,
+  rule: string,
+  label: string,
+  violations: SemanticViolation[],
+): void {
+  if (!Object.hasOwn(node.props ?? {}, 'queryTemplate')) return;
+  const template = stringProp(node, 'queryTemplate');
+  if (!template) {
+    pushRagViolation(violations, rule, node, `${label} must be a non-empty string.`);
+    return;
+  }
+  try {
+    parseRagQueryTemplate(template, label);
+  } catch (error) {
+    pushRagViolation(violations, rule, node, error instanceof Error ? error.message : `${label} is invalid.`);
   }
 }
 
@@ -3252,6 +3301,7 @@ function ragRetrievalProfileFact(info: RagRetrievalProfileInfo): RagSemanticRetr
   return {
     name: info.name,
     ...optionalStringFact(info.node, 'queryParam', 'queryParam'),
+    ...optionalStringFact(info.node, 'queryTemplate', 'queryTemplate'),
     ...optionalNumberFact(info.node, 'topK', 'topK'),
     ...optionalNumberFact(info.node, 'minScore', 'minScore'),
     ...(metadataFilter ? { metadataFilter } : {}),
@@ -3288,6 +3338,11 @@ function ragRuntimeRetrieveFact(
   const hasQueryProp = queryProp !== undefined;
   const queryText = expressionPropText(queryProp);
   const hasLocalQuery = queryText !== undefined && queryText.trim().length > 0;
+  const hasQueryTemplateProp = Object.hasOwn(info.node.props ?? {}, 'queryTemplate');
+  const hasQueryParamProp = Object.hasOwn(info.node.props ?? {}, 'queryParam');
+  const localQueryTemplate = stringProp(info.node, 'queryTemplate');
+  const localQueryParam = stringProp(info.node, 'queryParam');
+  const hasLocalQuerySource = hasLocalQuery || hasQueryProp || hasQueryTemplateProp || hasQueryParamProp;
   const metadataFilter = mergeRagMetadataFilters(
     profile ? ragMetadataFilterFromProps((prop) => stringProp(profile.node, prop)) : undefined,
     ragMetadataFilterFromProps((prop) => stringProp(info.node, prop)),
@@ -3299,13 +3354,16 @@ function ragRuntimeRetrieveFact(
     ...optionalStringValue('ragName', info.ragName),
     ...optionalStringValue(
       'queryParam',
-      stringProp(info.node, 'queryParam') ??
-        (hasLocalQuery || hasQueryProp || !profile ? undefined : stringProp(profile.node, 'queryParam')),
+      localQueryParam ?? (hasLocalQuerySource || !profile ? undefined : stringProp(profile.node, 'queryParam')),
     ),
     ...optionalStringValue('query', hasLocalQuery ? queryText : undefined),
     ...(hasLocalQuery && queryProp !== undefined
       ? { queryKind: isExpressionObject(queryProp) ? 'expression' : 'literal' }
       : {}),
+    ...optionalStringValue(
+      'queryTemplate',
+      localQueryTemplate ?? (hasLocalQuerySource || !profile ? undefined : stringProp(profile.node, 'queryTemplate')),
+    ),
     ...optionalStringFact(info.node, 'as', 'as'),
     ...optionalNumberValue('topK', numberProp(info.node, 'topK') ?? (profile ? numberProp(profile.node, 'topK') : undefined)),
     ...optionalNumberValue(

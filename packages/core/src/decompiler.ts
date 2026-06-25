@@ -397,6 +397,7 @@ export function decompile(root: IRNode): DecompileResult {
       retrievalProfile: [
         'name',
         'queryParam',
+        'queryTemplate',
         'topK',
         'minScore',
         'filterCorpus',
@@ -414,6 +415,7 @@ export function decompile(root: IRNode): DecompileResult {
         'profile',
         'rag',
         'queryParam',
+        'queryTemplate',
         'query',
         'as',
         'topK',

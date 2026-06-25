@@ -162,9 +162,9 @@ describe('RAG language semantics', () => {
       'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
       'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
       'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
-      'retrievalProfile name=SupportDefault queryParam=question topK=3 minScore=0.2 filterSource=manuals filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
+      'retrievalProfile name=SupportDefault queryTemplate="support {{topic:string}}" topK=3 minScore=0.2 filterSource=manuals filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
       'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
-      'ragRetrieve name=OverrideDocs index=DocsIndex profile=SupportDefault query="refund policy" topK=1 filterPath="docs/refunds.md" requireCitations=false',
+      'ragRetrieve name=OverrideDocs index=DocsIndex profile=SupportDefault queryTemplate="refund {{topic:string}} {{year:number}}" topK=1 filterPath="docs/refunds.md" requireCitations=false',
     ].join('\n');
     const parsed = parseDocumentWithDiagnostics(source);
     const root = parsed.root;
@@ -177,7 +177,7 @@ describe('RAG language semantics', () => {
     expect(facts.retrievalProfiles).toEqual([
       expect.objectContaining({
         name: 'SupportDefault',
-        queryParam: 'question',
+        queryTemplate: 'support {{topic:string}}',
         topK: 3,
         minScore: 0.2,
         metadataFilter: { sourceName: 'manuals', relativePath: 'docs/shipping.md' },
@@ -190,7 +190,7 @@ describe('RAG language semantics', () => {
       expect.objectContaining({
         name: 'FindDocs',
         profileName: 'SupportDefault',
-        queryParam: 'question',
+        queryTemplate: 'support {{topic:string}}',
         topK: 3,
         minScore: 0.2,
         metadataFilter: { sourceName: 'manuals', relativePath: 'docs/shipping.md' },
@@ -201,7 +201,7 @@ describe('RAG language semantics', () => {
       expect.objectContaining({
         name: 'OverrideDocs',
         profileName: 'SupportDefault',
-        query: 'refund policy',
+        queryTemplate: 'refund {{topic:string}} {{year:number}}',
         topK: 1,
         minScore: 0.2,
         metadataFilter: { sourceName: 'manuals', relativePath: 'docs/refunds.md' },
@@ -213,16 +213,16 @@ describe('RAG language semantics', () => {
 
   test('decompiles RAG retrieval profiles and ragRetrieve profile references re-parseably', () => {
     const source = [
-      'retrievalProfile name=SupportDefault queryParam=question topK=3 minScore=0.2 filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
-      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryParam=question filterSource=manuals output="RetrievedChunk[]"',
+      'retrievalProfile name=SupportDefault queryTemplate="support {{topic:string}}" topK=3 minScore=0.2 filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryTemplate="refund {{topic:string}}" filterSource=manuals output="RetrievedChunk[]"',
     ].join('\n');
     const code = decompile(parseRoot(source)).code;
 
     expect(code).toContain(
-      'retrievalProfile name=SupportDefault queryParam=question topK=3 minScore=0.2 filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
+      'retrievalProfile name=SupportDefault queryTemplate="support {{topic:string}}" topK=3 minScore=0.2 filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
     );
     expect(code).toContain(
-      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryParam=question filterSource=manuals output="RetrievedChunk[]"',
+      'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryTemplate="refund {{topic:string}}" filterSource=manuals output="RetrievedChunk[]"',
     );
     expect(parseDocumentWithDiagnostics(code).diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual(
       [],
@@ -240,9 +240,13 @@ describe('RAG language semantics', () => {
       'retrievalProfile name=BadProfile topK=0 minScore=2 output=RetrievedChunk',
       'retrievalProfile name=EmptyOutput output=""',
       'retrievalProfile name=EmptyFilter filterPath=""',
+      'retrievalProfile name=EmptyTemplate queryTemplate=""',
+      'retrievalProfile name=TemplateAndParam queryParam="" queryTemplate="refund {{topic:string}}"',
       'retrievalProfile name=OtherCorpus queryParam=question filterCorpus=Other',
       'ragRetrieve name=FindDocs index=DocsIndex profile=MissingProfile',
       'ragRetrieve name=EmptyRetrieveFilter index=DocsIndex query="refund" filterSource=""',
+      'ragRetrieve name=BadTemplate index=DocsIndex queryTemplate="refund {{topic}}"',
+      'ragRetrieve name=TemplateAndQuery index=DocsIndex query="refund" queryTemplate="refund {{topic:string}}"',
       'ragRetrieve name=WrongCorpus index=DocsIndex profile=OtherCorpus',
       'ragRetrieve name=BadSourceFilter index=DocsIndex query="refund" filterSource=Missing',
       'ragRetrieve name=BadChunkingFilter index=DocsIndex query="refund" filterChunking=Missing',
@@ -255,8 +259,12 @@ describe('RAG language semantics', () => {
         'rag-retrieval-profile-minscore-invalid',
         'rag-retrieval-profile-output-array-required',
         'rag-retrieval-profile-filter-empty',
+        'rag-retrieval-profile-query-template-invalid',
+        'rag-retrieval-profile-query-exclusive',
         'rag-retrieve-unknown-profile',
         'rag-retrieve-filter-empty',
+        'rag-retrieve-query-template-invalid',
+        'rag-retrieve-query-exclusive',
         'rag-retrieve-filter-corpus-mismatch',
         'rag-retrieve-filter-source-unknown',
         'rag-retrieve-filter-chunking-unknown',

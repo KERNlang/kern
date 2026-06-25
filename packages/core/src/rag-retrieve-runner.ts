@@ -28,13 +28,16 @@ import {
   validateRagSemantics,
 } from './semantic-validator.js';
 import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
+import { renderRagQueryTemplate, type RagQueryTemplateParamValue } from './rag-query-template.js';
 
 export interface RagRetrieveDocumentOptions {
   readonly sourcePath: string;
   /** Global query fallback used when a ragRetrieve has queryParam but no matching queryParams entry. */
   readonly query?: string;
   /** Named runtime query inputs. Values here take precedence over the global query fallback. */
-  readonly queryParams?: Readonly<Record<string, string>>;
+  readonly queryParams?: Readonly<Record<string, string | undefined>>;
+  /** Typed named runtime values used by queryTemplate=. Falls back to queryParams when omitted. */
+  readonly templateParams?: Readonly<Record<string, RagQueryTemplateParamValue | undefined>>;
   /** Optional internal filter for callers that synthesize a single runtime retrieval. */
   readonly runtimeRetrievalNames?: readonly string[];
   /** Override embedder for local, synchronous retrieval tests and tools. Provider-backed retrieval is future async work. */
@@ -408,7 +411,7 @@ function localPersistentDisplayPath(
 
 function queryForRuntimeRetrieval(
   retrieval: RagSemanticRuntimeRetrieveFact,
-  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams'>,
+  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams' | 'templateParams'>,
 ): string {
   if (retrieval.query !== undefined) {
     if (retrieval.queryKind === 'expression') {
@@ -422,11 +425,38 @@ function queryForRuntimeRetrieval(
     return retrieval.query;
   }
   if (retrieval.queryParam) {
-    const value = options.queryParams?.[retrieval.queryParam] ?? options.query;
-    if (value !== undefined) return value;
+    if (options.queryParams && Object.hasOwn(options.queryParams, retrieval.queryParam)) {
+      const value = options.queryParams[retrieval.queryParam];
+      if (value !== undefined) {
+        if (typeof value === 'string') return value;
+        throw new Error(
+          `KERN RAG runtime retrieval '${retrieval.name}' requires queryParam '${retrieval.queryParam}' to be a string.`,
+        );
+      }
+    }
+    if (options.query !== undefined) return options.query;
     throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' requires queryParam '${retrieval.queryParam}'.`);
   }
+  if (retrieval.queryTemplate) {
+    return renderRagQueryTemplate(
+      retrieval.queryTemplate,
+      runtimeTemplateParams(options),
+      `KERN RAG runtime retrieval '${retrieval.name}' queryTemplate`,
+    );
+  }
   throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' has no query source.`);
+}
+
+function runtimeTemplateParams(
+  options: Pick<RagRetrieveDocumentOptions, 'queryParams' | 'templateParams'>,
+): Readonly<Record<string, RagQueryTemplateParamValue | undefined>> | undefined {
+  if (!options.queryParams) return options.templateParams;
+  if (!options.templateParams) return options.queryParams;
+  const merged: Record<string, RagQueryTemplateParamValue | undefined> = { ...options.queryParams };
+  for (const [key, value] of Object.entries(options.templateParams)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged;
 }
 
 function retrieveOptionsForFact(retrieval: RagSemanticRuntimeRetrieveFact): RetrieveOptions {

@@ -27,6 +27,13 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const TEMPLATE_QUERY_DOC = DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  'ragRetrieve name=FindDocs index=DocsIndex queryTemplate="{{topic:string}} policy {{year:number}}" topK=1 output="RetrievedChunk[]"',
+);
+
+const PROTOTYPE_QUERY_PARAM_DOC = DOC.replace('queryParam=question', 'queryParam=toString');
+
 const PROFILE_DOC = DOC.replace(
   'rag name=AnswerDocs retriever=DocsSearch citations=true',
   [
@@ -41,6 +48,11 @@ const PROFILE_DOC = DOC.replace(
 const PROFILE_OVERRIDE_DOC = PROFILE_DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
   'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault query="refund policy money back" topK=1 minScore=0',
+);
+
+const PROFILE_TEMPLATE_DOC = PROFILE_DOC.replace(
+  'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0.1 output="RetrievedChunk[]"',
+  'retrievalProfile name=SupportDefault queryTemplate="{{topic:string}} policy {{year:number}}" topK=2 minScore=0 output="RetrievedChunk[]"',
 );
 
 const PROFILE_FILTER_DOC = PROFILE_DOC.replace(
@@ -189,6 +201,28 @@ describe('retrieveRagDocument', () => {
     );
   });
 
+  test('does not resolve queryParam from inherited object properties', () => {
+    const queryParams = Object.create({ toString: 'refund policy money back' }) as Record<string, string>;
+
+    expect(() =>
+      retrieveRagDocument(PROTOTYPE_QUERY_PARAM_DOC, { sourcePath: join(dir, 'spec.kern'), queryParams }),
+    ).toThrow(/requires queryParam 'toString'/u);
+  });
+
+  test('falls back to global query when a named queryParam value is undefined', () => {
+    const report = retrieveRagDocument(DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      queryParams: { question: undefined },
+    });
+
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy money back',
+      }),
+    );
+  });
+
   test('executes fixed literal runtime retrieval queries without caller input', () => {
     const report = retrieveRagDocument(FIXED_QUERY_DOC, { sourcePath: join(dir, 'spec.kern') });
 
@@ -199,6 +233,28 @@ describe('retrieveRagDocument', () => {
       }),
     );
     expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('renders typed runtime query templates from named params', () => {
+    const report = retrieveRagDocument(TEMPLATE_QUERY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      templateParams: { topic: 'refund', year: 2026 },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(expect.objectContaining({ query: 'refund policy 2026' }));
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('validates runtime query template params before ingesting declared sources', () => {
+    rmSync(join(dir, 'docs'), { recursive: true, force: true });
+
+    expect(() =>
+      retrieveRagDocument(TEMPLATE_QUERY_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        templateParams: { topic: 'refund', year: 'twenty' },
+      }),
+    ).toThrow(/param 'year' must be a finite number/u);
   });
 
   test('inherits runtime retrieval options from a named retrieval profile', () => {
@@ -215,6 +271,32 @@ describe('retrieveRagDocument', () => {
       }),
     );
     expect(report.retrievals[0]?.result.chunks.length).toBeLessThanOrEqual(2);
+  });
+
+  test('inherits runtime query templates from a named retrieval profile', () => {
+    const report = retrieveRagDocument(PROFILE_TEMPLATE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      templateParams: { topic: 'refund', year: 2026 },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy 2026',
+        retrieveOptions: { topK: 2, minScore: 0 },
+      }),
+    );
+  });
+
+  test('lets partial templateParams fall back to queryParams by name', () => {
+    const report = retrieveRagDocument(TEMPLATE_QUERY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      queryParams: { topic: 'refund', year: '2026' },
+      templateParams: { topic: 'refund' },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(expect.objectContaining({ query: 'refund policy 2026' }));
   });
 
   test('lets ragRetrieve override named retrieval profile defaults', () => {

@@ -795,6 +795,13 @@ export {
   RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
 export type {
+  ParsedRagQueryTemplate,
+  RagQueryTemplateParamValue,
+  RagQueryTemplateSlot,
+  RagQueryTemplateType,
+} from './rag-query-template.js';
+export { parseRagQueryTemplate, renderRagQueryTemplate } from './rag-query-template.js';
+export type {
   RagRetrieveAsyncDocumentOptions,
   RagRetrieveDocumentEntry,
   RagRetrieveDocumentOptions,

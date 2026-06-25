@@ -2525,6 +2525,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       queryParam: { kind: 'identifier' },
+      queryTemplate: { kind: 'string' },
       topK: { kind: 'number' },
       minScore: { kind: 'number' },
       filterCorpus: { kind: 'string' },
@@ -2561,6 +2562,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       profile: { kind: 'identifier' },
       rag: { kind: 'identifier' },
       queryParam: { kind: 'identifier' },
+      queryTemplate: { kind: 'string' },
       query: { kind: 'expression' },
       as: { kind: 'identifier' },
       topK: { kind: 'number' },
