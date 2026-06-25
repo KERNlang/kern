@@ -23,10 +23,12 @@
  *     a future uncaught KERN `throw`; `throw` ABSTAINS in the runner today, so it
  *     fail-closes to 2 in slice-1.)
  *
- * Executable surface in slice-1 is exactly what the runner certifies today:
- * print / let / assign / for / return / portable arithmetic. Constructs the
- * runner does not yet execute over PRODUCTION IR (if/while/each/branch/try/throw,
- * fmt interpolation, arrays/objects) ABSTAIN -> exit 2, by design.
+ * Executable surface is exactly what the runner certifies today: print / let /
+ * assign / for / if / while / each / return / portable arithmetic / portable
+ * array-literal binding / literal in-bounds array index reads. Constructs the
+ * runner does not yet execute over PRODUCTION IR (branch/try/throw, fmt
+ * interpolation, whole-array rendering, objects, dynamic array index reads)
+ * ABSTAIN -> exit 2, by design.
  *
  * Every expected stdout byte below was verified empirically against the built
  * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
@@ -219,7 +221,6 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.status).toBe(0);
     expect(r.stderr).toBe('');
   });
-
   test('ARRAY INDEX: an in-bounds read prints the element', () => {
     const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[0]"']);
     expect(r.stdout).toBe('10\n');

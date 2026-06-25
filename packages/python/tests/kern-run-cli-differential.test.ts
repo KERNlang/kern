@@ -142,8 +142,8 @@ const CERT: Array<[string, string[], string]> = [
   ],
   // ── array values (slice-2a): bind an array literal, iterate with `each` ──────
   // The runner binds the literal; `each` iterates it; printing the SCALAR
-  // elements is byte-identical on all three legs. (Whole-array print and index
-  // access are deferred — they abstain — so they are NOT certified here.)
+  // elements is byte-identical on all three legs. Whole-array print is still
+  // deferred; in-bounds literal index reads certify below.
   [
     'each over a numeric array literal',
     ['let name=xs value="[1,2,3]"', 'each name=x in=xs', '  print value="x"'],
