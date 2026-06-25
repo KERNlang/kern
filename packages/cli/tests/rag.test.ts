@@ -144,6 +144,7 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund policy money back'], dir);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('kern rag retrieve retrieve.kern');
+    expect(result.stdout).toContain('DocsIndex store=DocsMemory kind=memory status=indexed');
     expect(result.stdout).toContain('AnswerDocs/FindDocs index=DocsIndex');
     expect(result.stdout).toContain('refunds');
     expect(result.stdout).toContain('refund policy money back within thirty days');
@@ -161,12 +162,33 @@ describe('kern rag', () => {
     const first = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
     expect(first.status).toBe(0);
     expect(first.stdout).toContain('refunds');
+    expect(first.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=indexed');
 
     const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
     const second = run(['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back'], dir);
 
     expect(second.status).toBe(0);
     expect(second.stdout).toContain('refunds');
+    expect(second.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=reused');
+    expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
+  });
+
+  test('indexes local-persistent ragIndex snapshots and reports status as JSON', () => {
+    const first = run(['rag', 'index', 'persistent-retrieve.kern'], dir);
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=missing action=indexed');
+    expect(first.stdout).toContain('snapshot=index/DocsIndex.json');
+    expect(first.stdout).toContain('manifest=index/DocsIndex.manifest.json');
+
+    const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy now requires receipt approval\n');
+
+    const status = run(['rag', 'index', 'persistent-retrieve.kern', '--status', '--json'], dir);
+    expect(status.status).toBe(0);
+    const parsed = JSON.parse(status.stdout) as {
+      readonly indexes: readonly [{ readonly status: string; readonly action: string }];
+    };
+    expect(parsed.indexes[0]).toEqual(expect.objectContaining({ status: 'stale', action: 'inspected' }));
     expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
 

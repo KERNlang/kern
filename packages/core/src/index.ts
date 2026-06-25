@@ -739,6 +739,15 @@ export {
   evaluateRagEvalDocumentFromDeclaredSources,
   evaluateRagEvalDocumentFromDeclaredSourcesAsync,
 } from './rag-eval-runner.js';
+export type {
+  RagIndexDocumentOptions,
+  RagIndexDocumentReport,
+  RagIndexEntryReport,
+  RagIndexLifecycleAction,
+  RagIndexProvenance,
+  RagIndexSnapshotStatus,
+} from './rag-index-runner.js';
+export { indexRagDocumentAsync, stableRagChunkDigest } from './rag-index-runner.js';
 export type { RagIngestedSource, RagIngestOptions, RagIngestResult } from './rag-ingest.js';
 export {
   ingestRagDeclaredLocalSources,
@@ -753,6 +762,8 @@ export type {
   RagRetrieveDocumentEntry,
   RagRetrieveDocumentOptions,
   RagRetrieveDocumentReport,
+  RagRetrieveIndexLifecycle,
+  RagRetrieveIndexLifecycleStatus,
 } from './rag-retrieve-runner.js';
 export {
   ragRetrieveCorpusSourceSummary,
