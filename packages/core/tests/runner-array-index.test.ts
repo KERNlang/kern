@@ -125,6 +125,14 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
     abstains([letArr('xs', '[1,2,3]'), print('xs[1.5]')]);
   });
 
+  it('INT-VALUED float element abstains before an index read can certify it', () => {
+    abstains([letArr('xs', '[1.0]'), print('xs[0]')]);
+  });
+
+  it('NON-INTEGER float element abstains before an index read can certify it', () => {
+    abstains([letArr('xs', '[1.5]'), print('xs[0]')]);
+  });
+
   it('DIVISION index abstains even when in-bounds-valued (Python `/` is float)', () => {
     // 4 / 2 == 2.0 in Python -> `xs[2.0]` TypeError, while ref + TS read xs[2].
     abstains([letArr('xs', '[10,20,30]'), print('xs[4 / 2]')]);
@@ -142,6 +150,10 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
 
   it('UNSAFE-integer literal index abstains (JS rounds it, Python keeps precision)', () => {
     abstains([letArr('xs', '[1,2,3]'), print('xs[9007199254740993]')]);
+  });
+
+  it('UNSAFE-integer element abstains before an index read can surface the rounded JS value', () => {
+    abstains([letArr('xs', '[9007199254740993]'), print('xs[0]')]);
   });
 
   it('UNSAFE-integer arithmetic index abstains (rounds to 0 in JS, exact 1 in Python)', () => {

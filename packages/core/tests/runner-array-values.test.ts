@@ -9,9 +9,10 @@
  *
  * Semantics MIRROR the product runtime (`core-runtime`'s `arrayLit` case): an
  * array literal eagerly, recursively evaluates its elements into a single array
- * value. Elements are the portable-scalar domain (number, string, bool, null)
- * plus NESTED array literals of the same. A non-portable element (Decimal, a
- * regex, an object, an unsupported call) makes the binding ABSTAIN (fail-close).
+ * value. Elements are the portable-scalar domain (safe-integer number, string,
+ * bool, null) plus NESTED array literals of the same. A non-portable element
+ * (non-canonical numeric literal, non-integer/unsafe numeric expression, Decimal,
+ * a regex, an object, an unsupported call) makes the binding ABSTAIN (fail-close).
  *
  * Deliberately DEFERRED in this slice — every one must ABSTAIN (precondition
  * fails → `referenceRunSequence` throws `ReferenceRunnerError`), never produce
@@ -118,7 +119,7 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     abstains([letArr('xs', '[1,2,3]'), print('xs.length')]);
   });
 
-  it('a non-integer FLOAT element abstains when observed (print float fails closed)', () => {
+  it('a non-integer FLOAT element abstains at binding time', () => {
     abstains([letArr('xs', '[1.5]'), eachPrint('x', 'xs', print('x'))]);
   });
 
