@@ -278,7 +278,9 @@ async function runRagRetrieve(args: string[]): Promise<void> {
   }
   for (const retrieval of report.retrievals) {
     const label = retrieval.ragName ? `${retrieval.ragName}/${retrieval.name}` : retrieval.name;
-    console.log(`  ${label} index=${retrieval.indexName} query="${retrieval.query}"`);
+    const indexLabel =
+      retrieval.indexNames.length > 1 ? `indexes=${retrieval.indexNames.join(',')}` : `index=${retrieval.indexName}`;
+    console.log(`  ${label} ${indexLabel} query="${retrieval.query}"`);
     for (const chunk of retrieval.result.chunks) {
       console.log(`    ${chunk.id} score=${chunk.score} source=${chunk.source} text="${truncateText(chunk.text)}"`);
     }

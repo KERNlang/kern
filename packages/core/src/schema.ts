@@ -2553,12 +2553,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['grounding', 'ragRetrieve', 'ragEval', 'ragAnswerContract'],
   },
   ragRetrieve: {
-    description: 'RAG runtime retrieval contract — names a query-time retrieval surface backed by a declared ragIndex.',
+    description:
+      'RAG runtime retrieval contract — names a query-time retrieval surface backed by one declared ragIndex or indexes="<IndexA,IndexB>".',
     example:
       'ragRetrieve name=FindDocs index=DocsIndex queryParam=question as=context topK=4 minScore=0.72 output="RetrievedChunk[]" requireCitations=true',
     props: {
       name: { required: true, kind: 'identifier' },
-      index: { required: true, kind: 'identifier' },
+      index: { kind: 'identifier' },
+      indexes: { kind: 'string' },
       profile: { kind: 'identifier' },
       rag: { kind: 'identifier' },
       queryParam: { kind: 'identifier' },

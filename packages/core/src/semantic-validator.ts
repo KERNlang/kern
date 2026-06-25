@@ -27,6 +27,7 @@ import { importRegistryOf } from './import-metadata.js';
 import { parseExpression } from './parser-expression.js';
 import { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import {
+  canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
   isSupportedRagEmbedModel,
   RAG_EMBED_MODEL_LOCAL_SEMANTIC,
@@ -292,6 +293,7 @@ export interface RagSemanticIndexFact {
 export interface RagSemanticRuntimeRetrieveFact {
   readonly name: string;
   readonly indexName: string;
+  readonly indexNames: readonly string[];
   readonly profileName?: string;
   readonly ragName?: string;
   readonly queryParam?: string;
@@ -941,7 +943,8 @@ interface RagRuntimeRetrieveInfo {
   node: IRNode;
   rootIndex: number;
   name: string;
-  indexName: string;
+  indexName?: string;
+  indexNames: readonly string[];
   ragName?: string;
   inheritedRagName?: string;
 }
@@ -1124,6 +1127,8 @@ function validateRagGraphRoots(roots: readonly IRNode[], violations: SemanticVio
     validateRagRuntimeRetrieve(
       retrieval,
       indexByName,
+      embedByName,
+      vectorStoreByName,
       retrievalProfileByName,
       sourceNamesByCorpus,
       infos.chunking,
@@ -1276,12 +1281,14 @@ function collectRagInfos(root: IRNode, rootIndex: number, out: RagInfos): void {
     } else if (node.type === 'ragRetrieve') {
       const name = stringProp(node, 'name');
       const indexName = stringProp(node, 'index');
-      if (name && indexName) {
+      const indexNames = indexName ? [indexName] : parseRagRetrieveIndexNames(node);
+      if (name) {
         out.runtimeRetrievals.push({
           node,
           rootIndex,
           name,
-          indexName,
+          ...optionalStringValue('indexName', indexName),
+          indexNames,
           ragName: stringProp(node, 'rag') || nearestRagName,
           inheritedRagName: nearestRagName,
         });
@@ -2051,6 +2058,8 @@ function validateRagRetrievalProfile(profile: RagRetrievalProfileInfo, violation
 function validateRagRuntimeRetrieve(
   retrieval: RagRuntimeRetrieveInfo,
   indexByName: ReadonlyMap<string, RagIndexInfo>,
+  embedByName: ReadonlyMap<string, RagEmbedInfo>,
+  vectorStoreByName: ReadonlyMap<string, RagVectorStoreInfo>,
   profileByName: ReadonlyMap<string, RagRetrievalProfileInfo>,
   sourceNamesByCorpus: ReadonlyMap<string, ReadonlySet<string>>,
   chunking: readonly RagChunkingInfo[],
@@ -2071,15 +2080,51 @@ function validateRagRuntimeRetrieve(
     violations,
   );
 
-  const index = indexByName.get(retrieval.indexName);
-  if (!index) {
+  const hasIndexProp = Object.hasOwn(retrieval.node.props ?? {}, 'index');
+  const hasIndexesProp = Object.hasOwn(retrieval.node.props ?? {}, 'indexes');
+  if (hasIndexProp === hasIndexesProp) {
     pushRagViolation(
       violations,
-      'rag-retrieve-unknown-index',
+      'rag-retrieve-index-target-exclusive',
       retrieval.node,
-      `RAG runtime retrieval '${retrieval.name}' references unknown ragIndex '${retrieval.indexName}'.`,
+      `RAG runtime retrieval '${retrieval.name}' must declare exactly one of index=<ragIndex> or indexes="<ragIndex,...>".`,
     );
   }
+  const indexesRaw = stringProp(retrieval.node, 'indexes');
+  if (hasIndexesProp && (!indexesRaw || hasEmptyCommaListEntry(indexesRaw))) {
+    pushRagViolation(
+      violations,
+      'rag-retrieve-indexes-invalid',
+      retrieval.node,
+      `RAG runtime retrieval '${retrieval.name}' indexes= must be a comma-separated list of ragIndex names.`,
+    );
+  }
+  for (const indexName of retrieval.indexNames) {
+    if (!isKernIdentifier(indexName)) {
+      pushRagViolation(
+        violations,
+        'rag-retrieve-indexes-invalid',
+        retrieval.node,
+        `RAG runtime retrieval '${retrieval.name}' indexes= entry '${indexName}' is not a valid identifier.`,
+      );
+    }
+  }
+
+  const targetIndexes: RagIndexInfo[] = [];
+  for (const indexName of retrieval.indexNames) {
+    const index = indexByName.get(indexName);
+    if (!index) {
+      pushRagViolation(
+        violations,
+        'rag-retrieve-unknown-index',
+        retrieval.node,
+        `RAG runtime retrieval '${retrieval.name}' references unknown ragIndex '${indexName}'.`,
+      );
+    } else {
+      targetIndexes.push(index);
+    }
+  }
+  validateRagRuntimeRetrieveIndexCompatibility(retrieval, targetIndexes, embedByName, vectorStoreByName, violations);
 
   if (retrieval.ragName && !ragByName.has(retrieval.ragName)) {
     pushRagViolation(
@@ -2105,44 +2150,70 @@ function validateRagRuntimeRetrieve(
     profile ? ragMetadataFilterFromProps((prop) => stringProp(profile.node, prop)) : undefined,
     ragMetadataFilterFromProps((prop) => stringProp(retrieval.node, prop)),
   );
-  if (metadataFilter?.corpusName && index && metadataFilter.corpusName !== index.corpusName) {
+  if (
+    metadataFilter?.corpusName &&
+    targetIndexes.length > 0 &&
+    !targetIndexes.some((index) => index.corpusName === metadataFilter.corpusName)
+  ) {
     pushRagViolation(
       violations,
       'rag-retrieve-filter-corpus-mismatch',
       retrieval.node,
-      `RAG runtime retrieval '${retrieval.name}' filters corpus '${metadataFilter.corpusName}' but index '${index.name}' uses corpus '${index.corpusName}'.`,
+      `RAG runtime retrieval '${retrieval.name}' filters corpus '${metadataFilter.corpusName}' but none of its target indexes use that corpus.`,
     );
   }
-  if (metadataFilter?.sourceName && index) {
-    const sourceNames = sourceNamesByCorpus.get(index.corpusName);
-    if (!sourceNames?.has(metadataFilter.sourceName)) {
+  const metadataFilterCandidateIndexes =
+    metadataFilter?.corpusName && targetIndexes.length > 0
+      ? targetIndexes.filter((index) => index.corpusName === metadataFilter.corpusName)
+      : targetIndexes;
+  const filterSourceName = metadataFilter?.sourceName;
+  if (filterSourceName && metadataFilterCandidateIndexes.length > 0) {
+    const sourceMatchesAnyTarget = metadataFilterCandidateIndexes.some((index) =>
+      sourceNamesByCorpus.get(index.corpusName)?.has(filterSourceName),
+    );
+    if (!sourceMatchesAnyTarget) {
       pushRagViolation(
         violations,
         'rag-retrieve-filter-source-unknown',
         retrieval.node,
-        `RAG runtime retrieval '${retrieval.name}' filters source '${metadataFilter.sourceName}' but corpus '${index.corpusName}' has no declared source with that name.`,
+        `RAG runtime retrieval '${retrieval.name}' filters source '${filterSourceName}' but no target corpus has a declared source with that name.`,
       );
     }
   }
-  if (metadataFilter?.chunkingName && index) {
-    const chunkingExists = chunking.some(
-      (entry) => entry.corpusName === index.corpusName && entry.name === metadataFilter.chunkingName,
+  const filterChunkingName = metadataFilter?.chunkingName;
+  if (filterChunkingName && metadataFilterCandidateIndexes.length > 0) {
+    const chunkingExists = metadataFilterCandidateIndexes.some((index) =>
+      chunking.some((entry) => entry.corpusName === index.corpusName && entry.name === filterChunkingName),
     );
     if (!chunkingExists) {
       pushRagViolation(
         violations,
         'rag-retrieve-filter-chunking-unknown',
         retrieval.node,
-        `RAG runtime retrieval '${retrieval.name}' filters chunking '${metadataFilter.chunkingName}' but corpus '${index.corpusName}' has no declared chunking with that name.`,
+        `RAG runtime retrieval '${retrieval.name}' filters chunking '${filterChunkingName}' but no target corpus has a declared chunking with that name.`,
       );
-    } else if (index.chunkingName && index.chunkingName !== metadataFilter.chunkingName) {
+    } else if (!metadataFilterCandidateIndexes.some((index) => index.chunkingName === filterChunkingName)) {
       pushRagViolation(
         violations,
         'rag-retrieve-filter-chunking-mismatch',
         retrieval.node,
-        `RAG runtime retrieval '${retrieval.name}' filters chunking '${metadataFilter.chunkingName}' but index '${index.name}' uses chunking '${index.chunkingName}'.`,
+        `RAG runtime retrieval '${retrieval.name}' filters chunking '${filterChunkingName}' but none of its target indexes use that chunking.`,
       );
     }
+  }
+  if (
+    metadataFilter &&
+    targetIndexes.length > 0 &&
+    !targetIndexes.some((index) =>
+      ragRuntimeRetrieveIndexCanSatisfyMetadataFilter(index, metadataFilter, sourceNamesByCorpus, chunking),
+    )
+  ) {
+    pushRagViolation(
+      violations,
+      'rag-retrieve-filter-target-mismatch',
+      retrieval.node,
+      `RAG runtime retrieval '${retrieval.name}' metadata filters do not match any target index.`,
+    );
   }
 
   const explicitRagName = stringProp(retrieval.node, 'rag');
@@ -2267,6 +2338,93 @@ function validateRagMetadataFilterProps(
       pushRagViolation(violations, rule, node, `${label} ${prop}= must be a non-empty string.`);
     }
   }
+}
+
+function parseRagRetrieveIndexNames(node: IRNode): readonly string[] {
+  const indexes = stringProp(node, 'indexes');
+  if (!indexes) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const name of indexes
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)) {
+    if (!seen.has(name)) {
+      out.push(name);
+      seen.add(name);
+    }
+  }
+  return out;
+}
+
+function hasEmptyCommaListEntry(value: string): boolean {
+  return value.split(',').some((entry) => entry.trim().length === 0);
+}
+
+function isKernIdentifier(value: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/u.test(value);
+}
+
+function validateRagRuntimeRetrieveIndexCompatibility(
+  retrieval: RagRuntimeRetrieveInfo,
+  targetIndexes: readonly RagIndexInfo[],
+  embedByName: ReadonlyMap<string, RagEmbedInfo>,
+  vectorStoreByName: ReadonlyMap<string, RagVectorStoreInfo>,
+  violations: SemanticViolation[],
+): void {
+  if (targetIndexes.length <= 1) return;
+  const signatures = targetIndexes.map((index) =>
+    ragRuntimeRetrieveIndexCompatibilitySignature(index, embedByName, vectorStoreByName),
+  );
+  const completeSignatures = signatures.filter((signature): signature is string => signature !== undefined);
+  if (completeSignatures.length <= 1) return;
+  const [firstSignature] = completeSignatures;
+  if (completeSignatures.every((signature) => signature === firstSignature)) return;
+  pushRagViolation(
+    violations,
+    'rag-retrieve-indexes-incompatible',
+    retrieval.node,
+    `RAG runtime retrieval '${retrieval.name}' targets indexes with different embed or vector-store scoring configuration; use compatible indexes for merged ranking.`,
+  );
+}
+
+function ragRuntimeRetrieveIndexCompatibilitySignature(
+  index: RagIndexInfo,
+  embedByName: ReadonlyMap<string, RagEmbedInfo>,
+  vectorStoreByName: ReadonlyMap<string, RagVectorStoreInfo>,
+): string | undefined {
+  const embed = index.embedName ? embedByName.get(index.embedName) : undefined;
+  const store = vectorStoreByName.get(index.storeName);
+  if (index.embedName && !embed) return undefined;
+  if (!store) return undefined;
+
+  const embedDims = embed
+    ? effectiveRagEmbedDims(embed)
+    : defaultDimsForRagEmbedModel(canonicalRagEmbedModel(undefined));
+  const embedMetric = embed ? (stringProp(embed.node, 'metric') ?? 'cosine') : 'cosine';
+  const storeDims = numberProp(store.node, 'dims') ?? embedDims;
+  const storeMetric = stringProp(store.node, 'metric') ?? 'cosine';
+  if (embedDims === undefined || storeDims === undefined) return undefined;
+  return JSON.stringify({ embedDims, embedMetric, storeDims, storeMetric });
+}
+
+function ragRuntimeRetrieveIndexCanSatisfyMetadataFilter(
+  index: RagIndexInfo,
+  metadataFilter: RagMetadataFilter,
+  sourceNamesByCorpus: ReadonlyMap<string, ReadonlySet<string>>,
+  chunking: readonly RagChunkingInfo[],
+): boolean {
+  if (metadataFilter.corpusName && metadataFilter.corpusName !== index.corpusName) return false;
+  if (metadataFilter.sourceName && !sourceNamesByCorpus.get(index.corpusName)?.has(metadataFilter.sourceName)) {
+    return false;
+  }
+  if (metadataFilter.chunkingName) {
+    const chunkingExists = chunking.some(
+      (entry) => entry.corpusName === index.corpusName && entry.name === metadataFilter.chunkingName,
+    );
+    return chunkingExists && index.chunkingName === metadataFilter.chunkingName;
+  }
+  return true;
 }
 
 function validateRagQueryTemplateProp(
@@ -3149,7 +3307,7 @@ export function collectRagSemanticFacts(root: IRNode | readonly IRNode[]): RagSe
       infos.indexes.map((info) => info.storeName).filter((name) => !vectorStoreNames.has(name)),
     ),
     unresolvedIndexRefs: sortedUnique(
-      infos.runtimeRetrievals.map((info) => info.indexName).filter((name) => !indexNames.has(name)),
+      infos.runtimeRetrievals.flatMap((info) => info.indexNames).filter((name) => !indexNames.has(name)),
     ),
     unresolvedChunkingRefs: sortedUnique(
       infos.indexes
@@ -3349,7 +3507,8 @@ function ragRuntimeRetrieveFact(
   );
   return {
     name: info.name,
-    indexName: info.indexName,
+    indexName: info.indexNames[0] ?? '',
+    indexNames: info.indexNames,
     ...optionalStringValue('profileName', profileName),
     ...optionalStringValue('ragName', info.ragName),
     ...optionalStringValue(

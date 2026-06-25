@@ -211,6 +211,38 @@ describe('RAG language semantics', () => {
     ]);
   });
 
+  test('collects and validates multi-index ragRetrieve targets', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+      'corpus name=Faq',
+      '  source name=faq kind=local uri="./faq/**/*.md" media=markdown',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=FaqEmbedding corpus=Faq model=local-semantic-v1 dims=64 metric=cosine',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'vectorStore name=FaqMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+      'ragIndex name=FaqIndex corpus=Faq store=FaqMemory embed=FaqEmbedding',
+      'ragRetrieve name=FindAll indexes="DocsIndex,FaqIndex" queryTemplate="{{topic:string}}" topK=2 output="RetrievedChunk[]"',
+    ].join('\n');
+    const parsed = parseDocumentWithDiagnostics(source);
+
+    expect(validateSchema(parsed.root)).toEqual([]);
+    expect(validateSemantics(parsed.root)).toEqual([]);
+    expect(collectRagSemanticFacts(parsed.root).runtimeRetrievals[0]).toEqual(
+      expect.objectContaining({
+        name: 'FindAll',
+        indexName: 'DocsIndex',
+        indexNames: ['DocsIndex', 'FaqIndex'],
+        queryTemplate: '{{topic:string}}',
+        topK: 2,
+      }),
+    );
+    expect(decompile(parsed.root).code).toContain(
+      'ragRetrieve name=FindAll indexes="DocsIndex,FaqIndex" queryTemplate="{{topic:string}}" topK=2 output="RetrievedChunk[]"',
+    );
+  });
+
   test('decompiles RAG retrieval profiles and ragRetrieve profile references re-parseably', () => {
     const source = [
       'retrievalProfile name=SupportDefault queryTemplate="support {{topic:string}}" topK=3 minScore=0.2 filterPath="docs/shipping.md" output="RetrievedChunk[]" requireCitations=true',
@@ -235,8 +267,11 @@ describe('RAG language semantics', () => {
       'chunking name=Known corpus=Docs strategy=semantic maxTokens=10 overlap=0 unit=tokens',
       'chunking name=OtherKnown corpus=Docs strategy=semantic maxTokens=10 overlap=0 unit=tokens',
       'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'vectorStore name=SmallMemory kind=memory dims=32 metric=cosine',
+      'embed name=SmallEmbedding corpus=Docs model=local-hash-v1 dims=32 metric=cosine',
       'ragIndex name=DocsIndex corpus=Docs store=DocsMemory',
       'ragIndex name=ChunkedDocsIndex corpus=Docs store=DocsMemory chunking=OtherKnown',
+      'ragIndex name=SmallDocsIndex corpus=Docs store=SmallMemory embed=SmallEmbedding',
       'retrievalProfile name=BadProfile topK=0 minScore=2 output=RetrievedChunk',
       'retrievalProfile name=EmptyOutput output=""',
       'retrievalProfile name=EmptyFilter filterPath=""',
@@ -251,6 +286,12 @@ describe('RAG language semantics', () => {
       'ragRetrieve name=BadSourceFilter index=DocsIndex query="refund" filterSource=Missing',
       'ragRetrieve name=BadChunkingFilter index=DocsIndex query="refund" filterChunking=Missing',
       'ragRetrieve name=BadChunkingMismatch index=ChunkedDocsIndex query="refund" filterChunking=Known',
+      'ragRetrieve name=NoTarget query="refund"',
+      'ragRetrieve name=BothTargets index=DocsIndex indexes="DocsIndex,ChunkedDocsIndex" query="refund"',
+      'ragRetrieve name=EmptyTargets indexes="" query="refund"',
+      'ragRetrieve name=MissingMultiIndex indexes="DocsIndex,MissingIndex" query="refund"',
+      'ragRetrieve name=InvalidListEntry indexes="DocsIndex,bad-name" query="refund"',
+      'ragRetrieve name=IncompatibleIndexes indexes="DocsIndex,SmallDocsIndex" query="refund"',
     ].join('\n');
 
     expect(rulesFor(source)).toEqual(
@@ -269,7 +310,29 @@ describe('RAG language semantics', () => {
         'rag-retrieve-filter-source-unknown',
         'rag-retrieve-filter-chunking-unknown',
         'rag-retrieve-filter-chunking-mismatch',
+        'rag-retrieve-index-target-exclusive',
+        'rag-retrieve-indexes-invalid',
+        'rag-retrieve-unknown-index',
+        'rag-retrieve-indexes-incompatible',
       ]),
+    );
+  });
+
+  test('rejects multi-index metadata filters that cannot match one target index', () => {
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+      'corpus name=Faq',
+      '  source name=faq kind=local uri="./faq/**/*.md" media=markdown',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'vectorStore name=FaqMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory',
+      'ragIndex name=FaqIndex corpus=Faq store=FaqMemory',
+      'ragRetrieve name=ImpossibleFilter indexes="DocsIndex,FaqIndex" query="refund" filterCorpus=Docs filterSource=faq',
+    ].join('\n');
+
+    expect(rulesFor(source)).toEqual(
+      expect.arrayContaining(['rag-retrieve-filter-source-unknown', 'rag-retrieve-filter-target-mismatch']),
     );
   });
 

@@ -412,6 +412,7 @@ export function decompile(root: IRNode): DecompileResult {
       ragRetrieve: [
         'name',
         'index',
+        'indexes',
         'profile',
         'rag',
         'queryParam',

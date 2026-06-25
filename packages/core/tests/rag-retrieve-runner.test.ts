@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { type AsyncEmbedder, retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
+import { type AsyncEmbedder, type Embedder, retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -128,6 +128,31 @@ ragIndex name=DocsIndexMirror corpus=Docs store=DocsMemory embed=DocsEmbedding
   ragRetrieve name=FindDocsAgain index=DocsIndexMirror queryParam=question topK=1 output="RetrievedChunk[]"`,
 );
 
+const MULTI_INDEX_DOC = `corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+
+corpus name=Faq
+  source name=faq kind=local uri="./faq/**/*.md" media=markdown
+
+embed name=DocsEmbedding corpus=Docs model="fake:deterministic" dims=3 metric=cosine
+embed name=FaqEmbedding corpus=Faq model="fake:deterministic" dims=3 metric=cosine
+vectorStore name=DocsMemory kind=memory dims=3 metric=cosine
+vectorStore name=FaqMemory kind=memory dims=3 metric=cosine
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding
+ragIndex name=FaqIndex corpus=Faq store=FaqMemory embed=FaqEmbedding
+ragRetrieve name=FindAll indexes="DocsIndex,FaqIndex" queryParam=question topK=2 output="RetrievedChunk[]"
+`;
+
+const OVERLAPPING_MULTI_INDEX_DOC = `corpus name=Docs
+  source name=manuals kind=local uri="./docs/refunds.md" media=markdown
+
+embed name=DocsEmbedding corpus=Docs model="fake:deterministic" dims=3 metric=cosine
+vectorStore name=DocsMemory kind=memory dims=3 metric=cosine
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding
+ragIndex name=DocsIndexMirror corpus=Docs store=DocsMemory embed=DocsEmbedding
+ragRetrieve name=FindDocs indexes="DocsIndex,DocsIndexMirror" queryParam=question topK=2 output="RetrievedChunk[]"
+`;
+
 function fakeProviderVector(text: string): Float64Array {
   const lower = text.toLowerCase();
   if (lower.includes('refund') || lower.includes('money')) return new Float64Array([1, 0, 0]);
@@ -146,6 +171,19 @@ const fakeAsyncEmbedder: AsyncEmbedder = {
   },
 };
 
+const fakeMultiIndexEmbedder: Embedder = {
+  id: 'local:fake-multi-index:dims=3',
+  dims: 3,
+  embed(text: string): Float64Array {
+    const lower = text.toLowerCase();
+    return new Float64Array([
+      lower.includes('refund') || lower.includes('money') ? 1 : 0,
+      lower.includes('password') || lower.includes('login') ? 1 : 0,
+      lower.includes('shipping') || lower.includes('delivery') ? 1 : 0,
+    ]);
+  },
+};
+
 describe('retrieveRagDocument', () => {
   let dir: string;
   let outsideDir: string | undefined;
@@ -154,9 +192,11 @@ describe('retrieveRagDocument', () => {
     dir = mkdtempSync(join(tmpdir(), 'kern-rag-retrieve-'));
     outsideDir = undefined;
     mkdirSync(join(dir, 'docs'));
+    mkdirSync(join(dir, 'faq'));
     writeFileSync(join(dir, 'spec.kern'), DOC);
     writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
     writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    writeFileSync(join(dir, 'faq/passwords.md'), 'password login security reset recovery\n');
   });
 
   afterEach(() => {
@@ -185,6 +225,45 @@ describe('retrieveRagDocument', () => {
         text: expect.stringContaining('refund policy money back'),
       }),
     );
+  });
+
+  test('merges one ragRetrieve across multiple target indexes', () => {
+    const report = retrieveRagDocument(MULTI_INDEX_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      queryParams: { question: 'refund password' },
+      embedder: fakeMultiIndexEmbedder,
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes.map((index) => index.indexName).sort()).toEqual(['DocsIndex', 'FaqIndex']);
+    expect(report.retrievals).toHaveLength(1);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        name: 'FindAll',
+        indexName: 'DocsIndex',
+        indexNames: ['DocsIndex', 'FaqIndex'],
+        query: 'refund password',
+        retrieveOptions: { topK: 2 },
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks.map((chunk) => chunk.source).sort()).toEqual([
+      'docs/refunds.md',
+      'faq/passwords.md',
+    ]);
+    expect(report.ingestion?.chunks.map((chunk) => chunk.metadata?.corpusName).sort()).toEqual(['Docs', 'Docs', 'Faq']);
+  });
+
+  test('deduplicates chunks returned by overlapping multi-index targets', () => {
+    const report = retrieveRagDocument(OVERLAPPING_MULTI_INDEX_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      queryParams: { question: 'refund money' },
+      embedder: fakeMultiIndexEmbedder,
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes.map((index) => index.indexName).sort()).toEqual(['DocsIndex', 'DocsIndexMirror']);
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
   });
 
   test('fails closed when a runtime query parameter is not supplied', () => {
