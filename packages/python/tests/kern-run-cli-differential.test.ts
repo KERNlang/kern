@@ -220,6 +220,31 @@ const CERT: Array<[string, string[], string]> = [
     '2\n',
   ],
   ['array length flows into arithmetic', ['let name=xs value="[1,2,3]"', 'print value="xs.length - 1"'], '2\n'],
+  // ── DYNAMIC index via for-counter provenance + `.length` for-bound ───────────
+  // A `for` counter is a guaranteed safe integer, so `xs[i]` reads byte-identical
+  // 3-leg (TS `for(…; i<xs.length; …)`+`xs[i]`; Python `range(len(xs))`+`xs[i]`).
+  // OOB / negative iterations DIVERGE (TS undefined vs Py IndexError/wraparound)
+  // so they ABSTAIN and are NOT certified here.
+  [
+    'HEADLINE: iterate an array by index over its length',
+    ['let name=xs value="[10,20,30]"', 'for name=i from="0" to="xs.length"', '  print value="xs[i]"'],
+    '10\n20\n30\n',
+  ],
+  [
+    'stepped for-counter index reads every other element',
+    ['let name=xs value="[10,20,30,40,50]"', 'for name=i from="0" to="xs.length" step="2"', '  print value="xs[i]"'],
+    '10\n30\n50\n',
+  ],
+  [
+    'reverse for-counter index reads back-to-front',
+    ['let name=xs value="[10,20,30]"', 'for name=i from="2" to="-1" step="-1"', '  print value="xs[i]"'],
+    '30\n20\n10\n',
+  ],
+  [
+    '`.length` as a for-bound alone drives the iteration count',
+    ['let name=xs value="[10,20,30]"', 'for name=i from="0" to="xs.length"', '  print value="i"'],
+    '0\n1\n2\n',
+  ],
 ];
 
 execDescribe('kern run — 3-leg CLI differential (kern-run === ts === py)', () => {
