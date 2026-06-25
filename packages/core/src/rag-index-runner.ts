@@ -134,7 +134,9 @@ export async function indexRagDocumentAsync(
   if (diagnostics.length > 0) return { diagnostics, indexes: [] };
 
   const facts = collectRagSemanticFacts(root);
-  const stores = new Map(facts.vectorStores.map((store) => [store.name, store]));
+  const stores = new Map<string, RagSemanticVectorStoreFact>(
+    facts.vectorStores.map((store) => [store.name, store]),
+  );
   const byPhysicalKey = new Map<string, LocalPersistentIndexConfig>();
   const indexes: RagIndexEntryReport[] = [];
 

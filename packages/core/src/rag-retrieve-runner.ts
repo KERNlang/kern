@@ -302,8 +302,10 @@ function prepareRuntimeRetrievals<TEmbedder extends Pick<Embedder, 'dims' | 'id'
   options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams'>,
   embedderFor: (index: RagSemanticIndexFact) => TEmbedder,
 ): PreparedRagRetrieval<TEmbedder>[] {
-  const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
-  const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
+  const indexByName = new Map<string, RagSemanticIndexFact>(facts.indexes.map((index) => [index.name, index]));
+  const vectorStoreByName = new Map<string, RagSemanticVectorStoreFact>(
+    facts.vectorStores.map((store) => [store.name, store]),
+  );
   return facts.runtimeRetrievals.map((retrieval) => {
     const index = indexByName.get(retrieval.indexName);
     if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
