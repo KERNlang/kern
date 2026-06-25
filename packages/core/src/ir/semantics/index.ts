@@ -28,6 +28,7 @@ import type { CompletionRecord, Trace } from './trace.js';
  */
 export interface SemanticEnv {
   bindings: Map<string, unknown>;
+  intProvenance?: Set<string>;
   /**
    * Enclosing lexical scope, if any. A `let` binds in THIS scope's `bindings`;
    * reads and `assign` walk up `parent` to the declaring scope (write-through).
@@ -55,6 +56,7 @@ export interface SemanticEnv {
 export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
   return {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
+    intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   };
@@ -79,7 +81,11 @@ function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
  * mutations to outer bindings write through to where they were declared.
  */
 export function childEnv(parent: SemanticEnv): SemanticEnv {
-  return { bindings: new Map(), parent, seed: parent.seed, now: parent.now };
+  // `intProvenance` is PER-SCOPE binding metadata (which names declared in THIS
+  // scope are guaranteed safe integers). A child starts EMPTY — it does not clone
+  // the parent's set; `isIntProvenanced` walks `declaringScope` first, so a
+  // counter declared in an outer scope is still found from a nested scope.
+  return { bindings: new Map(), intProvenance: new Set(), parent, seed: parent.seed, now: parent.now };
 }
 
 /** The nearest scope in the chain that declares `name`, or undefined if unbound. */
@@ -108,6 +114,13 @@ export function getBinding(env: SemanticEnv, name: string): unknown {
 /** Declare `name` in the INNERMOST scope (`let`). Overwrites a same-scope binding. */
 export function defineBinding(env: SemanticEnv, name: string, value: unknown): void {
   env.bindings.set(name, value);
+  env.intProvenance?.delete(name);
+}
+
+/** Declare `name` in the INNERMOST scope and mark it as a guaranteed safe integer. */
+export function defineIntBinding(env: SemanticEnv, name: string, value: unknown): void {
+  env.bindings.set(name, value);
+  (env.intProvenance ??= new Set()).add(name);
 }
 
 /**
@@ -119,6 +132,13 @@ export function defineBinding(env: SemanticEnv, name: string, value: unknown): v
 export function assignBinding(env: SemanticEnv, name: string, value: unknown): void {
   const scope = declaringScope(env, name) ?? env;
   scope.bindings.set(name, value);
+  scope.intProvenance?.delete(name);
+}
+
+/** True iff `name` is declared in a scope that marks it as a guaranteed safe integer. */
+export function isIntProvenanced(env: SemanticEnv, name: string): boolean {
+  const scope = declaringScope(env, name);
+  return scope?.intProvenance?.has(name) ?? false;
 }
 
 /** Delete `name` from the INNERMOST scope only (scope teardown). */

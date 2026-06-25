@@ -22,7 +22,8 @@
  *   - OUT-OF-BOUNDS / negative / non-integer index access (TS undefined vs Py
  *     IndexError/wraparound/TypeError — not 3-leg portable). In-bounds index
  *     reads now CERTIFY (slice-2b, see runner-array-index.test.ts),
- *   - `.length`, `assign` to an array binding, methods / spread / concat.
+ *   - `assign` to an array binding, methods / spread / concat. Array `.length`
+ *     now CERTIFIES (see runner-array-length.test.ts); string `.length` abstains.
  *
  * Every expected value here was verified empirically on the REAL emitters
  * (node + python3) before authoring — this is RED-at-base (arrays abstain today)
@@ -115,8 +116,11 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     abstains([letArr('xs', '[1,2,3]'), print('xs[5]')]);
   });
 
-  it('.length access abstains (deferred)', () => {
-    abstains([letArr('xs', '[1,2,3]'), print('xs.length')]);
+  it('STRING `.length` abstains (array `.length` now certifies — see runner-array-length.test.ts)', () => {
+    // Array `.length` reads the element count as of the array-length slice; a
+    // STRING `.length` stays fenced because JS counts UTF-16 code units while
+    // Python `len()` counts code points (`"😀".length` is 2 vs 1).
+    abstains([letArr('s', '"abc"'), print('s.length')]);
   });
 
   it('a non-integer FLOAT element abstains at binding time', () => {
