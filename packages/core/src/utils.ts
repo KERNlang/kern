@@ -1,4 +1,5 @@
 import type { DiagnosticOutcome, IRNode, TranspileDiagnostic } from './types.js';
+import { isRagRunnerOnlyNodeInContext, RAG_RUNNER_ONLY_DIAGNOSTIC_REASON } from './rag-emitted-boundary.js';
 
 /**
  * Approximate token count using a punctuation/whitespace split heuristic.
@@ -135,7 +136,7 @@ export function buildDiagnostics(
     return count;
   }
 
-  function walk(node: IRNode, parentUnsupported: boolean): void {
+  function walk(node: IRNode, parentUnsupported: boolean, parent?: IRNode): void {
     const entry = accounted.get(node);
 
     if (entry) {
@@ -148,9 +149,18 @@ export function buildDiagnostics(
           reason: entry.reason,
         });
       }
-      for (const child of node.children || []) walk(child, false);
+      for (const child of node.children || []) walk(child, false, node);
     } else if (parentUnsupported) {
-      for (const child of node.children || []) walk(child, true);
+      for (const child of node.children || []) walk(child, true, node);
+    } else if (isRagRunnerOnlyNodeInContext(node.type, ragBoundaryParentType(parent))) {
+      diagnostics.push({
+        nodeType: node.type,
+        outcome: 'consumed',
+        target,
+        loc: node.loc ? { line: node.loc.line, col: node.loc.col } : undefined,
+        reason: RAG_RUNNER_ONLY_DIAGNOSTIC_REASON,
+      });
+      for (const child of node.children || []) walk(child, false, node);
     } else {
       const lost = countUnaccountedDescendants(node);
       diagnostics.push({
@@ -160,10 +170,15 @@ export function buildDiagnostics(
         loc: node.loc ? { line: node.loc.line, col: node.loc.col } : undefined,
         childrenLost: lost || undefined,
       });
-      for (const child of node.children || []) walk(child, true);
+      for (const child of node.children || []) walk(child, true, node);
     }
   }
 
   walk(root, false);
   return diagnostics;
+}
+
+function ragBoundaryParentType(parent: IRNode | undefined): string | undefined {
+  if (!parent || parent.type === 'document') return undefined;
+  return parent.type;
 }

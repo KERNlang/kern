@@ -15,6 +15,7 @@ import {
 import { type CoreShapeFacts, collectCoreShapeFacts } from './core-runtime/shape-validator.js';
 import type { NodeContract } from './ir/semantics/index.js';
 import { snapshotRegistry } from './ir/semantics/index.js';
+import { RAG_EMITTED_BOUNDARY, type RagEmittedBoundary } from './rag-emitted-boundary.js';
 import {
   type ClassSemanticFacts,
   collectClassSemanticFacts,
@@ -127,6 +128,7 @@ export interface KernSemanticSubstrate {
   readonly classValidationSummary?: KernSemanticValidationSummary;
   readonly ragFacts?: RagSemanticFacts;
   readonly ragValidationSummary?: KernSemanticValidationSummary;
+  readonly ragEmittedBoundary?: RagEmittedBoundary;
   readonly ragAnswerReviewFacts?: readonly KernSemanticRagAnswerReviewFact[];
   readonly coreShapeFacts?: CoreShapeFacts;
 }
@@ -138,6 +140,7 @@ export interface BuildKernSemanticSubstrateOptions {
   readonly includeClassValidationSummary?: boolean;
   readonly documentRag?: IRNode | readonly IRNode[];
   readonly includeRagValidationSummary?: boolean;
+  readonly includeRagEmittedBoundary?: boolean;
   readonly documentShapes?: IRNode | readonly IRNode[];
 }
 
@@ -199,6 +202,7 @@ export function buildKernSemanticSubstrate(options: BuildKernSemanticSubstrateOp
     ...(options.documentRag && options.includeRagValidationSummary
       ? { ragValidationSummary: ragValidationSummary(options.documentRag) }
       : {}),
+    ...(options.includeRagEmittedBoundary ? { ragEmittedBoundary: RAG_EMITTED_BOUNDARY } : {}),
     ...(options.documentShapes ? { coreShapeFacts: collectCoreShapeFacts(options.documentShapes) } : {}),
   };
 }

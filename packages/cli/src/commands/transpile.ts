@@ -306,6 +306,13 @@ export function runTranspile(args: string[]): void {
         console.log(`  ⚠ ${d.nodeType}${loc} — unsupported in ${d.target}${lost}`);
       }
     }
+    const consumedRag = result.diagnostics.filter(
+      (d) => d.outcome === 'consumed' && d.reason?.includes('rag-runner-only-boundary') && !d.severity,
+    );
+    for (const d of consumedRag) {
+      const loc = d.loc ? `:${d.loc.line}` : '';
+      console.log(`  ℹ ${d.nodeType}${loc} — RAG runner-only boundary in ${d.target}`);
+    }
     // Surface severity-based diagnostics from transpiler
     const sevDiags = result.diagnostics.filter((d) => d.severity);
     for (const d of sevDiags) {

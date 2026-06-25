@@ -681,6 +681,15 @@ export {
 } from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
+export type { RagEmittedBoundary, RagEmittedBoundaryMode, RagRunnerOnlyNodeType } from './rag-emitted-boundary.js';
+export {
+  isRagRunnerOnlyNodeInContext,
+  isRagRunnerOnlyNodeType,
+  RAG_EMITTED_BOUNDARY,
+  RAG_EMITTED_BOUNDARY_VERSION,
+  RAG_RUNNER_ONLY_DIAGNOSTIC_REASON,
+  RAG_RUNNER_ONLY_NODE_TYPES,
+} from './rag-emitted-boundary.js';
 export type {
   RagCanonicalEmbedModel,
   RagEmbeddingProviderAdapter,
