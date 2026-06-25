@@ -41,7 +41,7 @@ import {
 } from '../../decimal/probe-gates.js';
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
-import { getBinding, hasBinding } from './index.js';
+import { getBinding, hasBinding, isIntProvenanced } from './index.js';
 
 export type PortableScalar = string | number | boolean | null;
 
@@ -290,34 +290,44 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       return obj.message;
     }
     case 'index': {
-      // Array INDEX read (slice-2b). Certify ONLY an in-bounds, non-negative,
-      // safe-integer index whose SOURCE is a BARE integer LITERAL, into an
-      // ident-bound array, returning a PORTABLE SCALAR element. Everything else
-      // throws -> the runner ABSTAINS.
+      // Array INDEX read. Certify an in-bounds, non-negative, safe-integer index
+      // into an ident-bound array, returning a PORTABLE SCALAR element. The index
+      // SOURCE must be either (slice-2b) a BARE integer LITERAL, or (dynamic-index
+      // slice) a BARE ident that is INTEGER-PROVENANCED — currently the live
+      // counter of an enclosing `for`, which the for-contract guarantees is a safe
+      // integer. Everything else throws -> the runner ABSTAINS.
       //
-      // The index is restricted to a literal ({@link isSafeIntegerLiteralIndex})
-      // because of TS<->Python divergences verified on real node+python3:
+      // Why not any ident, and why arithmetic still abstains — TS<->Python
+      // divergences verified on real node+python3:
       //   - INT vs FLOAT: Python list indices MUST be int — `xs[1.0]`, `xs[4/2]`
-      //     (Python `/` is float), and any ident bound to a float raise TypeError
-      //     in Python while JS + the reference collapse `1.0 === 1` and read xs[1].
+      //     (Python `/` is float), and any PLAIN-let ident bound to a float raise
+      //     TypeError in Python while JS + the reference collapse `1.0 === 1`. A
+      //     for-counter is exempt because its provenance proves it is an int; a
+      //     plain `let` is NOT provenanced (and `let j = i` is not transitive).
       //   - integer `%` diverges on a negative operand (`5 % -3` is 2 in JS, -1 in
-      //     Python), and `+`/`-`/`*` over safe literals can overflow 2^53 and round
-      //     in JS while Python stays exact — so ARITHMETIC indices abstain.
+      //     Python), and `+`/`-`/`*` over safe values can overflow 2^53 and round
+      //     in JS while Python stays exact — so ARITHMETIC indices (`xs[i+1]`)
+      //     abstain even on a counter (provenance proves int-ness, not closure).
       //   - JS has no int/float distinction and the emitters preserve the source
       //     numeric form, so the reference cannot tell a Python int from a float by
-      //     VALUE — hence the syntactic literal gate, not a value check.
-      // Idents / nested index-reads abstain (a binding can hold a Python float);
-      // dynamic indexing is a later slice. Then OOB / NEGATIVE are caught at runtime
-      // (TS undefined vs Py IndexError / wraparound). Object restricted to an
-      // array-binding ident, so OBJECT-position nesting (`xs[0][1]`) and string
-      // index (`s[0]`) abstain; a nested-array element is not a portable scalar, so
+      //     VALUE — hence the syntactic literal / provenance gate, not a value check.
+      // Provenance proves INTEGER-NESS, not IN-BOUNDS-ness: OOB / NEGATIVE indices
+      // are caught at runtime below (TS undefined vs Py IndexError / wraparound),
+      // and the throw propagates atomically. Object restricted to an array-binding
+      // ident, so OBJECT-position nesting (`xs[0][1]`) and string index (`s[0]`)
+      // abstain; a nested-array element is not a portable scalar, so
       // `assertPortableScalar` abstains on it.
       if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
       if (node.object.kind !== 'ident') {
         throw new Error('portable: index access is only admitted on an array-binding identifier');
       }
-      if (!isSafeIntegerLiteralIndex(node.index)) {
-        throw new Error('portable: array index must be a bare non-negative safe-integer literal');
+      if (
+        !isSafeIntegerLiteralIndex(node.index) &&
+        !(node.index.kind === 'ident' && isIntProvenanced(env, node.index.name))
+      ) {
+        throw new Error(
+          'portable: array index must be a bare non-negative safe-integer literal or an integer-provenanced loop counter',
+        );
       }
       if (!hasBinding(env, node.object.name)) {
         throw new Error(`portable: binding "${node.object.name}" not found`);

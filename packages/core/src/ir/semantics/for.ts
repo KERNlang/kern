@@ -14,7 +14,7 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   childEnv,
-  defineBinding,
+  defineIntBinding,
   getBinding,
   hasBinding,
   type NodeContract,
@@ -61,6 +61,15 @@ function evalValue(expr: ValueIR, env: SemanticEnv): unknown {
       if (!hasBinding(env, expr.name)) throw new Error(`for: binding "${expr.name}" not found in env`);
       return getBinding(env, expr.name);
     }
+    case 'member': {
+      if (expr.optional || expr.object.kind !== 'ident' || expr.property !== 'length') {
+        throw new Error('for: unsupported member expression in range bound');
+      }
+      if (!hasBinding(env, expr.object.name)) throw new Error(`for: binding "${expr.object.name}" not found in env`);
+      const array = getBinding(env, expr.object.name);
+      if (!Array.isArray(array)) throw new Error('for: range bound .length requires an array binding');
+      return array.length;
+    }
     case 'index': {
       const target = evalValue(expr.object, env);
       const index = evalValue(expr.index, env);
@@ -105,7 +114,7 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
     // emitted TS/Python loops. (Previously this forked `new Map(env.bindings)`,
     // discarding outer mutations: a `sum += i` accumulator returned 0, not 15.)
     const iterEnv = childEnv(env);
-    defineBinding(iterEnv, name, i);
+    defineIntBinding(iterEnv, name, i);
 
     const childTrace = referenceRunSequence(children, iterEnv);
     out.events.push(...childTrace.events);
