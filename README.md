@@ -34,6 +34,7 @@ kern compile api.kern --target=fastapi                        # Generate a FastA
 kern check                                                    # Nominal type checker (zero false positives)
 kern review src/ --recursive                                  # Static analysis (240 rules, taint tracking)
 kern context src/ --stdout                                    # Whole-project context map for an LLM/agent
+kern rag eval examples/rag-starter/eval-ci.kern --json         # CI-safe RAG retrieval contract eval
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
@@ -176,6 +177,24 @@ fn name=mk returns=Dog
 ```
 
 Exit codes: `0` clean, `1` findings, `2` operational failure — drop it straight into CI before `kern review`.
+
+---
+
+## kern rag
+
+KERN RAG declarations are consumed by the runner for local retrieval, persistent
+index snapshots, and CI contract evals. Emitted targets do not generate
+target-native retrieval adapters yet.
+
+```bash
+kern rag retrieve examples/rag-starter/local-only.kern --param "question=refund policy" --json
+kern rag index examples/rag-starter/eval-ci.kern --status --json
+kern rag eval examples/rag-starter/eval-ci.kern --json
+```
+
+Start with [`examples/rag-starter/`](examples/rag-starter/), then read
+[`docs/rag.md`](docs/rag.md) and
+[`docs/rag-troubleshooting.md`](docs/rag-troubleshooting.md).
 
 ---
 

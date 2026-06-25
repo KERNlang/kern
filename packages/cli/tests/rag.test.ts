@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,6 +141,28 @@ describe('kern rag', () => {
         grounding: expect.objectContaining({ passed: true, passRate: 1 }),
       }),
     );
+  });
+
+  test('keeps the rag-starter eval fixture runnable for CI', () => {
+    const fixture = join(dir, 'rag-starter');
+    cpSync(join(ROOT, 'examples/rag-starter'), fixture, { recursive: true });
+    rmSync(join(fixture, 'index'), { recursive: true, force: true });
+
+    const result = run(['rag', 'eval', 'eval-ci.kern', '--json'], fixture);
+
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout) as {
+      readonly passed: boolean;
+      readonly corpusSource: { readonly chunkCount: number };
+      readonly indexes: readonly [{ readonly storeKind: string; readonly status: string; readonly snapshotPath: string }];
+      readonly evals: readonly [{ readonly result: { readonly passed: boolean } }];
+    };
+    expect(report.passed).toBe(true);
+    expect(report.corpusSource.chunkCount).toBe(2);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({ storeKind: 'local-persistent', status: 'indexed', snapshotPath: 'index/DocsIndex.json' }),
+    );
+    expect(report.evals[0].result.passed).toBe(true);
   });
 
   test('emits runtime index lifecycle in JSON eval reports', () => {
@@ -329,6 +351,49 @@ describe('kern rag', () => {
     expect(result.stdout).toContain('refund policy money back within thirty days');
   });
 
+  test('emits CI-friendly JSON retrieve reports for in-memory indexes', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--query', 'refund policy money back', '--json'], dir);
+
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout) as {
+      readonly diagnostics: readonly unknown[];
+      readonly ingestion: {
+        readonly corpusSha256: string;
+        readonly chunks: readonly unknown[];
+        readonly sources: readonly unknown[];
+      };
+      readonly indexes: readonly [{ readonly indexName: string; readonly storeKind: string; readonly status: string }];
+      readonly retrievals: readonly [
+        {
+          readonly name: string;
+          readonly ragName: string;
+          readonly indexName: string;
+          readonly query: string;
+          readonly result: { readonly chunks: readonly [{ readonly id: string; readonly source: string }] };
+        },
+      ];
+    };
+    expect(report.diagnostics).toEqual([]);
+    expect(typeof report.ingestion.corpusSha256).toBe('string');
+    expect(Array.isArray(report.ingestion.chunks)).toBe(true);
+    expect(Array.isArray(report.ingestion.sources)).toBe(true);
+    expect(report.ingestion.chunks).toHaveLength(2);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({ indexName: 'DocsIndex', storeKind: 'memory', status: 'indexed' }),
+    );
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        name: 'FindDocs',
+        ragName: 'AnswerDocs',
+        indexName: 'DocsIndex',
+        query: 'refund policy money back',
+      }),
+    );
+    expect(report.retrievals[0].result.chunks[0]).toEqual(
+      expect.objectContaining({ source: 'docs/refunds.md' }),
+    );
+  });
+
   test('runs runtime ragRetrieve declarations with named query params', () => {
     const result = run(['rag', 'retrieve', 'retrieve.kern', '--param', 'question=refund policy money back'], dir);
     expect(result.status).toBe(0);
@@ -350,6 +415,55 @@ describe('kern rag', () => {
     expect(second.stdout).toContain('refunds');
     expect(second.stdout).toContain('DocsIndex store=DocsMemory kind=local-persistent status=reused');
     expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
+  });
+
+  test('emits JSON retrieve reports with local-persistent reuse state', () => {
+    const first = run(
+      ['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back', '--json'],
+      dir,
+    );
+    const snapshot = readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8');
+    const second = run(
+      ['rag', 'retrieve', 'persistent-retrieve.kern', '--query', 'refund policy money back', '--json'],
+      dir,
+    );
+
+    expect(first.status).toBe(0);
+    expect(second.status).toBe(0);
+    const firstReport = JSON.parse(first.stdout) as {
+      readonly indexes: readonly [{ readonly storeKind: string; readonly status: string; readonly snapshotPath: string }];
+    };
+    const secondReport = JSON.parse(second.stdout) as {
+      readonly indexes: readonly [{ readonly storeKind: string; readonly status: string; readonly snapshotPath: string }];
+    };
+    expect(firstReport.indexes[0]).toEqual(
+      expect.objectContaining({ storeKind: 'local-persistent', status: 'indexed', snapshotPath: 'index/DocsIndex.json' }),
+    );
+    expect(secondReport.indexes[0]).toEqual(
+      expect.objectContaining({ storeKind: 'local-persistent', status: 'reused', snapshotPath: 'index/DocsIndex.json' }),
+    );
+    expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
+  });
+
+  test('exits non-zero with JSON retrieve diagnostics for invalid specs', () => {
+    writeFileSync(
+      join(dir, 'invalid-retrieve.kern'),
+      RETRIEVE_DOC.replace('queryParam=question topK=1 output=', 'queryParam=question topK=0 output='),
+    );
+
+    const result = run(['rag', 'retrieve', 'invalid-retrieve.kern', '--query', 'refund policy', '--json'], dir);
+
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout) as {
+      readonly diagnostics: readonly [{ readonly rule: string; readonly message: string }];
+      readonly retrievals: readonly unknown[];
+    };
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('topK') }),
+      ]),
+    );
   });
 
   test('indexes local-persistent ragIndex snapshots and reports status as JSON', () => {
@@ -382,6 +496,40 @@ describe('kern rag', () => {
     const result = run(['rag', 'retrieve', 'dynamic-retrieve.kern'], dir);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('uses dynamic query=<expr>');
+  });
+
+  test('emits JSON retrieve errors for runtime retrieval failures', () => {
+    const result = run(['rag', 'retrieve', 'dynamic-retrieve.kern', '--json'], dir);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('');
+    const report = JSON.parse(result.stdout) as {
+      readonly diagnostics: readonly [{ readonly rule: string; readonly message: string }];
+      readonly indexes: readonly unknown[];
+      readonly retrievals: readonly unknown[];
+    };
+    expect(report.diagnostics).toEqual([
+      expect.objectContaining({ rule: 'rag-retrieve-error', message: expect.stringContaining('uses dynamic query=<expr>') }),
+    ]);
+    expect(report.indexes).toEqual([]);
+    expect(report.retrievals).toEqual([]);
+  });
+
+  test('emits JSON retrieve diagnostics for argument validation failures', () => {
+    const result = run(['rag', 'retrieve', 'retrieve.kern', '--json', '--param'], dir);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('');
+    const report = JSON.parse(result.stdout) as {
+      readonly diagnostics: readonly [{ readonly rule: string; readonly message: string }];
+      readonly indexes: readonly unknown[];
+      readonly retrievals: readonly unknown[];
+    };
+    expect(report.diagnostics).toEqual([
+      expect.objectContaining({ rule: 'rag-retrieve-error', message: expect.stringContaining('missing value for --param') }),
+    ]);
+    expect(report.indexes).toEqual([]);
+    expect(report.retrievals).toEqual([]);
   });
 
   test('rejects retrieve without a query source', () => {

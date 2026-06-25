@@ -24,7 +24,7 @@ import { join, resolve } from 'path';
 
 const USAGE =
   'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--rag-retriever <name>] [--rag-index <name>] [--json] [--openai-api-key <key>]\n' +
-  '       kern rag retrieve <file.kern> --query <text> [--param name=value] [--openai-api-key <key>]\n' +
+  '       kern rag retrieve <file.kern> [--query <text> | --param name=value] [--json] [--openai-api-key <key>]\n' +
   '       kern rag index <file.kern> [--status] [--json] [--force-rebuild] [--openai-api-key <key>]\n' +
   '       kern rag conformance [--adapter memory|local-persistent] [--json]\n' +
   '       kern rag conformance --list [--json]';
@@ -216,6 +216,7 @@ function createConformanceStore(
 async function runRagRetrieve(args: string[]): Promise<void> {
   const {
     filePath,
+    json,
     openAiApiKeyFlag,
     openAiKeyFlagPresent,
     paramError,
@@ -227,19 +228,26 @@ async function runRagRetrieve(args: string[]): Promise<void> {
     unknownFlags,
   } = parseRagRetrieveArgs(args);
   const resolvedFilePath = filePath ? resolve(filePath) : '';
-  if (unknownFlags.length > 0) fail(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`);
-  if (unexpectedArgs.length > 0) fail(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`);
-  if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
+  if (unknownFlags.length > 0) return finishRagRetrieveError(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`, json);
+  if (unexpectedArgs.length > 0)
+    return finishRagRetrieveError(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`, json);
+  if (!filePath) return finishRagRetrieveError(`missing <file.kern>.\n${USAGE}`, json);
   if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-')))
-    fail(`missing value for --query.\n${USAGE}`);
+    return finishRagRetrieveError(`missing value for --query.\n${USAGE}`, json);
   if (openAiKeyFlagPresent && (!openAiApiKeyFlag?.trim() || openAiApiKeyFlag.startsWith('-'))) {
-    fail(`missing value for --openai-api-key.\n${USAGE}`);
+    return finishRagRetrieveError(`missing value for --openai-api-key.\n${USAGE}`, json);
   }
-  if (paramError) fail(`${paramError}.\n${USAGE}`);
-  if (paramFlagPresent && Object.keys(queryParams).length === 0) fail(`missing value for --param.\n${USAGE}`);
-  if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
+  if (paramError) return finishRagRetrieveError(`${paramError}.\n${USAGE}`, json);
+  if (paramFlagPresent && Object.keys(queryParams).length === 0)
+    return finishRagRetrieveError(`missing value for --param.\n${USAGE}`, json);
+  if (!existsSync(resolvedFilePath)) return finishRagRetrieveError(`file not found: ${filePath}`, json);
 
-  const source = readFileSync(resolvedFilePath, 'utf-8');
+  let source: string;
+  try {
+    source = readFileSync(resolvedFilePath, 'utf-8');
+  } catch (err) {
+    return finishRagRetrieveError(`read failed: ${errorMessageWithClose(err)}`, json);
+  }
   let report: RagRetrieveDocumentReport;
   try {
     report = await retrieveRagDocumentAsync(source, {
@@ -249,9 +257,14 @@ async function runRagRetrieve(args: string[]): Promise<void> {
       ...ragProviderOptions(openAiApiKeyFlag),
     });
   } catch (err) {
-    fail(`retrieval failed: ${errorMessageWithClose(err)}`);
+    return finishRagRetrieveError(`retrieval failed: ${errorMessageWithClose(err)}`, json);
   }
 
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    process.exitCode = report.diagnostics.length > 0 ? 1 : 0;
+    return;
+  }
   if (report.diagnostics.length > 0) {
     console.log(`kern rag retrieve ${filePath}`);
     console.log(`  invalid RAG spec — ${report.diagnostics.length} violation(s):`);
@@ -259,12 +272,14 @@ async function runRagRetrieve(args: string[]): Promise<void> {
       const where = diagnostic.line ? ` (line ${diagnostic.line})` : '';
       console.log(`    ✗ ${diagnostic.rule}${where}: ${diagnostic.message}`);
     }
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   console.log(`kern rag retrieve ${filePath}  (${ragRetrieveCorpusSourceSummary(report)})`);
   if (report.retrievals.length === 0) {
     console.log('  no ragRetrieve declared — nothing to run.');
-    process.exit(0);
+    process.exitCode = 0;
+    return;
   }
   if (report.indexes.length > 0) {
     console.log('  indexes:');
@@ -285,7 +300,23 @@ async function runRagRetrieve(args: string[]): Promise<void> {
       console.log(`    ${chunk.id} score=${chunk.score} source=${chunk.source} text="${truncateText(chunk.text)}"`);
     }
   }
-  process.exit(0);
+  process.exitCode = 0;
+}
+
+function finishRagRetrieveError(message: string, json: boolean): void {
+  if (!json) fail(message);
+  console.log(
+    JSON.stringify(
+      {
+        diagnostics: [{ rule: 'rag-retrieve-error', message }],
+        indexes: [],
+        retrievals: [],
+      },
+      null,
+      2,
+    ),
+  );
+  process.exitCode = 1;
 }
 
 async function runRagEval(args: string[]): Promise<void> {
@@ -627,6 +658,7 @@ function parseRagConformanceArgs(args: readonly string[]): ParsedRagConformanceA
 
 interface ParsedRagRetrieveArgs {
   readonly filePath?: string;
+  readonly json: boolean;
   readonly query?: string;
   readonly queryFlagPresent: boolean;
   readonly queryParams: Record<string, string>;
@@ -640,6 +672,7 @@ interface ParsedRagRetrieveArgs {
 
 function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
   let filePath: string | undefined;
+  let json = false;
   let query: string | undefined;
   let queryFlagPresent = false;
   let paramFlagPresent = false;
@@ -661,6 +694,10 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
     if (arg.startsWith('--query=')) {
       queryFlagPresent = true;
       query = arg.slice('--query='.length);
+      continue;
+    }
+    if (arg === '--json') {
+      json = true;
       continue;
     }
     if (arg === '--param') {
@@ -698,6 +735,7 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
 
   return {
     filePath,
+    json,
     query,
     queryFlagPresent,
     queryParams,
