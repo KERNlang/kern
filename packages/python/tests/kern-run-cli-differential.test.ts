@@ -207,6 +207,19 @@ const CERT: Array<[string, string[], string]> = [
     ['let name=xs value="[true,false]"', 'print value="xs[1]"'],
     'false\n',
   ],
+  // ── array `.length` read: element count is byte-identical 3-leg ──────────────
+  // `xs.length` lowers to TS `xs.length` and Python `len(xs)`; for an array both
+  // are the element count. STRING `.length` is NOT certified (JS UTF-16 units vs
+  // Python code points diverge on astral chars), so it is absent here.
+  ['array length reads the element count', ['let name=xs value="[1,2,3]"', 'print value="xs.length"'], '3\n'],
+  ['empty array length is 0', ['let name=xs value="[]"', 'print value="xs.length"'], '0\n'],
+  [
+    // A leaf-counting impl would print 5; the contract is TOP-LEVEL cardinality.
+    'nested array length counts top-level elements',
+    ['let name=xs value="[[1,2],[3,4,5]]"', 'print value="xs.length"'],
+    '2\n',
+  ],
+  ['array length flows into arithmetic', ['let name=xs value="[1,2,3]"', 'print value="xs.length - 1"'], '2\n'],
 ];
 
 execDescribe('kern run — 3-leg CLI differential (kern-run === ts === py)', () => {

@@ -25,10 +25,10 @@
  *
  * Executable surface is exactly what the runner certifies today: print / let /
  * assign / for / if / while / each / return / portable arithmetic / portable
- * array-literal binding / literal in-bounds array index reads. Constructs the
- * runner does not yet execute over PRODUCTION IR (branch/try/throw, fmt
- * interpolation, whole-array rendering, objects, dynamic array index reads)
- * ABSTAIN -> exit 2, by design.
+ * array-literal binding / literal in-bounds array index reads / array `.length`.
+ * Constructs the runner does not yet execute over PRODUCTION IR (branch/try/throw,
+ * fmt interpolation, whole-array rendering, objects, dynamic array index reads,
+ * string `.length`) ABSTAIN -> exit 2, by design.
  *
  * Every expected stdout byte below was verified empirically against the built
  * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
@@ -234,6 +234,27 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.status).toBe(0);
     expect(r.stderr).toBe('');
   });
+
+  test('ARRAY LENGTH: reads the element count', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs.length"']);
+    expect(r.stdout).toBe('3\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('ARRAY LENGTH: an empty array reads 0', () => {
+    const r = runProgram(['let name=xs value="[]"', 'print value="xs.length"']);
+    expect(r.stdout).toBe('0\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('ARRAY LENGTH: the length value flows into arithmetic', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs.length - 1"']);
+    expect(r.stdout).toBe('2\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
 });
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
@@ -305,6 +326,38 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
 
   test('a float ELEMENT abstains when iterated/printed (print float fails closed)', () => {
     const r = runProgram(['let name=xs value="[1.5]"', 'each name=x in=xs', '  print value="x"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('STRING `.length` abstains (JS UTF-16 units vs Python code points)', () => {
+    // ASCII happens to agree, but the runner rule is arrays-only: a string
+    // receiver fails closed so an astral case can never silently diverge.
+    const r = runProgram(['let name=s value="\\"hello\\""', 'print value="s.length"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('ASTRAL string `.length` abstains (the real divergence: JS 2 vs Python 1)', () => {
+    const r = runProgram(['let name=s value="\\"😀\\""', 'print value="s.length"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('OPTIONAL `xs?.length` abstains (outside the portable domain)', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs?.length"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test("COMPUTED `xs['length']` abstains (a string-literal index is not certified)", () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs[\'length\']"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('a NON-`length` member on an array (`xs.foo`) abstains', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs.foo"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
