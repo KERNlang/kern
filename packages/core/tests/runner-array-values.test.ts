@@ -9,17 +9,19 @@
  *
  * Semantics MIRROR the product runtime (`core-runtime`'s `arrayLit` case): an
  * array literal eagerly, recursively evaluates its elements into a single array
- * value. Elements are the portable-scalar domain (number, string, bool, null)
- * plus NESTED array literals of the same. A non-portable element (Decimal, a
- * regex, an object, an unsupported call) makes the binding ABSTAIN (fail-close).
+ * value. Elements are the portable-scalar domain (safe-integer number, string,
+ * bool, null) plus NESTED array literals of the same. A non-portable element
+ * (non-canonical numeric literal, non-integer/unsafe numeric expression, Decimal,
+ * a regex, an object, an unsupported call) makes the binding ABSTAIN (fail-close).
  *
  * Deliberately DEFERRED in this slice — every one must ABSTAIN (precondition
  * fails → `referenceRunSequence` throws `ReferenceRunnerError`), never produce
  * a value:
  *   - whole-array `print xs` (the shipped `print` contract already fail-closes
  *     arrays AND non-integer floats — the runner is a conservative subset),
- *   - index access `xs[i]` (core-runtime returns `undefined` on OOB, which is
- *     NOT 3-leg portable — a portable reference index is its own slice),
+ *   - OUT-OF-BOUNDS / negative / non-integer index access (TS undefined vs Py
+ *     IndexError/wraparound/TypeError — not 3-leg portable). In-bounds index
+ *     reads now CERTIFY (slice-2b, see runner-array-index.test.ts),
  *   - `.length`, `assign` to an array binding, methods / spread / concat.
  *
  * Every expected value here was verified empirically on the REAL emitters
@@ -107,15 +109,17 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     abstains([letArr('xs', '[1,2,3]'), print('xs')]);
   });
 
-  it('index access abstains (deferred — core OOB semantics are not 3-leg portable)', () => {
-    abstains([letArr('xs', '[1,2,3]'), print('xs[1]')]);
+  it('OUT-OF-BOUNDS index abstains (TS undefined vs Py IndexError — not 3-leg portable)', () => {
+    // In-bounds index now certifies (slice-2b, runner-array-index.test.ts); an
+    // OOB read stays fenced because the two emitter legs diverge on it.
+    abstains([letArr('xs', '[1,2,3]'), print('xs[5]')]);
   });
 
   it('.length access abstains (deferred)', () => {
     abstains([letArr('xs', '[1,2,3]'), print('xs.length')]);
   });
 
-  it('a non-integer FLOAT element abstains when observed (print float fails closed)', () => {
+  it('a non-integer FLOAT element abstains at binding time', () => {
     abstains([letArr('xs', '[1.5]'), eachPrint('x', 'xs', print('x'))]);
   });
 

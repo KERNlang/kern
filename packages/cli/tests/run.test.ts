@@ -23,10 +23,12 @@
  *     a future uncaught KERN `throw`; `throw` ABSTAINS in the runner today, so it
  *     fail-closes to 2 in slice-1.)
  *
- * Executable surface in slice-1 is exactly what the runner certifies today:
- * print / let / assign / for / return / portable arithmetic. Constructs the
- * runner does not yet execute over PRODUCTION IR (if/while/each/branch/try/throw,
- * fmt interpolation, arrays/objects) ABSTAIN -> exit 2, by design.
+ * Executable surface is exactly what the runner certifies today: print / let /
+ * assign / for / if / while / each / return / portable arithmetic / portable
+ * array-literal binding / literal in-bounds array index reads. Constructs the
+ * runner does not yet execute over PRODUCTION IR (branch/try/throw, fmt
+ * interpolation, whole-array rendering, objects, dynamic array index reads)
+ * ABSTAIN -> exit 2, by design.
  *
  * Every expected stdout byte below was verified empirically against the built
  * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
@@ -219,6 +221,19 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.status).toBe(0);
     expect(r.stderr).toBe('');
   });
+  test('ARRAY INDEX: an in-bounds read prints the element', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[0]"']);
+    expect(r.stdout).toBe('10\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('ARRAY INDEX: the last in-bounds literal index reads the last element', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[2]"']);
+    expect(r.stdout).toBe('30\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
 });
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
@@ -252,8 +267,38 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('array index access abstains (deferred — core OOB semantics are not 3-leg portable)', () => {
-    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs[1]"']);
+  test('OUT-OF-BOUNDS index abstains (TS undefined vs Py IndexError)', () => {
+    // In-bounds index now runs (see the happy-path ARRAY INDEX tests above); an
+    // OOB read stays fenced because the emitter legs diverge.
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs[5]"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('NEGATIVE index abstains (TS undefined vs Py wraps to last element)', () => {
+    const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs[-1]"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('FLOAT-literal index abstains (Python list indices must be int)', () => {
+    // ref + TS would read xs[1] (1.0 === 1) but Python `xs[1.0]` raises TypeError,
+    // so the runner fences float-source indices. Verified on real node + python3.
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[1.0]"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('a dynamic (variable) index abstains (deferred — needs integer provenance)', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'let name=j value="1"', 'print value="xs[j]"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('an arithmetic index abstains (only bare safe-integer literals certify)', () => {
+    // `1 + 1` is in-bounds but computed indices abstain: integer `%` diverges by
+    // sign and `+/-/*` can overflow 2^53 (JS rounds, Python is exact).
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[1 + 1]"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });

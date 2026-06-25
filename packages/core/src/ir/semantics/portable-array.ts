@@ -3,10 +3,11 @@
  *
  * Mirrors the product runtime (`core-runtime`'s `arrayLit` case): a `[...]`
  * literal eagerly, recursively evaluates its elements into ONE array value.
- * Elements are the portable-scalar domain (number/string/bool/null) plus NESTED
- * array literals of the same. A non-portable element (Decimal, regex, object, an
- * unsupported call) makes evaluation THROW, which the `let` precondition catches
- * -> the runner ABSTAINS (fail-close).
+ * Elements are the portable-scalar domain (safe-integer number/string/bool/null)
+ * plus NESTED array literals of the same. A non-portable element (non-canonical
+ * numeric literal, non-integer/unsafe numeric expression, Decimal, regex, object,
+ * an unsupported call) makes evaluation THROW, which the `let` precondition
+ * catches -> the runner ABSTAINS (fail-close).
  *
  * Arrays bind as PLAIN frozen JS arrays (not a tagged wrapper) because `each`
  * consumes native arrays directly (for...of). A plain array is NOT a portable
@@ -26,6 +27,24 @@ export function isArrayLiteralExpression(node: ValueIR): node is Extract<ValueIR
   return node.kind === 'arrayLit';
 }
 
+function isCanonicalSafeIntegerLiteral(node: Extract<ValueIR, { kind: 'numLit' }>): boolean {
+  if (node.bigint || !/^-?[0-9]+$/.test(node.raw)) return false;
+  const value = Number(node.raw);
+  return Number.isSafeInteger(value) && String(value) === node.raw && node.value === value;
+}
+
+function evalArrayLiteralItem(item: ValueIR, env: SemanticEnv): PortableArrayElement {
+  if (item.kind === 'arrayLit') return evalArrayLiteralValue(item, env);
+  if (item.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(item)) {
+    throw new Error('portable-array: numeric elements must be canonical safe integers');
+  }
+  const value = evalPortableValue(item, env);
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+    throw new Error('portable-array: numeric elements must evaluate to safe integers');
+  }
+  return value;
+}
+
 /** Eagerly, recursively evaluate an array literal into a frozen array value.
  *  Scalar elements go through `evalPortableValue` (an out-of-domain element
  *  THROWS); nested array literals recurse. Throws on a non-arrayLit root. */
@@ -33,8 +52,6 @@ export function evalArrayLiteralValue(node: ValueIR, env: SemanticEnv): Readonly
   if (node.kind !== 'arrayLit') {
     throw new Error('portable-array: expected an array literal expression');
   }
-  const items = node.items.map((item) =>
-    item.kind === 'arrayLit' ? evalArrayLiteralValue(item, env) : evalPortableValue(item, env),
-  );
+  const items = node.items.map((item) => evalArrayLiteralItem(item, env));
   return Object.freeze(items);
 }
