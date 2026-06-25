@@ -221,7 +221,7 @@ function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
   if (node.kind !== 'numLit' || node.bigint) return false;
   if (!/^[0-9]+$/.test(node.raw)) return false;
   const n = Number(node.raw);
-  return Number.isSafeInteger(n) && String(n) === node.raw;
+  return Number.isSafeInteger(n) && String(n) === node.raw && node.value === n;
 }
 
 export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScalar {

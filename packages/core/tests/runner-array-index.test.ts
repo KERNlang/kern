@@ -38,7 +38,9 @@
  */
 
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
+import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
 import type { IRNode } from '../src/types.js';
+import type { ValueIR } from '../src/value-ir.js';
 
 beforeAll(() => {
   registerAllContracts();
@@ -184,5 +186,16 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
 
   it('indexing a non-array (scalar) binding abstains', () => {
     abstains([letScalar('n', '5'), print('n[0]')]);
+  });
+
+  it('malformed IR whose numeric index raw/value disagree abstains', () => {
+    const expr: ValueIR = {
+      kind: 'index',
+      object: { kind: 'ident', name: 'xs' },
+      index: { kind: 'numLit', raw: '0', value: 1 },
+      optional: false,
+    };
+    const env = makeEnv({ bindings: new Map<string, unknown>([['xs', [10, 20, 30]]]) });
+    expect(() => evalPortableValue(expr, env)).toThrow(/bare non-negative safe-integer literal/);
   });
 });
