@@ -264,6 +264,12 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       if (node.object.kind !== 'ident') {
         throw new Error('portable: member access is only admitted on an array or caught-error binding');
       }
+      // Resolve the binding explicitly (mirrors the `index` case) so an UNBOUND
+      // receiver fails with a precise "binding not found" rather than the generic
+      // out-of-domain message. Either way the runner abstains; this is diagnostics.
+      if (!hasBinding(env, node.object.name)) {
+        throw new Error(`portable: binding "${node.object.name}" not found`);
+      }
       const obj = getBinding(env, node.object.name);
       if (Array.isArray(obj)) {
         // Array `.length` is portable; string `.length` is not (JS counts UTF-16

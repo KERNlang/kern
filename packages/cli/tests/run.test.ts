@@ -249,6 +249,13 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.stderr).toBe('');
   });
 
+  test('ARRAY LENGTH: a nested array counts TOP-LEVEL elements (not leaves)', () => {
+    const r = runProgram(['let name=xs value="[[1,2],[3,4,5]]"', 'print value="xs.length"']);
+    expect(r.stdout).toBe('2\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
   test('ARRAY LENGTH: the length value flows into arithmetic', () => {
     const r = runProgram(['let name=xs value="[1,2,3]"', 'print value="xs.length - 1"']);
     expect(r.stdout).toBe('2\n');

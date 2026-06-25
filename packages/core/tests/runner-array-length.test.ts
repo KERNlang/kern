@@ -110,6 +110,16 @@ describe('runner array length — fail-close fences (abstain, never a value)', (
     abstains([letBind('b', 'true'), print('b.length')]);
   });
 
+  it('NULL receiver `.length` abstains', () => {
+    abstains([letBind('n', 'null'), print('n.length')]);
+  });
+
+  it('DECIMAL (tagged-object) receiver `.length` abstains', () => {
+    // A non-array, non-caught-error OBJECT receiver — distinct code path from the
+    // scalar receivers above — must fail closed too.
+    abstains([letBind('d', 'Decimal.of("1")'), print('d.length')]);
+  });
+
   it('a REBOUND ident (array name later holding a scalar) abstains', () => {
     // The receiver must be an array AT READ TIME; a scalar binding fails closed.
     abstains([letBind('xs', '1'), print('xs.length')]);
@@ -155,7 +165,7 @@ describe('runner array length — fail-close fences (abstain, never a value)', (
     expect(evalPortableValue(expr, env)).toBe(3);
   });
 
-  it('evalPortableValue abstains on `.length` on a non-array (string) binding', () => {
+  it('evalPortableValue throws on `.length` on a non-array (string) binding', () => {
     const expr: ValueIR = { kind: 'member', object: { kind: 'ident', name: 's' }, property: 'length', optional: false };
     const env = makeEnv({ bindings: new Map<string, unknown>([['s', 'abc']]) });
     expect(() => evalPortableValue(expr, env)).toThrow(/portable/);
