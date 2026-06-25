@@ -13,12 +13,18 @@
  * Portability domain:
  *   - `name` is a cross-target identifier, not already bound in the current
  *     semantic environment, and not a known JS/Python/KERN builtin name.
- *   - `value` is required and evaluates to a portable scalar: string, finite
- *     number, boolean, or null.
- *   - Expressions are the shared portable-scalar subset (see
+ *   - `value` is required and evaluates to EITHER a portable scalar (string,
+ *     finite number, boolean, null) OR an ARRAY LITERAL `[...]` (slice-2a).
+ *   - Scalar expressions are the shared portable-scalar subset (see
  *     `./portable-scalar.ts`): literals, identifiers resolving to portable
  *     scalars, arithmetic over numbers, comparisons over same-typed scalars,
  *     boolean/nullish operators over portable truthiness, and conditionals.
+ *   - An ARRAY LITERAL binds a plain frozen JS array of recursively-evaluated
+ *     portable elements (scalars + nested array literals), mirroring the product
+ *     runtime's `arrayLit` (see `./portable-array.ts`). It exists to be iterated
+ *     by `each`; a non-portable element (Decimal/regex/object) abstains, and a
+ *     SCALAR-context read of a bound array (`print xs`, `xs + 1`, index `xs[0]`)
+ *     still fails closed via `assertPortableScalar` (those surfaces are deferred).
  *
  * Exclusions:
  *   Bare declarations, destructuring, same-block redeclaration, builtin
@@ -36,6 +42,7 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
@@ -56,7 +63,12 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   if (!Object.hasOwn(ir.props ?? {}, 'value') || props.value === '') return false;
   if (props.kind !== undefined && props.kind !== '' && props.kind !== 'let' && props.kind !== 'const') return false;
   try {
-    evalPortableValue(parseExpression(String(props.value)), env);
+    const parsed = parseExpression(String(props.value));
+    if (isArrayLiteralExpression(parsed)) {
+      evalArrayLiteralValue(parsed, env);
+      return true;
+    }
+    evalPortableValue(parsed, env);
     return true;
   } catch {
     return false;
@@ -66,7 +78,8 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
 function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   const props = asLetProps(ir);
   const name = props.name as string;
-  const value = evalPortableValue(parseExpression(String(props.value)), env);
+  const parsed = parseExpression(String(props.value));
+  const value = isArrayLiteralExpression(parsed) ? evalArrayLiteralValue(parsed, env) : evalPortableValue(parsed, env);
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
