@@ -17,11 +17,13 @@ import {
   defineIntBinding,
   getBinding,
   hasBinding,
+  isIntProvenanced,
   type NodeContract,
   type NodeFixture,
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { isSafeIntegerLiteralIndex } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -71,6 +73,20 @@ function evalValue(expr: ValueIR, env: SemanticEnv): unknown {
       return array.length;
     }
     case 'index': {
+      // A range-bound array index must be PORTABLE for 3-leg parity, the SAME gate
+      // as the body index reader (portable-scalar): a bare safe-integer LITERAL or
+      // a bare integer-provenanced ident (a for-counter). A plain `let` ident can
+      // be a Python float (`let j = 4/2` is 2.0), so `for to=xs[j]` would read
+      // xs[2] in JS/ref but raise TypeError in Python (`range(0, xs[2.0])`) — it
+      // must abstain. (`bounds[0]` literal indices still pass.)
+      if (
+        !isSafeIntegerLiteralIndex(expr.index) &&
+        !(expr.index.kind === 'ident' && isIntProvenanced(env, expr.index.name))
+      ) {
+        throw new Error(
+          'for: range-bound array index must be a safe-integer literal or an integer-provenanced loop counter',
+        );
+      }
       const target = evalValue(expr.object, env);
       const index = evalValue(expr.index, env);
       if (Array.isArray(target) && typeof index === 'number') return target[index];

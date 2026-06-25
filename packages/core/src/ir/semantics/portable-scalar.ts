@@ -217,7 +217,7 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
  *  index-reads are excluded too (they can resolve to a Python float). So a computed
  *  or variable index ABSTAINS; dynamic indexing is deferred to a slice that proves
  *  exact integer arithmetic (e.g. BigInt-checked) or carries integer provenance. */
-function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
+export function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
   if (node.kind !== 'numLit' || node.bigint) return false;
   if (!/^[0-9]+$/.test(node.raw)) return false;
   const n = Number(node.raw);

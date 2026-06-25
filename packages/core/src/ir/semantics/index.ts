@@ -81,6 +81,10 @@ function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
  * mutations to outer bindings write through to where they were declared.
  */
 export function childEnv(parent: SemanticEnv): SemanticEnv {
+  // `intProvenance` is PER-SCOPE binding metadata (which names declared in THIS
+  // scope are guaranteed safe integers). A child starts EMPTY — it does not clone
+  // the parent's set; `isIntProvenanced` walks `declaringScope` first, so a
+  // counter declared in an outer scope is still found from a nested scope.
   return { bindings: new Map(), intProvenance: new Set(), parent, seed: parent.seed, now: parent.now };
 }
 

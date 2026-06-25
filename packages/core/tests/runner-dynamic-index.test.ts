@@ -112,6 +112,17 @@ describe('runner dynamic index — for-counter reads certify (3-leg portable)', 
       '0\n1\n2\n',
     );
   });
+
+  it('a NESTED loop resolves the OUTER counter across scopes (declaringScope provenance)', () => {
+    // `xs[i]` is read in the INNER loop's scope while `i` is the OUTER counter —
+    // isIntProvenanced must walk to the declaring scope to find i's mark.
+    expect(
+      runStdout([
+        letBind('xs', '[10,20,30]'),
+        forL({ name: 'i', from: '0', to: 'xs.length' }, forL({ name: 'k', from: '0', to: '1' }, print('xs[i]'))),
+      ]),
+    ).toBe('10\n20\n30\n');
+  });
 });
 
 // ── FAIL-CLOSE: every non-(provenanced-counter) index ABSTAINS ────────────────
@@ -138,6 +149,24 @@ describe('runner dynamic index — fail-close fences (abstain, never a value)', 
     abstains([
       letBind('xs', '[10,20,30]'),
       forL({ name: 'i', from: '0', to: '3' }, assign('i', '4 / 2'), print('xs[i]')),
+    ]);
+  });
+
+  it('ANY assign to the counter clears provenance, even an integer (`assign i = 1`)', () => {
+    // Provenance is minted by the loop, not re-derived from the assigned value —
+    // so even an integer reassignment drops it (the binding is no longer the
+    // construct-guaranteed counter). Fail-safe over-rejection.
+    abstains([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '3' }, assign('i', '1'), print('xs[i]'))]);
+  });
+
+  it('a for-RANGE bound indexed by a plain let `for to=xs[j]` abstains (j could be a Python float)', () => {
+    // The blocking review finding: for's range evaluator must apply the SAME index
+    // gate as the body — `let j = 4/2` is 2.0 in Python, so `range(0, xs[2.0])`
+    // raises TypeError while JS/ref read xs[2]. Verified divergent on node+python3.
+    abstains([
+      letBind('xs', '[3,4,5]'),
+      letBind('j', '4 / 2'),
+      forL({ name: 'i', from: '0', to: 'xs[j]' }, print('i')),
     ]);
   });
 
