@@ -256,20 +256,23 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
         ? evalPortableValue(node.consequent, env)
         : evalPortableValue(node.alternate, env);
     case 'member': {
-      // Error-substrate Slice 1 — the ONLY admitted member read in the portable
-      // domain is `<caughtErrorBinding>.message` (a non-optional `.message` on
-      // an ident resolving to a tagged caught-error value). It returns the
-      // EVALUATED LITERAL message stored when the explicit `throw new Error("…")`
-      // was caught — byte-identical to TS `e.message` and Python `str(e)`.
-      // EVERYTHING else (a different property, an optional `?.`, a non-ident
-      // object, an ident that is not a caught error) throws → the runner
-      // ABSTAINS. This is the fail-close fence: `e.name`/`e.stack`/`e` (bare)
-      // and any non-caught-error member access never produce a one-leg value.
+      // Member reads are admitted only for the explicit portable slices:
+      // `<arrayBinding>.length` and `<caughtErrorBinding>.message`. Both must be
+      // non-optional reads on a bare identifier. Everything else throws -> the
+      // runner ABSTAINS rather than producing a one-leg value.
       if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
       if (node.object.kind !== 'ident') {
-        throw new Error('portable: member access is only admitted on a caught-error binding');
+        throw new Error('portable: member access is only admitted on an array or caught-error binding');
       }
       const obj = getBinding(env, node.object.name);
+      if (Array.isArray(obj)) {
+        // Array `.length` is portable; string `.length` is not (JS counts UTF-16
+        // code units while Python counts code points), so only arrays pass here.
+        if (node.property !== 'length') {
+          throw new Error(`portable: array has no portable property "${node.property}" (only .length is admitted)`);
+        }
+        return obj.length;
+      }
       if (!isCaughtErrorValue(obj)) {
         throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
       }
