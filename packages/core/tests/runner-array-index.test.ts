@@ -165,14 +165,17 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
     abstains([letArr('xs', '[10,20,30]'), print('xs[05]')]);
   });
 
-  it('an IDENT (bound variable) index abstains (deferred — dynamic indexing)', () => {
-    // Even in-bounds: a variable can hold a Python float the reference cannot rule
-    // out by value -> abstain until integer-provenance exists.
+  it('a plain LET-bound (non-counter) ident index abstains (could be a Python float)', () => {
+    // Even in-bounds: a plain `let` binding can hold a Python float the reference
+    // cannot rule out by value -> abstain. A for-COUNTER now certifies via
+    // integer-provenance (see runner-dynamic-index.test.ts); a plain let does not.
     abstains([letArr('xs', '[5,6,7]'), letScalar('j', '2'), print('xs[j]')]);
   });
 
-  it('a for-loop variable index abstains (deferred — dynamic indexing)', () => {
-    abstains([letArr('xs', '[10,20,30]'), forLoop('i', '0', '3', print('xs[i]'))]);
+  it('ARITHMETIC on a for-loop counter index abstains (bare counter certifies; `i+1` deferred)', () => {
+    // `xs[i]` with `i` a for-counter now CERTIFIES (runner-dynamic-index.test.ts);
+    // arithmetic on the counter stays fenced (overflow / negative-modulo proof).
+    abstains([letArr('xs', '[10,20,30]'), forLoop('i', '0', '3', print('xs[i + 1]'))]);
   });
 
   it('INDEX-POSITION nesting `xs[ys[0]]` abstains (a nested index is not a literal)', () => {
@@ -250,6 +253,6 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
         { kind: 'member', object: null, property: 'message', optional: false } as unknown as ValueIR,
         makeEnv(),
       ),
-    ).toThrow('portable: member access is only admitted on a caught-error binding');
+    ).toThrow('portable: member access is only admitted on an array or caught-error binding');
   });
 });

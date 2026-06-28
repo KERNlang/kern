@@ -234,6 +234,44 @@ const CERT: Array<[string, string[], string]> = [
     ['let name=xs value="[true,false]"', 'print value="xs[1]"'],
     'false\n',
   ],
+  // ── array `.length` read: element count is byte-identical 3-leg ──────────────
+  // `xs.length` lowers to TS `xs.length` and Python `len(xs)`; for an array both
+  // are the element count. STRING `.length` is NOT certified (JS UTF-16 units vs
+  // Python code points diverge on astral chars), so it is absent here.
+  ['array length reads the element count', ['let name=xs value="[1,2,3]"', 'print value="xs.length"'], '3\n'],
+  ['empty array length is 0', ['let name=xs value="[]"', 'print value="xs.length"'], '0\n'],
+  [
+    // A leaf-counting impl would print 5; the contract is TOP-LEVEL cardinality.
+    'nested array length counts top-level elements',
+    ['let name=xs value="[[1,2],[3,4,5]]"', 'print value="xs.length"'],
+    '2\n',
+  ],
+  ['array length flows into arithmetic', ['let name=xs value="[1,2,3]"', 'print value="xs.length - 1"'], '2\n'],
+  // ── DYNAMIC index via for-counter provenance + `.length` for-bound ───────────
+  // A `for` counter is a guaranteed safe integer, so `xs[i]` reads byte-identical
+  // 3-leg (TS `for(…; i<xs.length; …)`+`xs[i]`; Python `range(len(xs))`+`xs[i]`).
+  // OOB / negative iterations DIVERGE (TS undefined vs Py IndexError/wraparound)
+  // so they ABSTAIN and are NOT certified here.
+  [
+    'HEADLINE: iterate an array by index over its length',
+    ['let name=xs value="[10,20,30]"', 'for name=i from="0" to="xs.length"', '  print value="xs[i]"'],
+    '10\n20\n30\n',
+  ],
+  [
+    'stepped for-counter index reads every other element',
+    ['let name=xs value="[10,20,30,40,50]"', 'for name=i from="0" to="xs.length" step="2"', '  print value="xs[i]"'],
+    '10\n30\n50\n',
+  ],
+  [
+    'reverse for-counter index reads back-to-front',
+    ['let name=xs value="[10,20,30]"', 'for name=i from="2" to="-1" step="-1"', '  print value="xs[i]"'],
+    '30\n20\n10\n',
+  ],
+  [
+    '`.length` as a for-bound alone drives the iteration count',
+    ['let name=xs value="[10,20,30]"', 'for name=i from="0" to="xs.length"', '  print value="i"'],
+    '0\n1\n2\n',
+  ],
 ];
 
 execDescribe('kern run — 3-leg CLI differential (kern-run === ts === py)', () => {
