@@ -320,8 +320,10 @@ function prepareRuntimeRetrievals<TEmbedder extends Pick<Embedder, 'dims' | 'id'
   options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams' | 'runtimeRetrievalNames'>,
   embedderFor: (index: RagSemanticIndexFact) => TEmbedder,
 ): PreparedRagRetrieval<TEmbedder>[] {
-  const indexByName = new Map(facts.indexes.map((index) => [index.name, index]));
-  const vectorStoreByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
+  const indexByName = new Map<string, RagSemanticIndexFact>(facts.indexes.map((index) => [index.name, index]));
+  const vectorStoreByName = new Map<string, RagSemanticVectorStoreFact>(
+    facts.vectorStores.map((store) => [store.name, store]),
+  );
   const runtimeRetrievalNames =
     options.runtimeRetrievalNames === undefined ? undefined : new Set(options.runtimeRetrievalNames);
   return facts.runtimeRetrievals
