@@ -37,14 +37,15 @@ function evalArrayLiteralItem(item: unknown, env: SemanticEnv): PortableArrayEle
   if (!isValueIR(item)) {
     throw new Error('portable-array: array literal items must be value IR nodes');
   }
-  if (item.kind === 'arrayLit') return evalArrayLiteralValue(item, env);
-  if (item.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(item)) {
+  const node: ValueIR = item;
+  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env);
+  if (node.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(node)) {
     throw new Error('portable-array: numeric elements must be canonical safe integers');
   }
-  if (item.kind !== 'numLit' && item.kind !== 'strLit' && item.kind !== 'boolLit' && item.kind !== 'nullLit') {
+  if (node.kind !== 'numLit' && node.kind !== 'strLit' && node.kind !== 'boolLit' && node.kind !== 'nullLit') {
     throw new Error('portable-array: elements must be literal scalars or nested array literals');
   }
-  const value = evalPortableValue(item, env);
+  const value = evalPortableValue(node, env);
   if (typeof value === 'number' && !Number.isSafeInteger(value)) {
     throw new Error('portable-array: numeric elements must evaluate to safe integers');
   }
