@@ -150,7 +150,7 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     const sparseItems = Array(1) as unknown as ValueIR[];
     const sparseItem = { kind: 'arrayLit', items: sparseItems } as unknown as ValueIR;
     expect(() => evalArrayLiteralValue(sparseItem, makeEnv())).toThrow(
-      'portable-array: array literal items must be value IR nodes',
+      'portable-array: array literal items must not contain sparse holes',
     );
   });
 });

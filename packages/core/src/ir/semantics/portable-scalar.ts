@@ -39,7 +39,7 @@ import {
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   type DecimalProbeAccessor,
 } from '../../decimal/probe-gates.js';
-import type { ValueIR } from '../../value-ir.js';
+import { isValueIR, type ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
 import { getBinding, hasBinding } from './index.js';
 
@@ -266,7 +266,7 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       // ABSTAINS. This is the fail-close fence: `e.name`/`e.stack`/`e` (bare)
       // and any non-caught-error member access never produce a one-leg value.
       if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
-      if (node.object.kind !== 'ident') {
+      if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: member access is only admitted on a caught-error binding');
       }
       const obj = getBinding(env, node.object.name);
@@ -304,10 +304,10 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       // index (`s[0]`) abstain; a nested-array element is not a portable scalar, so
       // `assertPortableScalar` abstains on it.
       if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
-      if (node.object.kind !== 'ident') {
+      if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: index access is only admitted on an array-binding identifier');
       }
-      if (!isSafeIntegerLiteralIndex(node.index)) {
+      if (!isValueIR(node.index) || !isSafeIntegerLiteralIndex(node.index)) {
         throw new Error('portable: array index must be a bare non-negative safe-integer literal');
       }
       if (!hasBinding(env, node.object.name)) {
@@ -320,6 +320,9 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       const idx = evalPortableValue(node.index, env);
       if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= arr.length) {
         throw new Error('portable: array index must be an in-bounds non-negative safe integer');
+      }
+      if (!(idx in arr)) {
+        throw new Error('portable: array index must point at an existing element');
       }
       return assertPortableScalar(arr[idx], `element "${node.object.name}[${idx}]"`);
     }

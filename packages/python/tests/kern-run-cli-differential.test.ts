@@ -89,7 +89,15 @@ function runTsStdout(src: string): string {
   const imports = [...(r.imports ?? [])].map((m) => `import * as __k_${m} from '${m}';`).join('\n');
   const file = join(dir, 'run.mjs');
   writeFileSync(file, `${imports}\nfunction __h() {\n${r.code}\n}\n__h();\n`);
-  return execFileSync('node', [file], { encoding: 'utf8' });
+  const out = spawnSync('node', [file], { encoding: 'utf-8', timeout: 20000 });
+  if (out.error) throw out.error;
+  if (out.status !== 0) {
+    throw new Error(`emitted TypeScript exited ${out.status}: ${out.stderr}`);
+  }
+  if (out.stderr) {
+    throw new Error(`emitted TypeScript wrote unexpected stderr on a clean exit: ${out.stderr}`);
+  }
+  return out.stdout ?? '';
 }
 
 /** Python leg — emit production code, run under `python3`, capture raw stdout. */
@@ -107,7 +115,15 @@ function runPyStdout(src: string): string {
     : '    pass';
   const file = join(dir, 'run.py');
   writeFileSync(file, [imports, helpers, 'def __h():', body, '__h()'].join('\n'));
-  return execFileSync('python3', [file], { encoding: 'utf8' });
+  const out = spawnSync('python3', [file], { encoding: 'utf-8', timeout: 20000 });
+  if (out.error) throw out.error;
+  if (out.status !== 0) {
+    throw new Error(`emitted Python exited ${out.status}: ${out.stderr}`);
+  }
+  if (out.stderr) {
+    throw new Error(`emitted Python wrote unexpected stderr on a clean exit: ${out.stderr}`);
+  }
+  return out.stdout ?? '';
 }
 
 // ── CERTIFIED: kern-run === ts === py === expected stdout ─────────────────────

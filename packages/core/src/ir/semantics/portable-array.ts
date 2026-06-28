@@ -16,7 +16,7 @@
  * abstains. Only `each` iteration observes the array in this slice; whole-array
  * print, index access, and `.length` are deferred (they keep abstaining).
  */
-import type { ValueIR } from '../../value-ir.js';
+import { isValueIR, type ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
 import { evalPortableValue, type PortableScalar } from './portable-scalar.js';
 
@@ -34,15 +34,14 @@ function isCanonicalSafeIntegerLiteral(node: Extract<ValueIR, { kind: 'numLit' }
 }
 
 function evalArrayLiteralItem(item: unknown, env: SemanticEnv): PortableArrayElement {
-  if (!item || typeof item !== 'object' || !('kind' in item)) {
+  if (!isValueIR(item)) {
     throw new Error('portable-array: array literal items must be value IR nodes');
   }
-  const node = item as ValueIR;
-  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env);
-  if (node.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(node)) {
+  if (item.kind === 'arrayLit') return evalArrayLiteralValue(item, env);
+  if (item.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(item)) {
     throw new Error('portable-array: numeric elements must be canonical safe integers');
   }
-  const value = evalPortableValue(node, env);
+  const value = evalPortableValue(item, env);
   if (typeof value === 'number' && !Number.isSafeInteger(value)) {
     throw new Error('portable-array: numeric elements must evaluate to safe integers');
   }
@@ -62,7 +61,7 @@ export function evalArrayLiteralValue(node: ValueIR, env: SemanticEnv): Readonly
   const items: PortableArrayElement[] = [];
   for (let index = 0; index < node.items.length; index += 1) {
     if (!(index in node.items)) {
-      throw new Error('portable-array: array literal items must be value IR nodes');
+      throw new Error('portable-array: array literal items must not contain sparse holes');
     }
     items.push(evalArrayLiteralItem(node.items[index], env));
   }
