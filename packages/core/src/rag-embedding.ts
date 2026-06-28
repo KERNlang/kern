@@ -24,6 +24,13 @@
  * and integerised fixed-point score rounding with signed-zero normalisation.
  */
 
+import { cloneRagMetadataFilter, matchesRagMetadataFilter, type RagMetadataFilter } from './rag-metadata-filter.js';
+import {
+  RagEmbeddingProviderAuthError,
+  RagEmbeddingProviderDimensionMismatchError,
+  RagEmbeddingProviderRateLimitError,
+  RagEmbeddingProviderUnavailableError,
+} from './rag-provider-errors.js';
 import {
   type AsyncRagContractRetriever,
   MAX_IN_MEMORY_RAG_TOP_K,
@@ -34,17 +41,6 @@ import {
   type RetrieveResult,
   tokenizeForRetrieval,
 } from './rag-runtime.js';
-import {
-  cloneRagMetadataFilter,
-  matchesRagMetadataFilter,
-  type RagMetadataFilter,
-} from './rag-metadata-filter.js';
-import {
-  RagEmbeddingProviderAuthError,
-  RagEmbeddingProviderDimensionMismatchError,
-  RagEmbeddingProviderRateLimitError,
-  RagEmbeddingProviderUnavailableError,
-} from './rag-provider-errors.js';
 
 /** Pluggable text→vector embedder. Implementations must be pure + deterministic. */
 export interface Embedder {
@@ -250,7 +246,8 @@ export class OpenAIEmbeddingAdapter implements AsyncEmbedder {
     }
     if (!response.ok) {
       const message = `KERN OpenAI embedder request failed with HTTP ${response.status}.`;
-      if (response.status === 401 || response.status === 403) throw new RagEmbeddingProviderAuthError('openai', message);
+      if (response.status === 401 || response.status === 403)
+        throw new RagEmbeddingProviderAuthError('openai', message);
       if (response.status === 429) throw new RagEmbeddingProviderRateLimitError('openai', message);
       throw new RagEmbeddingProviderUnavailableError('openai', message);
     }

@@ -130,10 +130,7 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
   });
 
   it('a computed numeric element abstains even if the final JS value is a safe integer', () => {
-    abstains([
-      letArr('xs', '[(9007199254740991 + 2) - 9007199254740991]'),
-      eachPrint('x', 'xs', print('x')),
-    ]);
+    abstains([letArr('xs', '[(9007199254740991 + 2) - 9007199254740991]'), eachPrint('x', 'xs', print('x'))]);
   });
 
   it('assign to an array binding abstains (deferred — mutable arrays are a later slice)', () => {
@@ -145,7 +142,9 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
 
   it('malformed arrayLit items fail with a controlled portable-array error', () => {
     const malformed = { kind: 'arrayLit', items: undefined } as unknown as ValueIR;
-    expect(() => evalArrayLiteralValue(malformed, makeEnv())).toThrow('portable-array: array literal items must be an array');
+    expect(() => evalArrayLiteralValue(malformed, makeEnv())).toThrow(
+      'portable-array: array literal items must be an array',
+    );
   });
 
   it('malformed arrayLit item entries fail with a controlled portable-array error', () => {

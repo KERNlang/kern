@@ -157,7 +157,10 @@ export class RagEmbeddingProviderRegistry {
     return Array.from(this.providers.values(), (provider) => provider.manifest);
   }
 
-  resolve(modelRef: string): { readonly provider: RagEmbeddingProviderAdapter; readonly model: RagEmbeddingProviderModelManifest } {
+  resolve(modelRef: string): {
+    readonly provider: RagEmbeddingProviderAdapter;
+    readonly model: RagEmbeddingProviderModelManifest;
+  } {
     for (const provider of this.providers.values()) {
       const model = provider.manifest.models.find((entry) => entry.id === modelRef || entry.aliases.includes(modelRef));
       if (model) return { provider, model };
@@ -237,10 +240,12 @@ export class RagEmbeddingProviderRegistry {
   ): Pick<Embedder, 'id' | 'dims'> {
     const { provider, model } = this.resolve(modelRef);
     this.validateCapabilities(model.id, dims);
-    return provider.embedderIdentity?.(model, dims, options) ?? {
-      id: `${provider.manifest.providerId}:${model.id}:dims=${dims}`,
-      dims,
-    };
+    return (
+      provider.embedderIdentity?.(model, dims, options) ?? {
+        id: `${provider.manifest.providerId}:${model.id}:dims=${dims}`,
+        dims,
+      }
+    );
   }
 }
 
@@ -403,7 +408,10 @@ function openAiEmbeddingProvider(): RagEmbeddingProviderAdapter {
     createAsyncEmbedder: (model, dims, options) => {
       const openai = options.openai;
       if (!openai?.apiKey?.trim()) {
-        throw new RagEmbeddingProviderAuthError('openai', `RAG embed model '${model.id}' requires OpenAI provider options.`);
+        throw new RagEmbeddingProviderAuthError(
+          'openai',
+          `RAG embed model '${model.id}' requires OpenAI provider options.`,
+        );
       }
       const adapter = new OpenAIEmbeddingAdapter({
         ...openai,

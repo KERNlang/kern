@@ -36,9 +36,9 @@ import {
 import type { RagVectorStoreKind } from './rag-embedding.js';
 import {
   mergeRagMetadataFilters,
-  ragMetadataFilterFromProps,
   RAG_RETRIEVE_FILTER_PROPS,
   type RagMetadataFilter,
+  ragMetadataFilterFromProps,
 } from './rag-metadata-filter.js';
 import { parseRagQueryTemplate } from './rag-query-template.js';
 import type { IRNode } from './types.js';
@@ -2000,7 +2000,10 @@ function validateRagRetrievalProfile(profile: RagRetrievalProfileInfo, violation
     'RAG retrievalProfile queryTemplate',
     violations,
   );
-  if (Object.hasOwn(profile.node.props ?? {}, 'queryParam') && Object.hasOwn(profile.node.props ?? {}, 'queryTemplate')) {
+  if (
+    Object.hasOwn(profile.node.props ?? {}, 'queryParam') &&
+    Object.hasOwn(profile.node.props ?? {}, 'queryTemplate')
+  ) {
     pushRagViolation(
       violations,
       'rag-retrieval-profile-query-exclusive',
@@ -2288,7 +2291,8 @@ function validateRagRuntimeRetrieve(
     );
   }
 
-  const outputShape = stringProp(retrieval.node, 'output') ?? (profile ? stringProp(profile.node, 'output') : undefined);
+  const outputShape =
+    stringProp(retrieval.node, 'output') ?? (profile ? stringProp(profile.node, 'output') : undefined);
   const hasRequireCitations = Object.hasOwn(retrieval.node.props ?? {}, 'requireCitations');
   const hasProfileRequireCitations = Object.hasOwn(profile?.node.props ?? {}, 'requireCitations');
   const retrievalRequiresCitations = ragBooleanProp(retrieval.node, 'requireCitations');
@@ -2297,10 +2301,7 @@ function validateRagRuntimeRetrieve(
     (hasRequireCitations && retrievalRequiresCitations) ||
     (!hasRequireCitations && hasProfileRequireCitations && profileRequiresCitations) ||
     targetRequiresCitations;
-  if (
-    !outputShape &&
-    outputRequiresCitations
-  ) {
+  if (!outputShape && outputRequiresCitations) {
     pushRagViolation(
       violations,
       'rag-retrieve-output-required',
@@ -3524,7 +3525,10 @@ function ragRuntimeRetrieveFact(
       localQueryTemplate ?? (hasLocalQuerySource || !profile ? undefined : stringProp(profile.node, 'queryTemplate')),
     ),
     ...optionalStringFact(info.node, 'as', 'as'),
-    ...optionalNumberValue('topK', numberProp(info.node, 'topK') ?? (profile ? numberProp(profile.node, 'topK') : undefined)),
+    ...optionalNumberValue(
+      'topK',
+      numberProp(info.node, 'topK') ?? (profile ? numberProp(profile.node, 'topK') : undefined),
+    ),
     ...optionalNumberValue(
       'minScore',
       numberProp(info.node, 'minScore') ?? (profile ? numberProp(profile.node, 'minScore') : undefined),

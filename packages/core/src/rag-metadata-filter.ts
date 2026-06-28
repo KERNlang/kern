@@ -59,7 +59,10 @@ export function hasRagMetadataFilter(filter: RagMetadataFilter | undefined): fil
   return filter !== undefined && Object.values(filter).some((value) => typeof value === 'string' && value.length > 0);
 }
 
-export function matchesRagMetadataFilter(chunk: RagMetadataFilterChunk, filter: RagMetadataFilter | undefined): boolean {
+export function matchesRagMetadataFilter(
+  chunk: RagMetadataFilterChunk,
+  filter: RagMetadataFilter | undefined,
+): boolean {
   if (!hasRagMetadataFilter(filter)) return true;
   for (const [key, expected] of Object.entries(filter)) {
     if (expected === undefined) continue;

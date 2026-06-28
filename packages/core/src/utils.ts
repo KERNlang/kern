@@ -1,5 +1,5 @@
-import type { DiagnosticOutcome, IRNode, TranspileDiagnostic } from './types.js';
 import { isRagRunnerOnlyNodeInContext, RAG_RUNNER_ONLY_DIAGNOSTIC_REASON } from './rag-emitted-boundary.js';
+import type { DiagnosticOutcome, IRNode, TranspileDiagnostic } from './types.js';
 
 /**
  * Approximate token count using a punctuation/whitespace split heuristic.

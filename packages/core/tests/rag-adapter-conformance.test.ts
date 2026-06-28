@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  type AsyncRagVectorStoreAdapter,
   builtinRagVectorStoreManifest,
   createInMemoryRagVectorStoreForConformance,
   defineRagVectorStoreAdapterContract,
   InMemoryPgVectorRagStore,
   RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
-  type AsyncRagVectorStoreAdapter,
   type RagChunkInput,
   type RagVectorStoreConformanceContext,
   type RagVectorStoreSnapshot,
@@ -124,7 +124,9 @@ describe('RAG vector store adapter conformance', () => {
     expect(invalidCapabilities.errors).toContain(
       "manifest capability filter 'unsupported' is not supported by this conformance profile.",
     );
-    expect(invalidCapabilities.errors).toContain("manifest capability 'maxDimensions' must match manifest maxDimensions.");
+    expect(invalidCapabilities.errors).toContain(
+      "manifest capability 'maxDimensions' must match manifest maxDimensions.",
+    );
   });
 
   test('conformance profile case names match emitted report cases', () => {
@@ -155,9 +157,7 @@ describe('RAG vector store adapter conformance', () => {
     expect(report.adapterMode).toBe('sync');
     expect(report.summary.failed).toBe(0);
     expect(report.cases.some((entry) => entry.name === 'durable-round-trip' && entry.status === 'skipped')).toBe(true);
-    expect(report.cases.some((entry) => entry.name === 'namespace-isolation' && entry.status === 'skipped')).toBe(
-      true,
-    );
+    expect(report.cases.some((entry) => entry.name === 'namespace-isolation' && entry.status === 'skipped')).toBe(true);
   });
 
   test('async vector store adapter contracts pass the same conformance profile', async () => {
@@ -223,9 +223,9 @@ describe('RAG vector store adapter conformance', () => {
       });
 
       expect(report.passed).toBe(true);
-      expect(
-        report.cases.some((entry) => entry.name === 'namespace-isolation' && entry.status === 'passed'),
-      ).toBe(true);
+      expect(report.cases.some((entry) => entry.name === 'namespace-isolation' && entry.status === 'passed')).toBe(
+        true,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -417,7 +417,7 @@ function createAsyncMemoryStore(context: RagVectorStoreConformanceContext): Asyn
       store.clear();
     },
     close(): void {
-      return store.close();
+      store.close();
     },
   };
 }

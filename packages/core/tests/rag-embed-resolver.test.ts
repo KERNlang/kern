@@ -1,15 +1,15 @@
 import {
+  canonicalRagEmbedModel,
+  defaultDimsForRagEmbedModel,
   RAG_EMBED_MODEL_FAKE_DETERMINISTIC,
   RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
   RAG_EMBEDDING_PROVIDER_MANIFEST_VERSION,
   RAG_EMBEDDING_PROVIDER_MANIFESTS,
-  RagEmbeddingProviderAuthError,
   type RagEmbeddingProviderAdapter,
+  RagEmbeddingProviderAuthError,
   RagEmbeddingProviderConfigurationError,
   RagEmbeddingProviderDimensionMismatchError,
   RagEmbeddingProviderRegistry,
-  canonicalRagEmbedModel,
-  defaultDimsForRagEmbedModel,
   ragEmbedderIdentityForModel,
   resolveAsyncRagEmbedderForModel,
   resolveSyncRagEmbedderForModel,
@@ -32,9 +32,7 @@ describe('RAG embedding provider registry', () => {
   });
 
   test('canonicalizes aliases through the registry manifest', () => {
-    expect(canonicalRagEmbedModel('text-embedding-3-small')).toBe(
-      RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
-    );
+    expect(canonicalRagEmbedModel('text-embedding-3-small')).toBe(RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL);
     expect(defaultDimsForRagEmbedModel(RAG_EMBED_MODEL_FAKE_DETERMINISTIC)).toBe(64);
   });
 
@@ -165,7 +163,7 @@ describe('deterministic fake RAG embedding provider', () => {
 
     const one = await first.embed('refund policy');
     const again = await second.embed('refund policy');
-    const [batched] = await first.embedMany?.(['refund policy']) ?? [];
+    const [batched] = (await first.embedMany?.(['refund policy'])) ?? [];
 
     expect(Array.from(one)).toEqual(Array.from(again));
     expect(Array.from(one)).toEqual(Array.from(batched ?? []));

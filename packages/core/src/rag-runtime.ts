@@ -1,3 +1,4 @@
+import { cloneRagMetadataFilter, matchesRagMetadataFilter, type RagMetadataFilter } from './rag-metadata-filter.js';
 import type {
   RagSemanticAnswerContractFact,
   RagSemanticEvalAssertFact,
@@ -6,11 +7,6 @@ import type {
   RagSemanticMcpRetrievalFact,
 } from './semantic-validator.js';
 import { RAG_MCP_RETRIEVE_OUTPUT_ITEM_SHAPE, RAG_MCP_RETRIEVE_OUTPUT_SHAPE } from './semantic-validator.js';
-import {
-  cloneRagMetadataFilter,
-  matchesRagMetadataFilter,
-  type RagMetadataFilter,
-} from './rag-metadata-filter.js';
 
 export interface RagCitation {
   readonly uri?: string;

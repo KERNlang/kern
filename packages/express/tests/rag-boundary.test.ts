@@ -28,13 +28,17 @@ describe('Express transpiler RAG boundary diagnostics', () => {
     ]);
     expect(ragDiagnostics.every((diagnostic: any) => diagnostic.outcome === 'consumed')).toBe(true);
     expect(ragDiagnostics.every((diagnostic: any) => diagnostic.target === 'express')).toBe(true);
-    expect(ragDiagnostics.every((diagnostic: any) => diagnostic.reason?.includes('rag-runner-only-boundary'))).toBe(true);
+    expect(ragDiagnostics.every((diagnostic: any) => diagnostic.reason?.includes('rag-runner-only-boundary'))).toBe(
+      true,
+    );
   });
 
   test('does not hide malformed non-RAG nodes under RAG declarations', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileExpress } = await import('../src/transpiler-express.js');
-    const source = ['server name=Api', 'corpus name=Docs', '  button text=BadNest', 'source uri="./loose.md"'].join('\n');
+    const source = ['server name=Api', 'corpus name=Docs', '  button text=BadNest', 'source uri="./loose.md"'].join(
+      '\n',
+    );
 
     const result = transpileExpress(parse(source));
     expect(result.diagnostics).toEqual(

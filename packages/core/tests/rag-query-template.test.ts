@@ -14,16 +14,17 @@ describe('RAG query templates', () => {
 
   test('renders string, number, boolean, and enum params', () => {
     expect(
-      renderRagQueryTemplate('Find {{topic:string}} {{year:number}} {{draft:boolean}} {{section:enum(policy,billing)}}', {
-        topic: 'refunds',
-        year: 2026,
-        draft: false,
-        section: 'policy',
-      }),
+      renderRagQueryTemplate(
+        'Find {{topic:string}} {{year:number}} {{draft:boolean}} {{section:enum(policy,billing)}}',
+        {
+          topic: 'refunds',
+          year: 2026,
+          draft: false,
+          section: 'policy',
+        },
+      ),
     ).toBe('Find refunds 2026 false policy');
-    expect(renderRagQueryTemplate('Find {{section:enum(policy,billing)}}', { section: 'policy ' })).toBe(
-      'Find policy',
-    );
+    expect(renderRagQueryTemplate('Find {{section:enum(policy,billing)}}', { section: 'policy ' })).toBe('Find policy');
   });
 
   test('allows duplicate enum slots with the same contract', () => {

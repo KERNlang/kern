@@ -154,13 +154,19 @@ describe('kern rag', () => {
     const report = JSON.parse(result.stdout) as {
       readonly passed: boolean;
       readonly corpusSource: { readonly chunkCount: number };
-      readonly indexes: readonly [{ readonly storeKind: string; readonly status: string; readonly snapshotPath: string }];
+      readonly indexes: readonly [
+        { readonly storeKind: string; readonly status: string; readonly snapshotPath: string },
+      ];
       readonly evals: readonly [{ readonly result: { readonly passed: boolean } }];
     };
     expect(report.passed).toBe(true);
     expect(report.corpusSource.chunkCount).toBe(2);
     expect(report.indexes[0]).toEqual(
-      expect.objectContaining({ storeKind: 'local-persistent', status: 'indexed', snapshotPath: 'index/DocsIndex.json' }),
+      expect.objectContaining({
+        storeKind: 'local-persistent',
+        status: 'indexed',
+        snapshotPath: 'index/DocsIndex.json',
+      }),
     );
     expect(report.evals[0].result.passed).toBe(true);
   });
@@ -276,7 +282,10 @@ describe('kern rag', () => {
     ];
     writeFileSync(join(dir, 'chunks.json'), JSON.stringify(corpus));
 
-    const result = run(['rag', 'eval', 'persistent-eval.kern', '--corpus', 'chunks.json', '--rag-index', 'DocsIndex'], dir);
+    const result = run(
+      ['rag', 'eval', 'persistent-eval.kern', '--corpus', 'chunks.json', '--rag-index', 'DocsIndex'],
+      dir,
+    );
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('--corpus cannot be combined with --rag-retriever or --rag-index');
@@ -389,9 +398,7 @@ describe('kern rag', () => {
         query: 'refund policy money back',
       }),
     );
-    expect(report.retrievals[0].result.chunks[0]).toEqual(
-      expect.objectContaining({ source: 'docs/refunds.md' }),
-    );
+    expect(report.retrievals[0].result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
   });
 
   test('runs runtime ragRetrieve declarations with named query params', () => {
@@ -431,16 +438,28 @@ describe('kern rag', () => {
     expect(first.status).toBe(0);
     expect(second.status).toBe(0);
     const firstReport = JSON.parse(first.stdout) as {
-      readonly indexes: readonly [{ readonly storeKind: string; readonly status: string; readonly snapshotPath: string }];
+      readonly indexes: readonly [
+        { readonly storeKind: string; readonly status: string; readonly snapshotPath: string },
+      ];
     };
     const secondReport = JSON.parse(second.stdout) as {
-      readonly indexes: readonly [{ readonly storeKind: string; readonly status: string; readonly snapshotPath: string }];
+      readonly indexes: readonly [
+        { readonly storeKind: string; readonly status: string; readonly snapshotPath: string },
+      ];
     };
     expect(firstReport.indexes[0]).toEqual(
-      expect.objectContaining({ storeKind: 'local-persistent', status: 'indexed', snapshotPath: 'index/DocsIndex.json' }),
+      expect.objectContaining({
+        storeKind: 'local-persistent',
+        status: 'indexed',
+        snapshotPath: 'index/DocsIndex.json',
+      }),
     );
     expect(secondReport.indexes[0]).toEqual(
-      expect.objectContaining({ storeKind: 'local-persistent', status: 'reused', snapshotPath: 'index/DocsIndex.json' }),
+      expect.objectContaining({
+        storeKind: 'local-persistent',
+        status: 'reused',
+        snapshotPath: 'index/DocsIndex.json',
+      }),
     );
     expect(readFileSync(join(dir, 'index', 'DocsIndex.json'), 'utf-8')).toBe(snapshot);
   });
@@ -460,9 +479,7 @@ describe('kern rag', () => {
     };
     expect(report.retrievals).toEqual([]);
     expect(report.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ message: expect.stringContaining('topK') }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining('topK') })]),
     );
   });
 
@@ -509,7 +526,10 @@ describe('kern rag', () => {
       readonly retrievals: readonly unknown[];
     };
     expect(report.diagnostics).toEqual([
-      expect.objectContaining({ rule: 'rag-retrieve-error', message: expect.stringContaining('uses dynamic query=<expr>') }),
+      expect.objectContaining({
+        rule: 'rag-retrieve-error',
+        message: expect.stringContaining('uses dynamic query=<expr>'),
+      }),
     ]);
     expect(report.indexes).toEqual([]);
     expect(report.retrievals).toEqual([]);
@@ -526,7 +546,10 @@ describe('kern rag', () => {
       readonly retrievals: readonly unknown[];
     };
     expect(report.diagnostics).toEqual([
-      expect.objectContaining({ rule: 'rag-retrieve-error', message: expect.stringContaining('missing value for --param') }),
+      expect.objectContaining({
+        rule: 'rag-retrieve-error',
+        message: expect.stringContaining('missing value for --param'),
+      }),
     ]);
     expect(report.indexes).toEqual([]);
     expect(report.retrievals).toEqual([]);

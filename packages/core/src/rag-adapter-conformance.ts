@@ -1,9 +1,9 @@
 import {
+  type AsyncRagVectorStoreAdapter,
   DeterministicHashEmbedder,
   type Embedder,
   embedderFingerprint,
   InMemoryPgVectorRagStore,
-  type AsyncRagVectorStoreAdapter,
   type RagVectorStoreAdapter,
   type RagVectorStoreKind,
   type RagVectorStoreMetric,
@@ -242,7 +242,8 @@ export function defineRagVectorStoreAdapterContract(
 export function runRagVectorStoreConformance(
   options: RagVectorStoreConformanceOptions,
 ): RagVectorStoreConformanceReport {
-  const embedder = options.embedder ?? new DeterministicHashEmbedder({ dims: DEFAULT_RAG_VECTOR_STORE_CONFORMANCE_DIMS });
+  const embedder =
+    options.embedder ?? new DeterministicHashEmbedder({ dims: DEFAULT_RAG_VECTOR_STORE_CONFORMANCE_DIMS });
   const context = {
     fingerprint: embedderFingerprint(embedder, 'cosine'),
     dims: embedder.dims,
@@ -307,7 +308,8 @@ export function runRagVectorStoreConformance(
         })),
       );
       const result = store.search('refund policy shipping', embedder.embed('refund policy shipping'), { topK: 2 });
-      if (result.chunks.length !== 2) throw new Error(`expected batch upsert to index 2 chunks, got ${result.chunks.length}.`);
+      if (result.chunks.length !== 2)
+        throw new Error(`expected batch upsert to index 2 chunks, got ${result.chunks.length}.`);
     });
   });
   runCase(cases, 'topk-is-respected', () => {
@@ -420,7 +422,8 @@ export function runRagVectorStoreConformance(
 export async function runRagVectorStoreConformanceAsync(
   options: RagVectorStoreAsyncConformanceOptions,
 ): Promise<RagVectorStoreConformanceReport> {
-  const embedder = options.embedder ?? new DeterministicHashEmbedder({ dims: DEFAULT_RAG_VECTOR_STORE_CONFORMANCE_DIMS });
+  const embedder =
+    options.embedder ?? new DeterministicHashEmbedder({ dims: DEFAULT_RAG_VECTOR_STORE_CONFORMANCE_DIMS });
   const context = {
     fingerprint: embedderFingerprint(embedder, 'cosine'),
     dims: embedder.dims,
@@ -489,8 +492,11 @@ export async function runRagVectorStoreConformanceAsync(
           vector: embedder.embed(chunk.text),
         })),
       );
-      const result = await store.search('refund policy shipping', embedder.embed('refund policy shipping'), { topK: 2 });
-      if (result.chunks.length !== 2) throw new Error(`expected batch upsert to index 2 chunks, got ${result.chunks.length}.`);
+      const result = await store.search('refund policy shipping', embedder.embed('refund policy shipping'), {
+        topK: 2,
+      });
+      if (result.chunks.length !== 2)
+        throw new Error(`expected batch upsert to index 2 chunks, got ${result.chunks.length}.`);
     });
   });
   await runCaseAsync(cases, 'topk-is-respected', async () => {
@@ -501,9 +507,13 @@ export async function runRagVectorStoreConformanceAsync(
           vector: embedder.embed(chunk.text),
         })),
       );
-      const result = await store.search('policy return refund shipping', embedder.embed('policy return refund shipping'), {
-        topK: 2,
-      });
+      const result = await store.search(
+        'policy return refund shipping',
+        embedder.embed('policy return refund shipping'),
+        {
+          topK: 2,
+        },
+      );
       if (result.chunks.length !== 2) throw new Error(`expected exactly 2 chunks, got ${result.chunks.length}.`);
       const unexpected = result.chunks.find((chunk) => !CONFORMANCE_CORPUS_IDS.has(chunk.id));
       if (unexpected) throw new Error(`returned unknown chunk '${unexpected.id}'.`);
@@ -511,7 +521,10 @@ export async function runRagVectorStoreConformanceAsync(
   });
   await runCaseAsync(cases, 'dimension-mismatch-fails-closed', async () => {
     await usingStoreAsync(await createStore(contextFor('dimension-mismatch-fails-closed')), async (store) => {
-      await expectThrowAsync(() => store.upsert(CONFORMANCE_CORPUS[0], new Float64Array(context.dims + 1)), /dimensions/u);
+      await expectThrowAsync(
+        () => store.upsert(CONFORMANCE_CORPUS[0], new Float64Array(context.dims + 1)),
+        /dimensions/u,
+      );
     });
   });
   await runCaseAsync(cases, 'fingerprint-mismatch-fails-closed', async () => {
@@ -636,10 +649,7 @@ function collectManifestErrors(manifest: object, errors: string[]): void {
       `manifest metrics must include only supported metrics: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.supportedMetrics.join(', ')}.`,
     );
   }
-  if (
-    !Number.isInteger(candidate.maxDimensions) ||
-    (candidate.maxDimensions ?? 0) <= 0
-  ) {
+  if (!Number.isInteger(candidate.maxDimensions) || (candidate.maxDimensions ?? 0) <= 0) {
     errors.push('manifest maxDimensions must be a positive integer.');
   }
   if (!candidate.capabilities || typeof candidate.capabilities !== 'object') {

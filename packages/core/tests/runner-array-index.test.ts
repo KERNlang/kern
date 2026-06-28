@@ -226,7 +226,12 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
   it('malformed index object and index subnodes fail with controlled portable errors', () => {
     expect(() =>
       evalPortableValue(
-        { kind: 'index', object: null, index: { kind: 'numLit', raw: '0', value: 0 }, optional: false } as unknown as ValueIR,
+        {
+          kind: 'index',
+          object: null,
+          index: { kind: 'numLit', raw: '0', value: 0 },
+          optional: false,
+        } as unknown as ValueIR,
         makeEnv(),
       ),
     ).toThrow('portable: index access is only admitted on an array-binding identifier');
@@ -241,7 +246,10 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
 
   it('malformed member object subnodes fail with a controlled portable error', () => {
     expect(() =>
-      evalPortableValue({ kind: 'member', object: null, property: 'message', optional: false } as unknown as ValueIR, makeEnv()),
+      evalPortableValue(
+        { kind: 'member', object: null, property: 'message', optional: false } as unknown as ValueIR,
+        makeEnv(),
+      ),
     ).toThrow('portable: member access is only admitted on a caught-error binding');
   });
 });

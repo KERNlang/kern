@@ -14,15 +14,11 @@ import { parseDocument } from './parser.js';
 import {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
-  ragEmbedderIdentityForModel,
   type RagProviderEmbeddingOptions,
+  ragEmbedderIdentityForModel,
   resolveAsyncRagEmbedderForModel,
 } from './rag-embed-resolver.js';
-import {
-  type AsyncEmbedder,
-  type Embedder,
-  RAG_VECTOR_STORE_SNAPSHOT_VERSION,
-} from './rag-embedding.js';
+import { type AsyncEmbedder, type Embedder, RAG_VECTOR_STORE_SNAPSHOT_VERSION } from './rag-embedding.js';
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
 import type { RagChunkInput } from './rag-runtime.js';

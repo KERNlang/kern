@@ -256,9 +256,9 @@ describe('RAG language semantics', () => {
     expect(code).toContain(
       'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault queryTemplate="refund {{topic:string}}" filterSource=manuals output="RetrievedChunk[]"',
     );
-    expect(parseDocumentWithDiagnostics(code).diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual(
-      [],
-    );
+    expect(
+      parseDocumentWithDiagnostics(code).diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE'),
+    ).toEqual([]);
   });
 
   test('rejects unknown and malformed RAG retrieval profiles', () => {

@@ -9,14 +9,11 @@ import {
   resolveAsyncRagEmbedderForModel,
   resolveSyncRagEmbedderForModel,
 } from './rag-embed-resolver.js';
-import {
-  type AsyncEmbedder,
-  AsyncEmbeddingRagIndex,
-  type Embedder,
-  EmbeddingRagIndex,
-} from './rag-embedding.js';
+import { type AsyncEmbedder, AsyncEmbeddingRagIndex, type Embedder, EmbeddingRagIndex } from './rag-embedding.js';
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
+import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
+import { type RagQueryTemplateParamValue, renderRagQueryTemplate } from './rag-query-template.js';
 import type { RagChunkInput, RetrieveOptions, RetrieveResult } from './rag-runtime.js';
 import {
   collectRagSemanticFacts,
@@ -27,8 +24,6 @@ import {
   type SemanticViolation,
   validateRagSemantics,
 } from './semantic-validator.js';
-import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
-import { renderRagQueryTemplate, type RagQueryTemplateParamValue } from './rag-query-template.js';
 
 export interface RagRetrieveDocumentOptions {
   readonly sourcePath: string;
@@ -130,7 +125,8 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
   try {
     retrievals = preparedRetrievals.map(({ retrieval, targets, query }) => {
       const retrieveOptions = retrieveOptionsForFact(retrieval);
-      const perIndexRetrieveOptions = targets.length > 1 ? perIndexOptionsForMergedRetrieval(retrieveOptions) : retrieveOptions;
+      const perIndexRetrieveOptions =
+        targets.length > 1 ? perIndexOptionsForMergedRetrieval(retrieveOptions) : retrieveOptions;
       const queryVectorByEmbedder = new Map<string, Float64Array>();
       const results = targets.map(({ index, embedder, vectorStore }) => {
         const corpusChunks = chunksForIndex(byIndexKey, index);
@@ -189,7 +185,10 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
         ...(retrieval.ragName ? { ragName: retrieval.ragName } : {}),
         query,
         retrieveOptions,
-        result: targets.length > 1 ? mergeRetrieveResults(query, results, retrieveOptions) : results[0] ?? { query, chunks: [] },
+        result:
+          targets.length > 1
+            ? mergeRetrieveResults(query, results, retrieveOptions)
+            : (results[0] ?? { query, chunks: [] }),
       };
     });
   } catch (error) {
@@ -232,7 +231,8 @@ export async function retrieveRagDocumentAsync(
   try {
     for (const { retrieval, targets, query } of preparedRetrievals) {
       const retrieveOptions = retrieveOptionsForFact(retrieval);
-      const perIndexRetrieveOptions = targets.length > 1 ? perIndexOptionsForMergedRetrieval(retrieveOptions) : retrieveOptions;
+      const perIndexRetrieveOptions =
+        targets.length > 1 ? perIndexOptionsForMergedRetrieval(retrieveOptions) : retrieveOptions;
       const queryVectorByEmbedder = new Map<string, Float64Array>();
       const results: RetrieveResult[] = [];
       for (const { index, embedder, vectorStore } of targets) {
@@ -299,7 +299,10 @@ export async function retrieveRagDocumentAsync(
         ...(retrieval.ragName ? { ragName: retrieval.ragName } : {}),
         query,
         retrieveOptions,
-        result: targets.length > 1 ? mergeRetrieveResults(query, results, retrieveOptions) : results[0] ?? { query, chunks: [] },
+        result:
+          targets.length > 1
+            ? mergeRetrieveResults(query, results, retrieveOptions)
+            : (results[0] ?? { query, chunks: [] }),
       });
     }
   } catch (error) {

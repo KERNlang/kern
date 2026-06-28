@@ -654,10 +654,10 @@ export {
 export { parsePortableNonNegativeIntLiteral, parsePortablePathSegments } from './portable-route-collection.js';
 export type {
   RagAdapterPersistence,
-  RagVectorStoreAdapterTransport,
   RagVectorStoreAdapterCapabilities,
   RagVectorStoreAdapterContract,
   RagVectorStoreAdapterManifest,
+  RagVectorStoreAdapterTransport,
   RagVectorStoreAsyncConformanceOptions,
   RagVectorStoreConformanceCaseResult,
   RagVectorStoreConformanceContext,
@@ -681,15 +681,6 @@ export {
 } from './rag-adapter-conformance.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
-export type { RagEmittedBoundary, RagEmittedBoundaryMode, RagRunnerOnlyNodeType } from './rag-emitted-boundary.js';
-export {
-  isRagRunnerOnlyNodeInContext,
-  isRagRunnerOnlyNodeType,
-  RAG_EMITTED_BOUNDARY,
-  RAG_EMITTED_BOUNDARY_VERSION,
-  RAG_RUNNER_ONLY_DIAGNOSTIC_REASON,
-  RAG_RUNNER_ONLY_NODE_TYPES,
-} from './rag-emitted-boundary.js';
 export type {
   RagCanonicalEmbedModel,
   RagEmbeddingProviderAdapter,
@@ -721,16 +712,6 @@ export {
   resolveSyncRagEmbedderForModel,
   resolveSyncRagEmbedderForPipeline,
 } from './rag-embed-resolver.js';
-export type { RagEmbeddingProviderErrorCode, RagEmbeddingProviderErrorOptions } from './rag-provider-errors.js';
-export {
-  RagEmbeddingProviderAuthError,
-  RagEmbeddingProviderConfigurationError,
-  RagEmbeddingProviderDimensionMismatchError,
-  RagEmbeddingProviderError,
-  RagEmbeddingProviderModelNotFoundError,
-  RagEmbeddingProviderRateLimitError,
-  RagEmbeddingProviderUnavailableError,
-} from './rag-provider-errors.js';
 export type {
   AsyncEmbedder,
   AsyncRagVectorStoreAdapter,
@@ -764,6 +745,15 @@ export {
   OpenAIEmbeddingAdapter,
   RAG_VECTOR_STORE_SNAPSHOT_VERSION,
 } from './rag-embedding.js';
+export type { RagEmittedBoundary, RagEmittedBoundaryMode, RagRunnerOnlyNodeType } from './rag-emitted-boundary.js';
+export {
+  isRagRunnerOnlyNodeInContext,
+  isRagRunnerOnlyNodeType,
+  RAG_EMITTED_BOUNDARY,
+  RAG_EMITTED_BOUNDARY_VERSION,
+  RAG_RUNNER_ONLY_DIAGNOSTIC_REASON,
+  RAG_RUNNER_ONLY_NODE_TYPES,
+} from './rag-emitted-boundary.js';
 export type {
   RagEvalAsyncDocumentOptions,
   RagEvalDeclaredAsyncDocumentOptions,
@@ -803,6 +793,16 @@ export {
   RAG_SEMANTIC_CHUNKER_VERSION,
   RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
+export type { RagEmbeddingProviderErrorCode, RagEmbeddingProviderErrorOptions } from './rag-provider-errors.js';
+export {
+  RagEmbeddingProviderAuthError,
+  RagEmbeddingProviderConfigurationError,
+  RagEmbeddingProviderDimensionMismatchError,
+  RagEmbeddingProviderError,
+  RagEmbeddingProviderModelNotFoundError,
+  RagEmbeddingProviderRateLimitError,
+  RagEmbeddingProviderUnavailableError,
+} from './rag-provider-errors.js';
 export type {
   ParsedRagQueryTemplate,
   RagQueryTemplateParamValue,

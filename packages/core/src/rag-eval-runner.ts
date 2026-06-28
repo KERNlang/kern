@@ -30,13 +30,19 @@ import {
 } from './rag-embedding.js';
 import { ingestRagDeclaredLocalSources, RAG_CHUNK_ID_VERSION, type RagIngestResult } from './rag-ingest.js';
 import {
+  cloneRagMetadataFilter,
+  RAG_METADATA_FILTER_KEY_TO_PROP,
+  type RagMetadataFilter,
+  type RagMetadataFilterKey,
+} from './rag-metadata-filter.js';
+import {
   type RagRetrieveIndexLifecycle,
   retrieveRagDocument,
   retrieveRagDocumentAsync,
 } from './rag-retrieve-runner.js';
 import {
-  createInMemoryRetriever,
   type AsyncRagContractRetriever,
+  createInMemoryRetriever,
   evaluateRagEvalContract,
   evaluateRagEvalContractAsync,
   InMemoryRagCorpus,
@@ -46,12 +52,6 @@ import {
   type RagEvalContractResult,
   type RetrieveOptions,
 } from './rag-runtime.js';
-import {
-  cloneRagMetadataFilter,
-  RAG_METADATA_FILTER_KEY_TO_PROP,
-  type RagMetadataFilter,
-  type RagMetadataFilterKey,
-} from './rag-metadata-filter.js';
 import {
   collectRagSemanticFacts,
   type RagSemanticFacts,
@@ -407,7 +407,9 @@ export function evaluateRagEvalDocumentFromDeclaredSources(
     }
     return retriever;
   };
-  const evals = evaluatePipelineFacts(pipelines, getRetriever, options, (pipeline) => targetByPipeline.get(pipeline.name));
+  const evals = evaluatePipelineFacts(pipelines, getRetriever, options, (pipeline) =>
+    targetByPipeline.get(pipeline.name),
+  );
   return {
     embedderId: reportEmbedderId(embedderIds, options.embedder?.id),
     embedderIds: Array.from(embedderIds).sort(),
@@ -533,11 +535,8 @@ export async function evaluateRagEvalDocumentFromDeclaredSourcesAsync(
     }
     return retriever;
   };
-  const evals = await evaluatePipelineFactsAsync(
-    pipelines,
-    getRetriever,
-    options,
-    (pipeline) => targetByPipeline.get(pipeline.name),
+  const evals = await evaluatePipelineFactsAsync(pipelines, getRetriever, options, (pipeline) =>
+    targetByPipeline.get(pipeline.name),
   );
   return {
     embedderId: reportEmbedderId(embedderIds, options.embedder?.id),
@@ -678,7 +677,12 @@ function runtimeIndexForPipeline(
   if (retriever.mode === 'keyword') {
     if (target?.indexName) {
       const index = facts.indexes.find((entry) => entry.name === target.indexName);
-      if (!index) throw unknownRagEvalTargetError('ragIndex', target.indexName, facts.indexes.map((entry) => entry.name));
+      if (!index)
+        throw unknownRagEvalTargetError(
+          'ragIndex',
+          target.indexName,
+          facts.indexes.map((entry) => entry.name),
+        );
       throw new Error(
         `KERN RAG eval target ragIndex '${index.name}' is incompatible with retriever '${retriever.name}' because mode=keyword is not index-backed.`,
       );
@@ -687,15 +691,18 @@ function runtimeIndexForPipeline(
   }
   if (target?.indexName) {
     const index = facts.indexes.find((entry) => entry.name === target.indexName);
-    if (!index) throw unknownRagEvalTargetError('ragIndex', target.indexName, facts.indexes.map((entry) => entry.name));
+    if (!index)
+      throw unknownRagEvalTargetError(
+        'ragIndex',
+        target.indexName,
+        facts.indexes.map((entry) => entry.name),
+      );
     if (!isIndexCompatibleWithRetriever(index, retriever)) {
       throw incompatibleRagEvalTargetError(index, retriever);
     }
     return index;
   }
-  const matches = facts.indexes.filter(
-    (index) => isIndexCompatibleWithRetriever(index, retriever),
-  );
+  const matches = facts.indexes.filter((index) => isIndexCompatibleWithRetriever(index, retriever));
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -753,7 +760,11 @@ function isIndexCompatibleWithRetriever(
   return index.corpusName === retriever.corpusName && (index.embedName ?? '') === (retriever.embedName ?? '');
 }
 
-function unknownRagEvalTargetError(kind: 'ragIndex' | 'ragRetriever', name: string, available: readonly string[]): Error {
+function unknownRagEvalTargetError(
+  kind: 'ragIndex' | 'ragRetriever',
+  name: string,
+  available: readonly string[],
+): Error {
   const list = available.length > 0 ? available.join(', ') : '(none)';
   return new Error(`KERN RAG eval target ${kind} '${name}' was not declared. Available ${kind}s: ${list}.`);
 }
@@ -795,7 +806,11 @@ function targetMode(
   if (requested?.indexName) return 'explicit-index';
   if (requested?.retrieverName) return 'explicit-retriever';
   const modes = Array.from(
-    new Set(evals.map((entry) => entry.target?.mode).filter((mode): mode is RagEvalDocumentEntryTargetMode => mode !== undefined)),
+    new Set(
+      evals
+        .map((entry) => entry.target?.mode)
+        .filter((mode): mode is RagEvalDocumentEntryTargetMode => mode !== undefined),
+    ),
   );
   if (modes.length === 1) return modes[0];
   if (modes.length > 1) return 'mixed';

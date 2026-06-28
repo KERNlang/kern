@@ -228,7 +228,8 @@ async function runRagRetrieve(args: string[]): Promise<void> {
     unknownFlags,
   } = parseRagRetrieveArgs(args);
   const resolvedFilePath = filePath ? resolve(filePath) : '';
-  if (unknownFlags.length > 0) return finishRagRetrieveError(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`, json);
+  if (unknownFlags.length > 0)
+    return finishRagRetrieveError(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`, json);
   if (unexpectedArgs.length > 0)
     return finishRagRetrieveError(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`, json);
   if (!filePath) return finishRagRetrieveError(`missing <file.kern>.\n${USAGE}`, json);

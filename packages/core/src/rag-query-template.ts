@@ -17,10 +17,7 @@ export interface ParsedRagQueryTemplate {
 const SLOT_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const DECIMAL_NUMBER_RE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/u;
 
-export function parseRagQueryTemplate(
-  template: string,
-  label = 'KERN RAG queryTemplate',
-): ParsedRagQueryTemplate {
+export function parseRagQueryTemplate(template: string, label = 'KERN RAG queryTemplate'): ParsedRagQueryTemplate {
   if (typeof template !== 'string' || template.trim().length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
   }
@@ -72,12 +69,7 @@ function ownTemplateParam(params: Readonly<Record<string, unknown>> | undefined,
   return params && Object.hasOwn(params, name) ? params[name] : undefined;
 }
 
-function parseRagQueryTemplateSlot(
-  raw: string,
-  start: number,
-  end: number,
-  label: string,
-): RagQueryTemplateSlot {
+function parseRagQueryTemplateSlot(raw: string, start: number, end: number, label: string): RagQueryTemplateSlot {
   const colon = raw.indexOf(':');
   if (colon <= 0) {
     throw new Error(`${label} slot '{{${raw}}}' must use '{{name:type}}'.`);
@@ -95,7 +87,8 @@ function parseRagQueryTemplateSlot(
   }
   const enumMatch = /^enum\((.*)\)$/u.exec(typeText);
   if (enumMatch) {
-    if (enumMatch[1].trim().length === 0) throw new Error(`${label} enum slot '${name}' must declare at least one value.`);
+    if (enumMatch[1].trim().length === 0)
+      throw new Error(`${label} enum slot '${name}' must declare at least one value.`);
     const enumValues = enumMatch[1].split(',').map((value) => value.trim());
     if (enumValues.some((value) => value.length === 0)) {
       throw new Error(`${label} enum slot '${name}' must not contain empty values.`);
