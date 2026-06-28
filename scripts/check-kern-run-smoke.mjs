@@ -17,6 +17,7 @@ if (!existsSync(CLI)) {
 const result = spawnSync(process.execPath, [CLI, 'run', FIXTURE], {
   encoding: 'utf-8',
   cwd: ROOT,
+  env: { ...process.env, NODE_NO_WARNINGS: '1' },
   timeout: 20000,
 });
 
