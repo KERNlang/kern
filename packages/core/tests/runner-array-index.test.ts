@@ -213,4 +213,46 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
     const env = makeEnv({ bindings: new Map<string, unknown>([['xs', [10, 20, 30]]]) });
     expect(() => evalPortableValue(expr, env)).toThrow(/bare non-negative safe-integer literal/);
   });
+
+  it('manual sparse array bindings abstain with an explicit index-hole error', () => {
+    const sparse = Array(1);
+    const env = makeEnv({ bindings: new Map<string, unknown>([['xs', sparse]]) });
+    const expr: ValueIR = {
+      kind: 'index',
+      object: { kind: 'ident', name: 'xs' },
+      index: { kind: 'numLit', raw: '0', value: 0 },
+      optional: false,
+    };
+    expect(() => evalPortableValue(expr, env)).toThrow('portable: array index must point at an existing element');
+  });
+
+  it('malformed index object and index subnodes fail with controlled portable errors', () => {
+    expect(() =>
+      evalPortableValue(
+        {
+          kind: 'index',
+          object: null,
+          index: { kind: 'numLit', raw: '0', value: 0 },
+          optional: false,
+        } as unknown as ValueIR,
+        makeEnv(),
+      ),
+    ).toThrow('portable: index access is only admitted on an array-binding identifier');
+
+    expect(() =>
+      evalPortableValue(
+        { kind: 'index', object: { kind: 'ident', name: 'xs' }, index: null, optional: false } as unknown as ValueIR,
+        makeEnv({ bindings: new Map<string, unknown>([['xs', [1]]]) }),
+      ),
+    ).toThrow('portable: array index must be a bare non-negative safe-integer literal');
+  });
+
+  it('malformed member object subnodes fail with a controlled portable error', () => {
+    expect(() =>
+      evalPortableValue(
+        { kind: 'member', object: null, property: 'message', optional: false } as unknown as ValueIR,
+        makeEnv(),
+      ),
+    ).toThrow('portable: member access is only admitted on an array or caught-error binding');
+  });
 });

@@ -3,22 +3,34 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  type AsyncRagVectorStoreAdapter,
   builtinRagVectorStoreManifest,
   createInMemoryRagVectorStoreForConformance,
   defineRagVectorStoreAdapterContract,
+  InMemoryPgVectorRagStore,
   RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
+  type RagChunkInput,
   type RagVectorStoreConformanceContext,
+  type RagVectorStoreSnapshot,
+  type RagVectorStoreUpsert,
+  type RetrieveOptions,
+  type RetrieveResult,
   runRagVectorStoreConformance,
+  runRagVectorStoreConformanceAsync,
   validateRagVectorStoreAdapterManifest,
 } from '../src/index.js';
 import { LocalPersistentRagVectorStoreAdapter } from '../src/rag-embedding-node.js';
 
 describe('RAG vector store adapter conformance', () => {
   test('exports a stable vector store conformance profile for adapter authors', () => {
-    expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.version).toBe('kern-rag-vector-store-conformance-v1');
+    expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.version).toBe('kern-rag-vector-store-conformance-v2');
     expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredCapabilities).toContain('search');
+    expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredManifestFields).toContain('transport');
+    expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredManifestFields).toContain('capabilities.maxDimensions');
     expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.supportedMetrics).toContain('cosine');
     expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases).toContain('durable-round-trip');
+    expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases).toContain('batch-upsert-is-honored');
+    expect(RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases).toContain('namespace-isolation');
   });
 
   test('validates and defines adapter author contracts', () => {
@@ -28,6 +40,15 @@ describe('RAG vector store adapter conformance', () => {
     const validation = validateRagVectorStoreAdapterManifest(manifest!);
     expect(validation.valid).toBe(true);
     expect(validation.errors.length).toBe(0);
+    expect(manifest!.transport).toBe('in-process');
+    expect(manifest!.capabilities).toEqual(
+      expect.objectContaining({
+        upsertMany: true,
+        namespaces: false,
+        filters: [],
+        maxDimensions: manifest!.maxDimensions,
+      }),
+    );
 
     const contract = defineRagVectorStoreAdapterContract({
       manifest: manifest!,
@@ -54,6 +75,18 @@ describe('RAG vector store adapter conformance', () => {
     ).toThrow(/invalid RAG vector store adapter manifest/u);
   });
 
+  test('adapter author contract helper rejects ambiguous factory variants', () => {
+    const manifest = builtinRagVectorStoreManifest('memory')!;
+
+    expect(() =>
+      defineRagVectorStoreAdapterContract({
+        manifest,
+        createStore: createInMemoryRagVectorStoreForConformance,
+        createStoreAsync: async (context) => createAsyncMemoryStore(context),
+      } as never),
+    ).toThrow(/exactly one of createStore or createStoreAsync/u);
+  });
+
   test('manifest validation reports malformed plain JavaScript inputs', () => {
     const missingManifest = validateRagVectorStoreAdapterManifest(undefined);
     expect(missingManifest.valid).toBe(false);
@@ -69,6 +102,7 @@ describe('RAG vector store adapter conformance', () => {
     expect(malformedManifest.valid).toBe(false);
     expect(malformedManifest.errors).toContain('manifest metrics must include only supported metrics: cosine.');
     expect(malformedManifest.errors).toContain("manifest persistence must be 'ephemeral' or 'durable'.");
+    expect(malformedManifest.errors).toContain("manifest transport must be 'in-process' or 'external'.");
     expect(malformedManifest.errors).toContain('manifest capabilities must be an object.');
 
     const invalidMetric = validateRagVectorStoreAdapterManifest({
@@ -77,6 +111,22 @@ describe('RAG vector store adapter conformance', () => {
     });
     expect(invalidMetric.valid).toBe(false);
     expect(invalidMetric.errors).toContain('manifest metrics must include only supported metrics: cosine.');
+
+    const invalidCapabilities = validateRagVectorStoreAdapterManifest({
+      ...builtinRagVectorStoreManifest('memory')!,
+      capabilities: {
+        ...builtinRagVectorStoreManifest('memory')!.capabilities,
+        filters: ['unsupported'],
+        maxDimensions: 128,
+      },
+    });
+    expect(invalidCapabilities.valid).toBe(false);
+    expect(invalidCapabilities.errors).toContain(
+      "manifest capability filter 'unsupported' is not supported by this conformance profile.",
+    );
+    expect(invalidCapabilities.errors).toContain(
+      "manifest capability 'maxDimensions' must match manifest maxDimensions.",
+    );
   });
 
   test('conformance profile case names match emitted report cases', () => {
@@ -104,8 +154,28 @@ describe('RAG vector store adapter conformance', () => {
     });
 
     expect(report.passed).toBe(true);
+    expect(report.adapterMode).toBe('sync');
     expect(report.summary.failed).toBe(0);
     expect(report.cases.some((entry) => entry.name === 'durable-round-trip' && entry.status === 'skipped')).toBe(true);
+    expect(report.cases.some((entry) => entry.name === 'namespace-isolation' && entry.status === 'skipped')).toBe(true);
+  });
+
+  test('async vector store adapter contracts pass the same conformance profile', async () => {
+    const manifest = {
+      ...builtinRagVectorStoreManifest('memory')!,
+      transport: 'external' as const,
+    };
+
+    const report = await runRagVectorStoreConformanceAsync({
+      manifest,
+      createStoreAsync: async (context) => createAsyncMemoryStore(context),
+    });
+
+    expect(report.passed).toBe(true);
+    expect(report.adapterMode).toBe('async');
+    expect(report.cases.map((entry) => entry.name).sort()).toEqual(
+      [...RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases].sort(),
+    );
   });
 
   test('built-in local persistent adapter passes durable conformance', () => {
@@ -129,6 +199,61 @@ describe('RAG vector store adapter conformance', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test('namespace capability requires same-namespace handles to share backing data', () => {
+    const manifest = {
+      ...builtinRagVectorStoreManifest('local-persistent')!,
+      capabilities: {
+        ...builtinRagVectorStoreManifest('local-persistent')!.capabilities,
+        namespaces: true,
+      },
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'kern-rag-conformance-'));
+    try {
+      const report = runRagVectorStoreConformance({
+        manifest,
+        createStore: (context) =>
+          new LocalPersistentRagVectorStoreAdapter({
+            directory: dir,
+            fileName: `${context.namespace}.json`,
+            fingerprint: context.fingerprint,
+            dims: context.dims,
+          }),
+      });
+
+      expect(report.passed).toBe(true);
+      expect(report.cases.some((entry) => entry.name === 'namespace-isolation' && entry.status === 'passed')).toBe(
+        true,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('namespace capability rejects adapters that only create fresh isolated instances', () => {
+    const manifest = {
+      ...builtinRagVectorStoreManifest('memory')!,
+      capabilities: {
+        ...builtinRagVectorStoreManifest('memory')!.capabilities,
+        namespaces: true,
+      },
+    };
+
+    const report = runRagVectorStoreConformance({
+      manifest,
+      createStore: createInMemoryRagVectorStoreForConformance,
+    });
+
+    expect(report.passed).toBe(false);
+    expect(
+      report.cases.some(
+        (entry) =>
+          entry.name === 'namespace-isolation' &&
+          entry.status === 'failed' &&
+          entry.message === 'expected same namespace handle to read indexed chunk.',
+      ),
+    ).toBe(true);
   });
 
   test('repeated local persistent conformance runs isolate backing files by default', () => {
@@ -255,3 +380,44 @@ describe('RAG vector store adapter conformance', () => {
     ).toBe(true);
   });
 });
+
+function createAsyncMemoryStore(context: RagVectorStoreConformanceContext): AsyncRagVectorStoreAdapter {
+  const store = new InMemoryPgVectorRagStore(context.fingerprint, context.dims);
+  return {
+    get kind() {
+      return store.kind;
+    },
+    get fingerprint() {
+      return store.fingerprint;
+    },
+    get dims() {
+      return store.dims;
+    },
+    get metric() {
+      return store.metric;
+    },
+    async upsert(chunk: RagChunkInput, vector: Float64Array, fingerprint?: string): Promise<void> {
+      store.upsert(chunk, vector, fingerprint);
+    },
+    async upsertMany(entries: Iterable<RagVectorStoreUpsert>): Promise<void> {
+      store.upsertMany(entries);
+    },
+    async search(
+      query: string,
+      queryVector: Float64Array,
+      options?: RetrieveOptions,
+      fingerprint?: string,
+    ): Promise<RetrieveResult> {
+      return store.search(query, queryVector, options, fingerprint);
+    },
+    async snapshot(): Promise<RagVectorStoreSnapshot> {
+      return store.snapshot();
+    },
+    async clear(): Promise<void> {
+      store.clear();
+    },
+    close(): void {
+      store.close();
+    },
+  };
+}

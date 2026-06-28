@@ -119,6 +119,7 @@ export function decompile(root: IRNode): DecompileResult {
       node.type === 'vectorStore' ||
       node.type === 'ragIndex' ||
       node.type === 'retriever' ||
+      node.type === 'retrievalProfile' ||
       node.type === 'rag' ||
       node.type === 'ragRetrieve' ||
       node.type === 'grounding' ||
@@ -393,16 +394,38 @@ export function decompile(root: IRNode): DecompileResult {
       vectorStore: ['name', 'kind', 'dims', 'metric', 'path', 'url', 'table', 'namespace'],
       ragIndex: ['name', 'corpus', 'store', 'embed', 'chunking', 'refresh'],
       retriever: ['name', 'corpus', 'embed', 'mode', 'topK', 'minScore', 'rerank'],
+      retrievalProfile: [
+        'name',
+        'queryParam',
+        'queryTemplate',
+        'topK',
+        'minScore',
+        'filterCorpus',
+        'filterSource',
+        'filterUri',
+        'filterPath',
+        'filterChunking',
+        'output',
+        'requireCitations',
+      ],
       rag: ['name', 'retriever', 'prompt', 'answer', 'citations'],
       ragRetrieve: [
         'name',
         'index',
+        'indexes',
+        'profile',
         'rag',
         'queryParam',
+        'queryTemplate',
         'query',
         'as',
         'topK',
         'minScore',
+        'filterCorpus',
+        'filterSource',
+        'filterUri',
+        'filterPath',
+        'filterChunking',
         'output',
         'requireCitations',
       ],

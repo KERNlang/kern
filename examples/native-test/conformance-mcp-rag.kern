@@ -4,7 +4,8 @@ corpus name=Docs
   chunking source=manuals strategy=semantic maxTokens=600 overlap=80
   chunking source=mcpManuals strategy=semantic maxTokens=600 overlap=80
 
-retriever name=DocsSearch corpus=Docs mode=hybrid topK=8 minScore=0.72
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=8 minScore=0.72
 
 rag name=AnswerDocs retriever=DocsSearch citations=true
   grounding requireCitations=true policy=strict

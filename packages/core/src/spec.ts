@@ -355,6 +355,7 @@ export const NODE_TYPES = [
   'vectorStore',
   'ragIndex',
   'retriever',
+  'retrievalProfile',
   'rag',
   'ragRetrieve',
   'grounding',

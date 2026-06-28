@@ -23,8 +23,8 @@ import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
 const USAGE =
-  'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--openai-api-key <key>]\n' +
-  '       kern rag retrieve <file.kern> --query <text> [--param name=value] [--openai-api-key <key>]\n' +
+  'Usage: kern rag eval <file.kern> [--corpus <chunks.json>] [--rag-retriever <name>] [--rag-index <name>] [--json] [--openai-api-key <key>]\n' +
+  '       kern rag retrieve <file.kern> [--query <text> | --param name=value] [--json] [--openai-api-key <key>]\n' +
   '       kern rag index <file.kern> [--status] [--json] [--force-rebuild] [--openai-api-key <key>]\n' +
   '       kern rag conformance [--adapter memory|local-persistent] [--json]\n' +
   '       kern rag conformance --list [--json]';
@@ -121,8 +121,9 @@ function runRagConformance(args: string[]): void {
     for (const report of reports) {
       const mark = report.passed ? '✓' : '✗';
       console.log(
-        `  ${mark} ${report.manifest.name} (${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped)`,
+        `  ${mark} ${report.manifest.name} mode=${report.adapterMode} (${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped)`,
       );
+      console.log(`      ${ragAdapterCapabilitySummary(report.manifest)}`);
       for (const entry of report.cases) {
         if (entry.status === 'failed') console.log(`      ✗ ${entry.name}: ${entry.message ?? 'failed'}`);
         if (entry.status === 'skipped') console.log(`      - ${entry.name}: ${entry.message ?? 'skipped'}`);
@@ -172,13 +173,27 @@ function printRagConformanceList(json: boolean): void {
     return;
   }
   console.log(`kern rag conformance ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.version}`);
-  console.log(`  required capabilities: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredCapabilities.join(', ')}`);
+  console.log(`  required operations: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredCapabilities.join(', ')}`);
+  console.log(`  required manifest fields: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.requiredManifestFields.join(', ')}`);
   console.log(`  cases: ${RAG_VECTOR_STORE_CONFORMANCE_PROFILE.cases.length}`);
   for (const manifest of BUILTIN_RAG_VECTOR_STORE_MANIFESTS) {
     console.log(
       `  ${manifest.name} kind=${manifest.adapterKind} persistence=${manifest.persistence} metrics=${manifest.metrics.join(',')} maxDims=${manifest.maxDimensions}`,
     );
+    console.log(`    ${ragAdapterCapabilitySummary(manifest)}`);
   }
+}
+
+function ragAdapterCapabilitySummary(manifest: {
+  readonly transport: string;
+  readonly capabilities: {
+    readonly upsertMany: boolean;
+    readonly namespaces: boolean;
+    readonly filters: readonly string[];
+  };
+}): string {
+  const filters = manifest.capabilities.filters.length > 0 ? manifest.capabilities.filters.join(',') : 'none';
+  return `transport=${manifest.transport} batchUpsert=${manifest.capabilities.upsertMany} namespaces=${manifest.capabilities.namespaces} filters=${filters}`;
 }
 
 function createConformanceStore(
@@ -201,6 +216,7 @@ function createConformanceStore(
 async function runRagRetrieve(args: string[]): Promise<void> {
   const {
     filePath,
+    json,
     openAiApiKeyFlag,
     openAiKeyFlagPresent,
     paramError,
@@ -212,35 +228,44 @@ async function runRagRetrieve(args: string[]): Promise<void> {
     unknownFlags,
   } = parseRagRetrieveArgs(args);
   const resolvedFilePath = filePath ? resolve(filePath) : '';
-  if (unknownFlags.length > 0) fail(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`);
-  if (unexpectedArgs.length > 0) fail(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`);
-  if (!filePath) fail(`missing <file.kern>.\n${USAGE}`);
+  if (unknownFlags.length > 0)
+    return finishRagRetrieveError(`unknown flag for retrieve: ${unknownFlags[0]}.\n${USAGE}`, json);
+  if (unexpectedArgs.length > 0)
+    return finishRagRetrieveError(`unexpected argument for retrieve: ${unexpectedArgs[0]}.\n${USAGE}`, json);
+  if (!filePath) return finishRagRetrieveError(`missing <file.kern>.\n${USAGE}`, json);
   if (queryFlagPresent && (!query?.trim() || query.trim().startsWith('-')))
-    fail(`missing value for --query.\n${USAGE}`);
+    return finishRagRetrieveError(`missing value for --query.\n${USAGE}`, json);
   if (openAiKeyFlagPresent && (!openAiApiKeyFlag?.trim() || openAiApiKeyFlag.startsWith('-'))) {
-    fail(`missing value for --openai-api-key.\n${USAGE}`);
+    return finishRagRetrieveError(`missing value for --openai-api-key.\n${USAGE}`, json);
   }
-  if (paramError) fail(`${paramError}.\n${USAGE}`);
-  if (paramFlagPresent && Object.keys(queryParams).length === 0) fail(`missing value for --param.\n${USAGE}`);
-  if (openAiKeyFlagPresent && (!openAiApiKeyFlag?.trim() || openAiApiKeyFlag.startsWith('-'))) {
-    fail(`missing value for --openai-api-key.\n${USAGE}`);
-  }
-  if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
+  if (paramError) return finishRagRetrieveError(`${paramError}.\n${USAGE}`, json);
+  if (paramFlagPresent && Object.keys(queryParams).length === 0)
+    return finishRagRetrieveError(`missing value for --param.\n${USAGE}`, json);
+  if (!existsSync(resolvedFilePath)) return finishRagRetrieveError(`file not found: ${filePath}`, json);
 
-  const source = readFileSync(resolvedFilePath, 'utf-8');
-  const providerOptions = ragProviderOptions(openAiApiKeyFlag);
+  let source: string;
+  try {
+    source = readFileSync(resolvedFilePath, 'utf-8');
+  } catch (err) {
+    return finishRagRetrieveError(`read failed: ${errorMessageWithClose(err)}`, json);
+  }
   let report: RagRetrieveDocumentReport;
   try {
     report = await retrieveRagDocumentAsync(source, {
       sourcePath: resolvedFilePath,
       ...(query !== undefined ? { query } : {}),
       queryParams,
-      ...providerOptions,
+      ...ragProviderOptions(openAiApiKeyFlag),
     });
   } catch (err) {
-    fail(`retrieval failed: ${errorMessageWithClose(err)}`);
+    return finishRagRetrieveError(`retrieval failed: ${errorMessageWithClose(err)}`, json);
   }
 
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    process.exitCode = report.diagnostics.length > 0 ? 1 : 0;
+    return;
+  }
   if (report.diagnostics.length > 0) {
     console.log(`kern rag retrieve ${filePath}`);
     console.log(`  invalid RAG spec — ${report.diagnostics.length} violation(s):`);
@@ -248,12 +273,14 @@ async function runRagRetrieve(args: string[]): Promise<void> {
       const where = diagnostic.line ? ` (line ${diagnostic.line})` : '';
       console.log(`    ✗ ${diagnostic.rule}${where}: ${diagnostic.message}`);
     }
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   console.log(`kern rag retrieve ${filePath}  (${ragRetrieveCorpusSourceSummary(report)})`);
   if (report.retrievals.length === 0) {
     console.log('  no ragRetrieve declared — nothing to run.');
-    process.exit(0);
+    process.exitCode = 0;
+    return;
   }
   if (report.indexes.length > 0) {
     console.log('  indexes:');
@@ -267,12 +294,30 @@ async function runRagRetrieve(args: string[]): Promise<void> {
   }
   for (const retrieval of report.retrievals) {
     const label = retrieval.ragName ? `${retrieval.ragName}/${retrieval.name}` : retrieval.name;
-    console.log(`  ${label} index=${retrieval.indexName} query="${retrieval.query}"`);
+    const indexLabel =
+      retrieval.indexNames.length > 1 ? `indexes=${retrieval.indexNames.join(',')}` : `index=${retrieval.indexName}`;
+    console.log(`  ${label} ${indexLabel} query="${retrieval.query}"`);
     for (const chunk of retrieval.result.chunks) {
       console.log(`    ${chunk.id} score=${chunk.score} source=${chunk.source} text="${truncateText(chunk.text)}"`);
     }
   }
-  process.exit(0);
+  process.exitCode = 0;
+}
+
+function finishRagRetrieveError(message: string, json: boolean): void {
+  if (!json) fail(message);
+  console.log(
+    JSON.stringify(
+      {
+        diagnostics: [{ rule: 'rag-retrieve-error', message }],
+        indexes: [],
+        retrievals: [],
+      },
+      null,
+      2,
+    ),
+  );
+  process.exitCode = 1;
 }
 
 async function runRagEval(args: string[]): Promise<void> {
@@ -280,8 +325,13 @@ async function runRagEval(args: string[]): Promise<void> {
     corpusFlagPresent,
     corpusPath,
     filePath,
+    json,
     openAiApiKeyFlag,
     openAiKeyFlagPresent,
+    ragIndexFlagPresent,
+    ragIndexName,
+    ragRetrieverFlagPresent,
+    ragRetrieverName,
     unexpectedArgs,
     unknownFlags,
   } = parseRagEvalArgs(args);
@@ -296,6 +346,15 @@ async function runRagEval(args: string[]): Promise<void> {
   if (openAiKeyFlagPresent && (!openAiApiKeyFlag?.trim() || openAiApiKeyFlag.startsWith('-'))) {
     fail(`missing value for --openai-api-key.\n${USAGE}`);
   }
+  if (ragRetrieverFlagPresent && (!ragRetrieverName?.trim() || ragRetrieverName.startsWith('-'))) {
+    fail(`missing value for --rag-retriever.\n${USAGE}`);
+  }
+  if (ragIndexFlagPresent && (!ragIndexName?.trim() || ragIndexName.startsWith('-'))) {
+    fail(`missing value for --rag-index.\n${USAGE}`);
+  }
+  if (corpusPath && (ragRetrieverName || ragIndexName)) {
+    fail(`--corpus cannot be combined with --rag-retriever or --rag-index.\n${USAGE}`);
+  }
   if (!existsSync(resolvedFilePath)) fail(`file not found: ${filePath}`);
   if (corpusPath && !existsSync(corpusPath)) fail(`corpus not found: ${corpusPath}`);
 
@@ -308,13 +367,15 @@ async function runRagEval(args: string[]): Promise<void> {
       ? await evaluateRagEvalDocumentAsync(source, chunks, providerOptions)
       : await evaluateRagEvalDocumentFromDeclaredSourcesAsync(source, {
           sourcePath: resolvedFilePath,
+          target: ragEvalTargetOptions(ragRetrieverName, ragIndexName),
           ...providerOptions,
         });
   } catch (err) {
-    fail(`evaluation failed: ${(err as Error).message}`);
+    fail(`evaluation failed: ${errorMessageWithClose(err)}`);
   }
 
-  printReport(report, filePath, chunks?.length ?? report.corpusSource.chunkCount);
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else printReport(report, filePath, chunks?.length ?? report.corpusSource.chunkCount);
   if (report.diagnostics.length > 0) process.exit(1); // invalid spec — failed closed
   if (report.evals.length === 0) process.exit(0); // no ragEval to run is not a failure
   process.exit(report.passed ? 0 : 1);
@@ -359,6 +420,11 @@ interface ParsedRagEvalArgs {
   readonly filePath?: string;
   readonly corpusPath?: string;
   readonly corpusFlagPresent: boolean;
+  readonly json: boolean;
+  readonly ragRetrieverName?: string;
+  readonly ragRetrieverFlagPresent: boolean;
+  readonly ragIndexName?: string;
+  readonly ragIndexFlagPresent: boolean;
   readonly openAiApiKeyFlag?: string;
   readonly openAiKeyFlagPresent: boolean;
   readonly unexpectedArgs: readonly string[];
@@ -369,6 +435,11 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
   let filePath: string | undefined;
   let corpusPath: string | undefined;
   let corpusFlagPresent = false;
+  let json = false;
+  let ragRetrieverName: string | undefined;
+  let ragRetrieverFlagPresent = false;
+  let ragIndexName: string | undefined;
+  let ragIndexFlagPresent = false;
   let openAiApiKeyFlag: string | undefined;
   let openAiKeyFlagPresent = false;
   const unexpectedArgs: string[] = [];
@@ -385,6 +456,32 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
     if (arg.startsWith('--corpus=')) {
       corpusFlagPresent = true;
       corpusPath = arg.slice('--corpus='.length);
+      continue;
+    }
+    if (arg === '--json') {
+      json = true;
+      continue;
+    }
+    if (arg === '--rag-retriever') {
+      ragRetrieverFlagPresent = true;
+      ragRetrieverName = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--rag-retriever=')) {
+      ragRetrieverFlagPresent = true;
+      ragRetrieverName = arg.slice('--rag-retriever='.length);
+      continue;
+    }
+    if (arg === '--rag-index') {
+      ragIndexFlagPresent = true;
+      ragIndexName = args[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--rag-index=')) {
+      ragIndexFlagPresent = true;
+      ragIndexName = arg.slice('--rag-index='.length);
       continue;
     }
     if (arg === '--openai-api-key') {
@@ -413,10 +510,26 @@ function parseRagEvalArgs(args: readonly string[]): ParsedRagEvalArgs {
     filePath,
     corpusPath,
     corpusFlagPresent,
+    json,
+    ragRetrieverName,
+    ragRetrieverFlagPresent,
+    ragIndexName,
+    ragIndexFlagPresent,
     openAiApiKeyFlag,
     openAiKeyFlagPresent,
     unexpectedArgs,
     unknownFlags,
+  };
+}
+
+function ragEvalTargetOptions(
+  retrieverName: string | undefined,
+  indexName: string | undefined,
+): { readonly retrieverName?: string; readonly indexName?: string } | undefined {
+  if (!retrieverName && !indexName) return undefined;
+  return {
+    ...(retrieverName ? { retrieverName } : {}),
+    ...(indexName ? { indexName } : {}),
   };
 }
 
@@ -546,6 +659,7 @@ function parseRagConformanceArgs(args: readonly string[]): ParsedRagConformanceA
 
 interface ParsedRagRetrieveArgs {
   readonly filePath?: string;
+  readonly json: boolean;
   readonly query?: string;
   readonly queryFlagPresent: boolean;
   readonly queryParams: Record<string, string>;
@@ -559,6 +673,7 @@ interface ParsedRagRetrieveArgs {
 
 function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
   let filePath: string | undefined;
+  let json = false;
   let query: string | undefined;
   let queryFlagPresent = false;
   let paramFlagPresent = false;
@@ -580,6 +695,10 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
     if (arg.startsWith('--query=')) {
       queryFlagPresent = true;
       query = arg.slice('--query='.length);
+      continue;
+    }
+    if (arg === '--json') {
+      json = true;
       continue;
     }
     if (arg === '--param') {
@@ -617,6 +736,7 @@ function parseRagRetrieveArgs(args: readonly string[]): ParsedRagRetrieveArgs {
 
   return {
     filePath,
+    json,
     query,
     queryFlagPresent,
     queryParams,
@@ -660,6 +780,21 @@ function printReport(report: RagEvalDocumentReport, file: string, chunkCount: nu
   if (report.corpusSource.mode === 'declared-local-sources') {
     const fileCount = report.corpusSource.fileCount ?? report.corpusSource.files?.length ?? 0;
     console.log(`  corpus source: ${fileCount} file(s), sha256=${report.corpusSource.corpusSha256}`);
+  }
+  if (report.target) {
+    const retrievers = report.target.retrieverNames.length > 0 ? report.target.retrieverNames.join(',') : '(none)';
+    const indexes = report.target.indexNames.length > 0 ? report.target.indexNames.join(',') : '(none)';
+    console.log(`  target: mode=${report.target.mode} retrievers=${retrievers} indexes=${indexes}`);
+  }
+  if (report.indexes.length > 0) {
+    console.log('  indexes:');
+    for (const index of report.indexes) {
+      const chunking = index.chunkingName ? ` chunking=${index.chunkingName}` : '';
+      const snapshot = index.snapshotPath ? ` snapshot=${index.snapshotPath}` : '';
+      console.log(
+        `    ${index.indexName} store=${index.storeName} kind=${index.storeKind}${chunking} status=${index.status} chunks=${index.chunkCount}${snapshot}`,
+      );
+    }
   }
   if (report.diagnostics.length > 0) {
     console.log(`  invalid RAG spec — ${report.diagnostics.length} violation(s):`);

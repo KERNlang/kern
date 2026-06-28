@@ -2,6 +2,7 @@ node_modules/
 dist/
 packages/*/dist/
 examples/src/generated/
+examples/rag-starter/index/
 examples/*.tsx
 *.min.kern
 .claude/

@@ -2,7 +2,8 @@ corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
   chunking source=manuals strategy=semantic maxTokens=600 overlap=80
 
-retriever name=DocsSearch corpus=Docs mode=hybrid topK=2 minScore=0.5
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding mode=hybrid topK=2 minScore=0.5
 
 rag name=AnswerDocs retriever=DocsSearch prompt="./answer.md" citations=true
   grounding requireCitations=true policy=strict maxContext=6000

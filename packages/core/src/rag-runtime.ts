@@ -1,3 +1,4 @@
+import { cloneRagMetadataFilter, matchesRagMetadataFilter, type RagMetadataFilter } from './rag-metadata-filter.js';
 import type {
   RagSemanticAnswerContractFact,
   RagSemanticEvalAssertFact,
@@ -32,6 +33,7 @@ export interface RetrievedChunk {
 export interface RetrieveOptions {
   readonly topK?: number;
   readonly minScore?: number;
+  readonly metadataFilter?: RagMetadataFilter;
 }
 
 export interface RetrieveResult {
@@ -196,6 +198,21 @@ export interface RagEvalCaseResult {
   readonly assertions: readonly RagEvalAssertionResult[];
 }
 
+export interface RagEvalGroundingMetrics {
+  readonly passed: boolean;
+  readonly passRate: number;
+  readonly passedCaseCount: number;
+  readonly failedCaseCount: number;
+  readonly evaluatedCaseCount: number;
+}
+
+export interface RagEvalContractMetrics {
+  readonly hitRate: number | null;
+  readonly citationCoverage: number;
+  readonly minRelevance: number | null;
+  readonly grounding: RagEvalGroundingMetrics;
+}
+
 export interface RagEvalContractResult {
   readonly passed: boolean;
   readonly ragName?: string;
@@ -206,6 +223,7 @@ export interface RagEvalContractResult {
   readonly passedAssertionCount: number;
   readonly durationMs: number;
   readonly cases: readonly RagEvalCaseResult[];
+  readonly metrics: RagEvalContractMetrics;
 }
 
 export interface RagSemanticAnswerContractOptions {
@@ -257,11 +275,12 @@ export class InMemoryRagCorpus {
 
   retrieve(query: string, options: RetrieveOptions = {}): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
-    const { topK, minScore } = normalizeRetrieveOptions(options);
+    const { topK, minScore, metadataFilter } = normalizeRetrieveOptions(options);
     const queryTerms = tokenizeForRetrieval(query);
     if (queryTerms.size === 0) return { query, chunks: [] };
 
     const chunks = Array.from(this.chunks.values())
+      .filter((stored) => matchesRagMetadataFilter(stored.chunk, metadataFilter))
       .map((stored) => ({ chunk: stored.chunk, score: jaccardScore(queryTerms, stored.terms) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
       .sort((a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id))
@@ -626,6 +645,7 @@ export function evaluateRagEvalContract(
     passedAssertionCount,
     durationMs: runtimeNow(options) - startedAt,
     cases,
+    metrics: ragEvalMetrics(cases),
   };
 }
 
@@ -655,6 +675,7 @@ export async function evaluateRagEvalContractAsync(
     passedAssertionCount,
     durationMs: runtimeNow(options) - startedAt,
     cases,
+    metrics: ragEvalMetrics(cases),
   };
 }
 
@@ -671,16 +692,27 @@ export function hashRetrievedChunkText(text: string): string {
   return `${left.toString(16).padStart(16, '0')}${right.toString(16).padStart(16, '0')}`;
 }
 
-function normalizeRetrieveOptions(options: RetrieveOptions): Required<RetrieveOptions> {
+interface NormalizedRetrieveOptions {
+  readonly topK: number;
+  readonly minScore: number;
+  readonly metadataFilter?: RagMetadataFilter;
+}
+
+function normalizeRetrieveOptions(options: RetrieveOptions): NormalizedRetrieveOptions {
   const topK = options.topK ?? 5;
   const minScore = options.minScore ?? 0;
+  const metadataFilter = cloneRagMetadataFilter(options.metadataFilter);
   if (!Number.isInteger(topK) || topK <= 0 || topK > MAX_IN_MEMORY_RAG_TOP_K) {
     throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
   }
   if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1) {
     throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
   }
-  return { topK, minScore };
+  return {
+    topK,
+    minScore,
+    ...(metadataFilter ? { metadataFilter } : {}),
+  };
 }
 
 function normalizeGroundingCoverageThreshold(value: number | undefined): number {
@@ -914,6 +946,90 @@ function caseRetrieveOptions(evaluationCase: RagSemanticEvalCaseFact): RetrieveO
     ...optionalNumberValue('topK', evaluationCase.expected?.topK),
     ...optionalNumberValue('minScore', evaluationCase.expected?.minScore),
   };
+}
+
+function ragEvalMetrics(cases: readonly RagEvalCaseResult[]): RagEvalContractMetrics {
+  const totalChunks = cases.reduce((count, evaluationCase) => count + evaluationCase.chunks.length, 0);
+  const citedChunks = cases.reduce(
+    (count, evaluationCase) => count + evaluationCase.chunks.filter(chunkHasCitation).length,
+    0,
+  );
+  const relevanceAssertions = cases.flatMap((evaluationCase) =>
+    evaluationCase.assertions.filter(isRetrievalHitAssertion),
+  );
+  const groundingCases = cases
+    .map((evaluationCase) => evaluationCase.assertions.filter(isGroundingAssertion))
+    .filter((assertions) => assertions.length > 0);
+  const groundingPassedCaseCount = cases.filter(
+    (evaluationCase) =>
+      evaluationCase.assertions.some(isGroundingAssertion) &&
+      evaluationCase.assertions.filter(isGroundingAssertion).every((assertion) => assertion.passed),
+  ).length;
+  return {
+    hitRate:
+      relevanceAssertions.length > 0
+        ? ratio(relevanceAssertions.filter((assertion) => assertion.passed).length, relevanceAssertions.length)
+        : null,
+    citationCoverage: ratio(citedChunks, totalChunks),
+    minRelevance: minRetrievedScore(cases),
+    grounding: {
+      passed: groundingCases.length > 0 && groundingPassedCaseCount === groundingCases.length,
+      passRate: ratio(groundingPassedCaseCount, groundingCases.length),
+      passedCaseCount: groundingPassedCaseCount,
+      failedCaseCount: groundingCases.length - groundingPassedCaseCount,
+      evaluatedCaseCount: groundingCases.length,
+    },
+  };
+}
+
+const RAG_RETRIEVAL_HIT_ASSERTION_KINDS = new Set([
+  'expected.minScore',
+  'expected.chunkCount',
+  'expected.sources',
+  'scoreGte',
+  'scoreLte',
+  'contains',
+  'sourceEq',
+  'sourceGlob',
+  'uniqueSourcesGte',
+  'chunkCountEq',
+  'chunkHash',
+]);
+
+function isRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
+  if (assertion.code !== 'PASS' && assertion.code !== 'ASSERTION_FAIL') return false;
+  // Count only evaluated relevance/source checks as retrieval hits; structural
+  // or vacuous count checks should not make an eval look successful.
+  if (isVacuousRetrievalHitAssertion(assertion)) return false;
+  return RAG_RETRIEVAL_HIT_ASSERTION_KINDS.has(assertion.kind);
+}
+
+function isVacuousRetrievalHitAssertion(assertion: RagEvalAssertionResult): boolean {
+  return (
+    typeof assertion.expected === 'number' &&
+    assertion.expected === 0 &&
+    (assertion.kind === 'expected.chunkCount' ||
+      assertion.kind === 'chunkCountEq' ||
+      assertion.kind === 'uniqueSourcesGte')
+  );
+}
+
+function isGroundingAssertion(assertion: RagEvalAssertionResult): boolean {
+  return assertion.kind === 'citesRequired';
+}
+
+function minRetrievedScore(cases: readonly RagEvalCaseResult[]): number | null {
+  let minScore: number | undefined;
+  for (const evaluationCase of cases) {
+    for (const chunk of evaluationCase.chunks) {
+      minScore = minScore === undefined ? chunk.score : Math.min(minScore, chunk.score);
+    }
+  }
+  return minScore ?? null;
+}
+
+function ratio(numerator: number, denominator: number): number {
+  return denominator === 0 ? 0 : numerator / denominator;
 }
 
 function evaluateExpectedCaseContracts(
@@ -1243,7 +1359,7 @@ function optionalAssertionValue(key: 'expected' | 'actual', value: unknown): Rec
 
 function normalizeProvenanceRetrieveOptions(options: RetrieveOptions | undefined): RetrieveOptions {
   if (options === undefined) return {};
-  const out: { topK?: number; minScore?: number } = {};
+  const out: { topK?: number; minScore?: number; metadataFilter?: RagMetadataFilter } = {};
   if (options.topK !== undefined) {
     if (!Number.isInteger(options.topK) || options.topK <= 0 || options.topK > MAX_IN_MEMORY_RAG_TOP_K) {
       throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
@@ -1255,6 +1371,10 @@ function normalizeProvenanceRetrieveOptions(options: RetrieveOptions | undefined
       throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
     }
     out.minScore = options.minScore;
+  }
+  if (options.metadataFilter !== undefined) {
+    const metadataFilter = cloneRagMetadataFilter(options.metadataFilter);
+    if (metadataFilter !== undefined) out.metadataFilter = metadataFilter;
   }
   return out;
 }

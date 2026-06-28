@@ -31,7 +31,9 @@
  */
 
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
+import { evalArrayLiteralValue } from '../src/ir/semantics/portable-array.js';
 import type { IRNode } from '../src/types.js';
+import type { ValueIR } from '../src/value-ir.js';
 
 beforeAll(() => {
   registerAllContracts();
@@ -131,10 +133,34 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     abstains([letArr('xs', '[Decimal.of("1")]'), eachPrint('x', 'xs', print('x'))]);
   });
 
+  it('a computed numeric element abstains even if the final JS value is a safe integer', () => {
+    abstains([letArr('xs', '[(9007199254740991 + 2) - 9007199254740991]'), eachPrint('x', 'xs', print('x'))]);
+  });
+
   it('assign to an array binding abstains (deferred — mutable arrays are a later slice)', () => {
     abstains([
       { type: 'let', props: { name: 'xs', kind: 'let', value: '[1]' } },
       { type: 'assign', props: { target: 'xs', value: '[2]' } },
     ]);
+  });
+
+  it('malformed arrayLit items fail with a controlled portable-array error', () => {
+    const malformed = { kind: 'arrayLit', items: undefined } as unknown as ValueIR;
+    expect(() => evalArrayLiteralValue(malformed, makeEnv())).toThrow(
+      'portable-array: array literal items must be an array',
+    );
+  });
+
+  it('malformed arrayLit item entries fail with a controlled portable-array error', () => {
+    const nullItem = { kind: 'arrayLit', items: [null] } as unknown as ValueIR;
+    expect(() => evalArrayLiteralValue(nullItem, makeEnv())).toThrow(
+      'portable-array: array literal items must be value IR nodes',
+    );
+
+    const sparseItems = Array(1) as unknown as ValueIR[];
+    const sparseItem = { kind: 'arrayLit', items: sparseItems } as unknown as ValueIR;
+    expect(() => evalArrayLiteralValue(sparseItem, makeEnv())).toThrow(
+      'portable-array: array literal items must not contain sparse holes',
+    );
   });
 });

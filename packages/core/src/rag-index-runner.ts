@@ -14,21 +14,11 @@ import { parseDocument } from './parser.js';
 import {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
-  RAG_EMBED_MODEL_LOCAL_HASH,
-  RAG_EMBED_MODEL_LOCAL_SEMANTIC,
-  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
-  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
   type RagProviderEmbeddingOptions,
+  ragEmbedderIdentityForModel,
+  resolveAsyncRagEmbedderForModel,
 } from './rag-embed-resolver.js';
-import {
-  type AsyncEmbedder,
-  asAsyncEmbedder,
-  DeterministicHashEmbedder,
-  type Embedder,
-  LocalSemanticEmbedder,
-  OpenAIEmbeddingAdapter,
-  RAG_VECTOR_STORE_SNAPSHOT_VERSION,
-} from './rag-embedding.js';
+import { type AsyncEmbedder, type Embedder, RAG_VECTOR_STORE_SNAPSHOT_VERSION } from './rag-embedding.js';
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
 import type { RagChunkInput } from './rag-runtime.js';
@@ -184,9 +174,14 @@ export async function indexRagDocumentAsync(
       continue;
     }
 
-    const embedder = options.embedder
-      ? ensureAsyncEmbedder(options.embedder)
-      : asyncEmbedderForIndex(facts, index, options);
+    let embedder: AsyncEmbedder;
+    try {
+      embedder = options.embedder
+        ? ensureAsyncEmbedder(options.embedder)
+        : asyncEmbedderForIndex(facts, index, options);
+    } catch (error) {
+      throw providerError(error, config, { id: identity.id });
+    }
     const action = config.snapshotExists || config.manifestExists ? 'rebuilt' : 'indexed';
     await rebuildIndex(config, embedder, chunks);
     indexes.push(indexReport(index, store, chunks, config, inspection, action));
@@ -304,7 +299,9 @@ async function rebuildIndex(
     fingerprint: config.fingerprint,
     dims: embedder.dims,
     rebuildOnFingerprintMismatch: true,
+    rebuildOnSnapshotLoadFailure: true,
   });
+  let rebuildError: unknown;
   try {
     let vectors: readonly Float64Array[];
     try {
@@ -321,8 +318,20 @@ async function rebuildIndex(
       chunks.map((chunk, index) => ({ chunk, vector: vectors[index], fingerprint: config.fingerprint })),
     );
     writeManifest(config);
-  } finally {
+  } catch (error) {
+    rebuildError = error;
+  }
+  let closeError: unknown;
+  try {
     store.close();
+  } catch (error) {
+    closeError = error;
+  }
+  if (rebuildError) throw errorWithCloseError(rebuildError, closeError);
+  if (closeError) {
+    const wrapped = new Error(`KERN RAG index '${config.provenance.store.namespace}' rebuilt but failed to close.`);
+    (wrapped as Error & { cause?: unknown }).cause = closeError;
+    throw wrapped;
   }
 }
 
@@ -451,15 +460,7 @@ function embedderIdentityForIndex(
   const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
-  if (model === RAG_EMBED_MODEL_LOCAL_HASH) return { id: new DeterministicHashEmbedder({ dims }).id, dims };
-  if (model === RAG_EMBED_MODEL_LOCAL_SEMANTIC) return { id: new LocalSemanticEmbedder().id, dims };
-  if (
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL ||
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE
-  ) {
-    return { id: `${openAIBaseId(model, dims)}:provider=${openAIProviderScope(options.providers?.openai)}`, dims };
-  }
-  throw new Error(`Unhandled RAG embed model '${String(model)}'.`);
+  return ragEmbedderIdentityForModel(model, dims, options);
 }
 
 function asyncEmbedderForIndex(
@@ -470,28 +471,7 @@ function asyncEmbedderForIndex(
   const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
-  if (model === RAG_EMBED_MODEL_LOCAL_HASH) return asAsyncEmbedder(new DeterministicHashEmbedder({ dims }));
-  if (model === RAG_EMBED_MODEL_LOCAL_SEMANTIC) return asAsyncEmbedder(new LocalSemanticEmbedder());
-  if (
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL ||
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE
-  ) {
-    const openai = options.providers?.openai;
-    if (!openai?.apiKey?.trim()) throw new Error(`RAG embed model '${model}' requires OpenAI provider options.`);
-    const adapter = new OpenAIEmbeddingAdapter({
-      ...openai,
-      apiKey: openai.apiKey,
-      model: model.replace(/^openai:/u, ''),
-      dims,
-    });
-    return {
-      id: `${adapter.id}:provider=${openAIProviderScope(openai)}`,
-      dims,
-      embed: (text) => adapter.embed(text),
-      embedMany: (texts) => adapter.embedMany(texts),
-    };
-  }
-  throw new Error(`Unhandled RAG embed model '${String(model)}'.`);
+  return resolveAsyncRagEmbedderForModel(model, dims, options);
 }
 
 function embedFactForIndex(facts: RagSemanticFacts, index: RagSemanticIndexFact) {
@@ -532,6 +512,13 @@ function sanitizeProviderMessage(message: string): string {
     .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9._~+/=-]{4,}/giu, (match) => `${match.split('-')[0]}-***`)
     .replace(/([?&](?:api[_-]?key|token|access_token)=)[^&\s]+/giu, '$1***');
   return redacted.length > 240 ? `${redacted.slice(0, 237)}...` : redacted;
+}
+
+function errorWithCloseError(error: unknown, closeError: unknown): unknown {
+  if (!closeError) return error;
+  const primary = error instanceof Error ? error : new Error(String(error));
+  (primary as Error & { closeError?: unknown }).closeError = closeError;
+  return primary;
 }
 
 function readJson(path: string): { readonly status: 'ok'; readonly value: unknown } | Inspection {
@@ -592,19 +579,6 @@ function isPathInside(path: string, base: string): boolean {
 
 function displayPath(store: RagSemanticVectorStoreFact, fileName: string): string {
   return `${store.path?.replace(/\\/gu, '/').replace(/\/+$/u, '') ?? '.'}/${fileName}`.replace(/^\.\//u, '');
-}
-
-function openAIBaseId(model: string, dims: number): string {
-  return `openai:${model.replace(/^openai:/u, '')}:dims=${dims}`;
-}
-
-function openAIProviderScope(openai: RagProviderEmbeddingOptions['openai'] | undefined): string {
-  return sha256(
-    stableJson({
-      endpoint: openai?.endpoint ?? 'https://api.openai.com/v1/embeddings',
-      fetch: openai?.fetch ? 'custom-fetch' : 'global-fetch',
-    }),
-  ).slice(0, 12);
 }
 
 function sortedStrings(values: readonly string[]): readonly string[] {

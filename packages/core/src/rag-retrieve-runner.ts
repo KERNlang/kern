@@ -5,24 +5,15 @@ import { parseDocument } from './parser.js';
 import {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
-  RAG_EMBED_MODEL_LOCAL_HASH,
-  RAG_EMBED_MODEL_LOCAL_SEMANTIC,
-  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
-  RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
   type RagProviderEmbeddingOptions,
+  resolveAsyncRagEmbedderForModel,
+  resolveSyncRagEmbedderForModel,
 } from './rag-embed-resolver.js';
-import {
-  type AsyncEmbedder,
-  AsyncEmbeddingRagIndex,
-  asAsyncEmbedder,
-  DeterministicHashEmbedder,
-  type Embedder,
-  EmbeddingRagIndex,
-  LocalSemanticEmbedder,
-  OpenAIEmbeddingAdapter,
-} from './rag-embedding.js';
+import { type AsyncEmbedder, AsyncEmbeddingRagIndex, type Embedder, EmbeddingRagIndex } from './rag-embedding.js';
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
+import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
+import { type RagQueryTemplateParamValue, renderRagQueryTemplate } from './rag-query-template.js';
 import type { RagChunkInput, RetrieveOptions, RetrieveResult } from './rag-runtime.js';
 import {
   collectRagSemanticFacts,
@@ -39,7 +30,11 @@ export interface RagRetrieveDocumentOptions {
   /** Global query fallback used when a ragRetrieve has queryParam but no matching queryParams entry. */
   readonly query?: string;
   /** Named runtime query inputs. Values here take precedence over the global query fallback. */
-  readonly queryParams?: Readonly<Record<string, string>>;
+  readonly queryParams?: Readonly<Record<string, string | undefined>>;
+  /** Typed named runtime values used by queryTemplate=. Falls back to queryParams when omitted. */
+  readonly templateParams?: Readonly<Record<string, RagQueryTemplateParamValue | undefined>>;
+  /** Optional internal filter for callers that synthesize a single runtime retrieval. */
+  readonly runtimeRetrievalNames?: readonly string[];
   /** Override embedder for local, synchronous retrieval tests and tools. Provider-backed retrieval is future async work. */
   readonly embedder?: Embedder;
 }
@@ -68,6 +63,7 @@ export interface RagRetrieveIndexLifecycle {
 export interface RagRetrieveDocumentEntry {
   readonly name: string;
   readonly indexName: string;
+  readonly indexNames: readonly string[];
   readonly ragName?: string;
   readonly query: string;
   readonly retrieveOptions: RetrieveOptions;
@@ -83,8 +79,12 @@ export interface RagRetrieveDocumentReport {
 
 interface PreparedRagRetrieval<TEmbedder extends Pick<Embedder, 'dims' | 'id'>> {
   readonly retrieval: RagSemanticRuntimeRetrieveFact;
-  readonly index: RagSemanticIndexFact;
+  readonly targets: readonly PreparedRagRetrievalTarget<TEmbedder>[];
   readonly query: string;
+}
+
+interface PreparedRagRetrievalTarget<TEmbedder extends Pick<Embedder, 'dims' | 'id'>> {
+  readonly index: RagSemanticIndexFact;
   readonly embedder: TEmbedder;
   readonly vectorStore: RagSemanticVectorStoreFact;
 }
@@ -123,42 +123,50 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
   let retrievalError: unknown;
   let closeError: unknown;
   try {
-    retrievals = preparedRetrievals.map(({ retrieval, index, query, embedder, vectorStore }) => {
-      const corpusChunks = chunksForIndex(byIndexKey, index);
+    retrievals = preparedRetrievals.map(({ retrieval, targets, query }) => {
       const retrieveOptions = retrieveOptionsForFact(retrieval);
-      let result: RetrieveResult;
-      if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
-        const config = localPersistentStoreConfig(vectorStore, index, embedder, corpusChunks, options.sourcePath);
-        let entry = persistentStoreByKey.get(config.physicalKey);
-        if (entry && entry.fingerprint !== config.fingerprint) {
-          throw new Error(
-            `KERN RAG vectorStore '${vectorStore.name}' resolves to local snapshot '${config.fileName}' with multiple incompatible fingerprints. Use distinct namespace or path values for each local-persistent index.`,
+      const perIndexRetrieveOptions =
+        targets.length > 1 ? perIndexOptionsForMergedRetrieval(retrieveOptions) : retrieveOptions;
+      const queryVectorByEmbedder = new Map<string, Float64Array>();
+      const results = targets.map(({ index, embedder, vectorStore }) => {
+        const corpusChunks = chunksForIndex(byIndexKey, index);
+        if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
+          const config = localPersistentStoreConfig(vectorStore, index, embedder, corpusChunks, options.sourcePath);
+          let entry = persistentStoreByKey.get(config.physicalKey);
+          if (entry && entry.fingerprint !== config.fingerprint) {
+            throw new Error(
+              `KERN RAG vectorStore '${vectorStore.name}' resolves to local snapshot '${config.fileName}' with multiple incompatible fingerprints. Use distinct namespace or path values for each local-persistent index.`,
+            );
+          }
+          if (!entry) {
+            entry = {
+              fingerprint: config.fingerprint,
+              store: new LocalPersistentRagVectorStoreAdapter({
+                directory: config.directory,
+                fileName: config.fileName,
+                fingerprint: config.fingerprint,
+                dims: embedder.dims,
+                rebuildOnFingerprintMismatch: true,
+              }),
+            };
+            persistentStoreByKey.set(config.physicalKey, entry);
+          }
+          const { fingerprint, store } = entry;
+          const status = ensureLocalPersistentStoreIndexed(
+            store,
+            fingerprint,
+            embedder,
+            corpusChunks,
+            config.snapshotExists,
+          );
+          indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status, config));
+          return store.search(
+            query,
+            cachedSyncQueryVector(queryVectorByEmbedder, embedder, query),
+            perIndexRetrieveOptions,
+            fingerprint,
           );
         }
-        if (!entry) {
-          entry = {
-            fingerprint: config.fingerprint,
-            store: new LocalPersistentRagVectorStoreAdapter({
-              directory: config.directory,
-              fileName: config.fileName,
-              fingerprint: config.fingerprint,
-              dims: embedder.dims,
-              rebuildOnFingerprintMismatch: true,
-            }),
-          };
-          persistentStoreByKey.set(config.physicalKey, entry);
-        }
-        const { fingerprint, store } = entry;
-        const status = ensureLocalPersistentStoreIndexed(
-          store,
-          fingerprint,
-          embedder,
-          corpusChunks,
-          config.snapshotExists,
-        );
-        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status, config));
-        result = store.search(query, embedder.embed(query), retrieveOptions, fingerprint);
-      } else {
         const cacheKey = JSON.stringify([index.corpusName, index.chunkingName ?? '', embedder.id, embedder.dims]);
         let embeddingIndex = embeddingIndexByKey.get(cacheKey);
         let status: RagRetrieveIndexLifecycleStatus = 'reused';
@@ -168,15 +176,19 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
           status = 'indexed';
         }
         indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
-        result = embeddingIndex.retrieve(query, retrieveOptions);
-      }
+        return embeddingIndex.retrieve(query, perIndexRetrieveOptions);
+      });
       return {
         name: retrieval.name,
         indexName: retrieval.indexName,
+        indexNames: retrieval.indexNames,
         ...(retrieval.ragName ? { ragName: retrieval.ragName } : {}),
         query,
         retrieveOptions,
-        result,
+        result:
+          targets.length > 1
+            ? mergeRetrieveResults(query, results, retrieveOptions)
+            : (results[0] ?? { query, chunks: [] }),
       };
     });
   } catch (error) {
@@ -217,71 +229,80 @@ export async function retrieveRagDocumentAsync(
   let retrievalError: unknown;
   let closeError: unknown;
   try {
-    for (const { retrieval, index, query, embedder, vectorStore } of preparedRetrievals) {
-      const corpusChunks = chunksForIndex(byIndexKey, index);
+    for (const { retrieval, targets, query } of preparedRetrievals) {
       const retrieveOptions = retrieveOptionsForFact(retrieval);
-      let result: RetrieveResult;
-      if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
-        const config = localPersistentStoreConfig(vectorStore, index, embedder, corpusChunks, options.sourcePath);
-        let entry = persistentStoreByKey.get(config.physicalKey);
-        if (entry && entry.fingerprint !== config.fingerprint) {
-          throw new Error(
-            `KERN RAG vectorStore '${vectorStore.name}' resolves to local snapshot '${config.fileName}' with multiple incompatible fingerprints. Use distinct namespace or path values for each local-persistent index.`,
-          );
-        }
-        if (!entry) {
-          entry = {
-            fingerprint: config.fingerprint,
-            store: new LocalPersistentRagVectorStoreAdapter({
-              directory: config.directory,
-              fileName: config.fileName,
-              fingerprint: config.fingerprint,
-              dims: embedder.dims,
-              rebuildOnFingerprintMismatch: true,
-            }),
-          };
-          persistentStoreByKey.set(config.physicalKey, entry);
-        }
-        const { fingerprint, store } = entry;
-        let queryVector: Float64Array;
-        let status: RagRetrieveIndexLifecycleStatus;
-        try {
-          status = await ensureLocalPersistentStoreIndexedAsync(
-            store,
-            fingerprint,
-            embedder,
-            corpusChunks,
-            config.snapshotExists,
-          );
-          queryVector = await embedder.embed(query);
-        } catch (error) {
-          throw providerError(error, index, embedder);
-        }
-        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status, config));
-        result = store.search(query, queryVector, retrieveOptions, fingerprint);
-      } else {
-        const cacheKey = JSON.stringify([index.corpusName, index.chunkingName ?? '', embedder.id, embedder.dims]);
-        let embeddingIndex = embeddingIndexByKey.get(cacheKey);
-        let status: RagRetrieveIndexLifecycleStatus = 'reused';
-        try {
-          if (!embeddingIndex) {
-            embeddingIndex = await AsyncEmbeddingRagIndex.create(corpusChunks, { embedder });
-            embeddingIndexByKey.set(cacheKey, embeddingIndex);
-            status = 'indexed';
+      const perIndexRetrieveOptions =
+        targets.length > 1 ? perIndexOptionsForMergedRetrieval(retrieveOptions) : retrieveOptions;
+      const queryVectorByEmbedder = new Map<string, Float64Array>();
+      const results: RetrieveResult[] = [];
+      for (const { index, embedder, vectorStore } of targets) {
+        const corpusChunks = chunksForIndex(byIndexKey, index);
+        if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
+          const config = localPersistentStoreConfig(vectorStore, index, embedder, corpusChunks, options.sourcePath);
+          let entry = persistentStoreByKey.get(config.physicalKey);
+          if (entry && entry.fingerprint !== config.fingerprint) {
+            throw new Error(
+              `KERN RAG vectorStore '${vectorStore.name}' resolves to local snapshot '${config.fileName}' with multiple incompatible fingerprints. Use distinct namespace or path values for each local-persistent index.`,
+            );
           }
-          result = await embeddingIndex.retrieve(query, retrieveOptions);
-        } catch (error) {
-          throw providerError(error, index, embedder);
+          if (!entry) {
+            entry = {
+              fingerprint: config.fingerprint,
+              store: new LocalPersistentRagVectorStoreAdapter({
+                directory: config.directory,
+                fileName: config.fileName,
+                fingerprint: config.fingerprint,
+                dims: embedder.dims,
+                rebuildOnFingerprintMismatch: true,
+              }),
+            };
+            persistentStoreByKey.set(config.physicalKey, entry);
+          }
+          const { fingerprint, store } = entry;
+          let queryVector: Float64Array;
+          let status: RagRetrieveIndexLifecycleStatus;
+          try {
+            status = await ensureLocalPersistentStoreIndexedAsync(
+              store,
+              fingerprint,
+              embedder,
+              corpusChunks,
+              config.snapshotExists,
+            );
+            queryVector = await cachedAsyncQueryVector(queryVectorByEmbedder, embedder, query);
+          } catch (error) {
+            throw providerError(error, index, embedder);
+          }
+          indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status, config));
+          results.push(store.search(query, queryVector, perIndexRetrieveOptions, fingerprint));
+        } else {
+          const cacheKey = JSON.stringify([index.corpusName, index.chunkingName ?? '', embedder.id, embedder.dims]);
+          let embeddingIndex = embeddingIndexByKey.get(cacheKey);
+          let status: RagRetrieveIndexLifecycleStatus = 'reused';
+          try {
+            if (!embeddingIndex) {
+              embeddingIndex = await AsyncEmbeddingRagIndex.create(corpusChunks, { embedder });
+              embeddingIndexByKey.set(cacheKey, embeddingIndex);
+              status = 'indexed';
+            }
+            results.push(await embeddingIndex.retrieve(query, perIndexRetrieveOptions));
+          } catch (error) {
+            throw providerError(error, index, embedder);
+          }
+          indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
         }
-        indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
       }
       retrievals.push({
         name: retrieval.name,
         indexName: retrieval.indexName,
+        indexNames: retrieval.indexNames,
         ...(retrieval.ragName ? { ragName: retrieval.ragName } : {}),
         query,
         retrieveOptions,
-        result,
+        result:
+          targets.length > 1
+            ? mergeRetrieveResults(query, results, retrieveOptions)
+            : (results[0] ?? { query, chunks: [] }),
       });
     }
   } catch (error) {
@@ -299,29 +320,39 @@ export async function retrieveRagDocumentAsync(
 
 function prepareRuntimeRetrievals<TEmbedder extends Pick<Embedder, 'dims' | 'id'>>(
   facts: RagSemanticFacts,
-  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams'>,
+  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams' | 'runtimeRetrievalNames'>,
   embedderFor: (index: RagSemanticIndexFact) => TEmbedder,
 ): PreparedRagRetrieval<TEmbedder>[] {
   const indexByName = new Map<string, RagSemanticIndexFact>(facts.indexes.map((index) => [index.name, index]));
   const vectorStoreByName = new Map<string, RagSemanticVectorStoreFact>(
     facts.vectorStores.map((store) => [store.name, store]),
   );
-  return facts.runtimeRetrievals.map((retrieval) => {
-    const index = indexByName.get(retrieval.indexName);
-    if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
-    const vectorStore = vectorStoreByName.get(index.storeName);
-    if (!vectorStore) {
-      throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
-    }
-    const vectorStoreKind = vectorStore.kind ?? 'memory';
-    if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
-      throw new Error(
-        `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
-      );
-    }
-    const query = queryForRuntimeRetrieval(retrieval, options);
-    return { retrieval, index, query, embedder: embedderFor(index), vectorStore };
-  });
+  const runtimeRetrievalNames =
+    options.runtimeRetrievalNames === undefined ? undefined : new Set(options.runtimeRetrievalNames);
+  return facts.runtimeRetrievals
+    .filter((retrieval) => runtimeRetrievalNames?.has(retrieval.name) ?? true)
+    .map((retrieval) => {
+      const query = queryForRuntimeRetrieval(retrieval, options);
+      if (retrieval.indexNames.length === 0) {
+        throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' must target at least one index.`);
+      }
+      const targets = retrieval.indexNames.map((indexName) => {
+        const index = indexByName.get(indexName);
+        if (!index) throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing index.`);
+        const vectorStore = vectorStoreByName.get(index.storeName);
+        if (!vectorStore) {
+          throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
+        }
+        const vectorStoreKind = vectorStore.kind ?? 'memory';
+        if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
+          throw new Error(
+            `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
+          );
+        }
+        return { index, embedder: embedderFor(index), vectorStore };
+      });
+      return { retrieval, targets, query };
+    });
 }
 
 function ingestForPreparedRetrievals(
@@ -330,19 +361,21 @@ function ingestForPreparedRetrievals(
   sourcePath: string,
 ): RetrievalIngestions {
   const byIndexKey = new Map<string, RagIngestResult>();
-  for (const { index } of preparedRetrievals) {
-    const key = indexIngestionKey(index);
-    if (byIndexKey.has(key)) continue;
-    byIndexKey.set(
-      key,
-      ingestRagDeclaredLocalSources(root, {
-        sourcePath,
-        corpusNames: [index.corpusName],
-        chunkingNameByCorpus: {
-          [index.corpusName]: index.chunkingName,
-        },
-      }),
-    );
+  for (const { targets } of preparedRetrievals) {
+    for (const { index } of targets) {
+      const key = indexIngestionKey(index);
+      if (byIndexKey.has(key)) continue;
+      byIndexKey.set(
+        key,
+        ingestRagDeclaredLocalSources(root, {
+          sourcePath,
+          corpusNames: [index.corpusName],
+          chunkingNameByCorpus: {
+            [index.corpusName]: index.chunkingName,
+          },
+        }),
+      );
+    }
   }
   const chunks = Array.from(byIndexKey.values())
     .flatMap((ingestion) => ingestion.chunks)
@@ -409,7 +442,7 @@ function localPersistentDisplayPath(
 
 function queryForRuntimeRetrieval(
   retrieval: RagSemanticRuntimeRetrieveFact,
-  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams'>,
+  options: Pick<RagRetrieveDocumentOptions, 'query' | 'queryParams' | 'templateParams'>,
 ): string {
   if (retrieval.query !== undefined) {
     if (retrieval.queryKind === 'expression') {
@@ -423,18 +456,104 @@ function queryForRuntimeRetrieval(
     return retrieval.query;
   }
   if (retrieval.queryParam) {
-    const value = options.queryParams?.[retrieval.queryParam] ?? options.query;
-    if (value !== undefined) return value;
+    if (options.queryParams && Object.hasOwn(options.queryParams, retrieval.queryParam)) {
+      const value = options.queryParams[retrieval.queryParam];
+      if (value !== undefined) {
+        if (typeof value === 'string') return value;
+        throw new Error(
+          `KERN RAG runtime retrieval '${retrieval.name}' requires queryParam '${retrieval.queryParam}' to be a string.`,
+        );
+      }
+    }
+    if (options.query !== undefined) return options.query;
     throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' requires queryParam '${retrieval.queryParam}'.`);
+  }
+  if (retrieval.queryTemplate) {
+    return renderRagQueryTemplate(
+      retrieval.queryTemplate,
+      runtimeTemplateParams(options),
+      `KERN RAG runtime retrieval '${retrieval.name}' queryTemplate`,
+    );
   }
   throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' has no query source.`);
 }
 
+function runtimeTemplateParams(
+  options: Pick<RagRetrieveDocumentOptions, 'queryParams' | 'templateParams'>,
+): Readonly<Record<string, RagQueryTemplateParamValue | undefined>> | undefined {
+  if (!options.queryParams) return options.templateParams;
+  if (!options.templateParams) return options.queryParams;
+  const merged: Record<string, RagQueryTemplateParamValue | undefined> = { ...options.queryParams };
+  for (const [key, value] of Object.entries(options.templateParams)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged;
+}
+
 function retrieveOptionsForFact(retrieval: RagSemanticRuntimeRetrieveFact): RetrieveOptions {
+  const metadataFilter = cloneRagMetadataFilter(retrieval.metadataFilter);
   return {
     ...(retrieval.topK !== undefined ? { topK: retrieval.topK } : {}),
     ...(retrieval.minScore !== undefined ? { minScore: retrieval.minScore } : {}),
+    ...(metadataFilter !== undefined ? { metadataFilter } : {}),
   };
+}
+
+function perIndexOptionsForMergedRetrieval(options: RetrieveOptions): RetrieveOptions {
+  return { ...options, topK: mergedRetrievalTopK(options) };
+}
+
+function mergeRetrieveResults(
+  query: string,
+  results: readonly RetrieveResult[],
+  options: RetrieveOptions,
+): RetrieveResult {
+  const bestChunkById = new Map<string, RetrieveResult['chunks'][number]>();
+  for (const chunk of results.flatMap((result) => result.chunks)) {
+    const prev = bestChunkById.get(chunk.id);
+    if (!prev || compareRetrievedChunks(chunk, prev) < 0) bestChunkById.set(chunk.id, chunk);
+  }
+  const chunks = Array.from(bestChunkById.values()).sort(compareRetrievedChunks).slice(0, mergedRetrievalTopK(options));
+  return { query, chunks };
+}
+
+function mergedRetrievalTopK(options: RetrieveOptions): number {
+  return options.topK ?? 5;
+}
+
+function compareRetrievedChunks(a: RetrieveResult['chunks'][number], b: RetrieveResult['chunks'][number]): number {
+  return (
+    b.score - a.score ||
+    compareCodePoint(a.id, b.id) ||
+    compareCodePoint(a.source, b.source) ||
+    compareCodePoint(a.text, b.text)
+  );
+}
+
+function cachedSyncQueryVector(
+  queryVectorByEmbedder: Map<string, Float64Array>,
+  embedder: Embedder,
+  query: string,
+): Float64Array {
+  const key = JSON.stringify([embedder.id, embedder.dims, query]);
+  const cached = queryVectorByEmbedder.get(key);
+  if (cached) return cached;
+  const vector = embedder.embed(query);
+  queryVectorByEmbedder.set(key, vector);
+  return vector;
+}
+
+async function cachedAsyncQueryVector(
+  queryVectorByEmbedder: Map<string, Float64Array>,
+  embedder: AsyncEmbedder,
+  query: string,
+): Promise<Float64Array> {
+  const key = JSON.stringify([embedder.id, embedder.dims, query]);
+  const cached = queryVectorByEmbedder.get(key);
+  if (cached) return cached;
+  const vector = await embedder.embed(query);
+  queryVectorByEmbedder.set(key, vector);
+  return vector;
 }
 
 function localPersistentStoreConfig(
@@ -587,7 +706,7 @@ function stableChunkDigest(chunks: readonly RagChunkInput[]): string {
   return sha256(
     chunks
       .map((chunk) => stableJson(chunk))
-      .sort()
+      .sort(compareCodePoint)
       .join('\n'),
   );
 }
@@ -595,8 +714,12 @@ function stableChunkDigest(chunks: readonly RagChunkInput[]): string {
 function stableCorpusHashInput(chunks: readonly RagChunkInput[]): string {
   return chunks
     .map((chunk) => `${chunk.id}\0${chunk.source}\0${chunk.text}`)
-    .sort()
+    .sort(compareCodePoint)
     .join('\n');
+}
+
+function compareCodePoint(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function sha256(text: string): string {
@@ -666,9 +789,7 @@ function embedderForIndex(facts: RagSemanticFacts, index: RagSemanticIndexFact):
   const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
-  if (model === RAG_EMBED_MODEL_LOCAL_HASH) return new DeterministicHashEmbedder({ dims });
-  if (model === RAG_EMBED_MODEL_LOCAL_SEMANTIC) return new LocalSemanticEmbedder();
-  throw new Error(`RAG embed model '${model}' requires async provider execution.`);
+  return resolveSyncRagEmbedderForModel(model, dims);
 }
 
 function asyncEmbedderForIndex(
@@ -679,41 +800,7 @@ function asyncEmbedderForIndex(
   const embed = embedFactForIndex(facts, index);
   const model = canonicalRagEmbedModel(embed?.model);
   const dims = embed?.dims ?? defaultDimsForRagEmbedModel(model);
-  if (model === RAG_EMBED_MODEL_LOCAL_HASH) return asAsyncEmbedder(new DeterministicHashEmbedder({ dims }));
-  if (model === RAG_EMBED_MODEL_LOCAL_SEMANTIC) return asAsyncEmbedder(new LocalSemanticEmbedder());
-  if (
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL ||
-    model === RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE
-  ) {
-    const openai = options.providers?.openai;
-    if (!openai?.apiKey?.trim()) throw new Error(`RAG embed model '${model}' requires OpenAI provider options.`);
-    const adapter = new OpenAIEmbeddingAdapter({
-      ...openai,
-      apiKey: openai.apiKey,
-      model: model.replace(/^openai:/u, ''),
-      dims,
-    });
-    return providerScopedOpenAIEmbedder(adapter, openai);
-  }
-  throw new Error(`Unhandled RAG embed model '${String(model)}'.`);
-}
-
-function providerScopedOpenAIEmbedder(
-  adapter: OpenAIEmbeddingAdapter,
-  openai: NonNullable<RagProviderEmbeddingOptions['openai']>,
-): AsyncEmbedder {
-  const providerScope = sha256(
-    JSON.stringify({
-      endpoint: openai.endpoint ?? 'https://api.openai.com/v1/embeddings',
-      fetch: openai.fetch ? 'custom-fetch' : 'global-fetch',
-    }),
-  ).slice(0, 12);
-  return {
-    id: `${adapter.id}:provider=${providerScope}`,
-    dims: adapter.dims,
-    embed: (text) => adapter.embed(text),
-    embedMany: (texts) => adapter.embedMany(texts),
-  };
+  return resolveAsyncRagEmbedderForModel(model, dims, options);
 }
 
 function safeAsyncEmbedderForIndex(

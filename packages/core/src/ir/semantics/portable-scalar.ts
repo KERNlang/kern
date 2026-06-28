@@ -39,7 +39,7 @@ import {
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   type DecimalProbeAccessor,
 } from '../../decimal/probe-gates.js';
-import type { ValueIR } from '../../value-ir.js';
+import { isValueIR, type ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
 import { getBinding, hasBinding, isIntProvenanced } from './index.js';
 
@@ -261,7 +261,7 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       // non-optional reads on a bare identifier. Everything else throws -> the
       // runner ABSTAINS rather than producing a one-leg value.
       if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
-      if (node.object.kind !== 'ident') {
+      if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: member access is only admitted on an array or caught-error binding');
       }
       // Resolve the binding explicitly (mirrors the `index` case) so an UNBOUND
@@ -318,12 +318,13 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       // abstain; a nested-array element is not a portable scalar, so
       // `assertPortableScalar` abstains on it.
       if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
-      if (node.object.kind !== 'ident') {
+      if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: index access is only admitted on an array-binding identifier');
       }
       if (
-        !isSafeIntegerLiteralIndex(node.index) &&
-        !(node.index.kind === 'ident' && isIntProvenanced(env, node.index.name))
+        !isValueIR(node.index) ||
+        (!isSafeIntegerLiteralIndex(node.index) &&
+          !(node.index.kind === 'ident' && isIntProvenanced(env, node.index.name)))
       ) {
         throw new Error(
           'portable: array index must be a bare non-negative safe-integer literal or an integer-provenanced loop counter',
@@ -339,6 +340,9 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       const idx = evalPortableValue(node.index, env);
       if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= arr.length) {
         throw new Error('portable: array index must be an in-bounds non-negative safe integer');
+      }
+      if (!(idx in arr)) {
+        throw new Error('portable: array index must point at an existing element');
       }
       return assertPortableScalar(arr[idx], `element "${node.object.name}[${idx}]"`);
     }

@@ -59,8 +59,8 @@ describe('RAG vector store adapter example', () => {
     const parsed = parseExampleJson(result.stdout, result.stderr);
     const total = parsed.summary.passed + parsed.summary.failed + parsed.summary.skipped;
     expect(total).toBeGreaterThan(0);
-    expect(parsed.profile).toBe('kern-rag-vector-store-conformance-v1');
-    expect(parsed.adapter).toBe('example-external-memory');
+    expect(parsed.profile).toBe('kern-rag-vector-store-conformance-v2');
+    expect(parsed.adapter).toBe('example-in-process-memory');
     expect(parsed.passed).toBe(true);
     expect(parsed.summary.failed).toBe(0);
   });
