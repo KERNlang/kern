@@ -25,6 +25,12 @@ if (result.error) {
   process.exit(2);
 }
 
+if (result.signal) {
+  console.error(`kern run smoke was killed by signal ${result.signal}`);
+  if (result.stderr) console.error(result.stderr);
+  process.exit(1);
+}
+
 if (result.status !== 0) {
   console.error(`kern run smoke exited ${result.status}`);
   if (result.stderr) console.error(result.stderr);

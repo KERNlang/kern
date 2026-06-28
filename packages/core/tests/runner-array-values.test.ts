@@ -30,7 +30,9 @@
  */
 
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
+import { evalArrayLiteralValue } from '../src/ir/semantics/portable-array.js';
 import type { IRNode } from '../src/types.js';
+import type { ValueIR } from '../src/value-ir.js';
 
 beforeAll(() => {
   registerAllContracts();
@@ -132,5 +134,10 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
       { type: 'let', props: { name: 'xs', kind: 'let', value: '[1]' } },
       { type: 'assign', props: { target: 'xs', value: '[2]' } },
     ]);
+  });
+
+  it('malformed arrayLit items fail with a controlled portable-array error', () => {
+    const malformed = { kind: 'arrayLit', items: undefined } as unknown as ValueIR;
+    expect(() => evalArrayLiteralValue(malformed, makeEnv())).toThrow('portable-array: array literal items must be an array');
   });
 });

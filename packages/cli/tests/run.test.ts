@@ -333,6 +333,7 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
   });
 
   test('main with params -> rejected in slice-1', () => {
@@ -342,6 +343,7 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
   });
 
   test('main returns a non-void type -> rejected in slice-1', () => {
@@ -349,6 +351,7 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
   });
 
   test('main whose handler is foreign (lang=ts) -> rejected', () => {
@@ -356,6 +359,7 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
   });
 
   test('async main -> rejected in slice-1', () => {
@@ -363,6 +367,7 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
   });
 
   // (zero kern handlers is exercised by the foreign-handler case above — main with
@@ -378,6 +383,7 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
   });
 });
 

@@ -52,6 +52,9 @@ export function evalArrayLiteralValue(node: ValueIR, env: SemanticEnv): Readonly
   if (node.kind !== 'arrayLit') {
     throw new Error('portable-array: expected an array literal expression');
   }
+  if (!Array.isArray(node.items)) {
+    throw new Error('portable-array: array literal items must be an array');
+  }
   const items = node.items.map((item) => evalArrayLiteralItem(item, env));
   return Object.freeze(items);
 }
