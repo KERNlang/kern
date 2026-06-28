@@ -140,4 +140,17 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     const malformed = { kind: 'arrayLit', items: undefined } as unknown as ValueIR;
     expect(() => evalArrayLiteralValue(malformed, makeEnv())).toThrow('portable-array: array literal items must be an array');
   });
+
+  it('malformed arrayLit item entries fail with a controlled portable-array error', () => {
+    const nullItem = { kind: 'arrayLit', items: [null] } as unknown as ValueIR;
+    expect(() => evalArrayLiteralValue(nullItem, makeEnv())).toThrow(
+      'portable-array: array literal items must be value IR nodes',
+    );
+
+    const sparseItems = Array(1) as unknown as ValueIR[];
+    const sparseItem = { kind: 'arrayLit', items: sparseItems } as unknown as ValueIR;
+    expect(() => evalArrayLiteralValue(sparseItem, makeEnv())).toThrow(
+      'portable-array: array literal items must be value IR nodes',
+    );
+  });
 });

@@ -33,12 +33,16 @@ function isCanonicalSafeIntegerLiteral(node: Extract<ValueIR, { kind: 'numLit' }
   return Number.isSafeInteger(value) && String(value) === node.raw && node.value === value;
 }
 
-function evalArrayLiteralItem(item: ValueIR, env: SemanticEnv): PortableArrayElement {
-  if (item.kind === 'arrayLit') return evalArrayLiteralValue(item, env);
-  if (item.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(item)) {
+function evalArrayLiteralItem(item: unknown, env: SemanticEnv): PortableArrayElement {
+  if (!item || typeof item !== 'object' || !('kind' in item)) {
+    throw new Error('portable-array: array literal items must be value IR nodes');
+  }
+  const node = item as ValueIR;
+  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env);
+  if (node.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(node)) {
     throw new Error('portable-array: numeric elements must be canonical safe integers');
   }
-  const value = evalPortableValue(item, env);
+  const value = evalPortableValue(node, env);
   if (typeof value === 'number' && !Number.isSafeInteger(value)) {
     throw new Error('portable-array: numeric elements must evaluate to safe integers');
   }
@@ -55,6 +59,12 @@ export function evalArrayLiteralValue(node: ValueIR, env: SemanticEnv): Readonly
   if (!Array.isArray(node.items)) {
     throw new Error('portable-array: array literal items must be an array');
   }
-  const items = node.items.map((item) => evalArrayLiteralItem(item, env));
+  const items: PortableArrayElement[] = [];
+  for (let index = 0; index < node.items.length; index += 1) {
+    if (!(index in node.items)) {
+      throw new Error('portable-array: array literal items must be value IR nodes');
+    }
+    items.push(evalArrayLiteralItem(node.items[index], env));
+  }
   return Object.freeze(items);
 }
