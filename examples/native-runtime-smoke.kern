@@ -1,0 +1,18 @@
+fn name=main returns=void
+  handler lang="kern"
+    let kind=let name=total value="0"
+    for name=i from="1" to="4"
+      assign target=total value="total + i"
+    if cond="total > 5"
+      print value="\"sum-ok\""
+    else
+      print value="\"sum-bad\""
+    let kind=let name=n value="0"
+    while cond="n < 2"
+      print value="n"
+      assign target=n value="n + 1"
+    let name=xs value="[10,20,30]"
+    print value="xs[1]"
+    let name=labels value="[\"rag\",\"runtime\"]"
+    each name=label in=labels
+      print value="label"
