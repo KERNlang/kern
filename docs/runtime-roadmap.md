@@ -24,8 +24,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
 - `while`
 - `for`
 - `each` over portable array values
+- `return` from a void `main`
 - portable scalar arithmetic, comparison, booleans, strings, and null
-- portable array-literal binding plus in-bounds literal array index reads
+- portable array-literal binding, including nested array literals for iteration,
+  plus in-bounds literal array index reads
 
 Anything outside this surface is not a runtime promise until it has a contract,
 three-leg parity coverage where applicable, and a native runner test.

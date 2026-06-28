@@ -71,6 +71,9 @@ function runRefStdout(src: string): string {
   writeFileSync(file, src);
   const r = spawnSync(process.execPath, [CLI, 'run', file], { encoding: 'utf-8', timeout: 20000 });
   if (r.error) throw r.error;
+  if (r.signal) {
+    throw new Error(`kern run was killed by signal ${r.signal}: ${r.stderr}`);
+  }
   if (r.status !== 0) {
     throw new Error(`kern run exited ${r.status}: ${r.stderr}`);
   }
@@ -91,6 +94,9 @@ function runTsStdout(src: string): string {
   writeFileSync(file, `${imports}\nfunction __h() {\n${r.code}\n}\n__h();\n`);
   const out = spawnSync('node', [file], { encoding: 'utf-8', timeout: 20000 });
   if (out.error) throw out.error;
+  if (out.signal) {
+    throw new Error(`emitted TypeScript was killed by signal ${out.signal}: ${out.stderr}`);
+  }
   if (out.status !== 0) {
     throw new Error(`emitted TypeScript exited ${out.status}: ${out.stderr}`);
   }
@@ -117,6 +123,9 @@ function runPyStdout(src: string): string {
   writeFileSync(file, [imports, helpers, 'def __h():', body, '__h()'].join('\n'));
   const out = spawnSync('python3', [file], { encoding: 'utf-8', timeout: 20000 });
   if (out.error) throw out.error;
+  if (out.signal) {
+    throw new Error(`emitted Python was killed by signal ${out.signal}: ${out.stderr}`);
+  }
   if (out.status !== 0) {
     throw new Error(`emitted Python exited ${out.status}: ${out.stderr}`);
   }
