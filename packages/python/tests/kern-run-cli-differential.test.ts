@@ -74,6 +74,12 @@ function runRefStdout(src: string): string {
   if (r.status !== 0) {
     throw new Error(`kern run exited ${r.status}: ${r.stderr}`);
   }
+  // Contract: program stdout goes to stdout ONLY — a clean exit must emit nothing
+  // on stderr. Asserting it here keeps a "warns on success" regression from
+  // silently passing the differential (the stdout would still match).
+  if (r.stderr) {
+    throw new Error(`kern run emitted unexpected stderr on a clean exit: ${r.stderr}`);
+  }
   return r.stdout ?? '';
 }
 
@@ -133,6 +139,73 @@ const CERT: Array<[string, string[], string]> = [
     'while loop counts down its condition',
     ['let kind=let name=n value="0"', 'while cond="n < 3"', '  print value="n"', '  assign target=n value="n + 1"'],
     '0\n1\n2\n',
+  ],
+  // ── array values (slice-2a): bind an array literal, iterate with `each` ──────
+  // The runner binds the literal; `each` iterates it; printing the SCALAR
+  // elements is byte-identical on all three legs. Whole-array print is still
+  // deferred; in-bounds literal index reads certify below.
+  [
+    'each over a numeric array literal',
+    ['let name=xs value="[1,2,3]"', 'each name=x in=xs', '  print value="x"'],
+    '1\n2\n3\n',
+  ],
+  [
+    // The comma inside "b,c" must survive as ONE element on every leg — a leg
+    // that joined/flattened the array would print "a,b,c" on a single line.
+    'each over a string array keeps comma-bearing elements distinct',
+    ['let name=xs value="[\\"a\\",\\"b,c\\"]"', 'each name=x in=xs', '  print value="x"'],
+    'a\nb,c\n',
+  ],
+  [
+    'each over a boolean array prints canonical lowercase',
+    ['let name=xs value="[true,false]"', 'each name=x in=xs', '  print value="x"'],
+    'true\nfalse\n',
+  ],
+  [
+    // Nested literals are real iterable values: each `row` binds an array, and
+    // iterating it again yields the leaf scalars. Proves recursive element eval.
+    'double-nested each flattens to leaf scalars',
+    ['let name=rows value="[[1,2],[3]]"', 'each name=row in=rows', '  each name=v in=row', '    print value="v"'],
+    '1\n2\n3\n',
+  ],
+  [
+    'empty array literal yields no iterations (no output)',
+    ['let name=xs value="[]"', 'each name=x in=xs', '  print value="x"'],
+    '',
+  ],
+  [
+    // Mixed element kinds in one array print with per-kind canonical rendering on
+    // ALL THREE legs (0 -> "0", "k" passthrough, true -> "true", null -> "null").
+    'each over a mixed-kind array prints per-kind canonical text',
+    ['let name=xs value="[0,\\"k\\",true,null]"', 'each name=x in=xs', '  print value="x"'],
+    '0\nk\ntrue\nnull\n',
+  ],
+  // ── array INDEX read (slice-2b): in-bounds `xs[i]` is byte-identical 3-leg ───
+  // OOB / negative / non-integer indices ABSTAIN (TS undefined vs Py
+  // IndexError/wraparound/TypeError) so they are NOT certified here.
+  ['index 0 reads the first element', ['let name=xs value="[10,20,30]"', 'print value="xs[0]"'], '10\n'],
+  [
+    // Pins the upper edge: TS xs[2] === Py xs[2] === 30 (an off-by-one impl misses).
+    'last in-bounds index reads the last element',
+    ['let name=xs value="[10,20,30]"', 'print value="xs[2]"'],
+    '30\n',
+  ],
+  [
+    // The comma inside "b,c" must survive — index returns the WHOLE string element
+    // on every leg, never a join/flatten.
+    'index into a string array returns the comma-bearing element intact',
+    ['let name=xs value="[\\"a\\",\\"b,c\\"]"', 'print value="xs[1]"'],
+    'b,c\n',
+  ],
+  [
+    // A bool element read by index prints canonical lowercase on all three legs
+    // (not Python's "False") — the indexed value flows through the same `print`.
+    // Only BARE safe-integer LITERAL indices are certified; float-literal,
+    // division, arithmetic, unsafe-int, and variable indices abstain (Python list
+    // indices must be exact ints) and are NOT certified here.
+    'index into a boolean array prints canonical lowercase',
+    ['let name=xs value="[true,false]"', 'print value="xs[1]"'],
+    'false\n',
   ],
 ];
 

@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/native",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "Kern React Native transpiler",
   "type": "module",
   "main": "./dist/index.js",
