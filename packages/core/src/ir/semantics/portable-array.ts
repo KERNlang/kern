@@ -3,11 +3,11 @@
  *
  * Mirrors the product runtime (`core-runtime`'s `arrayLit` case): a `[...]`
  * literal eagerly, recursively evaluates its elements into ONE array value.
- * Elements are the portable-scalar domain (safe-integer number/string/bool/null)
+ * Elements are literal portable scalars (safe-integer number/string/bool/null)
  * plus NESTED array literals of the same. A non-portable element (non-canonical
- * numeric literal, non-integer/unsafe numeric expression, Decimal, regex, object,
- * an unsupported call) makes evaluation THROW, which the `let` precondition
- * catches -> the runner ABSTAINS (fail-close).
+ * numeric literal, computed numeric expression, Decimal, regex, object, an
+ * unsupported call) makes evaluation THROW, which the `let` precondition catches
+ * -> the runner ABSTAINS (fail-close).
  *
  * Arrays bind as PLAIN frozen JS arrays (not a tagged wrapper) because `each`
  * consumes native arrays directly (for...of). A plain array is NOT a portable
@@ -40,6 +40,9 @@ function evalArrayLiteralItem(item: unknown, env: SemanticEnv): PortableArrayEle
   if (item.kind === 'arrayLit') return evalArrayLiteralValue(item, env);
   if (item.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(item)) {
     throw new Error('portable-array: numeric elements must be canonical safe integers');
+  }
+  if (item.kind !== 'numLit' && item.kind !== 'strLit' && item.kind !== 'boolLit' && item.kind !== 'nullLit') {
+    throw new Error('portable-array: elements must be literal scalars or nested array literals');
   }
   const value = evalPortableValue(item, env);
   if (typeof value === 'number' && !Number.isSafeInteger(value)) {

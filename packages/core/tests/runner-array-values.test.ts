@@ -129,6 +129,13 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
     abstains([letArr('xs', '[Decimal.of("1")]'), eachPrint('x', 'xs', print('x'))]);
   });
 
+  it('a computed numeric element abstains even if the final JS value is a safe integer', () => {
+    abstains([
+      letArr('xs', '[(9007199254740991 + 2) - 9007199254740991]'),
+      eachPrint('x', 'xs', print('x')),
+    ]);
+  });
+
   it('assign to an array binding abstains (deferred — mutable arrays are a later slice)', () => {
     abstains([
       { type: 'let', props: { name: 'xs', kind: 'let', value: '[1]' } },
