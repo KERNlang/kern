@@ -1188,6 +1188,31 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.hasAsyncCapabilityBlockers).toBe(false);
   });
 
+  test('reports async preview provider coverage for try/catch/finally capability calls', () => {
+    const file = writeFile(
+      mainProgram([
+        'try',
+        '  capability namespace=llm operation=complete name=answer input="{ prompt: \\"body\\" }"',
+        '  throw value="new Error(\\"boom\\")"',
+        '  catch name=e',
+        '    capability namespace=llm operation=complete name=recovered input="{ prompt: e.message }"',
+        '  finally',
+        '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
   test('does not switch programmatic capability reports to async-preview mode for fsWriteRoot alone', () => {
     const report = analyzeRunCapabilities(
       mainProgram([

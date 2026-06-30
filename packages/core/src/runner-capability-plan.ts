@@ -333,7 +333,7 @@ export function analyzeKernSourceCapabilities(
   };
 }
 
-export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new Set(['try']);
+export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new Set();
 
 function unsupportedAsyncExecutions(
   root: IRNode,

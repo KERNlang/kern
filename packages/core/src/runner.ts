@@ -119,8 +119,9 @@ export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions 
   providedAsyncCapabilities?: readonly string[];
   /**
    * Async host adapter surface used by executeKernSourceAsync for straight-line
-   * statements, the matched arm of if/else, selected branch paths, and sequential
-   * for/each loop bodies. Broader async control flow remains fail-closed.
+   * statements, the matched arm of if/else, selected branch paths, structured
+   * try/catch/finally, and sequential while/for/each loop bodies. Broader async
+   * control flow remains fail-closed.
    */
   asyncCapabilities?: KernRunnerAsyncCapabilities;
 }
@@ -465,9 +466,9 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
  * Purely synchronous programs delegate to executeKernSource and keep today's
  * runtime behavior. Programs that request known async-planned capabilities are
  * preflighted against explicit async provider ids, then run through a narrow
- * async preview lane: straight-line body statements and if/else can await async
- * capability providers, while other async-containing control-flow constructs
- * still fail closed.
+ * async preview lane: straight-line body statements, selected control-flow
+ * paths, structured try/catch/finally, and sequential loops can await async
+ * capability providers, while unsupported async source shapes still fail closed.
  */
 export async function executeKernSourceAsync(
   source: string,

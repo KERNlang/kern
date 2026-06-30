@@ -103,7 +103,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.asyncBoundaryRequired).toBe(true);
   });
 
-  test('reports async capability requirements inside unsupported source execution shapes', () => {
+  test('allows async capability requirements inside preview-supported try/catch shapes', () => {
     const source = program([
       'try',
       '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
@@ -116,13 +116,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     });
 
     expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'net.fetch',
-        reason: 'unsupported-container',
-        containerType: 'try',
-      }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('allows async capability requirements inside preview-supported while, for, and each loops', () => {
@@ -172,7 +166,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
-  test('reports unsupported async execution checks inside branch paths for tooling preflight', () => {
+  test('allows async try/catch requirements inside branch paths for tooling preflight', () => {
     const source = program([
       'branch on="\\"safe\\""',
       '  path value="safe"',
@@ -193,13 +187,7 @@ describe('@kernlang/core/runner capability preflight', () => {
       'llm.complete',
       'net.fetch',
     ]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'net.fetch',
-        reason: 'unsupported-container',
-        containerType: 'try',
-      }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('reports async capability requirements outside the main handler source execution lane', () => {

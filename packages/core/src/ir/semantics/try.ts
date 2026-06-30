@@ -38,9 +38,9 @@ import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
 
-const UNAVAILABLE_CAUGHT_ERROR = Object.freeze({ message: Object.freeze({}) });
+export const UNAVAILABLE_CAUGHT_ERROR = Object.freeze({ message: Object.freeze({}) });
 
-interface TryParts {
+export interface TryParts {
   body: IRNode[];
   catchNode: IRNode | null;
   finallyNode: IRNode | null;
