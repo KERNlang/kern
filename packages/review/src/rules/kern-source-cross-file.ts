@@ -1,5 +1,5 @@
 import type { IRNode } from '@kernlang/core';
-import type { ReviewFinding, ReviewReport, SourceSpan } from '../types.js';
+import type { GraphResult, ReviewFinding, ReviewReport, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
 const DUPLICATE_SYMBOL_NODE_TYPES = new Set([
@@ -53,7 +53,7 @@ function topLevelNamedNodes(nodes: IRNode[]): Array<{ node: IRNode; name: string
   return result;
 }
 
-export function lintKernSourceCrossFile(reports: ReviewReport[]): ReviewFinding[] {
+export function lintKernSourceCrossFile(reports: ReviewReport[], graph?: GraphResult): ReviewFinding[] {
   const groups = new Map<string, Array<{ filePath: string; node: IRNode; name: string; type: string }>>();
 
   for (const report of reports) {
@@ -68,6 +68,7 @@ export function lintKernSourceCrossFile(reports: ReviewReport[]): ReviewFinding[
   const findings: ReviewFinding[] = [];
   for (const entries of groups.values()) {
     if (entries.length < 2) continue;
+    if (entries.every((entry) => isStandaloneExampleEntry(entry.filePath, graph))) continue;
 
     for (const entry of entries) {
       const { line, col } = loc(entry.node);
@@ -106,4 +107,15 @@ export function lintKernSourceCrossFile(reports: ReviewReport[]): ReviewFinding[
   }
 
   return findings;
+}
+
+function isStandaloneExampleEntry(filePath: string, graph: GraphResult | undefined): boolean {
+  if (!graph) return false;
+  const normalized = filePath.replace(/\\/g, '/');
+  if (!/(^|\/)examples?\//i.test(normalized)) return false;
+  if (!graph.entryFiles.includes(filePath)) return false;
+
+  const graphFile = graph.files.find((gf) => gf.path === filePath);
+  if (!graphFile) return false;
+  return graphFile.imports.length === 0 && graphFile.importedBy.length === 0;
 }

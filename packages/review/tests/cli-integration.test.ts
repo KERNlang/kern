@@ -165,6 +165,65 @@ export function add(a: number, b: number): number { return a + b; }
     expect(findings.length).toBe(0);
   });
 
+  it('runTSCDiagnosticsFromPaths suppresses diagnostics absent from canonical tsc -b', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-canonical-green-'));
+    try {
+      const srcDir = join(dir, 'src');
+      mkdirSync(srcDir);
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            composite: true,
+            target: 'ES2022',
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            rootDir: 'src',
+            outDir: 'dist',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      writeFileSync(join(srcDir, 'index.ts'), 'export const ok: number = 1;\n');
+
+      const looseFile = join(dir, 'loose.ts');
+      writeFileSync(looseFile, 'const value: number = "not canonical";\nexport { value };\n');
+
+      expect(runTSCDiagnosticsFromPaths([looseFile])).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('runTSCDiagnosticsFromPaths keeps real diagnostics reported by canonical tsc -b', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-canonical-red-'));
+    try {
+      const srcDir = join(dir, 'src');
+      mkdirSync(srcDir);
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            composite: true,
+            target: 'ES2022',
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            rootDir: 'src',
+            outDir: 'dist',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      const badFile = join(srcDir, 'bad.ts');
+      writeFileSync(badFile, 'export const value: number = "canonical error";\n');
+
+      const findings = runTSCDiagnosticsFromPaths([badFile]);
+      expect(findings.some((f) => f.source === 'tsc' && f.ruleId === 'ts2322')).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('runTSCDiagnostics can suppress ad-hoc composite project loading noise', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-review-tsc-noise-'));
     try {

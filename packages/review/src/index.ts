@@ -952,7 +952,7 @@ function reviewSourceInternal(
         n.primarySpan.startCol === f.primarySpan.startCol &&
         n.payload.kind === 'effect',
     );
-    if (!effectNode || effectNode.payload.kind !== 'effect') continue;
+    if (effectNode?.payload.kind !== 'effect') continue;
     const target = effectNode.payload.target;
     if (target && isAuthEndpointTarget(target)) allFindings.splice(i, 1);
   }
@@ -1462,7 +1462,7 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     }
   }
 
-  const crossFileKernFindings = lintKernSourceCrossFile(reports);
+  const crossFileKernFindings = lintKernSourceCrossFile(reports, graph);
   for (const finding of crossFileKernFindings) {
     const targetReport = reports.find((r) => r.filePath === finding.primarySpan.file);
     if (targetReport) {
