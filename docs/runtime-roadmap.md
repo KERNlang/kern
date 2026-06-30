@@ -78,6 +78,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
   `randomHex`; embedders must inject the host crypto source explicitly
 - in the Node CLI path, local `rag.retrieve` capability calls over declared
   `ragRetrieve` specs with deterministic local embeddings
+- in the Node CLI async-preview path, `rag.retrieveAsync` capability calls run
+  the same declared `ragRetrieve` specs through the explicit async retrieval
+  adapter (`retrieveRagDocumentAsync`) while preserving retrieved-chunk
+  provenance for later `rag.answer` / `rag.checkAnswer` guards
 - in the Node CLI path, local `rag.promptContext` capability calls assemble
   retrieved chunks into a deterministic prompt-context record
 - in the Node CLI path, local `rag.checkAnswer` capability calls enforce
@@ -98,6 +102,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
   `examples/rag-starter/runtime-answer-preview.kern` that composes local
   `rag.retrieve`, `rag.promptContext`, deterministic `llm.complete`, and
   `rag.checkAnswer` through `kern run --async-preview`
+- a KERN-authored async retrieval answer preview at
+  `examples/rag-starter/runtime-answer-async-retrieve-preview.kern` that
+  composes `rag.retrieveAsync`, `rag.promptContext`, deterministic
+  `llm.complete`, and `rag.checkAnswer` through `kern run --async-preview`
 - a KERN-authored RAG answer-capability preview at
   `examples/rag-starter/runtime-answer-capability-preview.kern` that keeps
   retrieval explicit but replaces manual prompt assembly, completion, and answer
@@ -236,6 +244,7 @@ providers remain explicit host-adapter work.
 | `storage.get` / `storage.set` / `storage.has` / `storage.delete` / `storage.clear` / `storage.keys` | Shipped | Sync | Browser-safe volatile provider, explicit injection through runner capabilities |
 | `crypto.randomUUID` / `crypto.randomBytes` / `crypto.randomHex` | Shipped | Sync | Browser-safe provider with explicit host crypto source |
 | `rag.retrieve` | Shipped | Sync | Node CLI local RAG adapter over declared local sources |
+| `rag.retrieveAsync` | Planned | Async planned | Node CLI preview async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves retrieval provenance |
 | `rag.promptContext` | Shipped | Sync | Node CLI local prompt-context assembly over retrieved RAG chunks |
 | `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved RAG chunks |
 | `rag.answer` | Planned | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
@@ -290,9 +299,8 @@ returns, and non-portable provider values.
   async control-flow gaps.
 - Tighten provider-backed LLM policy surfaces beyond the first Node-only
   OpenAI-compatible async preview adapter.
-- Promote the dedicated `rag.answer` synthesis preview from explicit retrieved
-  chunks to async/provider-backed retrieval, and decide whether `rag.retrieve`
-  needs a dual sync/async descriptor boundary or a new provider-specific
-  capability.
+- Decide whether `rag.retrieveAsync` should remain the explicit async retrieval
+  capability or whether `rag.retrieve` needs a dual sync/async descriptor
+  boundary after the 5.0 demo proves the app path.
 - Decide when a self-hosting/bootstrap demo is strong enough to call `kern run`
   canonical rather than preview.

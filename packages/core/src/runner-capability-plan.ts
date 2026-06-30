@@ -22,6 +22,7 @@ export type CapabilityId =
   | 'rag.ingest'
   | 'rag.promptContext'
   | 'rag.retrieve'
+  | 'rag.retrieveAsync'
   | 'storage.clear'
   | 'storage.delete'
   | 'storage.get'
@@ -37,6 +38,7 @@ const ASYNC_CAPABILITY_IDS = Object.freeze([
   'net.fetch',
   'rag.answer',
   'rag.ingest',
+  'rag.retrieveAsync',
 ] as const satisfies readonly CapabilityId[]);
 
 export type AsyncCapabilityId = (typeof ASYNC_CAPABILITY_IDS)[number];
@@ -224,6 +226,13 @@ export const CAPABILITY_DESCRIPTORS = Object.freeze({
     'sync',
     'portable-literal',
     'Local runtime RAG retrieval over declared local sources in the Node CLI path.',
+  ),
+  'rag.retrieveAsync': capabilityDescriptor(
+    'rag.retrieveAsync',
+    'planned',
+    'async-planned',
+    'host-bound',
+    'Async runtime RAG retrieval through an explicit host provider; the Node CLI preview wires declared local sources through retrieveRagDocumentAsync.',
   ),
   'storage.clear': capabilityDescriptor(
     'storage.clear',
