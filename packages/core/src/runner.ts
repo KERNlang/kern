@@ -12,6 +12,7 @@ import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
 import { resetAllContractRegistration } from './ir/semantics/register-all.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
+import { parseExpression } from './parser-expression.js';
 import type {
   KernRunnerAsyncCapabilities,
   KernRunnerCapabilities,
@@ -26,6 +27,7 @@ import {
   type UnknownCapabilityRequirement,
 } from './runner-capability-plan.js';
 import type { IRNode } from './types.js';
+import type { ValueIR } from './value-ir.js';
 
 export type {
   AsyncCapabilityId,
@@ -245,7 +247,7 @@ function runnerFunctionBinding(fn: IRNode): RunnerFunctionBinding | undefined {
   if (!handler) return undefined;
   try {
     const params = runnerParamNames(fn, name);
-    return { name, params, returns: fn.props.returns, body: handler.children ?? [] };
+    return { name, params, returns: fn.props.returns, handler, body: handler.children ?? [] };
   } catch (error) {
     if (error instanceof KernRunnerError) return undefined;
     throw error;
@@ -368,22 +370,189 @@ function unsupportedAsyncContainerBeforeBranchSelection(root: IRNode): IRNode | 
   return undefined;
 }
 
-function asyncCapabilityLabelsOutsideMain(root: IRNode, mainHandler: IRNode): string[] {
+function asyncCapabilityLabelsOutsideExecutable(
+  root: IRNode,
+  mainHandler: IRNode,
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+): string[] {
   const out: string[] = [];
-  const stack: Array<{ node: IRNode; insideMain: boolean }> = [{ node: root, insideMain: root === mainHandler }];
+  const executableHandlers = executableKernHandlers(mainHandler, runnerFunctions);
+  const stack: Array<{ node: IRNode; insideExecutable: boolean }> = [
+    { node: root, insideExecutable: executableHandlers.has(root) },
+  ];
   while (stack.length > 0) {
     const frame = stack.pop();
     if (!frame) continue;
-    const { node, insideMain } = frame;
-    const label = insideMain ? undefined : asyncCapabilityNodeLabel(node);
+    const { node, insideExecutable } = frame;
+    const label = insideExecutable ? undefined : asyncCapabilityNodeLabel(node);
     if (label) out.push(label);
     const children = node.children ?? [];
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
-      stack.push({ node: child, insideMain: insideMain || child === mainHandler });
+      stack.push({ node: child, insideExecutable: insideExecutable || executableHandlers.has(child) });
     }
   }
   return out;
+}
+
+function executableKernHandlers(
+  mainHandler: IRNode,
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+): ReadonlySet<IRNode> {
+  const out = new Set<IRNode>([mainHandler]);
+  const queued = [...calledRunnerFunctionNames(mainHandler.children ?? [], runnerFunctions)];
+  const visited = new Set<string>();
+  while (queued.length > 0) {
+    const name = queued.pop();
+    if (!name || visited.has(name)) continue;
+    visited.add(name);
+    const fn = runnerFunctions.get(name);
+    if (!fn) continue;
+    if (fn.handler) out.add(fn.handler);
+    for (const next of calledRunnerFunctionNames(fn.body, runnerFunctions)) {
+      if (!visited.has(next)) queued.push(next);
+    }
+  }
+  return out;
+}
+
+function calledRunnerFunctionNames(
+  nodes: readonly IRNode[],
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const node of walkRunnerNodes({ type: '__block', children: [...nodes] })) {
+    for (const expr of supportedRunnerFunctionCallExpressions(node)) {
+      collectRunnerFunctionCalls(expr.node, runnerFunctions, out, expr.mode);
+    }
+  }
+  return out;
+}
+
+type RunnerFunctionCallExpressionMode = 'scalar' | 'let' | 'capabilityInput';
+
+interface RunnerFunctionCallExpression {
+  readonly node: ValueIR;
+  readonly mode: RunnerFunctionCallExpressionMode;
+}
+
+function supportedRunnerFunctionCallExpressions(node: IRNode): RunnerFunctionCallExpression[] {
+  const props = node.props ?? {};
+  const out: RunnerFunctionCallExpression[] = [];
+  function add(raw: unknown, mode: RunnerFunctionCallExpressionMode): void {
+    if (typeof raw !== 'string' || raw.trim() === '') return;
+    try {
+      out.push({ node: parseExpression(raw), mode });
+    } catch {
+      // Parser/runtime diagnostics own malformed expressions.
+    }
+  }
+  if (node.type === 'let') {
+    add(props.value, 'let');
+  } else if (node.type === 'capability') {
+    add(props.input, 'capabilityInput');
+  } else if (
+    node.type === 'assign' ||
+    node.type === 'print' ||
+    node.type === 'return' ||
+    node.type === 'if' ||
+    node.type === 'while'
+  ) {
+    add(node.type === 'if' || node.type === 'while' ? props.cond : props.value, 'scalar');
+  } else if (node.type === 'fmt' && typeof props.template === 'string') {
+    try {
+      out.push({ node: parseExpression(`\`${props.template}\``), mode: 'scalar' });
+    } catch {
+      // Parser/runtime diagnostics own malformed templates.
+    }
+  }
+  return out;
+}
+
+function collectRunnerFunctionCalls(
+  node: ValueIR,
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+  out: Set<string>,
+  mode: RunnerFunctionCallExpressionMode,
+): void {
+  if (node.kind === 'call' && node.callee.kind === 'ident' && runnerFunctions.has(node.callee.name)) {
+    out.add(node.callee.name);
+  }
+  for (const child of valueChildren(node, runnerFunctions, mode)) {
+    collectRunnerFunctionCalls(child.node, runnerFunctions, out, child.mode);
+  }
+}
+
+function valueChildren(
+  node: ValueIR,
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+  mode: RunnerFunctionCallExpressionMode,
+): readonly RunnerFunctionCallExpression[] {
+  switch (node.kind) {
+    case 'unary':
+      return [{ node: node.argument, mode: 'scalar' }];
+    case 'binary':
+      return [
+        { node: node.left, mode: 'scalar' },
+        { node: node.right, mode: 'scalar' },
+      ];
+    case 'conditional':
+      return [
+        { node: node.test, mode: 'scalar' },
+        { node: node.consequent, mode: 'scalar' },
+        { node: node.alternate, mode: 'scalar' },
+      ];
+    case 'member':
+    case 'index':
+      return [];
+    case 'call':
+      if (node.callee.kind === 'ident' && (runnerFunctions.has(node.callee.name) || node.callee.name === 'String')) {
+        return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
+      }
+      return [];
+    case 'typeAssert':
+    case 'nonNull':
+      return [{ node: node.expression, mode: 'scalar' }];
+    case 'tmplLit':
+      return node.expressions.map((expression) => ({ node: expression, mode: 'scalar' }));
+    case 'arrayLit':
+      if (mode === 'capabilityInput') {
+        return node.items
+          .filter((item): item is ValueIR => Boolean(item))
+          .map((item) => ({ node: item, mode: 'capabilityInput' }));
+      }
+      if (mode === 'let') {
+        return node.items
+          .filter((item): item is ValueIR => Boolean(item))
+          .map((item) => ({ node: item, mode: item.kind === 'arrayLit' ? 'let' : 'scalar' }));
+      }
+      return [];
+    case 'objectLit':
+      if (mode === 'capabilityInput') {
+        return node.entries.flatMap((entry) => ('kind' in entry ? [] : [{ node: entry.value, mode }]));
+      }
+      if (mode === 'let') {
+        return node.entries.flatMap((entry) =>
+          'kind' in entry ? [] : [{ node: entry.value, mode: 'scalar' as const }],
+        );
+      }
+      return [];
+    default:
+      return [];
+  }
+}
+
+function* walkRunnerNodes(root: IRNode): Generator<IRNode> {
+  const stack: IRNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    yield node;
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
 }
 
 function missingAsyncCapabilityHandlers(
@@ -528,18 +697,20 @@ export async function executeKernSourceAsync(
   if (analysis.asyncBoundaryRequired) {
     if (!options.providedAsyncCapabilities) {
       throw new KernRunnerError(
-        `kern run async preflight: missing async providers: ${requirementList(analysis.asyncPlannedCapabilities)}`,
+        `kern run async preflight: missing async providers: ${requirementList(
+          analysis.executableAsyncPlannedCapabilities,
+        )}`,
       );
     }
     if (!options.asyncCapabilities) {
       throw new KernRunnerError(
         `kern run async preflight: missing async capability handlers: ${requirementList(
-          analysis.asyncPlannedCapabilities,
+          analysis.executableAsyncPlannedCapabilities,
         )}`,
       );
     }
     const missingHandlers = missingAsyncCapabilityHandlers(
-      analysis.asyncPlannedCapabilities,
+      analysis.executableAsyncPlannedCapabilities,
       options.asyncCapabilities,
     );
     if (missingHandlers.length > 0) {
@@ -552,7 +723,8 @@ export async function executeKernSourceAsync(
     const firstAsyncParseError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (firstAsyncParseError) throw new KernRunnerError(firstAsyncParseError.message);
     const handler = resolveKernMainHandler(root);
-    const outsideMain = asyncCapabilityLabelsOutsideMain(root, handler);
+    const runnerFunctions = collectRunnerFunctions(root);
+    const outsideMain = asyncCapabilityLabelsOutsideExecutable(root, handler, runnerFunctions);
     if (outsideMain.length > 0) {
       throw new KernRunnerError(
         `kern run async: async source execution outside main handler is unsupported in this preview: ${outsideMain.join(
@@ -566,7 +738,6 @@ export async function executeKernSourceAsync(
         `kern run async: async source execution for node type "${unsupportedContainer.type}" is unsupported in this preview`,
       );
     }
-    const runnerFunctions = collectRunnerFunctions(root);
     ensureRunnerContractsRegistered();
 
     let trace: Awaited<ReturnType<typeof asyncReferenceRunSequence>>;
