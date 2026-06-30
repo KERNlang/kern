@@ -1,0 +1,28 @@
+corpus name=Docs title="Support docs"
+  source name=support kind=local uri="./corpus/**/*.md" media=markdown
+  chunking name=DocsChunks source=support strategy=semantic maxTokens=80 overlap=0 unit=tokens
+
+embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine
+vectorStore name=DocsMemory kind=memory dims=64 metric=cosine
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=DocsChunks
+retriever name=DocsSearch corpus=Docs embed=DocsEmbedding topK=2 minScore=0.1
+rag name=AnswerDocs retriever=DocsSearch citations=true
+  grounding name=StrictGrounding requireCitations=true policy=strict maxContext=6000
+  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"
+
+fn name=main returns=void
+  handler lang="kern"
+    capability namespace=storage operation=get name=question input="{ key: \"question\" }"
+    capability namespace=rag operation=retrieveAsync name=chunks input="{ question: question, retrieval: \"FindDocs\" }"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.text, question: question }"
+    capability namespace=rag operation=checkAnswer name=check input="{ query: question, answer: answer, chunks: chunks, requireCitations: true, minCitedChunks: 1, minGroundingCoverage: 0.85 }"
+    print value="\"__KERN_ANSWER_START__\""
+    print value="answer"
+    print value="\"__KERN_ANSWER_END__\""
+    print value="\"__KERN_STATUS__\""
+    print value="check.status"
+    print value="\"__KERN_SOURCES_START__\""
+    each name=chunk in=chunks
+      print value="chunk.source"
+    print value="\"__KERN_SOURCES_END__\""
