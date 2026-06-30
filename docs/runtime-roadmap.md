@@ -44,7 +44,8 @@ The preview surface is the documented, tested subset used by the smoke gate:
   sync-only programs to `executeKernSource`, preflights async-planned
   capabilities against explicit async provider ids, and awaits async host
   providers in straight-line code, the matched arm of `if`/`else`, selected
-  `branch` path bodies, and sequential `while` / `for` / `each` loop bodies
+  `branch` path bodies, structured `try` / `catch` / `finally`, and sequential
+  `while` / `for` / `each` loop bodies
 - in the Node CLI path, `kern run --async-preview --fs-root <dir>
   [--fs-write-root <dir>] <file.kern>` executes the same narrow async preview
   with CLI-owned `fs.list` / `fs.readText` adapters and an explicit
@@ -64,8 +65,8 @@ The preview surface is the documented, tested subset used by the smoke gate:
   supplied in report mode to check async preview readiness, while separate sync
   and async blocker fields keep default `kern run` readiness distinct from
   `--async-preview` readiness; unsupported async execution shapes such as
-  `try`, helper functions, and streams are reported separately from
-  missing provider flags
+  helper functions outside `main` are reported separately from missing provider
+  flags
 - `storage` capability calls backed by `createMemoryStorageCapability`, a
   browser-safe volatile provider for in-run state
 - `crypto` capability calls backed by `createWebCryptoCapability`, a
@@ -105,7 +106,7 @@ records, non-counter dynamic array indices, arithmetic-on-counter array indices,
 string `.length`, non-canonical throws, recursive helper calls, side-effecting
 helper calls, implicit host globals, non-RAG/non-storage/non-crypto CLI host
 capabilities, provider-backed async RAG retrieval, async capability calls inside
-`try` and helper functions, and broad async control flow.
+helper functions, and broad async control flow.
 
 ## Phase 0 Gate
 
@@ -176,8 +177,9 @@ providers remain explicit host-adapter work.
    the same descriptor preflight, delegates sync-only programs to
    `executeKernSource`, and awaits known async-planned capability requirements
    in straight-line statements, the matched arm of `if`/`else`, selected
-   `branch` path bodies, and sequential `while` / `for` / `each` loop bodies. The Node CLI
-   owns the first documented host-adapter slice for that boundary through
+   `branch` path bodies, structured `try` / `catch` / `finally`, and sequential
+   `while` / `for` / `each` loop bodies. The Node CLI owns the first documented
+   host-adapter slice for that boundary through
    `kern run --async-preview --fs-root <dir> [--fs-write-root <dir>] <file.kern>`,
    which exposes root-scoped `fs.list` / `fs.readText` and opt-in
    `fs.writeText`, plus `--allow-net <origin>` for allowlisted non-redirecting
@@ -190,7 +192,7 @@ providers remain explicit host-adapter work.
    flags through the same setup paths as execution and reports unsupported
    async execution shapes before claiming async-preview readiness.
    Descriptor-level async policy remains a preflight concern, signaled through
-   `asyncBoundaryRequired`; `try`, helper functions, streams, and broad async
+   `asyncBoundaryRequired`; helper functions, streams, and broad async
    control-flow execution are still future work in the CLI.
 
 4. **RAG runtime operations**
@@ -231,16 +233,15 @@ providers remain explicit host-adapter work.
 | `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved RAG chunks |
 | `rag.answer` | Planned | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
 | `rag.ingest` | Planned | Async planned | Node CLI preview indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
-| `fs.readText` / `fs.writeText` / `fs.list` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / sequential `while`, `for`, and `each` loop bodies; Node CLI preview provides root-scoped `fs.list` / `fs.readText` and opt-in `fs.writeText` |
-| `net.fetch` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / sequential `while`, `for`, and `each` loop bodies; Node CLI preview requires explicit `--allow-net <origin>` or `--allow-net data:` and denies redirects |
-| `llm.complete` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / sequential `while`, `for`, and `each` loop bodies; Node CLI preview provides deterministic `--llm-response <text>` and OpenAI-compatible `--llm-provider openai` |
+| `fs.readText` / `fs.writeText` / `fs.list` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies; Node CLI preview provides root-scoped `fs.list` / `fs.readText` and opt-in `fs.writeText` |
+| `net.fetch` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies; Node CLI preview requires explicit `--allow-net <origin>` or `--allow-net data:` and denies redirects |
+| `llm.complete` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies; Node CLI preview provides deterministic `--llm-response <text>` and OpenAI-compatible `--llm-provider openai` |
 
 All shipped `executeKernSource` capabilities in this ABI slice are synchronous.
 Async providers are not invoked by `executeKernSource`; `executeKernSourceAsync`
 accepts the async host adapter shape, preflights explicit async provider ids,
 and awaits async providers only in the narrow preview lane. Async capabilities
-inside `try`, helper functions, streams, and broader control flow still fail
-closed.
+inside helper functions, streams, and broader control flow still fail closed.
 
 The preflight analyzer refuses fake broad ABI by separating:
 
@@ -257,8 +258,8 @@ The preflight analyzer refuses fake broad ABI by separating:
 - `missingAsyncProviders`: async-planned capabilities not present in the
   host-provided async capability set.
 - `unsupportedAsyncExecutions`: async-planned capability calls present in source
-  locations the narrow async preview executor still rejects, such as `try`,
-  streams, or helper functions outside `main`.
+  locations the narrow async preview executor still rejects, such as helper
+  functions outside `main`.
 - `unknownProvidedCapabilities`: host-provided capability ids outside the descriptor table.
 - `unknownProvidedAsyncCapabilities`: async host-provided capability ids outside
   the async descriptor table.
@@ -276,8 +277,8 @@ returns, and non-portable provider values.
 - Promote the measured Chrome/Chromium browser budget from the current
   zero-dependency headless lane to a cross-browser/device threshold matrix when
   CI has dedicated browser runners.
-- Expand the narrow async source preview into full async control-flow execution:
-  `try`/`finally`, helper functions, and streams.
+- Expand the narrow async source preview into full app-ready execution for
+  helper functions, streams, and any remaining broad async control-flow gaps.
 - Tighten provider-backed LLM policy surfaces beyond the first Node-only
   OpenAI-compatible async preview adapter.
 - Promote the dedicated `rag.answer` synthesis preview from explicit retrieved

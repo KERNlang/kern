@@ -38,15 +38,15 @@ import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
 
-const UNAVAILABLE_CAUGHT_ERROR = Object.freeze({ message: Object.freeze({}) });
+export const UNAVAILABLE_CAUGHT_ERROR = Object.freeze({ message: Object.freeze({}) });
 
-interface TryParts {
+export interface TryParts {
   body: IRNode[];
   catchNode: IRNode | null;
   finallyNode: IRNode | null;
 }
 
-function partition(children: readonly IRNode[]): TryParts {
+export function tryRuntimeParts(children: readonly IRNode[]): TryParts {
   return {
     body: children.filter((c) => c.type !== 'catch' && c.type !== 'finally'),
     catchNode: children.find((c) => c.type === 'catch') ?? null,
@@ -54,7 +54,7 @@ function partition(children: readonly IRNode[]): TryParts {
   };
 }
 
-function tryPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
+export function tryPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
   if (!Array.isArray(ir.children)) return false;
   const catches = ir.children.filter((c) => c.type === 'catch');
   const finallies = ir.children.filter((c) => c.type === 'finally');
@@ -71,7 +71,7 @@ function tryPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
 }
 
 function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
-  const { body, catchNode, finallyNode } = partition(ir.children ?? []);
+  const { body, catchNode, finallyNode } = tryRuntimeParts(ir.children ?? []);
   const out: Trace = emptyTrace();
 
   const bodyTrace = referenceRunSequence(body, env);

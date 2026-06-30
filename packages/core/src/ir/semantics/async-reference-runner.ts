@@ -12,9 +12,11 @@ import { eachPreconditions, eachRuntimeSteps } from './each.js';
 import { forPreconditions, forRuntimeRange } from './for.js';
 import { evaluateIfCondition } from './if.js';
 import { childEnv, defineBinding, defineIntBinding, hasOwnBinding, type SemanticEnv } from './index.js';
+import { makeCaughtErrorValue } from './portable-error.js';
 import { isPortableBindingName } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
-import { emptyTrace, type Trace } from './trace.js';
+import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
+import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try.js';
 import { evaluateWhileCondition, WHILE_MAX_ITERATIONS, whilePreconditions } from './while.js';
 
 export interface AsyncReferenceRunnerOptions {
@@ -45,6 +47,7 @@ export async function asyncReferenceRun(
   }
   if (node.type === 'if') return asyncIfEffects(node, env, options);
   if (node.type === 'branch') return asyncBranchEffects(node, env, options);
+  if (node.type === 'try') return asyncTryEffects(node, env, options);
   if (node.type === 'while') return asyncWhileEffects(node, env, options);
   if (node.type === 'for') return asyncForEffects(node, env, options);
   if (node.type === 'each') return asyncEachEffects(node, env, options);
@@ -125,6 +128,58 @@ async function asyncBranchEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
     );
   }
   return asyncReferenceRunSequence(selected.children ?? [], childEnv(env), options);
+}
+
+async function asyncTryEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
+  if (!tryPreconditions(ir, env)) {
+    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  }
+  const unsupported = unsupportedAsyncContainer(ir);
+  if (unsupported) {
+    throw new ReferenceRunnerError(
+      `async source execution for node type "${unsupported.type}" is unsupported in this preview`,
+      unsupported,
+    );
+  }
+
+  const { body, catchNode, finallyNode } = tryRuntimeParts(ir.children ?? []);
+  const out: Trace = emptyTrace();
+
+  const bodyTrace = await asyncReferenceRunSequence(body, env, options);
+  out.events.push(...bodyTrace.events);
+  let completion: CompletionRecord = bodyTrace.completion;
+
+  if (completion.kind === 'return' && catchNode) {
+    throw new ReferenceRunnerError('try: body return with catch is outside the portable domain', ir);
+  }
+
+  if (completion.kind === 'throw' && catchNode) {
+    const caught = catchNode.props?.name;
+    const hasBinding = typeof caught === 'string' && caught !== '';
+    if (hasBinding) {
+      const caughtValue = completion.error ? makeCaughtErrorValue(completion.error) : null;
+      defineBinding(env, caught, caughtValue ?? UNAVAILABLE_CAUGHT_ERROR);
+    }
+    let catchTrace: Trace;
+    try {
+      catchTrace = await asyncReferenceRunSequence(catchNode.children ?? [], env, options);
+    } finally {
+      if (hasBinding) defineBinding(env, caught, UNAVAILABLE_CAUGHT_ERROR);
+    }
+    out.events.push(...catchTrace.events);
+    completion = catchTrace.completion;
+  }
+
+  if (finallyNode) {
+    const finallyTrace = await asyncReferenceRunSequence(finallyNode.children ?? [], env, options);
+    out.events.push(...finallyTrace.events);
+    if (finallyTrace.completion.kind !== 'normal') {
+      throw new ReferenceRunnerError('try: finally must complete normally (cleanup-only this slice)', finallyNode);
+    }
+  }
+
+  out.completion = completion;
+  return out;
 }
 
 async function asyncWhileEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
