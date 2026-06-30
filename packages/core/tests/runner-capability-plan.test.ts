@@ -105,8 +105,10 @@ describe('@kernlang/core/runner capability preflight', () => {
 
   test('reports async capability requirements inside unsupported source execution shapes', () => {
     const source = program([
-      'while cond="true"',
+      'try',
       '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+      '  catch name=e',
+      '    print value="e.message"',
     ]);
 
     const analysis = analyzeKernSourceCapabilities(source, {
@@ -118,13 +120,17 @@ describe('@kernlang/core/runner capability preflight', () => {
       expect.objectContaining({
         id: 'net.fetch',
         reason: 'unsupported-container',
-        containerType: 'while',
+        containerType: 'try',
       }),
     ]);
   });
 
-  test('allows async capability requirements inside preview-supported for and each loops', () => {
+  test('allows async capability requirements inside preview-supported while, for, and each loops', () => {
     const source = program([
+      'let kind=let name=n value="0"',
+      'while cond="n < 1"',
+      '  capability namespace=llm operation=complete name=loopValue input="{ prompt: n }"',
+      '  assign target=n value="n + 1"',
       'for name=i from="0" to="2"',
       '  capability namespace=llm operation=complete name=value input="{ prompt: i }"',
       'let name=items value="[1, 2]"',
@@ -138,6 +144,7 @@ describe('@kernlang/core/runner capability preflight', () => {
 
     expect(analysis.missingAsyncProviders).toEqual([]);
     expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
+      'llm.complete',
       'llm.complete',
       'llm.complete',
     ]);

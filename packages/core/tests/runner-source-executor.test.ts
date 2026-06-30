@@ -1435,14 +1435,191 @@ describe('@kernlang/core/runner source executor', () => {
     expect(calls).toEqual([10, 20, 10, 20]);
   });
 
-  test('async source executor rejects async capability calls inside unsupported control flow', async () => {
+  test('async source executor awaits async capabilities sequentially inside while loops', async () => {
+    const calls: number[] = [];
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      llm: {
+        async complete(call) {
+          const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
+          calls.push(prompt);
+          await Promise.resolve();
+          return prompt * 10;
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'let kind=let name=n value="0"',
+        'let kind=let name=total value="0"',
+        'while cond="n < 3"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
+        '  assign target=total value="total + value"',
+        '  assign target=n value="n + 1"',
+        'print value="total"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['llm.complete'],
+      },
+    );
+
+    expect(stdout).toBe('30\n');
+    expect(calls).toEqual([0, 1, 2]);
+  });
+
+  test('async source executor skips async while bodies when the condition is initially false', async () => {
+    const calls: string[] = [];
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'let kind=let name=n value="3"',
+        'while cond="n < 3"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
+        'print value="\\"done\\""',
+      ]),
+      {
+        asyncCapabilities: {
+          llm: {
+            async complete() {
+              calls.push('llm.complete');
+              return 'unreached';
+            },
+          },
+        },
+        providedAsyncCapabilities: ['llm.complete'],
+      },
+    );
+
+    expect(stdout).toBe('done\n');
+    expect(calls).toEqual([]);
+  });
+
+  test('async source executor preserves break and continue inside async while loops', async () => {
+    const calls: number[] = [];
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      llm: {
+        async complete(call) {
+          const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
+          calls.push(prompt);
+          return prompt * 10;
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'let kind=let name=n value="0"',
+        'let kind=let name=total value="0"',
+        'while cond="n < 5"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
+        '  assign target=n value="n + 1"',
+        '  if cond="n == 2"',
+        '    continue',
+        '  if cond="n == 4"',
+        '    break',
+        '  assign target=total value="total + value"',
+        'print value="total"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['llm.complete'],
+      },
+    );
+
+    expect(stdout).toBe('20\n');
+    expect(calls).toEqual([0, 1, 2, 3]);
+  });
+
+  test('async source executor re-evaluates while conditions after continue completions', async () => {
+    const calls: number[] = [];
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'let kind=let name=n value="0"',
+        'while cond="n < 1"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
+        '  assign target=n value="n + 1"',
+        '  continue',
+        'print value="n"',
+      ]),
+      {
+        asyncCapabilities: {
+          llm: {
+            async complete(call) {
+              const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
+              calls.push(prompt);
+              return prompt;
+            },
+          },
+        },
+        providedAsyncCapabilities: ['llm.complete'],
+      },
+    );
+
+    expect(stdout).toBe('1\n');
+    expect(calls).toEqual([0]);
+  });
+
+  test('async source executor keeps while body-local bindings scoped per iteration', async () => {
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'let kind=let name=n value="0"',
+        'while cond="n < 2"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
+        '  let name=temp value="value"',
+        '  assign target=n value="n + 1"',
+        'print value="n"',
+      ]),
+      {
+        asyncCapabilities: {
+          llm: {
+            async complete(call) {
+              return Number((call.input as { readonly prompt?: unknown }).prompt);
+            },
+          },
+        },
+        providedAsyncCapabilities: ['llm.complete'],
+      },
+    );
+
+    expect(stdout).toBe('2\n');
+  });
+
+  test('async source executor propagates return completions from async while loops', async () => {
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'let kind=let name=n value="0"',
+        'while cond="n < 3"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
+        '  return',
+        'print value="\\"unreached\\""',
+      ]),
+      {
+        asyncCapabilities: {
+          llm: {
+            async complete() {
+              return 'ok';
+            },
+          },
+        },
+        providedAsyncCapabilities: ['llm.complete'],
+      },
+    );
+
+    expect(stdout).toBe('');
+  });
+
+  test('async source executor still rejects try with async capabilities inside while loops', async () => {
     await expect(
       executeKernSourceAsync(
         mainProgram([
           'let kind=let name=n value="0"',
           'while cond="n < 1"',
-          '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-          '  print value="response.status"',
+          '  try',
+          '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+          '    catch name=e',
+          '      print value="e.message"',
           '  assign target=n value="n + 1"',
         ]),
         {
@@ -1456,7 +1633,7 @@ describe('@kernlang/core/runner source executor', () => {
           providedAsyncCapabilities: ['net.fetch'],
         },
       ),
-    ).rejects.toThrow(/async source execution for node type "while" is unsupported/);
+    ).rejects.toThrow(/async source execution for node type "try" is unsupported/);
   });
 
   test('async source executor ignores unsupported async control flow in an unselected if arm', async () => {
@@ -1516,14 +1693,18 @@ describe('@kernlang/core/runner source executor', () => {
     const cases: string[][] = [
       [
         'for name=i from="0" to="0"',
-        '  while cond="true"',
+        '  try',
         '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+        '    catch name=e',
+        '      print value="e.message"',
       ],
       [
         'let name=items value="[]"',
         'each name=item in=items',
-        '  while cond="true"',
+        '  try',
         '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+        '    catch name=e',
+        '      print value="e.message"',
       ],
     ];
 
@@ -1539,7 +1720,7 @@ describe('@kernlang/core/runner source executor', () => {
           },
           providedAsyncCapabilities: ['net.fetch'],
         }),
-      ).rejects.toThrow(/async source execution for node type "while" is unsupported/);
+      ).rejects.toThrow(/async source execution for node type "try" is unsupported/);
     }
   });
 

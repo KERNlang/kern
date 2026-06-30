@@ -1120,30 +1120,26 @@ describe('kern run --capabilities — preflights capability requirements without
     );
   });
 
-  test('reports async preview provider coverage separately from unsupported async execution shape', () => {
+  test('reports async preview provider coverage for while loop capability calls', () => {
     const file = writeFile(
       mainProgram([
-        'while cond="true"',
+        'let kind=let name=n value="0"',
+        'while cond="n < 1"',
         '  capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+        '  assign target=n value="n + 1"',
       ]),
     );
 
     const result = runArgs(['run', '--capabilities', '--allow-net', 'data:', file]);
     const report = parseCapabilityReport(result);
 
-    expect(result.status).toBe(2);
+    expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
     expect(report.capabilityReadinessMode).toBe('async-preview');
     expect(report.providedAsyncCapabilities).toEqual(['net.fetch']);
     expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(true);
-    expect(report.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'net.fetch',
-        reason: 'unsupported-container',
-        containerType: 'while',
-      }),
-    ]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
   });
 
   test('reports async preview provider coverage for for and each loop capability calls', () => {
