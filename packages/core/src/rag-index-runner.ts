@@ -22,6 +22,7 @@ import { type AsyncEmbedder, type Embedder, RAG_VECTOR_STORE_SNAPSHOT_VERSION } 
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
 import type { RagChunkInput } from './rag-runtime.js';
+import type { AsyncRuntimeCapabilityProvider, RuntimeCapabilityValue } from './runner-capabilities.js';
 import {
   collectRagSemanticFacts,
   type RagSemanticFacts,
@@ -40,6 +41,10 @@ export interface RagIndexDocumentOptions {
   readonly forceRebuild?: boolean;
   readonly embedder?: AsyncEmbedder | Embedder;
   readonly providers?: RagProviderEmbeddingOptions;
+}
+
+export interface LocalRagIngestCapabilityOptions extends Omit<RagIndexDocumentOptions, 'statusOnly' | 'forceRebuild'> {
+  readonly sourcePath: string;
 }
 
 export type RagIndexSnapshotStatus = 'fresh' | 'missing' | 'stale' | 'corrupt' | 'incompatible' | 'skipped';
@@ -94,6 +99,11 @@ export interface RagIndexProvenance {
     readonly count: number;
     readonly digest: string;
   };
+}
+
+interface LocalRagIngestCapabilityInput {
+  readonly statusOnly?: boolean;
+  readonly forceRebuild?: boolean;
 }
 
 interface LocalPersistentIndexConfig {
@@ -188,6 +198,119 @@ export async function indexRagDocumentAsync(
   }
 
   return { diagnostics, indexes };
+}
+
+export function createAsyncLocalRagIngestCapability(
+  source: string,
+  options?: LocalRagIngestCapabilityOptions,
+): AsyncRuntimeCapabilityProvider {
+  if (!options || typeof options.sourcePath !== 'string' || !options.sourcePath.trim()) {
+    throw new Error('Local RAG ingest capability requires a non-empty sourcePath.');
+  }
+  return {
+    async ingest(call) {
+      if (call.namespace !== 'rag' || call.operation !== 'ingest') {
+        throw new Error(
+          `Local RAG ingest capability cannot handle ${String(call.namespace)}.${String(call.operation)}.`,
+        );
+      }
+      const input = localRagIngestCapabilityInput(call.input);
+      const report = await indexRagDocumentAsync(source, {
+        ...options,
+        ...(input.statusOnly !== undefined ? { statusOnly: input.statusOnly } : {}),
+        ...(input.forceRebuild !== undefined ? { forceRebuild: input.forceRebuild } : {}),
+      });
+      if (report.diagnostics.length > 0) {
+        throw new Error(formatRagIndexDiagnostics(report.diagnostics));
+      }
+      return ragIndexDocumentCapabilityValue(report);
+    },
+  };
+}
+
+function formatRagIndexDiagnostics(diagnostics: readonly SemanticViolation[]): string {
+  return diagnostics
+    .map((diagnostic) => {
+      const location = diagnostic.line ? `@${diagnostic.line}${diagnostic.col ? `:${diagnostic.col}` : ''}` : '';
+      return `${diagnostic.rule}${location}: ${diagnostic.message}`;
+    })
+    .join('; ');
+}
+
+function localRagIngestCapabilityInput(input: RuntimeCapabilityValue | undefined): LocalRagIngestCapabilityInput {
+  if (input === undefined || input === null) return {};
+  if (!isPlainRecord(input) || Array.isArray(input)) {
+    throw new Error('RAG capability ingest input must be a record when provided.');
+  }
+  assertOnlyFields(input, ['statusOnly', 'forceRebuild'], 'rag.ingest');
+  const statusOnly = optionalBooleanField(input, 'statusOnly', 'rag.ingest');
+  const forceRebuild = optionalBooleanField(input, 'forceRebuild', 'rag.ingest');
+  if (statusOnly === true && forceRebuild === true) {
+    throw new Error("rag.ingest input fields 'statusOnly' and 'forceRebuild' cannot both be true.");
+  }
+  return {
+    ...(statusOnly !== undefined ? { statusOnly } : {}),
+    ...(forceRebuild !== undefined ? { forceRebuild } : {}),
+  };
+}
+
+function ragIndexDocumentCapabilityValue(report: RagIndexDocumentReport): RuntimeCapabilityValue {
+  const firstIndex = report.indexes[0];
+  return {
+    count: report.indexes.length,
+    indexCount: report.indexes.length,
+    ...(firstIndex
+      ? {
+          status: firstIndex.status,
+          action: firstIndex.action,
+          chunkCount: firstIndex.chunkCount,
+          firstStatus: firstIndex.status,
+          firstAction: firstIndex.action,
+          firstChunkCount: firstIndex.chunkCount,
+        }
+      : {}),
+    indexes: report.indexes.map((index) => ({
+      indexName: index.indexName,
+      corpusName: index.corpusName,
+      storeName: index.storeName,
+      storeKind: index.storeKind,
+      status: index.status,
+      action: index.action,
+      reason: index.reason,
+      chunkCount: index.chunkCount,
+      ...(index.fingerprint !== undefined ? { fingerprint: index.fingerprint } : {}),
+      ...(index.snapshotPath !== undefined ? { snapshotPath: index.snapshotPath } : {}),
+      ...(index.manifestPath !== undefined ? { manifestPath: index.manifestPath } : {}),
+    })),
+  };
+}
+
+function assertOnlyFields(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  allowed: readonly string[],
+  label: string,
+): void {
+  const allowedSet = new Set(allowed);
+  for (const key of Object.keys(input)) {
+    if (!allowedSet.has(key)) throw new Error(`${label} input field '${key}' is not supported.`);
+  }
+}
+
+function optionalBooleanField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  label: string,
+): boolean | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') throw new Error(`${label} input field '${key}' must be a boolean.`);
+  return value;
+}
+
+function isPlainRecord(value: unknown): value is Readonly<Record<string, RuntimeCapabilityValue>> {
+  if (value === null || typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function localPersistentIndexConfig(

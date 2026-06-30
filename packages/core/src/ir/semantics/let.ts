@@ -13,8 +13,9 @@
  * Portability domain:
  *   - `name` is a cross-target identifier, not already bound in the current
  *     semantic environment, and not a known JS/Python/KERN builtin name.
- *   - `value` is required and evaluates to EITHER a portable scalar (string,
- *     finite number, boolean, null) OR an ARRAY LITERAL `[...]` (slice-2a).
+ *   - `value` is required and evaluates to a portable scalar (string, finite
+ *     number, boolean, null), an ARRAY LITERAL `[...]` (slice-2a), or a flat
+ *     RECORD LITERAL `{ key: scalar }` (native runner preview).
  *   - Scalar expressions are the shared portable-scalar subset (see
  *     `./portable-scalar.ts`): literals, identifiers resolving to portable
  *     scalars, arithmetic over numbers, comparisons over same-typed scalars,
@@ -43,7 +44,12 @@ import {
   type SemanticEnv,
 } from './index.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
-import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
+import {
+  evalPortableValue,
+  evalRecordLiteralValue,
+  isPortableBindingName,
+  isRecordLiteralExpression,
+} from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
 interface LetProps {
@@ -68,6 +74,10 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
       evalArrayLiteralValue(parsed, env);
       return true;
     }
+    if (isRecordLiteralExpression(parsed)) {
+      evalRecordLiteralValue(parsed, env);
+      return true;
+    }
     evalPortableValue(parsed, env);
     return true;
   } catch {
@@ -79,7 +89,11 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   const props = asLetProps(ir);
   const name = props.name as string;
   const parsed = parseExpression(String(props.value));
-  const value = isArrayLiteralExpression(parsed) ? evalArrayLiteralValue(parsed, env) : evalPortableValue(parsed, env);
+  const value = isArrayLiteralExpression(parsed)
+    ? evalArrayLiteralValue(parsed, env)
+    : isRecordLiteralExpression(parsed)
+      ? evalRecordLiteralValue(parsed, env)
+      : evalPortableValue(parsed, env);
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }

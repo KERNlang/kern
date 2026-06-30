@@ -48,6 +48,7 @@ export type TraceEvent =
   | { op: 'stdout'; text: string }
   | { op: 'stderr'; text: string }
   | { op: 'assign'; target: string; value: unknown }
+  | { op: 'capability'; namespace: string; operation: string; input?: unknown; result?: unknown }
   | { op: 'call'; fn: string; args: unknown[] }
   | { op: 'iter-next'; binding: string; value: unknown }
   | { op: 'iter-done' }

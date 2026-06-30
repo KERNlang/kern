@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { parseDocument } from './parser.js';
+import { inferRagAnswerGroundingSpansFromInlineCitations } from './rag-answer-citations.js';
 import {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
@@ -14,7 +15,18 @@ import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
 import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
 import { type RagQueryTemplateParamValue, renderRagQueryTemplate } from './rag-query-template.js';
-import type { RagChunkInput, RetrieveOptions, RetrieveResult } from './rag-runtime.js';
+import {
+  assembleRagPromptContext,
+  evaluateRagAnswerContract,
+  type RagAnswerContractResult,
+  type RagAnswerGroundingSpan,
+  type RagChunkInput,
+  type RagPromptContext,
+  type RetrievedChunk,
+  type RetrieveOptions,
+  type RetrieveResult,
+} from './rag-runtime.js';
+import type { RuntimeCapabilityProvider, RuntimeCapabilityValue } from './runner-capabilities.js';
 import {
   collectRagSemanticFacts,
   type RagSemanticFacts,
@@ -77,6 +89,28 @@ export interface RagRetrieveDocumentReport {
   readonly ingestion?: RagIngestResult;
 }
 
+export interface LocalRagCapabilityOptions
+  extends Omit<RagRetrieveDocumentOptions, 'query' | 'queryParams' | 'templateParams' | 'runtimeRetrievalNames'> {
+  readonly sourcePath: string;
+  readonly session?: LocalRagCapabilitySession;
+}
+
+export interface LocalRagCapabilitySession {
+  readonly retrievedChunkQueriesByFingerprint: Map<string, Set<string>>;
+}
+
+export function createLocalRagCapabilitySession(): LocalRagCapabilitySession {
+  return { retrievedChunkQueriesByFingerprint: new Map() };
+}
+
+export function assertLocalRagCapabilityChunksWereRetrieved(
+  query: string,
+  chunks: readonly RetrievedChunk[],
+  session: LocalRagCapabilitySession,
+): void {
+  assertChunksWereReturnedByRetrieve(query, chunks, session.retrievedChunkQueriesByFingerprint);
+}
+
 interface PreparedRagRetrieval<TEmbedder extends Pick<Embedder, 'dims' | 'id'>> {
   readonly retrieval: RagSemanticRuntimeRetrieveFact;
   readonly targets: readonly PreparedRagRetrievalTarget<TEmbedder>[];
@@ -92,6 +126,665 @@ interface PreparedRagRetrievalTarget<TEmbedder extends Pick<Embedder, 'dims' | '
 interface RetrievalIngestions {
   readonly byIndexKey: ReadonlyMap<string, RagIngestResult>;
   readonly combined: RagIngestResult;
+}
+
+interface LocalRagCapabilityInput {
+  readonly query?: string;
+  readonly retrieval?: string;
+  readonly queryParams?: Readonly<Record<string, string>>;
+  readonly templateParams?: Readonly<Record<string, RagQueryTemplateParamValue>>;
+}
+
+type RagCapabilityChunkValue = Readonly<Record<string, RuntimeCapabilityValue>>;
+type RagPromptContextCapabilityValue = Readonly<Record<string, RuntimeCapabilityValue>>;
+type RagCheckAnswerCapabilityValue = Readonly<Record<string, RuntimeCapabilityValue>>;
+
+const MAX_LOCAL_RAG_RETRIEVE_CACHE_ENTRIES = 32;
+const MAX_LOCAL_RAG_RETRIEVED_CHUNK_FINGERPRINTS = MAX_LOCAL_RAG_RETRIEVE_CACHE_ENTRIES * 1000;
+
+interface LocalRagRetrieveCacheEntry {
+  readonly query: string;
+  readonly chunks: readonly RagCapabilityChunkValue[];
+}
+
+export function createLocalRagCapability(
+  source: string,
+  options: LocalRagCapabilityOptions,
+): RuntimeCapabilityProvider {
+  if (!options.sourcePath.trim()) {
+    throw new Error('Local RAG capability requires a non-empty sourcePath.');
+  }
+  const retrieveCache = new Map<string, LocalRagRetrieveCacheEntry>();
+  const session = options.session ?? createLocalRagCapabilitySession();
+  return {
+    checkAnswer(call) {
+      if (call.namespace !== 'rag' || call.operation !== 'checkAnswer') {
+        throw new Error(`Local RAG capability cannot handle ${String(call.namespace)}.${String(call.operation)}.`);
+      }
+      const input = localRagCheckAnswerInput(call.input);
+      assertLocalRagCapabilityChunksWereRetrieved(input.query, input.chunks, session);
+      const result = evaluateRagAnswerContract({
+        query: input.query,
+        answer: input.answer,
+        retrieval: { query: input.query, chunks: input.chunks },
+        groundingSpans: input.groundingSpans,
+        requireCitations: input.requireCitations,
+        minCitedChunks: input.minCitedChunks,
+        minGroundingCoverage: input.minGroundingCoverage,
+      });
+      if (!result.passed) {
+        throw new Error(
+          `RAG answer check failed: ${result.diagnostics
+            .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
+            .join('; ')}`,
+        );
+      }
+      return ragCheckAnswerCapabilityValue(result);
+    },
+    promptContext(call) {
+      if (call.namespace !== 'rag' || call.operation !== 'promptContext') {
+        throw new Error(`Local RAG capability cannot handle ${String(call.namespace)}.${String(call.operation)}.`);
+      }
+      const input = localRagPromptContextInput(call.input);
+      return ragPromptContextCapabilityValue(assembleRagPromptContext(input.chunks, { maxChars: input.maxChars }));
+    },
+    retrieve(call) {
+      if (call.namespace !== 'rag' || call.operation !== 'retrieve') {
+        throw new Error(`Local RAG capability cannot handle ${String(call.namespace)}.${String(call.operation)}.`);
+      }
+      const input = localRagCapabilityInput(call.input);
+      const cacheKey = stableCapabilityJson(input);
+      const cached = retrieveCache.get(cacheKey);
+      if (cached) {
+        rememberRetrievedChunks(
+          cached.query,
+          cached.chunks.map(ragCachedCapabilityValueChunk),
+          session.retrievedChunkQueriesByFingerprint,
+        );
+        return cloneRagCapabilityChunks(cached.chunks);
+      }
+      const report = retrieveRagDocument(source, {
+        ...options,
+        query: input.query,
+        queryParams: input.queryParams,
+        templateParams: input.templateParams,
+        runtimeRetrievalNames: input.retrieval ? [input.retrieval] : undefined,
+      });
+      if (report.diagnostics.length > 0) {
+        throw new Error(report.diagnostics.map((diagnostic) => diagnostic.message).join('; '));
+      }
+      if (report.retrievals.length === 0) {
+        throw new Error(
+          input.retrieval
+            ? `RAG retrieval ${JSON.stringify(input.retrieval)} produced no result.`
+            : 'RAG retrieval produced no result.',
+        );
+      }
+      if (report.retrievals.length > 1) {
+        throw new Error(
+          'RAG capability retrieve input must name one retrieval when the document declares multiple ragRetrieve nodes.',
+        );
+      }
+      const retrievalResult = report.retrievals[0].result;
+      rememberRetrievedChunks(
+        retrievalResult.query,
+        retrievalResult.chunks,
+        session.retrievedChunkQueriesByFingerprint,
+      );
+      const chunks = retrievalResult.chunks.map(ragChunkCapabilityValue);
+      if (retrieveCache.size >= MAX_LOCAL_RAG_RETRIEVE_CACHE_ENTRIES) {
+        const oldestKey = retrieveCache.keys().next().value;
+        if (oldestKey !== undefined) retrieveCache.delete(oldestKey);
+      }
+      retrieveCache.set(cacheKey, { query: retrievalResult.query, chunks });
+      return cloneRagCapabilityChunks(chunks);
+    },
+  };
+}
+
+function localRagCheckAnswerInput(input: RuntimeCapabilityValue | undefined): {
+  readonly query: string;
+  readonly answer: string;
+  readonly chunks: readonly RetrievedChunk[];
+  readonly groundingSpans: readonly RagAnswerGroundingSpan[];
+  readonly requireCitations?: boolean;
+  readonly minCitedChunks?: number;
+  readonly minGroundingCoverage?: number;
+} {
+  if (!isPlainRecordInput(input)) {
+    throw new Error('RAG capability checkAnswer input must be a record.');
+  }
+  const query = requiredOperationStringField(input, 'query', 'checkAnswer');
+  const answer = requiredOperationStringValueField(input, 'answer', 'checkAnswer');
+  const chunksValue = input.chunks;
+  if (!Array.isArray(chunksValue)) {
+    throw new Error("RAG capability checkAnswer input field 'chunks' must be an array.");
+  }
+  const chunks = chunksValue.map((chunk, index) => ragCapabilityValueChunk(chunk, index));
+  const requireCitations = optionalBooleanField(input, 'requireCitations', 'checkAnswer');
+  const minCitedChunks = optionalNonNegativeIntegerField(input, 'minCitedChunks', 'checkAnswer');
+  const minGroundingCoverage = optionalRatioField(input, 'minGroundingCoverage', 'checkAnswer');
+  const groundingSpans = localRagGroundingSpans(input, answer, chunks, {
+    inferInlineCitations: requireCitations === true || (minCitedChunks ?? 0) > 0 || minGroundingCoverage !== undefined,
+  });
+  return {
+    query,
+    answer,
+    chunks,
+    groundingSpans,
+    ...(requireCitations !== undefined ? { requireCitations } : {}),
+    ...(minCitedChunks !== undefined ? { minCitedChunks } : {}),
+    ...(minGroundingCoverage !== undefined ? { minGroundingCoverage } : {}),
+  };
+}
+
+function localRagGroundingSpans(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  answer: string,
+  chunks: readonly RetrievedChunk[],
+  options: { readonly inferInlineCitations: boolean },
+): readonly RagAnswerGroundingSpan[] {
+  const value = input.groundingSpans;
+  if (value === undefined || value === null) {
+    return options.inferInlineCitations
+      ? inferRagAnswerGroundingSpansFromInlineCitations(answer, chunks, {
+          errorPrefix: 'RAG capability checkAnswer answer citation',
+        })
+      : [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("RAG capability checkAnswer input field 'groundingSpans' must be an array.");
+  }
+  return value.map((span, index) => localRagGroundingSpan(span, index, answer, chunks));
+}
+
+function localRagGroundingSpan(
+  value: RuntimeCapabilityValue,
+  index: number,
+  answer: string,
+  chunks: readonly RetrievedChunk[],
+): RagAnswerGroundingSpan {
+  if (!isPlainRecord(value) || Array.isArray(value)) {
+    throw new Error(`RAG capability checkAnswer input field 'groundingSpans[${index}]' must be a record.`);
+  }
+  const start = requiredNonNegativeIntegerField(value, 'start', `groundingSpans[${index}]`, 'checkAnswer');
+  const end = requiredNonNegativeIntegerField(value, 'end', `groundingSpans[${index}]`, 'checkAnswer');
+  if (end <= start || end > answer.length) {
+    throw new Error(
+      `RAG capability checkAnswer input field 'groundingSpans[${index}]' must have start < end within the answer length.`,
+    );
+  }
+  const chunkIds = groundingSpanChunkIds(value, index, chunks);
+  const required = optionalBooleanField(value, 'required', 'checkAnswer');
+  return {
+    start,
+    end,
+    chunkIds,
+    ...(required !== undefined ? { required } : {}),
+  };
+}
+
+function groundingSpanChunkIds(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  spanIndex: number,
+  chunks: readonly RetrievedChunk[],
+): readonly string[] {
+  const chunkIdsValue = input.chunkIds;
+  if (chunkIdsValue !== undefined && chunkIdsValue !== null) {
+    if (!Array.isArray(chunkIdsValue)) {
+      throw new Error(
+        `RAG capability checkAnswer input field 'groundingSpans[${spanIndex}].chunkIds' must be an array.`,
+      );
+    }
+    return chunkIdsValue.map((item, chunkIndex) => {
+      if (typeof item !== 'string') {
+        throw new Error(
+          `RAG capability checkAnswer input field 'groundingSpans[${spanIndex}].chunkIds[${chunkIndex}]' must be a string.`,
+        );
+      }
+      if (!chunks.some((chunk) => chunk.id === item)) {
+        throw new Error(
+          `RAG capability checkAnswer input field 'groundingSpans[${spanIndex}].chunkIds[${chunkIndex}]' must reference an existing chunk.`,
+        );
+      }
+      return item;
+    });
+  }
+  const chunkIndexesValue = input.chunkIndexes;
+  if (!Array.isArray(chunkIndexesValue)) {
+    throw new Error(
+      `RAG capability checkAnswer input field 'groundingSpans[${spanIndex}]' must include chunkIds or chunkIndexes.`,
+    );
+  }
+  return chunkIndexesValue.map((item, chunkIndex) => {
+    if (typeof item !== 'number' || !Number.isInteger(item) || item < 0 || item >= chunks.length) {
+      throw new Error(
+        `RAG capability checkAnswer input field 'groundingSpans[${spanIndex}].chunkIndexes[${chunkIndex}]' must be an in-bounds chunk index.`,
+      );
+    }
+    const chunk = chunks[item];
+    if (!chunk) {
+      throw new Error(
+        `RAG capability checkAnswer input field 'groundingSpans[${spanIndex}].chunkIndexes[${chunkIndex}]' must reference an existing chunk.`,
+      );
+    }
+    return chunk.id;
+  });
+}
+
+function localRagPromptContextInput(input: RuntimeCapabilityValue | undefined): {
+  readonly chunks: readonly RetrievedChunk[];
+  readonly maxChars?: number;
+} {
+  if (!isPlainRecordInput(input)) {
+    throw new Error('RAG capability promptContext input must be a record.');
+  }
+  const chunksValue = input.chunks;
+  if (!Array.isArray(chunksValue)) {
+    throw new Error("RAG capability promptContext input field 'chunks' must be an array.");
+  }
+  const maxChars = optionalPositiveIntegerField(input, 'maxChars', 'promptContext');
+  return {
+    chunks: chunksValue.map((chunk, index) => ragCapabilityValueChunk(chunk, index)),
+    ...(maxChars !== undefined ? { maxChars } : {}),
+  };
+}
+
+function localRagCapabilityInput(input: RuntimeCapabilityValue | undefined): LocalRagCapabilityInput {
+  if (input === undefined) return {};
+  if (!isPlainRecord(input) || Array.isArray(input)) {
+    throw new Error('RAG capability retrieve input must be a record.');
+  }
+  const query = optionalStringField(input, 'query');
+  const retrieval = optionalStringField(input, 'retrieval') ?? optionalStringField(input, 'retrievalName');
+  const queryParams = localRagQueryParams(input);
+  const templateParams = localRagTemplateParams(input);
+  return {
+    ...(query !== undefined ? { query } : {}),
+    ...(retrieval !== undefined ? { retrieval } : {}),
+    ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+    ...(Object.keys(templateParams).length > 0 ? { templateParams } : {}),
+  };
+}
+
+function optionalStringField(input: Readonly<Record<string, RuntimeCapabilityValue>>, key: string): string | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`RAG capability retrieve input field '${key}' must be a non-empty string.`);
+  }
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    throw new Error(`RAG capability retrieve input field '${key}' must be a non-empty string.`);
+  }
+  return trimmed;
+}
+
+function optionalPositiveIntegerField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  operation: string,
+): number | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`RAG capability ${operation} input field '${key}' must be a positive integer.`);
+  }
+  return value;
+}
+
+function requiredOperationStringField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  operation: string,
+): string {
+  const value = input[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`RAG capability ${operation} input field '${key}' must be a non-empty string.`);
+  }
+  return value;
+}
+
+function requiredOperationStringValueField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  operation: string,
+): string {
+  const value = input[key];
+  if (typeof value !== 'string') {
+    throw new Error(`RAG capability ${operation} input field '${key}' must be a string.`);
+  }
+  return value;
+}
+
+function optionalBooleanField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  operation: string,
+): boolean | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'boolean') {
+    throw new Error(`RAG capability ${operation} input field '${key}' must be a boolean.`);
+  }
+  return value;
+}
+
+function optionalNonNegativeIntegerField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  operation: string,
+): number | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`RAG capability ${operation} input field '${key}' must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function requiredNonNegativeIntegerField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  path: string,
+  operation: string,
+): number {
+  const value = input[key];
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`RAG capability ${operation} input field '${path}.${key}' must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function optionalRatioField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  operation: string,
+): number | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`RAG capability ${operation} input field '${key}' must be between 0 and 1.`);
+  }
+  return value;
+}
+
+function localRagQueryParams(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+): Readonly<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      key === 'query' ||
+      key === 'retrieval' ||
+      key === 'retrievalName' ||
+      key === 'queryParams' ||
+      key === 'templateParams'
+    )
+      continue;
+    if (typeof value === 'string') out[key] = value;
+  }
+  Object.assign(out, stringRecordField(input, 'queryParams'));
+  return out;
+}
+
+function localRagTemplateParams(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+): Readonly<Record<string, RagQueryTemplateParamValue>> {
+  const out: Record<string, RagQueryTemplateParamValue> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      key === 'query' ||
+      key === 'retrieval' ||
+      key === 'retrievalName' ||
+      key === 'queryParams' ||
+      key === 'templateParams'
+    )
+      continue;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') out[key] = value;
+  }
+  Object.assign(out, templateParamRecordField(input, 'templateParams'));
+  return out;
+}
+
+function stringRecordField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+): Readonly<Record<string, string>> {
+  const value = input[key];
+  if (value === undefined || value === null) return {};
+  if (!isPlainRecord(value) || Array.isArray(value)) {
+    throw new Error(`RAG capability retrieve input field '${key}' must be a record.`);
+  }
+  const out: Record<string, string> = {};
+  for (const [field, item] of Object.entries(value)) {
+    if (typeof item !== 'string') {
+      throw new Error(`RAG capability retrieve input field '${key}.${field}' must be a string.`);
+    }
+    out[field] = item;
+  }
+  return out;
+}
+
+function templateParamRecordField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+): Readonly<Record<string, RagQueryTemplateParamValue>> {
+  const value = input[key];
+  if (value === undefined || value === null) return {};
+  if (!isPlainRecord(value) || Array.isArray(value)) {
+    throw new Error(`RAG capability retrieve input field '${key}' must be a record.`);
+  }
+  const out: Record<string, RagQueryTemplateParamValue> = {};
+  for (const [field, item] of Object.entries(value)) {
+    if (typeof item !== 'string' && typeof item !== 'number' && typeof item !== 'boolean') {
+      throw new Error(`RAG capability retrieve input field '${key}.${field}' must be a string, number, or boolean.`);
+    }
+    out[field] = item;
+  }
+  return out;
+}
+
+function isPlainRecord(value: RuntimeCapabilityValue): value is Readonly<Record<string, RuntimeCapabilityValue>> {
+  if (value === null || typeof value !== 'object') return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isPlainRecordInput(
+  value: RuntimeCapabilityValue | undefined,
+): value is Readonly<Record<string, RuntimeCapabilityValue>> {
+  return value !== undefined && isPlainRecord(value);
+}
+
+function ragChunkCapabilityValue(chunk: RetrieveResult['chunks'][number]): RagCapabilityChunkValue {
+  return {
+    id: chunk.id,
+    text: chunk.text,
+    score: chunk.score,
+    source: chunk.source,
+    citationUri: chunk.citation?.uri ?? null,
+    citationLocator: chunk.citation?.locator ?? null,
+  };
+}
+
+function ragCapabilityValueChunk(value: RuntimeCapabilityValue, index: number): RetrievedChunk {
+  if (!isPlainRecord(value) || Array.isArray(value)) {
+    throw new Error(`RAG capability promptContext input field 'chunks[${index}]' must be a record.`);
+  }
+  return {
+    id: requiredStringField(value, 'id', index),
+    text: requiredStringField(value, 'text', index),
+    score: requiredScoreField(value, index),
+    source: requiredStringField(value, 'source', index),
+    citation: ragCapabilityValueCitation(value, index),
+  };
+}
+
+function ragCachedCapabilityValueChunk(value: RagCapabilityChunkValue, index: number): RetrievedChunk {
+  return ragCapabilityValueChunk(value, index);
+}
+
+function requiredStringField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  index: number,
+): string {
+  const value = input[key];
+  if (typeof value !== 'string') {
+    throw new Error(`RAG capability promptContext input field 'chunks[${index}].${key}' must be a string.`);
+  }
+  return value;
+}
+
+function requiredScoreField(input: Readonly<Record<string, RuntimeCapabilityValue>>, index: number): number {
+  const value = input.score;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`RAG capability promptContext input field 'chunks[${index}].score' must be a finite number.`);
+  }
+  return value;
+}
+
+function ragCapabilityValueCitation(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  index: number,
+): RetrievedChunk['citation'] {
+  const citation = input.citation;
+  if (citation !== undefined && citation !== null) {
+    if (!isPlainRecord(citation) || Array.isArray(citation)) {
+      throw new Error(`RAG capability promptContext input field 'chunks[${index}].citation' must be a record.`);
+    }
+    const uri = optionalStringCapabilityField(citation, 'uri', `chunks[${index}].citation`);
+    const locator = optionalStringCapabilityField(citation, 'locator', `chunks[${index}].citation`);
+    return {
+      ...(uri !== undefined ? { uri } : {}),
+      ...(locator !== undefined ? { locator } : {}),
+    };
+  }
+  const uri = optionalStringCapabilityField(input, 'citationUri', `chunks[${index}]`);
+  const locator = optionalStringCapabilityField(input, 'citationLocator', `chunks[${index}]`);
+  return {
+    ...(uri !== undefined ? { uri } : {}),
+    ...(locator !== undefined ? { locator } : {}),
+  };
+}
+
+function optionalStringCapabilityField(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  key: string,
+  parentPath: string,
+): string | undefined {
+  const value = input[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`RAG capability promptContext input field '${parentPath}.${key}' must be a string.`);
+  }
+  return value;
+}
+
+function ragPromptContextCapabilityValue(context: RagPromptContext): RagPromptContextCapabilityValue {
+  return {
+    text: context.text,
+    includedCount: context.includedCount,
+    omittedCount: context.omittedCount,
+    truncated: context.truncated,
+    maxChars: context.maxChars,
+    chunks: context.chunks.map((chunk) => ({
+      index: chunk.index,
+      id: chunk.id,
+      source: chunk.source,
+      score: chunk.score,
+      citationUri: chunk.citation.uri ?? null,
+      citationLocator: chunk.citation.locator ?? null,
+      text: chunk.text,
+      renderedText: chunk.renderedText,
+      truncated: chunk.truncated,
+    })),
+  };
+}
+
+function ragCheckAnswerCapabilityValue(result: RagAnswerContractResult): RagCheckAnswerCapabilityValue {
+  return {
+    passed: result.passed,
+    status: result.status,
+    groundingCoverage: result.groundingCoverage,
+    groundedChars: result.groundedChars,
+    answerChars: result.answerChars,
+    evidenceSufficient: result.evidenceSufficient,
+    abstained: result.abstained,
+    citedChunkIds: [...result.citedChunkIds],
+    sources: [...result.sources],
+    diagnostics: result.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      spanIndex: diagnostic.spanIndex ?? null,
+      chunkId: diagnostic.chunkId ?? null,
+    })),
+  };
+}
+
+function rememberRetrievedChunks(
+  query: string,
+  chunks: readonly RetrievedChunk[],
+  queriesByFingerprint: Map<string, Set<string>>,
+): void {
+  for (const chunk of chunks) {
+    const fingerprint = retrievedChunkFingerprint(chunk);
+    const queries = queriesByFingerprint.get(fingerprint);
+    if (queries) {
+      queries.add(query);
+    } else {
+      if (queriesByFingerprint.size >= MAX_LOCAL_RAG_RETRIEVED_CHUNK_FINGERPRINTS) {
+        const oldest = queriesByFingerprint.keys().next().value;
+        if (oldest !== undefined) queriesByFingerprint.delete(oldest);
+      }
+      queriesByFingerprint.set(fingerprint, new Set([query]));
+    }
+  }
+}
+
+function assertChunksWereReturnedByRetrieve(
+  query: string,
+  chunks: readonly RetrievedChunk[],
+  queriesByFingerprint: ReadonlyMap<string, ReadonlySet<string>>,
+): void {
+  for (const [index, chunk] of chunks.entries()) {
+    const queries = queriesByFingerprint.get(retrievedChunkFingerprint(chunk));
+    if (!queries) {
+      throw new Error(
+        `RAG capability checkAnswer input field 'chunks[${index}]' must match a chunk previously returned by rag.retrieve.`,
+      );
+    }
+    if (!queries.has(query)) {
+      throw new Error(
+        `RAG capability checkAnswer input field 'chunks[${index}]' must match a chunk previously returned by rag.retrieve for the same query.`,
+      );
+    }
+  }
+}
+
+function retrievedChunkFingerprint(chunk: RetrievedChunk): string {
+  return stableCapabilityJson({
+    id: chunk.id,
+    text: chunk.text,
+    score: chunk.score,
+    source: chunk.source,
+    citationUri: chunk.citation?.uri ?? null,
+    citationLocator: chunk.citation?.locator ?? null,
+  });
+}
+
+function cloneRagCapabilityChunks(chunks: readonly RagCapabilityChunkValue[]): RagCapabilityChunkValue[] {
+  return chunks.map((chunk) => ({ ...chunk }));
+}
+
+function stableCapabilityJson(value: unknown): string {
+  if (value === undefined) return '{"$kernUndefined":true}';
+  if (Array.isArray(value)) return `[${value.map(stableCapabilityJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableCapabilityJson(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 /**

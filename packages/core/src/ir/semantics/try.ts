@@ -21,8 +21,9 @@
  * Domain / exclusions (D2):
  *   - The only error source is an EXPLICIT `throw` of a canonical KERN error
  *     (modeled by the `throw` primitive -> `{kind, messagePattern}`).
- *   - Catch bodies do NOT read the error binding — raw-error field access
- *     diverges (JS error object vs Python exception) and is out of domain.
+ *   - Catch bodies may read only the caught binding's `.message` field when the
+ *     error came from an explicit `throw new Error("...")`. Raw-error reads
+ *     such as `e`, `e.name`, or `e.stack` diverge and are out of domain.
  *   - When a `catch` is present the try body must not `return` (in the emitter
  *     legs a body `return` lowers to a sentinel the `catch`/`except Exception`
  *     would wrongly intercept; the reference would propagate it). A finally-
@@ -32,19 +33,12 @@
  */
 
 import type { IRNode } from '../../types.js';
-import {
-  defineBinding,
-  deleteOwnBinding,
-  getBinding,
-  hasOwnBinding,
-  type NodeContract,
-  type NodeFixture,
-  registerContract,
-  type SemanticEnv,
-} from './index.js';
+import { defineBinding, type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
+
+const UNAVAILABLE_CAUGHT_ERROR = Object.freeze({ message: Object.freeze({}) });
 
 interface TryParts {
   body: IRNode[];
@@ -84,6 +78,10 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
   out.events.push(...bodyTrace.events);
   let completion: CompletionRecord = bodyTrace.completion;
 
+  if (completion.kind === 'return' && catchNode) {
+    throw new Error('try: body return with catch is outside the portable domain');
+  }
+
   if (completion.kind === 'throw' && catchNode) {
     // Catch-all: the single catch handles the canonical error. Error-substrate
     // Slice 1 — bind the caught error to the catch `name` so the catch body can
@@ -98,22 +96,22 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
     // `try` never reaches here.
     const caught = catchNode.props?.name;
     const hasBinding = typeof caught === 'string' && caught !== '';
-    // SCOPE the catch binding to the catch body (codex review: env-binding leak).
-    // Snapshot the name's prior state and restore it after the catch runs. The
-    // tagged caught-error — and any inner shadow of the same name — must NOT
-    // survive the catch: TS block-scopes the catch parameter and Python `del`s it
-    // at the end of `except`, so a POST-catch (or finally) `<name>` read must
-    // ABSTAIN, never certify a value both emitted targets reject.
-    const hadPrev = hasBinding && hasOwnBinding(env, caught as string);
-    const prevValue = hadPrev ? getBinding(env, caught as string) : undefined;
-    if (completion.error && hasBinding) {
-      const caughtValue = makeCaughtErrorValue(completion.error);
-      if (caughtValue !== null) defineBinding(env, caught as string, caughtValue);
-    }
-    const catchTrace = referenceRunSequence(catchNode.children ?? [], env);
+    // SCOPE the catch binding to the catch body. After the catch body completes,
+    // leave a non-portable tombstone in this scope instead of restoring any
+    // same-named prior binding: TS would expose an outer binding to `finally` /
+    // following statements, while Python deletes the exception target. The only
+    // portable post-catch behavior for this name is therefore abstention.
     if (hasBinding) {
-      if (hadPrev) defineBinding(env, caught as string, prevValue);
-      else deleteOwnBinding(env, caught as string);
+      const caughtValue = completion.error ? makeCaughtErrorValue(completion.error) : null;
+      defineBinding(env, caught as string, caughtValue ?? UNAVAILABLE_CAUGHT_ERROR);
+    }
+    let catchTrace: Trace;
+    try {
+      catchTrace = referenceRunSequence(catchNode.children ?? [], env);
+    } finally {
+      if (hasBinding) {
+        defineBinding(env, caught as string, UNAVAILABLE_CAUGHT_ERROR);
+      }
     }
     out.events.push(...catchTrace.events);
     completion = catchTrace.completion;

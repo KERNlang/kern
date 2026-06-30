@@ -21,6 +21,44 @@ Run a local retrieval:
 kern rag retrieve examples/rag-starter/local-only.kern --param "question=refund policy receipt" --json
 ```
 
+Run the same local retrieval through the native runtime capability boundary:
+
+```sh
+kern run examples/rag-starter/runtime-run.kern
+```
+
+Run a KERN-authored RAG answer preview through the native runtime plus the
+deterministic LLM async-preview provider:
+
+```sh
+kern run --async-preview --llm-response "Refunds are available within thirty days [1]" examples/rag-starter/runtime-answer-preview.kern
+```
+
+The answer preview retrieves local support chunks, assembles them with
+`rag.promptContext`, passes the resulting `context.text` to `llm.complete`, and
+checks the deterministic cited answer with `rag.checkAnswer` before printing it.
+
+Run the same retrieval with the dedicated answer-synthesis capability:
+
+```sh
+kern run --async-preview --llm-response "Refunds are available within thirty days [1]" examples/rag-starter/runtime-answer-capability-preview.kern
+```
+
+The answer-capability preview keeps `rag.retrieve` explicit, then calls
+`rag.answer` to assemble prompt context, invoke the configured `llm.complete`
+provider, infer inline citation spans, and fail closed unless the grounding
+contract passes.
+
+Use an OpenAI-compatible chat-completions provider instead of the deterministic
+response by supplying a provider, model, and API key:
+
+```sh
+KERN_LLM_API_KEY=... kern run --async-preview --llm-provider openai --llm-model gpt-4.1-mini examples/rag-starter/runtime-answer-preview.kern
+```
+
+`KERN_LLM_MODEL` can supply the model when `--llm-model` is omitted, and
+`KERN_LLM_BASE_URL` can point at an OpenAI-compatible `/v1` endpoint.
+
 Build or reuse a persistent snapshot:
 
 ```sh

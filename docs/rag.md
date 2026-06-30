@@ -77,6 +77,26 @@ kern rag index examples/rag-starter/eval-ci.kern --force-rebuild --json
 The JSON report includes index status, action, chunk count, snapshot path,
 manifest path, and provenance.
 
+KERN programs can also request local-persistent indexing through the async
+runtime preview:
+
+```kern
+fn name=main returns=void
+  handler lang="kern"
+    capability namespace=rag operation=ingest name=report
+    print value="report.action"
+```
+
+```sh
+kern run --async-preview path/to/app.kern
+```
+
+The `rag.ingest` capability returns KERN-friendly summary fields such as
+`count`, `action`, and `chunkCount`, plus a portable `indexes` report for hosts.
+Each index includes `status`, `action`, `chunkCount`, `snapshotPath`, and
+`manifestPath`. Use `input="{ statusOnly: true }"` to inspect without
+rebuilding, or `input="{ forceRebuild: true }"` to force a rebuild.
+
 ## Retrieve
 
 `ragRetrieve` runs retrieval from a declared index. It can use a CLI query

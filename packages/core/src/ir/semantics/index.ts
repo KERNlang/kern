@@ -11,6 +11,7 @@
  * flow such as `if` / sibling `else`.
  */
 
+import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import type { CompletionRecord, Trace } from './trace.js';
 
@@ -29,6 +30,11 @@ import type { CompletionRecord, Trace } from './trace.js';
 export interface SemanticEnv {
   bindings: Map<string, unknown>;
   intProvenance?: Set<string>;
+  runnerFunctions?: Map<string, RunnerFunctionBinding>;
+  runnerCallStack?: string[];
+  runnerCallCache?: Map<string, unknown>;
+  capabilities?: KernRunnerCapabilities;
+  capabilityContext?: KernRunnerCapabilityContext;
   /**
    * Enclosing lexical scope, if any. A `let` binds in THIS scope's `bindings`;
    * reads and `assign` walk up `parent` to the declaring scope (write-through).
@@ -44,6 +50,13 @@ export interface SemanticEnv {
   now: number;
 }
 
+export interface RunnerFunctionBinding {
+  readonly name: string;
+  readonly params: readonly string[];
+  readonly returns?: unknown;
+  readonly body: readonly IRNode[];
+}
+
 /**
  * Build a fresh environment with deterministic defaults.
  *
@@ -57,6 +70,11 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
   return {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
     intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
+    runnerFunctions: overrides.runnerFunctions,
+    runnerCallStack: overrides.runnerCallStack ? [...overrides.runnerCallStack] : [],
+    runnerCallCache: overrides.runnerCallCache,
+    capabilities: overrides.capabilities,
+    capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   };
@@ -85,7 +103,18 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
   // scope are guaranteed safe integers). A child starts EMPTY — it does not clone
   // the parent's set; `isIntProvenanced` walks `declaringScope` first, so a
   // counter declared in an outer scope is still found from a nested scope.
-  return { bindings: new Map(), intProvenance: new Set(), parent, seed: parent.seed, now: parent.now };
+  return {
+    bindings: new Map(),
+    intProvenance: new Set(),
+    runnerFunctions: parent.runnerFunctions,
+    runnerCallStack: parent.runnerCallStack,
+    runnerCallCache: parent.runnerCallCache,
+    capabilities: parent.capabilities,
+    capabilityContext: parent.capabilityContext,
+    parent,
+    seed: parent.seed,
+    now: parent.now,
+  };
 }
 
 /** The nearest scope in the chain that declares `name`, or undefined if unbound. */

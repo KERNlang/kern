@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { type AsyncEmbedder, indexRagDocumentAsync } from '../src/index.js';
+import { createAsyncLocalRagIngestCapability } from '../src/rag-index-runner.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -181,6 +182,61 @@ describe('indexRagDocumentAsync', () => {
     await expect(
       indexRagDocumentAsync(PROVIDER_DOC, { sourcePath: join(dir, 'spec.kern'), forceRebuild: true }),
     ).rejects.toThrow(/requires OpenAI provider options/u);
+  });
+
+  test('creates an async rag.ingest capability over local-persistent indexes', async () => {
+    const provider = createAsyncLocalRagIngestCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      ingest: (call: { namespace: 'rag'; operation: 'ingest'; input?: unknown }) => Promise<unknown>;
+    };
+
+    const indexed = await provider.ingest({ namespace: 'rag', operation: 'ingest' });
+    expect(indexed).toEqual(
+      expect.objectContaining({
+        indexCount: 1,
+        firstAction: 'indexed',
+        firstChunkCount: 2,
+        indexes: [
+          expect.objectContaining({
+            indexName: 'DocsIndex',
+            storeKind: 'local-persistent',
+            status: 'missing',
+            action: 'indexed',
+            chunkCount: 2,
+            snapshotPath: 'index/DocsIndex.json',
+            manifestPath: 'index/DocsIndex.manifest.json',
+          }),
+        ],
+      }),
+    );
+
+    const status = await provider.ingest({
+      namespace: 'rag',
+      operation: 'ingest',
+      input: { statusOnly: true },
+    });
+    expect(status).toEqual(
+      expect.objectContaining({
+        indexCount: 1,
+        firstAction: 'inspected',
+        indexes: [expect.objectContaining({ status: 'fresh', action: 'inspected' })],
+      }),
+    );
+
+    await expect(
+      provider.ingest({
+        namespace: 'rag',
+        operation: 'ingest',
+        input: { statusOnly: 'yes' },
+      }),
+    ).rejects.toThrow(/statusOnly' must be a boolean/u);
+    await expect(
+      provider.ingest({
+        namespace: 'rag',
+        operation: 'ingest',
+        input: { statusOnly: true, forceRebuild: true },
+      }),
+    ).rejects.toThrow(/cannot both be true/u);
+    expect(() => createAsyncLocalRagIngestCapability(DOC, undefined)).toThrow(/sourcePath/u);
   });
 });
 

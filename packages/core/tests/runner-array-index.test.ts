@@ -253,6 +253,6 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
         { kind: 'member', object: null, property: 'message', optional: false } as unknown as ValueIR,
         makeEnv(),
       ),
-    ).toThrow('portable: member access is only admitted on an array or caught-error binding');
+    ).toThrow('portable: member access is only admitted on an array, record, or caught-error binding');
   });
 });

@@ -38,7 +38,7 @@ function asForProps(ir: IRNode): ForProps {
   return (ir.props ?? {}) as ForProps;
 }
 
-function forPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
+export function forPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
   const p = asForProps(ir);
   if (typeof p.name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(p.name)) return false;
   if (p.from === undefined || p.from === '') return false;
@@ -107,16 +107,27 @@ function evalValue(expr: ValueIR, env: SemanticEnv): unknown {
   }
 }
 
-function forEffects(ir: IRNode, env: SemanticEnv): Trace {
+export interface ForRuntimeRange {
+  readonly name: string;
+  readonly from: number;
+  readonly to: number;
+  readonly step: number;
+  readonly children: readonly IRNode[];
+}
+
+export function forRuntimeRange(ir: IRNode, env: SemanticEnv): ForRuntimeRange {
   const p = asForProps(ir);
   const name = p.name as string;
   const from = evalIntExpression(p.from as string | number, env, 'from');
   const to = evalIntExpression(p.to as string | number, env, 'to');
   const step = evalIntExpression(p.step === undefined || p.step === '' ? 1 : (p.step as string | number), env, 'step');
   if (step === 0) throw new Error('for step: step must not be zero');
+  return { name, from, to, step, children: ir.children ?? [] };
+}
 
+function forEffects(ir: IRNode, env: SemanticEnv): Trace {
+  const { name, from, to, step, children } = forRuntimeRange(ir, env);
   const out: Trace = emptyTrace();
-  const children = ir.children ?? [];
 
   for (let i = from; step > 0 ? i < to : i > to; i += step) {
     out.events.push({ op: 'iter-next', binding: name, value: i });
