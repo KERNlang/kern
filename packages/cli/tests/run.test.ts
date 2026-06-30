@@ -1169,6 +1169,29 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.hasAsyncCapabilityBlockers).toBe(false);
   });
 
+  test('reports async preview provider coverage for branch path capability calls', () => {
+    const file = writeFile(
+      mainProgram([
+        'branch on="\\"paid\\""',
+        '  path value="paid"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
+        '  path default=true',
+        '    capability namespace=llm operation=complete name=fallback input="{ prompt: \\"fallback\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
   test('does not switch programmatic capability reports to async-preview mode for fsWriteRoot alone', () => {
     const report = analyzeRunCapabilities(
       mainProgram([

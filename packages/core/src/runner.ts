@@ -18,6 +18,7 @@ import type {
   KernRunnerCapabilityContext,
 } from './runner-capabilities.js';
 import {
+  ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES,
   analyzeKernSourceCapabilities,
   CAPABILITY_DESCRIPTORS,
   type CapabilityRequirement,
@@ -118,8 +119,8 @@ export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions 
   providedAsyncCapabilities?: readonly string[];
   /**
    * Async host adapter surface used by executeKernSourceAsync for straight-line
-   * statements and the matched arm of if/else. Broader async control flow remains
-   * fail-closed.
+   * statements, the matched arm of if/else, selected branch paths, and sequential
+   * for/each loop bodies. Broader async control flow remains fail-closed.
    */
   asyncCapabilities?: KernRunnerAsyncCapabilities;
 }
@@ -335,6 +336,37 @@ function asyncCapabilityNodeLabel(node: IRNode): string | undefined {
   return node.loc?.line && node.loc.line > 0 ? `${id}@${node.loc.line}` : id;
 }
 
+function containsAsyncPlannedCapabilityNode(root: IRNode): boolean {
+  const stack: IRNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    if (asyncCapabilityNodeLabel(node)) return true;
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
+  return false;
+}
+
+function unsupportedAsyncContainerBeforeBranchSelection(root: IRNode): IRNode | undefined {
+  const stack: IRNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    if (node !== root && (node.type === 'branch' || node.type === 'if' || node.type === 'else')) continue;
+    if (ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES.has(node.type) && containsAsyncPlannedCapabilityNode(node)) {
+      return node;
+    }
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
+  return undefined;
+}
+
 function asyncCapabilityLabelsOutsideMain(root: IRNode, mainHandler: IRNode): string[] {
   const out: string[] = [];
   const stack: Array<{ node: IRNode; insideMain: boolean }> = [{ node: root, insideMain: root === mainHandler }];
@@ -525,6 +557,12 @@ export async function executeKernSourceAsync(
         `kern run async: async source execution outside main handler is unsupported in this preview: ${outsideMain.join(
           ', ',
         )}`,
+      );
+    }
+    const unsupportedContainer = unsupportedAsyncContainerBeforeBranchSelection(handler);
+    if (unsupportedContainer) {
+      throw new KernRunnerError(
+        `kern run async: async source execution for node type "${unsupportedContainer.type}" is unsupported in this preview`,
       );
     }
     const runnerFunctions = collectRunnerFunctions(root);
