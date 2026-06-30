@@ -1496,6 +1496,18 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['handler', 'param'],
   },
+  capability: {
+    description:
+      'Runtime capability call boundary. Binds an injected provider result by namespace and operation while keeping host effects explicit and reviewable.',
+    example: 'capability namespace=storage operation=get name=mode input="{ key: \\"mode\\" }"',
+    props: {
+      namespace: { required: true, kind: 'identifier' },
+      operation: { required: true, kind: 'identifier' },
+      name: { required: true, kind: 'identifier' },
+      input: { kind: 'rawExpr' },
+    },
+    allowedChildren: [],
+  },
   actionRegistry: {
     description:
       'Calls an imported registration function with a map of string-keyed async action handlers. Emits `target({ key: async (...) => body, ... })` directly — no IIFE wrapper.',

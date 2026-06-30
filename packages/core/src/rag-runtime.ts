@@ -41,6 +41,34 @@ export interface RetrieveResult {
   readonly chunks: readonly RetrievedChunk[];
 }
 
+export const DEFAULT_RAG_PROMPT_CONTEXT_MAX_CHARS = 6000;
+const RAG_PROMPT_CONTEXT_TRUNCATED_MARKER = '\n[truncated]';
+
+export interface RagPromptContextOptions {
+  /** Maximum Unicode code points in the assembled prompt context. */
+  readonly maxChars?: number;
+}
+
+export interface RagPromptContextChunk {
+  readonly index: number;
+  readonly id: string;
+  readonly source: string;
+  readonly score: number;
+  readonly citation: RagCitation;
+  readonly text: string;
+  readonly renderedText: string;
+  readonly truncated: boolean;
+}
+
+export interface RagPromptContext {
+  readonly text: string;
+  readonly chunks: readonly RagPromptContextChunk[];
+  readonly includedCount: number;
+  readonly omittedCount: number;
+  readonly truncated: boolean;
+  readonly maxChars: number;
+}
+
 export type InMemoryRagRetriever = (query: string, options?: RetrieveOptions) => RetrieveResult;
 export type RagContractRetriever = (query: string, options?: RetrieveOptions) => RetrieveResult;
 export type AsyncRagContractRetriever = (query: string, options?: RetrieveOptions) => Promise<RetrieveResult>;
@@ -108,6 +136,7 @@ export type RagAnswerContractDiagnosticCode =
   | 'PROVENANCE_MISMATCH'
   | 'SPAN_INVALID'
   | 'SPAN_UNGROUNDED'
+  | 'SPAN_TEXT_UNSUPPORTED'
   | 'CHUNK_REF_UNKNOWN'
   | 'CITATION_REQUIRED'
   | 'GROUNDING_BELOW_THRESHOLD';
@@ -301,6 +330,80 @@ export function retrieveFromInMemoryCorpus(
   options: RetrieveOptions = {},
 ): RetrieveResult {
   return corpus.retrieve(query, options);
+}
+
+/**
+ * Builds deterministic prompt evidence from already-ranked retrieved chunks.
+ * Callers must pass chunks in descending relevance order. The assembler
+ * preserves that order and applies a greedy code-point budget: it includes
+ * whole sections until the next section would exceed maxChars, then truncates
+ * that chunk body if its header still fits. It does not skip an oversized
+ * higher-ranked chunk to include lower-ranked chunks. Rendered headers use
+ * one-based labels; RagPromptContextChunk.index remains the original zero-based
+ * chunk position. When whole chunks are omitted, the rendered text includes a
+ * best-effort omitted marker only if it fits the remaining budget; the typed
+ * truncated and omittedCount fields are authoritative. Prompt assembly is
+ * stricter than generic retrieval-result validation and requires non-empty id,
+ * text, and source fields because those fields are emitted into prompt text.
+ */
+export function assembleRagPromptContext(
+  chunks: readonly RetrievedChunk[],
+  options: RagPromptContextOptions = {},
+): RagPromptContext {
+  const maxChars = normalizeRagPromptContextMaxChars(options?.maxChars);
+  const rankedChunks = validateRetrievedChunks(chunks);
+  const includedChunks: RagPromptContextChunk[] = [];
+  const sections: string[] = [];
+  let usedChars = 0;
+  let partiallyTruncated = false;
+
+  validateRagPromptContextChunks(rankedChunks);
+  validateDescendingRagPromptContextScores(rankedChunks);
+
+  for (const [index, chunk] of rankedChunks.entries()) {
+    const prefix = sections.length === 0 ? '' : '\n\n';
+    const header = ragPromptContextHeader(chunk, index);
+    const body = chunk.text;
+    const remaining = maxChars - usedChars;
+    if (remaining <= 0) {
+      break;
+    }
+
+    const sectionPrefix = `${prefix}${header}\n`;
+    const bodyBudget = remaining - ragPromptContextLength(sectionPrefix);
+    if (bodyBudget <= 0) {
+      break;
+    }
+    const renderedBody = renderRagPromptContextBody(body, bodyBudget);
+    if (!renderedBody) {
+      break;
+    }
+    sections.push(`${sectionPrefix}${renderedBody.text}`);
+    usedChars += ragPromptContextLength(sectionPrefix) + ragPromptContextLength(renderedBody.text);
+    includedChunks.push(ragPromptContextChunk(chunk, index, renderedBody.chunkText, renderedBody.truncated));
+    if (renderedBody.truncated) {
+      partiallyTruncated = true;
+      break;
+    }
+  }
+
+  const omittedCount = rankedChunks.length - includedChunks.length;
+  if (omittedCount > 0 && !partiallyTruncated) {
+    const prefix = sections.length === 0 ? '' : '\n\n';
+    const omittedMarker = `${prefix}[truncated: ${omittedCount} ${omittedCount === 1 ? 'chunk' : 'chunks'} omitted]`;
+    if (ragPromptContextLength(omittedMarker) <= maxChars - usedChars) {
+      sections.push(omittedMarker);
+    }
+  }
+
+  return {
+    text: sections.join(''),
+    chunks: includedChunks,
+    includedCount: includedChunks.length,
+    omittedCount,
+    truncated: partiallyTruncated || omittedCount > 0,
+    maxChars,
+  };
 }
 
 export function createRagRuntimeProvenance(
@@ -505,6 +608,23 @@ export function evaluateRagAnswerContract(contract: RagAnswerContract): RagAnswe
       continue;
     }
 
+    const spanText = normalizeGroundingSupportText(answer.slice(span.start, span.end));
+    const spanTextSupported =
+      spanText.length > 0
+        ? validChunkIds.some((chunkId) => {
+            const chunk = chunkById.get(chunkId);
+            return chunk ? normalizeGroundingSupportText(chunk.text).includes(spanText) : false;
+          })
+        : false;
+    if (!spanTextSupported) {
+      diagnostics.push({
+        code: 'SPAN_TEXT_UNSUPPORTED',
+        spanIndex,
+        message: `RAG answer grounding span at index ${spanIndex} is not lexically present in its cited chunks.`,
+      });
+      continue;
+    }
+
     for (let index = span.start; index < span.end; index += 1) grounded[index] = true;
   }
 
@@ -692,6 +812,158 @@ export function hashRetrievedChunkText(text: string): string {
   return `${left.toString(16).padStart(16, '0')}${right.toString(16).padStart(16, '0')}`;
 }
 
+function normalizeRagPromptContextMaxChars(value: number | undefined): number {
+  const maxChars = value ?? DEFAULT_RAG_PROMPT_CONTEXT_MAX_CHARS;
+  if (!Number.isInteger(maxChars) || maxChars <= 0) {
+    throw new Error('KERN RAG prompt context maxChars must be a positive integer.');
+  }
+  return maxChars;
+}
+
+function ragPromptContextHeader(chunk: RetrievedChunk, index: number): string {
+  const citation = ragPromptContextCitation(chunk.citation);
+  return [
+    `[${index + 1}]`,
+    `id=${ragPromptContextHeaderValue(chunk.id)}`,
+    `source=${ragPromptContextHeaderValue(chunk.source)}`,
+    `score=${formatRagPromptContextScore(chunk.score)}`,
+    citation ? `citation=${ragPromptContextHeaderValue(citation)}` : undefined,
+  ]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+}
+
+function ragPromptContextChunk(
+  chunk: RetrievedChunk,
+  index: number,
+  renderedText: string,
+  truncated: boolean,
+): RagPromptContextChunk {
+  return {
+    index,
+    id: chunk.id,
+    source: chunk.source,
+    score: chunk.score,
+    citation: ragPromptContextCitation(chunk.citation) ?? {},
+    text: chunk.text,
+    renderedText,
+    truncated,
+  };
+}
+
+function ragPromptContextCitation(citation: RagCitation | null | undefined): RagCitation | undefined {
+  if (!citation) return undefined;
+  return citation.uri !== undefined || citation.locator !== undefined
+    ? {
+        ...(citation.uri !== undefined ? { uri: citation.uri } : {}),
+        ...(citation.locator !== undefined ? { locator: citation.locator } : {}),
+      }
+    : undefined;
+}
+
+function ragPromptContextHeaderValue(value: string | RagCitation): string {
+  return ragPromptContextJson(value).replace(/ /gu, '\\u0020');
+}
+
+function formatRagPromptContextScore(score: number): string {
+  return score.toFixed(3).replace(/0+$/u, '').replace(/\.$/u, '');
+}
+
+interface RenderedRagPromptContextBody {
+  readonly text: string;
+  readonly chunkText: string;
+  readonly truncated: boolean;
+}
+
+function renderRagPromptContextBody(text: string, maxChars: number): RenderedRagPromptContextBody | undefined {
+  if (maxChars <= 0) return undefined;
+  const bodyLineOverhead = ragPromptContextLength(ragPromptContextBodyLine(''));
+  if (!ragPromptContextExceedsLength(text, Math.max(0, maxChars - bodyLineOverhead))) {
+    const full = ragPromptContextBodyLine(text);
+    if (ragPromptContextLength(full) <= maxChars) return { text: full, chunkText: text, truncated: false };
+  }
+
+  const markerLength = ragPromptContextLength(RAG_PROMPT_CONTEXT_TRUNCATED_MARKER);
+  const textBudget = maxChars - markerLength;
+  if (textBudget <= ragPromptContextLength(ragPromptContextBodyLine(''))) return undefined;
+  const chunkText = truncateRagPromptContextBodyText(text, textBudget);
+  if (!chunkText) return undefined;
+  return {
+    text: `${ragPromptContextBodyLine(chunkText)}${RAG_PROMPT_CONTEXT_TRUNCATED_MARKER}`,
+    chunkText,
+    truncated: true,
+  };
+}
+
+function ragPromptContextBodyLine(text: string): string {
+  return `text=${ragPromptContextJson(text)}`;
+}
+
+function ragPromptContextJson(value: string | RagCitation): string {
+  return JSON.stringify(value)
+    .replace(/\u2028/gu, '\\u2028')
+    .replace(/\u2029/gu, '\\u2029');
+}
+
+function truncateRagPromptContextBodyText(text: string, maxRenderedChars: number): string {
+  const units = ragPromptContextUnits(text, maxRenderedChars);
+  let low = 0;
+  let high = Math.min(units.length, maxRenderedChars);
+  let best = '';
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = units.slice(0, mid).join('');
+    if (ragPromptContextLength(ragPromptContextBodyLine(candidate)) <= maxRenderedChars) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
+}
+
+function ragPromptContextLength(value: string): number {
+  return Array.from(value).length;
+}
+
+function ragPromptContextExceedsLength(value: string, maxChars: number): boolean {
+  if (maxChars < 0) return true;
+  let count = 0;
+  for (const _unit of value) {
+    count += 1;
+    if (count > maxChars) return true;
+  }
+  return false;
+}
+
+function ragPromptContextUnits(value: string, maxUnits?: number): string[] {
+  const units: string[] = [];
+  for (const unit of value) {
+    if (maxUnits !== undefined && units.length >= maxUnits) break;
+    units.push(unit);
+  }
+  return units;
+}
+
+function validateDescendingRagPromptContextScores(chunks: readonly RetrievedChunk[]): void {
+  for (const [index, chunk] of chunks.entries()) {
+    if (!chunk) {
+      throw new Error(`KERN RAG prompt context chunk at index ${index} must be a RetrievedChunk.`);
+    }
+    if (!Number.isFinite(chunk.score)) {
+      throw new Error(`KERN RAG prompt context chunk at index ${index} score must be finite.`);
+    }
+  }
+  for (let index = 1; index < chunks.length; index += 1) {
+    const previous = chunks[index - 1];
+    const current = chunks[index];
+    if (previous && current && current.score > previous.score) {
+      throw new Error('KERN RAG prompt context chunks must be pre-ranked by descending score.');
+    }
+  }
+}
+
 interface NormalizedRetrieveOptions {
   readonly topK: number;
   readonly minScore: number;
@@ -828,6 +1100,15 @@ function countGroundedAnswerChars(answer: string, grounded: readonly boolean[]):
   return count;
 }
 
+function normalizeGroundingSupportText(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[.,;:!?]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 function ragAnswerStatus(
   diagnostics: readonly RagAnswerContractDiagnostic[],
   groundingCoverage: number,
@@ -847,6 +1128,7 @@ function ragAnswerStatus(
         'RETRIEVER_ERROR',
         'PROVENANCE_MISMATCH',
         'SPAN_INVALID',
+        'SPAN_TEXT_UNSUPPORTED',
         'CHUNK_REF_UNKNOWN',
       ].includes(diagnostic.code),
     )
@@ -1443,7 +1725,15 @@ function validateRetrieveResult(result: RetrieveResult): RetrieveResult {
   if (!result || typeof result.query !== 'string' || !Array.isArray(result.chunks)) {
     throw new Error('retriever result must include query string and chunks array.');
   }
-  for (const [index, chunk] of result.chunks.entries()) {
+  validateRetrievedChunks(result.chunks);
+  return result;
+}
+
+function validateRetrievedChunks(chunks: readonly RetrievedChunk[]): readonly RetrievedChunk[] {
+  if (!Array.isArray(chunks)) {
+    throw new Error('retrieved chunks must be an array.');
+  }
+  for (const [index, chunk] of chunks.entries()) {
     if (
       chunk &&
       typeof chunk.score === 'number' &&
@@ -1466,13 +1756,30 @@ function validateRetrieveResult(result: RetrieveResult): RetrieveResult {
     }
   }
   const chunkIds = new Set<string>();
-  for (const [index, chunk] of result.chunks.entries()) {
+  for (const [index, chunk] of chunks.entries()) {
+    if (!chunk) {
+      throw new Error(`retriever chunk at index ${index} is not a RetrievedChunk.`);
+    }
     if (chunkIds.has(chunk.id)) {
       throw new Error(`retriever chunk at index ${index} duplicates chunk id '${chunk.id}'.`);
     }
     chunkIds.add(chunk.id);
   }
-  return result;
+  return chunks;
+}
+
+function validateRagPromptContextChunks(chunks: readonly RetrievedChunk[]): void {
+  for (const [index, chunk] of chunks.entries()) {
+    if (!chunk || typeof chunk.id !== 'string' || !chunk.id.trim()) {
+      throw new Error(`retriever chunk at index ${index} id must be a non-empty non-whitespace string.`);
+    }
+    if (typeof chunk.text !== 'string' || !chunk.text.trim()) {
+      throw new Error(`retriever chunk at index ${index} text must be a non-empty non-whitespace string.`);
+    }
+    if (typeof chunk.source !== 'string' || !chunk.source.trim()) {
+      throw new Error(`retriever chunk at index ${index} source must be a non-empty non-whitespace string.`);
+    }
+  }
 }
 
 function isValidCitation(value: unknown): value is RagCitation {

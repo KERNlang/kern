@@ -16,3 +16,24 @@ fn name=main returns=void
     let name=labels value="[\"rag\",\"runtime\"]"
     each name=label in=labels
       print value="label"
+    fmt name=message template="fmt-${total}"
+    print value="message"
+    branch on="message"
+      path value="fmt-6"
+        print value="\"branch\""
+      path default=true
+        print value="\"branch-miss\""
+    try
+      throw value="new Error(\"caught\")"
+      catch name=e
+        print value="e.message"
+      finally
+        print value="\"finally\""
+    capability namespace=storage operation=set name=setOk input="{ key: \"mode\", value: \"preview\" }"
+    print value="setOk"
+    capability namespace=storage operation=get name=mode input="{ key: \"mode\" }"
+    print value="mode"
+    capability namespace=storage operation=delete name=deleted input="{ key: \"mode\" }"
+    print value="deleted"
+    capability namespace=crypto operation=randomBytes name=bytes input="{ length: 3 }"
+    print value="bytes.length"

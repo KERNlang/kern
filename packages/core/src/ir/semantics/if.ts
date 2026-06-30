@@ -45,7 +45,7 @@ function ifPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   return validateIfNode(ir, env);
 }
 
-function validateIfNode(ir: IRNode, env: SemanticEnv): boolean {
+export function validateIfNode(ir: IRNode, env: SemanticEnv): boolean {
   const p = asIfProps(ir);
   if (typeof p.cond !== 'string' || p.cond.trim().length === 0) return false;
   try {
@@ -116,12 +116,19 @@ export function portableTruthy(value: unknown): boolean {
   throw new Error('if: condition value is outside the portable truthiness domain');
 }
 
-function ifEffects(ir: IRNode, env: SemanticEnv): Trace {
+export function evaluateIfCondition(ir: IRNode, env: SemanticEnv): boolean {
   const p = asIfProps(ir);
-  const cond = p.cond as string;
-  if (portableTruthy(conditionValue(cond, env))) {
+  if (typeof p.cond !== 'string' || p.cond.trim().length === 0) {
+    throw new Error('if: cond= must be a non-empty string expression');
+  }
+  return portableTruthy(conditionValue(p.cond, env));
+}
+
+function ifEffects(ir: IRNode, env: SemanticEnv): Trace {
+  if (evaluateIfCondition(ir, env)) {
     return referenceRunSequence(ir.children ?? [], env);
   }
+  const p = asIfProps(ir);
   const elseNode = p.__pairedElse;
   if (elseNode) return referenceRunSequence(elseNode.children ?? [], env);
   return emptyTrace();

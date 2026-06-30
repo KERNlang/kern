@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>KERN Browser Runner Smoke</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+
+      pre {
+        border: 1px solid currentColor;
+        max-width: 960px;
+        overflow: auto;
+        padding: 16px;
+        white-space: pre-wrap;
+      }
+    </style>
+    <script>
+      window.__KERN_RUNNER_SCRIPT_START = performance.now();
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "decimal.js": "../../packages/core/node_modules/decimal.js/decimal.mjs"
+        }
+      }
+    </script>
+    <script type="module">
+      import { renderBrowserRunnerSmoke } from './runner-smoke.mjs';
+
+      renderBrowserRunnerSmoke();
+    </script>
+  </head>
+  <body>
+    <h1>KERN Browser Runner Smoke</h1>
+    <pre id="kern-runner-smoke" data-status="pending">pending</pre>
+  </body>
+</html>

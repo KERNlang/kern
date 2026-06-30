@@ -40,8 +40,15 @@ import {
   type DecimalProbeAccessor,
 } from '../../decimal/probe-gates.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import type { SemanticEnv } from './index.js';
-import { getBinding, hasBinding, isIntProvenanced } from './index.js';
+import {
+  getBinding,
+  hasBinding,
+  isIntProvenanced,
+  makeEnv,
+  type RunnerFunctionBinding,
+  type SemanticEnv,
+} from './index.js';
+import { referenceRunSequence } from './reference-runner.js';
 
 export type PortableScalar = string | number | boolean | null;
 
@@ -201,6 +208,51 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
   return typeof a === typeof b;
 }
 
+export type PortableRecord = Readonly<Record<string, PortableScalar>>;
+const RESERVED_RECORD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+const MAX_RUNNER_CALL_DEPTH = 64;
+
+export function isPortableRecordValue(value: unknown): value is PortableRecord {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (isDecimalValue(value) || isCaughtErrorValue(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  return Object.values(value as Record<string, unknown>).every(isPortableScalar);
+}
+
+export function isRecordLiteralExpression(node: ValueIR): node is Extract<ValueIR, { kind: 'objectLit' }> {
+  return node.kind === 'objectLit';
+}
+
+/** Evaluate a flat record literal whose values are portable scalars.
+ * Spreads, numeric keys, computed keys, and nested records/arrays are deferred so
+ * record reads cannot accidentally widen into host-object semantics. */
+export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): PortableRecord {
+  if (node.kind !== 'objectLit') {
+    throw new Error('portable-record: expected an object literal expression');
+  }
+  const out: Record<string, PortableScalar> = Object.create(null) as Record<string, PortableScalar>;
+  for (const entry of node.entries) {
+    if ('kind' in entry) {
+      throw new Error('portable-record: object spreads are outside the portable record domain');
+    }
+    if ('rawKey' in entry && entry.rawKey !== undefined) {
+      throw new Error('portable-record: numeric record keys are outside the portable record domain');
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
+      throw new Error('portable-record: record keys must be identifier-like strings');
+    }
+    if (RESERVED_RECORD_KEYS.has(entry.key)) {
+      throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
+    }
+    if (Object.hasOwn(out, entry.key)) {
+      throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
+    }
+    out[entry.key] = evalPortableValue(entry.value, env);
+  }
+  return Object.freeze(out);
+}
+
 /** True iff `node` is a BARE non-negative safe-integer DECIMAL literal — the only
  *  index form provably byte-identical across `kern run`, emitted TS, and emitted
  *  Python. The raw text must be all digits that round-trip exactly through a safe
@@ -257,12 +309,13 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
         : evalPortableValue(node.alternate, env);
     case 'member': {
       // Member reads are admitted only for the explicit portable slices:
-      // `<arrayBinding>.length` and `<caughtErrorBinding>.message`. Both must be
+      // `<arrayBinding>.length`, `<recordBinding>.<field>`, and
+      // `<caughtErrorBinding>.message`. All must be
       // non-optional reads on a bare identifier. Everything else throws -> the
       // runner ABSTAINS rather than producing a one-leg value.
       if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
       if (!isValueIR(node.object) || node.object.kind !== 'ident') {
-        throw new Error('portable: member access is only admitted on an array or caught-error binding');
+        throw new Error('portable: member access is only admitted on an array, record, or caught-error binding');
       }
       // Resolve the binding explicitly (mirrors the `index` case) so an UNBOUND
       // receiver fails with a precise "binding not found" rather than the generic
@@ -278,6 +331,10 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
           throw new Error(`portable: array has no portable property "${node.property}" (only .length is admitted)`);
         }
         return obj.length;
+      }
+      const recordField = portableRecordScalarField(obj, node.object.name, node.property);
+      if (recordField !== PORTABLE_RECORD_FIELD_MISSING) {
+        return recordField;
       }
       if (!isCaughtErrorValue(obj)) {
         throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
@@ -361,6 +418,7 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       return result;
     }
     case 'call': {
+      if (node.optional) throw new Error('portable: optional calls are outside the portable scalar domain');
       const decimalScalar = evalRunnerNativeDecimalScalarCall(node, env);
       if (decimalScalar !== undefined) return decimalScalar;
       if (node.callee.kind === 'ident' && node.callee.name === 'String') {
@@ -370,11 +428,111 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
         const val = evalPortableValue(node.args[0], env);
         return coerceToString(val);
       }
-      throw new Error(`portable: unsupported call to "${node.callee.kind === 'ident' ? node.callee.name : 'unknown'}"`);
+      if (node.callee.kind === 'ident') return evalRunnerFunctionCall(node.callee.name, node.args, env);
+      throw new Error('portable: unsupported non-identifier call');
     }
     default:
       throw new Error(`portable: expression kind "${node.kind}" is outside the portable scalar domain`);
   }
+}
+
+function runnerFunctionsForEnv(env: SemanticEnv): Map<string, RunnerFunctionBinding> | undefined {
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.runnerFunctions) return cur.runnerFunctions;
+  }
+  return undefined;
+}
+
+function runnerCallStackForEnv(env: SemanticEnv): readonly string[] {
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.runnerCallStack) return cur.runnerCallStack;
+  }
+  return [];
+}
+
+function runnerCallCacheForEnv(env: SemanticEnv): Map<string, unknown> {
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.runnerCallCache) return cur.runnerCallCache;
+  }
+  env.runnerCallCache = new Map();
+  return env.runnerCallCache;
+}
+
+function evalRunnerFunctionCall(fnName: string, args: readonly ValueIR[], env: SemanticEnv): PortableScalar {
+  const functions = runnerFunctionsForEnv(env);
+  const fn = functions?.get(fnName);
+  if (!fn) throw new Error(`portable: unsupported call to "${fnName}"`);
+  if (args.length !== fn.params.length) {
+    throw new Error(`portable: function "${fnName}" expects ${fn.params.length} arguments, got ${args.length}`);
+  }
+
+  const callStack = runnerCallStackForEnv(env);
+  if (callStack.includes(fnName)) throw new Error(`portable: recursive function call "${fnName}" is unsupported`);
+  if (callStack.length >= MAX_RUNNER_CALL_DEPTH) throw new Error('portable: runner function call depth exceeded');
+
+  const argValues: PortableScalar[] = [];
+  const argIntProvenance: boolean[] = [];
+  const bindings = new Map<string, unknown>();
+  const intProvenance = new Set<string>();
+  for (let index = 0; index < fn.params.length; index += 1) {
+    const arg = args[index];
+    const value = evalPortableValue(arg, env);
+    const isSafeIntArg = isSafeIntegerLiteralIndex(arg) || (arg.kind === 'ident' && isIntProvenanced(env, arg.name));
+    argValues.push(value);
+    argIntProvenance.push(isSafeIntArg);
+    bindings.set(fn.params[index], value);
+    if (isSafeIntArg) {
+      intProvenance.add(fn.params[index]);
+    }
+  }
+
+  const cache = runnerCallCacheForEnv(env);
+  const cacheKey = JSON.stringify([fnName, argValues.map((value, index) => [value, argIntProvenance[index]])]);
+  if (cache.has(cacheKey)) return assertPortableScalar(cache.get(cacheKey), `function "${fnName}" cached return`);
+
+  const callEnv = makeEnv({
+    bindings,
+    intProvenance,
+    runnerFunctions: functions,
+    runnerCallStack: [...callStack, fnName],
+    runnerCallCache: cache,
+    seed: env.seed,
+    now: env.now,
+  });
+  const trace = referenceRunSequence(fn.body, callEnv);
+  if (trace.events.some((event) => event.op === 'stdout' || event.op === 'stderr' || event.op === 'call')) {
+    throw new Error(`portable: function "${fnName}" produced side effects`);
+  }
+  if (trace.completion.kind !== 'return') {
+    throw new Error(`portable: function "${fnName}" must return a portable scalar`);
+  }
+  const out = assertPortableScalar(trace.completion.value, `function "${fnName}" return`);
+  cache.set(cacheKey, out);
+  return out;
+}
+
+const PORTABLE_RECORD_FIELD_MISSING = Symbol('portableRecordFieldMissing');
+
+function portableRecordScalarField(
+  obj: unknown,
+  recordName: string,
+  property: string,
+): PortableScalar | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return PORTABLE_RECORD_FIELD_MISSING;
+  if (isDecimalValue(obj) || isCaughtErrorValue(obj)) return PORTABLE_RECORD_FIELD_MISSING;
+  const proto = Object.getPrototypeOf(obj);
+  if (proto !== Object.prototype && proto !== null) return PORTABLE_RECORD_FIELD_MISSING;
+  if (Object.getOwnPropertySymbols(obj).length > 0) {
+    throw new Error(`portable: record "${recordName}" is outside the portable scalar domain`);
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(obj, property);
+  if (!descriptor) {
+    throw new Error(`portable: record "${recordName}" has no field "${property}"`);
+  }
+  if (!descriptor.enumerable || descriptor.get || descriptor.set || !('value' in descriptor)) {
+    throw new Error(`portable: record "${recordName}" field "${property}" is outside the portable scalar domain`);
+  }
+  return assertPortableScalar(descriptor.value, `field "${recordName}.${property}"`);
 }
 
 export function coerceToString(val: PortableScalar): string {

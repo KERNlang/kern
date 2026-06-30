@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { type AsyncEmbedder, type Embedder, retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
+import { createLocalRagCapability } from '../src/rag-retrieve-runner.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -225,6 +226,393 @@ describe('retrieveRagDocument', () => {
         text: expect.stringContaining('refund policy money back'),
       }),
     );
+  });
+
+  test('creates a local rag.retrieve capability over declared local sources', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const result = (
+      capability as { retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+    ).retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(Array.isArray(result)).toBe(true);
+    const [chunk] = result as Array<Record<string, unknown>>;
+    expect(typeof chunk.id).toBe('string');
+    expect(String(chunk.text)).toContain('refund policy money back');
+    expect(typeof chunk.score).toBe('number');
+    expect(chunk.source).toBe('docs/refunds.md');
+    expect(chunk.citationUri).toBe('docs/refunds.md');
+    expect(typeof chunk.citationLocator).toBe('string');
+  });
+
+  test('creates local prompt context from rag.retrieve capability chunks', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      promptContext: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+    const context = capability.promptContext({
+      namespace: 'rag',
+      operation: 'promptContext',
+      input: { chunks, maxChars: 6000 },
+    });
+
+    expect(context).toEqual(
+      expect.objectContaining({
+        includedCount: 1,
+        omittedCount: 0,
+        truncated: false,
+        maxChars: 6000,
+        text: expect.stringContaining('refund policy money back within thirty days'),
+      }),
+    );
+    expect((context as Record<string, unknown>).text).toContain('[1] id=');
+    expect((context as Record<string, unknown>).text).toContain('source="docs/refunds.md"');
+    expect((context as Record<string, unknown>).chunks).toEqual([
+      expect.objectContaining({
+        index: 0,
+        source: 'docs/refunds.md',
+        renderedText: 'refund policy money back within thirty days',
+      }),
+    ]);
+  });
+
+  test('checks a grounded answer over local rag.retrieve capability chunks', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      checkAnswer: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    const result = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back',
+        chunks,
+        groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 1,
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        passed: true,
+        status: 'grounded',
+        groundingCoverage: 1,
+        sources: ['docs/refunds.md'],
+      }),
+    );
+    expect((result as { citedChunkIds?: unknown }).citedChunkIds).toEqual(
+      expect.arrayContaining([(chunks as Array<Record<string, unknown>>)[0]?.id]),
+    );
+  });
+
+  test('infers local rag.checkAnswer grounding spans from inline citation markers', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      checkAnswer: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    const result = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1]',
+        chunks,
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.85,
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        passed: true,
+        status: 'grounded',
+        sources: ['docs/refunds.md'],
+      }),
+    );
+    expect((result as { groundingCoverage?: number }).groundingCoverage).toBeGreaterThan(0.85);
+
+    const adjacent = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1] [1]',
+        chunks,
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.75,
+      },
+    });
+
+    expect(adjacent).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+
+    const punctuatedAdjacent = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1], [1]',
+        chunks,
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.75,
+      },
+    });
+
+    expect(punctuatedAdjacent).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+
+    const coverageOnly = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1]',
+        chunks,
+        minGroundingCoverage: 0.85,
+      },
+    });
+
+    expect(coverageOnly).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: '[1] refund policy money back',
+          chunks,
+          requireCitations: true,
+        },
+      }),
+    ).toThrow(/must follow non-empty answer text/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back [99]',
+          chunks,
+          requireCitations: true,
+        },
+      }),
+    ).toThrow(/between 1 and 1/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks,
+          requireCitations: true,
+          minCitedChunks: 1,
+        },
+      }),
+    ).toThrow(/CITATION_REQUIRED|CITED_CHUNKS_BELOW_MINIMUM/u);
+
+    const explicit = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [99]',
+        chunks,
+        groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.8,
+      },
+    });
+
+    expect(explicit).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+  });
+
+  test('local rag.checkAnswer fails closed for ungrounded answers and invalid chunk indexes', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      checkAnswer: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks,
+          groundingSpans: [{ start: 0, end: 7, chunkIndexes: [0], required: true }],
+          minGroundingCoverage: 1,
+        },
+      }),
+    ).toThrow(/GROUNDING_BELOW_THRESHOLD/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'unsupported refund timing detail',
+          chunks,
+          groundingSpans: [{ start: 0, end: 32, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/SPAN_TEXT_UNSUPPORTED/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'fabricated supporting answer',
+          chunks: [
+            {
+              id: 'fake',
+              text: 'fabricated supporting answer',
+              score: 1,
+              source: 'docs/fake.md',
+              citationUri: 'docs/fake.md',
+              citationLocator: null,
+            },
+          ],
+          groundingSpans: [{ start: 0, end: 28, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/previously returned by rag\.retrieve/u);
+
+    const tamperedScoreChunks = (chunks as Array<Record<string, unknown>>).map((chunk) => ({ ...chunk, score: 0.01 }));
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks: tamperedScoreChunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/previously returned by rag\.retrieve/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'shipping courier tracking',
+          answer: 'refund policy money back',
+          chunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/same query/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: '',
+          chunks,
+          groundingSpans: [],
+        },
+      }),
+    ).toThrow(/ANSWER_EMPTY/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [100], required: true }],
+        },
+      }),
+    ).toThrow(/in-bounds chunk index/u);
+  });
+
+  test('local rag.retrieve gives explicit nested queryParams precedence over top-level input fields', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const result = (
+      capability as { retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+    ).retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: {
+        question: 'shipping courier tracking',
+        queryParams: { question: 'refund policy money back' },
+        retrieval: 'FindDocs',
+      },
+    });
+
+    const [chunk] = result as Array<Record<string, unknown>>;
+    expect(chunk.source).toBe('docs/refunds.md');
+  });
+
+  test('local rag.retrieve validates setup and input shapes before retrieval', () => {
+    expect(() => createLocalRagCapability(DOC, { sourcePath: '  ' })).toThrow(/sourcePath/u);
+
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+    expect(() =>
+      (
+        capability as { retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+      ).retrieve({
+        namespace: 'rag',
+        operation: 'retrieve',
+        input: { queryParams: 'refund policy money back' },
+      }),
+    ).toThrow(/queryParams/u);
+
+    expect(() =>
+      (
+        capability as { promptContext: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+      ).promptContext({
+        namespace: 'rag',
+        operation: 'promptContext',
+        input: { chunks: [{ id: 'chunk', text: '', score: 1, source: 'docs/refunds.md' }] },
+      }),
+    ).toThrow(/text must be a non-empty/u);
   });
 
   test('merges one ragRetrieve across multiple target indexes', () => {

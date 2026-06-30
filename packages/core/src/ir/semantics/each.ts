@@ -115,7 +115,7 @@ export function detectEachShape(p: EachProps): EachShape | null {
   return null;
 }
 
-function eachPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
+export function eachPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
   const p = asEachProps(ir);
   if (typeof p.in !== 'string') return false;
   const shape = detectEachShape(p);
@@ -124,7 +124,7 @@ function eachPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
   return true;
 }
 
-interface IterationStep {
+export interface EachIterationStep {
   bindings: Array<[string, unknown]>;
   /** The "primary" binding surfaced in the `iter-next` trace event. */
   primary: [string, unknown];
@@ -149,7 +149,7 @@ function assertPlainObject(collection: unknown, shape: string): void {
 }
 
 /** Yields one IterationStep per loop iteration, in observable order. */
-function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps): Generator<IterationStep> {
+function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps): Generator<EachIterationStep> {
   switch (shape) {
     case 'array': {
       const arr = collection as unknown[];
@@ -230,7 +230,7 @@ function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps)
   }
 }
 
-function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
+export function eachRuntimeSteps(ir: IRNode, env: SemanticEnv): readonly EachIterationStep[] {
   const p = asEachProps(ir);
   const shape = detectEachShape(p);
   if (shape === null) {
@@ -244,11 +244,14 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
   if (collection === null || collection === undefined) {
     throw new Error(`each: binding "${inName}" is nullish`);
   }
+  return Array.from(iterateCollection(shape, collection, p));
+}
 
+function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
   const out: Trace = emptyTrace();
   const children = ir.children ?? [];
 
-  for (const step of iterateCollection(shape, collection, p)) {
+  for (const step of eachRuntimeSteps(ir, env)) {
     out.events.push({ op: 'iter-next', binding: step.primary[0], value: step.primary[1] });
 
     // Fresh CHILD scope per element: the element binding(s) and any inner `let`

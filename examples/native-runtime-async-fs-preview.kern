@@ -1,0 +1,8 @@
+fn name=main returns=void
+  handler lang="kern"
+    capability namespace=fs operation=list name=files input="{ path: \".\" }"
+    print value="files.length"
+    capability namespace=fs operation=readText name=body input="{ path: \"input.txt\" }"
+    print value="body"
+    capability namespace=fs operation=writeText name=ok input="{ path: \"out.txt\", text: body }"
+    print value="ok"

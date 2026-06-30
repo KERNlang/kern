@@ -1,0 +1,8 @@
+fn name=main returns=void
+  handler lang="kern"
+    capability namespace=fs operation=readText name=body input="{ path: \"input.txt\" }"
+    capability namespace=net operation=fetch name=response input="{ url: \"data:text/plain,host-preview\" }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: body }"
+    print value="body"
+    print value="response.body"
+    print value="answer"

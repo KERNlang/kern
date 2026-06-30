@@ -98,6 +98,7 @@ export const NODE_TYPES = [
   'import',
   'extern',
   'island',
+  'capability',
   // Terminal
   'separator',
   'table',

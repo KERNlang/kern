@@ -1,9 +1,10 @@
 /** Runner-standalone slice — anti-rot HARD GATE for `@kernlang/core/runner`.
  *
- *  Proves the standalone runtime entry stays typescript-free: walking the STATIC
- *  import graph of the built `dist/runner.js` must resolve a bare-specifier set of
- *  EXACTLY `['decimal.js']` (the Decimal "calculator" — the only sanctioned
- *  external dep), never `typescript` and never `node:vm`, and never reach the
+ *  Proves the standalone runtime entries stay typescript-free: walking the
+ *  STATIC import graph of the built `dist/runner.js` and browser subpath
+ *  `dist/runner-browser.js` must resolve a bare-specifier set of EXACTLY
+ *  `['decimal.js']` (the Decimal "calculator" — the only sanctioned external
+ *  dep), never `typescript` and never `node:vm`, and never reach the
  *  differential-test harness chain (`harness → ts-leg → body-ts →
  *  closure-eligibility`) or any of the 5 compiler-puller modules.
  *
@@ -25,7 +26,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = resolve(HERE, '../dist');
@@ -43,13 +44,139 @@ const DIST = resolve(HERE, '../dist');
  *  bound keeps a match from running across statements. */
 function staticSpecifiers(source: string): string[] {
   const specs: string[] = [];
-  const re = /(?:^|\n)\s*(?:import|export)\b[^;]*?\bfrom\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) {
-    const spec = m[1] ?? m[2];
+  for (let index = 0; index < source.length; index += 1) {
+    const keyword = importExportKeywordAt(source, index);
+    if (!keyword) {
+      index = skipNonCode(source, index);
+      continue;
+    }
+    const statementEnd = findStatementEnd(source, index);
+    const statement = source.slice(index, statementEnd + 1);
+    const spec = specifierFromStaticImportExport(statement);
     if (spec) specs.push(spec);
+    index = statementEnd;
   }
   return specs;
+}
+
+function importExportKeywordAt(source: string, index: number): 'import' | 'export' | undefined {
+  const prev = index === 0 ? '' : source[index - 1];
+  if ((prev && /[$\w]/.test(prev)) || !startsAtStatementBoundary(source, index)) return undefined;
+  if (source.startsWith('import', index) && !/[$\w]/.test(source[index + 'import'.length] ?? '')) {
+    const rest = source.slice(index + 'import'.length).trimStart();
+    if (rest.startsWith('(') || rest.startsWith('.') || rest.startsWith(':')) return undefined;
+    return 'import';
+  }
+  if (source.startsWith('export', index) && !/[$\w]/.test(source[index + 'export'.length] ?? '')) {
+    const rest = source.slice(index + 'export'.length).trimStart();
+    if (rest.startsWith('*') || rest.startsWith('{') || /^type\s+\{/.test(rest)) return 'export';
+  }
+  return undefined;
+}
+
+function startsAtStatementBoundary(source: string, index: number): boolean {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const ch = source[i];
+    if (ch === '\n' || ch === ';' || ch === '}') return true;
+    if (ch === '/' && source[i - 1] === '*') return true;
+    if (!/\s/.test(ch)) return false;
+  }
+  return true;
+}
+
+function skipNonCode(source: string, index: number): number {
+  const ch = source[index];
+  const next = source[index + 1];
+  if (ch === '/' && next === '/') {
+    const end = source.indexOf('\n', index + 2);
+    return end === -1 ? source.length : Math.max(index, end - 1);
+  }
+  if (ch === '/' && next === '*') {
+    const end = source.indexOf('*/', index + 2);
+    return end === -1 ? source.length : end + 1;
+  }
+  if (ch === '`') return Math.min(skipTemplate(source, index), source.length - 1);
+  if (ch === '"' || ch === "'") return Math.min(skipQuoted(source, index, ch), source.length - 1);
+  return index;
+}
+
+function skipQuoted(source: string, index: number, quote: string): number {
+  for (let i = index + 1; i < source.length; i += 1) {
+    if (source[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (source[i] === quote) return i;
+  }
+  return source.length;
+}
+
+function skipTemplate(source: string, index: number): number {
+  for (let i = index + 1; i < source.length; i += 1) {
+    if (source[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (source[i] === '`') return i;
+    if (source[i] === '$' && source[i + 1] === '{') {
+      i = skipTemplateExpression(source, i + 1);
+    }
+  }
+  return source.length;
+}
+
+function skipTemplateExpression(source: string, openBraceIndex: number): number {
+  let depth = 1;
+  for (let i = openBraceIndex + 1; i < source.length; i += 1) {
+    const skipped = skipNonCode(source, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+    const ch = source[i];
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return source.length;
+}
+
+function findStatementEnd(source: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < source.length; i += 1) {
+    const skipped = skipNonCode(source, i);
+    if (skipped !== i) {
+      i = skipped;
+      continue;
+    }
+    const ch = source[i];
+    if (ch === '{' || ch === '(' || ch === '[') {
+      depth += 1;
+      continue;
+    }
+    if (ch === '}' || ch === ')' || ch === ']') {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (source[i] === ';') return i;
+    if (ch === '\n' && depth === 0) {
+      const statement = source.slice(start, i);
+      if (specifierFromStaticImportExport(statement)) return i;
+    }
+  }
+  return source.length;
+}
+
+function specifierFromStaticImportExport(statement: string): string | undefined {
+  const sideEffect = /^\s*import\s*['"]([^'"]+)['"]/.exec(statement);
+  if (sideEffect?.[1]) return sideEffect[1];
+  const from = /\bfrom\s*['"]([^'"]+)['"]/.exec(statement);
+  return from?.[1];
 }
 
 /** Walk the static import graph starting at `entry` (absolute dist path).
@@ -63,7 +190,9 @@ function walkGraph(entry: string): { bare: Set<string>; visited: Set<string> } {
     const file = stack.pop();
     if (file === undefined || visited.has(file)) continue;
     visited.add(file);
-    if (!existsSync(file)) continue;
+    if (!existsSync(file)) {
+      throw new Error(`runner import graph references missing module: ${file}`);
+    }
     const source = readFileSync(file, 'utf8');
     for (const spec of staticSpecifiers(source)) {
       if (spec.startsWith('.')) stack.push(resolve(dirname(file), spec));
@@ -84,6 +213,10 @@ const FORBIDDEN_MODULES = [
   'closure-python-lowering.js',
   'native-eligibility-ast.js',
   'importer.js',
+  'rag-retrieve-runner.js',
+  'rag-index-runner.js',
+  'rag-ingest.js',
+  'rag-embedding-node.js',
 ];
 
 describe('@kernlang/core/runner — standalone runtime entry import-graph proof', () => {
@@ -117,11 +250,64 @@ describe('@kernlang/core/runner — standalone runtime entry import-graph proof'
     }
   });
 
+  test('runner closure never reaches Node-only RAG capability implementations', () => {
+    const { visited } = walkGraph(entry);
+    const forbidden = ['rag-retrieve-runner.js', 'rag-index-runner.js', 'rag-ingest.js', 'rag-embedding-node.js'];
+    for (const moduleName of forbidden) {
+      const reached = [...visited].some((p) => basename(p) === moduleName);
+      expect({ moduleName, reached }).toEqual({ moduleName, reached: false });
+    }
+  });
+
   test('runner closure never reaches the public `.` barrel (dist/index.js)', () => {
     // Importing from the `.` barrel would drag in node.js → the TS compiler. The
     // runner must source its runtime surface from `ir/semantics/index.js`, never
     // the public root barrel.
     const { visited } = walkGraph(entry);
     expect([...visited]).not.toContain(resolve(DIST, 'index.js'));
+  });
+});
+
+describe('@kernlang/core/runner/browser — browser runtime subpath import-graph proof', () => {
+  const entry = resolve(DIST, 'runner-browser.js');
+
+  test('dist/runner-browser.js exists (build ran)', () => {
+    expect(existsSync(entry)).toBe(true);
+  });
+
+  test('browser runner static graph bare specifiers are EXACTLY ["decimal.js"] (HARD GATE)', () => {
+    const { bare } = walkGraph(entry);
+    expect([...bare].sort()).toEqual(['decimal.js']);
+  });
+
+  test('browser runner closure never reaches the harness chain or any compiler-puller module', () => {
+    const { visited } = walkGraph(entry);
+    for (const forbidden of FORBIDDEN_MODULES) {
+      const reached = [...visited].some((p) => basename(p) === forbidden);
+      expect({ forbidden, reached }).toEqual({ forbidden, reached: false });
+    }
+  });
+
+  test('browser runner closure never reaches the public `.` barrel (dist/index.js)', () => {
+    const { visited } = walkGraph(entry);
+    expect([...visited]).not.toContain(resolve(DIST, 'index.js'));
+  });
+
+  test('browser runner runtime exports omit direct IR registry internals', async () => {
+    const module = await import(pathToFileURL(entry).href);
+    for (const exportName of [
+      'analyzeKernSourceCapabilities',
+      'createMemoryStorageCapability',
+      'createWebCryptoCapability',
+      'executeKernSource',
+      'executeKernSourceAsync',
+      'inferRagAnswerGroundingSpansFromInlineCitations',
+      'invokeRunnerCapabilityAsync',
+    ]) {
+      expect(typeof module[exportName]).toBe('function');
+    }
+    for (const exportName of ['CONTRACT_REGISTRY', 'makeEnv']) {
+      expect(Object.hasOwn(module, exportName)).toBe(false);
+    }
   });
 });

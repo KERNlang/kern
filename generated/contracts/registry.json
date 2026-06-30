@@ -73,6 +73,16 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "capability",
+      "forbiddenRewrites": [
+        "read capability implementations from globalThis, process, or other implicit host globals",
+        "fall back to a host implementation when a capability is not explicitly registered",
+        "invoke Node-only RAG, filesystem, network, crypto, or storage modules from the browser runner entry"
+      ],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
       "nodeType": "continue",
       "forbiddenRewrites": [],
       "fixtureCount": 0,

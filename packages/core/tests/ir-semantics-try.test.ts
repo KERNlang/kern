@@ -116,6 +116,29 @@ describe('try contract — preconditions reject malformed shapes', () => {
       referenceRun({ type: 'try', children: [trc('x'), fin([{ type: 'return', props: { value: 1 } }])] }, makeEnv()),
     ).toThrow(/finally must complete normally/);
   });
+
+  it('raises when a try body returns while a catch is present', () => {
+    expect(() =>
+      referenceRun({ type: 'try', children: [{ type: 'return' }, cat([trc('unreached')])] }, makeEnv()),
+    ).toThrow(/body return with catch/);
+  });
+
+  it('leaves a catch-name tombstone when catch execution abstains', () => {
+    const env = makeEnv({ bindings: new Map([['e', 'outer']]) });
+    expect(() =>
+      referenceRun(
+        {
+          type: 'try',
+          children: [
+            { type: 'throw', props: { errorKind: 'Error' } },
+            cat([{ type: 'return', props: { value: 'e.message' } }]),
+          ],
+        },
+        env,
+      ),
+    ).toThrow(ReferenceRunnerError);
+    expect(env.bindings.get('e')).not.toBe('outer');
+  });
 });
 
 describe('try contract — forbidden rewrites surface', () => {

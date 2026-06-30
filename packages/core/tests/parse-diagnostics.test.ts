@@ -128,6 +128,17 @@ describe('Parse Diagnostics', () => {
     expect(diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
   });
 
+  test('runtime capability calls are known parser nodes', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=storage operation=get name=mode input="{ key: \\"mode\\" }"',
+    ].join('\n');
+    const { diagnostics } = parseWithDiagnostics(source);
+
+    expect(diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
+  });
+
   test('getParseDiagnostics returns the last parse diagnostics', () => {
     parse('mystery');
     expect(getParseDiagnostics().some((d) => d.code === 'UNKNOWN_NODE_TYPE')).toBe(true);

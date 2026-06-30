@@ -679,6 +679,14 @@ export {
   runRagVectorStoreConformanceAsync,
   validateRagVectorStoreAdapterManifest,
 } from './rag-adapter-conformance.js';
+export type { RagInlineCitationChunk, RagInlineCitationGroundingOptions } from './rag-answer-citations.js';
+export { inferRagAnswerGroundingSpansFromInlineCitations } from './rag-answer-citations.js';
+export type {
+  RagAnswerSynthesisOptions,
+  RagAnswerSynthesisResult,
+  RagAnswerTextGenerator,
+} from './rag-answer-synthesis.js';
+export { DEFAULT_RAG_ANSWER_SYNTHESIS_MIN_GROUNDING_COVERAGE, synthesizeRagAnswer } from './rag-answer-synthesis.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 export type {
@@ -842,6 +850,9 @@ export type {
   RagEvalContractOptions,
   RagEvalContractResult,
   RagMcpRetrieveProvenanceMapping,
+  RagPromptContext,
+  RagPromptContextChunk,
+  RagPromptContextOptions,
   RagRuntimeProvenance,
   RagRuntimeProvenanceOptions,
   RagRuntimeProvenanceStatus,
@@ -851,8 +862,10 @@ export type {
   RetrieveResult,
 } from './rag-runtime.js';
 export {
+  assembleRagPromptContext,
   createInMemoryRetriever,
   createRagRuntimeProvenance,
+  DEFAULT_RAG_PROMPT_CONTEXT_MAX_CHARS,
   evaluateRagAnswerContract,
   evaluateRagEvalContract,
   evaluateRagSemanticAnswerContract,

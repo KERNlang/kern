@@ -1,5 +1,6 @@
 import type { RagSemanticAnswerContractFact, RagSemanticEvalFact } from '../src/index.js';
 import {
+  assembleRagPromptContext,
   createInMemoryRetriever,
   createRagRuntimeProvenance,
   evaluateRagAnswerContract,
@@ -224,6 +225,265 @@ describe('RAG in-memory runtime retrieval', () => {
     expect(retrieveFromInMemoryCorpus(corpus, 'résumé').chunks[0]?.id).toBe('resume');
     expect(retrieveFromInMemoryCorpus(corpus, 'résumé').chunks[0]?.id).toBe('resume');
     expect(retrieveFromInMemoryCorpus(corpus, '日本語').chunks[0]?.id).toBe('jp');
+  });
+});
+
+describe('RAG prompt context assembly', () => {
+  test('returns an empty context for empty retrieval results', () => {
+    expect(assembleRagPromptContext([])).toEqual({
+      text: '',
+      chunks: [],
+      includedCount: 0,
+      omittedCount: 0,
+      truncated: false,
+      maxChars: 6000,
+    });
+  });
+
+  test('formats retrieved chunks as deterministic cited prompt context', () => {
+    const corpus = new InMemoryRagCorpus([
+      {
+        id: 'refunds',
+        text: 'refund policy',
+        source: 'docs/refunds.md',
+        citation: { uri: 'docs/refunds.md', locator: 'L1-L2' },
+      },
+      {
+        id: 'shipping',
+        text: 'refund shipping details',
+        source: 'docs/shipping.md',
+        citation: { uri: 'docs/shipping.md' },
+      },
+    ]);
+
+    const retrieval = retrieveFromInMemoryCorpus(corpus, 'refund policy', { topK: 2 });
+    const context = assembleRagPromptContext(retrieval.chunks);
+
+    expect(context).toEqual(
+      expect.objectContaining({
+        includedCount: 2,
+        omittedCount: 0,
+        truncated: false,
+        maxChars: 6000,
+      }),
+    );
+    expect(context.chunks.map((chunk) => chunk.id)).toEqual(['refunds', 'shipping']);
+    expect(context.text).toBe(
+      [
+        '[1] id="refunds" source="docs/refunds.md" score=1 citation={"uri":"docs/refunds.md","locator":"L1-L2"}',
+        'text="refund policy"',
+        '',
+        '[2] id="shipping" source="docs/shipping.md" score=0.25 citation={"uri":"docs/shipping.md"}',
+        'text="refund shipping details"',
+      ].join('\n'),
+    );
+  });
+
+  test('escapes one-line headers with locator-only citations and score boundaries', () => {
+    const context = assembleRagPromptContext([
+      {
+        id: 'alpha\tchunk source=spoof',
+        text: 'first',
+        score: 1,
+        source: 'docs/alpha\npolicy.md citation=spoof',
+        citation: { locator: 'L1\nL2 id=spoof', private: 'hidden' } as unknown as { locator: string },
+      },
+      {
+        id: 'perfect',
+        text: 'second',
+        score: 0,
+        source: 'docs/perfect.md',
+        citation: {},
+      },
+    ]);
+
+    expect(context.text).toBe(
+      [
+        '[1] id="alpha\\tchunk\\u0020source=spoof" source="docs/alpha\\npolicy.md\\u0020citation=spoof" score=1 citation={"locator":"L1\\nL2\\u0020id=spoof"}',
+        'text="first"',
+        '',
+        '[2] id="perfect" source="docs/perfect.md" score=0',
+        'text="second"',
+      ].join('\n'),
+    );
+    expect(context.chunks[0]?.citation).toEqual({ locator: 'L1\nL2 id=spoof' });
+  });
+
+  test('preserves retrieved chunk body text when it fits', () => {
+    const body = '  indented\ntrailing  ';
+    const context = assembleRagPromptContext([
+      {
+        id: 'body',
+        text: body,
+        score: 0.5,
+        source: 'docs/body.md',
+        citation: { uri: 'docs/body.md' },
+      },
+    ]);
+
+    expect(context.text).toBe(
+      `[1] id="body" source="docs/body.md" score=0.5 citation={"uri":"docs/body.md"}\ntext="  indented\\ntrailing  "`,
+    );
+    expect(context.chunks[0]).toEqual(expect.objectContaining({ text: body, renderedText: body, truncated: false }));
+  });
+
+  test('escapes line and paragraph separators in rendered prompt fields', () => {
+    const context = assembleRagPromptContext([
+      {
+        id: 'line\u2028id',
+        text: 'body\u2029text',
+        score: 1,
+        source: 'docs/source\u2028.md',
+        citation: { uri: 'docs/citation\u2029.md' },
+      },
+    ]);
+
+    expect(context.text).toBe(
+      '[1] id="line\\u2028id" source="docs/source\\u2028.md" score=1 citation={"uri":"docs/citation\\u2029.md"}\ntext="body\\u2029text"',
+    );
+  });
+
+  test('enforces maxChars by truncating the first chunk that exceeds the budget', () => {
+    const chunks = [
+      {
+        id: 'a',
+        text: 'alpha beta gamma delta',
+        score: 1,
+        source: 's',
+        citation: { uri: 's' },
+      },
+      {
+        id: 'b',
+        text: 'second chunk',
+        score: 0.5,
+        source: 's',
+        citation: { uri: 's' },
+      },
+    ];
+
+    const fullContext = assembleRagPromptContext(chunks);
+    const header = fullContext.text.split('\n')[0];
+    if (!header) throw new Error('missing prompt context header');
+    const maxChars = Array.from(`${header}\ntext="alpha"\n[truncated]`).length;
+
+    const context = assembleRagPromptContext(chunks, { maxChars });
+
+    expect(Array.from(context.text)).toHaveLength(maxChars);
+    expect(context.includedCount).toBe(1);
+    expect(context.omittedCount).toBe(1);
+    expect(context.truncated).toBe(true);
+    expect(context.chunks[0]).toEqual(
+      expect.objectContaining({
+        id: 'a',
+        text: 'alpha beta gamma delta',
+        renderedText: 'alpha',
+        truncated: true,
+      }),
+    );
+  });
+
+  test('truncates by code point and marks truncated chunk text when budget allows', () => {
+    const chunks = [
+      {
+        id: 'emoji',
+        text: '😀😀😀 very long evidence',
+        score: 1,
+        source: 's',
+        citation: { uri: 's' },
+      },
+    ];
+    const fullContext = assembleRagPromptContext(chunks);
+    const header = fullContext.text.split('\n')[0];
+    if (!header) throw new Error('missing prompt context header');
+    const maxChars = Array.from(`${header}\ntext="😀😀"\n[truncated]`).length;
+
+    const context = assembleRagPromptContext(chunks, { maxChars });
+
+    expect(context.text).toBe(`${header}\ntext="😀😀"\n[truncated]`);
+    expect(context.chunks[0]).toEqual(
+      expect.objectContaining({ text: '😀😀😀 very long evidence', renderedText: '😀😀', truncated: true }),
+    );
+    expect(context.truncated).toBe(true);
+  });
+
+  test('marks omitted lower-ranked chunks when the budget has marker space', () => {
+    const chunks = [
+      {
+        id: 'a',
+        text: 'alpha',
+        score: 1,
+        source: 's',
+        citation: { uri: 's' },
+      },
+      {
+        id: 'b',
+        text: 'beta',
+        score: 0.5,
+        source: 's',
+        citation: { uri: 's' },
+      },
+    ];
+    const fullContext = assembleRagPromptContext(chunks);
+    const firstSection = fullContext.text.split('\n\n')[0];
+    if (!firstSection) throw new Error('missing first prompt context section');
+    const expected = `${firstSection}\n\n[truncated: 1 chunk omitted]`;
+
+    const boundaryContext = assembleRagPromptContext(chunks, { maxChars: Array.from(expected).length });
+
+    expect(boundaryContext.text).toBe(expected);
+    expect(boundaryContext.chunks).toEqual([expect.objectContaining({ id: 'a', truncated: false })]);
+    expect(boundaryContext.includedCount).toBe(1);
+    expect(boundaryContext.omittedCount).toBe(1);
+    expect(boundaryContext.truncated).toBe(true);
+  });
+
+  test('fails closed for invalid budgets and malformed retrieved chunks', () => {
+    expect(() => assembleRagPromptContext(null as unknown as Parameters<typeof assembleRagPromptContext>[0])).toThrow(
+      'retrieved chunks must be an array',
+    );
+    expect(() => assembleRagPromptContext([], { maxChars: 0 })).toThrow('maxChars');
+    expect(() => assembleRagPromptContext([], { maxChars: -1 })).toThrow('maxChars');
+    expect(() => assembleRagPromptContext([], { maxChars: 1.5 })).toThrow('maxChars');
+    expect(() =>
+      assembleRagPromptContext([
+        {
+          id: 'bad',
+          text: 'bad',
+          score: 2,
+          source: 'docs/bad.md',
+          citation: { uri: 'docs/bad.md' },
+        },
+      ]),
+    ).toThrow('score');
+    expect(() =>
+      assembleRagPromptContext([
+        {
+          id: ' ',
+          text: 'bad',
+          score: 1,
+          source: 'docs/bad.md',
+          citation: { uri: 'docs/bad.md' },
+        },
+      ]),
+    ).toThrow('chunk at index 0 id');
+    expect(() =>
+      assembleRagPromptContext([
+        {
+          id: 'low',
+          text: 'low',
+          score: 0.1,
+          source: 'docs/low.md',
+          citation: { uri: 'docs/low.md' },
+        },
+        {
+          id: 'high',
+          text: 'high',
+          score: 0.9,
+          source: 'docs/high.md',
+          citation: { uri: 'docs/high.md' },
+        },
+      ]),
+    ).toThrow('pre-ranked');
   });
 });
 
@@ -986,6 +1246,18 @@ describe('RAG answer runtime contracts', () => {
         { start: 'Refunds are allowed for thirty days. '.length, end: answer.length, chunkIds: ['exceptions'] },
       ],
     });
+    const crossChunkSpan = evaluateRagAnswerContract({
+      ...commonContract,
+      groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds', 'exceptions'], required: true }],
+    });
+    const omittedPunctuation = evaluateRagAnswerContract({
+      query: retrieval.query,
+      answer: 'Refunds are allowed for thirty days',
+      retrieval,
+      requireCitations: true,
+      minGroundingCoverage: 1,
+      groundingSpans: [{ start: 0, end: 'Refunds are allowed for thirty days'.length, chunkIds: ['refunds'] }],
+    });
     const fabricatedCitation = evaluateRagAnswerContract({
       ...commonContract,
       groundingSpans: [{ start: 0, end: answer.length, chunkIds: ['refunds', 'made-up'], required: true }],
@@ -1082,6 +1354,12 @@ describe('RAG answer runtime contracts', () => {
         diagnostics: [],
       }),
     );
+    expect(crossChunkSpan.passed).toBe(false);
+    expect(crossChunkSpan.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'SPAN_TEXT_UNSUPPORTED' })]),
+    );
+    expect(omittedPunctuation.passed).toBe(true);
+    expect(omittedPunctuation.diagnostics).toEqual([]);
     expect(fabricatedCitation.diagnostics).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'CHUNK_REF_UNKNOWN', chunkId: 'made-up' })]),
     );
@@ -1213,7 +1491,13 @@ describe('RAG answer runtime contracts', () => {
       ]),
     );
     expect(queryMismatch.diagnostics).toEqual([expect.objectContaining({ code: 'QUERY_MISMATCH' })]);
-    expect(staleProvenance.diagnostics).toEqual([expect.objectContaining({ code: 'PROVENANCE_MISMATCH' })]);
+    expect(staleProvenance.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'PROVENANCE_MISMATCH' }),
+        expect.objectContaining({ code: 'SPAN_TEXT_UNSUPPORTED' }),
+        expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' }),
+      ]),
+    );
     expect(badAnswer.diagnostics).toEqual([expect.objectContaining({ code: 'ANSWER_EMPTY' })]);
     expect(badGroundingSpans.diagnostics).toEqual(
       expect.arrayContaining([

@@ -19,17 +19,23 @@
  *     stdout at all (not even output produced before the abstaining statement)
  *     and exits 2. Silent partial output is the one unforgivable bug.
  *   - Exit codes: 0 = normal/return completion; 2 = setup failure (parse / entry
- *     resolution / unreadable file) OR runner abstention. (Exit 1 is reserved for
- *     a future uncaught KERN `throw`; `throw` ABSTAINS in the runner today, so it
- *     fail-closes to 2 in slice-1.)
+ *     resolution / unreadable file), runner abstention, OR uncaught KERN `throw`
+ *     completion; 1 = unexpected host failure.
  *
  * Executable surface is exactly what the runner certifies today: print / let /
  * assign / for / if / while / each / return / portable arithmetic / portable
  * array-literal binding / literal in-bounds array index reads / array `.length`
- * (value AND as a for-range bound) / for-counter dynamic index reads (`xs[i]`).
- * Constructs the runner does not yet execute over PRODUCTION IR (branch/try/throw,
- * fmt interpolation, whole-array rendering, objects, NON-counter dynamic index
- * reads, arithmetic-on-counter index, string `.length`) ABSTAIN -> exit 2.
+ * (value AND as a for-range bound) / for-counter dynamic index reads (`xs[i]`) /
+ * flat record-literal binding and scalar dot-field reads / same-file pure
+ * KERN function calls returning portable scalars / branch path/default dispatch /
+ * fmt interpolation bindings / explicit `throw new Error("...")` inside
+ * try/catch/finally with caught `.message` reads / explicit runner capability
+ * calls. The CLI path provides local RAG retrieval, volatile in-run storage, and
+ * browser-safe crypto today; other host capabilities still fail closed.
+ * Constructs the runner does not yet execute over PRODUCTION IR (whole-array /
+ * whole-record rendering, nested or dynamic records, NON-counter dynamic index
+ * reads, arithmetic-on-counter index, string `.length`, non-canonical throws,
+ * recursive or side-effecting helper calls) ABSTAIN -> exit 2.
  *
  * Every expected stdout byte below was verified empirically against the built
  * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
@@ -41,10 +47,17 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { analyzeRunCapabilities, executeKernSource, executeKernSourceAsync } from '../src/commands/run.js';
+import {
+  createCliAsyncLlmCapability,
+  createCliAsyncNetCapability,
+  createCliAsyncOpenAICompatibleLlmCapability,
+  createCliAsyncRagAnswerCapability,
+} from '../src/commands/run-async-host.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const CLI = resolve(ROOT, 'packages/cli/dist/cli.js');
@@ -82,9 +95,17 @@ interface RunResult {
 }
 
 function runFile(file: string): RunResult {
+  return runArgs(['run', file]);
+}
+
+function runArgs(args: string[], options: { readonly env?: NodeJS.ProcessEnv } = {}): RunResult {
   // `timeout` guards against a hung runner; surface a spawn error or a
   // signal-kill (e.g. the timeout) rather than a confusing null status.
-  const r = spawnSync(process.execPath, [CLI, 'run', file], { encoding: 'utf-8', timeout: 20000 });
+  const r = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf-8',
+    timeout: 20000,
+    ...(options.env ? { env: options.env } : {}),
+  });
   if (r.error) throw r.error;
   if (r.signal) throw new Error(`kern run was killed by signal ${r.signal}`);
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
@@ -92,6 +113,49 @@ function runFile(file: string): RunResult {
 
 function runProgram(bodyLines: string[]): RunResult {
   return runFile(writeFile(mainProgram(bodyLines)));
+}
+
+interface CapabilityReport {
+  readonly hasCapabilityBlockers: boolean;
+  readonly capabilityReadinessMode: 'sync' | 'async-preview';
+  readonly hasSyncCapabilityBlockers: boolean;
+  readonly hasAsyncCapabilityBlockers: boolean;
+  readonly providedCapabilities: readonly string[];
+  readonly providedAsyncCapabilities: readonly string[];
+  readonly asyncBoundaryRequired: boolean;
+  readonly hasParseErrors: boolean;
+  readonly requirements: readonly Array<{ id: string; sourceLine: number; bindingName?: string }>;
+  readonly plannedCapabilities: readonly Array<{ id: string }>;
+  readonly asyncPlannedCapabilities: readonly Array<{ id: string }>;
+  readonly missingProviders: readonly Array<{ id: string }>;
+  readonly missingAsyncProviders: readonly Array<{ id: string }>;
+  readonly unsupportedAsyncExecutions: readonly Array<{ id: string; reason: string; containerType?: string }>;
+  readonly unknownCapabilities: readonly Array<{ id: string }>;
+  readonly malformedCapabilities: readonly Array<{ id: string; reason: string }>;
+  readonly unknownProvidedAsyncCapabilities: readonly string[];
+  readonly asyncProviderHints: readonly Array<{
+    id: string;
+    providerFlags: readonly string[];
+    required: boolean;
+    provided: boolean;
+    missing: boolean;
+  }>;
+  readonly llmProviderPolicy?: {
+    provider: 'openai';
+    configured: boolean;
+    apiKeyPresent: boolean;
+    apiKeyValid: boolean;
+    modelPresent: boolean;
+    modelValid: boolean;
+    baseUrlPresent: boolean;
+    baseUrlValid: boolean;
+  };
+  readonly providerPolicyBlockers: readonly Array<{ provider: 'openai'; reason: string }>;
+  readonly parseDiagnostics: readonly Array<{ severity: string; code: string }>;
+}
+
+function parseCapabilityReport(result: RunResult): CapabilityReport {
+  return JSON.parse(result.stdout) as CapabilityReport;
 }
 
 // ── HAPPY PATH: exact stdout, exit 0, clean stderr ───────────────────────────
@@ -167,11 +231,27 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.status).toBe(0);
   });
 
-  test('a helper fn beside main is ignored; only main runs', () => {
+  test('same-file pure helper functions can be called from main', () => {
     const source = [
-      'fn name=helper returns=number',
+      'fn name=helper params="x:number" returns=number',
       '  handler lang="kern"',
-      '    return value="99"',
+      '    return value="x + 2"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="helper(5)"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.stdout).toBe('7\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('unsupported sibling helper functions are ignored unless called', () => {
+    const source = [
+      'fn name=remote returns=number',
+      '  handler lang="ts"',
+      'fn name=noop returns=void',
+      '  handler lang="kern"',
+      '    return',
       'fn name=main returns=void',
       '  handler lang="kern"',
       '    print value="7"',
@@ -179,6 +259,7 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     const r = runFile(writeFile(source));
     expect(r.stdout).toBe('7\n');
     expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
   });
 
   test('if/else takes the branch its (comparison) condition selects', () => {
@@ -285,6 +366,1543 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.status).toBe(0);
     expect(r.stderr).toBe('');
   });
+
+  test('RECORDS: flat record literal scalar fields print through dot reads', () => {
+    const r = runProgram([
+      'let name=user value="{ name: \\"Ada\\", age: 37, active: true }"',
+      'print value="user.name"',
+      'print value="user.age"',
+      'print value="user.active"',
+    ]);
+    expect(r.stdout).toBe('Ada\n37\ntrue\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('FMT: interpolation binds a portable string that can be printed', () => {
+    const r = runProgram([
+      'let name=who value="\\"Ada\\""',
+      'let name=count value="3"',
+      'fmt name=msg template="hi ${who}: ${count}"',
+      'print value="msg"',
+    ]);
+    expect(r.stdout).toBe('hi Ada: 3\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('BRANCH: path dispatch and default path execute through production IR', () => {
+    const r = runProgram([
+      'let kind=let name=out value="\\"\\""',
+      'let name=kind value="\\"paid\\""',
+      'branch on="kind"',
+      '  path value="paid"',
+      '    assign target=out value="\\"ok\\""',
+      '  path default=true',
+      '    assign target=out value="\\"fallback\\""',
+      'print value="out"',
+      'branch on="\\"missing\\""',
+      '  path value="paid"',
+      '    print value="\\"unreached\\""',
+      '  path default=true',
+      '    print value="\\"default\\""',
+    ]);
+    expect(r.stdout).toBe('ok\ndefault\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('BRANCH: no match and no default falls through', () => {
+    const r = runProgram([
+      'print value="\\"before\\""',
+      'branch on="\\"missing\\""',
+      '  path value="paid"',
+      '    print value="\\"unreached\\""',
+      'print value="\\"after\\""',
+    ]);
+    expect(r.stdout).toBe('before\nafter\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('ERRORS: explicit throw is caught and finally still runs', () => {
+    const r = runProgram([
+      'try',
+      '  print value="\\"try\\""',
+      '  throw value="new Error(\\"boom\\")"',
+      '  catch name=e',
+      '    print value="e.message"',
+      '  finally',
+      '    print value="\\"cleanup\\""',
+      'print value="\\"after\\""',
+    ]);
+    expect(r.stdout).toBe('try\nboom\ncleanup\nafter\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('RAG CAPABILITY: local rag.retrieve returns chunks through the explicit runner boundary', () => {
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    const source = [
+      'corpus name=Docs',
+      '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+      '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      '',
+      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+      'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
+      'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding',
+      'rag name=AnswerDocs retriever=DocsSearch citations=true',
+      '  grounding requireCitations=true',
+      '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+      '',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=rag operation=retrieve name=chunks input="{ question: \\"refund policy money back\\", retrieval: \\"FindDocs\\" }"',
+      '    print value="chunks.length"',
+      '    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"',
+      '    print value="context.includedCount"',
+      '    print value="context.text"',
+      '    each name=chunk in=chunks',
+      '      print value="chunk.source"',
+      '      print value="chunk.text"',
+    ].join('\n');
+
+    const r = runFile(writeFile(source));
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toContain('1\n');
+    expect(r.stdout).toContain('[1] id=');
+    expect(r.stdout).toContain('source="docs/refunds.md"');
+    expect(r.stdout).toContain('docs/refunds.md\n');
+    expect(r.stdout).toContain('refund policy money back within thirty days');
+  });
+
+  test('RAG CAPABILITY: async rag.ingest indexes local-persistent stores through async preview', () => {
+    const fixtureDir = join(dir, `rag-ingest-${counter++}`);
+    mkdirSync(join(fixtureDir, 'docs'), { recursive: true });
+    writeFileSync(join(fixtureDir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(fixtureDir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    const file = join(fixtureDir, 'ingest.kern');
+    writeFileSync(
+      file,
+      [
+        'corpus name=Docs',
+        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+        '',
+        'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+        'vectorStore name=DocsStore kind=local-persistent dims=64 metric=cosine path="./runtime-index"',
+        'ragIndex name=DocsIndex corpus=Docs store=DocsStore embed=DocsEmbedding',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=ingest name=report',
+        '    print value="report.count"',
+        '    print value="report.action"',
+      ].join('\n'),
+    );
+
+    const r = runArgs(['run', '--async-preview', file]);
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toBe('1\nindexed\n');
+    expect(readFileSync(join(fixtureDir, 'runtime-index', 'DocsIndex.manifest.json'), 'utf-8')).toContain('DocsIndex');
+  });
+
+  test('RAG CAPABILITY: documented rag-starter runtime-run example stays runnable', () => {
+    const r = runFile(resolve(ROOT, 'examples/rag-starter/runtime-run.kern'));
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    const lines = r.stdout.trimEnd().split('\n');
+    expect(lines[0]).toBe('1');
+    expect(lines[1]).toBe('corpus/refunds.md');
+    expect(lines.slice(2).join('\n').trim()).not.toBe('');
+  });
+
+  test('RAG CAPABILITY: documented rag-starter answer preview composes rag.retrieve and llm.complete', () => {
+    const r = runArgs([
+      'run',
+      '--async-preview',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+    ]);
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toContain('1\n1\n[1] id=');
+    expect(r.stdout).toContain('source="corpus/refunds.md"');
+    expect(r.stdout).toContain('refund policy');
+    expect(r.stdout).toMatch(/Refunds are available[\s\S]*Refunds are available within thirty days \[1\]/u);
+    expect(r.stdout).toContain('\nRefunds are available within thirty days [1]\n');
+  });
+
+  test('RAG CAPABILITY: answer preview fails closed when deterministic llm output is ungrounded', () => {
+    const r = runArgs([
+      'run',
+      '--async-preview',
+      '--llm-response',
+      'Unsupported claim about refund timing details',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+    ]);
+
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('RAG answer check failed');
+  });
+
+  test('RAG CAPABILITY: documented rag.answer preview synthesizes and checks an answer in one capability', () => {
+    const r = runArgs([
+      'run',
+      '--async-preview',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern'),
+    ]);
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toBe(['1', 'true', 'grounded', 'Refunds are available within thirty days [1]', ''].join('\n'));
+  });
+
+  test('RAG CAPABILITY: rag.answer preview fails closed when generated output is ungrounded', () => {
+    const r = runArgs([
+      'run',
+      '--async-preview',
+      '--llm-response',
+      'Unsupported refund details [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern'),
+    ]);
+
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('RAG answer synthesis failed');
+  });
+
+  test('RAG CAPABILITY: rag.answer preview rejects chunks not returned by rag.retrieve', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=rag operation=answer name=result input="{ query: \\"refund policy receipt\\", chunks: [{ id: \\"fake\\", text: \\"Refunds are available within thirty days\\", score: 1, source: \\"fake.md\\", citationUri: \\"fake.md\\", citationLocator: null }], requireCitations: true, minCitedChunks: 1, minGroundingCoverage: 0.85 }"',
+      '    print value="result.answer"',
+    ].join('\n');
+    const r = runArgs([
+      'run',
+      '--async-preview',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      writeFile(source),
+    ]);
+
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).toContain('must match a chunk previously returned by rag.retrieve');
+  });
+
+  test('STORAGE CAPABILITY: kern run provides volatile storage for one program execution', () => {
+    const r = runProgram([
+      'capability namespace=storage operation=set name=setOk input="{ key: \\"theme\\", value: \\"dark\\" }"',
+      'print value="setOk"',
+      'capability namespace=storage operation=get name=theme input="{ key: \\"theme\\" }"',
+      'print value="theme"',
+      'capability namespace=storage operation=keys name=keys',
+      'print value="keys.length"',
+      'print value="keys[0]"',
+      'capability namespace=storage operation=delete name=deleted input="{ key: \\"theme\\" }"',
+      'print value="deleted"',
+      'capability namespace=storage operation=get name=afterDelete input="{ key: \\"theme\\" }"',
+      'print value="afterDelete"',
+      'capability namespace=storage operation=clear name=cleared',
+      'print value="cleared"',
+    ]);
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toBe('true\ndark\n1\ntheme\ntrue\nnull\ntrue\n');
+  });
+
+  test('CRYPTO CAPABILITY: kern run provides browser-safe random UUID, bytes, and hex', () => {
+    const r = runProgram([
+      'capability namespace=crypto operation=randomUUID name=id',
+      'print value="id"',
+      'capability namespace=crypto operation=randomBytes name=bytes input="{ length: 4 }"',
+      'print value="bytes.length"',
+      'capability namespace=crypto operation=randomHex name=hex input="{ length: 4 }"',
+      'print value="hex"',
+    ]);
+
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+    const lines = r.stdout.trimEnd().split('\n');
+    expect(lines[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+    expect(lines[1]).toBe('4');
+    expect(lines[2]).toMatch(/^[0-9a-f]{8}$/u);
+  });
+
+  test('CLI executeKernSource provides storage and crypto even without sourcePath', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'capability namespace=storage operation=set name=setOk input="{ key: \\"mode\\", value: \\"unit\\" }"',
+        'print value="setOk"',
+        'capability namespace=storage operation=get name=mode input="{ key: \\"mode\\" }"',
+        'print value="mode"',
+        'capability namespace=crypto operation=randomBytes name=bytes input="{ length: 2 }"',
+        'print value="bytes.length"',
+      ]),
+    );
+
+    expect(stdout).toBe('true\nunit\n2\n');
+  });
+});
+
+describe('kern run --capabilities — preflights capability requirements without execution', () => {
+  test('reports CLI-provided shipped capabilities as runnable JSON', () => {
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=storage operation=set name=setOk input="{ key: \\"theme\\", value: \\"dark\\" }"',
+        'capability namespace=crypto operation=randomHex name=hex input="{ length: 4 }"',
+        'capability namespace=rag operation=retrieve name=chunks input="{ question: \\"refund\\" }"',
+        'capability namespace=rag operation=promptContext name=context input="{ chunks: chunks }"',
+        'capability namespace=rag operation=checkAnswer name=check input="{ query: \\"refund\\", answer: \\"Refunds follow policy.\\", chunks: chunks, groundingSpans: [{ start: 0, end: 22, chunkIndexes: [0] }] }"',
+        'print value="\\"EXECUTED\\""',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).not.toContain('EXECUTED');
+    expect(report.hasCapabilityBlockers).toBe(false);
+    expect(report.capabilityReadinessMode).toBe('sync');
+    expect(report.hasSyncCapabilityBlockers).toBe(false);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+    expect(report.asyncBoundaryRequired).toBe(false);
+    expect(report.hasParseErrors).toBe(false);
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual([
+      'storage.set',
+      'crypto.randomHex',
+      'rag.retrieve',
+      'rag.promptContext',
+      'rag.checkAnswer',
+    ]);
+    expect(report.requirements[0]).toEqual(expect.objectContaining({ bindingName: 'setOk', sourceLine: 3 }));
+    expect(report.plannedCapabilities).toEqual([]);
+    expect(report.asyncPlannedCapabilities).toEqual([]);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.providedAsyncCapabilities).toEqual([]);
+    expect(report.missingProviders).toEqual([]);
+    expect(report.providedCapabilities).toContain('storage.set');
+    expect(report.providedCapabilities).toContain('crypto.randomHex');
+    expect(report.providedCapabilities).toContain('rag.retrieve');
+    expect(report.providedCapabilities).toContain('rag.promptContext');
+    expect(report.providedCapabilities).toContain('rag.checkAnswer');
+
+    const trailingFlag = runArgs(['run', file, '--capabilities']);
+    expect(trailingFlag.status).toBe(0);
+    expect(parseCapabilityReport(trailingFlag).hasCapabilityBlockers).toBe(false);
+  });
+
+  test('marks planned and unknown capabilities as non-runnable without invoking providers', () => {
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=llm operation=complete name=text input="{ prompt: \\"hello\\" }"',
+        'capability namespace=foo operation=bar name=value input="{ x: 1 }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.hasCapabilityBlockers).toBe(true);
+    expect(report.capabilityReadinessMode).toBe('sync');
+    expect(report.hasSyncCapabilityBlockers).toBe(true);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(report.asyncBoundaryRequired).toBe(true);
+    expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(report.asyncProviderHints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'llm.complete',
+          providerFlags: ['--llm-response <text> or --llm-provider openai'],
+          required: true,
+          provided: false,
+          missing: true,
+        }),
+      ]),
+    );
+    expect(report.unknownCapabilities.map((requirement) => requirement.id)).toEqual(['foo.bar']);
+  });
+
+  test('uses async preview provider flags when reporting capability readiness', () => {
+    const fsRoot = join(dir, `capability-fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"input.txt\\" }"',
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"out.txt\\", text: body }"',
+        'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+        'capability namespace=llm operation=complete name=answer input="{ prompt: response.body }"',
+      ]),
+    );
+
+    const result = runArgs([
+      'run',
+      '--capabilities',
+      '--fs-root',
+      fsRoot,
+      '--fs-write-root',
+      fsRoot,
+      '--allow-net',
+      'data:',
+      '--llm-response',
+      'answer',
+      file,
+    ]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.hasCapabilityBlockers).toBe(false);
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.hasSyncCapabilityBlockers).toBe(true);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+    expect(report.asyncBoundaryRequired).toBe(true);
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual([
+      'fs.readText',
+      'fs.writeText',
+      'net.fetch',
+      'llm.complete',
+    ]);
+    expect(report.providedAsyncCapabilities).toEqual([
+      'fs.list',
+      'fs.readText',
+      'fs.writeText',
+      'net.fetch',
+      'llm.complete',
+    ]);
+    expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
+      'fs.readText',
+      'fs.writeText',
+      'net.fetch',
+      'llm.complete',
+    ]);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.asyncProviderHints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'fs.writeText',
+          providerFlags: ['--fs-root <dir> + --fs-write-root <dir>'],
+          required: true,
+          provided: true,
+          missing: false,
+        }),
+      ]),
+    );
+    expect(report.asyncProviderHints.some((hint) => hint.id === 'rag.ingest')).toBe(false);
+  });
+
+  test('reports rag.retrieve plus deterministic llm preview readiness for the answer example', () => {
+    const result = runArgs([
+      'run',
+      '--capabilities',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+    ]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    const requirementIds = report.requirements.map((requirement) => requirement.id);
+    expect(requirementIds).toHaveLength(4);
+    expect(requirementIds).toEqual(
+      expect.arrayContaining(['rag.retrieve', 'rag.promptContext', 'llm.complete', 'rag.checkAnswer']),
+    );
+    expect(report.providedCapabilities).toContain('rag.retrieve');
+    expect(report.providedCapabilities).toContain('rag.promptContext');
+    expect(report.providedCapabilities).toContain('rag.checkAnswer');
+    expect(report.providedAsyncCapabilities).toHaveLength(1);
+    expect(report.providedAsyncCapabilities).toContain('llm.complete');
+    expect(report.missingProviders).toEqual([]);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('reports deterministic rag.answer preview readiness only when rag.answer is required', () => {
+    const result = runArgs([
+      'run',
+      '--capabilities',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern'),
+    ]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual(
+      expect.arrayContaining(['rag.retrieve', 'rag.answer']),
+    );
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete', 'rag.answer']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('reports async rag.ingest readiness without unrelated provider flags', () => {
+    const file = writeFile(
+      [
+        'corpus name=Docs',
+        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+        '',
+        'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+        'vectorStore name=DocsStore kind=local-persistent dims=64 metric=cosine path="./runtime-index"',
+        'ragIndex name=DocsIndex corpus=Docs store=DocsStore embed=DocsEmbedding',
+        'corpus name=Other',
+        '  source name=other kind=local uri="./other/**/*.md" media=markdown',
+        '  chunking source=other strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+        'embed name=OtherEmbedding corpus=Other model="openai:text-embedding-3-small" dims=1536 metric=cosine',
+        'vectorStore name=OtherMemory kind=memory dims=1536 metric=cosine',
+        'ragIndex name=OtherIndex corpus=Other store=OtherMemory embed=OtherEmbedding',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=ingest name=report input="{ statusOnly: true }"',
+        '    print value="report.count"',
+      ].join('\n'),
+    );
+    const result = runArgs(['run', '--capabilities', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual(['rag.ingest']);
+    expect(report.providedAsyncCapabilities).toEqual(['rag.ingest']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('does not report provider-backed rag.ingest readiness without embed provider configuration', () => {
+    const file = writeFile(
+      [
+        'corpus name=Docs',
+        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+        '',
+        'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
+        'vectorStore name=DocsStore kind=local-persistent dims=1536 metric=cosine path="./runtime-index"',
+        'ragIndex name=DocsIndex corpus=Docs store=DocsStore embed=DocsEmbedding',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=ingest name=report input="{ statusOnly: true }"',
+        '    print value="report.count"',
+      ].join('\n'),
+    );
+    const result = runArgs(['run', '--capabilities', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual(['rag.ingest']);
+    expect(report.providedAsyncCapabilities).toEqual([]);
+    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['rag.ingest']);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+  });
+
+  test('reports provider-backed llm preview readiness for the answer example without constructing provider clients', () => {
+    const result = runArgs(
+      [
+        'run',
+        '--capabilities',
+        '--llm-provider',
+        'openai',
+        '--llm-model',
+        'test-model',
+        '--llm-base-url',
+        'http://127.0.0.1:8123/v1',
+        resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+      ],
+      { env: { ...process.env, KERN_LLM_API_KEY: '', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '' } },
+    );
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.hasCapabilityBlockers).toBe(true);
+    expect(report.llmProviderPolicy).toEqual({
+      provider: 'openai',
+      configured: false,
+      apiKeyPresent: false,
+      apiKeyValid: true,
+      modelPresent: true,
+      modelValid: true,
+      baseUrlPresent: true,
+      baseUrlValid: true,
+    });
+    expect(report.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'missing-api-key' }]);
+  });
+
+  test('reports invalid OpenAI-compatible base URL as a provider policy blocker', () => {
+    const result = runArgs(
+      [
+        'run',
+        '--capabilities',
+        '--llm-provider',
+        'openai',
+        '--llm-model',
+        'test-model',
+        '--llm-base-url',
+        'http://example.test/v1',
+        resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+      ],
+      { env: { ...process.env, KERN_LLM_API_KEY: 'test-secret', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '' } },
+    );
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.llmProviderPolicy).toEqual({
+      provider: 'openai',
+      configured: false,
+      apiKeyPresent: true,
+      apiKeyValid: true,
+      modelPresent: true,
+      modelValid: true,
+      baseUrlPresent: true,
+      baseUrlValid: false,
+    });
+    expect(report.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'invalid-base-url' }]);
+  });
+
+  test('reports invalid OpenAI provider raw strings as provider policy blockers', () => {
+    const invalidApiKey = runArgs(
+      [
+        'run',
+        '--capabilities',
+        '--llm-provider',
+        'openai',
+        '--llm-model',
+        'test-model',
+        resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+      ],
+      { env: { ...process.env, KERN_LLM_API_KEY: 'test\nsecret', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '' } },
+    );
+    const invalidApiKeyReport = parseCapabilityReport(invalidApiKey);
+
+    expect(invalidApiKey.status).toBe(2);
+    expect(invalidApiKey.stderr).toBe('');
+    expect(invalidApiKeyReport.llmProviderPolicy).toEqual({
+      provider: 'openai',
+      configured: false,
+      apiKeyPresent: true,
+      apiKeyValid: false,
+      modelPresent: true,
+      modelValid: true,
+      baseUrlPresent: false,
+      baseUrlValid: true,
+    });
+    expect(invalidApiKeyReport.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'invalid-api-key' }]);
+
+    const invalidModel = runArgs(
+      [
+        'run',
+        '--capabilities',
+        '--llm-provider',
+        'openai',
+        resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+      ],
+      {
+        env: { ...process.env, KERN_LLM_API_KEY: 'test-secret', KERN_LLM_MODEL: 'test\nmodel', KERN_LLM_BASE_URL: '' },
+      },
+    );
+    const invalidModelReport = parseCapabilityReport(invalidModel);
+
+    expect(invalidModel.status).toBe(2);
+    expect(invalidModel.stderr).toBe('');
+    expect(invalidModelReport.llmProviderPolicy?.modelValid).toBe(false);
+    expect(invalidModelReport.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'invalid-model' }]);
+  });
+
+  test('reports invalid requested OpenAI provider policy even when source does not require llm capabilities', () => {
+    const file = writeFile(mainProgram(['print value="\\"hello\\""']));
+
+    const result = runArgs(['run', '--capabilities', '--llm-provider', 'openai', '--llm-model', 'test-model', file], {
+      env: { ...process.env, KERN_LLM_API_KEY: '', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '' },
+    });
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual([]);
+    expect(report.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'missing-api-key' }]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.hasCapabilityBlockers).toBe(true);
+  });
+
+  test('treats whitespace OpenAI-compatible base URL environment values as absent in capability reports', () => {
+    const result = runArgs(
+      [
+        'run',
+        '--capabilities',
+        '--llm-provider',
+        'openai',
+        '--llm-model',
+        'test-model',
+        resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+      ],
+      { env: { ...process.env, KERN_LLM_API_KEY: 'test-secret', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '   ' } },
+    );
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.llmProviderPolicy).toEqual({
+      provider: 'openai',
+      configured: true,
+      apiKeyPresent: true,
+      apiKeyValid: true,
+      modelPresent: true,
+      modelValid: true,
+      baseUrlPresent: false,
+      baseUrlValid: true,
+    });
+    expect(report.providerPolicyBlockers).toEqual([]);
+  });
+
+  test('reports partially satisfied async preview provider flags', () => {
+    const fsRoot = join(dir, `capability-partial-fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"out.txt\\", text: \\"x\\" }"',
+        'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--fs-root', fsRoot, file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.hasSyncCapabilityBlockers).toBe(true);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.providedAsyncCapabilities).toEqual(['fs.list', 'fs.readText']);
+    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['fs.writeText', 'net.fetch']);
+    expect(report.asyncProviderHints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'fs.writeText', required: true, provided: false, missing: true }),
+        expect.objectContaining({ id: 'net.fetch', required: true, provided: false, missing: true }),
+      ]),
+    );
+  });
+
+  test('reports async preview provider coverage for while loop capability calls', () => {
+    const file = writeFile(
+      mainProgram([
+        'let kind=let name=n value="0"',
+        'while cond="n < 1"',
+        '  capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+        '  assign target=n value="n + 1"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--allow-net', 'data:', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['net.fetch']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('reports async preview provider coverage for for and each loop capability calls', () => {
+    const file = writeFile(
+      mainProgram([
+        'for name=i from="0" to="2"',
+        '  capability namespace=llm operation=complete name=value input="{ prompt: i }"',
+        'let name=items value="[1, 2]"',
+        'each name=item in=items',
+        '  capability namespace=llm operation=complete name=other input="{ prompt: item }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('reports async preview provider coverage for branch path capability calls', () => {
+    const file = writeFile(
+      mainProgram([
+        'branch on="\\"paid\\""',
+        '  path value="paid"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
+        '  path default=true',
+        '    capability namespace=llm operation=complete name=fallback input="{ prompt: \\"fallback\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('reports async preview provider coverage for try/catch/finally capability calls', () => {
+    const file = writeFile(
+      mainProgram([
+        'try',
+        '  capability namespace=llm operation=complete name=answer input="{ prompt: \\"body\\" }"',
+        '  throw value="new Error(\\"boom\\")"',
+        '  catch name=e',
+        '    capability namespace=llm operation=complete name=recovered input="{ prompt: e.message }"',
+        '  finally',
+        '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('reports async preview provider coverage for called helper capability calls', () => {
+    const file = writeFile(
+      [
+        'fn name=helper returns=string',
+        '  handler lang="kern"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+        '    return value="answer"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="helper()"',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+  });
+
+  test('does not switch programmatic capability reports to async-preview mode for fsWriteRoot alone', () => {
+    const report = analyzeRunCapabilities(
+      mainProgram([
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"out.txt\\", text: \\"x\\" }"',
+      ]),
+      'inline.kern',
+      { fsWriteRoot: dir },
+    );
+
+    expect(report.capabilityReadinessMode).toBe('sync');
+    expect(report.providedAsyncCapabilities).toEqual([]);
+    expect(report.hasCapabilityBlockers).toBe(true);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['fs.writeText']);
+  });
+
+  test('does not report provider policy blockers when programmatic llmResponse satisfies llm.complete', () => {
+    const report = analyzeRunCapabilities(
+      mainProgram(['capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"']),
+      'inline.kern',
+      { llmResponse: 'ok', llmProvider: { provider: 'openai', model: 'test-model' } },
+    );
+
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.llmProviderPolicy?.apiKeyPresent).toBe(false);
+    expect(report.providerPolicyBlockers).toEqual([]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+    expect(report.hasCapabilityBlockers).toBe(false);
+  });
+
+  test('validates fs/net async preview provider flags before reporting readiness', () => {
+    const file = writeFile(
+      mainProgram(['capability namespace=fs operation=readText name=body input="{ path: \\"input.txt\\" }"']),
+    );
+
+    const missingRoot = runArgs(['run', '--capabilities', '--fs-root', join(dir, 'missing-root'), file]);
+    expect(missingRoot.status).toBe(2);
+    expect(missingRoot.stdout).toBe('');
+    expect(missingRoot.stderr).toContain('kern run --capabilities: capability setup failed');
+
+    const invalidOrigin = runArgs(['run', '--capabilities', '--allow-net', 'https://example.test/path', file]);
+    expect(invalidOrigin.status).toBe(2);
+    expect(invalidOrigin.stdout).toBe('');
+    expect(invalidOrigin.stderr).toContain('--allow-net must be an origin');
+
+    const incompatibleLlmProviders = runArgs([
+      'run',
+      '--capabilities',
+      '--llm-response',
+      'answer',
+      '--llm-provider',
+      'openai',
+      file,
+    ]);
+    expect(incompatibleLlmProviders.status).toBe(2);
+    expect(incompatibleLlmProviders.stdout).toBe('');
+    expect(incompatibleLlmProviders.stderr).toContain('Usage: kern run');
+  });
+
+  test('reports malformed capability tokens and parse errors as non-runnable', () => {
+    const malformed = runArgs([
+      'run',
+      '--capabilities',
+      writeFile(mainProgram(['capability namespace="storage.v2" operation=get name=value'])),
+    ]);
+    const malformedReport = parseCapabilityReport(malformed);
+
+    expect(malformed.status).toBe(2);
+    expect(malformed.stderr).toBe('');
+    expect(malformedReport.hasCapabilityBlockers).toBe(true);
+    expect(malformedReport.malformedCapabilities).toEqual([
+      expect.objectContaining({
+        id: 'get',
+        reason: expect.stringContaining("namespace 'storage.v2'"),
+      }),
+    ]);
+
+    const parseError = runArgs(['run', '--capabilities', writeFile('fn name=main returns=void\n  handler lang="kern')]);
+    const parseErrorReport = parseCapabilityReport(parseError);
+
+    expect(parseError.status).toBe(2);
+    expect(parseError.stderr).toBe('');
+    expect(parseErrorReport.hasCapabilityBlockers).toBe(true);
+    expect(parseErrorReport.hasParseErrors).toBe(true);
+    expect(parseErrorReport.parseDiagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true);
+  });
+
+  test('reports usage and read errors for invalid capability preflight invocations', () => {
+    const noFile = runArgs(['run', '--capabilities']);
+    expect(noFile.status).toBe(2);
+    expect(noFile.stdout).toBe('');
+    expect(noFile.stderr).toContain('Usage: kern run');
+
+    const missingFile = runArgs(['run', '--capabilities', join(dir, 'missing.kern')]);
+    expect(missingFile.status).toBe(2);
+    expect(missingFile.stdout).toBe('');
+    expect(missingFile.stderr).toContain('kern run: cannot read file');
+
+    const extraArg = runArgs(['run', '--foo', '--capabilities', writeFile(mainProgram([]))]);
+    expect(extraArg.status).toBe(2);
+    expect(extraArg.stdout).toBe('');
+    expect(extraArg.stderr).toContain('Usage: kern run');
+  });
+});
+
+describe('kern run --async-preview — executes CLI-owned async adapters', () => {
+  test('runs straight-line fs read/list/write behind explicit roots', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    writeFileSync(join(fsRoot, 'input.txt'), 'hello async');
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=list name=files input="{ path: \\".\\" }"',
+        'print value="files.length"',
+        'capability namespace=fs operation=readText name=body input="{ path: \\"input.txt\\" }"',
+        'print value="body"',
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"out.txt\\", text: body }"',
+        'print value="ok"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, '--fs-write-root', fsRoot, file]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('1\nhello async\ntrue\n');
+    expect(readFileSync(join(fsRoot, 'out.txt'), 'utf-8')).toBe('hello async');
+  });
+
+  test('denies fs.writeText during preflight unless a write root is explicit', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"out.txt\\", text: \\"x\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('missing async providers: fs.writeText');
+    expect(existsSync(join(fsRoot, 'out.txt'))).toBe(false);
+  });
+
+  test('allows fs.writeText to write empty text', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"empty.txt\\", text: \\"\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, '--fs-write-root', fsRoot, file]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('');
+    expect(readFileSync(join(fsRoot, 'empty.txt'), 'utf-8')).toBe('');
+  });
+
+  test('denies fs.writeText when the final target is a symlink escape', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const outside = join(dir, `outside-write-${counter++}.txt`);
+    writeFileSync(outside, 'outside');
+    symlinkSync(outside, join(fsRoot, 'out.txt'));
+    const file = writeFile(
+      mainProgram([
+        'print value="\\"before\\""',
+        'capability namespace=fs operation=writeText name=ok input="{ path: \\"out.txt\\", text: \\"owned\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, '--fs-write-root', fsRoot, file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('symlink');
+    expect(readFileSync(outside, 'utf-8')).toBe('outside');
+  });
+
+  test('denies read paths that escape the fs root without replaying partial stdout', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    writeFileSync(join(dir, 'outside.txt'), 'outside');
+    const file = writeFile(
+      mainProgram([
+        'print value="\\"before\\""',
+        'capability namespace=fs operation=readText name=body input="{ path: \\"../outside.txt\\" }"',
+        'print value="body"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('escapes fs root');
+  });
+
+  test('runs straight-line net.fetch and llm.complete without fs roots when explicitly enabled', () => {
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello-net\\" }"',
+        'print value="response.body"',
+        'capability namespace=llm operation=complete name=answer input="{ prompt: response.body }"',
+        'print value="answer"',
+      ]),
+    );
+
+    const result = runArgs([
+      'run',
+      '--async-preview',
+      '--allow-net',
+      'data:',
+      '--llm-response',
+      'grounded answer',
+      file,
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('hello-net\ngrounded answer\n');
+  });
+
+  test('accepts empty and dash-prefixed deterministic llm preview responses', () => {
+    const emptyFile = writeFile(
+      mainProgram([
+        'capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"',
+        'print value="answer"',
+      ]),
+    );
+
+    const empty = runArgs(['run', '--async-preview', '--llm-response', '', emptyFile]);
+    expect(empty.status).toBe(0);
+    expect(empty.stderr).toBe('');
+    expect(empty.stdout).toBe('\n');
+
+    const dashFile = writeFile(
+      mainProgram([
+        'capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"',
+        'print value="answer"',
+      ]),
+    );
+
+    const dash = runArgs(['run', '--async-preview', '--llm-response', '-- nope', dashFile]);
+    expect(dash.status).toBe(0);
+    expect(dash.stderr).toBe('');
+    expect(dash.stdout).toBe('-- nope\n');
+  });
+
+  test('llm.complete rejects unsupported input fields', async () => {
+    const provider = createCliAsyncLlmCapability({ response: 'answer' }) as {
+      complete: (call: { input: unknown }) => Promise<unknown>;
+    };
+
+    await expect(
+      provider.complete({
+        input: { prompt: 'hello', model: 'ignored-model' },
+      }),
+    ).rejects.toThrow(/input field 'model' is not supported/);
+  });
+
+  test('rag.answer calls the configured llm.complete provider and returns a grounded report', async () => {
+    const prompts: string[] = [];
+    const llm = {
+      async complete(call: { input?: unknown }) {
+        prompts.push(String((call.input as { prompt?: unknown }).prompt));
+        return 'Refunds are available within thirty days [1]';
+      },
+    };
+    const provider = createCliAsyncRagAnswerCapability({ llm }) as {
+      answer: (call: { input: unknown }) => Promise<unknown>;
+    };
+    const input = {
+      query: 'refund policy',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'Refunds are available within thirty days',
+          score: 0.98,
+          source: 'corpus/refunds.md',
+          citation: { uri: 'corpus/refunds.md', locator: null },
+        },
+      ],
+      requireCitations: true,
+      minCitedChunks: 1,
+      minGroundingCoverage: 0.85,
+    };
+
+    const result = await provider.answer({
+      input,
+    });
+
+    expect(prompts[0]).toContain('Question: refund policy');
+    expect(result).toEqual(
+      expect.objectContaining({
+        answer: 'Refunds are available within thirty days [1]',
+        passed: true,
+        status: 'grounded',
+        citedChunkIds: ['refunds'],
+        sources: ['corpus/refunds.md'],
+      }),
+    );
+    expect(Object.hasOwn(result as Record<string, unknown>, 'prompt')).toBe(false);
+    expect(Object.hasOwn(result as Record<string, unknown>, 'context')).toBe(false);
+
+    const functionProvider = createCliAsyncRagAnswerCapability({
+      async llm() {
+        return 'Refunds are available within thirty days [1]';
+      },
+    }) as { answer: (call: { input: unknown }) => Promise<unknown> };
+
+    await expect(functionProvider.answer({ input })).resolves.toEqual(expect.objectContaining({ passed: true }));
+  });
+
+  test('rag.answer rejects unsupported fields and ungrounded provider output', async () => {
+    expect(() =>
+      createCliAsyncRagAnswerCapability({ llm: {} as Parameters<typeof createCliAsyncRagAnswerCapability>[0]['llm'] }),
+    ).toThrow(/llm\.complete async provider/u);
+
+    const provider = createCliAsyncRagAnswerCapability({
+      llm: createCliAsyncLlmCapability({ response: 'Unsupported refund details [1]' }),
+    }) as { answer: (call: { input: unknown }) => Promise<unknown> };
+    const input = {
+      query: 'refund policy',
+      chunks: [
+        {
+          id: 'refunds',
+          text: 'Refunds are available within thirty days',
+          score: 0.98,
+          source: 'corpus/refunds.md',
+          citation: { uri: 'corpus/refunds.md' },
+        },
+      ],
+      requireCitations: true,
+      minCitedChunks: 1,
+      minGroundingCoverage: 0.85,
+    };
+
+    await expect(provider.answer({ input: { ...input, model: 'ignored' } })).rejects.toThrow(
+      /input field 'model' is not supported/u,
+    );
+    await expect(provider.answer({ input: { ...input, chunks: [] } })).rejects.toThrow(/at least one retrieved chunk/u);
+    await expect(
+      provider.answer({ input: { ...input, chunks: new Array(1001).fill(input.chunks[0]) } }),
+    ).rejects.toThrow(/at most 1000 chunks/u);
+    await expect(
+      provider.answer({ input: { ...input, chunks: [{ ...input.chunks[0], metadata: 'bad' }] } }),
+    ).rejects.toThrow(/metadata' must be a record/u);
+    await expect(provider.answer({ input })).rejects.toThrow(/RAG answer synthesis failed/u);
+
+    const badCitationProvider = createCliAsyncRagAnswerCapability({
+      llm: createCliAsyncLlmCapability({ response: 'Refunds are available within thirty days [99]' }),
+    }) as { answer: (call: { input: unknown }) => Promise<unknown> };
+
+    await expect(badCitationProvider.answer({ input })).rejects.toThrow(
+      /RAG answer synthesis failed: .*between 1 and 1/u,
+    );
+  });
+
+  test('OpenAI-compatible llm.complete sends a narrow chat completion request', async () => {
+    let requestUrl = '';
+    let requestBody: unknown;
+    let authorization = '';
+    let redirectPolicy: RequestRedirect | undefined;
+    let signalWasProvided = false;
+    const provider = createCliAsyncOpenAICompatibleLlmCapability({
+      apiKey: 'test-secret',
+      model: 'test-model',
+      baseUrl: 'http://127.0.0.1:8123/v1',
+      fetch: async (url, init) => {
+        requestUrl = String(url);
+        requestBody = JSON.parse(String(init?.body));
+        authorization = new Headers(init?.headers).get('authorization') ?? '';
+        redirectPolicy = init?.redirect;
+        signalWasProvided = init?.signal instanceof AbortSignal;
+        return Response.json({ choices: [{ message: { content: 'provider answer [1]' } }] });
+      },
+    }) as { complete: (call: { input: unknown }) => Promise<unknown> };
+
+    const result = await provider.complete({ input: { prompt: 'hello provider' } });
+
+    expect(result).toBe('provider answer [1]');
+    expect(requestUrl).toBe('http://127.0.0.1:8123/v1/chat/completions');
+    expect(requestBody).toEqual({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'hello provider' }],
+      stream: false,
+    });
+    expect(authorization).toBe('Bearer test-secret');
+    expect(redirectPolicy).toBe('error');
+    expect(signalWasProvided).toBe(true);
+  });
+
+  test('OpenAI-compatible llm.complete allows local IPv6 development endpoints', async () => {
+    let requestUrl = '';
+    const provider = createCliAsyncOpenAICompatibleLlmCapability({
+      apiKey: 'test-secret',
+      model: 'test-model',
+      baseUrl: 'http://[::1]:8123/v1',
+      fetch: async (url) => {
+        requestUrl = String(url);
+        return Response.json({ choices: [{ message: { content: 'ok' } }] });
+      },
+    }) as { complete: (call: { input: unknown }) => Promise<unknown> };
+
+    await expect(provider.complete({ input: { prompt: 'hello' } })).resolves.toBe('ok');
+    expect(requestUrl).toBe('http://[::1]:8123/v1/chat/completions');
+  });
+
+  test('OpenAI-compatible llm.complete validates provider config and redacts provider errors', async () => {
+    expect(() =>
+      createCliAsyncOpenAICompatibleLlmCapability({
+        apiKey: 'test-secret\nbad',
+        model: 'test-model',
+      }),
+    ).toThrow(/must not contain line breaks/u);
+
+    expect(() =>
+      createCliAsyncOpenAICompatibleLlmCapability({
+        apiKey: 'test-secret',
+        model: 'test-model',
+        baseUrl: 'https://user:pass@example.test/v1',
+      }),
+    ).toThrow(/must not include credentials/u);
+
+    expect(() =>
+      createCliAsyncOpenAICompatibleLlmCapability({
+        apiKey: 'test-secret',
+        model: 'test-model',
+        baseUrl: 'http://example.test/v1',
+      }),
+    ).toThrow(/must be https/u);
+
+    const provider = createCliAsyncOpenAICompatibleLlmCapability({
+      apiKey: 'test/secret',
+      model: 'test-model',
+      fetch: async () => new Response('bad test%2Fsecret', { status: 500 }),
+    }) as { complete: (call: { input: unknown }) => Promise<unknown> };
+
+    await expect(provider.complete({ input: { prompt: 'hello' } })).rejects.toThrow(/bad \[redacted\]/u);
+  });
+
+  test('programmatic async execution rejects multiple llm.complete providers', async () => {
+    await expect(
+      executeKernSourceAsync(mainProgram([]), {
+        llmResponse: 'deterministic',
+        llmProvider: { apiKey: 'test-secret', model: 'test-model' },
+      }),
+    ).rejects.toThrow(/mutually exclusive/u);
+  });
+
+  test('OpenAI-compatible llm.complete fails closed on malformed provider responses', async () => {
+    const provider = createCliAsyncOpenAICompatibleLlmCapability({
+      apiKey: 'test-secret',
+      model: 'test-model',
+      fetch: async () => Response.json({ choices: [{ message: { content: 123 } }] }),
+    }) as { complete: (call: { input: unknown }) => Promise<unknown> };
+
+    await expect(provider.complete({ input: { prompt: 'hello' } })).rejects.toThrow(/choices\[0\]\.message\.content/u);
+  });
+
+  test('net.fetch normalizes allowed origins and disables redirects', async () => {
+    let redirectPolicy: RequestRedirect | undefined;
+    let signalWasProvided = false;
+    const provider = createCliAsyncNetCapability({
+      allowedOrigins: ['https://example.test/'],
+      fetch: async (_url, init) => {
+        redirectPolicy = init?.redirect;
+        signalWasProvided = init?.signal instanceof AbortSignal;
+        return new Response('ok', { status: 200 });
+      },
+    }) as { fetch: (call: { input: unknown }) => Promise<unknown> };
+
+    const result = await provider.fetch({
+      input: { url: 'https://example.test/resource' },
+    });
+
+    expect(result).toEqual(expect.objectContaining({ body: 'ok', ok: true, status: 200 }));
+    expect(redirectPolicy).toBe('error');
+    expect(signalWasProvided).toBe(true);
+  });
+
+  test('net.fetch rejects credentials and unsupported input fields', async () => {
+    expect(() => createCliAsyncNetCapability({ allowedOrigins: ['https://user:pass@example.test'] })).toThrow(
+      /must not include credentials/,
+    );
+
+    const provider = createCliAsyncNetCapability({
+      allowedOrigins: ['https://example.test'],
+      fetch: async () => new Response('ok', { status: 200 }),
+    }) as { fetch: (call: { input: unknown }) => Promise<unknown> };
+
+    await expect(
+      provider.fetch({
+        input: { url: 'https://user:pass@example.test/resource' },
+      }),
+    ).rejects.toThrow(/must not include credentials/);
+
+    await expect(
+      provider.fetch({
+        input: { url: 'https://example.test/resource', headers: { authorization: 'secret' } },
+      }),
+    ).rejects.toThrow(/input field 'headers' is not supported/);
+  });
+
+  test('net.fetch streams async-iterable response body mocks with the same byte cap path', async () => {
+    const provider = createCliAsyncNetCapability({
+      allowedOrigins: ['https://example.test'],
+      fetch: async () =>
+        ({
+          body: {
+            async *[Symbol.asyncIterator]() {
+              yield new TextEncoder().encode('mock-');
+              yield 'body';
+            },
+          },
+          ok: true,
+          status: 200,
+          url: 'https://example.test/resource',
+        }) as Response,
+    }) as { fetch: (call: { input: unknown }) => Promise<unknown> };
+
+    const result = await provider.fetch({
+      input: { url: 'https://example.test/resource' },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        body: 'mock-body',
+        ok: true,
+        status: 200,
+        url: 'https://example.test/resource',
+      }),
+    );
+  });
+
+  test('reports missing net and llm async providers before execution', () => {
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+        'capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('missing async providers: net.fetch');
+    expect(result.stderr).toContain('llm.complete');
+  });
+
+  test('fails closed on missing OpenAI provider credentials during async execution', () => {
+    const file = writeFile(
+      mainProgram(['capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"']),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--llm-provider', 'openai', '--llm-model', 'test-model', file], {
+      env: { ...process.env, KERN_LLM_API_KEY: '', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '' },
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('requires KERN_LLM_API_KEY');
+  });
+
+  test('fails closed on invalid OpenAI-compatible base URL during async execution', () => {
+    const file = writeFile(
+      mainProgram(['capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"']),
+    );
+
+    const result = runArgs(
+      [
+        'run',
+        '--async-preview',
+        '--llm-provider',
+        'openai',
+        '--llm-model',
+        'test-model',
+        '--llm-base-url',
+        'http://example.test/v1',
+        file,
+      ],
+      { env: { ...process.env, KERN_LLM_API_KEY: 'test-secret', KERN_LLM_MODEL: '', KERN_LLM_BASE_URL: '' } },
+    );
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('base URL must be https: unless it targets localhost');
+  });
+
+  test('denies net.fetch origins that were not explicitly allowed without replaying partial stdout', () => {
+    const file = writeFile(
+      mainProgram([
+        'print value="\\"before\\""',
+        'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,blocked\\" }"',
+        'print value="response.body"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--allow-net', 'https://example.test', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain("origin 'data:' is not allowed");
+  });
+
+  test('denies net.fetch GET bodies and unsupported protocols without replaying partial stdout', () => {
+    const getBody = runArgs([
+      'run',
+      '--async-preview',
+      '--allow-net',
+      'data:',
+      writeFile(
+        mainProgram([
+          'print value="\\"before\\""',
+          'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,blocked\\", body: \\"x\\" }"',
+        ]),
+      ),
+    ]);
+    expect(getBody.status).toBe(2);
+    expect(getBody.stdout).toBe('');
+    expect(getBody.stderr).toContain('GET requests cannot carry a body');
+
+    const unsupportedProtocol = runArgs([
+      'run',
+      '--async-preview',
+      '--allow-net',
+      'data:',
+      writeFile(
+        mainProgram([
+          'print value="\\"before\\""',
+          'capability namespace=net operation=fetch name=response input="{ url: \\"file:///etc/passwd\\" }"',
+        ]),
+      ),
+    ]);
+    expect(unsupportedProtocol.status).toBe(2);
+    expect(unsupportedProtocol.stdout).toBe('');
+    expect(unsupportedProtocol.stderr).toContain('protocol must be http:, https:, or data:');
+  });
+
+  test('requires explicit async preview provider flags', () => {
+    const file = writeFile(mainProgram([]));
+
+    const flagWithoutPreview = runArgs(['run', '--fs-root', dir, file]);
+    expect(flagWithoutPreview.status).toBe(2);
+    expect(flagWithoutPreview.stdout).toBe('');
+    expect(flagWithoutPreview.stderr).toContain('Usage: kern run');
+
+    const writeRootWithoutReadRoot = runArgs(['run', '--async-preview', '--fs-write-root', dir, file]);
+    expect(writeRootWithoutReadRoot.status).toBe(2);
+    expect(writeRootWithoutReadRoot.stdout).toBe('');
+    expect(writeRootWithoutReadRoot.stderr).toContain('Usage: kern run');
+
+    const netFlagWithoutPreview = runArgs(['run', '--allow-net', 'data:', file]);
+    expect(netFlagWithoutPreview.status).toBe(2);
+    expect(netFlagWithoutPreview.stdout).toBe('');
+    expect(netFlagWithoutPreview.stderr).toContain('Usage: kern run');
+  });
 });
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
@@ -368,6 +1986,24 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
+  test('a missing record field abstains', () => {
+    const r = runProgram(['let name=user value="{ name: \\"Ada\\" }"', 'print value="user.missing"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('nested records abstain', () => {
+    const r = runProgram(['let name=user value="{ profile: { name: \\"Ada\\" } }"', 'print value="user.profile"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('record fields with array values abstain', () => {
+    const r = runProgram(['let name=user value="{ scores: [1,2,3] }"', 'print value="user.scores"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
   test('ASTRAL string `.length` abstains (the real divergence: JS 2 vs Python 1)', () => {
     const r = runProgram(['let name=s value="\\"😀\\""', 'print value="s.length"']);
     expect(r.stdout).toBe('');
@@ -421,6 +2057,97 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
+
+  test('ATOMICITY: a side-effecting helper call suppresses helper stdout and prior main stdout', () => {
+    const source = [
+      'fn name=noisy returns=number',
+      '  handler lang="kern"',
+      '    print value="\\"hidden\\""',
+      '    return value="1"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"before\\""',
+      '    print value="noisy()"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('ATOMICITY: an uncaught explicit throw suppresses prior stdout', () => {
+    const r = runProgram(['print value="\\"before\\""', 'throw value="new Error(\\"boom\\")"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+    expect(r.stderr.toLowerCase()).toContain('uncaught');
+  });
+
+  test('a non-canonical bare throw abstains', () => {
+    const r = runProgram(['throw value="\\"raw\\""']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('a value return from void main abstains and suppresses prior stdout', () => {
+    const r = runProgram(['print value="\\"before\\""', 'return value="1"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+    expect(r.stderr.toLowerCase()).toContain('return');
+  });
+
+  test('a non-canonical throw inside try/catch abstains instead of being caught', () => {
+    const r = runProgram([
+      'try',
+      '  print value="\\"before\\""',
+      '  throw value="\\"raw\\""',
+      '  catch name=e',
+      '    print value="e.message"',
+    ]);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('try body return with a catch abstains and suppresses prior stdout', () => {
+    const r = runProgram([
+      'try',
+      '  print value="\\"before\\""',
+      '  return',
+      '  catch name=e',
+      '    print value="\\"caught\\""',
+    ]);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('a catch name hides same-named outer bindings from finally and fails closed', () => {
+    const r = runProgram([
+      'let name=e value="{ message: \\"outer\\" }"',
+      'try',
+      '  throw value="new Error(\\"boom\\")"',
+      '  catch name=e',
+      '    print value="e.message"',
+      '  finally',
+      '    print value="e.message"',
+    ]);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('an unprovided runner capability call fails closed because the CLI provides no matching host capability', () => {
+    const r = runProgram([
+      'capability namespace=llm operation=complete name=text input="{ prompt: \\"hello\\" }"',
+      'print value="text"',
+    ]);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('llm.complete');
+  });
 });
 
 // ── ENTRY RESOLUTION: deterministic diagnostics, exit 2, no stdout ────────────
@@ -453,6 +2180,19 @@ describe('kern run — strict entry resolution (exit 2, diagnostic on stderr)', 
     const source = ['fn name=main params="x:number" returns=void', '  handler lang="kern"', '    print value="1"'].join(
       '\n',
     );
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr).not.toBe('');
+  });
+
+  test('main with param children -> rejected in slice-1', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  param name=x type=number',
+      '  handler lang="kern"',
+      '    print value="x"',
+    ].join('\n');
     const r = runFile(writeFile(source));
     expect(r.status).toBe(2);
     expect(r.stdout).toBe('');
