@@ -110,6 +110,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
   `examples/rag-starter/runtime-answer-capability-preview.kern` that keeps
   retrieval explicit but replaces manual prompt assembly, completion, and answer
   checking with one async `rag.answer` capability call
+- a KERN 5 preview vertical app at `examples/kern-5-preview-app` whose
+  browser UI markup, backend route behavior, RAG query path, and grounding
+  guard are emitted or authored from `.kern`, with `server.mjs` limited to thin
+  HTTP, storage, RAG adapter, and deterministic LLM host wiring
 
 Anything outside this surface is not a runtime promise until it has a contract,
 three-leg parity coverage where applicable, and a native runner test. Current
@@ -139,12 +143,16 @@ unexpected stderr, stdout drift, browser-unsafe runner imports, a broken
 probe. It also runs `examples/native-runtime-async-fs-preview.kern` and
 `examples/native-runtime-async-host-preview.kern` through the CLI async preview
 with temporary roots, a `data:` scheme allowlist, and deterministic LLM output.
-It also runs `examples/rag-starter/runtime-answer-preview.kern` and
+It also runs `examples/rag-starter/runtime-answer-preview.kern`,
+`examples/rag-starter/runtime-answer-async-retrieve-preview.kern`, and
 `examples/rag-starter/runtime-answer-capability-preview.kern` through
-`kern run --async-preview --llm-response ...` to prove sync local RAG retrieval
-can feed deterministic async LLM completion both through the manual primitive
-chain and through the dedicated `rag.answer` synthesis boundary inside
-KERN-authored preview programs.
+`kern run --async-preview --llm-response ...` to prove local RAG retrieval can
+feed deterministic async LLM completion both through the manual primitive chain,
+the explicit async retrieval boundary, and the dedicated `rag.answer` synthesis
+boundary inside KERN-authored preview programs. The same gate also runs
+`scripts/check-kern-5-preview-app.mjs`, which starts the maintained KERN 5
+preview app and checks the browser UI markup emitted from `.kern` plus the
+`.kern`-authored RAG answer route end to end.
 When Chrome/Chromium is available, the same gate also serves the checked
 in browser fixture and enforces a measured headless-browser import+execute
 budget of 750ms; `--browser-budget=required` or
@@ -218,10 +226,12 @@ providers remain explicit host-adapter work.
   `llm.complete` in a KERN-authored program, core now exposes deterministic
   prompt-context assembly for retrieved chunks before answer synthesis, and the
   Node CLI path can enforce explicit or inline-citation-derived answer
-  grounding/citation spans before printing. The first dedicated `rag.answer`
-  preview now composes retrieved chunks with the configured deterministic or
-  OpenAI-compatible `llm.complete` provider and returns only after the same
-  grounding contract passes. Async retrieval, runtime ingestion, and broader
+  grounding/citation spans before printing. The first async retrieval slice is
+  available through the clearly named `rag.retrieveAsync` preview capability.
+  The first dedicated `rag.answer` preview now composes retrieved chunks with
+  the configured deterministic or OpenAI-compatible `llm.complete` provider and
+  returns only after the same grounding contract passes. Runtime ingestion,
+  provider-backed retrieval adapters beyond the local preview, and broader
   async control-flow support remain future work.
 
 5. **End-to-end KERN app**
@@ -246,11 +256,11 @@ providers remain explicit host-adapter work.
 | `storage.get` / `storage.set` / `storage.has` / `storage.delete` / `storage.clear` / `storage.keys` | Shipped | Sync | Browser-safe volatile provider, explicit injection through runner capabilities |
 | `crypto.randomUUID` / `crypto.randomBytes` / `crypto.randomHex` | Shipped | Sync | Browser-safe provider with explicit host crypto source |
 | `rag.retrieve` | Shipped | Sync | Node CLI local RAG adapter over declared local sources |
-| `rag.retrieveAsync` | Planned | Async planned | Node CLI preview async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves retrieval provenance |
+| `rag.retrieveAsync` | Preview | Async planned | Node CLI preview async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves retrieval provenance |
 | `rag.promptContext` | Shipped | Sync | Node CLI local prompt-context assembly over retrieved RAG chunks |
 | `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved RAG chunks |
-| `rag.answer` | Planned | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
-| `rag.ingest` | Planned | Async planned | Node CLI preview indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
+| `rag.answer` | Preview | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
+| `rag.ingest` | Preview | Async planned | Node CLI preview indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
 | `fs.readText` / `fs.writeText` / `fs.list` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides root-scoped `fs.list` / `fs.readText` and opt-in `fs.writeText` |
 | `net.fetch` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview requires explicit `--allow-net <origin>` or `--allow-net data:` and denies redirects |
 | `llm.complete` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides deterministic `--llm-response <text>` and OpenAI-compatible `--llm-provider openai` |
