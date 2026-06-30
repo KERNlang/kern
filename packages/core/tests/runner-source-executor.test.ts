@@ -2245,6 +2245,34 @@ describe('@kernlang/core/runner source executor', () => {
     ).rejects.toThrow(/missing async providers: net\.fetch/);
   });
 
+  test('async source executor fails closed during preflight for async helpers called from unsupported expression slots', async () => {
+    await expect(
+      executeKernSourceAsync(
+        programWithFunctions(
+          [
+            [
+              'fn name=remote returns=string',
+              '  handler lang="kern"',
+              '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+              '    return value="answer"',
+            ],
+          ],
+          ['branch on="remote()"', '  path value="ok"', '    print value="\\"ok\\""'],
+        ),
+        {
+          asyncCapabilities: {
+            llm: {
+              async complete() {
+                return 'ok';
+              },
+            },
+          },
+          providedAsyncCapabilities: ['llm.complete'],
+        },
+      ),
+    ).rejects.toThrow(/unsupported async executions: llm\.complete/);
+  });
+
   test('async source executor ignores uncalled helper functions with async capability calls', async () => {
     await expect(
       executeKernSourceAsync(
@@ -2291,7 +2319,7 @@ describe('@kernlang/core/runner source executor', () => {
           providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
         },
       ),
-    ).rejects.toThrow(/async source execution outside main handler is unsupported/);
+    ).rejects.toThrow(/unsupported async executions: net\.fetch/);
   });
 
   test('fails closed when a capability returns a non-portable host object', () => {

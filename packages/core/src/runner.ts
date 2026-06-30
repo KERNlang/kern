@@ -370,6 +370,17 @@ function unsupportedAsyncContainerBeforeBranchSelection(root: IRNode): IRNode | 
   return undefined;
 }
 
+function unsupportedAsyncContainerInExecutableHandlers(
+  mainHandler: IRNode,
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+): IRNode | undefined {
+  for (const handler of executableKernHandlers(mainHandler, runnerFunctions)) {
+    const unsupported = unsupportedAsyncContainerBeforeBranchSelection(handler);
+    if (unsupported) return unsupported;
+  }
+  return undefined;
+}
+
 function asyncCapabilityLabelsOutsideExecutable(
   root: IRNode,
   mainHandler: IRNode,
@@ -694,6 +705,14 @@ export async function executeKernSourceAsync(
       `kern run async preflight: missing async providers: ${requirementList(analysis.missingAsyncProviders)}`,
     );
   }
+  if (
+    analysis.unsupportedAsyncExecutions.length > 0 &&
+    (analysis.asyncBoundaryRequired || options.providedAsyncCapabilities || options.asyncCapabilities)
+  ) {
+    throw new KernRunnerError(
+      `kern run async preflight: unsupported async executions: ${requirementList(analysis.unsupportedAsyncExecutions)}`,
+    );
+  }
   if (analysis.asyncBoundaryRequired) {
     if (!options.providedAsyncCapabilities) {
       throw new KernRunnerError(
@@ -732,7 +751,7 @@ export async function executeKernSourceAsync(
         )}`,
       );
     }
-    const unsupportedContainer = unsupportedAsyncContainerBeforeBranchSelection(handler);
+    const unsupportedContainer = unsupportedAsyncContainerInExecutableHandlers(handler, runnerFunctions);
     if (unsupportedContainer) {
       throw new KernRunnerError(
         `kern run async: async source execution for node type "${unsupportedContainer.type}" is unsupported in this preview`,
