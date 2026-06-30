@@ -210,6 +210,151 @@ describe('@kernlang/core/runner capability preflight', () => {
         reason: 'outside-main-handler',
       }),
     ]);
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+  });
+
+  test('treats async capability requirements in called helpers as async-preview executable', () => {
+    const source = [
+      'fn name=helper returns=number',
+      '  handler lang="kern"',
+      '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+      '    return value="response.status"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="helper()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['net.fetch'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('reports missing async providers for called helper requirements', () => {
+    const source = [
+      'fn name=helper returns=number',
+      '  handler lang="kern"',
+      '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+      '    return value="response.status"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="helper()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: [],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['net.fetch']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('does not mark helper calls from unsupported async expression slots as executable readiness', () => {
+    const source = [
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    branch on="helper()"',
+      '      path value="ok"',
+      '        print value="\\"ok\\""',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main-handler',
+      }),
+    ]);
+  });
+
+  test('does not mark helper calls from unsupported index expressions as executable readiness', () => {
+    const source = [
+      'fn name=helper returns=number',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let kind=let name=xs value="[1, 2]"',
+      '    print value="xs[helper()]"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main-handler',
+      }),
+    ]);
+  });
+
+  test('does not mark async helpers as executable preview helpers', () => {
+    const source = [
+      'fn name=helper async=true returns=number',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="helper()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main-handler',
+      }),
+    ]);
+  });
+
+  test('does not mark helper calls from scalar-only array literals as executable readiness', () => {
+    const source = [
+      'fn name=helper returns=number',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="String([helper()])"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main-handler',
+      }),
+    ]);
   });
 
   test('reports unknown capability tokens separately from known planned capabilities', () => {

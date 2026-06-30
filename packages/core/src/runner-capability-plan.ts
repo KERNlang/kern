@@ -1,6 +1,8 @@
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
+import { parseExpression } from './parser-expression.js';
 import type { IRNode, ParseDiagnostic } from './types.js';
+import type { ValueIR } from './value-ir.js';
 
 export type CapabilityStatus = 'shipped' | 'planned';
 export type CapabilitySyncBoundary = 'sync' | 'async-planned';
@@ -115,6 +117,8 @@ export interface CapabilityAnalysis {
   readonly plannedCapabilities: readonly CapabilityRequirement[];
   /** Requirements that need the future async runner boundary, independent of lifecycle status. */
   readonly asyncPlannedCapabilities: readonly CapabilityRequirement[];
+  /** Async-planned requirements reachable through the narrow executable async-preview lane. */
+  readonly executableAsyncPlannedCapabilities: readonly CapabilityRequirement[];
   readonly missingProviders: readonly CapabilityRequirement[];
   readonly missingAsyncProviders: readonly CapabilityRequirement[];
   readonly unsupportedAsyncExecutions: readonly UnsupportedAsyncCapabilityRequirement[];
@@ -301,12 +305,17 @@ export function analyzeKernSourceCapabilities(
   const asyncPlannedCapabilities = requirements.filter(
     (requirement) => requirement.descriptor.syncBoundary === 'async-planned',
   );
+  const executableAsyncPlannedCapabilities = executableAsyncRequirements(
+    root ?? { type: 'document', children: [] },
+    asyncPlannedCapabilities,
+  );
   return {
     requirements,
     unknownCapabilities,
     malformedCapabilities,
     plannedCapabilities: requirements.filter((requirement) => requirement.descriptor.status === 'planned'),
     asyncPlannedCapabilities,
+    executableAsyncPlannedCapabilities,
     missingProviders: provided
       ? requirements.filter(
           (requirement) =>
@@ -316,7 +325,7 @@ export function analyzeKernSourceCapabilities(
         )
       : [],
     missingAsyncProviders: providedAsync
-      ? requirements.filter(
+      ? executableAsyncPlannedCapabilities.filter(
           (requirement) =>
             requirement.descriptor.syncBoundary === 'async-planned' && !providedAsync.has(requirement.id),
         )
@@ -327,7 +336,7 @@ export function analyzeKernSourceCapabilities(
     ),
     unknownProvidedCapabilities,
     unknownProvidedAsyncCapabilities,
-    asyncBoundaryRequired: requirements.some((requirement) => requirement.descriptor.syncBoundary === 'async-planned'),
+    asyncBoundaryRequired: executableAsyncPlannedCapabilities.length > 0,
     hasParseErrors,
     parseDiagnostics: diagnostics,
   };
@@ -347,27 +356,47 @@ function unsupportedAsyncExecutions(
     if (existing) existing.push(requirement);
     else requirementsByLineAndId.set(key, [requirement]);
   }
-  const mainHandler = findMainKernHandler(root);
+  const executableHandlers = findExecutableKernHandlers(root);
   const out: UnsupportedAsyncCapabilityRequirement[] = [];
-  collectUnsupportedAsyncExecutions(root, mainHandler, false, undefined, requirementsByLineAndId, out);
+  collectUnsupportedAsyncExecutions(root, executableHandlers, false, undefined, requirementsByLineAndId, out);
+  return out;
+}
+
+function executableAsyncRequirements(
+  root: IRNode,
+  asyncRequirements: readonly CapabilityRequirement[],
+): CapabilityRequirement[] {
+  if (asyncRequirements.length === 0) return [];
+  const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
+  for (const requirement of asyncRequirements) {
+    const key = `${requirement.sourceLine}:${requirement.id}`;
+    const existing = requirementsByLineAndId.get(key);
+    if (existing) existing.push(requirement);
+    else requirementsByLineAndId.set(key, [requirement]);
+  }
+  const executableHandlers = findExecutableKernHandlers(root);
+  const out: CapabilityRequirement[] = [];
+  collectExecutableAsyncRequirements(root, executableHandlers, false, requirementsByLineAndId, out);
   return out;
 }
 
 function collectUnsupportedAsyncExecutions(
   node: IRNode,
-  mainHandler: IRNode | undefined,
-  insideMain: boolean,
+  executableHandlers: ReadonlySet<IRNode>,
+  insideExecutableHandler: boolean,
   unsupportedContainer: IRNode | undefined,
   requirementsByLineAndId: Map<string, CapabilityRequirement[]>,
   out: UnsupportedAsyncCapabilityRequirement[],
 ): void {
-  const nextInsideMain = insideMain || node === mainHandler;
+  const nextInsideExecutableHandler = insideExecutableHandler || executableHandlers.has(node);
   const nextUnsupportedContainer =
-    nextInsideMain && ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES.has(node.type) ? node : unsupportedContainer;
+    nextInsideExecutableHandler && ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES.has(node.type)
+      ? node
+      : unsupportedContainer;
   if (node.type === 'capability') {
     const requirement = asyncRequirementForNode(node, requirementsByLineAndId);
     if (requirement) {
-      if (!nextInsideMain) {
+      if (!nextInsideExecutableHandler) {
         out.push({ ...requirement, reason: 'outside-main-handler' });
       } else if (nextUnsupportedContainer) {
         out.push({
@@ -381,9 +410,32 @@ function collectUnsupportedAsyncExecutions(
   for (const child of node.children ?? []) {
     collectUnsupportedAsyncExecutions(
       child,
-      mainHandler,
-      nextInsideMain,
+      executableHandlers,
+      nextInsideExecutableHandler,
       nextUnsupportedContainer,
+      requirementsByLineAndId,
+      out,
+    );
+  }
+}
+
+function collectExecutableAsyncRequirements(
+  node: IRNode,
+  executableHandlers: ReadonlySet<IRNode>,
+  insideExecutableHandler: boolean,
+  requirementsByLineAndId: Map<string, CapabilityRequirement[]>,
+  out: CapabilityRequirement[],
+): void {
+  const nextInsideExecutableHandler = insideExecutableHandler || executableHandlers.has(node);
+  if (node.type === 'capability' && nextInsideExecutableHandler) {
+    const requirement = asyncRequirementForNode(node, requirementsByLineAndId);
+    if (requirement) out.push(requirement);
+  }
+  for (const child of node.children ?? []) {
+    collectExecutableAsyncRequirements(
+      child,
+      executableHandlers,
+      nextInsideExecutableHandler,
       requirementsByLineAndId,
       out,
     );
@@ -401,12 +453,216 @@ function asyncRequirementForNode(
   return requirementsByLineAndId.get(key)?.shift();
 }
 
-function findMainKernHandler(root: IRNode): IRNode | undefined {
+function findExecutableKernHandlers(root: IRNode): ReadonlySet<IRNode> {
+  const out = new Set<IRNode>();
+  const helpers = new Map<string, IRNode>();
+  let mainHandler: IRNode | undefined;
+
   for (const node of root.children ?? []) {
-    if (node.type !== 'fn' || node.props?.name !== 'main') continue;
-    return (node.children ?? []).find((child) => child.type === 'handler' && child.props?.lang === 'kern');
+    if (node.type !== 'fn') continue;
+    const name = typeof node.props?.name === 'string' ? node.props.name : '';
+    const handler = previewHelperHandler(node);
+    if (!handler) continue;
+    if (name === 'main') mainHandler = handler;
+    else if (isPreviewHelperFunction(node, name)) helpers.set(name, handler);
   }
-  return undefined;
+  if (!mainHandler) return out;
+
+  out.add(mainHandler);
+  const queued = [...calledHelperNames(mainHandler.children ?? [], helpers)];
+  const visited = new Set<string>();
+  while (queued.length > 0) {
+    const name = queued.pop();
+    if (!name || visited.has(name)) continue;
+    visited.add(name);
+    const handler = helpers.get(name);
+    if (!handler) continue;
+    out.add(handler);
+    for (const next of calledHelperNames(handler.children ?? [], helpers)) {
+      if (!visited.has(next)) queued.push(next);
+    }
+  }
+  return out;
+}
+
+function calledHelperNames(nodes: readonly IRNode[], helpers: ReadonlyMap<string, IRNode>): Set<string> {
+  const out = new Set<string>();
+  for (const node of walkNodes({ type: '__block', children: [...nodes] })) {
+    for (const expr of supportedHelperCallExpressions(node)) {
+      collectHelperCalls(expr.node, helpers, out, expr.mode);
+    }
+  }
+  return out;
+}
+
+type HelperCallExpressionMode = 'scalar' | 'let' | 'capabilityInput';
+
+interface HelperCallExpression {
+  readonly node: ValueIR;
+  readonly mode: HelperCallExpressionMode;
+}
+
+function supportedHelperCallExpressions(node: IRNode): HelperCallExpression[] {
+  const props = node.props ?? {};
+  const out: HelperCallExpression[] = [];
+  function add(raw: unknown, mode: HelperCallExpressionMode): void {
+    if (typeof raw !== 'string' || raw.trim() === '') return;
+    try {
+      out.push({ node: parseExpression(raw), mode });
+    } catch {
+      // Ignore malformed expressions here; parser/runtime diagnostics own them.
+    }
+  }
+  if (node.type === 'let') {
+    add(props.value, 'let');
+  } else if (node.type === 'capability') {
+    add(props.input, 'capabilityInput');
+  } else if (
+    node.type === 'assign' ||
+    node.type === 'print' ||
+    node.type === 'return' ||
+    node.type === 'if' ||
+    node.type === 'while'
+  ) {
+    add(node.type === 'if' || node.type === 'while' ? props.cond : props.value, 'scalar');
+  } else if (node.type === 'fmt' && typeof props.template === 'string') {
+    try {
+      out.push({ node: parseExpression(`\`${props.template}\``), mode: 'scalar' });
+    } catch {
+      // Ignore malformed templates here; parser/runtime diagnostics own them.
+    }
+  }
+  return out;
+}
+
+function collectHelperCalls(
+  node: ValueIR,
+  helpers: ReadonlyMap<string, IRNode>,
+  out: Set<string>,
+  mode: HelperCallExpressionMode,
+): void {
+  if (node.kind === 'call' && node.callee.kind === 'ident' && helpers.has(node.callee.name)) out.add(node.callee.name);
+  for (const child of valueChildren(node, helpers, mode)) collectHelperCalls(child.node, helpers, out, child.mode);
+}
+
+function valueChildren(
+  node: ValueIR,
+  helpers: ReadonlyMap<string, IRNode>,
+  mode: HelperCallExpressionMode,
+): readonly HelperCallExpression[] {
+  switch (node.kind) {
+    case 'unary':
+      return [{ node: node.argument, mode: 'scalar' }];
+    case 'binary':
+      return [
+        { node: node.left, mode: 'scalar' },
+        { node: node.right, mode: 'scalar' },
+      ];
+    case 'conditional':
+      return [
+        { node: node.test, mode: 'scalar' },
+        { node: node.consequent, mode: 'scalar' },
+        { node: node.alternate, mode: 'scalar' },
+      ];
+    case 'member':
+    case 'index':
+      return [];
+    case 'call':
+      if (node.callee.kind === 'ident' && (helpers.has(node.callee.name) || node.callee.name === 'String')) {
+        return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
+      }
+      return [];
+    case 'typeAssert':
+    case 'nonNull':
+      return [{ node: node.expression, mode: 'scalar' }];
+    case 'tmplLit':
+      return node.expressions.map((expression) => ({ node: expression, mode: 'scalar' }));
+    case 'arrayLit':
+      if (mode === 'capabilityInput') {
+        return node.items
+          .filter((item): item is ValueIR => Boolean(item))
+          .map((item) => ({ node: item, mode: 'capabilityInput' }));
+      }
+      if (mode === 'let') {
+        return node.items
+          .filter((item): item is ValueIR => Boolean(item))
+          .map((item) => ({ node: item, mode: item.kind === 'arrayLit' ? 'let' : 'scalar' }));
+      }
+      return [];
+    case 'objectLit':
+      if (mode === 'capabilityInput') {
+        return node.entries.flatMap((entry) => ('kind' in entry ? [] : [{ node: entry.value, mode }]));
+      }
+      if (mode === 'let') {
+        return node.entries.flatMap((entry) =>
+          'kind' in entry ? [] : [{ node: entry.value, mode: 'scalar' as const }],
+        );
+      }
+      return [];
+    default:
+      return [];
+  }
+}
+
+function isPreviewHelperFunction(fn: IRNode, name: string): boolean {
+  return (
+    isPortableHelperName(name) &&
+    !isTrueProp(fn.props?.async) &&
+    !isTrueProp(fn.props?.stream) &&
+    fn.props?.returns !== undefined &&
+    fn.props.returns !== '' &&
+    fn.props.returns !== 'void' &&
+    previewHelperParamsAreSupported(fn)
+  );
+}
+
+function previewHelperHandler(fn: IRNode): IRNode | undefined {
+  const handlers = (fn.children ?? []).filter((child) => child.type === 'handler' && child.props?.lang === 'kern');
+  return handlers.length === 1 ? handlers[0] : undefined;
+}
+
+function isTrueProp(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
+function isPortableHelperName(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
+function previewHelperParamsAreSupported(fn: IRNode): boolean {
+  const paramChildren = (fn.children ?? []).filter((child) => child.type === 'param');
+  const legacyParams = typeof fn.props?.params === 'string' ? fn.props.params.trim() : '';
+  if (paramChildren.length > 0 && legacyParams !== '') return false;
+  const names =
+    paramChildren.length > 0 ? previewParamChildNames(paramChildren) : previewLegacyParamNames(legacyParams);
+  if (!names) return false;
+  return new Set(names).size === names.length;
+}
+
+function previewParamChildNames(paramChildren: readonly IRNode[]): string[] | undefined {
+  const names: string[] = [];
+  for (const param of paramChildren) {
+    const name = param.props?.name;
+    if (!isPortableHelperName(name)) return undefined;
+    if ((param.children ?? []).length > 0) return undefined;
+    if (param.props?.value !== undefined || param.props?.default !== undefined) return undefined;
+    if (isTrueProp(param.props?.optional) || isTrueProp(param.props?.variadic)) return undefined;
+    names.push(name);
+  }
+  return names;
+}
+
+function previewLegacyParamNames(params: string): string[] | undefined {
+  if (params === '') return [];
+  const names: string[] = [];
+  for (const part of params.split(',')) {
+    const trimmed = part.trim();
+    if (trimmed === '' || trimmed.includes('=') || trimmed.startsWith('...') || trimmed.includes('?')) return undefined;
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)?$/.exec(trimmed);
+    if (!match) return undefined;
+    names.push(match[1]);
+  }
+  return names;
 }
 
 function capabilityDescriptor(

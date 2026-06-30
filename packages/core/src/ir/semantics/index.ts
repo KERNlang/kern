@@ -54,6 +54,7 @@ export interface RunnerFunctionBinding {
   readonly name: string;
   readonly params: readonly string[];
   readonly returns?: unknown;
+  readonly handler?: IRNode;
   readonly body: readonly IRNode[];
 }
 
