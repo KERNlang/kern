@@ -328,6 +328,10 @@ function requirementList(requirements: readonly Pick<CapabilityRequirement, 'id'
   return requirements.map(requirementLabel).join(', ');
 }
 
+function referenceRunnerErrorMessage(error: ReferenceRunnerError): string {
+  return error.message;
+}
+
 function asyncCapabilityNodeLabel(node: IRNode): string | undefined {
   const namespace = node.props?.namespace;
   const operation = node.props?.operation;
@@ -632,7 +636,9 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
     trace = referenceRunSequence(handler.children ?? [], env);
   } catch (err) {
     if (err instanceof ReferenceRunnerError) {
-      throw new KernRunnerError(`kern run: cannot execute - non-portable operation (${err.message})`);
+      throw new KernRunnerError(
+        `kern run: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+      );
     }
     throw new KernRunnerError(`kern run: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -777,7 +783,9 @@ export async function executeKernSourceAsync(
       });
     } catch (err) {
       if (err instanceof ReferenceRunnerError) {
-        throw new KernRunnerError(`kern run async: cannot execute - non-portable operation (${err.message})`);
+        throw new KernRunnerError(
+          `kern run async: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+        );
       }
       throw new KernRunnerError(`kern run async: ${err instanceof Error ? err.message : String(err)}`);
     }

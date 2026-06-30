@@ -8,6 +8,7 @@ import {
   RAG_EMBED_MODEL_FAKE_DETERMINISTIC,
   RAG_EMBED_MODEL_LOCAL_HASH,
   RAG_EMBED_MODEL_LOCAL_SEMANTIC,
+  type RagSemanticFacts,
   validateRagSemantics,
 } from '@kernlang/core';
 import {
@@ -781,37 +782,21 @@ function sourceRagIngestUsesCliEmbedders(source: string): boolean {
   const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return false;
   if (validateRagSemantics(root).length > 0) return false;
-  const facts = collectRagSemanticFacts(root);
+  const facts: RagSemanticFacts = collectRagSemanticFacts(root);
   const storesByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
   const corporaByName = new Map(facts.corpora.map((corpus) => [corpus.name, corpus]));
   const localPersistentIndexes = facts.indexes.filter(
     (index) => (storesByName.get(index.storeName)?.kind ?? 'memory') === 'local-persistent',
   );
   if (localPersistentIndexes.length === 0) return false;
-  return localPersistentIndexes.every((index) => {
-    const corpus = corporaByName.get(index.corpusName);
-    if (!corpus) return false;
-    const embed = index.embedName ? corpus.embeds.find((candidate) => candidate.name === index.embedName) : undefined;
-    if (index.embedName && !embed) return false;
-    let model: ReturnType<typeof canonicalRagEmbedModel>;
-    try {
-      model = canonicalRagEmbedModel(embed?.model);
-    } catch {
-      return false;
-    }
-    return (
-      model === RAG_EMBED_MODEL_LOCAL_HASH ||
-      model === RAG_EMBED_MODEL_LOCAL_SEMANTIC ||
-      model === RAG_EMBED_MODEL_FAKE_DETERMINISTIC
-    );
-  });
+  return localPersistentIndexes.every((index) => ragIndexUsesCliEmbedder(index, corporaByName));
 }
 
 function sourceRagRetrieveAsyncUsesCliEmbedders(source: string): boolean {
   const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return false;
   if (validateRagSemantics(root).length > 0) return false;
-  const facts = collectRagSemanticFacts(root);
+  const facts: RagSemanticFacts = collectRagSemanticFacts(root);
   const requestedNames = requestedRagRetrieveAsyncNames(root);
   const runtimeRetrievals =
     requestedNames === undefined
@@ -885,11 +870,8 @@ function* walkRunIrNodes(root: IRNode): Generator<IRNode> {
 }
 
 function ragIndexUsesCliEmbedder(
-  index: { readonly corpusName: string; readonly embedName?: string },
-  corporaByName: ReadonlyMap<
-    string,
-    { readonly embeds: readonly { readonly name: string; readonly model?: string }[] }
-  >,
+  index: RagSemanticFacts['indexes'][number],
+  corporaByName: ReadonlyMap<string, RagSemanticFacts['corpora'][number]>,
 ): boolean {
   const corpus = corporaByName.get(index.corpusName);
   if (!corpus) return false;
@@ -964,7 +946,11 @@ function asyncProviderHints(
 }
 
 function asyncProviderFlags(id: string): readonly string[] | undefined {
-  return Object.hasOwn(RUN_ASYNC_PROVIDER_FLAGS, id) ? RUN_ASYNC_PROVIDER_FLAGS[id as AsyncCapabilityId] : undefined;
+  return isRunAsyncProviderFlagId(id) ? RUN_ASYNC_PROVIDER_FLAGS[id] : undefined;
+}
+
+function isRunAsyncProviderFlagId(id: string): id is keyof typeof RUN_ASYNC_PROVIDER_FLAGS {
+  return Object.hasOwn(RUN_ASYNC_PROVIDER_FLAGS, id);
 }
 
 function knownRequirementReport(requirement: CapabilityRequirement): RunCapabilityRequirementReport {
