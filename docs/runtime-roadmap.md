@@ -69,8 +69,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
   supplied in report mode to check async preview readiness, while separate sync
   and async blocker fields keep default `kern run` readiness distinct from
   `--async-preview` readiness; unsupported async execution shapes such as
-  helper functions outside `main` are reported separately from missing provider
-  flags
+  helper functions outside `main` and helper calls from unsupported expression
+  slots are reported separately from missing provider flags, and explicit
+  async-preview execution fails closed on those reported unsupported shapes
+  before falling back to the sync runner
 - `storage` capability calls backed by `createMemoryStorageCapability`, a
   browser-safe volatile provider for in-run state
 - `crypto` capability calls backed by `createWebCryptoCapability`, a
