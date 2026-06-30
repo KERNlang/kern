@@ -1344,6 +1344,61 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.hasAsyncCapabilityBlockers).toBe(false);
   });
 
+  test('reports unsupported async helper expression slots as async-preview blockers', () => {
+    const file = writeFile(
+      [
+        'fn name=helper returns=string',
+        '  handler lang="kern"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+        '    return value="answer"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    branch on="helper()"',
+        '      path value="ok"',
+        '        print value="\\"ok\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
+    expect(report.missingAsyncProviders).toEqual([]);
+    expect(report.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main-handler',
+      }),
+    ]);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.hasCapabilityBlockers).toBe(true);
+  });
+
+  test('async preview execution fails closed for unsupported async helper expression slots', () => {
+    const file = writeFile(
+      [
+        'fn name=helper returns=string',
+        '  handler lang="kern"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+        '    return value="answer"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    branch on="helper()"',
+        '      path value="ok"',
+        '        print value="\\"ok\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--llm-response', 'ok', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('kern run async preflight: unsupported async executions: llm.complete');
+  });
+
   test('does not switch programmatic capability reports to async-preview mode for fsWriteRoot alone', () => {
     const report = analyzeRunCapabilities(
       mainProgram([
