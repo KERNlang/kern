@@ -15,6 +15,7 @@ import { childEnv, defineBinding, defineIntBinding, hasOwnBinding, type Semantic
 import { isPortableBindingName } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
+import { evaluateWhileCondition, WHILE_MAX_ITERATIONS, whilePreconditions } from './while.js';
 
 export interface AsyncReferenceRunnerOptions {
   readonly asyncCapabilities?: KernRunnerAsyncCapabilities;
@@ -44,6 +45,7 @@ export async function asyncReferenceRun(
   }
   if (node.type === 'if') return asyncIfEffects(node, env, options);
   if (node.type === 'branch') return asyncBranchEffects(node, env, options);
+  if (node.type === 'while') return asyncWhileEffects(node, env, options);
   if (node.type === 'for') return asyncForEffects(node, env, options);
   if (node.type === 'each') return asyncEachEffects(node, env, options);
   if (node.type === 'capability' && isAsyncPlannedCapabilityNode(node)) {
@@ -125,6 +127,44 @@ async function asyncBranchEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
   return asyncReferenceRunSequence(selected.children ?? [], childEnv(env), options);
 }
 
+async function asyncWhileEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
+  if (!whilePreconditions(ir, env)) {
+    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  }
+  const unsupported = unsupportedAsyncContainer(ir);
+  if (unsupported) {
+    throw new ReferenceRunnerError(
+      `async source execution for node type "${unsupported.type}" is unsupported in this preview`,
+      unsupported,
+    );
+  }
+  const out: Trace = emptyTrace();
+  const children = ir.children ?? [];
+  let iterations = 0;
+  let condition = evaluateInitialAsyncWhileCondition(ir, env);
+
+  while (condition) {
+    if (iterations >= WHILE_MAX_ITERATIONS) {
+      throw new Error(`while: exceeded ${WHILE_MAX_ITERATIONS} iterations — non-terminating fixture`);
+    }
+    iterations += 1;
+
+    const childTrace = await asyncReferenceRunSequence(children, childEnv(env), options);
+    out.events.push(...childTrace.events);
+
+    const c = childTrace.completion;
+    if (c.kind === 'break') break;
+    if (c.kind === 'return' || c.kind === 'throw') {
+      out.completion = c;
+      return out;
+    }
+    condition = evaluateWhileCondition(ir, env);
+    if (c.kind === 'continue') continue;
+  }
+
+  return out;
+}
+
 async function asyncForEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
   if (!forPreconditions(ir, env)) {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
@@ -158,6 +198,14 @@ async function asyncForEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   }
 
   return out;
+}
+
+function evaluateInitialAsyncWhileCondition(ir: IRNode, env: SemanticEnv): boolean {
+  try {
+    return evaluateWhileCondition(ir, env);
+  } catch {
+    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  }
 }
 
 async function asyncEachEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
