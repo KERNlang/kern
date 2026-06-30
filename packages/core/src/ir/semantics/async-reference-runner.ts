@@ -4,12 +4,13 @@ import {
   type KernRunnerAsyncCapabilities,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
-import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
+import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES, CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
 import type { IRNode } from '../../types.js';
+import { branchPreconditions, selectBranchPath } from './branch.js';
 import { capabilityInput, isCapabilityToken } from './capability.js';
 import { eachPreconditions, eachRuntimeSteps } from './each.js';
 import { forPreconditions, forRuntimeRange } from './for.js';
-import { evaluateIfCondition, validateIfNode } from './if.js';
+import { evaluateIfCondition } from './if.js';
 import { childEnv, defineBinding, defineIntBinding, hasOwnBinding, type SemanticEnv } from './index.js';
 import { isPortableBindingName } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
@@ -18,8 +19,6 @@ import { emptyTrace, type Trace } from './trace.js';
 export interface AsyncReferenceRunnerOptions {
   readonly asyncCapabilities?: KernRunnerAsyncCapabilities;
 }
-
-const UNSUPPORTED_ASYNC_CONTAINER_TYPES = new Set(['branch', 'try', 'while']);
 
 /**
  * Narrow async preview runner.
@@ -44,6 +43,7 @@ export async function asyncReferenceRun(
     throw new ReferenceRunnerError('`else` must immediately follow an `if` sibling.', node);
   }
   if (node.type === 'if') return asyncIfEffects(node, env, options);
+  if (node.type === 'branch') return asyncBranchEffects(node, env, options);
   if (node.type === 'for') return asyncForEffects(node, env, options);
   if (node.type === 'each') return asyncEachEffects(node, env, options);
   if (node.type === 'capability' && isAsyncPlannedCapabilityNode(node)) {
@@ -90,26 +90,39 @@ export async function asyncReferenceRunSequence(
 }
 
 async function asyncIfEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
-  if (!validateIfNode(ir, env)) {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
-  }
-  const unsupported = unsupportedAsyncContainer(ir);
-  if (unsupported) {
-    throw new ReferenceRunnerError(
-      `async source execution for node type "${unsupported.type}" is unsupported in this preview`,
-      unsupported,
-    );
-  }
   let truthy: boolean;
   try {
     truthy = evaluateIfCondition(ir, env);
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
-  if (truthy) return asyncReferenceRunSequence(ir.children ?? [], env, options);
   const elseNode = ir.props?.__pairedElse;
-  if (isElseNode(elseNode)) return asyncReferenceRunSequence(elseNode.children ?? [], env, options);
+  const selectedChildren = truthy ? (ir.children ?? []) : isElseNode(elseNode) ? (elseNode.children ?? []) : [];
+  const unsupported = unsupportedAsyncContainerInSequence(selectedChildren);
+  if (unsupported) {
+    throw new ReferenceRunnerError(
+      `async source execution for node type "${unsupported.type}" is unsupported in this preview`,
+      unsupported,
+    );
+  }
+  if (selectedChildren.length > 0) return asyncReferenceRunSequence(selectedChildren, env, options);
   return emptyTrace();
+}
+
+async function asyncBranchEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
+  if (!branchPreconditions(ir, env)) {
+    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  }
+  const selected = selectBranchPath(ir, env);
+  if (!selected) return emptyTrace();
+  const unsupported = unsupportedAsyncContainer(selected);
+  if (unsupported) {
+    throw new ReferenceRunnerError(
+      `async source execution for node type "${unsupported.type}" is unsupported in this preview`,
+      unsupported,
+    );
+  }
+  return asyncReferenceRunSequence(selected.children ?? [], childEnv(env), options);
 }
 
 async function asyncForEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
@@ -237,11 +250,15 @@ function containsAsyncPlannedCapability(root: IRNode): boolean {
 }
 
 function unsupportedAsyncContainer(root: IRNode): IRNode | undefined {
-  for (const node of walkNodes(root)) {
-    if (node === root || node.type === 'if') continue;
-    if (UNSUPPORTED_ASYNC_CONTAINER_TYPES.has(node.type) && containsAsyncPlannedCapability(node)) return node;
+  for (const node of walkNodesForUnsupportedAsync(root)) {
+    if (node === root || node.type === 'if' || node.type === 'branch') continue;
+    if (ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES.has(node.type) && containsAsyncPlannedCapability(node)) return node;
   }
   return undefined;
+}
+
+function unsupportedAsyncContainerInSequence(nodes: readonly IRNode[]): IRNode | undefined {
+  return unsupportedAsyncContainer({ type: '__block', children: [...nodes] });
 }
 
 function isAsyncPlannedCapabilityNode(node: IRNode): boolean {
@@ -264,6 +281,22 @@ function* walkNodes(root: IRNode): Generator<IRNode> {
     const node = stack.pop();
     if (!node) continue;
     yield node;
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+    const pairedElse = node.props?.__pairedElse;
+    if (isElseNode(pairedElse)) stack.push(pairedElse);
+  }
+}
+
+function* walkNodesForUnsupportedAsync(root: IRNode): Generator<IRNode> {
+  const stack: IRNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    yield node;
+    if (node !== root && (node.type === 'branch' || node.type === 'if' || node.type === 'else')) continue;
     const children = node.children ?? [];
     for (let index = children.length - 1; index >= 0; index -= 1) {
       stack.push(children[index]);

@@ -144,6 +144,57 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
+  test('allows async capability requirements inside selected branch paths', () => {
+    const source = program([
+      'branch on="\\"paid\\""',
+      '  path value="paid"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
+      '  path default=true',
+      '    capability namespace=llm operation=complete name=fallback input="{ prompt: \\"fallback\\" }"',
+    ]);
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
+      'llm.complete',
+      'llm.complete',
+    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('reports unsupported async execution checks inside branch paths for tooling preflight', () => {
+    const source = program([
+      'branch on="\\"safe\\""',
+      '  path value="safe"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
+      '  path value="danger"',
+      '    try',
+      '      capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+      '      catch name=e',
+      '        print value="e.message"',
+    ]);
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
+    });
+
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
+      'llm.complete',
+      'net.fetch',
+    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'net.fetch',
+        reason: 'unsupported-container',
+        containerType: 'try',
+      }),
+    ]);
+  });
+
   test('reports async capability requirements outside the main handler source execution lane', () => {
     const source = [
       'fn name=helper returns=void',

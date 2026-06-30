@@ -339,8 +339,13 @@ async function readResponseText(response: Response, maxBytes: number, label: str
       const value = chunk.value ?? new Uint8Array();
       bytes += value.byteLength;
       if (bytes > maxBytes) {
-        await reader.cancel().catch(() => undefined);
-        throw new Error(`${label} response body exceeds ${maxBytes} bytes in CLI async preview.`);
+        const error = new Error(`${label} response body exceeds ${maxBytes} bytes in CLI async preview.`);
+        try {
+          await reader.cancel();
+        } catch (cancelError) {
+          error.cause = cancelError;
+        }
+        throw error;
       }
       text += decoder.decode(value, { stream: true });
     }
