@@ -11,6 +11,10 @@ const FIXTURE = resolve(ROOT, 'examples/native-runtime-smoke.kern');
 const ASYNC_FS_FIXTURE = resolve(ROOT, 'examples/native-runtime-async-fs-preview.kern');
 const ASYNC_HOST_FIXTURE = resolve(ROOT, 'examples/native-runtime-async-host-preview.kern');
 const RAG_ANSWER_FIXTURE = resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern');
+const RAG_ASYNC_RETRIEVE_FIXTURE = resolve(
+  ROOT,
+  'examples/rag-starter/runtime-answer-async-retrieve-preview.kern',
+);
 const RAG_ANSWER_CAPABILITY_FIXTURE = resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern');
 const EXPECTED_STDOUT = 'sum-ok\n0\n1\n20\nrag\nruntime\nfmt-6\nbranch\ncaught\nfinally\ntrue\npreview\ntrue\n3\n';
 const EXPECTED_ASYNC_FS_STDOUT = '1\nasync smoke\ntrue\n';
@@ -275,6 +279,76 @@ try {
 if (ragAnswerFailure) {
   console.error(ragAnswerFailure.message);
   process.exit(ragAnswerFailure.exitCode);
+}
+
+let ragAsyncRetrieveFailure;
+try {
+  const ragAsyncRetrieveResult = runCli([
+    'run',
+    '--async-preview',
+    '--llm-response',
+    'Refunds are available within thirty days [1]',
+    RAG_ASYNC_RETRIEVE_FIXTURE,
+  ]);
+
+  if (ragAsyncRetrieveResult.error) {
+    throw new SmokeFailure(ragAsyncRetrieveResult.error.message, 2);
+  }
+
+  if (ragAsyncRetrieveResult.signal) {
+    throw new SmokeFailure(
+      [
+        `kern run rag async retrieve smoke was killed by signal ${ragAsyncRetrieveResult.signal}`,
+        ragAsyncRetrieveResult.stderr ? ragAsyncRetrieveResult.stderr : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      2,
+    );
+  }
+
+  if (ragAsyncRetrieveResult.status !== 0) {
+    throw new SmokeFailure(
+      [
+        `kern run rag async retrieve smoke exited ${ragAsyncRetrieveResult.status}`,
+        ragAsyncRetrieveResult.stderr ? ragAsyncRetrieveResult.stderr : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }
+
+  if (ragAsyncRetrieveResult.stderr) {
+    throw new SmokeFailure(`kern run rag async retrieve smoke emitted unexpected stderr:\n${ragAsyncRetrieveResult.stderr}`);
+  }
+
+  const missingMarkers = EXPECTED_RAG_ANSWER_MARKERS.filter((marker) => !ragAsyncRetrieveResult.stdout?.includes(marker));
+  if (missingMarkers.length > 0) {
+    throw new SmokeFailure(
+      [
+        'kern run rag async retrieve smoke stdout drifted',
+        `missing markers:\n${missingMarkers.join('\n')}`,
+        `actual:\n${ragAsyncRetrieveResult.stdout ?? ''}`,
+      ].join('\n'),
+    );
+  }
+  if (!RAG_ANSWER_ORDER.test(ragAsyncRetrieveResult.stdout ?? '')) {
+    throw new SmokeFailure(
+      [
+        'kern run rag async retrieve smoke stdout order drifted',
+        'expected retrieved context text before deterministic llm response',
+        `actual:\n${ragAsyncRetrieveResult.stdout ?? ''}`,
+      ].join('\n'),
+    );
+  }
+} catch (error) {
+  ragAsyncRetrieveFailure =
+    error instanceof SmokeFailure ? error : new SmokeFailure(error instanceof Error ? error.message : String(error), 2);
+}
+
+if (ragAsyncRetrieveFailure) {
+  console.error(ragAsyncRetrieveFailure.message);
+  process.exit(ragAsyncRetrieveFailure.exitCode);
 }
 
 let ragAnswerCapabilityFailure;

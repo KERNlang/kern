@@ -78,6 +78,7 @@ export { createAsyncLocalRagIngestCapability } from './rag-index-runner.js';
 export type { LocalRagCapabilityOptions, LocalRagCapabilitySession } from './rag-retrieve-runner.js';
 export {
   assertLocalRagCapabilityChunksWereRetrieved,
+  createAsyncLocalRagRetrieveCapability,
   createLocalRagCapability,
   createLocalRagCapabilitySession,
 } from './rag-retrieve-runner.js';

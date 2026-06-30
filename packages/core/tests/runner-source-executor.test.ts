@@ -1511,6 +1511,44 @@ describe('@kernlang/core/runner source executor', () => {
     expect(calls).toEqual([{ statusOnly: true }]);
   });
 
+  test('async source executor awaits rag.retrieveAsync provider and binds portable chunks', async () => {
+    const calls: unknown[] = [];
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      rag: {
+        async retrieveAsync(call) {
+          calls.push(call.input);
+          await Promise.resolve();
+          return [
+            {
+              id: 'chunk-1',
+              text: 'refund policy money back within thirty days',
+              score: 0.99,
+              source: 'docs/refunds.md',
+              citationUri: 'docs/refunds.md',
+              citationLocator: null,
+            },
+          ];
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\", retrieval: \\"FindDocs\\" }"',
+        'print value="chunks.length"',
+        'each name=chunk in=chunks',
+        '  print value="chunk.source"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['rag.retrieveAsync'],
+      },
+    );
+
+    expect(stdout).toBe('1\ndocs/refunds.md\n');
+    expect(calls).toEqual([{ question: 'refund', retrieval: 'FindDocs' }]);
+  });
+
   test('async source executor awaits async capabilities sequentially inside each loops', async () => {
     const calls: number[] = [];
     const asyncCapabilities: KernRunnerAsyncCapabilities = {
