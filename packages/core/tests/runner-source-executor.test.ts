@@ -1511,6 +1511,44 @@ describe('@kernlang/core/runner source executor', () => {
     expect(calls).toEqual([{ statusOnly: true }]);
   });
 
+  test('async source executor awaits rag.retrieveAsync provider and binds portable chunks', async () => {
+    const calls: unknown[] = [];
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      rag: {
+        async retrieveAsync(call) {
+          calls.push(call.input);
+          await Promise.resolve();
+          return [
+            {
+              id: 'chunk-1',
+              text: 'refund policy money back within thirty days',
+              score: 0.99,
+              source: 'docs/refunds.md',
+              citationUri: 'docs/refunds.md',
+              citationLocator: null,
+            },
+          ];
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\", retrieval: \\"FindDocs\\" }"',
+        'print value="chunks.length"',
+        'each name=chunk in=chunks',
+        '  print value="chunk.source"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['rag.retrieveAsync'],
+      },
+    );
+
+    expect(stdout).toBe('1\ndocs/refunds.md\n');
+    expect(calls).toEqual([{ question: 'refund', retrieval: 'FindDocs' }]);
+  });
+
   test('async source executor awaits async capabilities sequentially inside each loops', async () => {
     const calls: number[] = [];
     const asyncCapabilities: KernRunnerAsyncCapabilities = {
@@ -2207,6 +2245,34 @@ describe('@kernlang/core/runner source executor', () => {
     ).rejects.toThrow(/missing async providers: net\.fetch/);
   });
 
+  test('async source executor fails closed during preflight for async helpers called from unsupported expression slots', async () => {
+    await expect(
+      executeKernSourceAsync(
+        programWithFunctions(
+          [
+            [
+              'fn name=remote returns=string',
+              '  handler lang="kern"',
+              '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+              '    return value="answer"',
+            ],
+          ],
+          ['branch on="remote()"', '  path value="ok"', '    print value="\\"ok\\""'],
+        ),
+        {
+          asyncCapabilities: {
+            llm: {
+              async complete() {
+                return 'ok';
+              },
+            },
+          },
+          providedAsyncCapabilities: ['llm.complete'],
+        },
+      ),
+    ).rejects.toThrow(/unsupported async executions: llm\.complete/);
+  });
+
   test('async source executor ignores uncalled helper functions with async capability calls', async () => {
     await expect(
       executeKernSourceAsync(
@@ -2253,7 +2319,7 @@ describe('@kernlang/core/runner source executor', () => {
           providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
         },
       ),
-    ).rejects.toThrow(/async source execution outside main handler is unsupported/);
+    ).rejects.toThrow(/unsupported async executions: net\.fetch/);
   });
 
   test('fails closed when a capability returns a non-portable host object', () => {

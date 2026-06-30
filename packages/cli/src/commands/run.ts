@@ -2,15 +2,19 @@ import * as nodeCrypto from 'node:crypto';
 import {
   canonicalRagEmbedModel,
   collectRagSemanticFacts,
+  type IRNode,
   parseDocumentWithDiagnostics,
+  parseExpression,
   RAG_EMBED_MODEL_FAKE_DETERMINISTIC,
   RAG_EMBED_MODEL_LOCAL_HASH,
   RAG_EMBED_MODEL_LOCAL_SEMANTIC,
+  type RagSemanticFacts,
   validateRagSemantics,
 } from '@kernlang/core';
 import {
   assertLocalRagCapabilityChunksWereRetrieved,
   createAsyncLocalRagIngestCapability,
+  createAsyncLocalRagRetrieveCapability,
   createLocalRagCapability,
   createLocalRagCapabilitySession,
   type LocalRagCapabilitySession,
@@ -58,6 +62,7 @@ const RUN_ASYNC_PROVIDER_FLAGS = Object.freeze({
   'net.fetch': ['--allow-net <origin>'],
   'rag.answer': ['--llm-response <text> or --llm-provider openai'],
   'rag.ingest': [],
+  'rag.retrieveAsync': [],
 } satisfies Record<AsyncCapabilityId, readonly string[]>);
 
 // The same parser capabilities the rest of the Node CLI injects (see compile.ts),
@@ -106,7 +111,9 @@ export async function executeKernSourceAsync(
   const requiredCapabilities = sourceCapabilityRequirementIds(source);
   const sourceRequiresRagAnswer = requiredCapabilities.has('rag.answer');
   const sourceRequiresRagIngest = requiredCapabilities.has('rag.ingest');
+  const sourceRequiresRagRetrieveAsync = requiredCapabilities.has('rag.retrieveAsync');
   const canProvideRagIngest = sourceRequiresRagIngest && sourceRagIngestUsesCliEmbedders(source);
+  const canProvideRagRetrieveAsync = sourceRequiresRagRetrieveAsync && sourceRagRetrieveAsyncUsesCliEmbedders(source);
   const ragSession = createLocalRagCapabilitySession();
   const capabilities = createRunCapabilities(source, options.sourcePath, ragSession);
   const asyncCapabilities: Record<string, AsyncRuntimeCapabilityProvider | undefined> = {};
@@ -143,6 +150,19 @@ export async function executeKernSourceAsync(
         createAsyncLocalRagIngestCapability(source, { sourcePath: options.sourcePath }),
       );
       providedAsyncCapabilities.push('rag.ingest');
+    }
+    if (canProvideRagRetrieveAsync) {
+      if (!options.sourcePath) {
+        throw new Error('rag.retrieveAsync requires a source file path.');
+      }
+      Object.assign(
+        asyncRagCapabilities,
+        createAsyncLocalRagRetrieveCapability(source, {
+          sourcePath: options.sourcePath,
+          session: ragSession,
+        }),
+      );
+      providedAsyncCapabilities.push('rag.retrieveAsync');
     }
     if (sourceRequiresRagAnswer) {
       const llm = asyncCapabilities.llm;
@@ -294,6 +314,8 @@ export function analyzeRunCapabilities(
   const providedAsyncCapabilities = runProvidedAsyncCapabilities(options, {
     includeRagAnswer: requiredCapabilities.has('rag.answer'),
     includeRagIngest: requiredCapabilities.has('rag.ingest') && sourceRagIngestUsesCliEmbedders(source),
+    includeRagRetrieveAsync:
+      requiredCapabilities.has('rag.retrieveAsync') && sourceRagRetrieveAsyncUsesCliEmbedders(source),
   });
   const llmProviderPolicy = options.llmProvider ? llmProviderPolicyReport(options.llmProvider) : undefined;
   const providerPolicyBlockers = providerPolicyBlockersForOptions(options, llmProviderPolicy);
@@ -628,7 +650,11 @@ function runProvidedAsyncCapabilities(
     llmResponse?: string;
     llmProvider?: RunLlmProviderOptions;
   },
-  providerOptions: { readonly includeRagAnswer?: boolean; readonly includeRagIngest?: boolean } = {},
+  providerOptions: {
+    readonly includeRagAnswer?: boolean;
+    readonly includeRagIngest?: boolean;
+    readonly includeRagRetrieveAsync?: boolean;
+  } = {},
 ): readonly AsyncCapabilityId[] {
   const provided: AsyncCapabilityId[] = [];
   if (options.fsRoot) {
@@ -641,6 +667,7 @@ function runProvidedAsyncCapabilities(
     if (providerOptions.includeRagAnswer === true) provided.push('rag.answer');
   }
   if (providerOptions.includeRagIngest === true) provided.push('rag.ingest');
+  if (providerOptions.includeRagRetrieveAsync === true) provided.push('rag.retrieveAsync');
   return provided;
 }
 
@@ -755,30 +782,112 @@ function sourceRagIngestUsesCliEmbedders(source: string): boolean {
   const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return false;
   if (validateRagSemantics(root).length > 0) return false;
-  const facts = collectRagSemanticFacts(root);
+  const facts: RagSemanticFacts = collectRagSemanticFacts(root);
   const storesByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
   const corporaByName = new Map(facts.corpora.map((corpus) => [corpus.name, corpus]));
   const localPersistentIndexes = facts.indexes.filter(
     (index) => (storesByName.get(index.storeName)?.kind ?? 'memory') === 'local-persistent',
   );
   if (localPersistentIndexes.length === 0) return false;
-  return localPersistentIndexes.every((index) => {
-    const corpus = corporaByName.get(index.corpusName);
-    if (!corpus) return false;
-    const embed = index.embedName ? corpus.embeds.find((candidate) => candidate.name === index.embedName) : undefined;
-    if (index.embedName && !embed) return false;
-    let model: ReturnType<typeof canonicalRagEmbedModel>;
-    try {
-      model = canonicalRagEmbedModel(embed?.model);
-    } catch {
-      return false;
-    }
-    return (
-      model === RAG_EMBED_MODEL_LOCAL_HASH ||
-      model === RAG_EMBED_MODEL_LOCAL_SEMANTIC ||
-      model === RAG_EMBED_MODEL_FAKE_DETERMINISTIC
-    );
+  return localPersistentIndexes.every((index) => ragIndexUsesCliEmbedder(index, corporaByName));
+}
+
+function sourceRagRetrieveAsyncUsesCliEmbedders(source: string): boolean {
+  const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, NODE_PARSE_CAPS);
+  if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return false;
+  if (validateRagSemantics(root).length > 0) return false;
+  const facts: RagSemanticFacts = collectRagSemanticFacts(root);
+  const requestedNames = requestedRagRetrieveAsyncNames(root);
+  const runtimeRetrievals =
+    requestedNames === undefined
+      ? facts.runtimeRetrievals
+      : facts.runtimeRetrievals.filter((retrieval) => requestedNames.has(retrieval.name));
+  if (runtimeRetrievals.length === 0) return false;
+  const indexesByName = new Map(facts.indexes.map((index) => [index.name, index]));
+  const storesByName = new Map(facts.vectorStores.map((store) => [store.name, store]));
+  const corporaByName = new Map(facts.corpora.map((corpus) => [corpus.name, corpus]));
+  return runtimeRetrievals.every((retrieval) => {
+    if (retrieval.indexNames.length === 0) return false;
+    return retrieval.indexNames.every((indexName) => {
+      const index = indexesByName.get(indexName);
+      if (!index) return false;
+      const storeKind = storesByName.get(index.storeName)?.kind ?? 'memory';
+      if (storeKind !== 'memory' && storeKind !== 'local-persistent') return false;
+      return ragIndexUsesCliEmbedder(index, corporaByName);
+    });
   });
+}
+
+function requestedRagRetrieveAsyncNames(root: IRNode): ReadonlySet<string> | undefined {
+  const names = new Set<string>();
+  let hasUnnamedRetrieveAsync = false;
+  for (const node of walkRunIrNodes(root)) {
+    if (node.type !== 'capability') continue;
+    if (node.props?.namespace !== 'rag' || node.props?.operation !== 'retrieveAsync') continue;
+    const input = node.props.input;
+    if (typeof input !== 'string') {
+      hasUnnamedRetrieveAsync = true;
+      continue;
+    }
+    try {
+      const parsed = parseExpression(input);
+      if (parsed.kind !== 'objectLit') {
+        hasUnnamedRetrieveAsync = true;
+        continue;
+      }
+      const name = stringLiteralRecordField(parsed, 'retrieval') ?? stringLiteralRecordField(parsed, 'retrievalName');
+      if (name) names.add(name);
+      else hasUnnamedRetrieveAsync = true;
+    } catch {
+      hasUnnamedRetrieveAsync = true;
+    }
+  }
+  return hasUnnamedRetrieveAsync || names.size === 0 ? undefined : names;
+}
+
+function stringLiteralRecordField(node: ReturnType<typeof parseExpression>, key: string): string | undefined {
+  if (node.kind !== 'objectLit') return undefined;
+  for (const entry of node.entries) {
+    if ('kind' in entry || entry.key !== key) continue;
+    if (entry.value.kind !== 'strLit') return undefined;
+    const value = entry.value.value.trim();
+    return value === '' ? undefined : value;
+  }
+  return undefined;
+}
+
+function* walkRunIrNodes(root: IRNode): Generator<IRNode> {
+  const stack: IRNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+    yield node;
+    const children = node.children ?? [];
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
+}
+
+function ragIndexUsesCliEmbedder(
+  index: RagSemanticFacts['indexes'][number],
+  corporaByName: ReadonlyMap<string, RagSemanticFacts['corpora'][number]>,
+): boolean {
+  const corpus = corporaByName.get(index.corpusName);
+  if (!corpus) return false;
+  const embed = index.embedName ? corpus.embeds.find((candidate) => candidate.name === index.embedName) : undefined;
+  if (index.embedName && !embed) return false;
+  let model: ReturnType<typeof canonicalRagEmbedModel>;
+  try {
+    model = canonicalRagEmbedModel(embed?.model);
+  } catch {
+    return false;
+  }
+  return (
+    model === RAG_EMBED_MODEL_LOCAL_HASH ||
+    model === RAG_EMBED_MODEL_LOCAL_SEMANTIC ||
+    model === RAG_EMBED_MODEL_FAKE_DETERMINISTIC
+  );
 }
 
 function resolveCliLlmProviderOptions(options: ParsedLlmProviderOptions): CliAsyncOpenAICompatibleLlmCapabilityOptions {
@@ -837,7 +946,11 @@ function asyncProviderHints(
 }
 
 function asyncProviderFlags(id: string): readonly string[] | undefined {
-  return Object.hasOwn(RUN_ASYNC_PROVIDER_FLAGS, id) ? RUN_ASYNC_PROVIDER_FLAGS[id as AsyncCapabilityId] : undefined;
+  return isRunAsyncProviderFlagId(id) ? RUN_ASYNC_PROVIDER_FLAGS[id] : undefined;
+}
+
+function isRunAsyncProviderFlagId(id: string): id is keyof typeof RUN_ASYNC_PROVIDER_FLAGS {
+  return Object.hasOwn(RUN_ASYNC_PROVIDER_FLAGS, id);
 }
 
 function knownRequirementReport(requirement: CapabilityRequirement): RunCapabilityRequirementReport {

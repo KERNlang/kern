@@ -328,6 +328,10 @@ function requirementList(requirements: readonly Pick<CapabilityRequirement, 'id'
   return requirements.map(requirementLabel).join(', ');
 }
 
+function referenceRunnerErrorMessage(error: ReferenceRunnerError): string {
+  return error.message;
+}
+
 function asyncCapabilityNodeLabel(node: IRNode): string | undefined {
   const namespace = node.props?.namespace;
   const operation = node.props?.operation;
@@ -366,6 +370,17 @@ function unsupportedAsyncContainerBeforeBranchSelection(root: IRNode): IRNode | 
     for (let index = children.length - 1; index >= 0; index -= 1) {
       stack.push(children[index]);
     }
+  }
+  return undefined;
+}
+
+function unsupportedAsyncContainerInExecutableHandlers(
+  mainHandler: IRNode,
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+): IRNode | undefined {
+  for (const handler of executableKernHandlers(mainHandler, runnerFunctions)) {
+    const unsupported = unsupportedAsyncContainerBeforeBranchSelection(handler);
+    if (unsupported) return unsupported;
   }
   return undefined;
 }
@@ -621,7 +636,9 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
     trace = referenceRunSequence(handler.children ?? [], env);
   } catch (err) {
     if (err instanceof ReferenceRunnerError) {
-      throw new KernRunnerError(`kern run: cannot execute - non-portable operation (${err.message})`);
+      throw new KernRunnerError(
+        `kern run: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+      );
     }
     throw new KernRunnerError(`kern run: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -694,6 +711,14 @@ export async function executeKernSourceAsync(
       `kern run async preflight: missing async providers: ${requirementList(analysis.missingAsyncProviders)}`,
     );
   }
+  if (
+    analysis.unsupportedAsyncExecutions.length > 0 &&
+    (analysis.asyncBoundaryRequired || options.providedAsyncCapabilities || options.asyncCapabilities)
+  ) {
+    throw new KernRunnerError(
+      `kern run async preflight: unsupported async executions: ${requirementList(analysis.unsupportedAsyncExecutions)}`,
+    );
+  }
   if (analysis.asyncBoundaryRequired) {
     if (!options.providedAsyncCapabilities) {
       throw new KernRunnerError(
@@ -732,7 +757,7 @@ export async function executeKernSourceAsync(
         )}`,
       );
     }
-    const unsupportedContainer = unsupportedAsyncContainerBeforeBranchSelection(handler);
+    const unsupportedContainer = unsupportedAsyncContainerInExecutableHandlers(handler, runnerFunctions);
     if (unsupportedContainer) {
       throw new KernRunnerError(
         `kern run async: async source execution for node type "${unsupportedContainer.type}" is unsupported in this preview`,
@@ -758,7 +783,9 @@ export async function executeKernSourceAsync(
       });
     } catch (err) {
       if (err instanceof ReferenceRunnerError) {
-        throw new KernRunnerError(`kern run async: cannot execute - non-portable operation (${err.message})`);
+        throw new KernRunnerError(
+          `kern run async: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+        );
       }
       throw new KernRunnerError(`kern run async: ${err instanceof Error ? err.message : String(err)}`);
     }

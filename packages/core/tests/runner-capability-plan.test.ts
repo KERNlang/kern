@@ -53,11 +53,12 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
   });
 
-  test('flags planned fs, net, llm, and rag answer capabilities without marking them unknown', () => {
+  test('flags planned fs, net, llm, and async rag capabilities without marking them unknown', () => {
     const source = program([
       'capability namespace=fs operation=readText name=file input="{ path: \\"README.md\\" }"',
       'capability namespace=net operation=fetch name=response input="{ method: \\"GET\\", url: \\"https://example.test\\" }"',
       'capability namespace=llm operation=complete name=text input="{ prompt: \\"hello\\" }"',
+      'capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\" }"',
       'capability namespace=rag operation=answer name=answer input="{ query: \\"refund\\", chunks: [] }"',
     ]);
 
@@ -68,6 +69,7 @@ describe('@kernlang/core/runner capability preflight', () => {
       'fs.readText',
       'net.fetch',
       'llm.complete',
+      'rag.retrieveAsync',
       'rag.answer',
     ]);
     expect(analysis.asyncBoundaryRequired).toBe(true);
@@ -75,9 +77,11 @@ describe('@kernlang/core/runner capability preflight', () => {
       'fs.readText',
       'net.fetch',
       'llm.complete',
+      'rag.retrieveAsync',
       'rag.answer',
     ]);
     expect(analysis.plannedCapabilities.map((requirement) => requirement.descriptor.syncBoundary)).toEqual([
+      'async-planned',
       'async-planned',
       'async-planned',
       'async-planned',
@@ -272,6 +276,34 @@ describe('@kernlang/core/runner capability preflight', () => {
     });
 
     expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main-handler',
+      }),
+    ]);
+  });
+
+  test('keeps unsupported helper-call async requirements out of executable readiness when async providers are supplied', () => {
+    const source = [
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    branch on="helper()"',
+      '      path value="ok"',
+      '        print value="\\"ok\\""',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.executableAsyncPlannedCapabilities).toEqual([]);
     expect(analysis.missingAsyncProviders).toEqual([]);
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
@@ -477,6 +509,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(CAPABILITY_DESCRIPTORS['net.fetch']).toEqual(expect.objectContaining({ status: 'planned' }));
     expect(CAPABILITY_DESCRIPTORS['llm.complete']).toEqual(expect.objectContaining({ status: 'planned' }));
     expect(CAPABILITY_DESCRIPTORS['rag.answer']).toEqual(expect.objectContaining({ status: 'planned' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.retrieveAsync']).toEqual(expect.objectContaining({ status: 'planned' }));
   });
 
   test('descriptor table keeps async boundary ids explicit', () => {
@@ -485,7 +518,16 @@ describe('@kernlang/core/runner capability preflight', () => {
         .filter((descriptor) => descriptor.syncBoundary === 'async-planned')
         .map((descriptor) => descriptor.id)
         .sort(),
-    ).toEqual(['fs.list', 'fs.readText', 'fs.writeText', 'llm.complete', 'net.fetch', 'rag.answer', 'rag.ingest']);
+    ).toEqual([
+      'fs.list',
+      'fs.readText',
+      'fs.writeText',
+      'llm.complete',
+      'net.fetch',
+      'rag.answer',
+      'rag.ingest',
+      'rag.retrieveAsync',
+    ]);
   });
 });
 

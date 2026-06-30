@@ -69,8 +69,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
   supplied in report mode to check async preview readiness, while separate sync
   and async blocker fields keep default `kern run` readiness distinct from
   `--async-preview` readiness; unsupported async execution shapes such as
-  helper functions outside `main` are reported separately from missing provider
-  flags
+  helper functions outside `main` and helper calls from unsupported expression
+  slots are reported separately from missing provider flags, and explicit
+  async-preview execution fails closed on those reported unsupported shapes
+  before falling back to the sync runner
 - `storage` capability calls backed by `createMemoryStorageCapability`, a
   browser-safe volatile provider for in-run state
 - `crypto` capability calls backed by `createWebCryptoCapability`, a
@@ -78,6 +80,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
   `randomHex`; embedders must inject the host crypto source explicitly
 - in the Node CLI path, local `rag.retrieve` capability calls over declared
   `ragRetrieve` specs with deterministic local embeddings
+- in the Node CLI async-preview path, `rag.retrieveAsync` capability calls run
+  the same declared `ragRetrieve` specs through the explicit async retrieval
+  adapter (`retrieveRagDocumentAsync`) while preserving retrieved-chunk
+  provenance for later `rag.answer` / `rag.checkAnswer` guards
 - in the Node CLI path, local `rag.promptContext` capability calls assemble
   retrieved chunks into a deterministic prompt-context record
 - in the Node CLI path, local `rag.checkAnswer` capability calls enforce
@@ -98,10 +104,18 @@ The preview surface is the documented, tested subset used by the smoke gate:
   `examples/rag-starter/runtime-answer-preview.kern` that composes local
   `rag.retrieve`, `rag.promptContext`, deterministic `llm.complete`, and
   `rag.checkAnswer` through `kern run --async-preview`
+- a KERN-authored async retrieval answer preview at
+  `examples/rag-starter/runtime-answer-async-retrieve-preview.kern` that
+  composes `rag.retrieveAsync`, `rag.promptContext`, deterministic
+  `llm.complete`, and `rag.checkAnswer` through `kern run --async-preview`
 - a KERN-authored RAG answer-capability preview at
   `examples/rag-starter/runtime-answer-capability-preview.kern` that keeps
   retrieval explicit but replaces manual prompt assembly, completion, and answer
   checking with one async `rag.answer` capability call
+- a KERN 5 preview vertical app at `examples/kern-5-preview-app` whose
+  browser UI markup, backend route behavior, RAG query path, and grounding
+  guard are emitted or authored from `.kern`, with `server.mjs` limited to thin
+  HTTP, storage, RAG adapter, and deterministic LLM host wiring
 
 Anything outside this surface is not a runtime promise until it has a contract,
 three-leg parity coverage where applicable, and a native runner test. Current
@@ -131,12 +145,16 @@ unexpected stderr, stdout drift, browser-unsafe runner imports, a broken
 probe. It also runs `examples/native-runtime-async-fs-preview.kern` and
 `examples/native-runtime-async-host-preview.kern` through the CLI async preview
 with temporary roots, a `data:` scheme allowlist, and deterministic LLM output.
-It also runs `examples/rag-starter/runtime-answer-preview.kern` and
+It also runs `examples/rag-starter/runtime-answer-preview.kern`,
+`examples/rag-starter/runtime-answer-async-retrieve-preview.kern`, and
 `examples/rag-starter/runtime-answer-capability-preview.kern` through
-`kern run --async-preview --llm-response ...` to prove sync local RAG retrieval
-can feed deterministic async LLM completion both through the manual primitive
-chain and through the dedicated `rag.answer` synthesis boundary inside
-KERN-authored preview programs.
+`kern run --async-preview --llm-response ...` to prove local RAG retrieval can
+feed deterministic async LLM completion both through the manual primitive chain,
+the explicit async retrieval boundary, and the dedicated `rag.answer` synthesis
+boundary inside KERN-authored preview programs. The same gate also runs
+`scripts/check-kern-5-preview-app.mjs`, which starts the maintained KERN 5
+preview app and checks the browser UI markup emitted from `.kern` plus the
+`.kern`-authored RAG answer route end to end.
 When Chrome/Chromium is available, the same gate also serves the checked
 in browser fixture and enforces a measured headless-browser import+execute
 budget of 750ms; `--browser-budget=required` or
@@ -210,16 +228,20 @@ providers remain explicit host-adapter work.
   `llm.complete` in a KERN-authored program, core now exposes deterministic
   prompt-context assembly for retrieved chunks before answer synthesis, and the
   Node CLI path can enforce explicit or inline-citation-derived answer
-  grounding/citation spans before printing. The first dedicated `rag.answer`
-  preview now composes retrieved chunks with the configured deterministic or
-  OpenAI-compatible `llm.complete` provider and returns only after the same
-  grounding contract passes. Async retrieval, runtime ingestion, and broader
+  grounding/citation spans before printing. The first async retrieval slice is
+  available through the clearly named `rag.retrieveAsync` preview capability.
+  The first dedicated `rag.answer` preview now composes retrieved chunks with
+  the configured deterministic or OpenAI-compatible `llm.complete` provider and
+  returns only after the same grounding contract passes. Runtime ingestion,
+  provider-backed retrieval adapters beyond the local preview, and broader
   async control-flow support remain future work.
 
 5. **End-to-end KERN app**
-   Ship one maintained vertical slice that uses KERN for browser-facing UI,
-   backend route behavior, RAG retrieval, and security guards, with TS/Python
-   limited to thin host adapters where still unavoidable.
+   The first maintained vertical slice lives at `examples/kern-5-preview-app`.
+   It uses KERN to emit browser-facing UI markup and to author backend route
+   behavior, RAG retrieval, and grounding/security checks, with JavaScript
+   limited to the thin HTTP and host-capability adapter. Keep expanding this
+   slice until the production KERN 5.0 app contract is proven.
 
 ## Non-Goals
 
@@ -236,10 +258,11 @@ providers remain explicit host-adapter work.
 | `storage.get` / `storage.set` / `storage.has` / `storage.delete` / `storage.clear` / `storage.keys` | Shipped | Sync | Browser-safe volatile provider, explicit injection through runner capabilities |
 | `crypto.randomUUID` / `crypto.randomBytes` / `crypto.randomHex` | Shipped | Sync | Browser-safe provider with explicit host crypto source |
 | `rag.retrieve` | Shipped | Sync | Node CLI local RAG adapter over declared local sources |
+| `rag.retrieveAsync` | Preview | Async planned | Node CLI preview async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves retrieval provenance |
 | `rag.promptContext` | Shipped | Sync | Node CLI local prompt-context assembly over retrieved RAG chunks |
 | `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved RAG chunks |
-| `rag.answer` | Planned | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
-| `rag.ingest` | Planned | Async planned | Node CLI preview indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
+| `rag.answer` | Preview | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
+| `rag.ingest` | Preview | Async planned | Node CLI preview indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
 | `fs.readText` / `fs.writeText` / `fs.list` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides root-scoped `fs.list` / `fs.readText` and opt-in `fs.writeText` |
 | `net.fetch` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview requires explicit `--allow-net <origin>` or `--allow-net data:` and denies redirects |
 | `llm.complete` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides deterministic `--llm-response <text>` and OpenAI-compatible `--llm-provider openai` |
@@ -290,9 +313,9 @@ returns, and non-portable provider values.
   async control-flow gaps.
 - Tighten provider-backed LLM policy surfaces beyond the first Node-only
   OpenAI-compatible async preview adapter.
-- Promote the dedicated `rag.answer` synthesis preview from explicit retrieved
-  chunks to async/provider-backed retrieval, and decide whether `rag.retrieve`
-  needs a dual sync/async descriptor boundary or a new provider-specific
-  capability.
+- Decide whether `rag.retrieveAsync` should remain the explicit async retrieval
+  capability or whether `rag.retrieve` needs a dual sync/async descriptor
+  boundary, and promote `rag.answer` from explicit retrieved chunks to
+  async/provider-backed retrieval after the 5.0 demo proves the app path.
 - Decide when a self-hosting/bootstrap demo is strong enough to call `kern run`
   canonical rather than preview.
