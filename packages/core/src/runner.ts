@@ -12,14 +12,12 @@ import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
 import { resetAllContractRegistration } from './ir/semantics/register-all.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
-import { parseExpression } from './parser-expression.js';
 import type {
   KernRunnerAsyncCapabilities,
   KernRunnerCapabilities,
   KernRunnerCapabilityContext,
 } from './runner-capabilities.js';
 import {
-  ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES,
   analyzeKernSourceCapabilities,
   CAPABILITY_DESCRIPTORS,
   type CapabilityRequirement,
@@ -27,7 +25,6 @@ import {
   type UnknownCapabilityRequirement,
 } from './runner-capability-plan.js';
 import type { IRNode } from './types.js';
-import type { ValueIR } from './value-ir.js';
 
 export type {
   AsyncCapabilityId,
@@ -121,9 +118,8 @@ export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions 
   providedAsyncCapabilities?: readonly string[];
   /**
    * Async host adapter surface used by executeKernSourceAsync for straight-line
-   * statements, the matched arm of if/else, selected branch paths, structured
-   * try/catch/finally, and sequential while/for/each loop bodies. Broader async
-   * control flow remains fail-closed.
+   * statements and the matched arm of if/else. Broader async control flow remains
+   * fail-closed.
    */
   asyncCapabilities?: KernRunnerAsyncCapabilities;
 }
@@ -247,7 +243,7 @@ function runnerFunctionBinding(fn: IRNode): RunnerFunctionBinding | undefined {
   if (!handler) return undefined;
   try {
     const params = runnerParamNames(fn, name);
-    return { name, params, returns: fn.props.returns, handler, body: handler.children ?? [] };
+    return { name, params, returns: fn.props.returns, body: handler.children ?? [] };
   } catch (error) {
     if (error instanceof KernRunnerError) return undefined;
     throw error;
@@ -328,10 +324,6 @@ function requirementList(requirements: readonly Pick<CapabilityRequirement, 'id'
   return requirements.map(requirementLabel).join(', ');
 }
 
-function referenceRunnerErrorMessage(error: ReferenceRunnerError): string {
-  return error.message;
-}
-
 function asyncCapabilityNodeLabel(node: IRNode): string | undefined {
   const namespace = node.props?.namespace;
   const operation = node.props?.operation;
@@ -343,231 +335,22 @@ function asyncCapabilityNodeLabel(node: IRNode): string | undefined {
   return node.loc?.line && node.loc.line > 0 ? `${id}@${node.loc.line}` : id;
 }
 
-function containsAsyncPlannedCapabilityNode(root: IRNode): boolean {
-  const stack: IRNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-    if (asyncCapabilityNodeLabel(node)) return true;
-    const children = node.children ?? [];
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      stack.push(children[index]);
-    }
-  }
-  return false;
-}
-
-function unsupportedAsyncContainerBeforeBranchSelection(root: IRNode): IRNode | undefined {
-  const stack: IRNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-    if (node !== root && (node.type === 'branch' || node.type === 'if' || node.type === 'else')) continue;
-    if (ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES.has(node.type) && containsAsyncPlannedCapabilityNode(node)) {
-      return node;
-    }
-    const children = node.children ?? [];
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      stack.push(children[index]);
-    }
-  }
-  return undefined;
-}
-
-function unsupportedAsyncContainerInExecutableHandlers(
-  mainHandler: IRNode,
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-): IRNode | undefined {
-  for (const handler of executableKernHandlers(mainHandler, runnerFunctions)) {
-    const unsupported = unsupportedAsyncContainerBeforeBranchSelection(handler);
-    if (unsupported) return unsupported;
-  }
-  return undefined;
-}
-
-function asyncCapabilityLabelsOutsideExecutable(
-  root: IRNode,
-  mainHandler: IRNode,
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-): string[] {
+function asyncCapabilityLabelsOutsideMain(root: IRNode, mainHandler: IRNode): string[] {
   const out: string[] = [];
-  const executableHandlers = executableKernHandlers(mainHandler, runnerFunctions);
-  const stack: Array<{ node: IRNode; insideExecutable: boolean }> = [
-    { node: root, insideExecutable: executableHandlers.has(root) },
-  ];
+  const stack: Array<{ node: IRNode; insideMain: boolean }> = [{ node: root, insideMain: root === mainHandler }];
   while (stack.length > 0) {
     const frame = stack.pop();
     if (!frame) continue;
-    const { node, insideExecutable } = frame;
-    const label = insideExecutable ? undefined : asyncCapabilityNodeLabel(node);
+    const { node, insideMain } = frame;
+    const label = insideMain ? undefined : asyncCapabilityNodeLabel(node);
     if (label) out.push(label);
     const children = node.children ?? [];
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
-      stack.push({ node: child, insideExecutable: insideExecutable || executableHandlers.has(child) });
+      stack.push({ node: child, insideMain: insideMain || child === mainHandler });
     }
   }
   return out;
-}
-
-function executableKernHandlers(
-  mainHandler: IRNode,
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-): ReadonlySet<IRNode> {
-  const out = new Set<IRNode>([mainHandler]);
-  const queued = [...calledRunnerFunctionNames(mainHandler.children ?? [], runnerFunctions)];
-  const visited = new Set<string>();
-  while (queued.length > 0) {
-    const name = queued.pop();
-    if (!name || visited.has(name)) continue;
-    visited.add(name);
-    const fn = runnerFunctions.get(name);
-    if (!fn) continue;
-    if (fn.handler) out.add(fn.handler);
-    for (const next of calledRunnerFunctionNames(fn.body, runnerFunctions)) {
-      if (!visited.has(next)) queued.push(next);
-    }
-  }
-  return out;
-}
-
-function calledRunnerFunctionNames(
-  nodes: readonly IRNode[],
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-): Set<string> {
-  const out = new Set<string>();
-  for (const node of walkRunnerNodes({ type: '__block', children: [...nodes] })) {
-    for (const expr of supportedRunnerFunctionCallExpressions(node)) {
-      collectRunnerFunctionCalls(expr.node, runnerFunctions, out, expr.mode);
-    }
-  }
-  return out;
-}
-
-type RunnerFunctionCallExpressionMode = 'scalar' | 'let' | 'capabilityInput';
-
-interface RunnerFunctionCallExpression {
-  readonly node: ValueIR;
-  readonly mode: RunnerFunctionCallExpressionMode;
-}
-
-function supportedRunnerFunctionCallExpressions(node: IRNode): RunnerFunctionCallExpression[] {
-  const props = node.props ?? {};
-  const out: RunnerFunctionCallExpression[] = [];
-  function add(raw: unknown, mode: RunnerFunctionCallExpressionMode): void {
-    if (typeof raw !== 'string' || raw.trim() === '') return;
-    try {
-      out.push({ node: parseExpression(raw), mode });
-    } catch {
-      // Parser/runtime diagnostics own malformed expressions.
-    }
-  }
-  if (node.type === 'let') {
-    add(props.value, 'let');
-  } else if (node.type === 'capability') {
-    add(props.input, 'capabilityInput');
-  } else if (
-    node.type === 'assign' ||
-    node.type === 'print' ||
-    node.type === 'return' ||
-    node.type === 'if' ||
-    node.type === 'while'
-  ) {
-    add(node.type === 'if' || node.type === 'while' ? props.cond : props.value, 'scalar');
-  } else if (node.type === 'fmt' && typeof props.template === 'string') {
-    try {
-      out.push({ node: parseExpression(`\`${props.template}\``), mode: 'scalar' });
-    } catch {
-      // Parser/runtime diagnostics own malformed templates.
-    }
-  }
-  return out;
-}
-
-function collectRunnerFunctionCalls(
-  node: ValueIR,
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-  out: Set<string>,
-  mode: RunnerFunctionCallExpressionMode,
-): void {
-  if (node.kind === 'call' && node.callee.kind === 'ident' && runnerFunctions.has(node.callee.name)) {
-    out.add(node.callee.name);
-  }
-  for (const child of valueChildren(node, runnerFunctions, mode)) {
-    collectRunnerFunctionCalls(child.node, runnerFunctions, out, child.mode);
-  }
-}
-
-function valueChildren(
-  node: ValueIR,
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-  mode: RunnerFunctionCallExpressionMode,
-): readonly RunnerFunctionCallExpression[] {
-  switch (node.kind) {
-    case 'unary':
-      return [{ node: node.argument, mode: 'scalar' }];
-    case 'binary':
-      return [
-        { node: node.left, mode: 'scalar' },
-        { node: node.right, mode: 'scalar' },
-      ];
-    case 'conditional':
-      return [
-        { node: node.test, mode: 'scalar' },
-        { node: node.consequent, mode: 'scalar' },
-        { node: node.alternate, mode: 'scalar' },
-      ];
-    case 'member':
-    case 'index':
-      return [];
-    case 'call':
-      if (node.callee.kind === 'ident' && (runnerFunctions.has(node.callee.name) || node.callee.name === 'String')) {
-        return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
-      }
-      return [];
-    case 'typeAssert':
-    case 'nonNull':
-      return [{ node: node.expression, mode: 'scalar' }];
-    case 'tmplLit':
-      return node.expressions.map((expression) => ({ node: expression, mode: 'scalar' }));
-    case 'arrayLit':
-      if (mode === 'capabilityInput') {
-        return node.items
-          .filter((item): item is ValueIR => Boolean(item))
-          .map((item) => ({ node: item, mode: 'capabilityInput' }));
-      }
-      if (mode === 'let') {
-        return node.items
-          .filter((item): item is ValueIR => Boolean(item))
-          .map((item) => ({ node: item, mode: item.kind === 'arrayLit' ? 'let' : 'scalar' }));
-      }
-      return [];
-    case 'objectLit':
-      if (mode === 'capabilityInput') {
-        return node.entries.flatMap((entry) => ('kind' in entry ? [] : [{ node: entry.value, mode }]));
-      }
-      if (mode === 'let') {
-        return node.entries.flatMap((entry) =>
-          'kind' in entry ? [] : [{ node: entry.value, mode: 'scalar' as const }],
-        );
-      }
-      return [];
-    default:
-      return [];
-  }
-}
-
-function* walkRunnerNodes(root: IRNode): Generator<IRNode> {
-  const stack: IRNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-    yield node;
-    const children = node.children ?? [];
-    for (let index = children.length - 1; index >= 0; index -= 1) {
-      stack.push(children[index]);
-    }
-  }
 }
 
 function missingAsyncCapabilityHandlers(
@@ -636,9 +419,7 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
     trace = referenceRunSequence(handler.children ?? [], env);
   } catch (err) {
     if (err instanceof ReferenceRunnerError) {
-      throw new KernRunnerError(
-        `kern run: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
-      );
+      throw new KernRunnerError(`kern run: cannot execute - non-portable operation (${err.message})`);
     }
     throw new KernRunnerError(`kern run: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -652,9 +433,9 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
  * Purely synchronous programs delegate to executeKernSource and keep today's
  * runtime behavior. Programs that request known async-planned capabilities are
  * preflighted against explicit async provider ids, then run through a narrow
- * async preview lane: straight-line body statements, selected control-flow
- * paths, structured try/catch/finally, and sequential loops can await async
- * capability providers, while unsupported async source shapes still fail closed.
+ * async preview lane: straight-line body statements and if/else can await async
+ * capability providers, while other async-containing control-flow constructs
+ * still fail closed.
  */
 export async function executeKernSourceAsync(
   source: string,
@@ -711,31 +492,21 @@ export async function executeKernSourceAsync(
       `kern run async preflight: missing async providers: ${requirementList(analysis.missingAsyncProviders)}`,
     );
   }
-  if (
-    analysis.unsupportedAsyncExecutions.length > 0 &&
-    (analysis.asyncBoundaryRequired || options.providedAsyncCapabilities || options.asyncCapabilities)
-  ) {
-    throw new KernRunnerError(
-      `kern run async preflight: unsupported async executions: ${requirementList(analysis.unsupportedAsyncExecutions)}`,
-    );
-  }
   if (analysis.asyncBoundaryRequired) {
     if (!options.providedAsyncCapabilities) {
       throw new KernRunnerError(
-        `kern run async preflight: missing async providers: ${requirementList(
-          analysis.executableAsyncPlannedCapabilities,
-        )}`,
+        `kern run async preflight: missing async providers: ${requirementList(analysis.asyncPlannedCapabilities)}`,
       );
     }
     if (!options.asyncCapabilities) {
       throw new KernRunnerError(
         `kern run async preflight: missing async capability handlers: ${requirementList(
-          analysis.executableAsyncPlannedCapabilities,
+          analysis.asyncPlannedCapabilities,
         )}`,
       );
     }
     const missingHandlers = missingAsyncCapabilityHandlers(
-      analysis.executableAsyncPlannedCapabilities,
+      analysis.asyncPlannedCapabilities,
       options.asyncCapabilities,
     );
     if (missingHandlers.length > 0) {
@@ -748,8 +519,7 @@ export async function executeKernSourceAsync(
     const firstAsyncParseError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (firstAsyncParseError) throw new KernRunnerError(firstAsyncParseError.message);
     const handler = resolveKernMainHandler(root);
-    const runnerFunctions = collectRunnerFunctions(root);
-    const outsideMain = asyncCapabilityLabelsOutsideExecutable(root, handler, runnerFunctions);
+    const outsideMain = asyncCapabilityLabelsOutsideMain(root, handler);
     if (outsideMain.length > 0) {
       throw new KernRunnerError(
         `kern run async: async source execution outside main handler is unsupported in this preview: ${outsideMain.join(
@@ -757,12 +527,7 @@ export async function executeKernSourceAsync(
         )}`,
       );
     }
-    const unsupportedContainer = unsupportedAsyncContainerInExecutableHandlers(handler, runnerFunctions);
-    if (unsupportedContainer) {
-      throw new KernRunnerError(
-        `kern run async: async source execution for node type "${unsupportedContainer.type}" is unsupported in this preview`,
-      );
-    }
+    const runnerFunctions = collectRunnerFunctions(root);
     ensureRunnerContractsRegistered();
 
     let trace: Awaited<ReturnType<typeof asyncReferenceRunSequence>>;
@@ -783,9 +548,7 @@ export async function executeKernSourceAsync(
       });
     } catch (err) {
       if (err instanceof ReferenceRunnerError) {
-        throw new KernRunnerError(
-          `kern run async: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
-        );
+        throw new KernRunnerError(`kern run async: cannot execute - non-portable operation (${err.message})`);
       }
       throw new KernRunnerError(`kern run async: ${err instanceof Error ? err.message : String(err)}`);
     }

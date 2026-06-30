@@ -543,23 +543,6 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.stdout).toContain('\nRefunds are available within thirty days [1]\n');
   });
 
-  test('RAG CAPABILITY: documented rag-starter async retrieve preview composes retrieval, llm, and grounding', () => {
-    const r = runArgs([
-      'run',
-      '--async-preview',
-      '--llm-response',
-      'Refunds are available within thirty days [1]',
-      resolve(ROOT, 'examples/rag-starter/runtime-answer-async-retrieve-preview.kern'),
-    ]);
-
-    expect(r.status).toBe(0);
-    expect(r.stderr).toBe('');
-    expect(r.stdout).toContain('1\n1\n[1] id=');
-    expect(r.stdout).toContain('source="corpus/refunds.md"');
-    expect(r.stdout).toContain('refund policy');
-    expect(r.stdout).toContain('\nRefunds are available within thirty days [1]\n');
-  });
-
   test('RAG CAPABILITY: answer preview fails closed when deterministic llm output is ungrounded', () => {
     const r = runArgs([
       'run',
@@ -880,95 +863,6 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.hasAsyncCapabilityBlockers).toBe(false);
   });
 
-  test('reports async rag.retrieveAsync preview readiness for the answer example', () => {
-    const result = runArgs([
-      'run',
-      '--capabilities',
-      '--llm-response',
-      'Refunds are available within thirty days [1]',
-      resolve(ROOT, 'examples/rag-starter/runtime-answer-async-retrieve-preview.kern'),
-    ]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
-    expect(report.requirements.map((requirement) => requirement.id)).toEqual(
-      expect.arrayContaining(['rag.retrieveAsync', 'rag.promptContext', 'llm.complete', 'rag.checkAnswer']),
-    );
-    expect(report.providedAsyncCapabilities).toEqual(['llm.complete', 'rag.retrieveAsync']);
-    expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.unsupportedAsyncExecutions).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(false);
-  });
-
-  test('reports async rag.retrieveAsync readiness for explicitly selected local retrievals only', () => {
-    const file = writeFile(
-      [
-        'corpus name=Docs',
-        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
-        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
-        '',
-        'embed name=LocalEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
-        'embed name=ProviderEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
-        'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
-        'vectorStore name=ProviderMemory kind=memory dims=1536 metric=cosine',
-        'ragIndex name=LocalIndex corpus=Docs store=DocsMemory embed=LocalEmbedding',
-        'ragIndex name=ProviderIndex corpus=Docs store=ProviderMemory embed=ProviderEmbedding',
-        'retriever name=DocsSearch corpus=Docs embed=LocalEmbedding',
-        'rag name=AnswerDocs retriever=DocsSearch citations=true',
-        '  grounding requireCitations=true',
-        '  ragRetrieve name=FindLocal index=LocalIndex queryParam=question topK=1 output="RetrievedChunk[]"',
-        '  ragRetrieve name=FindProvider index=ProviderIndex queryParam=question topK=1 output="RetrievedChunk[]"',
-        '',
-        'fn name=main returns=void',
-        '  handler lang="kern"',
-        '    capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\", retrieval: \\"FindLocal\\" }"',
-        '    print value="chunks.length"',
-      ].join('\n'),
-    );
-    const result = runArgs(['run', '--capabilities', file]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(report.requirements.map((requirement) => requirement.id)).toEqual(['rag.retrieveAsync']);
-    expect(report.providedAsyncCapabilities).toEqual(['rag.retrieveAsync']);
-    expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(false);
-  });
-
-  test('does not report async rag.retrieveAsync readiness without embed provider configuration', () => {
-    const file = writeFile(
-      [
-        'corpus name=Docs',
-        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
-        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
-        '',
-        'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=1536 metric=cosine',
-        'vectorStore name=DocsMemory kind=memory dims=1536 metric=cosine',
-        'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
-        'retriever name=DocsSearch corpus=Docs embed=DocsEmbedding',
-        'rag name=AnswerDocs retriever=DocsSearch citations=true',
-        '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
-        '',
-        'fn name=main returns=void',
-        '  handler lang="kern"',
-        '    capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\", retrieval: \\"FindDocs\\" }"',
-        '    print value="chunks.length"',
-      ].join('\n'),
-    );
-    const result = runArgs(['run', '--capabilities', file]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(2);
-    expect(result.stderr).toBe('');
-    expect(report.requirements.map((requirement) => requirement.id)).toEqual(['rag.retrieveAsync']);
-    expect(report.providedAsyncCapabilities).toEqual([]);
-    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['rag.retrieveAsync']);
-    expect(report.hasAsyncCapabilityBlockers).toBe(true);
-  });
-
   test('reports async rag.ingest readiness without unrelated provider flags', () => {
     const file = writeFile(
       [
@@ -1226,26 +1120,30 @@ describe('kern run --capabilities — preflights capability requirements without
     );
   });
 
-  test('reports async preview provider coverage for while loop capability calls', () => {
+  test('reports async preview provider coverage separately from unsupported async execution shape', () => {
     const file = writeFile(
       mainProgram([
-        'let kind=let name=n value="0"',
-        'while cond="n < 1"',
+        'while cond="true"',
         '  capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
-        '  assign target=n value="n + 1"',
       ]),
     );
 
     const result = runArgs(['run', '--capabilities', '--allow-net', 'data:', file]);
     const report = parseCapabilityReport(result);
 
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
     expect(report.capabilityReadinessMode).toBe('async-preview');
     expect(report.providedAsyncCapabilities).toEqual(['net.fetch']);
     expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.unsupportedAsyncExecutions).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(false);
+    expect(report.hasAsyncCapabilityBlockers).toBe(true);
+    expect(report.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'net.fetch',
+        reason: 'unsupported-container',
+        containerType: 'while',
+      }),
+    ]);
   });
 
   test('reports async preview provider coverage for for and each loop capability calls', () => {
@@ -1269,134 +1167,6 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
     expect(report.hasAsyncCapabilityBlockers).toBe(false);
-  });
-
-  test('reports async preview provider coverage for branch path capability calls', () => {
-    const file = writeFile(
-      mainProgram([
-        'branch on="\\"paid\\""',
-        '  path value="paid"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
-        '  path default=true',
-        '    capability namespace=llm operation=complete name=fallback input="{ prompt: \\"fallback\\" }"',
-      ]),
-    );
-
-    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
-    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
-    expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.unsupportedAsyncExecutions).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(false);
-  });
-
-  test('reports async preview provider coverage for try/catch/finally capability calls', () => {
-    const file = writeFile(
-      mainProgram([
-        'try',
-        '  capability namespace=llm operation=complete name=answer input="{ prompt: \\"body\\" }"',
-        '  throw value="new Error(\\"boom\\")"',
-        '  catch name=e',
-        '    capability namespace=llm operation=complete name=recovered input="{ prompt: e.message }"',
-        '  finally',
-        '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
-      ]),
-    );
-
-    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
-    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
-    expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.unsupportedAsyncExecutions).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(false);
-  });
-
-  test('reports async preview provider coverage for called helper capability calls', () => {
-    const file = writeFile(
-      [
-        'fn name=helper returns=string',
-        '  handler lang="kern"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-        '    return value="answer"',
-        'fn name=main returns=void',
-        '  handler lang="kern"',
-        '    print value="helper()"',
-      ].join('\n'),
-    );
-
-    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
-    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
-    expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.unsupportedAsyncExecutions).toEqual([]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(false);
-  });
-
-  test('reports unsupported async helper expression slots as async-preview blockers', () => {
-    const file = writeFile(
-      [
-        'fn name=helper returns=string',
-        '  handler lang="kern"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-        '    return value="answer"',
-        'fn name=main returns=void',
-        '  handler lang="kern"',
-        '    branch on="helper()"',
-        '      path value="ok"',
-        '        print value="\\"ok\\""',
-      ].join('\n'),
-    );
-
-    const result = runArgs(['run', '--capabilities', '--llm-response', 'ok', file]);
-    const report = parseCapabilityReport(result);
-
-    expect(result.status).toBe(2);
-    expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
-    expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
-    expect(report.missingAsyncProviders).toEqual([]);
-    expect(report.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'outside-main-handler',
-      }),
-    ]);
-    expect(report.hasAsyncCapabilityBlockers).toBe(true);
-    expect(report.hasCapabilityBlockers).toBe(true);
-  });
-
-  test('async preview execution fails closed for unsupported async helper expression slots', () => {
-    const file = writeFile(
-      [
-        'fn name=helper returns=string',
-        '  handler lang="kern"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-        '    return value="answer"',
-        'fn name=main returns=void',
-        '  handler lang="kern"',
-        '    branch on="helper()"',
-        '      path value="ok"',
-        '        print value="\\"ok\\""',
-      ].join('\n'),
-    );
-
-    const result = runArgs(['run', '--async-preview', '--llm-response', 'ok', file]);
-
-    expect(result.status).toBe(2);
-    expect(result.stdout).toBe('');
-    expect(result.stderr).toContain('kern run async preflight: unsupported async executions: llm.complete');
   });
 
   test('does not switch programmatic capability reports to async-preview mode for fsWriteRoot alone', () => {

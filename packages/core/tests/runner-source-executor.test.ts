@@ -968,177 +968,6 @@ describe('@kernlang/core/runner source executor', () => {
     ).rejects.toThrow(/non-portable value/);
   });
 
-  test('async source executor awaits async capabilities across try, catch, and finally', async () => {
-    const calls: string[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          const prompt = String((call.input as { readonly prompt?: unknown }).prompt);
-          calls.push(prompt);
-          await Promise.resolve();
-          return `answer:${prompt}`;
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'try',
-        '  capability namespace=llm operation=complete name=before input="{ prompt: \\"body\\" }"',
-        '  print value="before"',
-        '  throw value="new Error(\\"boom\\")"',
-        '  catch name=e',
-        '    capability namespace=llm operation=complete name=recovered input="{ prompt: e.message }"',
-        '    print value="recovered"',
-        '  finally',
-        '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
-        '    print value="cleanup"',
-        'print value="\\"after\\""',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('answer:body\nanswer:boom\nanswer:cleanup\nafter\n');
-    expect(calls).toEqual(['body', 'boom', 'cleanup']);
-  });
-
-  test('async source executor skips catch after normal async try body and still runs async finally', async () => {
-    const calls: string[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          const prompt = String((call.input as { readonly prompt?: unknown }).prompt);
-          calls.push(prompt);
-          return prompt;
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'try',
-        '  capability namespace=llm operation=complete name=body input="{ prompt: \\"body\\" }"',
-        '  print value="body"',
-        '  catch name=e',
-        '    capability namespace=llm operation=complete name=unreached input="{ prompt: e.message }"',
-        '    print value="unreached"',
-        '  finally',
-        '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
-        '    print value="cleanup"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('body\ncleanup\n');
-    expect(calls).toEqual(['body', 'cleanup']);
-  });
-
-  test('async source executor runs async finally before propagating a return completion', async () => {
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          return String((call.input as { readonly prompt?: unknown }).prompt);
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'try',
-        '  capability namespace=llm operation=complete name=body input="{ prompt: \\"body\\" }"',
-        '  print value="body"',
-        '  return',
-        '  finally',
-        '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
-        '    print value="cleanup"',
-        'print value="\\"after\\""',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('body\ncleanup\n');
-  });
-
-  test('async source executor fails closed when async finally completes abruptly', async () => {
-    await expect(
-      executeKernSourceAsync(
-        mainProgram([
-          'try',
-          '  capability namespace=llm operation=complete name=body input="{ prompt: \\"body\\" }"',
-          '  finally',
-          '    capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
-          '    return value="1"',
-        ]),
-        {
-          asyncCapabilities: {
-            llm: {
-              async complete() {
-                return 'ok';
-              },
-            },
-          },
-          providedAsyncCapabilities: ['llm.complete'],
-        },
-      ),
-    ).rejects.toThrow(/finally must complete normally/);
-  });
-
-  test('async source executor fails closed when async try body returns while catch is present', async () => {
-    await expect(
-      executeKernSourceAsync(
-        mainProgram([
-          'try',
-          '  capability namespace=llm operation=complete name=body input="{ prompt: \\"body\\" }"',
-          '  return',
-          '  catch name=e',
-          '    print value="e.message"',
-        ]),
-        {
-          asyncCapabilities: {
-            llm: {
-              async complete() {
-                return 'ok';
-              },
-            },
-          },
-          providedAsyncCapabilities: ['llm.complete'],
-        },
-      ),
-    ).rejects.toThrow(/body return with catch/);
-  });
-
-  test('async source executor does not catch raw async provider exceptions as KERN errors', async () => {
-    await expect(
-      executeKernSourceAsync(
-        mainProgram([
-          'try',
-          '  capability namespace=llm operation=complete name=answer input="{ prompt: \\"body\\" }"',
-          '  catch name=e',
-          '    print value="e.message"',
-        ]),
-        {
-          asyncCapabilities: {
-            llm: {
-              async complete() {
-                throw new Error('provider boom');
-              },
-            },
-          },
-          providedAsyncCapabilities: ['llm.complete'],
-        },
-      ),
-    ).rejects.toThrow(/provider boom/);
-  });
-
   test('async source executor runs async capabilities only in the selected if/else branch', async () => {
     const calls: string[] = [];
     const asyncCapabilities: KernRunnerAsyncCapabilities = {
@@ -1173,269 +1002,6 @@ describe('@kernlang/core/runner source executor', () => {
 
     expect(stdout).toBe('fallback\n');
     expect(calls).toEqual(['llm.complete']);
-  });
-
-  test('async source executor awaits async capabilities only in the selected branch path', async () => {
-    const calls: string[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          const prompt = String((call.input as { readonly prompt?: unknown }).prompt);
-          calls.push(prompt);
-          return `answer:${prompt}`;
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let name=kind value="\\"paid\\""',
-        'branch on="kind"',
-        '  path value="paid"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
-        '    print value="answer"',
-        '  path value="refund"',
-        '    capability namespace=llm operation=complete name=skipped input="{ prompt: \\"skipped\\" }"',
-        '    print value="skipped"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('answer:selected\n');
-    expect(calls).toEqual(['selected']);
-  });
-
-  test('async source executor awaits async capabilities in a branch default path', async () => {
-    const calls: string[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          const prompt = String((call.input as { readonly prompt?: unknown }).prompt);
-          calls.push(prompt);
-          return `default:${prompt}`;
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'branch on="\\"missing\\""',
-        '  path value="paid"',
-        '    capability namespace=llm operation=complete name=skipped input="{ prompt: \\"skipped\\" }"',
-        '    print value="skipped"',
-        '  path default=true',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"fallback\\" }"',
-        '    print value="answer"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('default:fallback\n');
-    expect(calls).toEqual(['fallback']);
-  });
-
-  test('async source executor ignores async try work in an untaken branch path', async () => {
-    const calls: string[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete() {
-          calls.push('llm.complete');
-          return 'selected';
-        },
-      },
-      net: {
-        async fetch() {
-          calls.push('net.fetch');
-          return { status: 200 };
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'branch on="\\"safe\\""',
-        '  path value="safe"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
-        '    print value="answer"',
-        '  path value="danger"',
-        '    try',
-        '      capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '      catch name=e',
-        '        print value="e.message"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('selected\n');
-    expect(calls).toEqual(['llm.complete']);
-  });
-
-  test('async source executor ignores async try work in an unselected if arm inside a branch path', async () => {
-    const calls: string[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete() {
-          calls.push('llm.complete');
-          return 'nested';
-        },
-      },
-      net: {
-        async fetch() {
-          calls.push('net.fetch');
-          return { status: 200 };
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'branch on="\\"safe\\""',
-        '  path value="safe"',
-        '    if cond="true"',
-        '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"nested\\" }"',
-        '      print value="answer"',
-        '    else',
-        '      try',
-        '        capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '        catch name=e',
-        '          print value="e.message"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('nested\n');
-    expect(calls).toEqual(['llm.complete']);
-  });
-
-  test('async source executor awaits async try work in a selected branch path', async () => {
-    const calls: string[] = [];
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'branch on="\\"danger\\""',
-        '  path value="danger"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"before\\" }"',
-        '    print value="answer"',
-        '    try',
-        '      capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '      print value="response.status"',
-        '      finally',
-        '        capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
-        '        print value="cleanup"',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              const prompt = String((call.input as { readonly prompt?: unknown }).prompt);
-              calls.push(`llm:${prompt}`);
-              return prompt;
-            },
-          },
-          net: {
-            async fetch() {
-              calls.push('net.fetch');
-              return { status: 200 };
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('before\n200\ncleanup\n');
-    expect(calls).toEqual(['llm:before', 'net.fetch', 'llm:cleanup']);
-  });
-
-  test('async source executor lets selected branch paths assign outer bindings across awaited capabilities', async () => {
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete() {
-          return 'inner';
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=out value="\\"outer\\""',
-        'branch on="\\"selected\\""',
-        '  path value="selected"',
-        '    capability namespace=llm operation=complete name=local input="{ prompt: \\"value\\" }"',
-        '    assign target=out value="local"',
-        'print value="out"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('inner\n');
-  });
-
-  test('async source executor keeps selected branch path-local bindings scoped after awaited capabilities', async () => {
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete() {
-          return 'inner';
-        },
-      },
-    };
-
-    await expect(
-      executeKernSourceAsync(
-        mainProgram([
-          'branch on="\\"selected\\""',
-          '  path value="selected"',
-          '    capability namespace=llm operation=complete name=local input="{ prompt: \\"value\\" }"',
-          'print value="local"',
-        ]),
-        {
-          asyncCapabilities,
-          providedAsyncCapabilities: ['llm.complete'],
-        },
-      ),
-    ).rejects.toThrow(KernRunnerError);
-  });
-
-  test('async source executor propagates return completion from selected branch paths after awaited capabilities', async () => {
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete() {
-          return 'before-return';
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'branch on="\\"selected\\""',
-        '  path value="selected"',
-        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"value\\" }"',
-        '    print value="answer"',
-        '    return',
-        'print value="\\"after\\""',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('before-return\n');
   });
 
   test('async source executor awaits async capabilities sequentially inside for loops', async () => {
@@ -1509,44 +1075,6 @@ describe('@kernlang/core/runner source executor', () => {
 
     expect(stdout).toBe('1\nreused\n');
     expect(calls).toEqual([{ statusOnly: true }]);
-  });
-
-  test('async source executor awaits rag.retrieveAsync provider and binds portable chunks', async () => {
-    const calls: unknown[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      rag: {
-        async retrieveAsync(call) {
-          calls.push(call.input);
-          await Promise.resolve();
-          return [
-            {
-              id: 'chunk-1',
-              text: 'refund policy money back within thirty days',
-              score: 0.99,
-              source: 'docs/refunds.md',
-              citationUri: 'docs/refunds.md',
-              citationLocator: null,
-            },
-          ];
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\", retrieval: \\"FindDocs\\" }"',
-        'print value="chunks.length"',
-        'each name=chunk in=chunks',
-        '  print value="chunk.source"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['rag.retrieveAsync'],
-      },
-    );
-
-    expect(stdout).toBe('1\ndocs/refunds.md\n');
-    expect(calls).toEqual([{ question: 'refund', retrieval: 'FindDocs' }]);
   });
 
   test('async source executor awaits async capabilities sequentially inside each loops', async () => {
@@ -1648,278 +1176,91 @@ describe('@kernlang/core/runner source executor', () => {
     expect(calls).toEqual([10, 20, 10, 20]);
   });
 
-  test('async source executor awaits async capabilities sequentially inside while loops', async () => {
-    const calls: number[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
-          calls.push(prompt);
-          await Promise.resolve();
-          return prompt * 10;
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="0"',
-        'let kind=let name=total value="0"',
-        'while cond="n < 3"',
-        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
-        '  assign target=total value="total + value"',
-        '  assign target=n value="n + 1"',
-        'print value="total"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('30\n');
-    expect(calls).toEqual([0, 1, 2]);
-  });
-
-  test('async source executor skips async while bodies when the condition is initially false', async () => {
-    const calls: string[] = [];
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="3"',
-        'while cond="n < 3"',
-        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
-        'print value="\\"done\\""',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete() {
-              calls.push('llm.complete');
-              return 'unreached';
+  test('async source executor rejects async capability calls inside unsupported control flow', async () => {
+    await expect(
+      executeKernSourceAsync(
+        mainProgram([
+          'let kind=let name=n value="0"',
+          'while cond="n < 1"',
+          '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+          '  print value="response.status"',
+          '  assign target=n value="n + 1"',
+        ]),
+        {
+          asyncCapabilities: {
+            net: {
+              async fetch() {
+                return { status: 200 };
+              },
             },
           },
+          providedAsyncCapabilities: ['net.fetch'],
         },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('done\n');
-    expect(calls).toEqual([]);
+      ),
+    ).rejects.toThrow(/async source execution for node type "while" is unsupported/);
   });
 
-  test('async source executor preserves break and continue inside async while loops', async () => {
-    const calls: number[] = [];
-    const asyncCapabilities: KernRunnerAsyncCapabilities = {
-      llm: {
-        async complete(call) {
-          const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
-          calls.push(prompt);
-          return prompt * 10;
-        },
-      },
-    };
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="0"',
-        'let kind=let name=total value="0"',
-        'while cond="n < 5"',
-        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
-        '  assign target=n value="n + 1"',
-        '  if cond="n == 2"',
-        '    continue',
-        '  if cond="n == 4"',
-        '    break',
-        '  assign target=total value="total + value"',
-        'print value="total"',
-      ]),
-      {
-        asyncCapabilities,
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('20\n');
-    expect(calls).toEqual([0, 1, 2, 3]);
-  });
-
-  test('async source executor re-evaluates while conditions after continue completions', async () => {
-    const calls: number[] = [];
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="0"',
-        'while cond="n < 1"',
-        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
-        '  assign target=n value="n + 1"',
-        '  continue',
-        'print value="n"',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
-              calls.push(prompt);
-              return prompt;
+  test('async source executor rejects unsupported async control flow before choosing an if arm', async () => {
+    await expect(
+      executeKernSourceAsync(
+        mainProgram([
+          'if cond="false"',
+          '  while cond="true"',
+          '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+          'else',
+          '  print value="\\"fallback\\""',
+        ]),
+        {
+          asyncCapabilities: {
+            net: {
+              async fetch() {
+                return { status: 200 };
+              },
             },
           },
+          providedAsyncCapabilities: ['net.fetch'],
         },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('1\n');
-    expect(calls).toEqual([0]);
+      ),
+    ).rejects.toThrow(/async source execution for node type "while" is unsupported/);
   });
 
-  test('async source executor keeps while body-local bindings scoped per iteration', async () => {
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="0"',
-        'while cond="n < 2"',
-        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
-        '  let name=temp value="value"',
-        '  assign target=n value="n + 1"',
-        'print value="n"',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              return Number((call.input as { readonly prompt?: unknown }).prompt);
+  test('async source executor validates unselected else-if conditions before execution', async () => {
+    await expect(
+      executeKernSourceAsync(
+        mainProgram([
+          'if cond="true"',
+          '  capability namespace=llm operation=complete name=answer input="{ prompt: \\"ok\\" }"',
+          '  print value="answer"',
+          'else',
+          '  if cond="missingFlag"',
+          '    print value="\\"unreached\\""',
+        ]),
+        {
+          asyncCapabilities: {
+            llm: {
+              async complete() {
+                return 'ok';
+              },
             },
           },
+          providedAsyncCapabilities: ['llm.complete'],
         },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('2\n');
+      ),
+    ).rejects.toThrow(/Preconditions failed for node type "if"/);
   });
 
-  test('async source executor propagates return completions from async while loops', async () => {
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="0"',
-        'while cond="n < 3"',
-        '  capability namespace=llm operation=complete name=value input="{ prompt: n }"',
-        '  return',
-        'print value="\\"unreached\\""',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete() {
-              return 'ok';
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('');
-  });
-
-  test('async source executor awaits try with async capabilities inside while loops', async () => {
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'let kind=let name=n value="0"',
-        'while cond="n < 1"',
-        '  try',
-        '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '    print value="response.status"',
-        '    catch name=e',
-        '      print value="e.message"',
-        '  assign target=n value="n + 1"',
-      ]),
-      {
-        asyncCapabilities: {
-          net: {
-            async fetch() {
-              return { status: 200 };
-            },
-          },
-        },
-        providedAsyncCapabilities: ['net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('200\n');
-  });
-
-  test('async source executor ignores unsupported async control flow in an unselected if arm', async () => {
-    const calls: string[] = [];
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'if cond="false"',
-        '  while cond="true"',
-        '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        'else',
-        '  print value="\\"fallback\\""',
-      ]),
-      {
-        asyncCapabilities: {
-          net: {
-            async fetch() {
-              calls.push('net.fetch');
-              return { status: 200 };
-            },
-          },
-        },
-        providedAsyncCapabilities: ['net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('fallback\n');
-    expect(calls).toEqual([]);
-  });
-
-  test('async source executor does not validate unselected else-if conditions before execution', async () => {
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'if cond="true"',
-        '  capability namespace=llm operation=complete name=answer input="{ prompt: \\"ok\\" }"',
-        '  print value="answer"',
-        'else',
-        '  if cond="missingFlag"',
-        '    print value="\\"unreached\\""',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete() {
-              return 'ok';
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('ok\n');
-  });
-
-  test('async source executor does not enter async try work inside empty loops', async () => {
-    const calls: string[] = [];
+  test('async source executor rejects unsupported nested async control flow before entering empty loops', async () => {
     const cases: string[][] = [
       [
         'for name=i from="0" to="0"',
-        '  try',
+        '  while cond="true"',
         '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '    catch name=e',
-        '      print value="e.message"',
       ],
       [
         'let name=items value="[]"',
         'each name=item in=items',
-        '  try',
+        '  while cond="true"',
         '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '    catch name=e',
-        '      print value="e.message"',
       ],
     ];
 
@@ -1929,369 +1270,55 @@ describe('@kernlang/core/runner source executor', () => {
           asyncCapabilities: {
             net: {
               async fetch() {
-                calls.push('net.fetch');
                 return { status: 200 };
               },
             },
           },
           providedAsyncCapabilities: ['net.fetch'],
         }),
-      ).resolves.toBe('');
+      ).rejects.toThrow(/async source execution for node type "while" is unsupported/);
     }
-    expect(calls).toEqual([]);
   });
 
-  test('async source executor awaits async capability calls inside try control flow', async () => {
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'try',
-        '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '  print value="response.status"',
-        '  catch name=e',
-        '    print value="e.message"',
-      ]),
+  test('async source executor rejects async capability calls inside other unsupported control flow', async () => {
+    const cases: Array<{ nodeType: string; body: string[] }> = [
       {
-        asyncCapabilities: {
-          net: {
-            async fetch() {
-              return { status: 200 };
-            },
-          },
-        },
-        providedAsyncCapabilities: ['net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('200\n');
-  });
-
-  test('async source executor dispatches sequential async capabilities before and inside try', async () => {
-    const calls: string[] = [];
-
-    const stdout = await executeKernSourceAsync(
-      mainProgram([
-        'capability namespace=llm operation=complete name=answer input="{ prompt: \\"before\\" }"',
-        'print value="answer"',
-        'try',
-        '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-        '  print value="response.status"',
-        '  catch name=e',
-        '    print value="e.message"',
-      ]),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete() {
-              calls.push('llm.complete');
-              return 'before';
-            },
-          },
-          net: {
-            async fetch() {
-              calls.push('net.fetch');
-              return { status: 200 };
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
-      },
-    );
-
-    expect(stdout).toBe('before\n200\n');
-    expect(calls).toEqual(['llm.complete', 'net.fetch']);
-  });
-
-  test('async source executor awaits async capability calls inside same-file helper functions', async () => {
-    const calls: string[] = [];
-    const stdout = await executeKernSourceAsync(
-      programWithFunctions(
-        [
-          [
-            'fn name=remote returns=number',
-            '  handler lang="kern"',
-            '    capability namespace=llm operation=complete name=value input="{ prompt: \\"score\\" }"',
-            '    return value="value"',
-          ],
+        nodeType: 'branch',
+        body: [
+          'let name=kind value="\\"ok\\""',
+          'branch on="kind"',
+          '  path value="ok"',
+          '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
         ],
-        ['print value="remote()"'],
-      ),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              calls.push(String((call.input as { readonly prompt?: unknown }).prompt));
-              return 7;
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
       },
-    );
-
-    expect(stdout).toBe('7\n');
-    expect(calls).toEqual(['score']);
-  });
-
-  test('async source executor awaits nested same-file helper calls', async () => {
-    const calls: string[] = [];
-    const stdout = await executeKernSourceAsync(
-      programWithFunctions(
-        [
-          [
-            'fn name=remote returns=number',
-            '  handler lang="kern"',
-            '    capability namespace=llm operation=complete name=value input="{ prompt: \\"base\\" }"',
-            '    return value="value"',
-          ],
-          ['fn name=wrapped returns=number', '  handler lang="kern"', '    return value="remote() + 1"'],
-        ],
-        ['print value="wrapped()"'],
-      ),
       {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              calls.push(String((call.input as { readonly prompt?: unknown }).prompt));
-              return 7;
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('8\n');
-    expect(calls).toEqual(['base']);
-  });
-
-  test('async source executor uses async helper results in later capability input records', async () => {
-    const stored: unknown[] = [];
-    const stdout = await executeKernSourceAsync(
-      programWithFunctions(
-        [
-          [
-            'fn name=remote returns=string',
-            '  handler lang="kern"',
-            '    capability namespace=llm operation=complete name=value input="{ prompt: \\"theme\\" }"',
-            '    return value="value"',
-          ],
+        nodeType: 'try',
+        body: [
+          'try',
+          '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
+          '  catch name=e',
+          '    print value="e.message"',
         ],
-        [
-          'capability namespace=storage operation=set name=ok input="{ key: \\"theme\\", value: remote() }"',
-          'print value="ok"',
-        ],
-      ),
-      {
-        capabilities: {
-          storage: {
-            set(call) {
-              stored.push(call.input);
-              return true;
-            },
-          },
-        },
-        providedCapabilities: ['storage.set'],
-        asyncCapabilities: {
-          llm: {
-            async complete() {
-              return 'dark';
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
       },
-    );
+    ];
 
-    expect(stdout).toBe('true\n');
-    expect(stored).toEqual([{ key: 'theme', value: 'dark' }]);
-  });
-
-  test('async source executor rejects sync capability side effects inside helper expressions', async () => {
-    const stored: unknown[] = [];
-    await expect(
-      executeKernSourceAsync(
-        programWithFunctions(
-          [
-            [
-              'fn name=mutate returns=boolean',
-              '  handler lang="kern"',
-              '    capability namespace=storage operation=set name=ok input="{ key: \\"theme\\", value: \\"dark\\" }"',
-              '    return value="ok"',
-            ],
-          ],
-          [
-            'capability namespace=llm operation=complete name=answer input="{ prompt: \\"main\\" }"',
-            'print value="mutate()"',
-          ],
-        ),
-        {
-          capabilities: {
-            storage: {
-              set(call) {
-                stored.push(call.input);
-                return true;
-              },
-            },
-          },
-          providedCapabilities: ['storage.set'],
+    for (const { nodeType, body } of cases) {
+      await expect(
+        executeKernSourceAsync(mainProgram(body), {
           asyncCapabilities: {
-            llm: {
-              async complete() {
-                return 'ok';
+            net: {
+              async fetch() {
+                return { status: 200 };
               },
             },
           },
-          providedAsyncCapabilities: ['llm.complete'],
-        },
-      ),
-    ).rejects.toThrow(/Preconditions failed for node type "print"/);
-    expect(stored).toEqual([]);
+          providedAsyncCapabilities: ['net.fetch'],
+        }),
+      ).rejects.toThrow(new RegExp(`async source execution for node type "${nodeType}" is unsupported`));
+    }
   });
 
-  test('async source executor awaits helper calls in async if and while conditions', async () => {
-    const calls: number[] = [];
-    const stdout = await executeKernSourceAsync(
-      programWithFunctions(
-        [
-          [
-            'fn name=keepGoing params="n:number" returns=boolean',
-            '  handler lang="kern"',
-            '    capability namespace=llm operation=complete name=ok input="{ prompt: n }"',
-            '    return value="ok"',
-          ],
-        ],
-        [
-          'let kind=let name=n value="0"',
-          'if cond="keepGoing(n)"',
-          '  print value="\\"start\\""',
-          'while cond="keepGoing(n)"',
-          '  assign target=n value="n + 1"',
-          'print value="n"',
-        ],
-      ),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
-              calls.push(prompt);
-              return prompt < 2;
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('start\n2\n');
-    expect(calls).toEqual([0, 0, 1, 2]);
-  });
-
-  test('async source executor consumes continue before the next async while condition pass', async () => {
-    const calls: number[] = [];
-    const stdout = await executeKernSourceAsync(
-      programWithFunctions(
-        [
-          [
-            'fn name=keepGoing params="n:number" returns=boolean',
-            '  handler lang="kern"',
-            '    capability namespace=llm operation=complete name=ok input="{ prompt: n }"',
-            '    return value="ok"',
-          ],
-        ],
-        [
-          'let kind=let name=n value="0"',
-          'while cond="keepGoing(n)"',
-          '  assign target=n value="n + 1"',
-          '  if cond="n == 1"',
-          '    continue',
-          '  print value="n"',
-        ],
-      ),
-      {
-        asyncCapabilities: {
-          llm: {
-            async complete(call) {
-              const prompt = Number((call.input as { readonly prompt?: unknown }).prompt);
-              calls.push(prompt);
-              return prompt < 2;
-            },
-          },
-        },
-        providedAsyncCapabilities: ['llm.complete'],
-      },
-    );
-
-    expect(stdout).toBe('2\n');
-    expect(calls).toEqual([0, 1, 2]);
-  });
-
-  test('async source executor reports missing async providers for called helper requirements', async () => {
-    await expect(
-      executeKernSourceAsync(
-        programWithFunctions(
-          [
-            [
-              'fn name=remote returns=number',
-              '  handler lang="kern"',
-              '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-              '    return value="response.status"',
-            ],
-          ],
-          ['print value="remote()"'],
-        ),
-        { providedAsyncCapabilities: [] },
-      ),
-    ).rejects.toThrow(/missing async providers: net\.fetch/);
-  });
-
-  test('async source executor fails closed during preflight for async helpers called from unsupported expression slots', async () => {
-    await expect(
-      executeKernSourceAsync(
-        programWithFunctions(
-          [
-            [
-              'fn name=remote returns=string',
-              '  handler lang="kern"',
-              '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-              '    return value="answer"',
-            ],
-          ],
-          ['branch on="remote()"', '  path value="ok"', '    print value="\\"ok\\""'],
-        ),
-        {
-          asyncCapabilities: {
-            llm: {
-              async complete() {
-                return 'ok';
-              },
-            },
-          },
-          providedAsyncCapabilities: ['llm.complete'],
-        },
-      ),
-    ).rejects.toThrow(/unsupported async executions: llm\.complete/);
-  });
-
-  test('async source executor ignores uncalled helper functions with async capability calls', async () => {
-    await expect(
-      executeKernSourceAsync(
-        programWithFunctions(
-          [
-            [
-              'fn name=remote returns=number',
-              '  handler lang="kern"',
-              '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-              '    return value="response.status"',
-            ],
-          ],
-          ['print value="1"'],
-        ),
-      ),
-    ).resolves.toBe('1\n');
-  });
-
-  test('async source executor rejects uncalled helper async work when another async path enters preview mode', async () => {
+  test('async source executor rejects async capability calls inside helper functions', async () => {
     await expect(
       executeKernSourceAsync(
         programWithFunctions(
@@ -2303,23 +1330,20 @@ describe('@kernlang/core/runner source executor', () => {
               '    return value="1"',
             ],
           ],
-          [
-            'capability namespace=llm operation=complete name=answer input="{ prompt: \\"main\\" }"',
-            'print value="answer"',
-          ],
+          ['print value="remote()"'],
         ),
         {
           asyncCapabilities: {
-            llm: {
-              async complete() {
-                return 'ok';
+            net: {
+              async fetch() {
+                return { status: 200 };
               },
             },
           },
-          providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
+          providedAsyncCapabilities: ['net.fetch'],
         },
       ),
-    ).rejects.toThrow(/unsupported async executions: net\.fetch/);
+    ).rejects.toThrow(/async source execution outside main handler is unsupported/);
   });
 
   test('fails closed when a capability returns a non-portable host object', () => {

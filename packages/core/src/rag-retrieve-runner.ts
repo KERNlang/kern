@@ -242,67 +242,6 @@ export function createLocalRagCapability(
   };
 }
 
-export function createAsyncLocalRagRetrieveCapability(
-  source: string,
-  options: LocalRagCapabilityOptions,
-): { readonly retrieveAsync: (call: { readonly input?: RuntimeCapabilityValue }) => Promise<RuntimeCapabilityValue> } {
-  if (typeof options.sourcePath !== 'string' || !options.sourcePath.trim()) {
-    throw new Error('Async local RAG retrieve capability requires a non-empty sourcePath.');
-  }
-  const retrieveCache = new Map<string, LocalRagRetrieveCacheEntry>();
-  const session = options.session ?? createLocalRagCapabilitySession();
-  return {
-    async retrieveAsync(call) {
-      const input = localRagCapabilityInput(call.input);
-      const cacheKey = stableCapabilityJson(input);
-      const cached = retrieveCache.get(cacheKey);
-      if (cached) {
-        rememberRetrievedChunks(
-          cached.query,
-          cached.chunks.map(ragCachedCapabilityValueChunk),
-          session.retrievedChunkQueriesByFingerprint,
-        );
-        return cloneRagCapabilityChunks(cached.chunks);
-      }
-      const report = await retrieveRagDocumentAsync(source, {
-        ...options,
-        query: input.query,
-        queryParams: input.queryParams,
-        templateParams: input.templateParams,
-        runtimeRetrievalNames: input.retrieval ? [input.retrieval] : undefined,
-      });
-      if (report.diagnostics.length > 0) {
-        throw new Error(report.diagnostics.map((diagnostic) => diagnostic.message).join('; '));
-      }
-      if (report.retrievals.length === 0) {
-        throw new Error(
-          input.retrieval
-            ? `RAG retrieval ${JSON.stringify(input.retrieval)} produced no result.`
-            : 'RAG retrieval produced no result.',
-        );
-      }
-      if (report.retrievals.length > 1) {
-        throw new Error(
-          'RAG capability retrieveAsync input must name one retrieval when the document declares multiple ragRetrieve nodes.',
-        );
-      }
-      const retrievalResult = report.retrievals[0].result;
-      rememberRetrievedChunks(
-        retrievalResult.query,
-        retrievalResult.chunks,
-        session.retrievedChunkQueriesByFingerprint,
-      );
-      const chunks = retrievalResult.chunks.map(ragChunkCapabilityValue);
-      if (retrieveCache.size >= MAX_LOCAL_RAG_RETRIEVE_CACHE_ENTRIES) {
-        const oldestKey = retrieveCache.keys().next().value;
-        if (oldestKey !== undefined) retrieveCache.delete(oldestKey);
-      }
-      retrieveCache.set(cacheKey, { query: retrievalResult.query, chunks });
-      return cloneRagCapabilityChunks(chunks);
-    },
-  };
-}
-
 function localRagCheckAnswerInput(input: RuntimeCapabilityValue | undefined): {
   readonly query: string;
   readonly answer: string;

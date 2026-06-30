@@ -53,12 +53,11 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
   });
 
-  test('flags planned fs, net, llm, and async rag capabilities without marking them unknown', () => {
+  test('flags planned fs, net, llm, and rag answer capabilities without marking them unknown', () => {
     const source = program([
       'capability namespace=fs operation=readText name=file input="{ path: \\"README.md\\" }"',
       'capability namespace=net operation=fetch name=response input="{ method: \\"GET\\", url: \\"https://example.test\\" }"',
       'capability namespace=llm operation=complete name=text input="{ prompt: \\"hello\\" }"',
-      'capability namespace=rag operation=retrieveAsync name=chunks input="{ question: \\"refund\\" }"',
       'capability namespace=rag operation=answer name=answer input="{ query: \\"refund\\", chunks: [] }"',
     ]);
 
@@ -69,7 +68,6 @@ describe('@kernlang/core/runner capability preflight', () => {
       'fs.readText',
       'net.fetch',
       'llm.complete',
-      'rag.retrieveAsync',
       'rag.answer',
     ]);
     expect(analysis.asyncBoundaryRequired).toBe(true);
@@ -77,11 +75,9 @@ describe('@kernlang/core/runner capability preflight', () => {
       'fs.readText',
       'net.fetch',
       'llm.complete',
-      'rag.retrieveAsync',
       'rag.answer',
     ]);
     expect(analysis.plannedCapabilities.map((requirement) => requirement.descriptor.syncBoundary)).toEqual([
-      'async-planned',
       'async-planned',
       'async-planned',
       'async-planned',
@@ -107,12 +103,10 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.asyncBoundaryRequired).toBe(true);
   });
 
-  test('allows async capability requirements inside preview-supported try/catch shapes', () => {
+  test('reports async capability requirements inside unsupported source execution shapes', () => {
     const source = program([
-      'try',
+      'while cond="true"',
       '  capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-      '  catch name=e',
-      '    print value="e.message"',
     ]);
 
     const analysis = analyzeKernSourceCapabilities(source, {
@@ -120,15 +114,17 @@ describe('@kernlang/core/runner capability preflight', () => {
     });
 
     expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'net.fetch',
+        reason: 'unsupported-container',
+        containerType: 'while',
+      }),
+    ]);
   });
 
-  test('allows async capability requirements inside preview-supported while, for, and each loops', () => {
+  test('allows async capability requirements inside preview-supported for and each loops', () => {
     const source = program([
-      'let kind=let name=n value="0"',
-      'while cond="n < 1"',
-      '  capability namespace=llm operation=complete name=loopValue input="{ prompt: n }"',
-      '  assign target=n value="n + 1"',
       'for name=i from="0" to="2"',
       '  capability namespace=llm operation=complete name=value input="{ prompt: i }"',
       'let name=items value="[1, 2]"',
@@ -144,52 +140,6 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
       'llm.complete',
       'llm.complete',
-      'llm.complete',
-    ]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
-  });
-
-  test('allows async capability requirements inside selected branch paths', () => {
-    const source = program([
-      'branch on="\\"paid\\""',
-      '  path value="paid"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
-      '  path default=true',
-      '    capability namespace=llm operation=complete name=fallback input="{ prompt: \\"fallback\\" }"',
-    ]);
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete'],
-    });
-
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
-      'llm.complete',
-      'llm.complete',
-    ]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
-  });
-
-  test('allows async try/catch requirements inside branch paths for tooling preflight', () => {
-    const source = program([
-      'branch on="\\"safe\\""',
-      '  path value="safe"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"selected\\" }"',
-      '  path value="danger"',
-      '    try',
-      '      capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-      '      catch name=e',
-      '        print value="e.message"',
-    ]);
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete', 'net.fetch'],
-    });
-
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
-      'llm.complete',
-      'net.fetch',
     ]);
     expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
@@ -211,179 +161,6 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'net.fetch',
-        reason: 'outside-main-handler',
-      }),
-    ]);
-    expect(analysis.asyncBoundaryRequired).toBe(false);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-  });
-
-  test('treats async capability requirements in called helpers as async-preview executable', () => {
-    const source = [
-      'fn name=helper returns=number',
-      '  handler lang="kern"',
-      '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-      '    return value="response.status"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    print value="helper()"',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['net.fetch'],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(true);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
-  });
-
-  test('reports missing async providers for called helper requirements', () => {
-    const source = [
-      'fn name=helper returns=number',
-      '  handler lang="kern"',
-      '    capability namespace=net operation=fetch name=response input="{ url: \\"https://example.test\\" }"',
-      '    return value="response.status"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    print value="helper()"',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: [],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(true);
-    expect(analysis.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['net.fetch']);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
-  });
-
-  test('does not mark helper calls from unsupported async expression slots as executable readiness', () => {
-    const source = [
-      'fn name=helper returns=string',
-      '  handler lang="kern"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-      '    return value="answer"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    branch on="helper()"',
-      '      path value="ok"',
-      '        print value="\\"ok\\""',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete'],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(false);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'outside-main-handler',
-      }),
-    ]);
-  });
-
-  test('keeps unsupported helper-call async requirements out of executable readiness when async providers are supplied', () => {
-    const source = [
-      'fn name=helper returns=string',
-      '  handler lang="kern"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-      '    return value="answer"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    branch on="helper()"',
-      '      path value="ok"',
-      '        print value="\\"ok\\""',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete'],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(false);
-    expect(analysis.executableAsyncPlannedCapabilities).toEqual([]);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'outside-main-handler',
-      }),
-    ]);
-  });
-
-  test('does not mark helper calls from unsupported index expressions as executable readiness', () => {
-    const source = [
-      'fn name=helper returns=number',
-      '  handler lang="kern"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-      '    return value="answer"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    let kind=let name=xs value="[1, 2]"',
-      '    print value="xs[helper()]"',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete'],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(false);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'outside-main-handler',
-      }),
-    ]);
-  });
-
-  test('does not mark async helpers as executable preview helpers', () => {
-    const source = [
-      'fn name=helper async=true returns=number',
-      '  handler lang="kern"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-      '    return value="answer"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    print value="helper()"',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete'],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(false);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'outside-main-handler',
-      }),
-    ]);
-  });
-
-  test('does not mark helper calls from scalar-only array literals as executable readiness', () => {
-    const source = [
-      'fn name=helper returns=number',
-      '  handler lang="kern"',
-      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
-      '    return value="answer"',
-      'fn name=main returns=void',
-      '  handler lang="kern"',
-      '    print value="String([helper()])"',
-    ].join('\n');
-
-    const analysis = analyzeKernSourceCapabilities(source, {
-      providedAsyncCapabilities: ['llm.complete'],
-    });
-
-    expect(analysis.asyncBoundaryRequired).toBe(false);
-    expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
         reason: 'outside-main-handler',
       }),
     ]);
@@ -509,7 +286,6 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(CAPABILITY_DESCRIPTORS['net.fetch']).toEqual(expect.objectContaining({ status: 'planned' }));
     expect(CAPABILITY_DESCRIPTORS['llm.complete']).toEqual(expect.objectContaining({ status: 'planned' }));
     expect(CAPABILITY_DESCRIPTORS['rag.answer']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['rag.retrieveAsync']).toEqual(expect.objectContaining({ status: 'planned' }));
   });
 
   test('descriptor table keeps async boundary ids explicit', () => {
@@ -518,16 +294,7 @@ describe('@kernlang/core/runner capability preflight', () => {
         .filter((descriptor) => descriptor.syncBoundary === 'async-planned')
         .map((descriptor) => descriptor.id)
         .sort(),
-    ).toEqual([
-      'fs.list',
-      'fs.readText',
-      'fs.writeText',
-      'llm.complete',
-      'net.fetch',
-      'rag.answer',
-      'rag.ingest',
-      'rag.retrieveAsync',
-    ]);
+    ).toEqual(['fs.list', 'fs.readText', 'fs.writeText', 'llm.complete', 'net.fetch', 'rag.answer', 'rag.ingest']);
   });
 });
 

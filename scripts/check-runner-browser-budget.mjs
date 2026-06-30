@@ -329,9 +329,8 @@ function startStaticServer(root) {
         response.writeHead(200, { 'content-type': contentTypeFor(target) });
         response.end(readFileSync(target));
       } catch (error) {
-        console.error(`browser smoke static server failed: ${error instanceof Error ? error.message : String(error)}`);
         response.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-        response.end('internal server error');
+        response.end(error instanceof Error ? error.message : String(error));
       }
     });
     server.once('error', reject);
@@ -379,8 +378,8 @@ async function runBrowserSmokeInChrome(chromePath, url) {
     cdp = await connectCdp(target.webSocketDebuggerUrl);
     await cdp.send('Page.enable');
     await cdp.send('Runtime.enable');
-    await optionalCdpSend(cdp, 'Log.enable');
-    await optionalCdpSend(cdp, 'Performance.enable');
+    await cdp.send('Log.enable').catch(() => undefined);
+    await cdp.send('Performance.enable').catch(() => undefined);
     await cdp.send('Page.navigate', { url });
     await waitForCdpEvent(cdp, 'Page.loadEventFired');
     const result = await waitForBrowserSmokeResult(cdp);
@@ -478,23 +477,15 @@ async function waitForDevToolsPort(child, portFile, stderr, spawnError) {
 async function waitForPageTarget(port) {
   const endpoint = `http://127.0.0.1:${port}/json/list`;
   const started = Date.now();
-  let lastFetchError;
   while (Date.now() - started < 10_000) {
-    let targets;
-    try {
-      targets = await fetchJson(endpoint);
-      lastFetchError = undefined;
-    } catch (error) {
-      lastFetchError = error;
-    }
+    const targets = await fetchJson(endpoint).catch(() => undefined);
     const page = Array.isArray(targets)
       ? targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl)
       : undefined;
     if (page) return page;
     await delay(50);
   }
-  const detail = lastFetchError instanceof Error ? `: ${lastFetchError.message}` : '';
-  throw new Error(`timed out waiting for Chrome page target${detail}`);
+  throw new Error('timed out waiting for Chrome page target');
 }
 
 async function fetchJson(url) {
@@ -627,21 +618,8 @@ async function waitForCdpEvent(cdp, method) {
   throw new Error(`timed out waiting for Chrome DevTools event: ${method}`);
 }
 
-async function optionalCdpSend(cdp, method) {
-  try {
-    await cdp.send(method);
-  } catch (error) {
-    console.warn(`optional Chrome DevTools command ${method} failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
 async function readPerformanceMetrics(cdp) {
-  let result;
-  try {
-    result = await cdp.send('Performance.getMetrics');
-  } catch (error) {
-    return { unavailable: error instanceof Error ? error.message : String(error) };
-  }
+  const result = await cdp.send('Performance.getMetrics').catch(() => undefined);
   if (!result?.metrics) return {};
   return Object.fromEntries(
     result.metrics
