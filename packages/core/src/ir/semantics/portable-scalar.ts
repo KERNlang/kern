@@ -39,18 +39,24 @@ import {
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   type DecimalProbeAccessor,
 } from '../../decimal/probe-gates.js';
+import { parseExpression } from '../../parser-expression.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
   isIntProvenanced,
   makeEnv,
+  type RunnerClassBinding,
+  type RunnerClassInstanceValue,
+  type RunnerClassMemberBinding,
   type RunnerFunctionBinding,
   type SemanticEnv,
 } from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
 
 export type PortableScalar = string | number | boolean | null;
+
+const RUNNER_CLASS_NO_VALUE = Symbol('runnerClassNoValue');
 
 export const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -308,6 +314,8 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
         ? evalPortableValue(node.consequent, env)
         : evalPortableValue(node.alternate, env);
     case 'member': {
+      const runnerValue = evalRunnerClassMemberScalar(node, env);
+      if (runnerValue !== RUNNER_CLASS_NO_VALUE) return runnerValue;
       // Member reads are admitted only for the explicit portable slices:
       // `<arrayBinding>.length`, `<recordBinding>.<field>`, and
       // `<caughtErrorBinding>.message`. All must be
@@ -421,6 +429,8 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       if (node.optional) throw new Error('portable: optional calls are outside the portable scalar domain');
       const decimalScalar = evalRunnerNativeDecimalScalarCall(node, env);
       if (decimalScalar !== undefined) return decimalScalar;
+      const runnerValue = evalRunnerClassMethodScalar(node, env);
+      if (runnerValue !== RUNNER_CLASS_NO_VALUE) return runnerValue;
       if (node.callee.kind === 'ident' && node.callee.name === 'String') {
         if (node.args.length !== 1) {
           throw new Error('portable: String() expects exactly 1 argument');
@@ -434,6 +444,324 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
     default:
       throw new Error(`portable: expression kind "${node.kind}" is outside the portable scalar domain`);
   }
+}
+
+export function isRunnerClassInstanceValue(value: unknown): value is RunnerClassInstanceValue {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    (value as Partial<RunnerClassInstanceValue>).__kernRunnerClassInstance === true &&
+    typeof (value as Partial<RunnerClassInstanceValue>).className === 'string' &&
+    Boolean((value as Partial<RunnerClassInstanceValue>).fields) &&
+    typeof (value as Partial<RunnerClassInstanceValue>).fields === 'object'
+  );
+}
+
+export function evalRunnerClassNewValue(node: ValueIR, env: SemanticEnv): RunnerClassInstanceValue {
+  if (node.kind !== 'new' || node.argument.kind !== 'call' || node.argument.callee.kind !== 'ident') {
+    throw new Error('runner-class: expected new ClassName(...) expression');
+  }
+  const className = node.argument.callee.name;
+  const classes = runnerClassesForEnv(env);
+  const cls = classes?.get(className);
+  if (!classes || !cls) throw new Error(`runner-class: unknown class "${className}"`);
+  const instance: RunnerClassInstanceValue = {
+    __kernRunnerClassInstance: true,
+    className,
+    fields: Object.create(null) as Record<string, unknown>,
+  };
+  initializeRunnerClassInstance(
+    cls,
+    instance,
+    node.argument.args.map((arg) => evalRunnerClassArgument(arg, env)),
+    env,
+  );
+  return instance;
+}
+
+export function assignRunnerClassMember(
+  target: string,
+  valueExpr: ValueIR,
+  env: SemanticEnv,
+  mutate = true,
+): PortableScalar | undefined {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(target);
+  if (!match) return undefined;
+  const [, receiverName, fieldName] = match;
+  if (!hasBinding(env, receiverName)) return undefined;
+  const receiver = getBinding(env, receiverName);
+  if (!isRunnerClassInstanceValue(receiver)) return undefined;
+  const value = evalPortableValue(valueExpr, env);
+  if (mutate) receiver.fields[fieldName] = value;
+  return value;
+}
+
+function runnerClassesForEnv(env: SemanticEnv): Map<string, RunnerClassBinding> | undefined {
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.runnerClasses) return cur.runnerClasses;
+  }
+  return undefined;
+}
+
+function evalRunnerClassArgument(node: ValueIR, env: SemanticEnv): unknown {
+  if (node.kind === 'new') return evalRunnerClassNewValue(node, env);
+  if (node.kind === 'ident' && hasBinding(env, node.name)) return getBinding(env, node.name);
+  return evalPortableValue(node, env);
+}
+
+function evalRunnerClassReceiver(node: ValueIR, env: SemanticEnv): RunnerClassInstanceValue | undefined {
+  if (node.kind === 'ident') {
+    if (node.name === 'this' && env.runnerThis) return env.runnerThis;
+    if (!hasBinding(env, node.name)) return undefined;
+    const value = getBinding(env, node.name);
+    return isRunnerClassInstanceValue(value) ? value : undefined;
+  }
+  if (node.kind === 'new') return evalRunnerClassNewValue(node, env);
+  return undefined;
+}
+
+function evalRunnerClassMemberScalar(
+  node: Extract<ValueIR, { kind: 'member' }>,
+  env: SemanticEnv,
+): PortableScalar | typeof RUNNER_CLASS_NO_VALUE {
+  if (node.optional) return RUNNER_CLASS_NO_VALUE;
+  if (!isValueIR(node.object)) return RUNNER_CLASS_NO_VALUE;
+  const receiver = evalRunnerClassReceiver(node.object, env);
+  if (!receiver) return RUNNER_CLASS_NO_VALUE;
+  if (Object.hasOwn(receiver.fields, node.property)) {
+    return assertPortableScalar(receiver.fields[node.property], `field "${node.property}"`);
+  }
+  const getter = findRunnerClassMember(receiver.className, node.property, 'getter', env);
+  if (!getter) throw new Error(`runner-class: class "${receiver.className}" has no field or getter "${node.property}"`);
+  return invokeRunnerClassMember(getter, receiver, [], env);
+}
+
+function evalRunnerClassMethodScalar(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+): PortableScalar | typeof RUNNER_CLASS_NO_VALUE {
+  if (node.callee.kind !== 'member' || node.callee.optional) return RUNNER_CLASS_NO_VALUE;
+  if (!isValueIR(node.callee.object)) return RUNNER_CLASS_NO_VALUE;
+  if (node.callee.object.kind === 'ident' && node.callee.object.name === 'super') {
+    if (!env.runnerThis || !env.runnerSuperClass) return RUNNER_CLASS_NO_VALUE;
+    const method = findRunnerClassMemberFrom(env.runnerSuperClass, node.callee.property, 'method', env);
+    if (!method) throw new Error(`runner-class: super has no method "${node.callee.property}"`);
+    return invokeRunnerClassMember(
+      method,
+      env.runnerThis,
+      node.args.map((arg) => evalRunnerClassArgument(arg, env)),
+      env,
+    );
+  }
+  const receiver = evalRunnerClassReceiver(node.callee.object, env);
+  if (!receiver) return RUNNER_CLASS_NO_VALUE;
+  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', env);
+  if (!method) throw new Error(`runner-class: class "${receiver.className}" has no method "${node.callee.property}"`);
+  return invokeRunnerClassMember(
+    method,
+    receiver,
+    node.args.map((arg) => evalRunnerClassArgument(arg, env)),
+    env,
+  );
+}
+
+function initializeRunnerClassInstance(
+  cls: RunnerClassBinding,
+  instance: RunnerClassInstanceValue,
+  args: readonly unknown[],
+  env: SemanticEnv,
+): void {
+  const classes = runnerClassesForEnv(env);
+  if (cls.extendsName) {
+    const base = classes?.get(cls.extendsName);
+    if (!base) throw new Error(`runner-class: unknown base class "${cls.extendsName}"`);
+    const explicitSuperArgs = explicitSuperCallArgs(
+      cls.constructor?.body ?? [],
+      env,
+      args,
+      cls.constructor?.params ?? [],
+    );
+    initializeRunnerClassInstance(base, instance, explicitSuperArgs ?? [], env);
+  }
+  for (const field of cls.fields) {
+    if (Object.hasOwn(instance.fields, field.name)) continue;
+    instance.fields[field.name] =
+      typeof field.value === 'string' && field.value !== ''
+        ? evalRunnerClassArgument(parseExpression(field.value), env)
+        : undefined;
+  }
+  if (!cls.constructor) return;
+  const body = cls.extendsName
+    ? cls.constructor.body.filter((child) => !isExplicitSuperCallNode(child))
+    : cls.constructor.body;
+  runRunnerClassBody(cls.constructor, instance, args, body, env, false);
+}
+
+function explicitSuperCallArgs(
+  body: readonly { type: string; props?: Record<string, unknown> }[],
+  outerEnv: SemanticEnv,
+  args: readonly unknown[],
+  params: readonly string[],
+): readonly unknown[] | undefined {
+  const superNode = body.find(isExplicitSuperCallNode);
+  if (!superNode || typeof superNode.props?.value !== 'string') return undefined;
+  const parsed = parseExpression(superNode.props.value);
+  if (parsed.kind !== 'call' || parsed.callee.kind !== 'ident' || parsed.callee.name !== 'super') return undefined;
+  const bindings = new Map<string, unknown>();
+  for (let index = 0; index < params.length; index += 1) bindings.set(params[index], args[index]);
+  const env = makeEnv({
+    bindings,
+    runnerFunctions: runnerFunctionsForEnv(outerEnv),
+    runnerClasses: runnerClassesForEnv(outerEnv),
+    runnerCallStack: outerEnv.runnerCallStack,
+    runnerCallCache: outerEnv.runnerCallCache,
+    capabilities: outerEnv.capabilities,
+    capabilityContext: outerEnv.capabilityContext,
+    seed: outerEnv.seed,
+    now: outerEnv.now,
+  });
+  return parsed.args.map((arg) => evalRunnerClassArgument(arg, env));
+}
+
+function isExplicitSuperCallNode(node: { type: string; props?: Record<string, unknown> }): boolean {
+  return node.type === 'do' && typeof node.props?.value === 'string' && node.props.value.trim().startsWith('super(');
+}
+
+function findRunnerClassMember(
+  className: string,
+  name: string,
+  kind: 'method' | 'getter',
+  env: SemanticEnv,
+): RunnerClassMemberBinding | undefined {
+  return findRunnerClassMemberFrom(className, name, kind, env);
+}
+
+function findRunnerClassMemberFrom(
+  className: string,
+  name: string,
+  kind: 'method' | 'getter',
+  env: SemanticEnv,
+): RunnerClassMemberBinding | undefined {
+  const classes = runnerClassesForEnv(env);
+  for (let current: string | undefined = className; current; ) {
+    const cls: RunnerClassBinding | undefined = classes?.get(current);
+    if (!cls) return undefined;
+    const member = kind === 'method' ? cls.methods.get(name) : cls.getters.get(name);
+    if (member) return member;
+    current = cls.extendsName;
+  }
+  return undefined;
+}
+
+function invokeRunnerClassMember(
+  member: RunnerClassMemberBinding,
+  receiver: RunnerClassInstanceValue,
+  args: readonly unknown[],
+  env: SemanticEnv,
+): PortableScalar {
+  return runRunnerClassBody(member, receiver, args, member.body, env, true);
+}
+
+function runRunnerClassBody(
+  member: RunnerClassMemberBinding,
+  receiver: RunnerClassInstanceValue,
+  args: readonly unknown[],
+  body: readonly import('../../types.js').IRNode[],
+  env: SemanticEnv,
+  requireReturn: boolean,
+): PortableScalar {
+  if (args.length !== member.params.length) {
+    throw new Error(
+      `runner-class: member "${member.name}" expects ${member.params.length} arguments, got ${args.length}`,
+    );
+  }
+  const callStack = runnerCallStackForEnv(env);
+  const label = `${member.ownerClass}.${member.name}`;
+  if (callStack.includes(label)) throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
+  const bindings = new Map<string, unknown>([['this', receiver]]);
+  for (let index = 0; index < member.params.length; index += 1) bindings.set(member.params[index], args[index]);
+  const callEnv = makeEnv({
+    bindings,
+    runnerFunctions: runnerFunctionsForEnv(env),
+    runnerClasses: runnerClassesForEnv(env),
+    runnerCallStack: [...callStack, label],
+    runnerCallCache: env.runnerCallCache,
+    runnerThis: receiver,
+    runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
+    capabilities: env.capabilities,
+    capabilityContext: env.capabilityContext,
+    seed: env.seed,
+    now: env.now,
+  });
+  callEnv.bindings.set('this', receiver);
+  callEnv.runnerThis = receiver;
+  const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;
+  let trace: ReturnType<typeof referenceRunSequence>;
+  try {
+    trace = referenceRunSequence(body, callEnv);
+  } catch (error) {
+    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+    throw error;
+  }
+  if (
+    trace.events.some(
+      (event) => event.op === 'stdout' || event.op === 'stderr' || event.op === 'call' || event.op === 'capability',
+    )
+  ) {
+    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+    throw new Error(`runner-class: member "${label}" produced side effects`);
+  }
+  if (
+    requireReturn &&
+    trace.events.some(
+      (event) => event.op === 'assign' && typeof event.target === 'string' && event.target.includes('.'),
+    )
+  ) {
+    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+    throw new Error(`runner-class: member "${label}" mutated instance state`);
+  }
+  if (trace.completion.kind === 'normal' && !requireReturn) return null;
+  if (trace.completion.kind !== 'return') {
+    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+    throw new Error(`runner-class: member "${label}" must return a portable scalar`);
+  }
+  return assertPortableScalar(trace.completion.value, `member "${label}" return`);
+}
+
+function cloneRunnerClassFields(fields: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, cloneRunnerClassFieldValue(value)]));
+}
+
+function cloneRunnerClassFieldValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cloneRunnerClassFieldValue);
+  if (value instanceof Map) {
+    return new Map(Array.from(value.entries(), ([key, nested]) => [key, cloneRunnerClassFieldValue(nested)]));
+  }
+  if (value instanceof Set) return new Set(Array.from(value.values(), cloneRunnerClassFieldValue));
+  if (isRunnerClassInstanceValue(value)) {
+    return {
+      __kernRunnerClassInstance: true,
+      className: value.className,
+      fields: cloneRunnerClassFields(value.fields),
+    } satisfies RunnerClassInstanceValue;
+  }
+  if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
+          key,
+          cloneRunnerClassFieldValue(nested),
+        ]),
+      );
+    }
+  }
+  return value;
+}
+
+function restoreRunnerClassFields(target: Record<string, unknown>, snapshot: Record<string, unknown>): void {
+  for (const key of Object.keys(target)) delete target[key];
+  for (const [key, value] of Object.entries(snapshot)) target[key] = cloneRunnerClassFieldValue(value);
 }
 
 function runnerFunctionsForEnv(env: SemanticEnv): Map<string, RunnerFunctionBinding> | undefined {
@@ -494,6 +822,7 @@ function evalRunnerFunctionCall(fnName: string, args: readonly ValueIR[], env: S
     bindings,
     intProvenance,
     runnerFunctions: functions,
+    runnerClasses: runnerClassesForEnv(env),
     runnerCallStack: [...callStack, fnName],
     runnerCallCache: cache,
     seed: env.seed,
@@ -519,7 +848,9 @@ function portableRecordScalarField(
   property: string,
 ): PortableScalar | typeof PORTABLE_RECORD_FIELD_MISSING {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return PORTABLE_RECORD_FIELD_MISSING;
-  if (isDecimalValue(obj) || isCaughtErrorValue(obj)) return PORTABLE_RECORD_FIELD_MISSING;
+  if (isDecimalValue(obj) || isCaughtErrorValue(obj) || isRunnerClassInstanceValue(obj)) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
   const proto = Object.getPrototypeOf(obj);
   if (proto !== Object.prototype && proto !== null) return PORTABLE_RECORD_FIELD_MISSING;
   if (Object.getOwnPropertySymbols(obj).length > 0) {

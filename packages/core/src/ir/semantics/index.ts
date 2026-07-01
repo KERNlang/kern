@@ -31,8 +31,11 @@ export interface SemanticEnv {
   bindings: Map<string, unknown>;
   intProvenance?: Set<string>;
   runnerFunctions?: Map<string, RunnerFunctionBinding>;
+  runnerClasses?: Map<string, RunnerClassBinding>;
   runnerCallStack?: string[];
   runnerCallCache?: Map<string, unknown>;
+  runnerThis?: RunnerClassInstanceValue;
+  runnerSuperClass?: string;
   capabilities?: KernRunnerCapabilities;
   capabilityContext?: KernRunnerCapabilityContext;
   /**
@@ -58,6 +61,34 @@ export interface RunnerFunctionBinding {
   readonly body: readonly IRNode[];
 }
 
+export interface RunnerClassFieldBinding {
+  readonly name: string;
+  readonly value?: unknown;
+}
+
+export interface RunnerClassMemberBinding {
+  readonly name: string;
+  readonly params: readonly string[];
+  readonly handler?: IRNode;
+  readonly body: readonly IRNode[];
+  readonly ownerClass: string;
+}
+
+export interface RunnerClassBinding {
+  readonly name: string;
+  readonly extendsName?: string;
+  readonly fields: readonly RunnerClassFieldBinding[];
+  readonly constructor?: RunnerClassMemberBinding;
+  readonly methods: ReadonlyMap<string, RunnerClassMemberBinding>;
+  readonly getters: ReadonlyMap<string, RunnerClassMemberBinding>;
+}
+
+export interface RunnerClassInstanceValue {
+  readonly __kernRunnerClassInstance: true;
+  readonly className: string;
+  readonly fields: Record<string, unknown>;
+}
+
 /**
  * Build a fresh environment with deterministic defaults.
  *
@@ -72,8 +103,11 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
     intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
     runnerFunctions: overrides.runnerFunctions,
+    runnerClasses: overrides.runnerClasses,
     runnerCallStack: overrides.runnerCallStack ? [...overrides.runnerCallStack] : [],
     runnerCallCache: overrides.runnerCallCache,
+    runnerThis: overrides.runnerThis,
+    runnerSuperClass: overrides.runnerSuperClass,
     capabilities: overrides.capabilities,
     capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
     seed: overrides.seed ?? 0,
@@ -108,8 +142,11 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     bindings: new Map(),
     intProvenance: new Set(),
     runnerFunctions: parent.runnerFunctions,
+    runnerClasses: parent.runnerClasses,
     runnerCallStack: parent.runnerCallStack,
     runnerCallCache: parent.runnerCallCache,
+    runnerThis: parent.runnerThis,
+    runnerSuperClass: parent.runnerSuperClass,
     capabilities: parent.capabilities,
     capabilityContext: parent.capabilityContext,
     parent,
@@ -177,6 +214,20 @@ export function deleteOwnBinding(env: SemanticEnv, name: string): void {
 }
 
 function cloneSemanticValue(value: unknown): unknown {
+  if (
+    value &&
+    typeof value === 'object' &&
+    (value as Partial<RunnerClassInstanceValue>).__kernRunnerClassInstance === true
+  ) {
+    const instance = value as RunnerClassInstanceValue;
+    return {
+      __kernRunnerClassInstance: true,
+      className: instance.className,
+      fields: Object.fromEntries(
+        Object.entries(instance.fields).map(([key, fieldValue]) => [key, cloneSemanticValue(fieldValue)]),
+      ),
+    } satisfies RunnerClassInstanceValue;
+  }
   if (Array.isArray(value)) return value.map(cloneSemanticValue);
   if (value instanceof Map) {
     return new Map(Array.from(value.entries(), ([k, v]) => [cloneSemanticValue(k), cloneSemanticValue(v)]));

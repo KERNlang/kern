@@ -1,6 +1,12 @@
 import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
 import type { ValueIR } from '../../value-ir.js';
-import { isIntProvenanced, makeEnv, type RunnerFunctionBinding, type SemanticEnv } from './index.js';
+import {
+  isIntProvenanced,
+  makeEnv,
+  type RunnerClassBinding,
+  type RunnerFunctionBinding,
+  type SemanticEnv,
+} from './index.js';
 import {
   assertPortableScalar,
   coerceToString,
@@ -9,6 +15,7 @@ import {
   evalPortableValue,
   isCaughtErrorValue,
   isDecimalValue,
+  isRunnerClassInstanceValue,
   isSafeIntegerLiteralIndex,
   type PortableScalar,
   portableTruthy,
@@ -25,6 +32,13 @@ export interface AsyncPortableEvalOptions {
 function runnerFunctionsForEnv(env: SemanticEnv): Map<string, RunnerFunctionBinding> | undefined {
   for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
     if (cur.runnerFunctions) return cur.runnerFunctions;
+  }
+  return undefined;
+}
+
+function runnerClassesForEnv(env: SemanticEnv): Map<string, RunnerClassBinding> | undefined {
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.runnerClasses) return cur.runnerClasses;
   }
   return undefined;
 }
@@ -180,6 +194,7 @@ async function evalRunnerFunctionCallAsync(
     bindings,
     intProvenance,
     runnerFunctions: functions,
+    runnerClasses: runnerClassesForEnv(env),
     runnerCallStack: [...callStack, fnName],
     capabilities: undefined,
     capabilityContext: env.capabilityContext,
@@ -207,7 +222,7 @@ export function portableRecordScalarFieldAsync(obj: unknown, recordName: string,
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
     throw new Error(`portable: member access on "${recordName}" is outside the portable scalar domain`);
   }
-  if (isDecimalValue(obj) || isCaughtErrorValue(obj)) {
+  if (isDecimalValue(obj) || isCaughtErrorValue(obj) || isRunnerClassInstanceValue(obj)) {
     throw new Error(`portable: member access on "${recordName}" is outside the portable scalar domain`);
   }
   const proto = Object.getPrototypeOf(obj);

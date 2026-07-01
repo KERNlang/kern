@@ -47,6 +47,7 @@ import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-arra
 import {
   evalPortableValue,
   evalRecordLiteralValue,
+  evalRunnerClassNewValue,
   isPortableBindingName,
   isRecordLiteralExpression,
 } from './portable-scalar.js';
@@ -78,6 +79,10 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
       evalRecordLiteralValue(parsed, env);
       return true;
     }
+    if (parsed.kind === 'new') {
+      evalRunnerClassNewValue(parsed, env);
+      return true;
+    }
     evalPortableValue(parsed, env);
     return true;
   } catch {
@@ -93,7 +98,9 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
     ? evalArrayLiteralValue(parsed, env)
     : isRecordLiteralExpression(parsed)
       ? evalRecordLiteralValue(parsed, env)
-      : evalPortableValue(parsed, env);
+      : parsed.kind === 'new'
+        ? evalRunnerClassNewValue(parsed, env)
+        : evalPortableValue(parsed, env);
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }

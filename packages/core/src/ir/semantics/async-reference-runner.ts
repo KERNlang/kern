@@ -28,6 +28,8 @@ import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import {
   assertPortableScalar,
+  assignRunnerClassMember,
+  evalRunnerClassNewValue,
   isPortableBindingName,
   isRecordLiteralExpression,
   type PortableScalar,
@@ -139,7 +141,9 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
       ? await evalArrayLiteralValueAsync(parsed, env, options)
       : isRecordLiteralExpression(parsed)
         ? await evalRecordLiteralValueAsync(parsed, env, options)
-        : await evalPortableValueForAsyncRunner(parsed, env, options);
+        : parsed.kind === 'new'
+          ? evalRunnerClassNewValue(parsed, env)
+          : await evalPortableValueForAsyncRunner(parsed, env, options);
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
@@ -150,6 +154,20 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
 async function asyncAssignEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
   const props = ir.props ?? {};
   const target = props.target;
+  if (typeof target === 'string' && target.includes('.')) {
+    const op = props.op === undefined || props.op === '' ? '=' : props.op;
+    if (op !== '=' || !Object.hasOwn(props, 'value') || props.value === '') {
+      throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+    }
+    try {
+      const value = assignRunnerClassMember(target, parseExpression(String(props.value)), env, true);
+      if (value !== undefined) {
+        return { events: [{ op: 'assign', target, value }], completion: { kind: 'normal' } };
+      }
+    } catch {
+      throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+    }
+  }
   if (
     !isPortableBindingName(target) ||
     !hasBinding(env, target) ||

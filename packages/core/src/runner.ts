@@ -3,6 +3,9 @@ import {
   CONTRACT_REGISTRY,
   makeEnv,
   ReferenceRunnerError,
+  type RunnerClassBinding,
+  type RunnerClassFieldBinding,
+  type RunnerClassMemberBinding,
   type RunnerFunctionBinding,
   referenceRunSequence,
   registerAllContracts,
@@ -236,6 +239,119 @@ function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding
     functions.set(binding.name, binding);
   }
   return functions;
+}
+
+function collectRunnerClasses(root: IRNode): Map<string, RunnerClassBinding> {
+  const classes = new Map<string, RunnerClassBinding>();
+  for (const node of topLevelNodes(root)) {
+    if (node.type !== 'class') continue;
+    const binding = runnerClassBinding(node);
+    if (!binding) continue;
+    if (classes.has(binding.name)) throw new KernRunnerError(`duplicate runner class '${binding.name}'`);
+    classes.set(binding.name, binding);
+  }
+  for (const cls of classes.values()) {
+    if (cls.extendsName && !classes.has(cls.extendsName)) {
+      throw new KernRunnerError(`runner class '${cls.name}' extends unknown class '${cls.extendsName}'`);
+    }
+  }
+  assertRunnerClassAcyclic(classes);
+  return classes;
+}
+
+function assertRunnerClassAcyclic(classes: ReadonlyMap<string, RunnerClassBinding>): void {
+  for (const cls of classes.values()) {
+    const seen = new Set<string>();
+    for (let current: string | undefined = cls.name; current; ) {
+      if (seen.has(current)) throw new KernRunnerError(`runner class '${cls.name}' has cyclic inheritance`);
+      seen.add(current);
+      current = classes.get(current)?.extendsName;
+    }
+  }
+}
+
+function validateRunnerCallableNames(
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+  runnerClasses: ReadonlyMap<string, RunnerClassBinding>,
+): void {
+  if (runnerClasses.has('main')) throw new KernRunnerError("runner class 'main' conflicts with the native entrypoint");
+  for (const name of runnerClasses.keys()) {
+    if (runnerFunctions.has(name)) {
+      throw new KernRunnerError(`runner class '${name}' conflicts with runner function '${name}'`);
+    }
+  }
+}
+
+function runnerClassBinding(node: IRNode): RunnerClassBinding | undefined {
+  const name = node.props?.name;
+  if (!isPortableBindingName(name)) return undefined;
+  const fields: RunnerClassFieldBinding[] = [];
+  const fieldNames = new Set<string>();
+  const methods = new Map<string, RunnerClassMemberBinding>();
+  const getters = new Map<string, RunnerClassMemberBinding>();
+  let constructorBinding: RunnerClassMemberBinding | undefined;
+  for (const child of node.children ?? []) {
+    if (child.type === 'field') {
+      const fieldName = child.props?.name;
+      if (!isPortableBindingName(fieldName)) continue;
+      if (fieldNames.has(fieldName))
+        throw new KernRunnerError(`runner class '${name}' has duplicate field '${fieldName}'`);
+      fieldNames.add(fieldName);
+      fields.push({ name: fieldName, value: child.props?.value });
+      continue;
+    }
+    if (child.type === 'constructor') {
+      if (constructorBinding) throw new KernRunnerError(`runner class '${name}' has duplicate constructors`);
+      const member = runnerClassMemberBinding(child, name, 'constructor');
+      if (member) constructorBinding = member;
+      continue;
+    }
+    if (child.type === 'method') {
+      const member = runnerClassMemberBinding(child, name, 'method');
+      if (member && methods.has(member.name)) {
+        throw new KernRunnerError(`runner class '${name}' has duplicate method '${member.name}'`);
+      }
+      if (member) methods.set(member.name, member);
+      continue;
+    }
+    if (child.type === 'getter') {
+      const member = runnerClassMemberBinding(child, name, 'getter');
+      if (member && getters.has(member.name)) {
+        throw new KernRunnerError(`runner class '${name}' has duplicate getter '${member.name}'`);
+      }
+      if (member) getters.set(member.name, member);
+    }
+  }
+  const extendsName =
+    typeof node.props?.extends === 'string' && node.props.extends !== '' ? node.props.extends : undefined;
+  return { name, extendsName, fields, constructor: constructorBinding, methods, getters };
+}
+
+function runnerClassMemberBinding(
+  node: IRNode,
+  ownerClass: string,
+  fallbackName: string,
+): RunnerClassMemberBinding | undefined {
+  const name = node.type === 'constructor' ? fallbackName : node.props?.name;
+  if (!isPortableBindingName(name)) return undefined;
+  if (isTrueProp(node.props?.async) || isTrueProp(node.props?.stream) || isTrueProp(node.props?.static)) {
+    throw new KernRunnerError(
+      `runner class '${ownerClass}' member '${name}' uses unsupported async, stream, or static`,
+    );
+  }
+  const handler = singleKernHandler(node);
+  if (!handler) {
+    throw new KernRunnerError(
+      `runner class '${ownerClass}' member '${name}' must contain exactly one handler lang="kern"`,
+    );
+  }
+  return {
+    name,
+    params: runnerParamNames(node, `${ownerClass}.${name}`),
+    handler,
+    body: handler.children ?? [],
+    ownerClass,
+  };
 }
 
 function runnerFunctionBinding(fn: IRNode): RunnerFunctionBinding | undefined {
@@ -614,6 +730,8 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
 
   const handler = resolveKernMainHandler(root);
   const runnerFunctions = collectRunnerFunctions(root);
+  const runnerClasses = collectRunnerClasses(root);
+  validateRunnerCallableNames(runnerFunctions, runnerClasses);
   ensureRunnerContractsRegistered();
 
   let trace: ReturnType<typeof referenceRunSequence>;
@@ -627,6 +745,7 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
       },
     });
     env.runnerFunctions = runnerFunctions;
+    env.runnerClasses = runnerClasses;
     env.runnerCallStack = [];
     env.runnerCallCache = new Map();
     trace = referenceRunSequence(handler.children ?? [], env);
@@ -743,6 +862,8 @@ export async function executeKernSourceAsync(
     if (firstAsyncParseError) throw new KernRunnerError(firstAsyncParseError.message);
     const handler = resolveKernMainHandler(root);
     const runnerFunctions = collectRunnerFunctions(root);
+    const runnerClasses = collectRunnerClasses(root);
+    validateRunnerCallableNames(runnerFunctions, runnerClasses);
     const outsideMain = asyncCapabilityLabelsOutsideExecutable(root, handler, runnerFunctions);
     if (outsideMain.length > 0) {
       throw new KernRunnerError(
@@ -770,6 +891,7 @@ export async function executeKernSourceAsync(
         },
       });
       env.runnerFunctions = runnerFunctions;
+      env.runnerClasses = runnerClasses;
       env.runnerCallStack = [];
       env.runnerCallCache = new Map();
       trace = await asyncReferenceRunSequence(handler.children ?? [], env, {

@@ -8,6 +8,7 @@ import {
   type KernRunnerAsyncCapabilities,
   type KernRunnerCapabilities,
   KernRunnerError,
+  makeEnv,
   type RuntimeCapabilityHandler,
   resolveKernMainHandler,
 } from '../src/runner.js';
@@ -219,6 +220,149 @@ describe('@kernlang/core/runner source executor', () => {
     );
 
     expect(stdout).toBe('3\n');
+  });
+
+  test('executes native runner classes with constructors, methods, inheritance, and super dispatch', () => {
+    const source = [
+      'class name=BaseLabel',
+      '  field name=prefix type=string',
+      '  constructor',
+      '    param name=prefix type=string',
+      '    handler lang="kern"',
+      '      assign target="this.prefix" value="prefix"',
+      '  method name=label returns=string',
+      '    handler lang="kern"',
+      '      return value="this.prefix"',
+      'class name=ChildLabel extends=BaseLabel',
+      '  constructor',
+      '    param name=prefix type=string',
+      '    handler lang="kern"',
+      '      do value="super(prefix)"',
+      '  method name=label returns=string',
+      '    handler lang="kern"',
+      '      return value="super.label() + \'/child\'"',
+      'fn name=describe params="prefix:string" returns=string',
+      '  handler lang="kern"',
+      '    let name=label value="new ChildLabel(prefix)"',
+      '    return value="label.label()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new ChildLabel(\'x\')"',
+      '    print value="label.label()"',
+      '    print value="describe(\'y\')"',
+    ].join('\n');
+
+    expect(executeKernSource(source)).toBe('x/child\ny/child\n');
+  });
+
+  test('fails closed for invalid native runner class registries', () => {
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=Duplicate',
+          'class name=Duplicate',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    print value="1"',
+        ].join('\n'),
+      ),
+    ).toThrow(/duplicate runner class 'Duplicate'/);
+
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=ChildLabel extends=MissingBase',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    print value="1"',
+        ].join('\n'),
+      ),
+    ).toThrow(/runner class 'ChildLabel' extends unknown class 'MissingBase'/);
+
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=A extends=B',
+          'class name=B extends=A',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    print value="1"',
+        ].join('\n'),
+      ),
+    ).toThrow(/runner class 'A' has cyclic inheritance/);
+
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=buildLabel',
+          'fn name=buildLabel returns=string',
+          '  handler lang="kern"',
+          '    return value="\'x\'"',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    print value="buildLabel()"',
+        ].join('\n'),
+      ),
+    ).toThrow(/runner class 'buildLabel' conflicts with runner function 'buildLabel'/);
+
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=DuplicateMember',
+          '  method name=label returns=string',
+          '    handler lang="kern"',
+          '      return value="\'a\'"',
+          '  method name=label returns=string',
+          '    handler lang="kern"',
+          '      return value="\'b\'"',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    print value="1"',
+        ].join('\n'),
+      ),
+    ).toThrow(/runner class 'DuplicateMember' has duplicate method 'label'/);
+
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=BaseLabel',
+          '  field name=prefix type=string',
+          '  constructor',
+          '    param name=prefix type=string',
+          '    handler lang="kern"',
+          '      assign target="this.prefix" value="prefix"',
+          'class name=ChildLabel extends=BaseLabel',
+          '  constructor',
+          '    param name=prefix type=string',
+          '    handler lang="kern"',
+          '      do value="super(prefix)"',
+          '  method name=bad returns=string',
+          '    handler lang="kern"',
+          '      let name=ignored value="super(\'bad\')"',
+          '      return value="this.prefix"',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    let name=label value="new ChildLabel(\'x\')"',
+          '    print value="label.bad()"',
+        ].join('\n'),
+      ),
+    ).toThrow(KernRunnerError);
+  });
+
+  test('keeps runner class instances isolated when semantic envs are cloned', () => {
+    const instance = {
+      __kernRunnerClassInstance: true as const,
+      className: 'Box',
+      fields: { value: 'original' },
+    };
+    const original = makeEnv({ bindings: new Map([['box', instance]]) });
+    const cloned = makeEnv(original);
+
+    const clonedBox = cloned.bindings.get('box') as typeof instance;
+    clonedBox.fields.value = 'clone';
+
+    expect(instance.fields.value).toBe('original');
+    expect(clonedBox.fields.value).toBe('clone');
   });
 
   test('caches pure helper calls across precondition and effect passes', () => {
