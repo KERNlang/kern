@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  analyzeKernSourceCapabilities,
   createMemoryStorageCapability,
   executeKernSource,
   executeKernSourceAsync,
@@ -18,15 +19,21 @@ const UI_PATH = resolve(APP_DIR, 'ui.kern');
 const ROUTE_PATH = resolve(APP_DIR, 'answer-route.kern');
 
 const PROVIDED_CAPABILITIES = Object.freeze(['storage.get', 'rag.promptContext', 'rag.checkAnswer']);
-const PROVIDED_ASYNC_CAPABILITIES = Object.freeze(['rag.retrieveAsync', 'llm.complete']);
 const DEMO_RAG_SESSION = createLocalRagCapabilitySession();
 const ANSWER_START = '__KERN_ANSWER_START__';
 const ANSWER_END = '__KERN_ANSWER_END__';
 const STATUS_MARKER = '__KERN_STATUS__';
 const SOURCES_START = '__KERN_SOURCES_START__';
 const SOURCES_END = '__KERN_SOURCES_END__';
+const DEMO_FAILURES = new Set(['missing-llm', 'ungrounded']);
 
 class DemoInputError extends Error {}
+class DemoMissingCapabilityError extends Error {
+  constructor(capability) {
+    super(`missing required host capability: ${capability}`);
+    this.capability = capability;
+  }
+}
 
 function normalizeQuestion(question) {
   if (typeof question !== 'string' || !question.trim()) throw new DemoInputError('question is required');
@@ -37,6 +44,12 @@ function isRefundQuestion(question) {
   return /\b(refund|refunds|receipt|money back|policy)\b/i.test(question);
 }
 
+function normalizeDemoFailure(value) {
+  if (value === null || value === '') return undefined;
+  if (DEMO_FAILURES.has(value)) return value;
+  throw new DemoInputError('unsupported failure mode');
+}
+
 function markerIndex(lines, marker) {
   const matches = lines.flatMap((line, index) => (line === marker ? [index] : []));
   if (matches.length !== 1) throw new Error(`answer route printed ${matches.length} copies of ${marker}`);
@@ -44,7 +57,7 @@ function markerIndex(lines, marker) {
 }
 
 function parseAnswerRouteOutput(stdout) {
-  const lines = stdout.trimEnd().split('\n');
+  const lines = stdout.trimEnd().split(/\r?\n/u);
   const answerStart = markerIndex(lines, ANSWER_START);
   const answerEnd = markerIndex(lines, ANSWER_END);
   const statusMarker = markerIndex(lines, STATUS_MARKER);
@@ -64,12 +77,26 @@ function parseAnswerRouteOutput(stdout) {
     throw new Error('answer route printed invalid output fields');
   }
   const sources = lines.slice(sourcesStart + 1, sourcesEnd);
+  const citations = sources.map((source, index) => ({
+    label: `[${index + 1}]`,
+    source,
+    chunkIndex: index,
+  }));
+  const grounded = status === 'grounded';
   return {
     answer,
     status,
+    grounded,
+    citations,
     chunkCount: sources.length,
     source: sources[0] ?? null,
     sources,
+    diagnostics: {
+      status,
+      grounded,
+      chunkCount: sources.length,
+      sources,
+    },
   };
 }
 
@@ -86,31 +113,44 @@ export async function renderUiHtml() {
   return executeKernSource(source, { capabilityContext: { sourceName: UI_PATH } });
 }
 
-export async function answerQuestion(question) {
+export async function answerQuestion(question, options = {}) {
   const normalized = normalizeQuestion(question);
+  const failure = options.failure;
   const source = await readFile(ROUTE_PATH, 'utf-8');
+  const asyncCapabilities = {
+    rag: createAsyncLocalRagRetrieveCapability(source, { sourcePath: ROUTE_PATH, session: DEMO_RAG_SESSION }),
+  };
+  const providedAsyncCapabilities = ['rag.retrieveAsync'];
+  if (failure !== 'missing-llm') {
+    asyncCapabilities.llm = {
+      // Demo-only deterministic adapter; real hosts inject a model provider.
+      async complete(call) {
+        const input = call?.input;
+        const question =
+          input && typeof input === 'object' && !Array.isArray(input) && typeof input.question === 'string'
+            ? input.question
+            : '';
+        if (failure === 'ungrounded') return 'Refunds are approved by manager preference without evidence.';
+        if (!isRefundQuestion(question)) throw new Error('KERN_DEMO_UNSUPPORTED_QUERY');
+        return 'Refunds are available within thirty days when the customer includes the receipt [1].\nSupport should cite the refund policy before promising money back [1].';
+      },
+    };
+    providedAsyncCapabilities.push('llm.complete');
+  }
+  const capabilityAnalysis = analyzeKernSourceCapabilities(source, {
+    providedCapabilities: PROVIDED_CAPABILITIES,
+    providedAsyncCapabilities,
+  });
+  const missingLlm = capabilityAnalysis.missingAsyncProviders.find((requirement) => requirement.id === 'llm.complete');
+  if (missingLlm) throw new DemoMissingCapabilityError(missingLlm.id);
   const stdout = await executeKernSourceAsync(source, {
     capabilities: {
       storage: createMemoryStorageCapability({ initial: { question: normalized } }),
       rag: createLocalRagCapability(source, { sourcePath: ROUTE_PATH, session: DEMO_RAG_SESSION }),
     },
     providedCapabilities: PROVIDED_CAPABILITIES,
-    asyncCapabilities: {
-      rag: createAsyncLocalRagRetrieveCapability(source, { sourcePath: ROUTE_PATH, session: DEMO_RAG_SESSION }),
-      llm: {
-        // Demo-only deterministic adapter; real hosts inject a model provider.
-        async complete(call) {
-          const input = call?.input;
-          const question =
-            input && typeof input === 'object' && !Array.isArray(input) && typeof input.question === 'string'
-              ? input.question
-              : '';
-          if (!isRefundQuestion(question)) throw new Error('KERN_DEMO_UNSUPPORTED_QUERY');
-          return 'Refunds are available within thirty days when the customer includes the receipt [1].\nSupport should cite the refund policy before promising money back [1].';
-        },
-      },
-    },
-    providedAsyncCapabilities: PROVIDED_ASYNC_CAPABILITIES,
+    asyncCapabilities,
+    providedAsyncCapabilities,
     capabilityContext: { sourceName: ROUTE_PATH },
   });
   return parseAnswerRouteOutput(stdout);
@@ -129,17 +169,32 @@ export function createPreviewAppServer() {
       if (request.method === 'GET' && url.pathname === '/api/answer') {
         let result;
         try {
-          result = await answerQuestion(url.searchParams.get('question') ?? '');
+          result = await answerQuestion(url.searchParams.get('question') ?? '', {
+            failure: normalizeDemoFailure(url.searchParams.get('failure')),
+          });
         } catch (error) {
           if (error instanceof DemoInputError) {
+            const message = error.message === 'unsupported failure mode' ? error.message : 'question is required';
             response.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
-            response.end(JSON.stringify({ error: 'question is required' }));
+            response.end(JSON.stringify({ error: message }));
             return;
           }
-          if (!isGroundingFailure(error) && !isUnsupportedQuestion(error)) throw error;
-          response.writeHead(422, { 'content-type': 'application/json; charset=utf-8' });
-          response.end(JSON.stringify({ error: 'no grounded answer for this question' }));
-          return;
+          if (isGroundingFailure(error) || isUnsupportedQuestion(error)) {
+            response.writeHead(422, { 'content-type': 'application/json; charset=utf-8' });
+            response.end(JSON.stringify({ error: 'no grounded answer for this question', diagnostics: { grounded: false } }));
+            return;
+          }
+          if (error instanceof DemoMissingCapabilityError) {
+            response.writeHead(503, { 'content-type': 'application/json; charset=utf-8' });
+            response.end(
+              JSON.stringify({
+                error: 'required host capability is unavailable',
+                diagnostics: { capability: error.capability, grounded: false },
+              }),
+            );
+            return;
+          }
+          throw error;
         }
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify(result));
