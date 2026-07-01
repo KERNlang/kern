@@ -9,7 +9,11 @@ import {
 import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES, CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
 import type { IRNode } from '../../types.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { evalPortableValueAsync } from './async-portable-scalar.js';
+import {
+  evalPortableValueAsync,
+  evalRunnerClassNewValueAsync,
+  evalRunnerFunctionValueAsync,
+} from './async-portable-scalar.js';
 import { branchPreconditions, selectBranchPath } from './branch.js';
 import { isCapabilityToken } from './capability.js';
 import { eachPreconditions, eachRuntimeSteps } from './each.js';
@@ -28,10 +32,11 @@ import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import {
   assertPortableScalar,
+  assertRunnerPortableValue,
   assignRunnerClassMember,
-  evalRunnerClassNewValue,
   isPortableBindingName,
   isRecordLiteralExpression,
+  isRunnerClassInstanceValue,
   type PortableScalar,
   portableTruthy,
 } from './portable-scalar.js';
@@ -142,8 +147,17 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
       : isRecordLiteralExpression(parsed)
         ? await evalRecordLiteralValueAsync(parsed, env, options)
         : parsed.kind === 'new'
-          ? evalRunnerClassNewValue(parsed, env)
-          : await evalPortableValueForAsyncRunner(parsed, env, options);
+          ? await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options))
+          : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
+            ? await evalRunnerFunctionValueAsync(parsed.callee.name, parsed.args, env, asyncEvalOptions(options))
+            : parsed.kind === 'ident' && hasBinding(env, parsed.name)
+              ? (() => {
+                  const binding = getBinding(env, parsed.name);
+                  return isRunnerClassInstanceValue(binding)
+                    ? binding
+                    : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+                })()
+              : await evalPortableValueForAsyncRunner(parsed, env, options);
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
@@ -256,11 +270,29 @@ async function asyncReturnEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
   const value = ir.props?.value;
   if (typeof value !== 'string') return { events: [], completion: { kind: 'return', value } };
   try {
+    const parsed = parseExpression(value);
+    let resolved: unknown;
+    if (isArrayLiteralExpression(parsed)) {
+      resolved = await evalArrayLiteralValueAsync(parsed, env, options);
+    } else if (isRecordLiteralExpression(parsed)) {
+      resolved = await evalRecordLiteralValueAsync(parsed, env, options);
+    } else if (parsed.kind === 'new') {
+      resolved = await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+      resolved = await evalRunnerFunctionValueAsync(parsed.callee.name, parsed.args, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+      const binding = getBinding(env, parsed.name);
+      resolved = isRunnerClassInstanceValue(binding)
+        ? binding
+        : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+    } else {
+      resolved = await evalPortableValueForAsyncRunner(parsed, env, options);
+    }
     return {
       events: [],
       completion: {
         kind: 'return',
-        value: await evalPortableValueForAsyncRunner(parseExpression(value), env, options),
+        value: resolved,
       },
     };
   } catch {

@@ -157,3 +157,17 @@ export class KernRuntime {
  * delegate to this instance for backward compatibility.
  */
 export const defaultRuntime = new KernRuntime();
+
+export type {
+  KernAppDescriptor,
+  KernAppDescriptorSourceLoaderContext,
+  KernAppEntryDescriptor,
+  KernAppRouteDescriptor,
+  KernAppViewDescriptor,
+  LoadKernAppDescriptorOptions,
+} from './app-descriptor.js';
+export {
+  findMissingKernAppEntryCapability,
+  KernAppDescriptorError,
+  loadKernAppDescriptor,
+} from './app-descriptor.js';

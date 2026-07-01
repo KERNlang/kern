@@ -95,6 +95,18 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('passes first-class app route, view, policy, and capability requirement declarations', () => {
+      const v = validate(
+        [
+          'app name=SupportApp version=5.0',
+          '  view name=Home path="/" source="./ui.kern" handler=main',
+          '  route method=get path="/api/answer" source="./answer-route.kern" handler=main policy=GroundedAnswer response=json requires="storage.get,rag.retrieveAsync,rag.promptContext,llm.complete,rag.checkAnswer"',
+          '  policy name=GroundedAnswer kind=rag-grounding failureStatus=422 requires="rag.checkAnswer"',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
     it('passes valid RAG declarations and flags missing required graph props', () => {
       const valid = validate(
         [

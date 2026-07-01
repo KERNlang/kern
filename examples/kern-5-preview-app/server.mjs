@@ -1,13 +1,9 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  analyzeKernSourceCapabilities,
-  createMemoryStorageCapability,
-  executeKernSource,
-  executeKernSourceAsync,
-} from '../../packages/core/dist/runner.js';
+import { findMissingKernAppEntryCapability, loadKernAppDescriptor } from '../../packages/core/dist/runtime.js';
+import { executeKernEntrySource, executeKernEntrySourceAsync } from '../../packages/core/dist/runner.js';
 import {
   createAsyncLocalRagRetrieveCapability,
   createLocalRagCapability,
@@ -15,10 +11,10 @@ import {
 } from '../../packages/core/dist/node.js';
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
-const UI_PATH = resolve(APP_DIR, 'ui.kern');
-const ROUTE_PATH = resolve(APP_DIR, 'answer-route.kern');
+const APP_MANIFEST_PATH = resolve(APP_DIR, 'app.kern');
 
-const PROVIDED_CAPABILITIES = Object.freeze(['storage.get', 'rag.promptContext', 'rag.checkAnswer']);
+const HOST_SYNC_CAPABILITIES = Object.freeze(['app-http.queryParam', 'rag.promptContext', 'rag.checkAnswer']);
+const HOST_ASYNC_CAPABILITIES = Object.freeze(['rag.retrieveAsync', 'llm.complete']);
 const DEMO_RAG_SESSION = createLocalRagCapabilitySession();
 const ANSWER_START = '__KERN_ANSWER_START__';
 const ANSWER_END = '__KERN_ANSWER_END__';
@@ -35,9 +31,80 @@ class DemoMissingCapabilityError extends Error {
   }
 }
 
+let appManifestPromise;
+
 function normalizeQuestion(question) {
   if (typeof question !== 'string' || !question.trim()) throw new DemoInputError('question is required');
   return question.trim();
+}
+
+function createAppHttpCapability(query) {
+  return {
+    queryParam(call) {
+      const input = call.input;
+      if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.name !== 'string') {
+        throw new Error('app-http.queryParam input must declare name');
+      }
+      return query[input.name] ?? null;
+    },
+  };
+}
+
+function policyFailureStatus(entry, fallback) {
+  const rawStatus = entry.policies?.[0]?.props?.failureStatus;
+  const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus);
+  return Number.isInteger(status) && status >= 400 && status <= 599 ? status : fallback;
+}
+
+function singleEntry(entries, label, predicate) {
+  const matches = entries.filter(predicate);
+  if (matches.length !== 1) {
+    throw new Error(`app manifest must declare exactly one ${label}, found ${matches.length}`);
+  }
+  return matches[0];
+}
+
+function assertHostSupportsEntry(entry) {
+  const missingSync = entry.requiredSyncCapabilities.filter((id) => !HOST_SYNC_CAPABILITIES.includes(id));
+  const missingAsync = entry.requiredAsyncCapabilities.filter((id) => !HOST_ASYNC_CAPABILITIES.includes(id));
+  if (missingSync.length > 0 || missingAsync.length > 0) {
+    throw new Error(
+      `${entry.label} requires unsupported host capabilities: ${[...missingSync, ...missingAsync].join(', ')}`,
+    );
+  }
+}
+
+export async function loadPreviewAppManifest() {
+  if (!appManifestPromise) {
+    appManifestPromise = (async () => {
+      const source = await readFile(APP_MANIFEST_PATH, 'utf-8');
+      const descriptor = await loadKernAppDescriptor(source, {
+        appRoot: APP_DIR,
+        canonicalizePath(path) {
+          return realpath(path);
+        },
+        readSource(sourcePath) {
+          return readFile(sourcePath, 'utf-8');
+        },
+      });
+      const homeView = singleEntry(descriptor.views, 'view for path "/"', (view) => view.path === '/');
+      const answerRoute = singleEntry(
+        descriptor.routes,
+        'route GET /api/answer',
+        (route) => route.key === 'GET /api/answer',
+      );
+      if (answerRoute.node.props?.response !== 'json') {
+        throw new Error('route GET /api/answer must declare response=json');
+      }
+      assertHostSupportsEntry(homeView);
+      assertHostSupportsEntry(answerRoute);
+      return Object.freeze({ ...descriptor, homeView, answerRoute });
+    })().catch((error) => {
+      appManifestPromise = undefined;
+      throw error;
+    });
+  }
+  return appManifestPromise;
 }
 
 function isRefundQuestion(question) {
@@ -109,18 +176,43 @@ function isUnsupportedQuestion(error) {
 }
 
 export async function renderUiHtml() {
-  const source = await readFile(UI_PATH, 'utf-8');
-  return executeKernSource(source, { capabilityContext: { sourceName: UI_PATH } });
+  const manifest = await loadPreviewAppManifest();
+  const source = await readFile(manifest.homeView.sourcePath, 'utf-8');
+  const providedCapabilities = HOST_SYNC_CAPABILITIES.filter((id) => manifest.homeView.requiredSyncCapabilities.includes(id));
+  const providedAsyncCapabilities = HOST_ASYNC_CAPABILITIES.filter((id) =>
+    manifest.homeView.requiredAsyncCapabilities.includes(id),
+  );
+  const missingProvider = findMissingKernAppEntryCapability(
+    manifest.homeView,
+    providedCapabilities,
+    providedAsyncCapabilities,
+  );
+  if (missingProvider) throw new DemoMissingCapabilityError(missingProvider);
+  return executeKernEntrySource(source, manifest.homeView, {
+    providedCapabilities,
+    capabilityContext: { sourceName: manifest.homeView.sourcePath },
+  });
 }
 
 export async function answerQuestion(question, options = {}) {
   const normalized = normalizeQuestion(question);
   const failure = options.failure;
-  const source = await readFile(ROUTE_PATH, 'utf-8');
+  const manifest = await loadPreviewAppManifest();
+  const source = await readFile(manifest.answerRoute.sourcePath, 'utf-8');
   const asyncCapabilities = {
-    rag: createAsyncLocalRagRetrieveCapability(source, { sourcePath: ROUTE_PATH, session: DEMO_RAG_SESSION }),
+    rag: createAsyncLocalRagRetrieveCapability(source, {
+      sourcePath: manifest.answerRoute.sourcePath,
+      session: DEMO_RAG_SESSION,
+    }),
   };
-  const providedAsyncCapabilities = ['rag.retrieveAsync'];
+  const providedCapabilities = HOST_SYNC_CAPABILITIES.filter((id) =>
+    manifest.answerRoute.requiredSyncCapabilities.includes(id),
+  );
+  const providedAsyncCapabilities = HOST_ASYNC_CAPABILITIES.filter(
+    (id) =>
+      manifest.answerRoute.requiredAsyncCapabilities.includes(id) &&
+      (failure !== 'missing-llm' || id !== 'llm.complete'),
+  );
   if (failure !== 'missing-llm') {
     asyncCapabilities.llm = {
       // Demo-only deterministic adapter; real hosts inject a model provider.
@@ -135,23 +227,22 @@ export async function answerQuestion(question, options = {}) {
         return 'Refunds are available within thirty days when the customer includes the receipt [1].\nSupport should cite the refund policy before promising money back [1].';
       },
     };
-    providedAsyncCapabilities.push('llm.complete');
   }
-  const capabilityAnalysis = analyzeKernSourceCapabilities(source, {
-    providedCapabilities: PROVIDED_CAPABILITIES,
+  const missingProvider = findMissingKernAppEntryCapability(
+    manifest.answerRoute,
+    providedCapabilities,
     providedAsyncCapabilities,
-  });
-  const missingLlm = capabilityAnalysis.missingAsyncProviders.find((requirement) => requirement.id === 'llm.complete');
-  if (missingLlm) throw new DemoMissingCapabilityError(missingLlm.id);
-  const stdout = await executeKernSourceAsync(source, {
+  );
+  if (missingProvider) throw new DemoMissingCapabilityError(missingProvider);
+  const stdout = await executeKernEntrySourceAsync(source, manifest.answerRoute, {
     capabilities: {
-      storage: createMemoryStorageCapability({ initial: { question: normalized } }),
-      rag: createLocalRagCapability(source, { sourcePath: ROUTE_PATH, session: DEMO_RAG_SESSION }),
+      'app-http': createAppHttpCapability({ question: normalized }),
+      rag: createLocalRagCapability(source, { sourcePath: manifest.answerRoute.sourcePath, session: DEMO_RAG_SESSION }),
     },
-    providedCapabilities: PROVIDED_CAPABILITIES,
+    providedCapabilities,
     asyncCapabilities,
     providedAsyncCapabilities,
-    capabilityContext: { sourceName: ROUTE_PATH },
+    capabilityContext: { sourceName: manifest.answerRoute.sourcePath },
   });
   return parseAnswerRouteOutput(stdout);
 }
@@ -160,13 +251,18 @@ export function createPreviewAppServer() {
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-      if (request.method === 'GET' && url.pathname === '/') {
+      const method = request.method ?? 'GET';
+      const manifest = await loadPreviewAppManifest();
+      if (method.toUpperCase() === 'GET' && url.pathname === manifest.homeView.path) {
         const html = await renderUiHtml();
         response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         response.end(html);
         return;
       }
-      if (request.method === 'GET' && url.pathname === '/api/answer') {
+      if (
+        method.toUpperCase() === manifest.answerRoute.method.toUpperCase() &&
+        url.pathname === manifest.answerRoute.path
+      ) {
         let result;
         try {
           result = await answerQuestion(url.searchParams.get('question') ?? '', {
@@ -180,7 +276,9 @@ export function createPreviewAppServer() {
             return;
           }
           if (isGroundingFailure(error) || isUnsupportedQuestion(error)) {
-            response.writeHead(422, { 'content-type': 'application/json; charset=utf-8' });
+            response.writeHead(policyFailureStatus(manifest.answerRoute, 422), {
+              'content-type': 'application/json; charset=utf-8',
+            });
             response.end(JSON.stringify({ error: 'no grounded answer for this question', diagnostics: { grounded: false } }));
             return;
           }

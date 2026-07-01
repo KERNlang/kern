@@ -1,17 +1,22 @@
 # KERN 5 Preview App
 
-This is the first maintained vertical app for the KERN native runner preview.
-It is intentionally positioned as a **KERN 5 preview app**, not the final KERN
-5.0 runtime contract.
+This is the maintained vertical reference app for the KERN 5 native runner app
+surface. The bounded KERN 5.0 contract is defined in
+`docs/kern-5-support-matrix.md`; this app is the end-to-end fixture for that
+manifest-driven surface, not a promise that every future runtime shape is
+supported.
 
 The demo proves that KERN can author the main app behavior while TypeScript
 stays at the host boundary:
 
 - `ui.kern` emits the browser UI markup.
+- `app.kern` declares the app, browser view, answer route, grounding policy,
+  response mode, and required host capabilities.
 - `answer-route.kern` authors the backend route behavior, RAG query path, and
   grounding guard.
-- `server.mjs` is the thin host adapter for HTTP, request storage, local RAG
-  adapter wiring, and deterministic LLM wiring.
+- `server.mjs` is the thin host adapter for HTTP, request query parameters, local RAG
+  adapter wiring, and deterministic LLM wiring; it reads `app.kern` and fails
+  closed if the route source uses undeclared capabilities.
 
 ## Run
 
@@ -42,10 +47,12 @@ pnpm test:runner-smoke
 ## Flow
 
 ```text
+app.kern
+  -> declares / view, GET /api/answer, GroundedAnswerPolicy, and capabilities
 ui.kern
   -> native runner emits browser HTML
   -> browser fetches /api/answer?question=...
-  -> server.mjs stores request input through storage capability
+  -> server.mjs exposes request input through app-http.queryParam
   -> answer-route.kern runs through executeKernSourceAsync
   -> rag.retrieveAsync finds local corpus chunks
   -> rag.promptContext builds prompt context
@@ -58,10 +65,10 @@ ui.kern
 
 | Area | Demo status |
 | --- | --- |
-| KERN-authored | Browser markup in `ui.kern`; backend route flow in `answer-route.kern`; RAG declaration, retrieval selection, answer check, and printed route result sections. |
-| Runtime capability | `storage.get`, `rag.retrieveAsync`, `rag.promptContext`, `llm.complete`, and `rag.checkAnswer` are explicit named operations. Missing or failed capabilities fail closed. |
-| Thin host adapter | `server.mjs` owns HTTP, filesystem reads for `.kern` sources, request parameter storage injection, local corpus/vector adapter wiring, deterministic LLM preview output, and JSON shaping. |
-| Preview / not supported yet | This is not the canonical KERN 5 runtime ABI. The browser script is still host bootstrap JavaScript, the LLM is deterministic unless a host swaps in a provider, broad async KERN semantics remain preview-only, and linked multi-file KERN app packages are not designed yet. |
+| KERN-authored | App manifest in `app.kern`; browser markup in `ui.kern`; backend route flow in `answer-route.kern`; RAG declaration, retrieval selection, answer check, and printed route result sections. |
+| Runtime capability | `app.kern` declares `app-http.queryParam`, `rag.retrieveAsync`, `rag.promptContext`, `llm.complete`, and `rag.checkAnswer`; `answer-route.kern` calls those explicit named operations. Missing, undeclared, or failed capabilities fail closed. |
+| Thin host adapter | `server.mjs` owns HTTP, filesystem reads for `.kern` sources, request query parameter injection, local corpus/vector adapter wiring, deterministic LLM preview output, and JSON shaping. It must honor the route, view, policy, response, and capability contract declared in `app.kern`. |
+| Outside the 5.0 matrix | The browser script is still host bootstrap JavaScript, the LLM is deterministic unless a host swaps in a provider, broad async KERN semantics remain outside the supported matrix, and linked multi-file KERN app packages are minimal manifest wiring rather than a full package system. |
 
 ## API Shape
 
@@ -118,13 +125,15 @@ gate keeps that preview boundary separate from this app's happy path.
 
 ## What This Proves
 
-KERN-authored app behavior can drive a browser UI, an HTTP answer route, local
-RAG retrieval, deterministic answer synthesis, and grounding guards through the
-native runner preview. Host code cannot be reached implicitly; every host effect
-crosses a named capability supplied by the adapter.
+KERN-authored app behavior can declare the app surface, drive a browser UI, run
+an HTTP answer route, perform local RAG retrieval, synthesize a deterministic
+answer, and enforce grounding guards through the native runner preview. Host
+code cannot be reached implicitly; every host effect crosses a named capability
+declared by the app manifest and supplied by the adapter.
 
-## Still Preview
+## Matrix Boundary
 
-The native runner and async capability path are still preview surfaces. Keep this
-demo polished and repeatable, but do not treat it as the final runtime ABI or a
-replacement for the existing production TypeScript/Python transpiler paths.
+KERN 5.0 final-complete is scoped to the tested support matrix in
+`docs/kern-5-support-matrix.md`. Runtime shapes outside that matrix are either
+future work or fail-closed guardrails; they are not part of this app's contract
+or a replacement for existing production TypeScript/Python transpiler paths.

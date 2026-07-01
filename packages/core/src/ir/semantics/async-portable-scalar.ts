@@ -1,6 +1,8 @@
 import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
+  getBinding,
+  hasBinding,
   isIntProvenanced,
   makeEnv,
   type RunnerClassBinding,
@@ -9,16 +11,21 @@ import {
 } from './index.js';
 import {
   assertPortableScalar,
+  assertRunnerPortableValue,
   coerceToString,
   evalNumberBinary,
   evalOrderedComparison,
   evalPortableValue,
+  evalRunnerClassMethodScalarWithArgumentsAsync,
+  evalRunnerClassNewValue,
+  evalRunnerClassNewValueWithArgumentsAsync,
   isCaughtErrorValue,
   isDecimalValue,
   isRunnerClassInstanceValue,
   isSafeIntegerLiteralIndex,
   type PortableScalar,
   portableTruthy,
+  type RunnerFunctionValue,
   sameType,
 } from './portable-scalar.js';
 import type { Trace } from './trace.js';
@@ -100,7 +107,16 @@ export async function evalPortableValueAsync(
         if (node.args.length !== 1) throw new Error('portable: String() expects exactly 1 argument');
         return coerceToString(await evalPortableValueAsync(node.args[0], env, options));
       }
-      if (node.callee.kind === 'ident') return evalRunnerFunctionCallAsync(node.callee.name, node.args, env, options);
+      if (node.callee.kind === 'ident')
+        return evalRunnerFunctionScalarCallAsync(node.callee.name, node.args, env, options);
+      if (node.callee.kind === 'member') {
+        const args = [];
+        for (const arg of node.args) {
+          args.push(await evalRunnerAsyncArgumentValue(arg, env, options));
+        }
+        const value = await evalRunnerClassMethodScalarWithArgumentsAsync(node, env, args, options.runFunctionBody);
+        if (value !== undefined) return value;
+      }
       return evalPortableValue(node, env);
     }
     default:
@@ -163,12 +179,38 @@ async function evalPortableBinaryAsync(
   }
 }
 
-async function evalRunnerFunctionCallAsync(
+async function evalRunnerAsyncArgumentValue(
+  node: ValueIR,
+  env: SemanticEnv,
+  options: AsyncPortableEvalOptions,
+): Promise<unknown> {
+  if (node.kind === 'new') return evalRunnerClassNewValueAsync(node, env, options);
+  if (node.kind === 'ident' && hasBinding(env, node.name)) return getBinding(env, node.name);
+  if (node.kind === 'call' && node.callee.kind === 'ident' && node.callee.name !== 'String') {
+    return evalRunnerFunctionValueAsync(node.callee.name, node.args, env, options);
+  }
+  return evalPortableValueAsync(node, env, options);
+}
+
+export async function evalRunnerClassNewValueAsync(
+  node: ValueIR,
+  env: SemanticEnv,
+  options: AsyncPortableEvalOptions,
+): Promise<ReturnType<typeof evalRunnerClassNewValue>> {
+  if (node.kind !== 'new' || node.argument.kind !== 'call') return evalRunnerClassNewValue(node, env);
+  const args = [];
+  for (const arg of node.argument.args) {
+    args.push(await evalRunnerAsyncArgumentValue(arg, env, options));
+  }
+  return evalRunnerClassNewValueWithArgumentsAsync(node, env, args, options.runFunctionBody);
+}
+
+export async function evalRunnerFunctionValueAsync(
   fnName: string,
   args: readonly ValueIR[],
   env: SemanticEnv,
   options: AsyncPortableEvalOptions,
-): Promise<PortableScalar> {
+): Promise<RunnerFunctionValue> {
   const functions = runnerFunctionsForEnv(env);
   const fn = functions?.get(fnName);
   if (!fn) throw new Error(`portable: unsupported call to "${fnName}"`);
@@ -184,7 +226,7 @@ async function evalRunnerFunctionCallAsync(
   const intProvenance = new Set<string>();
   for (let index = 0; index < fn.params.length; index += 1) {
     const arg = args[index];
-    const value = await evalPortableValueAsync(arg, env, options);
+    const value = await evalRunnerAsyncArgumentValue(arg, env, options);
     const isSafeIntArg = isSafeIntegerLiteralIndex(arg) || (arg.kind === 'ident' && isIntProvenanced(env, arg.name));
     bindings.set(fn.params[index], value);
     if (isSafeIntArg) intProvenance.add(fn.params[index]);
@@ -196,6 +238,7 @@ async function evalRunnerFunctionCallAsync(
     runnerFunctions: functions,
     runnerClasses: runnerClassesForEnv(env),
     runnerCallStack: [...callStack, fnName],
+    runnerCallCache: env.runnerCallCache,
     capabilities: undefined,
     capabilityContext: env.capabilityContext,
     seed: env.seed,
@@ -206,9 +249,23 @@ async function evalRunnerFunctionCallAsync(
     throw new Error(`portable: function "${fnName}" produced side effects`);
   }
   if (trace.completion.kind !== 'return') {
-    throw new Error(`portable: function "${fnName}" must return a portable scalar`);
+    throw new Error(`portable: function "${fnName}" must return a portable scalar, record, or array`);
   }
-  return assertPortableScalar(trace.completion.value, `function "${fnName}" return`);
+  return isRunnerClassInstanceValue(trace.completion.value)
+    ? trace.completion.value
+    : assertRunnerPortableValue(trace.completion.value, `function "${fnName}" return`);
+}
+
+async function evalRunnerFunctionScalarCallAsync(
+  fnName: string,
+  args: readonly ValueIR[],
+  env: SemanticEnv,
+  options: AsyncPortableEvalOptions,
+): Promise<PortableScalar> {
+  return assertPortableScalar(
+    await evalRunnerFunctionValueAsync(fnName, args, env, options),
+    `function "${fnName}" return`,
+  );
 }
 
 function isDisallowedHelperSideEffect(event: Trace['events'][number]): boolean {

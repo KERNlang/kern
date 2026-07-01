@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { createPreviewAppServer } from '../examples/kern-5-preview-app/server.mjs';
+import { basename } from 'node:path';
+import { createPreviewAppServer, loadPreviewAppManifest } from '../examples/kern-5-preview-app/server.mjs';
 
 class DemoSmokeFailure extends Error {}
 
@@ -35,6 +36,35 @@ try {
   const address = server.address();
   if (!address || typeof address !== 'object') throw new DemoSmokeFailure('preview app did not bind a TCP port');
   const baseUrl = `http://127.0.0.1:${address.port}`;
+  const manifest = await loadPreviewAppManifest();
+  if (manifest.app.props.name !== 'Kern5Preview') {
+    throw new DemoSmokeFailure(`app manifest declared unexpected app ${JSON.stringify(manifest.app.props.name)}`);
+  }
+  if (manifest.homeView.path !== '/' || basename(manifest.homeView.sourcePath) !== 'ui.kern') {
+    throw new DemoSmokeFailure(`app manifest declared unexpected home view ${JSON.stringify(manifest.homeView)}`);
+  }
+  if (
+    manifest.answerRoute.key !== 'GET /api/answer' ||
+    basename(manifest.answerRoute.sourcePath) !== 'answer-route.kern'
+  ) {
+    throw new DemoSmokeFailure(`app manifest declared unexpected answer route ${JSON.stringify(manifest.answerRoute)}`);
+  }
+  if (!manifest.answerRoute.policyName || manifest.answerRoute.policies[0]?.props?.name !== 'GroundedAnswerPolicy') {
+    throw new DemoSmokeFailure(`app manifest did not attach the answer grounding policy`);
+  }
+  if (Number(manifest.answerRoute.policies[0]?.props?.failureStatus) !== 422) {
+    throw new DemoSmokeFailure(`app manifest did not declare the answer grounding failure status`);
+  }
+  for (const capability of [
+    'app-http.queryParam',
+    'rag.retrieveAsync',
+    'rag.promptContext',
+    'llm.complete',
+    'rag.checkAnswer',
+  ]) {
+    const declared = manifest.answerRoute.requiredCapabilities.includes(capability);
+    if (!declared) throw new DemoSmokeFailure(`app manifest did not declare ${capability}`);
+  }
 
   const { response: uiResponse, text: html } = await fetchText(`${baseUrl}/`);
   if (!uiResponse.ok) throw new DemoSmokeFailure(`UI route returned ${uiResponse.status}`);

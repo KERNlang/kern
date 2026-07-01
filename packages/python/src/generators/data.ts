@@ -16,7 +16,7 @@ import {
 } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, firstChild, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
-import { mapTsTypeToPython, mapTsTypeToPythonAnnotation, toSnakeCase } from '../type-map.js';
+import { mapTsTypeToPythonAnnotation, toSnakeCase } from '../type-map.js';
 
 /** Slice 4b — native KERN method body dispatch (Python target).
  *

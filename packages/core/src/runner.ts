@@ -131,6 +131,17 @@ export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions 
   asyncCapabilities?: KernRunnerAsyncCapabilities;
 }
 
+export interface KernRunnerEntryDescriptor {
+  readonly handler: string;
+  readonly label?: string;
+  readonly kind?: string;
+  readonly name?: string;
+}
+
+export interface ExecuteKernEntrySourceOptions extends ExecuteKernSourceOptions {}
+
+export interface ExecuteKernEntrySourceAsyncOptions extends ExecuteKernSourceAsyncOptions {}
+
 const REQUIRED_RUNNER_CONTRACTS = [
   'assign',
   'branch',
@@ -205,28 +216,56 @@ function isTrueProp(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
+function entryLabel(entry: KernRunnerEntryDescriptor): string {
+  if (entry.label) return entry.label;
+  if (entry.kind && entry.name) return `${entry.kind} ${entry.name}`;
+  return `entry ${entry.handler}`;
+}
+
+function assertVoidRunnerEntry(fn: IRNode, handlerName: string, label: string, mainMode: boolean): void {
+  const messagePrefix = mainMode ? 'main' : `${label} handler ${handlerName}`;
+  if (fn.props?.returns !== 'void') throw new KernRunnerError(`${messagePrefix} must declare returns=void`);
+  if (typeof fn.props?.params === 'string' && fn.props.params.trim() !== '') {
+    throw new KernRunnerError(`${messagePrefix} parameters are unsupported in native runner preview`);
+  }
+  if ((fn.children ?? []).some((node) => node.type === 'param')) {
+    throw new KernRunnerError(`${messagePrefix} parameters are unsupported in native runner preview`);
+  }
+  if (isTrueProp(fn.props?.async))
+    throw new KernRunnerError(`${messagePrefix} async is unsupported in native runner preview`);
+  if (isTrueProp(fn.props?.stream)) {
+    throw new KernRunnerError(`${messagePrefix} stream=true is unsupported in native runner preview`);
+  }
+}
+
+function resolveNamedVoidKernHandler(root: IRNode, handlerName: string, label: string, mainMode = false): IRNode {
+  const topLevel = topLevelNodes(root);
+  const matches = topLevel.filter((node) => node.type === 'fn' && node.props?.name === handlerName);
+
+  if (matches.length === 0) {
+    throw new KernRunnerError(
+      mainMode ? 'expected exactly one top-level fn name=main' : `${label} references missing handler ${handlerName}`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new KernRunnerError(
+      mainMode ? 'found multiple top-level fn name=main' : `${label} references duplicate handler ${handlerName}`,
+    );
+  }
+
+  const entry = matches[0];
+  assertVoidRunnerEntry(entry, handlerName, label, mainMode);
+  return resolveSingleKernHandler(entry, mainMode ? 'main' : `${label} handler ${handlerName}`);
+}
+
 /** Strict native-runner entry resolution: exactly one top-level `fn main` with one KERN handler. */
 export function resolveKernMainHandler(root: IRNode): IRNode {
-  const topLevel = topLevelNodes(root);
-  const mains = topLevel.filter((node) => node.type === 'fn' && node.props?.name === 'main');
+  return resolveNamedVoidKernHandler(root, 'main', 'main', true);
+}
 
-  if (mains.length === 0) throw new KernRunnerError('expected exactly one top-level fn name=main');
-  if (mains.length > 1) throw new KernRunnerError('found multiple top-level fn name=main');
-
-  const main = mains[0];
-  if (main.props?.returns !== 'void') throw new KernRunnerError('main must declare returns=void');
-  if (typeof main.props?.params === 'string' && main.props.params.trim() !== '') {
-    throw new KernRunnerError('main parameters are unsupported in native runner preview');
-  }
-  if ((main.children ?? []).some((node) => node.type === 'param')) {
-    throw new KernRunnerError('main parameters are unsupported in native runner preview');
-  }
-  if (isTrueProp(main.props?.async)) throw new KernRunnerError('main async is unsupported in native runner preview');
-  if (isTrueProp(main.props?.stream)) {
-    throw new KernRunnerError('main stream=true is unsupported in native runner preview');
-  }
-
-  return resolveSingleKernHandler(main, 'main');
+/** Descriptor-driven native-runner entry resolution: exactly one declared top-level handler. */
+export function resolveKernEntryHandler(root: IRNode, entry: KernRunnerEntryDescriptor): IRNode {
+  return resolveNamedVoidKernHandler(root, entry.handler, entryLabel(entry));
 }
 
 function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding> {
@@ -630,13 +669,25 @@ function valueChildren(
         { node: node.alternate, mode: 'scalar' },
       ];
     case 'member':
+      return [{ node: node.object, mode: 'scalar' }];
     case 'index':
       return [];
     case 'call':
-      if (node.callee.kind === 'ident' && (runnerFunctions.has(node.callee.name) || node.callee.name === 'String')) {
+      if (
+        node.callee.kind === 'ident' &&
+        (runnerFunctions.has(node.callee.name) || node.callee.name === 'String' || node.callee.name === 'super')
+      ) {
         return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
       }
+      if (node.callee.kind === 'member') {
+        return [
+          { node: node.callee.object, mode: 'scalar' },
+          ...node.args.map((arg): RunnerFunctionCallExpression => ({ node: arg, mode: 'scalar' })),
+        ];
+      }
       return [];
+    case 'new':
+      return node.argument.kind === 'call' ? node.argument.args.map((arg) => ({ node: arg, mode: 'scalar' })) : [];
     case 'typeAssert':
     case 'nonNull':
       return [{ node: node.expression, mode: 'scalar' }];
@@ -729,6 +780,28 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
   if (firstError) throw new KernRunnerError(firstError.message);
 
   const handler = resolveKernMainHandler(root);
+  return executeParsedKernHandler(root, handler, options, 'kern run');
+}
+
+export function executeKernEntrySource(
+  source: string,
+  entry: KernRunnerEntryDescriptor,
+  options: ExecuteKernEntrySourceOptions = {},
+): string {
+  const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
+  const firstError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (firstError) throw new KernRunnerError(firstError.message);
+
+  const handler = resolveKernEntryHandler(root, entry);
+  return executeParsedKernHandler(root, handler, options, `kern run ${entryLabel(entry)}`);
+}
+
+function executeParsedKernHandler(
+  root: IRNode,
+  handler: IRNode,
+  options: ExecuteKernSourceOptions,
+  errorPrefix: string,
+): string {
   const runnerFunctions = collectRunnerFunctions(root);
   const runnerClasses = collectRunnerClasses(root);
   validateRunnerCallableNames(runnerFunctions, runnerClasses);
@@ -751,9 +824,11 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
     trace = referenceRunSequence(handler.children ?? [], env);
   } catch (err) {
     if (err instanceof ReferenceRunnerError) {
-      throw new KernRunnerError(`kern run: cannot execute - non-portable operation (${err.message})`);
+      throw new KernRunnerError(
+        `${errorPrefix}: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+      );
     }
-    throw new KernRunnerError(`kern run: ${err instanceof Error ? err.message : String(err)}`);
+    throw new KernRunnerError(`${errorPrefix}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return stdoutFromTrace(trace);
@@ -773,10 +848,27 @@ export async function executeKernSourceAsync(
   source: string,
   options: ExecuteKernSourceAsyncOptions = {},
 ): Promise<string> {
+  return executeKernSourceAsyncWithEntry(source, undefined, options);
+}
+
+export async function executeKernEntrySourceAsync(
+  source: string,
+  entry: KernRunnerEntryDescriptor,
+  options: ExecuteKernEntrySourceAsyncOptions = {},
+): Promise<string> {
+  return executeKernSourceAsyncWithEntry(source, entry, options);
+}
+
+async function executeKernSourceAsyncWithEntry(
+  source: string,
+  entry: KernRunnerEntryDescriptor | undefined,
+  options: ExecuteKernSourceAsyncOptions = {},
+): Promise<string> {
   let analysis: ReturnType<typeof analyzeKernSourceCapabilities>;
   try {
     analysis = analyzeKernSourceCapabilities(source, {
       parseOptions: options.parseOptions,
+      entryHandlerName: entry?.handler,
       providedCapabilities: options.providedCapabilities,
       providedAsyncCapabilities: options.providedAsyncCapabilities,
     });
@@ -824,12 +916,15 @@ export async function executeKernSourceAsync(
       `kern run async preflight: missing async providers: ${requirementList(analysis.missingAsyncProviders)}`,
     );
   }
+  const unsupportedAsyncExecutions = entry
+    ? analysis.unsupportedAsyncExecutions.filter((requirement) => requirement.reason !== 'outside-main')
+    : analysis.unsupportedAsyncExecutions;
   if (
-    analysis.unsupportedAsyncExecutions.length > 0 &&
+    unsupportedAsyncExecutions.length > 0 &&
     (analysis.asyncBoundaryRequired || options.providedAsyncCapabilities || options.asyncCapabilities)
   ) {
     throw new KernRunnerError(
-      `kern run async preflight: unsupported async executions: ${requirementList(analysis.unsupportedAsyncExecutions)}`,
+      `kern run async preflight: unsupported async executions: ${requirementList(unsupportedAsyncExecutions)}`,
     );
   }
   if (analysis.asyncBoundaryRequired) {
@@ -860,11 +955,11 @@ export async function executeKernSourceAsync(
     const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
     const firstAsyncParseError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (firstAsyncParseError) throw new KernRunnerError(firstAsyncParseError.message);
-    const handler = resolveKernMainHandler(root);
+    const handler = entry ? resolveKernEntryHandler(root, entry) : resolveKernMainHandler(root);
     const runnerFunctions = collectRunnerFunctions(root);
     const runnerClasses = collectRunnerClasses(root);
     validateRunnerCallableNames(runnerFunctions, runnerClasses);
-    const outsideMain = asyncCapabilityLabelsOutsideExecutable(root, handler, runnerFunctions);
+    const outsideMain = entry ? [] : asyncCapabilityLabelsOutsideExecutable(root, handler, runnerFunctions);
     if (outsideMain.length > 0) {
       throw new KernRunnerError(
         `kern run async: async source execution outside main handler is unsupported in this preview: ${outsideMain.join(
@@ -899,20 +994,27 @@ export async function executeKernSourceAsync(
       });
     } catch (err) {
       if (err instanceof ReferenceRunnerError) {
-        throw new KernRunnerError(`kern run async: cannot execute - non-portable operation (${err.message})`);
+        throw new KernRunnerError(
+          `kern run async${
+            entry ? ` ${entryLabel(entry)}` : ''
+          }: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+        );
       }
-      throw new KernRunnerError(`kern run async: ${err instanceof Error ? err.message : String(err)}`);
+      throw new KernRunnerError(
+        `kern run async${entry ? ` ${entryLabel(entry)}` : ''}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     return stdoutFromTrace(trace);
   }
 
   // Async host adapters are intentionally not forwarded to the sync executor.
-  return executeKernSource(source, {
+  const syncOptions = {
     parseOptions: options.parseOptions,
     env: options.env,
     capabilities: options.capabilities,
     capabilityContext: options.capabilityContext,
-  });
+  };
+  return entry ? executeKernEntrySource(source, entry, syncOptions) : executeKernSource(source, syncOptions);
 }
 
 export type {

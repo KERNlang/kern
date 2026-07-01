@@ -1750,7 +1750,34 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['prop', 'handler', 'cleanup', 'trigger', 'recover'],
   },
+  app: {
+    description:
+      'Application manifest — first-class app boundary that declares views, routes, policies, and host capability requirements for an adapter to wire explicitly.',
+    example:
+      'app name=SupportApp version=5.0\n  view name=Home path="/" source="./ui.kern" handler=main\n  route method=get path="/api/answer" source="./answer-route.kern" handler=main requires="storage.get,llm.complete"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      version: { kind: 'string' },
+      target: { kind: 'identifier' },
+      requires: { kind: 'string' },
+    },
+    allowedChildren: ['view', 'route', 'policy'],
+  },
   // ── Web / UI node types ──────────────────────────────────────────────
+  view: {
+    description:
+      'Application view entry owned by an app manifest. `source` points at the .kern program rendered by the host adapter; `handler` names the native entry.',
+    example: 'view name=Home path="/" source="./ui.kern" handler=main',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      path: { required: true, kind: 'string' },
+      source: { required: true, kind: 'importPath' },
+      handler: { kind: 'identifier' },
+      policy: { kind: 'identifier' },
+      requires: { kind: 'string' },
+    },
+    allowedChildren: [],
+  },
   page: {
     description: 'Page/route component — generates Next.js page or React route component',
     example: 'page name=Dashboard client=true route="/dashboard"',
@@ -2165,6 +2192,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       path: { required: true, kind: 'string' },
       method: { kind: 'identifier' },
+      name: { kind: 'identifier' },
+      source: { kind: 'importPath' },
+      handler: { kind: 'identifier' },
+      policy: { kind: 'identifier' },
+      requires: { kind: 'string' },
+      response: { kind: 'identifier' },
     },
     allowedChildren: [
       'handler',
@@ -2224,6 +2257,19 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       // lives under `stream`, so it stays in `stream.allowedChildren`.)
       'stream',
     ],
+  },
+  policy: {
+    description:
+      'Application policy declaration. Policies attach named constraints and capability requirements to app routes/views so host adapters cannot hide policy in JS.',
+    example: 'policy name=GroundedAnswer kind=rag-grounding requires="rag.checkAnswer" failureStatus=422',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      kind: { kind: 'string' },
+      requires: { kind: 'string' },
+      failureStatus: { kind: 'number' },
+      description: { kind: 'string' },
+    },
+    allowedChildren: [],
   },
   middleware: {
     description: 'Express middleware — named built-in (json, cors, rateLimit) or custom with handler',

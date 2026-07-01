@@ -37,6 +37,8 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import {
   defineBinding,
+  getBinding,
+  hasBinding,
   hasOwnBinding,
   type NodeContract,
   type NodeFixture,
@@ -45,11 +47,14 @@ import {
 } from './index.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import {
+  assertRunnerPortableValue,
   evalPortableValue,
   evalRecordLiteralValue,
   evalRunnerClassNewValue,
+  evalRunnerFunctionValue,
   isPortableBindingName,
   isRecordLiteralExpression,
+  isRunnerClassInstanceValue,
 } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
@@ -83,6 +88,15 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
       evalRunnerClassNewValue(parsed, env);
       return true;
     }
+    if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+      evalRunnerFunctionValue(parsed.callee.name, parsed.args, env);
+      return true;
+    }
+    if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+      const binding = getBinding(env, parsed.name);
+      if (!isRunnerClassInstanceValue(binding)) assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+      return true;
+    }
     evalPortableValue(parsed, env);
     return true;
   } catch {
@@ -100,7 +114,16 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
       ? evalRecordLiteralValue(parsed, env)
       : parsed.kind === 'new'
         ? evalRunnerClassNewValue(parsed, env)
-        : evalPortableValue(parsed, env);
+        : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
+          ? evalRunnerFunctionValue(parsed.callee.name, parsed.args, env)
+          : parsed.kind === 'ident' && hasBinding(env, parsed.name)
+            ? (() => {
+                const binding = getBinding(env, parsed.name);
+                return isRunnerClassInstanceValue(binding)
+                  ? binding
+                  : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+              })()
+            : evalPortableValue(parsed, env);
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }

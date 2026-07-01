@@ -127,7 +127,7 @@ function detectDuplicateKeys(tree: Node, source: string, filePath: string): Revi
         // jsonc-parser 'property' node: children[0] = key, children[1] = value
         if (prop.type !== 'property' || !prop.children || prop.children.length < 1) continue;
         const keyNode = prop.children[0];
-        if (!keyNode || keyNode.type !== 'string' || typeof keyNode.value !== 'string') continue;
+        if (keyNode?.type !== 'string' || typeof keyNode.value !== 'string') continue;
         const key = keyNode.value;
         const childPath = path ? `${path}.${key}` : key;
 

@@ -1370,7 +1370,7 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
     expect(report.hasAsyncCapabilityBlockers).toBe(true);

@@ -987,7 +987,6 @@ function unsupportedAsyncRequirementReport(
   return {
     ...knownRequirementReport(requirement),
     reason: requirement.reason,
-    ...(requirement.containerType ? { containerType: requirement.containerType } : {}),
   };
 }
 

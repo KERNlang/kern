@@ -21,7 +21,7 @@ describe('route → handler concept ownership', () => {
       (n) => n.kind === 'entrypoint' && n.payload.kind === 'entrypoint' && n.payload.subtype === 'route',
     );
     expect(route).toBeDefined();
-    if (!route || route.payload.kind !== 'entrypoint') return;
+    if (route?.payload.kind !== 'entrypoint') return;
     expect(route.payload.handlerConceptId).toBeDefined();
 
     const handler = findHandlerConcept(map, route);

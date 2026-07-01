@@ -32,6 +32,7 @@
     "test:root": "pnpm build && node ./scripts/run-node-tests.mjs \"tests/**/*.test.ts\"",
     "test:prepush": "node --test scripts/pre-push.test.mjs",
     "fitness": "pnpm test && pnpm test:kern && pnpm test:runner-smoke",
+    "fitness:kern-5": "pnpm --filter @kernlang/core test --testPathPatterns='app-descriptor|runner-capability-plan|runner-source-executor' && pnpm test:runner-smoke",
     "check:repo": "node ./scripts/check-repo-consistency.mjs",
     "lint": "biome check",
     "lint:fix": "biome check --fix",

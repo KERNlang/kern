@@ -3,6 +3,10 @@
 This roadmap tracks the path from portable KERN codegen to KERN executing useful
 programs through its own runtime surface.
 
+The bounded KERN 5.0 native-runner app contract is frozen in
+[`kern-5-support-matrix.md`](./kern-5-support-matrix.md). This roadmap remains
+the forward-looking document for surfaces outside that release matrix.
+
 ## Current Contract
 
 `kern run <file.kern>` is the native runner preview. It parses one `.kern` file,

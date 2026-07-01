@@ -9,6 +9,7 @@ export type CapabilitySyncBoundary = 'sync' | 'async-planned';
 export type CapabilityInputShape = 'portable-literal' | 'host-bound';
 
 export type CapabilityId =
+  | 'app-http.queryParam'
   | 'crypto.randomBytes'
   | 'crypto.randomHex'
   | 'crypto.randomUUID'
@@ -50,7 +51,7 @@ export interface CapabilityDescriptor {
   readonly status: CapabilityStatus;
   readonly syncBoundary: CapabilitySyncBoundary;
   readonly inputShape: CapabilityInputShape;
-  readonly notes: string;
+  readonly notes?: string;
 }
 
 export interface CapabilityRequirement {
@@ -59,7 +60,6 @@ export interface CapabilityRequirement {
   readonly operation: string;
   readonly bindingName?: string;
   readonly literalInput?: string;
-  /** 1-based source line when available; -1 means the parser did not attach a location. */
   readonly sourceLine: number;
   readonly descriptor: CapabilityDescriptor;
 }
@@ -70,7 +70,6 @@ export interface UnknownCapabilityRequirement {
   readonly operation: string;
   readonly bindingName?: string;
   readonly literalInput?: string;
-  /** 1-based source line when available; -1 means the parser did not attach a location. */
   readonly sourceLine: number;
 }
 
@@ -79,191 +78,61 @@ export interface MalformedCapabilityRequirement {
   readonly operation?: string;
   readonly bindingName?: string;
   readonly literalInput?: string;
-  /** 1-based source line when available; -1 means the parser did not attach a location. */
   readonly sourceLine: number;
   readonly reason: string;
 }
 
 export interface UnsupportedAsyncCapabilityRequirement extends CapabilityRequirement {
-  readonly reason: 'outside-main-handler' | 'unsupported-container';
-  readonly containerType?: string;
+  readonly reason: 'outside-main' | 'unsupported';
 }
 
 export interface CapabilityAnalysisOptions {
-  /** Optional parser capabilities. Match the parse options that execution will use. */
   readonly parseOptions?: ParseOptions;
-  /**
-   * Capability providers the host will inject for the current synchronous runner.
-   * Kept as strings so untyped config/CLI typos can be reported through
-   * unknownProvidedCapabilities. When omitted, the analyzer only classifies
-   * requirements; when provided, shipped sync requirements not in this set are
-   * reported as missing. Planned capabilities remain planned even if listed
-   * here, because executeKernSource does not yet run async fs/net/LLM-style
-   * providers.
-   */
+  readonly entryHandlerName?: string;
   readonly providedCapabilities?: readonly string[];
-  /**
-   * Async capability providers the host expects to wire in a future async runner
-   * boundary. These do not make executeKernSource runnable today; they let
-   * embedders distinguish "async provider missing" from "async boundary not
-   * implemented yet" during preflight.
-   */
   readonly providedAsyncCapabilities?: readonly string[];
 }
 
 export interface CapabilityAnalysis {
   readonly requirements: readonly CapabilityRequirement[];
+  readonly executableRequirements: readonly CapabilityRequirement[];
   readonly unknownCapabilities: readonly UnknownCapabilityRequirement[];
   readonly malformedCapabilities: readonly MalformedCapabilityRequirement[];
-  /** Requirements with non-shipped lifecycle status. Currently equal to asyncPlannedCapabilities. */
   readonly plannedCapabilities: readonly CapabilityRequirement[];
-  /** Requirements that need the future async runner boundary, independent of lifecycle status. */
   readonly asyncPlannedCapabilities: readonly CapabilityRequirement[];
-  /** Async-planned requirements reachable through the narrow executable async-preview lane. */
   readonly executableAsyncPlannedCapabilities: readonly CapabilityRequirement[];
   readonly missingProviders: readonly CapabilityRequirement[];
   readonly missingAsyncProviders: readonly CapabilityRequirement[];
   readonly unsupportedAsyncExecutions: readonly UnsupportedAsyncCapabilityRequirement[];
-  /** Host-provided capability ids outside the descriptor table. */
   readonly unknownProvidedCapabilities: readonly string[];
-  /** Host-provided async capability ids outside the async descriptor set. */
   readonly unknownProvidedAsyncCapabilities: readonly string[];
-  /** True when source requests known async-planned capabilities. */
   readonly asyncBoundaryRequired: boolean;
-  /** True when parser errors, or a missing parse root, make an empty requirement set untrustworthy. */
   readonly hasParseErrors: boolean;
   readonly parseDiagnostics: readonly ParseDiagnostic[];
 }
 
 export const CAPABILITY_DESCRIPTORS = Object.freeze({
-  'crypto.randomBytes': capabilityDescriptor(
-    'crypto.randomBytes',
-    'shipped',
-    'sync',
-    'portable-literal',
-    'Browser-safe random bytes through an explicit host crypto source.',
-  ),
-  'crypto.randomHex': capabilityDescriptor(
-    'crypto.randomHex',
-    'shipped',
-    'sync',
-    'portable-literal',
-    'Browser-safe random hex through an explicit host crypto source.',
-  ),
-  'crypto.randomUUID': capabilityDescriptor(
-    'crypto.randomUUID',
-    'shipped',
-    'sync',
-    'portable-literal',
-    'Browser-safe UUID v4 through an explicit host crypto source.',
-  ),
-  'fs.list': capabilityDescriptor(
-    'fs.list',
-    'planned',
-    'async-planned',
-    'host-bound',
-    'Filesystem directory listing requires an explicit host provider; runnable only through the narrow async source preview lane.',
-  ),
-  'fs.readText': capabilityDescriptor(
-    'fs.readText',
-    'planned',
-    'async-planned',
-    'host-bound',
-    'Filesystem reads require an explicit host provider; runnable only through the narrow async source preview lane.',
-  ),
-  'fs.writeText': capabilityDescriptor(
-    'fs.writeText',
-    'planned',
-    'async-planned',
-    'host-bound',
-    'Filesystem writes require an explicit host provider; runnable only through the narrow async source preview lane.',
-  ),
-  'llm.complete': capabilityDescriptor(
-    'llm.complete',
-    'planned',
-    'async-planned',
-    'portable-literal',
-    'LLM completion requires an explicit async host provider; runnable only through the narrow async source preview lane.',
-  ),
-  'net.fetch': capabilityDescriptor(
-    'net.fetch',
-    'planned',
-    'async-planned',
-    'portable-literal',
-    'Network fetch requires an explicit async host provider; runnable only through the narrow async source preview lane.',
-  ),
-  'rag.answer': capabilityDescriptor(
-    'rag.answer',
-    'planned',
-    'async-planned',
-    'portable-literal',
-    'RAG answer synthesis requires an explicit async host LLM provider; runnable only through the narrow async source preview lane over retrieved chunks.',
-  ),
-  'rag.checkAnswer': capabilityDescriptor(
-    'rag.checkAnswer',
-    'shipped',
-    'sync',
-    'portable-literal',
-    'Local deterministic RAG answer grounding and citation check over chunks previously returned by rag.retrieve in the Node CLI path.',
-  ),
-  'rag.ingest': capabilityDescriptor(
-    'rag.ingest',
-    'planned',
-    'async-planned',
-    'host-bound',
-    'Runtime RAG ingestion is planned; local retrieval is the shipped sync slice.',
-  ),
-  'rag.promptContext': capabilityDescriptor(
-    'rag.promptContext',
-    'shipped',
-    'sync',
-    'portable-literal',
-    'Local prompt-context assembly over retrieved RAG chunks in the Node CLI path.',
-  ),
-  'rag.retrieve': capabilityDescriptor(
-    'rag.retrieve',
-    'shipped',
-    'sync',
-    'portable-literal',
-    'Local runtime RAG retrieval over declared local sources in the Node CLI path.',
-  ),
-  'rag.retrieveAsync': capabilityDescriptor(
-    'rag.retrieveAsync',
-    'planned',
-    'async-planned',
-    'host-bound',
-    'Async runtime RAG retrieval through an explicit host provider; the Node CLI preview wires declared local sources through retrieveRagDocumentAsync.',
-  ),
-  'storage.clear': capabilityDescriptor(
-    'storage.clear',
-    'shipped',
-    'sync',
-    'host-bound',
-    'Volatile in-run storage clear.',
-  ),
-  'storage.delete': capabilityDescriptor(
-    'storage.delete',
-    'shipped',
-    'sync',
-    'host-bound',
-    'Volatile in-run storage deletion.',
-  ),
-  'storage.get': capabilityDescriptor('storage.get', 'shipped', 'sync', 'host-bound', 'Volatile in-run storage read.'),
-  'storage.has': capabilityDescriptor(
-    'storage.has',
-    'shipped',
-    'sync',
-    'host-bound',
-    'Volatile in-run storage presence check.',
-  ),
-  'storage.keys': capabilityDescriptor(
-    'storage.keys',
-    'shipped',
-    'sync',
-    'host-bound',
-    'Volatile in-run storage key listing.',
-  ),
-  'storage.set': capabilityDescriptor('storage.set', 'shipped', 'sync', 'host-bound', 'Volatile in-run storage write.'),
+  'app-http.queryParam': capabilityDescriptor('app-http.queryParam', 'shipped', 'sync', 'host-bound'),
+  'crypto.randomBytes': capabilityDescriptor('crypto.randomBytes', 'shipped', 'sync', 'portable-literal'),
+  'crypto.randomHex': capabilityDescriptor('crypto.randomHex', 'shipped', 'sync', 'portable-literal'),
+  'crypto.randomUUID': capabilityDescriptor('crypto.randomUUID', 'shipped', 'sync', 'portable-literal'),
+  'fs.list': capabilityDescriptor('fs.list', 'planned', 'async-planned', 'host-bound'),
+  'fs.readText': capabilityDescriptor('fs.readText', 'planned', 'async-planned', 'host-bound'),
+  'fs.writeText': capabilityDescriptor('fs.writeText', 'planned', 'async-planned', 'host-bound'),
+  'llm.complete': capabilityDescriptor('llm.complete', 'planned', 'async-planned', 'portable-literal'),
+  'net.fetch': capabilityDescriptor('net.fetch', 'planned', 'async-planned', 'portable-literal'),
+  'rag.answer': capabilityDescriptor('rag.answer', 'planned', 'async-planned', 'portable-literal'),
+  'rag.checkAnswer': capabilityDescriptor('rag.checkAnswer', 'shipped', 'sync', 'portable-literal'),
+  'rag.ingest': capabilityDescriptor('rag.ingest', 'planned', 'async-planned', 'host-bound'),
+  'rag.promptContext': capabilityDescriptor('rag.promptContext', 'shipped', 'sync', 'portable-literal'),
+  'rag.retrieve': capabilityDescriptor('rag.retrieve', 'shipped', 'sync', 'portable-literal'),
+  'rag.retrieveAsync': capabilityDescriptor('rag.retrieveAsync', 'planned', 'async-planned', 'host-bound'),
+  'storage.clear': capabilityDescriptor('storage.clear', 'shipped', 'sync', 'host-bound'),
+  'storage.delete': capabilityDescriptor('storage.delete', 'shipped', 'sync', 'host-bound'),
+  'storage.get': capabilityDescriptor('storage.get', 'shipped', 'sync', 'host-bound'),
+  'storage.has': capabilityDescriptor('storage.has', 'shipped', 'sync', 'host-bound'),
+  'storage.keys': capabilityDescriptor('storage.keys', 'shipped', 'sync', 'host-bound'),
+  'storage.set': capabilityDescriptor('storage.set', 'shipped', 'sync', 'host-bound'),
 } satisfies Record<CapabilityId, CapabilityDescriptor>);
 
 const CAPABILITY_DESCRIPTOR_MAP: ReadonlyMap<string, CapabilityDescriptor> = new Map(
@@ -277,6 +146,7 @@ export function analyzeKernSourceCapabilities(
   source: string,
   options: CapabilityAnalysisOptions = {},
 ): CapabilityAnalysis {
+  const entryHandlerName = options.entryHandlerName ?? 'main';
   const parseResult = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
   const { root, diagnostics } = parseResult;
   const hasParseErrors = root == null || diagnostics.some((diagnostic) => diagnostic.severity === 'error');
@@ -314,19 +184,26 @@ export function analyzeKernSourceCapabilities(
   const asyncPlannedCapabilities = requirements.filter(
     (requirement) => requirement.descriptor.syncBoundary === 'async-planned',
   );
+  const executableRequirements = executableCapabilityRequirements(
+    root ?? { type: 'document', children: [] },
+    requirements,
+    entryHandlerName,
+  );
   const executableAsyncPlannedCapabilities = executableAsyncRequirements(
     root ?? { type: 'document', children: [] },
     asyncPlannedCapabilities,
+    entryHandlerName,
   );
   return {
     requirements,
+    executableRequirements,
     unknownCapabilities,
     malformedCapabilities,
     plannedCapabilities: requirements.filter((requirement) => requirement.descriptor.status === 'planned'),
     asyncPlannedCapabilities,
     executableAsyncPlannedCapabilities,
     missingProviders: provided
-      ? requirements.filter(
+      ? executableRequirements.filter(
           (requirement) =>
             requirement.descriptor.status === 'shipped' &&
             requirement.descriptor.syncBoundary === 'sync' &&
@@ -342,6 +219,7 @@ export function analyzeKernSourceCapabilities(
     unsupportedAsyncExecutions: unsupportedAsyncExecutions(
       root ?? { type: 'document', children: [] },
       asyncPlannedCapabilities,
+      entryHandlerName,
     ),
     unknownProvidedCapabilities,
     unknownProvidedAsyncCapabilities,
@@ -356,6 +234,7 @@ export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new
 function unsupportedAsyncExecutions(
   root: IRNode,
   asyncRequirements: readonly CapabilityRequirement[],
+  entryHandlerName = 'main',
 ): UnsupportedAsyncCapabilityRequirement[] {
   if (asyncRequirements.length === 0) return [];
   const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
@@ -365,25 +244,35 @@ function unsupportedAsyncExecutions(
     if (existing) existing.push(requirement);
     else requirementsByLineAndId.set(key, [requirement]);
   }
-  const executableHandlers = findExecutableKernHandlers(root);
   const out: UnsupportedAsyncCapabilityRequirement[] = [];
-  collectUnsupportedAsyncExecutions(root, executableHandlers, false, undefined, requirementsByLineAndId, out);
+  const bad = new Set<IRNode>();
+  const executableHandlers = findExecutableKernHandlers(root, entryHandlerName, bad);
+  collectUnsupportedAsyncExecutions(root, executableHandlers, bad, false, undefined, requirementsByLineAndId, out);
   return out;
 }
 
 function executableAsyncRequirements(
   root: IRNode,
   asyncRequirements: readonly CapabilityRequirement[],
+  entryHandlerName = 'main',
 ): CapabilityRequirement[] {
-  if (asyncRequirements.length === 0) return [];
+  return executableCapabilityRequirements(root, asyncRequirements, entryHandlerName);
+}
+
+function executableCapabilityRequirements(
+  root: IRNode,
+  requirements: readonly CapabilityRequirement[],
+  entryHandlerName = 'main',
+): CapabilityRequirement[] {
+  if (requirements.length === 0) return [];
   const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
-  for (const requirement of asyncRequirements) {
+  for (const requirement of requirements) {
     const key = `${requirement.sourceLine}:${requirement.id}`;
     const existing = requirementsByLineAndId.get(key);
     if (existing) existing.push(requirement);
     else requirementsByLineAndId.set(key, [requirement]);
   }
-  const executableHandlers = findExecutableKernHandlers(root);
+  const executableHandlers = findExecutableKernHandlers(root, entryHandlerName);
   const out: CapabilityRequirement[] = [];
   collectExecutableAsyncRequirements(root, executableHandlers, false, requirementsByLineAndId, out);
   return out;
@@ -391,27 +280,24 @@ function executableAsyncRequirements(
 
 function collectUnsupportedAsyncExecutions(
   node: IRNode,
-  executableHandlers: ReadonlySet<IRNode>,
-  insideExecutableHandler: boolean,
-  unsupportedContainer: IRNode | undefined,
-  requirementsByLineAndId: Map<string, CapabilityRequirement[]>,
+  exec: ReadonlySet<IRNode>,
+  bad: ReadonlySet<IRNode>,
+  inside: boolean,
+  badNode: IRNode | undefined,
+  byLine: Map<string, CapabilityRequirement[]>,
   out: UnsupportedAsyncCapabilityRequirement[],
 ): void {
-  const nextInsideExecutableHandler = insideExecutableHandler || executableHandlers.has(node);
-  const nextUnsupportedContainer =
-    nextInsideExecutableHandler && ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES.has(node.type)
-      ? node
-      : unsupportedContainer;
+  const nextInsideExecutableHandler = inside || exec.has(node);
+  const nextUnsupportedContainer = exec.has(node) && bad.has(node) ? node : badNode;
   if (node.type === 'capability') {
-    const requirement = asyncRequirementForNode(node, requirementsByLineAndId);
+    const requirement = asyncRequirementForNode(node, byLine);
     if (requirement) {
       if (!nextInsideExecutableHandler) {
-        out.push({ ...requirement, reason: 'outside-main-handler' });
+        out.push({ ...requirement, reason: 'outside-main' });
       } else if (nextUnsupportedContainer) {
         out.push({
           ...requirement,
-          reason: 'unsupported-container',
-          containerType: nextUnsupportedContainer.type,
+          reason: 'unsupported',
         });
       }
     }
@@ -419,10 +305,11 @@ function collectUnsupportedAsyncExecutions(
   for (const child of node.children ?? []) {
     collectUnsupportedAsyncExecutions(
       child,
-      executableHandlers,
+      exec,
+      bad,
       nextInsideExecutableHandler,
       nextUnsupportedContainer,
-      requirementsByLineAndId,
+      byLine,
       out,
     );
   }
@@ -462,49 +349,252 @@ function asyncRequirementForNode(
   return requirementsByLineAndId.get(key)?.shift();
 }
 
-function findExecutableKernHandlers(root: IRNode): ReadonlySet<IRNode> {
+function findExecutableKernHandlers(
+  root: IRNode,
+  entryHandlerName: string,
+  unsupported = new Set<IRNode>(),
+): ReadonlySet<IRNode> {
   const out = new Set<IRNode>();
   const helpers = new Map<string, IRNode>();
-  let mainHandler: IRNode | undefined;
+  const classMethods = new Map<string, IRNode[]>();
+  const classMethodsByName = new Map<string, IRNode[]>();
+  const classConstructors = new Map<string, IRNode>();
+  const classExtends = new Map<string, string>();
+  const classFieldInitializers = new Map<string, ValueIR[]>();
+  let entryHandler: IRNode | undefined;
 
   for (const node of root.children ?? []) {
-    if (node.type !== 'fn') continue;
-    const name = typeof node.props?.name === 'string' ? node.props.name : '';
-    const handler = previewHelperHandler(node);
-    if (!handler) continue;
-    if (name === 'main') mainHandler = handler;
-    else if (isPreviewHelperFunction(node, name)) helpers.set(name, handler);
+    if (node.type === 'fn') {
+      const name = typeof node.props?.name === 'string' ? node.props.name : '';
+      const handler = previewHelperHandler(node);
+      if (!handler) continue;
+      if (name === entryHandlerName) entryHandler = handler;
+      else if (isPreviewHelperFunction(node, name)) helpers.set(name, handler);
+      continue;
+    }
+    if (node.type === 'class') {
+      const className = typeof node.props?.name === 'string' ? node.props.name : '';
+      const extendsName = typeof node.props?.extends === 'string' ? node.props.extends : '';
+      if (className && extendsName) classExtends.set(className, extendsName);
+      for (const member of node.children ?? []) {
+        if (member.type === 'field' && className && typeof member.props?.value === 'string' && member.props.value) {
+          try {
+            const existing = classFieldInitializers.get(className);
+            const parsed = parseExpression(member.props.value);
+            if (existing) existing.push(parsed);
+            else classFieldInitializers.set(className, [parsed]);
+          } catch {
+            // Parser/runtime diagnostics own malformed expressions.
+          }
+          continue;
+        }
+        if (member.type === 'constructor') {
+          const handler = previewHelperHandler(member);
+          if (className && handler) classConstructors.set(className, handler);
+          continue;
+        }
+        if (member.type !== 'method' && member.type !== 'getter') continue;
+        const name = typeof member.props?.name === 'string' ? member.props.name : '';
+        const handler = previewHelperHandler(member);
+        if (!name || !handler) continue;
+        if (className) {
+          const key = `${className}.${name}`;
+          const existing = classMethods.get(key);
+          if (existing) existing.push(handler);
+          else classMethods.set(key, [handler]);
+        }
+        const existingByName = classMethodsByName.get(name);
+        if (existingByName) existingByName.push(handler);
+        else classMethodsByName.set(name, [handler]);
+      }
+    }
   }
-  if (!mainHandler) return out;
+  if (!entryHandler) return out;
 
-  out.add(mainHandler);
-  const queued = [...calledHelperNames(mainHandler.children ?? [], helpers)];
+  out.add(entryHandler);
+  const queued = calledExecutableHandlers(
+    entryHandler.children ?? [],
+    helpers,
+    classMethods,
+    classMethodsByName,
+    classConstructors,
+    classExtends,
+    classFieldInitializers,
+  );
   const visited = new Set<string>();
   while (queued.length > 0) {
-    const name = queued.pop();
-    if (!name || visited.has(name)) continue;
-    visited.add(name);
-    const handler = helpers.get(name);
+    const item = queued.pop();
+    if (!item || visited.has(item.key)) continue;
+    visited.add(item.key);
+    const handler = item.handler;
     if (!handler) continue;
     out.add(handler);
-    for (const next of calledHelperNames(handler.children ?? [], helpers)) {
-      if (!visited.has(next)) queued.push(next);
-    }
+    if (item.u) unsupported.add(handler);
+    queued.push(
+      ...calledExecutableHandlers(
+        handler.children ?? [],
+        helpers,
+        classMethods,
+        classMethodsByName,
+        classConstructors,
+        classExtends,
+        classFieldInitializers,
+      ).map((ref) => (item.u ? { ...ref, u: true } : ref)),
+    );
   }
   return out;
 }
 
-function calledHelperNames(nodes: readonly IRNode[], helpers: ReadonlyMap<string, IRNode>): Set<string> {
-  const out = new Set<string>();
+interface ExecutableHandlerRef {
+  readonly key: string;
+  readonly handler: IRNode;
+  readonly u?: boolean;
+}
+
+function calledExecutableHandlers(
+  nodes: readonly IRNode[],
+  helpers: ReadonlyMap<string, IRNode>,
+  classMethods: ReadonlyMap<string, readonly IRNode[]>,
+  classMethodsByName: ReadonlyMap<string, readonly IRNode[]>,
+  classConstructors: ReadonlyMap<string, IRNode>,
+  classExtends: ReadonlyMap<string, string>,
+  classFieldInitializers: ReadonlyMap<string, readonly ValueIR[]>,
+): ExecutableHandlerRef[] {
+  const helperNames = new Set<string>();
+  const methodKeys = new Set<string>();
+  const ambiguousMethodNames = new Set<string>();
+  const constructorNames = new Set<string>();
+  const unsupportedHelperNames = new Set<string>();
+  const classBindings = new Map<string, string>();
   for (const node of walkNodes({ type: '__block', children: [...nodes] })) {
+    recordClassBinding(node, classBindings, helpers);
     for (const expr of supportedHelperCallExpressions(node)) {
-      collectHelperCalls(expr.node, helpers, out, expr.mode);
+      collectHelperCalls(
+        expr.node,
+        helpers,
+        helperNames,
+        methodKeys,
+        ambiguousMethodNames,
+        constructorNames,
+        classBindings,
+        expr.mode,
+      );
+    }
+  }
+  const expandedConstructorNames = new Set<string>();
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const name of [...constructorNames]) {
+      if (expandedConstructorNames.has(name)) continue;
+      expandedConstructorNames.add(name);
+      for (const className of classAncestry(name, classExtends)) {
+        for (const initializer of classFieldInitializers.get(className) ?? []) {
+          collectHelperCalls(
+            initializer,
+            helpers,
+            unsupportedHelperNames,
+            methodKeys,
+            ambiguousMethodNames,
+            constructorNames,
+            classBindings,
+            'scalar',
+          );
+        }
+      }
+      changed = true;
+    }
+  }
+  const out: ExecutableHandlerRef[] = [];
+  for (const name of helperNames) {
+    const handler = helpers.get(name);
+    if (handler) out.push({ key: `fn:${name}`, handler });
+  }
+  for (const name of unsupportedHelperNames) {
+    const handler = helpers.get(name);
+    if (handler) out.push({ key: `fn:${name}`, handler, u: true });
+  }
+  for (const key of methodKeys) {
+    const [className, methodName] = key.split('.', 2);
+    if (!className || !methodName) continue;
+    const resolved = resolveClassMethodHandlers(className, methodName, classMethods, classExtends);
+    for (const [index, handler] of resolved.entries()) {
+      out.push({ key: `method:${key}:${index}`, handler, u: true });
+    }
+  }
+  for (const name of ambiguousMethodNames) {
+    for (const [index, handler] of (classMethodsByName.get(name) ?? []).entries()) {
+      out.push({ key: `method:${name}:${index}`, handler, u: true });
+    }
+  }
+  for (const name of constructorNames) {
+    for (const className of classAncestry(name, classExtends)) {
+      const handler = classConstructors.get(className);
+      if (handler) out.push({ key: `constructor:${className}`, handler, u: true });
     }
   }
   return out;
 }
 
-type HelperCallExpressionMode = 'scalar' | 'let' | 'capabilityInput';
+const AMBIGUOUS_CLASS_BINDING = '*';
+
+function resolveClassMethodHandlers(
+  className: string,
+  methodName: string,
+  classMethods: ReadonlyMap<string, readonly IRNode[]>,
+  classExtends: ReadonlyMap<string, string>,
+): readonly IRNode[] {
+  for (const current of classAncestry(className, classExtends)) {
+    const handlers = classMethods.get(`${current}.${methodName}`);
+    if (handlers && handlers.length > 0) return handlers;
+  }
+  return [];
+}
+
+function classAncestry(className: string, classExtends: ReadonlyMap<string, string>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (
+    let current: string | undefined = className;
+    current && !seen.has(current);
+    current = classExtends.get(current)
+  ) {
+    seen.add(current);
+    out.push(current);
+  }
+  return out;
+}
+
+function recordClassBinding(
+  node: IRNode,
+  classBindings: Map<string, string>,
+  helpers: ReadonlyMap<string, IRNode>,
+): void {
+  if (node.type !== 'let') return;
+  const name = typeof node.props?.name === 'string' ? node.props.name : '';
+  const rawValue = typeof node.props?.value === 'string' ? node.props.value : '';
+  if (!name || !rawValue) return;
+  try {
+    const parsed = parseExpression(rawValue);
+    if (parsed.kind === 'new' && parsed.argument.kind === 'call' && parsed.argument.callee.kind === 'ident') {
+      recordClassName(classBindings, name, parsed.argument.callee.name);
+    } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && helpers.has(parsed.callee.name)) {
+      recordClassName(classBindings, name, AMBIGUOUS_CLASS_BINDING);
+    }
+  } catch {
+    // Parser/runtime diagnostics own malformed expressions.
+  }
+}
+
+function recordClassName(classBindings: Map<string, string>, name: string, className: string): void {
+  const existing = classBindings.get(name);
+  if (!existing) {
+    classBindings.set(name, className);
+  } else if (existing !== className) {
+    classBindings.set(name, AMBIGUOUS_CLASS_BINDING);
+  }
+}
+
+type HelperCallExpressionMode = 'scalar' | 'let' | 'cap';
 
 interface HelperCallExpression {
   readonly node: ValueIR;
@@ -525,7 +615,9 @@ function supportedHelperCallExpressions(node: IRNode): HelperCallExpression[] {
   if (node.type === 'let') {
     add(props.value, 'let');
   } else if (node.type === 'capability') {
-    add(props.input, 'capabilityInput');
+    add(props.input, 'cap');
+  } else if (node.type === 'do') {
+    add(props.value, 'scalar');
   } else if (
     node.type === 'assign' ||
     node.type === 'print' ||
@@ -547,11 +639,59 @@ function supportedHelperCallExpressions(node: IRNode): HelperCallExpression[] {
 function collectHelperCalls(
   node: ValueIR,
   helpers: ReadonlyMap<string, IRNode>,
-  out: Set<string>,
+  helperNames: Set<string>,
+  methodKeys: Set<string>,
+  ambiguousMethodNames: Set<string>,
+  constructorNames: Set<string>,
+  classBindings: ReadonlyMap<string, string>,
   mode: HelperCallExpressionMode,
 ): void {
-  if (node.kind === 'call' && node.callee.kind === 'ident' && helpers.has(node.callee.name)) out.add(node.callee.name);
-  for (const child of valueChildren(node, helpers, mode)) collectHelperCalls(child.node, helpers, out, child.mode);
+  if (node.kind === 'call' && node.callee.kind === 'ident' && helpers.has(node.callee.name)) {
+    helperNames.add(node.callee.name);
+  }
+  if (node.kind === 'call' && node.callee.kind === 'member') {
+    if (node.callee.object.kind === 'ident' && classBindings.has(node.callee.object.name)) {
+      const className = classBindings.get(node.callee.object.name);
+      if (className === AMBIGUOUS_CLASS_BINDING) {
+        ambiguousMethodNames.add(node.callee.property);
+      } else {
+        methodKeys.add(`${className}.${node.callee.property}`);
+      }
+    } else {
+      ambiguousMethodNames.add(node.callee.property);
+    }
+  }
+  if (node.kind === 'new' && node.argument.kind === 'call' && node.argument.callee.kind === 'ident') {
+    constructorNames.add(node.argument.callee.name);
+  }
+  if (node.kind === 'member') {
+    if (node.object.kind === 'ident' && classBindings.has(node.object.name)) {
+      const className = classBindings.get(node.object.name);
+      if (className === AMBIGUOUS_CLASS_BINDING) {
+        ambiguousMethodNames.add(node.property);
+      } else {
+        methodKeys.add(`${className}.${node.property}`);
+      }
+    } else if (
+      node.object.kind === 'new' &&
+      node.object.argument.kind === 'call' &&
+      node.object.argument.callee.kind === 'ident'
+    ) {
+      methodKeys.add(`${node.object.argument.callee.name}.${node.property}`);
+    }
+  }
+  for (const child of valueChildren(node, helpers, mode)) {
+    collectHelperCalls(
+      child.node,
+      helpers,
+      helperNames,
+      methodKeys,
+      ambiguousMethodNames,
+      constructorNames,
+      classBindings,
+      child.mode,
+    );
+  }
 }
 
 function valueChildren(
@@ -574,23 +714,33 @@ function valueChildren(
         { node: node.alternate, mode: 'scalar' },
       ];
     case 'member':
+      return [{ node: node.object, mode: 'scalar' }];
     case 'index':
       return [];
     case 'call':
-      if (node.callee.kind === 'ident' && (helpers.has(node.callee.name) || node.callee.name === 'String')) {
+      if (
+        node.callee.kind === 'ident' &&
+        (helpers.has(node.callee.name) || node.callee.name === 'String' || node.callee.name === 'super')
+      ) {
         return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
       }
+      if (node.callee.kind === 'member') {
+        return [
+          { node: node.callee.object, mode: 'scalar' },
+          ...node.args.map((arg): HelperCallExpression => ({ node: arg, mode: 'scalar' })),
+        ];
+      }
       return [];
+    case 'new':
+      return node.argument.kind === 'call' ? node.argument.args.map((arg) => ({ node: arg, mode: 'scalar' })) : [];
     case 'typeAssert':
     case 'nonNull':
       return [{ node: node.expression, mode: 'scalar' }];
     case 'tmplLit':
       return node.expressions.map((expression) => ({ node: expression, mode: 'scalar' }));
     case 'arrayLit':
-      if (mode === 'capabilityInput') {
-        return node.items
-          .filter((item): item is ValueIR => Boolean(item))
-          .map((item) => ({ node: item, mode: 'capabilityInput' }));
+      if (mode === 'cap') {
+        return node.items.filter((item): item is ValueIR => Boolean(item)).map((item) => ({ node: item, mode: 'cap' }));
       }
       if (mode === 'let') {
         return node.items
@@ -599,7 +749,7 @@ function valueChildren(
       }
       return [];
     case 'objectLit':
-      if (mode === 'capabilityInput') {
+      if (mode === 'cap') {
         return node.entries.flatMap((entry) => ('kind' in entry ? [] : [{ node: entry.value, mode }]));
       }
       if (mode === 'let') {
@@ -679,14 +829,13 @@ function capabilityDescriptor(
   status: CapabilityStatus,
   syncBoundary: CapabilitySyncBoundary,
   inputShape: CapabilityInputShape,
-  notes: string,
 ): CapabilityDescriptor {
   const parts = id.split('.');
   if (parts.length !== 2) {
-    throw new Error(`Capability descriptor id '${id}' must have exactly one namespace separator.`);
+    throw new Error(`bad id ${id}`);
   }
   const [namespace, operation] = parts;
-  return Object.freeze({ id, namespace, operation, status, syncBoundary, inputShape, notes });
+  return Object.freeze({ id, namespace, operation, status, syncBoundary, inputShape });
 }
 
 function* walkNodes(root: IRNode): Generator<IRNode> {
@@ -734,8 +883,8 @@ function stringProp(node: IRNode, key: string): string {
 function capabilityTokenProp(node: IRNode, key: 'namespace' | 'operation'): { value?: string; issue?: string } {
   const value = node.props?.[key];
   if (value === undefined) return { issue: `capability ${key} is required` };
-  if (typeof value !== 'string') return { issue: `capability ${key} must be a string` };
-  if (!isCapabilityToken(value)) return { issue: `capability ${key} '${value}' must match the runner token grammar` };
+  if (typeof value !== 'string') return { issue: `${key} must be string` };
+  if (!isCapabilityToken(value)) return { issue: `bad cap ${key} '${value}'` };
   return { value };
 }
 

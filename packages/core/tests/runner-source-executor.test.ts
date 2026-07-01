@@ -3,6 +3,8 @@ import {
   CONTRACT_REGISTRY,
   createMemoryStorageCapability,
   createWebCryptoCapability,
+  executeKernEntrySource,
+  executeKernEntrySourceAsync,
   executeKernSource,
   executeKernSourceAsync,
   type KernRunnerAsyncCapabilities,
@@ -10,6 +12,7 @@ import {
   KernRunnerError,
   makeEnv,
   type RuntimeCapabilityHandler,
+  resolveKernEntryHandler,
   resolveKernMainHandler,
 } from '../src/runner.js';
 
@@ -204,6 +207,176 @@ describe('@kernlang/core/runner source executor', () => {
     expect(stdout).toBe('5\n12\n');
   });
 
+  test('executes the handler named by a descriptor entry instead of always using main', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"main\\""',
+      'fn name=renderHome returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"home\\""',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"answer\\""',
+    ].join('\n');
+
+    expect(executeKernEntrySource(source, { kind: 'view', name: 'Home', handler: 'renderHome' })).toBe('home\n');
+    expect(executeKernEntrySource(source, { kind: 'route', name: 'Answer', handler: 'answerRoute' })).toBe('answer\n');
+    expect(executeKernEntrySource(source, { kind: 'view', name: 'LegacyHome', handler: 'main' })).toBe('main\n');
+  });
+
+  test('fails closed for missing and duplicate descriptor handlers', () => {
+    const missing = ['fn name=main returns=void', '  handler lang="kern"', '    print value="\\"main\\""'].join('\n');
+    expect(() => executeKernEntrySource(missing, { kind: 'route', name: 'Answer', handler: 'answerRoute' })).toThrow(
+      /route Answer references missing handler answerRoute/,
+    );
+
+    const duplicate = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"a\\""',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"b\\""',
+    ].join('\n');
+    expect(() => executeKernEntrySource(duplicate, { kind: 'route', name: 'Answer', handler: 'answerRoute' })).toThrow(
+      /route Answer references duplicate handler answerRoute/,
+    );
+  });
+
+  test('resolves descriptor handlers directly from parsed IR', () => {
+    const { root } = parseDocumentWithDiagnostics(
+      ['fn name=renderHome returns=void', '  handler lang="kern"', '    print value="\\"home\\""'].join('\n'),
+    );
+
+    expect(resolveKernEntryHandler(root, { kind: 'view', name: 'Home', handler: 'renderHome' }).type).toBe('handler');
+  });
+
+  test('executes async descriptor handlers through the named entry', async () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"main\\""',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('grounded\n');
+  });
+
+  test('async descriptor handlers bind records and arrays returned from pure helper functions', async () => {
+    const source = [
+      'fn name=makeInput params="prompt:string" returns=PromptInput',
+      '  handler lang="kern"',
+      '    return value="{ prompt: prompt, prefix: \\"answer:\\" }"',
+      'fn name=markers returns=string[]',
+      '  handler lang="kern"',
+      "    return value=\"['before', 'after']\"",
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=input value="makeInput(\'refund\')"',
+      '    let name=labels value="markers()"',
+      '    print value="labels[0]"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: input.prompt }"',
+      '    print value="input.prefix"',
+      '    print value="answer"',
+      '    print value="labels[1]"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete(call) {
+                return `ok ${call.input && typeof call.input === 'object' ? call.input.prompt : 'missing'}`;
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('before\nanswer:\nok refund\nafter\n');
+  });
+
+  test('async descriptor preflight ignores sync capability requirements unreachable from the selected entry', async () => {
+    const source = [
+      'fn name=unused returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=storage operation=get name=value input="{ key: \\"unused\\" }"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedCapabilities: [],
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('grounded\n');
+  });
+
+  test('async descriptor preflight ignores async capability requirements unreachable from the selected entry', async () => {
+    const source = [
+      'fn name=unusedAsync returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"unused\\" }"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    capability namespace=rag operation=retrieveAsync name=chunks input="{ query: \\"refund\\" }"',
+      '    print value="chunks[0]"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['rag.retrieveAsync'],
+          asyncCapabilities: {
+            rag: {
+              retrieveAsync() {
+                return ['policy'];
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('policy\n');
+  });
+
   test('calls helper functions declared with structured param children', () => {
     const stdout = executeKernSource(
       programWithFunctions(
@@ -220,6 +393,369 @@ describe('@kernlang/core/runner source executor', () => {
     );
 
     expect(stdout).toBe('3\n');
+  });
+
+  test('binds records and arrays returned from pure helper functions', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=makeSummary params="name:string,count:number" returns=Summary',
+            '  handler lang="kern"',
+            '    return value="{ name: name, count: count }"',
+          ],
+          [
+            'fn name=makeLabels returns=string[]',
+            '  handler lang="kern"',
+            "    return value=\"['policy', 'receipt']\"",
+          ],
+        ],
+        [
+          'let name=summary value="makeSummary(\'refund\', 2)"',
+          'print value="summary.name"',
+          'print value="summary.count"',
+          'let name=labels value="makeLabels()"',
+          'print value="labels.length"',
+          'print value="labels[0]"',
+          'each name=label in=labels',
+          '  print value="label"',
+        ],
+      ),
+    );
+
+    expect(stdout).toBe('refund\n2\n2\npolicy\npolicy\nreceipt\n');
+  });
+
+  test('aliases records, arrays, and class instances through let and helper arguments', () => {
+    const stdout = executeKernSource(
+      [
+        'class name=Label',
+        '  field name=value type=string',
+        '  constructor',
+        '    param name=value type=string',
+        '    handler lang="kern"',
+        '      assign target="this.value" value="value"',
+        '  method name=read returns=string',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+        'fn name=summarize params="query:any,markers:any" returns=string',
+        '  handler lang="kern"',
+        '    return value="query.question + \':\' + markers[0]"',
+        'fn name=labelOf params="label:any" returns=string',
+        '  handler lang="kern"',
+        '    return value="label.read()"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    let name=query value="{ question: \\"refund\\" }"',
+        '    let name=queryAlias value="query"',
+        '    let name=markers value="[\'policy\']"',
+        '    let name=markerAlias value="markers"',
+        '    print value="summarize(queryAlias, markerAlias)"',
+        '    let name=label value="new Label(\'ok\')"',
+        '    let name=labelAlias value="label"',
+        '    print value="labelOf(labelAlias)"',
+      ].join('\n'),
+    );
+
+    expect(stdout).toBe('refund:policy\nok\n');
+  });
+
+  test('helper functions can return runner class instances through bindings', () => {
+    const stdout = executeKernSource(
+      [
+        'class name=Label',
+        '  field name=value type=string',
+        '  constructor',
+        '    param name=value type=string',
+        '    handler lang="kern"',
+        '      assign target="this.value" value="value"',
+        '  method name=read returns=string',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+        'fn name=makeLabel params="value:string" returns=Label',
+        '  handler lang="kern"',
+        '    let name=label value="new Label(value)"',
+        '    return value="label"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    let name=label value="makeLabel(\'ok\')"',
+        '    print value="label.read()"',
+      ].join('\n'),
+    );
+
+    expect(stdout).toBe('ok\n');
+  });
+
+  test('sync helper arguments accept record values returned by nested helpers', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=makeQuery params="question:string" returns=Query',
+            '  handler lang="kern"',
+            '    return value="{ question: question }"',
+          ],
+          [
+            'fn name=questionText params="query:any" returns=string',
+            '  handler lang="kern"',
+            '    return value="query.question"',
+          ],
+        ],
+        ['print value="questionText(makeQuery(\'refund\'))"'],
+      ),
+    );
+
+    expect(stdout).toBe('refund\n');
+  });
+
+  test('async helpers accept record and array arguments from descriptor handlers', async () => {
+    const source = [
+      'fn name=promptText params="query:any,markers:any" returns=string',
+      '  handler lang="kern"',
+      '    return value="query.question + \':\' + markers[0]"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=query value="{ question: \\"refund\\" }"',
+      '    let name=queryAlias value="query"',
+      '    let name=markers value="[\'policy\']"',
+      '    let name=markerAlias value="markers"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: promptText(queryAlias, markerAlias) }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete(call) {
+                return String(call.input && typeof call.input === 'object' ? call.input.prompt : 'missing');
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('refund:policy\n');
+  });
+
+  test('async descriptor handlers await helper calls used as class method arguments', async () => {
+    const source = [
+      'class name=Sink',
+      '  method name=accept returns=string',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      return value="value"',
+      'fn name=remote returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"member\\" }"',
+      '    return value="answer"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=sink value="new Sink()"',
+      '    print value="sink.accept(remote())"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'ok';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('ok\n');
+  });
+
+  test('async descriptor handlers fail closed for capability calls inside class methods', async () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"method\\" }"',
+      '      return value="answer"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    let calls = 0;
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                calls += 1;
+                return 'ok';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+    expect(calls).toBe(0);
+  });
+
+  test('async descriptor handlers fail closed for capability calls inside constructors', async () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  field name=value type=string',
+      '  constructor',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"constructor\\" }"',
+      '      assign target="this.value" value="answer"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    let calls = 0;
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                calls += 1;
+                return 'ok';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+    expect(calls).toBe(0);
+  });
+
+  test('async descriptor handlers fail closed for async class field and super initializer paths', async () => {
+    const source = [
+      'class name=BaseLabel',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      'class name=RemoteLabel extends=BaseLabel',
+      '  field name=mode type=string value="remoteValue()"',
+      '  constructor',
+      '    handler lang="kern"',
+      '      do value="super(remoteValue())"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value + \':\' + this.mode"',
+      'fn name=remoteValue returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"class-init\\" }"',
+      '    return value="answer"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    let calls = 0;
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                calls += 1;
+                return 'ok';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+    expect(calls).toBe(0);
+  });
+
+  test('async helper functions await nested helper arguments and can return class instances', async () => {
+    const source = [
+      'class name=Label',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value"',
+      'fn name=remote returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"nested\\" }"',
+      '    return value="answer"',
+      'fn name=wrap params="value:string" returns=string',
+      '  handler lang="kern"',
+      '    return value="value"',
+      'fn name=makeLabel returns=Label',
+      '  handler lang="kern"',
+      '    let name=label value="new Label(wrap(remote()))"',
+      '    return value="label"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="makeLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'ok';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('ok\n');
+  });
+
+  test('fails closed when a helper returns a record into a scalar-only expression context', () => {
+    expect(() =>
+      executeKernSource(
+        programWithFunctions(
+          [
+            [
+              'fn name=makeSummary returns=Summary',
+              '  handler lang="kern"',
+              '    return value="{ name: \\"refund\\" }"',
+            ],
+          ],
+          ['print value="makeSummary()"'],
+        ),
+      ),
+    ).toThrow(KernRunnerError);
   });
 
   test('executes native runner classes with constructors, methods, inheritance, and super dispatch', () => {
