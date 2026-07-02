@@ -249,9 +249,10 @@ if (asyncHostFailure) {
 
 let ragAnswerFailure;
 try {
+  // rag.answer/llm.complete are promoted out of --async-preview: this must
+  // run through the default async boundary without the flag.
   const ragAnswerResult = runCli([
     'run',
-    '--async-preview',
     '--llm-response',
     'Refunds are available within thirty days [1]',
     RAG_ANSWER_FIXTURE,
@@ -316,9 +317,9 @@ if (ragAnswerFailure) {
 
 let ragAsyncRetrieveFailure;
 try {
+  // rag.retrieveAsync/llm.complete are promoted out of --async-preview.
   const ragAsyncRetrieveResult = runCli([
     'run',
-    '--async-preview',
     '--llm-response',
     'Refunds are available within thirty days [1]',
     RAG_ASYNC_RETRIEVE_FIXTURE,
@@ -386,9 +387,9 @@ if (ragAsyncRetrieveFailure) {
 
 let ragAnswerCapabilityFailure;
 try {
+  // rag.answer is promoted out of --async-preview.
   const ragAnswerCapabilityResult = runCli([
     'run',
-    '--async-preview',
     '--llm-response',
     'Refunds are available within thirty days [1]',
     RAG_ANSWER_CAPABILITY_FIXTURE,

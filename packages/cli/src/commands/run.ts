@@ -51,7 +51,9 @@ import {
 } from './run-async-host.js';
 
 const USAGE =
-  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] <file.kern>';
+  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] <file.kern>\n' +
+  '  RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and llm.complete run by default without --async-preview.\n' +
+  '  --async-preview is required only for fs.* and net.fetch.';
 const RUN_PROVIDED_CAPABILITY_NAMESPACES = Object.freeze(['crypto', 'rag', 'storage'] as const);
 const RUN_ASYNC_PROVIDER_FLAGS = Object.freeze({
   'fs.list': ['--fs-root <dir>'],
@@ -205,7 +207,12 @@ interface LoadedRunSource {
 }
 
 type ParsedRunArgs =
-  | { readonly mode: 'execute'; readonly fileArg: string }
+  | {
+      readonly mode: 'execute';
+      readonly fileArg: string;
+      readonly llmResponse?: string;
+      readonly llmProvider?: ParsedLlmProviderOptions;
+    }
   | {
       readonly mode: 'capabilities';
       readonly fileArg: string;
@@ -278,7 +285,14 @@ interface RunCapabilityReport {
   readonly mode: 'kern-run-capabilities';
   readonly file: string;
   readonly hasCapabilityBlockers: boolean;
-  readonly capabilityReadinessMode: 'sync' | 'async-preview';
+  /**
+   * `sync`: no async runner boundary needed. `async`: the source needs the
+   * async boundary but only for promoted ops (rag.retrieveAsync, rag.answer,
+   * rag.ingest, llm.complete) — runnable by default without --async-preview.
+   * `async-preview`: the source needs a still-preview-gated op (fs.*,
+   * net.fetch) and requires --async-preview regardless of other flags.
+   */
+  readonly capabilityReadinessMode: 'sync' | 'async' | 'async-preview';
   readonly hasSyncCapabilityBlockers: boolean;
   readonly hasAsyncCapabilityBlockers: boolean;
   readonly providedCapabilities: readonly CapabilityId[];
@@ -331,7 +345,9 @@ export function analyzeRunCapabilities(
   });
   const hasSyncCapabilityBlockers =
     analysis.hasParseErrors ||
-    analysis.plannedCapabilities.length > 0 ||
+    // Any async-boundary requirement blocks the plain sync executor, whether
+    // or not it has been promoted out of --async-preview.
+    analysis.asyncPlannedCapabilities.length > 0 ||
     analysis.missingProviders.length > 0 ||
     analysis.unknownCapabilities.length > 0 ||
     analysis.malformedCapabilities.length > 0 ||
@@ -346,9 +362,21 @@ export function analyzeRunCapabilities(
     analysis.malformedCapabilities.length > 0 ||
     analysis.unknownProvidedCapabilities.length > 0 ||
     analysis.unknownProvidedAsyncCapabilities.length > 0;
-  const capabilityReadinessMode = providedAsyncCapabilities.length > 0 ? 'async-preview' : 'sync';
+  // Preview-only (still-gated) capability involved either in what the source
+  // needs or in what was actually wired via CLI flags -> report async-preview.
+  // Otherwise, once any async provider is wired, the promoted (shipped-async)
+  // lane covers it -> report async. Mode stays keyed off `providedAsyncCapabilities`
+  // (not `asyncBoundaryRequired`) so a flag with no matching source requirement
+  // (e.g. --llm-provider on a program that never calls llm.complete) still
+  // surfaces provider policy blockers, and a source requirement with no
+  // matching provider (e.g. --fs-write-root alone) still reports `sync`.
+  const requiresPreviewOnlyCapability =
+    analysis.asyncPlannedCapabilities.some((requirement) => requirement.descriptor.status === 'planned') ||
+    providedAsyncCapabilities.some((id) => CAPABILITY_DESCRIPTORS[id]?.status === 'planned');
+  const capabilityReadinessMode: RunCapabilityReport['capabilityReadinessMode'] =
+    providedAsyncCapabilities.length === 0 ? 'sync' : requiresPreviewOnlyCapability ? 'async-preview' : 'async';
   const hasCapabilityBlockers =
-    capabilityReadinessMode === 'async-preview' ? hasAsyncCapabilityBlockers : hasSyncCapabilityBlockers;
+    capabilityReadinessMode === 'sync' ? hasSyncCapabilityBlockers : hasAsyncCapabilityBlockers;
 
   return {
     schemaVersion: 1,
@@ -513,20 +541,31 @@ export async function runRun(args: string[]): Promise<void> {
 
   try {
     const llmProvider =
-      parsed.mode === 'async-preview' && parsed.llmProvider
+      (parsed.mode === 'async-preview' || parsed.mode === 'execute') && parsed.llmProvider
         ? resolveCliLlmProviderOptions(parsed.llmProvider)
         : undefined;
-    const output =
-      parsed.mode === 'async-preview'
-        ? await executeKernSourceAsync(loaded.source, {
-            sourcePath: loaded.filePath,
-            fsRoot: parsed.fsRoot,
-            fsWriteRoot: parsed.fsWriteRoot,
-            netAllowedOrigins: parsed.netAllowedOrigins,
-            llmResponse: parsed.llmResponse,
-            ...(llmProvider ? { llmProvider } : {}),
-          })
-        : executeKernSource(loaded.source, { sourcePath: loaded.filePath });
+    // Promoted RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and
+    // llm.complete run through the async boundary by default — no
+    // --async-preview flag required. fs.* and net.fetch remain preview-gated:
+    // in `execute` mode no fs-root/allow-net flags are ever parsed (see
+    // parseRunArgs), so a program that needs them still fails closed with a
+    // missing-async-provider diagnostic unless --async-preview is passed.
+    const runsThroughAsyncBoundary =
+      parsed.mode === 'async-preview' || (parsed.mode === 'execute' && sourceRequiresAsyncBoundary(loaded.source));
+    const output = runsThroughAsyncBoundary
+      ? await executeKernSourceAsync(loaded.source, {
+          sourcePath: loaded.filePath,
+          ...(parsed.mode === 'async-preview'
+            ? {
+                fsRoot: parsed.fsRoot,
+                fsWriteRoot: parsed.fsWriteRoot,
+                netAllowedOrigins: parsed.netAllowedOrigins,
+              }
+            : {}),
+          llmResponse: parsed.llmResponse,
+          ...(llmProvider ? { llmProvider } : {}),
+        })
+      : executeKernSource(loaded.source, { sourcePath: loaded.filePath });
     // `process.exitCode` + a return (instead of `process.exit()`) lets Node flush
     // stdout/stderr naturally before exiting — no truncation on a pipe.
     if (output) process.stdout.write(output);
@@ -633,14 +672,13 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
           ...(llmBaseUrl !== undefined ? { baseUrl: llmBaseUrl } : {}),
         }
       : undefined;
+  // fs.* and net.fetch stay gated behind --async-preview (or --capabilities for
+  // readiness reporting). llm-response/llm-provider are NOT restricted here:
+  // llm.complete and rag.answer are promoted and run by default without the flag.
   if (
     !asyncPreviewMode &&
     !capabilityReportMode &&
-    (fsRoot !== undefined ||
-      fsWriteRoot !== undefined ||
-      netAllowedOrigins.length > 0 ||
-      llmResponse !== undefined ||
-      resolvedLlmProvider !== undefined)
+    (fsRoot !== undefined || fsWriteRoot !== undefined || netAllowedOrigins.length > 0)
   ) {
     return undefined;
   }
@@ -667,7 +705,12 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
     };
   }
-  return { mode: 'execute', fileArg };
+  return {
+    mode: 'execute',
+    fileArg,
+    ...(llmResponse !== undefined ? { llmResponse } : {}),
+    ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
+  };
 }
 
 function loadRunSource(fileArg: string): LoadedRunSource | undefined {
@@ -830,6 +873,18 @@ function sourceCapabilityRequirementIds(source: string, sourcePath?: string): Re
       moduleLoader: sourcePath ? createRunModuleLoader(sourcePath) : undefined,
     }).requirements.map((requirement) => requirement.id),
   );
+}
+
+/**
+ * True when `source` has an executable requirement that needs the async
+ * runner boundary (fs.*, net.fetch, llm.complete, or a rag async op), whether
+ * or not any CLI async provider flags were supplied. `execute` mode uses this
+ * to route promoted RAG/llm ops through the async executor by default; fs.*
+ * and net.fetch still fail closed there without --async-preview because no
+ * fs-root/allow-net flags are ever wired outside that mode.
+ */
+function sourceRequiresAsyncBoundary(source: string): boolean {
+  return analyzeKernSourceCapabilities(source, { parseOptions: NODE_PARSE_CAPS }).asyncBoundaryRequired;
 }
 
 function sourceRagIngestUsesCliEmbedders(source: string): boolean {

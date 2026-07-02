@@ -5,7 +5,13 @@ import { moduleLinkErrors, ownExplicitExportKinds, type RunnerModuleExportRecord
 import type { IRNode, ParseDiagnostic } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
-export type CapabilityStatus = 'shipped' | 'planned';
+/**
+ * `shipped`: sync-executable today without any CLI opt-in flag.
+ * `shipped-async`: promoted out of `--async-preview` — the async runner boundary
+ * executes it by default whenever async providers are supplied, no CLI flag
+ * required. `planned`: still gated behind `--async-preview` (fs.*, net.fetch).
+ */
+export type CapabilityStatus = 'shipped' | 'shipped-async' | 'planned';
 export type CapabilitySyncBoundary = 'sync' | 'async-planned';
 export type CapabilityInputShape = 'portable-literal' | 'host-bound';
 
@@ -125,14 +131,14 @@ export const CAPABILITY_DESCRIPTORS = Object.freeze({
   'fs.list': capabilityDescriptor('fs.list', 'planned', 'async-planned', 'host-bound'),
   'fs.readText': capabilityDescriptor('fs.readText', 'planned', 'async-planned', 'host-bound'),
   'fs.writeText': capabilityDescriptor('fs.writeText', 'planned', 'async-planned', 'host-bound'),
-  'llm.complete': capabilityDescriptor('llm.complete', 'planned', 'async-planned', 'portable-literal'),
+  'llm.complete': capabilityDescriptor('llm.complete', 'shipped-async', 'async-planned', 'portable-literal'),
   'net.fetch': capabilityDescriptor('net.fetch', 'planned', 'async-planned', 'portable-literal'),
-  'rag.answer': capabilityDescriptor('rag.answer', 'planned', 'async-planned', 'portable-literal'),
+  'rag.answer': capabilityDescriptor('rag.answer', 'shipped-async', 'async-planned', 'portable-literal'),
   'rag.checkAnswer': capabilityDescriptor('rag.checkAnswer', 'shipped', 'sync', 'portable-literal'),
-  'rag.ingest': capabilityDescriptor('rag.ingest', 'planned', 'async-planned', 'host-bound'),
+  'rag.ingest': capabilityDescriptor('rag.ingest', 'shipped-async', 'async-planned', 'host-bound'),
   'rag.promptContext': capabilityDescriptor('rag.promptContext', 'shipped', 'sync', 'portable-literal'),
   'rag.retrieve': capabilityDescriptor('rag.retrieve', 'shipped', 'sync', 'portable-literal'),
-  'rag.retrieveAsync': capabilityDescriptor('rag.retrieveAsync', 'planned', 'async-planned', 'host-bound'),
+  'rag.retrieveAsync': capabilityDescriptor('rag.retrieveAsync', 'shipped-async', 'async-planned', 'host-bound'),
   'storage.clear': capabilityDescriptor('storage.clear', 'shipped', 'sync', 'host-bound'),
   'storage.delete': capabilityDescriptor('storage.delete', 'shipped', 'sync', 'host-bound'),
   'storage.get': capabilityDescriptor('storage.get', 'shipped', 'sync', 'host-bound'),

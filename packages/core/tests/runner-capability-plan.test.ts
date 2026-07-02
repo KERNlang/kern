@@ -56,7 +56,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
   });
 
-  test('flags planned fs, net, llm, and async rag capabilities without marking them unknown', () => {
+  test('flags planned fs/net and promoted (shipped-async) llm/rag capabilities without marking them unknown', () => {
     const source = program([
       'capability namespace=fs operation=readText name=file input="{ path: \\"README.md\\" }"',
       'capability namespace=net operation=fetch name=response input="{ method: \\"GET\\", url: \\"https://example.test\\" }"',
@@ -68,13 +68,10 @@ describe('@kernlang/core/runner capability preflight', () => {
     const analysis = analyzeKernSourceCapabilities(source);
 
     expect(analysis.unknownCapabilities).toEqual([]);
-    expect(analysis.plannedCapabilities.map((requirement) => requirement.id)).toEqual([
-      'fs.readText',
-      'net.fetch',
-      'llm.complete',
-      'rag.retrieveAsync',
-      'rag.answer',
-    ]);
+    // fs.* and net.fetch stay preview-gated (`planned`); llm.complete and the
+    // async rag ops are promoted (`shipped-async`) so they fall out of
+    // plannedCapabilities even though they still need the async boundary.
+    expect(analysis.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText', 'net.fetch']);
     expect(analysis.asyncBoundaryRequired).toBe(true);
     expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
       'fs.readText',
@@ -83,12 +80,19 @@ describe('@kernlang/core/runner capability preflight', () => {
       'rag.retrieveAsync',
       'rag.answer',
     ]);
-    expect(analysis.plannedCapabilities.map((requirement) => requirement.descriptor.syncBoundary)).toEqual([
+    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.descriptor.syncBoundary)).toEqual([
       'async-planned',
       'async-planned',
       'async-planned',
       'async-planned',
       'async-planned',
+    ]);
+    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.descriptor.status)).toEqual([
+      'planned',
+      'planned',
+      'shipped-async',
+      'shipped-async',
+      'shipped-async',
     ]);
   });
 
@@ -804,11 +808,17 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(CAPABILITY_DESCRIPTORS['rag.retrieve']).toEqual(expect.objectContaining({ status: 'shipped' }));
     expect(CAPABILITY_DESCRIPTORS['rag.promptContext']).toEqual(expect.objectContaining({ status: 'shipped' }));
     expect(CAPABILITY_DESCRIPTORS['rag.checkAnswer']).toEqual(expect.objectContaining({ status: 'shipped' }));
+    // fs.* and net.fetch remain preview-gated behind --async-preview.
     expect(CAPABILITY_DESCRIPTORS['fs.readText']).toEqual(expect.objectContaining({ status: 'planned' }));
+    expect(CAPABILITY_DESCRIPTORS['fs.writeText']).toEqual(expect.objectContaining({ status: 'planned' }));
+    expect(CAPABILITY_DESCRIPTORS['fs.list']).toEqual(expect.objectContaining({ status: 'planned' }));
     expect(CAPABILITY_DESCRIPTORS['net.fetch']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['llm.complete']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['rag.answer']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['rag.retrieveAsync']).toEqual(expect.objectContaining({ status: 'planned' }));
+    // Promoted out of --async-preview: the async runner boundary executes
+    // these by default whenever async providers are supplied.
+    expect(CAPABILITY_DESCRIPTORS['llm.complete']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.answer']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.ingest']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.retrieveAsync']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
   });
 
   test('descriptor table keeps async boundary ids explicit', () => {

@@ -341,7 +341,7 @@ describe('kern run module linking', () => {
 
 interface CapabilityReport {
   readonly hasCapabilityBlockers: boolean;
-  readonly capabilityReadinessMode: 'sync' | 'async-preview';
+  readonly capabilityReadinessMode: 'sync' | 'async' | 'async-preview';
   readonly hasSyncCapabilityBlockers: boolean;
   readonly hasAsyncCapabilityBlockers: boolean;
   readonly providedCapabilities: readonly string[];
@@ -846,6 +846,85 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.stderr).toContain('must match a chunk previously returned by rag.retrieve');
   });
 
+  test('PROMOTION: rag.answer, rag.retrieveAsync, rag.ingest, and llm.complete run by default without --async-preview', () => {
+    const answer = runArgs([
+      'run',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+    ]);
+    expect(answer.status).toBe(0);
+    expect(answer.stderr).toBe('');
+    expect(answer.stdout).toMatch(/Refunds are available[\s\S]*Refunds are available within thirty days \[1\]/u);
+
+    const asyncRetrieve = runArgs([
+      'run',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-async-retrieve-preview.kern'),
+    ]);
+    expect(asyncRetrieve.status).toBe(0);
+    expect(asyncRetrieve.stderr).toBe('');
+    expect(asyncRetrieve.stdout).toContain('\nRefunds are available within thirty days [1]\n');
+
+    const ragAnswerCapability = runArgs([
+      'run',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern'),
+    ]);
+    expect(ragAnswerCapability.status).toBe(0);
+    expect(ragAnswerCapability.stderr).toBe('');
+    expect(ragAnswerCapability.stdout).toBe(
+      ['1', 'true', 'grounded', 'Refunds are available within thirty days [1]', ''].join('\n'),
+    );
+
+    const fixtureDir = join(dir, `rag-ingest-promoted-${counter++}`);
+    mkdirSync(join(fixtureDir, 'docs'), { recursive: true });
+    writeFileSync(join(fixtureDir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    const ingestFile = join(fixtureDir, 'ingest.kern');
+    writeFileSync(
+      ingestFile,
+      [
+        'corpus name=Docs',
+        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+        '',
+        'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+        'vectorStore name=DocsStore kind=local-persistent dims=64 metric=cosine path="./runtime-index"',
+        'ragIndex name=DocsIndex corpus=Docs store=DocsStore embed=DocsEmbedding',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=ingest name=report',
+        '    print value="report.count"',
+        '    print value="report.action"',
+      ].join('\n'),
+    );
+    const ingest = runArgs(['run', ingestFile]);
+    expect(ingest.status).toBe(0);
+    expect(ingest.stderr).toBe('');
+    expect(ingest.stdout).toBe('1\nindexed\n');
+  });
+
+  test('PROMOTION: fs.* and net.fetch still fail closed without --async-preview even though rag/llm are promoted', () => {
+    const netOnly = runProgram([
+      'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+      'print value="response.body"',
+    ]);
+    expect(netOnly.status).toBe(2);
+    expect(netOnly.stdout).toBe('');
+    expect(netOnly.stderr).toContain('net.fetch');
+
+    const fsOnly = runProgram([
+      'capability namespace=fs operation=readText name=body input="{ path: \\"input.txt\\" }"',
+      'print value="body"',
+    ]);
+    expect(fsOnly.status).toBe(2);
+    expect(fsOnly.stdout).toBe('');
+    expect(fsOnly.stderr).toContain('fs.readText');
+  });
+
   test('STORAGE CAPABILITY: kern run provides volatile storage for one program execution', () => {
     const r = runProgram([
       'capability namespace=storage operation=set name=setOk input="{ key: \\"theme\\", value: \\"dark\\" }"',
@@ -1135,7 +1214,9 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.capabilityReadinessMode).toBe('sync');
     expect(report.hasSyncCapabilityBlockers).toBe(true);
     expect(report.hasAsyncCapabilityBlockers).toBe(true);
-    expect(report.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    // llm.complete is promoted (shipped-async), so it no longer counts as
+    // `planned` even though it still needs the async boundary.
+    expect(report.plannedCapabilities).toEqual([]);
     expect(report.asyncBoundaryRequired).toBe(true);
     expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['llm.complete']);
@@ -1233,7 +1314,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     const requirementIds = report.requirements.map((requirement) => requirement.id);
     expect(requirementIds).toHaveLength(4);
     expect(requirementIds).toEqual(
@@ -1262,7 +1343,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(
       expect.arrayContaining(['rag.retrieve', 'rag.answer']),
     );
@@ -1283,7 +1364,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(
       expect.arrayContaining(['rag.retrieveAsync', 'rag.promptContext', 'llm.complete', 'rag.checkAnswer']),
     );
@@ -1388,7 +1469,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(['rag.ingest']);
     expect(report.providedAsyncCapabilities).toEqual(['rag.ingest']);
     expect(report.missingAsyncProviders).toEqual([]);
@@ -1442,7 +1523,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.hasAsyncCapabilityBlockers).toBe(true);
@@ -1551,7 +1632,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.requirements.map((requirement) => requirement.id)).toEqual([]);
     expect(report.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'missing-api-key' }]);
@@ -1655,7 +1736,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1678,7 +1759,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1703,7 +1784,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1728,7 +1809,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1755,7 +1836,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([
@@ -1813,7 +1894,7 @@ describe('kern run --capabilities — preflights capability requirements without
       { llmResponse: 'ok', llmProvider: { provider: 'openai', model: 'test-model' } },
     );
 
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.llmProviderPolicy?.apiKeyPresent).toBe(false);
     expect(report.providerPolicyBlockers).toEqual([]);
