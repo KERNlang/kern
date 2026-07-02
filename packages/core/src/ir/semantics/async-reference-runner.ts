@@ -30,6 +30,7 @@ import {
 } from './index.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
+import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
   assertPortableScalar,
   assertRunnerPortableValue,
@@ -144,6 +145,14 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
     const parsed = parseExpression(String(props.value));
     if (isArrayLiteralExpression(parsed)) {
       value = await evalArrayLiteralValueAsync(parsed, env, options);
+    } else if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
+      // Milestone 5.1b review fix (codex 0.90) — mirror the sync `let`
+      // contract's `new Map()` support (empty-map construction ONLY; see
+      // portable-map.ts and let.ts). Checked BEFORE the generic class-new
+      // branch, which would otherwise reject Map as an unknown runner class.
+      // A `new Map(...)` WITH arguments falls through to the class evaluator
+      // and fails closed, matching the sync path.
+      value = new Map<string, unknown>();
     } else if (isRecordLiteralExpression(parsed)) {
       value = await evalRecordLiteralValueAsync(parsed, env, options);
     } else if (parsed.kind === 'new') {

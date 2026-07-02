@@ -1970,6 +1970,70 @@ describe('@kernlang/core/runner source executor', () => {
     expect(calls).toEqual(['fs:README.md', 'net:https://example.test', 'llm:file-body']);
   });
 
+  // Milestone 5.1b review fix (codex 0.90) — the async preview lane's own
+  // `let` implementation (asyncLetEffects) must mirror the sync runner's
+  // `new Map()` support, and the `do`-based mutations (array push, Map.set)
+  // must work in a program that ALSO awaits an async-planned capability.
+  // Before the fix, `let name=m value="new Map()"` failed the async lane's
+  // preconditions even though the sync runner executes it.
+  test('async source executor supports new Map()/Map.set/Map.get/Map.has and array push alongside async capabilities', async () => {
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      fs: {
+        async readText() {
+          return 'file-body';
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"README.md\\" }"',
+        'let name=m value="new Map()"',
+        'do value="Map.set(m, \\"a\\", 1)"',
+        'print value="Map.get(m, \\"a\\")"',
+        'print value="Map.has(m, \\"a\\")"',
+        'print value="Map.has(m, \\"missing\\")"',
+        'let name=xs value="[1,2]"',
+        'do value="xs.push(3)"',
+        'print value="xs[2]"',
+        'print value="xs.length"',
+        'print value="body"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['fs.readText'],
+      },
+    );
+
+    // Identical observable output to the sync runner for the same statements
+    // (see the sync 'reads List.length(xs) and builds/reads a Map…' test).
+    expect(stdout).toBe('1\ntrue\nfalse\n3\n3\nfile-body\n');
+  });
+
+  test('async source executor still fails closed on non-empty new Map(...) construction', async () => {
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      fs: {
+        async readText() {
+          return 'file-body';
+        },
+      },
+    };
+
+    await expect(
+      executeKernSourceAsync(
+        mainProgram([
+          'capability namespace=fs operation=readText name=body input="{ path: \\"README.md\\" }"',
+          'let name=m value="new Map([[\\"a\\", 1]])"',
+          'print value="body"',
+        ]),
+        {
+          asyncCapabilities,
+          providedAsyncCapabilities: ['fs.readText'],
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+  });
+
   test('async source executor composes sync structured capability results into async input', async () => {
     const prompts: string[] = [];
     const capabilities: KernRunnerCapabilities = {
