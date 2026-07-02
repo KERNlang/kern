@@ -179,7 +179,17 @@ export type RunnerPortableArrayValue = ReadonlyArray<PortableScalar | RunnerPort
 export type RunnerPortableValue = PortableScalar | PortableRecord | RunnerPortableArrayValue;
 export type RunnerFunctionValue = RunnerPortableValue | RunnerClassInstanceValue;
 const RESERVED_RECORD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
-const MAX_RUNNER_CALL_DEPTH = 64;
+// Milestone 5.1b — same-file recursive helper calls are now SUPPORTED (previously
+// ANY re-entrant call to a function already on the call stack was rejected
+// outright). The depth limit is the ONLY guard against runaway/infinite
+// recursion (a KERN program with no base case still fails closed, just later —
+// at MAX_RUNNER_CALL_DEPTH frames deep — instead of on the first re-entry).
+// 512 comfortably covers realistic recursive algorithms (tree/list traversal,
+// divide-and-conquer) while staying well under Node's default JS call-stack
+// budget (each KERN call frame costs several real JS frames: evalPortableValue
+// -> evalRunnerFunctionCall -> referenceRunSequence -> referenceRun -> contract
+// effects -> ...).
+const MAX_RUNNER_CALL_DEPTH = 512;
 const MAX_RUNNER_CALL_CACHE_ENTRIES = 1024;
 
 export function isPortableRecordValue(value: unknown): value is PortableRecord {
@@ -309,6 +319,51 @@ export function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
   return Number.isSafeInteger(n) && String(n) === node.raw && node.value === n;
 }
 
+/**
+ * Milestone 5.1b — INTEGER-PROVENANCED EXPRESSION. Extends the base/counter
+ * provenance check (`isSafeIntegerLiteralIndex` OR a provenanced bare ident)
+ * to recursive `+`/`-` arithmetic between provenanced operands, so dynamic
+ * index reads can use expressions like `xs[i + 1]` or `xs[i - 1]`, not just a
+ * bare loop counter.
+ *
+ * Base cases:
+ *   - a bare safe-integer literal (`isSafeIntegerLiteralIndex`)
+ *   - a bare ident whose DECLARING scope marks it integer-provenanced
+ *     (currently: a `for` loop counter, or a helper param bound from a
+ *     provenanced caller argument — see `evalRunnerFunctionCall`)
+ * Recursive case:
+ *   - `<provenanced> + <provenanced>` or `<provenanced> - <provenanced>`
+ *
+ * WHY +/- (not *, /, %, unary) is provably divergence-free: every operand
+ * admitted here is, by construction, an EXACTLY-representable JS safe integer
+ * (a literal that round-tripped, or a loop counter bounded by safe-integer
+ * range/step). IEEE-754 double addition/subtraction of two exactly-
+ * representable integers (|x| <= 2^53-1) is ALWAYS exact WHENEVER the true
+ * mathematical result is ALSO <= 2^53-1 in magnitude — doubles have 53 bits of
+ * integer precision, and a correctly-rounded result that is already exactly
+ * representable IS the exact result (no rounding occurs). The call site below
+ * (the `index` case) additionally re-checks `Number.isSafeInteger` on the
+ * FINAL evaluated index before using it, so any `+`/`-` combination whose true
+ * result exceeds the safe range is caught there and abstains — it can never
+ * silently round back into a plausible-looking (but wrong) small index,
+ * because floating-point rounding near/above 2^53 cannot land back below it
+ * except exactly AT the boundary, which the safe-integer check also rejects.
+ * That's what makes it SAFE for JS and Python to agree here even though
+ * neither language proves it in general: `%` stays excluded (JS and Python
+ * disagree on the SIGN of the result for a negative operand — a genuine
+ * semantic divergence, not a precision one) and `*`/`/`/unary stay excluded
+ * (no concrete indexing use case needs them, and the safe-integer postcheck
+ * argument does not extend to them as cleanly).
+ */
+export function isIntProvenancedExpr(node: ValueIR, env: SemanticEnv): boolean {
+  if (isSafeIntegerLiteralIndex(node)) return true;
+  if (node.kind === 'ident') return isIntProvenanced(env, node.name);
+  if (node.kind === 'binary' && (node.op === '+' || node.op === '-')) {
+    return isIntProvenancedExpr(node.left, env) && isIntProvenancedExpr(node.right, env);
+  }
+  return false;
+}
+
 export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScalar {
   switch (node.kind) {
     case 'numLit':
@@ -384,12 +439,14 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
     case 'index': {
       // Array INDEX read. Certify an in-bounds, non-negative, safe-integer index
       // into an ident-bound array, returning a PORTABLE SCALAR element. The index
-      // SOURCE must be either (slice-2b) a BARE integer LITERAL, or (dynamic-index
-      // slice) a BARE ident that is INTEGER-PROVENANCED — currently the live
-      // counter of an enclosing `for`, which the for-contract guarantees is a safe
-      // integer. Everything else throws -> the runner ABSTAINS.
+      // SOURCE must be INTEGER-PROVENANCED (`isIntProvenancedExpr`, milestone
+      // 5.1b): a bare safe-integer LITERAL, a bare ident that is
+      // INTEGER-PROVENANCED (currently: the live counter of an enclosing `for`,
+      // or a helper param whose caller argument was itself provenanced), or
+      // `+`/`-` arithmetic recursively combining such operands (`xs[i + 1]`,
+      // `xs[i - 1]`, `xs[1 + 1]`). Everything else throws -> the runner ABSTAINS.
       //
-      // Why not any ident, and why arithmetic still abstains — TS<->Python
+      // Why not any ident, and why `*`/`/`/`%`/unary still abstain — TS<->Python
       // divergences verified on real node+python3:
       //   - INT vs FLOAT: Python list indices MUST be int — `xs[1.0]`, `xs[4/2]`
       //     (Python `/` is float), and any PLAIN-let ident bound to a float raise
@@ -397,9 +454,12 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       //     for-counter is exempt because its provenance proves it is an int; a
       //     plain `let` is NOT provenanced (and `let j = i` is not transitive).
       //   - integer `%` diverges on a negative operand (`5 % -3` is 2 in JS, -1 in
-      //     Python), and `+`/`-`/`*` over safe values can overflow 2^53 and round
-      //     in JS while Python stays exact — so ARITHMETIC indices (`xs[i+1]`)
-      //     abstain even on a counter (provenance proves int-ness, not closure).
+      //     Python) — a SIGN divergence, not a precision one, so `%` stays
+      //     excluded from `isIntProvenancedExpr` regardless of operand safety.
+      //   - `+`/`-` ARE admitted (see `isIntProvenancedExpr`'s doc comment for the
+      //     exact-IEEE-754 argument for why this cannot silently diverge): the
+      //     safe-integer + bounds check below still applies to the FINAL
+      //     evaluated index, so an overflowing computation still abstains.
       //   - JS has no int/float distinction and the emitters preserve the source
       //     numeric form, so the reference cannot tell a Python int from a float by
       //     VALUE — hence the syntactic literal / provenance gate, not a value check.
@@ -413,13 +473,9 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: index access is only admitted on an array-binding identifier');
       }
-      if (
-        !isValueIR(node.index) ||
-        (!isSafeIntegerLiteralIndex(node.index) &&
-          !(node.index.kind === 'ident' && isIntProvenanced(env, node.index.name)))
-      ) {
+      if (!isValueIR(node.index) || !isIntProvenancedExpr(node.index, env)) {
         throw new Error(
-          'portable: array index must be a bare non-negative safe-integer literal or an integer-provenanced loop counter',
+          'portable: array index must be a bare non-negative safe-integer literal, an integer-provenanced loop counter, or +/- arithmetic between them',
         );
       }
       if (!hasBinding(env, node.object.name)) {
@@ -1046,9 +1102,16 @@ export function evalRunnerFunctionValue(
     throw new Error(`portable: function "${fnName}" expects ${fn.params.length} arguments, got ${args.length}`);
   }
 
+  // Milestone 5.1b — same-file recursion (direct self-calls AND mutual/indirect
+  // cycles through another helper) is now permitted; the ONLY fail-closed fence
+  // left is the explicit depth limit below. Recursive calls stay side-effect-free
+  // and memoized exactly like non-recursive ones (the cache below), so a pure
+  // recursive helper (factorial, fibonacci-with-memo, tree depth, …) behaves
+  // identically to hand-unrolled iteration on every leg.
   const callStack = runnerCallStackForEnv(env);
-  if (callStack.includes(fnName)) throw new Error(`portable: recursive function call "${fnName}" is unsupported`);
-  if (callStack.length >= MAX_RUNNER_CALL_DEPTH) throw new Error('portable: runner function call depth exceeded');
+  if (callStack.length >= MAX_RUNNER_CALL_DEPTH) {
+    throw new Error(`portable: runner function call depth exceeded (limit ${MAX_RUNNER_CALL_DEPTH})`);
+  }
 
   const argValues: RunnerFunctionValue[] = [];
   const argIntProvenance: boolean[] = [];
@@ -1056,8 +1119,11 @@ export function evalRunnerFunctionValue(
   const intProvenance = new Set<string>();
   for (let index = 0; index < fn.params.length; index += 1) {
     const arg = args[index];
+    // Merge of module linking (5.1a) + provenance arithmetic (5.1b): the 5.1a
+    // argument evaluator admits class-instance arguments; the 5.1b predicate
+    // subsumes literal, ident-provenance, and +/- arithmetic provenance.
     const value = evalRunnerFunctionArgumentValue(arg, env);
-    const isSafeIntArg = isSafeIntegerLiteralIndex(arg) || (arg.kind === 'ident' && isIntProvenanced(env, arg.name));
+    const isSafeIntArg = isIntProvenancedExpr(arg, env);
     argValues.push(value);
     argIntProvenance.push(isSafeIntArg);
     bindings.set(fn.params[index], value);

@@ -3,7 +3,6 @@ import type { ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
-  isIntProvenanced,
   makeEnv,
   type RunnerClassBinding,
   type RunnerFunctionBinding,
@@ -21,8 +20,8 @@ import {
   evalRunnerClassNewValueWithArgumentsAsync,
   isCaughtErrorValue,
   isDecimalValue,
+  isIntProvenancedExpr,
   isRunnerClassInstanceValue,
-  isSafeIntegerLiteralIndex,
   type PortableScalar,
   portableTruthy,
   type RunnerFunctionValue,
@@ -30,7 +29,10 @@ import {
 } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
-const MAX_RUNNER_CALL_DEPTH = 64;
+// Milestone 5.1b — kept in sync with the sync depth limit in `portable-scalar.ts`
+// (see its comment for the rationale). Same-file recursion is now permitted;
+// this is the only fail-closed fence against runaway/infinite recursion.
+const MAX_RUNNER_CALL_DEPTH = 512;
 
 export interface AsyncPortableEvalOptions {
   readonly runFunctionBody: (body: readonly import('../../types.js').IRNode[], env: SemanticEnv) => Promise<Trace>;
@@ -218,16 +220,22 @@ export async function evalRunnerFunctionValueAsync(
     throw new Error(`portable: function "${fnName}" expects ${fn.params.length} arguments, got ${args.length}`);
   }
 
+  // Milestone 5.1b — same-file recursion (direct and mutual) is now permitted;
+  // see the sync `evalRunnerFunctionCall`'s comment for the full rationale.
   const callStack = runnerCallStackForEnv(env);
-  if (callStack.includes(fnName)) throw new Error(`portable: recursive function call "${fnName}" is unsupported`);
-  if (callStack.length >= MAX_RUNNER_CALL_DEPTH) throw new Error('portable: runner function call depth exceeded');
+  if (callStack.length >= MAX_RUNNER_CALL_DEPTH) {
+    throw new Error(`portable: runner function call depth exceeded (limit ${MAX_RUNNER_CALL_DEPTH})`);
+  }
 
   const bindings = new Map<string, unknown>();
   const intProvenance = new Set<string>();
   for (let index = 0; index < fn.params.length; index += 1) {
     const arg = args[index];
+    // Merge of module linking (5.1a) + provenance arithmetic (5.1b): the 5.1a
+    // argument evaluator admits class-instance arguments; the 5.1b predicate
+    // subsumes literal, ident-provenance, and +/- arithmetic provenance.
     const value = await evalRunnerAsyncArgumentValue(arg, env, options);
-    const isSafeIntArg = isSafeIntegerLiteralIndex(arg) || (arg.kind === 'ident' && isIntProvenanced(env, arg.name));
+    const isSafeIntArg = isIntProvenancedExpr(arg, env);
     bindings.set(fn.params[index], value);
     if (isSafeIntArg) intProvenance.add(fn.params[index]);
   }

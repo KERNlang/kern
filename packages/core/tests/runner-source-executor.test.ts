@@ -1253,7 +1253,14 @@ describe('@kernlang/core/runner source executor', () => {
     ).toThrow(KernRunnerError);
   });
 
-  test('rejects recursive runner function calls', () => {
+  // Milestone 5.1b — same-file recursion (direct self-calls and mutual/indirect
+  // cycles) is now SUPPORTED, with an explicit call-depth limit (512) as the
+  // only fail-closed fence against runaway/infinite recursion. This test used
+  // to assert that ANY recursive call was rejected outright; it now asserts
+  // the more precise behavior — unbounded mutual recursion with no base case
+  // still fails closed, but only once it exceeds the depth limit, not on the
+  // first re-entry.
+  test('fails closed once unbounded mutual recursion exceeds the call-depth limit', () => {
     expect(() =>
       executeKernSource(
         programWithFunctions(
@@ -1262,6 +1269,89 @@ describe('@kernlang/core/runner source executor', () => {
             ['fn name=b returns=number', '  handler lang="kern"', '    return value="a()"'],
           ],
           ['print value="a()"'],
+        ),
+      ),
+    ).toThrow(KernRunnerError);
+  });
+
+  test('calls a self-recursive helper with a base case (factorial)', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=factorial params="n:number" returns=number',
+            '  handler lang="kern"',
+            '    if cond="n <= 1"',
+            '      return value="1"',
+            '    return value="n * factorial(n - 1)"',
+          ],
+        ],
+        ['print value="factorial(5)"'],
+      ),
+    );
+
+    expect(stdout).toBe('120\n');
+  });
+
+  test('calls mutually recursive helpers with a base case (even/odd)', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=isEven params="n:number" returns=boolean',
+            '  handler lang="kern"',
+            '    if cond="n == 0"',
+            '      return value="true"',
+            '    return value="isOdd(n - 1)"',
+          ],
+          [
+            'fn name=isOdd params="n:number" returns=boolean',
+            '  handler lang="kern"',
+            '    if cond="n == 0"',
+            '      return value="false"',
+            '    return value="isEven(n - 1)"',
+          ],
+        ],
+        ['print value="isEven(10)"', 'print value="isOdd(10)"'],
+      ),
+    );
+
+    expect(stdout).toBe('true\nfalse\n');
+  });
+
+  test('supports recursion up to and including the 512-deep call limit', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=countdown params="n:number" returns=number',
+            '  handler lang="kern"',
+            '    if cond="n <= 0"',
+            '      return value="0"',
+            '    return value="1 + countdown(n - 1)"',
+          ],
+        ],
+        ['print value="countdown(511)"'],
+      ),
+    );
+
+    expect(stdout).toBe('511\n');
+  });
+
+  test('fails closed with a controlled error once recursion exceeds the 512-deep call limit', () => {
+    expect(() =>
+      executeKernSource(
+        programWithFunctions(
+          [
+            [
+              'fn name=countdown params="n:number" returns=number',
+              '  handler lang="kern"',
+              '    if cond="n <= 0"',
+              '        return value="0"',
+              '    return value="1 + countdown(n - 1)"',
+            ],
+          ],
+          ['print value="countdown(600)"'],
         ),
       ),
     ).toThrow(KernRunnerError);
