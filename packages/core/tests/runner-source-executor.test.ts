@@ -3425,6 +3425,77 @@ describe('@kernlang/core/runner module linking', () => {
     ).toThrow(/does not export 'missing'/);
   });
 
+  test('export=true re-export is additive: the module can call the symbol locally', () => {
+    const modules = {
+      '/app/base.kern': [
+        'fn name=double returns=number export=true',
+        '  param name=n type=number',
+        '  handler lang="kern"',
+        '    return value="n * 2"',
+      ].join('\n'),
+      '/app/mid.kern': [
+        'use path="./base"',
+        '  from name=double kind=fn export=true',
+        'fn name=quad returns=number export=true',
+        '  param name=n type=number',
+        '  handler lang="kern"',
+        '    return value="double(double(n))"',
+      ].join('\n'),
+    };
+    const root = [
+      'use path="./mid"',
+      '  from name=quad kind=fn',
+      '  from name=double kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="quad(3)"',
+      '    print value="double(5)"',
+    ].join('\n');
+
+    expect(
+      executeKernSource(root, { sourcePath: '/app/main.kern', moduleLoader: memoryModuleLoader(modules) }),
+    ).toBe('12\n10\n');
+  });
+
+  test('module loader returning non-string source fails closed as a link error', () => {
+    const root = [
+      'use path="./helper"',
+      '  from name=helper kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    const loader = {
+      resolve: (specifier: string) => (specifier.startsWith('./helper') ? '/app/helper.kern' : null),
+      readSource: () => 42 as unknown as string,
+    };
+    expect(() =>
+      executeKernSource(root, { sourcePath: '/app/main.kern', moduleLoader: loader }),
+    ).toThrow(/source is unavailable/);
+  });
+
+  test('async executor delegates sync-only multi-file programs with the module loader intact', async () => {
+    const modules = {
+      '/app/helper.kern': [
+        'fn name=double returns=number export=true',
+        '  param name=n type=number',
+        '  handler lang="kern"',
+        '    return value="n * 2"',
+      ].join('\n'),
+    };
+    const root = [
+      'use path="./helper"',
+      '  from name=double kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="double(21)"',
+    ].join('\n');
+
+    await expect(
+      executeKernSourceAsync(root, { sourcePath: '/app/main.kern', moduleLoader: memoryModuleLoader(modules) }),
+    ).resolves.toBe('42\n');
+  });
+
   test('duplicate imported aliases reject at link time', () => {
     const root = [
       'use path="./helper"',

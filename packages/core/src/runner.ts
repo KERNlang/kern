@@ -433,12 +433,13 @@ function collectUseImports(root: IRNode, importerPath: string, loader: KernRunne
         throw new KernRunnerError(`link error: import alias '${localName}' in '${importerPath}' is not portable`);
       }
       const exportOnly = isTrueProp(child.props?.export);
-      if (!exportOnly) {
-        if (localNames.has(localName)) {
-          throw new KernRunnerError(`link error: duplicate imported alias '${localName}' in '${importerPath}'`);
-        }
-        localNames.add(localName);
+      // export=true on `from` is ADDITIVE (import locally AND re-export),
+      // matching the codegen legs, which emit both an import line and an
+      // `export … from` line. Every import therefore claims a local alias.
+      if (localNames.has(localName)) {
+        throw new KernRunnerError(`link error: duplicate imported alias '${localName}' in '${importerPath}'`);
       }
+      localNames.add(localName);
       imports.push({
         localName,
         importedName,
@@ -465,7 +466,17 @@ function linkRunnerModules(source: string, options: ExecuteKernSourceOptions): L
     const existing = records.get(path);
     if (existing) return existing;
     resolving.add(path);
-    const moduleRoot = moduleSource === undefined ? parseRunnerModule(path, loader.readSource(path), options) : root;
+    let moduleRoot = root;
+    if (moduleSource === undefined) {
+      // Fail closed if a misbehaving embedder loader hands back a non-string
+      // source (mirrors the guard in runner-capability-plan.ts): the parser
+      // would otherwise crash with a raw TypeError instead of a KernRunnerError.
+      const rawSource = loader.readSource(path);
+      if (typeof rawSource !== 'string') {
+        throw new KernRunnerError(moduleLinkErrors.unreadableSource(path));
+      }
+      moduleRoot = parseRunnerModule(path, rawSource, options);
+    }
     if (!isRoot) assertNoMainInImportedModule(moduleRoot, path);
     const imports = collectUseImports(moduleRoot, path, loader);
     const record = linkSingleModule(path, moduleRoot, imports);
@@ -569,12 +580,13 @@ function buildRunnerModuleScopes(records: readonly LinkedModuleRecord[]): Map<st
     return undefined;
   };
 
-  // Pass 2: wire each module's non-re-export imports as references into its scope.
+  // Pass 2: wire each module's imports as references into its scope. Imports
+  // with export=true are additive (local binding AND re-export), so they are
+  // wired locally exactly like plain imports.
   for (const record of records) {
     const scope = scopes.get(record.path);
     if (!scope) continue;
     for (const imported of record.imports) {
-      if (imported.exportOnly) continue;
       const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
       if (!resolved) {
         throw new KernRunnerError(
@@ -1301,11 +1313,16 @@ async function executeKernSourceAsyncWithEntry(
   }
 
   // Async host adapters are intentionally not forwarded to the sync executor.
+  // The module loader and source path MUST forward, though: a sync-only
+  // multi-file program that passed async preflight would otherwise fail to
+  // link when delegated here.
   const syncOptions = {
     parseOptions: options.parseOptions,
     env: options.env,
     capabilities: options.capabilities,
     capabilityContext: options.capabilityContext,
+    moduleLoader: options.moduleLoader,
+    sourcePath: options.sourcePath,
   };
   return entry ? executeKernEntrySource(source, entry, syncOptions) : executeKernSource(source, syncOptions);
 }

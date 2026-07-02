@@ -39,7 +39,7 @@ import {
   type UnsupportedAsyncCapabilityRequirement,
   type WebCryptoCapabilitySource,
 } from '@kernlang/core/runner';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { dirname, relative, resolve, sep } from 'path';
 import { createCliAsyncFsCapability } from './run-async-fs.js';
 import {
@@ -313,7 +313,7 @@ export function analyzeRunCapabilities(
   } = {},
 ): RunCapabilityReport {
   const providedCapabilities = runProvidedCapabilities();
-  const requiredCapabilities = sourceCapabilityRequirementIds(source);
+  const requiredCapabilities = sourceCapabilityRequirementIds(source, filePath);
   const providedAsyncCapabilities = runProvidedAsyncCapabilities(options, {
     includeRagAnswer: requiredCapabilities.has('rag.answer'),
     includeRagIngest: requiredCapabilities.has('rag.ingest') && sourceRagIngestUsesCliEmbedders(source),
@@ -397,6 +397,13 @@ function createRunCapabilities(source: string, sourcePath: string | undefined, r
 
 function createRunModuleLoader(entryPath: string) {
   const rootDir = dirname(resolve(entryPath));
+  // Containment must hold for the REAL file, not just the lexical path: a
+  // symlink placed under the entry directory can point anywhere on disk, so
+  // the lexical isInsideRunRoot check alone is bypassable. Canonicalize both
+  // sides (the root itself may live behind a symlink, e.g. /tmp on macOS)
+  // and re-check after resolution. The canonical module id is the realpath,
+  // so two symlinked aliases of one file link as one module singleton.
+  const rootReal = safeRealpath(rootDir) ?? rootDir;
   return {
     resolve(specifier: string, context: { readonly importer: string }): string | null {
       if (!specifier.startsWith('./') && !specifier.startsWith('../')) return null;
@@ -406,15 +413,28 @@ function createRunModuleLoader(entryPath: string) {
         throw new KernRunnerError(`link error: import '${specifier}' from '${context.importer}' escapes '${rootDir}'`);
       }
       if (!existsSync(candidate)) return null;
-      return candidate;
+      const real = safeRealpath(candidate);
+      if (!real || !isInsideRunRoot(rootReal, real)) {
+        throw new KernRunnerError(`link error: import '${specifier}' from '${context.importer}' escapes '${rootDir}'`);
+      }
+      return real;
     },
     readSource(canonicalPath: string): string {
-      if (!isInsideRunRoot(rootDir, canonicalPath)) {
+      const real = safeRealpath(canonicalPath);
+      if (!real || (!isInsideRunRoot(rootReal, real) && !isInsideRunRoot(rootDir, real))) {
         throw new KernRunnerError(`link error: import '${canonicalPath}' escapes '${rootDir}'`);
       }
-      return readFileSync(canonicalPath, 'utf-8');
+      return readFileSync(real, 'utf-8');
     },
   };
+}
+
+function safeRealpath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
 }
 
 function isInsideRunRoot(rootDir: string, candidate: string): boolean {

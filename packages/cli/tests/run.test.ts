@@ -181,6 +181,69 @@ describe('kern run module linking', () => {
     expect(result.stderr).toContain('escapes');
   });
 
+  test('rejects symlinked module imports whose real target escapes the entry directory', () => {
+    writeNamedFile(
+      'symlink-outside.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="1"'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'symlink-escape/main.kern',
+      [
+        'use path="./linked"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+    symlinkSync(join(dir, 'symlink-outside.kern'), join(dir, 'symlink-escape', 'linked.kern'));
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('escapes');
+  });
+
+  test('capability report includes async providers required only by an imported module', () => {
+    writeNamedFile(
+      'caps-import/helper.kern',
+      [
+        'fn name=answerIt returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=answer name=answer input="{ question: \\"q\\" }"',
+        '    return value="answer.text"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'caps-import/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=answerIt kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"root\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'grounded [1]', file]);
+    const report = parseCapabilityReport(result);
+
+    // The imported capability must be aggregated (requirement + provider
+    // inclusion) AND honestly classified: a capability call in a helper
+    // outside main is an unsupported async execution shape, so the report
+    // carries blockers and the CLI exits non-zero.
+    expect(result.status).toBe(2);
+    expect(report.requirements.map((requirement: { id: string }) => requirement.id)).toEqual(
+      expect.arrayContaining(['rag.answer']),
+    );
+    expect(report.providedAsyncCapabilities).toContain('rag.answer');
+    expect(
+      report.unsupportedAsyncExecutions.map((entry: { id: string; reason: string }) => `${entry.id}:${entry.reason}`),
+    ).toContain('rag.answer:outside-main');
+    expect(report.hasCapabilityBlockers).toBe(true);
+  });
+
   test('importing a syntactically broken module fails closed (exit 2, no TypeError, no stdout)', () => {
     writeNamedFile(
       'broken-run/broken.kern',

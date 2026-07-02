@@ -355,13 +355,13 @@ function parseCapabilityGraph(
           continue;
         }
         const exportOnly = child.props?.export === true || child.props?.export === 'true';
-        if (!exportOnly) {
-          if (localNames.has(localName)) {
-            linkError(moduleLinkErrors.duplicateAlias(localName, path));
-            continue;
-          }
-          localNames.add(localName);
+        // export=true is ADDITIVE (local import AND re-export) — mirror the
+        // executor: every import claims a local alias.
+        if (localNames.has(localName)) {
+          linkError(moduleLinkErrors.duplicateAlias(localName, path));
+          continue;
         }
+        localNames.add(localName);
         imports.push({
           localName,
           importedName,
@@ -449,7 +449,10 @@ function parseCapabilityGraph(
           linkError(moduleLinkErrors.duplicateExport(imported.localName, path));
         }
         reexportLocals.add(imported.localName);
-      } else if (module.ownCallableNames.has(imported.localName)) {
+      }
+      // Additive export=true also binds locally, so alias conflicts apply to
+      // every import, re-exporting or not — mirrors the executor.
+      if (module.ownCallableNames.has(imported.localName)) {
         linkError(moduleLinkErrors.aliasConflicts(imported.localName, path));
       }
     }
@@ -500,7 +503,9 @@ function buildCapabilityModuleScopes(graph: {
     const importedFn = new Map<string, { path: string; name: string }>();
     const importedClass = new Map<string, { path: string; name: string }>();
     for (const imported of module.imports) {
-      if (imported.exportOnly || imported.targetPath === '') continue;
+      // export=true imports are additive (locally bound AND re-exported), so
+      // they resolve into the local scope exactly like plain imports.
+      if (imported.targetPath === '') continue;
       const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
       if (!resolved) continue;
       if (resolved.kind === 'fn') importedFn.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
