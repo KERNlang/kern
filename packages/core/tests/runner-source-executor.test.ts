@@ -486,6 +486,115 @@ describe('@kernlang/core/runner source executor', () => {
     expect(stdout).toBe('ok\n');
   });
 
+  test('rejects runner functions that mutate class instance arguments', () => {
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=Label',
+          '  field name=value type=string',
+          '  constructor',
+          '    param name=value type=string',
+          '    handler lang="kern"',
+          '      assign target="this.value" value="value"',
+          '  method name=read returns=string',
+          '    handler lang="kern"',
+          '      return value="this.value"',
+          'fn name=mutate params="label:any" returns=string',
+          '  handler lang="kern"',
+          '    assign target="label.value" value="\'bad\'"',
+          '    return value="label.read()"',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    let name=label value="new Label(\'ok\')"',
+          '    print value="mutate(label)"',
+        ].join('\n'),
+      ),
+    ).toThrow(/Preconditions failed for node type "print"/);
+  });
+
+  test('rejects runner functions that mutate class instance argument aliases', () => {
+    expect(() =>
+      executeKernSource(
+        [
+          'class name=Label',
+          '  field name=value type=string',
+          '  constructor',
+          '    param name=value type=string',
+          '    handler lang="kern"',
+          '      assign target="this.value" value="value"',
+          '  method name=read returns=string',
+          '    handler lang="kern"',
+          '      return value="this.value"',
+          'fn name=mutate params="label:any" returns=string',
+          '  handler lang="kern"',
+          '    let name=alias value="label"',
+          '    assign target="alias.value" value="\'bad\'"',
+          '    return value="alias.read()"',
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    let name=label value="new Label(\'ok\')"',
+          '    print value="mutate(label)"',
+        ].join('\n'),
+      ),
+    ).toThrow(/Preconditions failed for node type "print"/);
+  });
+
+  test('allows runner functions to mutate local class instances', () => {
+    const stdout = executeKernSource(
+      [
+        'class name=Label',
+        '  field name=value type=string',
+        '  constructor',
+        '    param name=value type=string',
+        '    handler lang="kern"',
+        '      assign target="this.value" value="value"',
+        '  method name=read returns=string',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+        'fn name=makeLabel returns=string',
+        '  handler lang="kern"',
+        '    let name=label value="new Label(\'ok\')"',
+        '    assign target="label.value" value="\'local\'"',
+        '    return value="label.read()"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="makeLabel()"',
+      ].join('\n'),
+    );
+
+    expect(stdout).toBe('local\n');
+  });
+
+  test('allows local class instance mutation after a child scope shadows the same name with an argument alias', () => {
+    const stdout = executeKernSource(
+      [
+        'class name=Label',
+        '  field name=value type=string',
+        '  constructor',
+        '    param name=value type=string',
+        '    handler lang="kern"',
+        '      assign target="this.value" value="value"',
+        '  method name=read returns=string',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+        'fn name=mutateLocal params="label:any" returns=string',
+        '  handler lang="kern"',
+        '    let name=alias value="new Label(\'local\')"',
+        '    for name=i from="0" to="1"',
+        '      let name=alias value="label"',
+        '    assign target="alias.value" value="\'still-local\'"',
+        '    return value="alias.read()"',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    let name=label value="new Label(\'ok\')"',
+        '    print value="mutateLocal(label)"',
+        '    print value="label.read()"',
+      ].join('\n'),
+    );
+
+    expect(stdout).toBe('still-local\nok\n');
+  });
+
   test('sync helper arguments accept record values returned by nested helpers', () => {
     const stdout = executeKernSource(
       programWithFunctions(
@@ -739,6 +848,115 @@ describe('@kernlang/core/runner source executor', () => {
         },
       ),
     ).resolves.toBe('ok\n');
+  });
+
+  test('async helper functions reject class instance argument mutation', async () => {
+    const source = [
+      'class name=Label',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value"',
+      'fn name=mutate params="label:any" returns=string',
+      '  handler lang="kern"',
+      '    assign target="label.value" value="\'bad\'"',
+      '    return value="label.read()"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new Label(\'ok\')"',
+      '    print value="mutate(label)"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(source, { kind: 'route', name: 'Answer', handler: 'answerRoute' }),
+    ).rejects.toThrow(/Preconditions failed for node type "print"/);
+  });
+
+  test('async helper functions reject class instance argument alias mutation', async () => {
+    const source = [
+      'class name=Label',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value"',
+      'fn name=mutate params="label:any" returns=string',
+      '  handler lang="kern"',
+      '    let name=alias value="label"',
+      '    assign target="alias.value" value="\'bad\'"',
+      '    return value="alias.read()"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new Label(\'ok\')"',
+      '    print value="mutate(label)"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(source, { kind: 'route', name: 'Answer', handler: 'answerRoute' }),
+    ).rejects.toThrow(/Preconditions failed for node type "print"/);
+  });
+
+  test('async helper functions allow local class instance mutation', async () => {
+    const source = [
+      'class name=Label',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value"',
+      'fn name=makeLabel returns=string',
+      '  handler lang="kern"',
+      '    let name=label value="new Label(\'ok\')"',
+      '    assign target="label.value" value="\'local\'"',
+      '    return value="label.read()"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    print value="makeLabel()"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(source, { kind: 'route', name: 'Answer', handler: 'answerRoute' }),
+    ).resolves.toBe('local\n');
+  });
+
+  test('async helper functions allow local mutation after child-scope alias shadowing', async () => {
+    const source = [
+      'class name=Label',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="this.value"',
+      'fn name=mutateLocal params="label:any" returns=string',
+      '  handler lang="kern"',
+      '    let name=alias value="new Label(\'local\')"',
+      '    for name=i from="0" to="1"',
+      '      let name=alias value="label"',
+      '    assign target="alias.value" value="\'still-local\'"',
+      '    return value="alias.read()"',
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new Label(\'ok\')"',
+      '    print value="mutateLocal(label)"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(source, { kind: 'route', name: 'Answer', handler: 'answerRoute' }),
+    ).resolves.toBe('still-local\nok\n');
   });
 
   test('fails closed when a helper returns a record into a scalar-only expression context', () => {

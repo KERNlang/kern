@@ -36,6 +36,7 @@ export interface SemanticEnv {
   runnerCallCache?: Map<string, unknown>;
   runnerThis?: RunnerClassInstanceValue;
   runnerSuperClass?: string;
+  runnerProtectedClassInstances?: WeakSet<RunnerClassInstanceValue>;
   capabilities?: KernRunnerCapabilities;
   capabilityContext?: KernRunnerCapabilityContext;
   /**
@@ -108,6 +109,7 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     runnerCallCache: overrides.runnerCallCache,
     runnerThis: overrides.runnerThis,
     runnerSuperClass: overrides.runnerSuperClass,
+    runnerProtectedClassInstances: overrides.runnerProtectedClassInstances,
     capabilities: overrides.capabilities,
     capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
     seed: overrides.seed ?? 0,
@@ -147,6 +149,7 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     runnerCallCache: parent.runnerCallCache,
     runnerThis: parent.runnerThis,
     runnerSuperClass: parent.runnerSuperClass,
+    runnerProtectedClassInstances: parent.runnerProtectedClassInstances,
     capabilities: parent.capabilities,
     capabilityContext: parent.capabilityContext,
     parent,

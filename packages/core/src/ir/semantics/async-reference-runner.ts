@@ -158,8 +158,8 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
                     : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
                 })()
               : await evalPortableValueForAsyncRunner(parsed, env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
@@ -178,8 +178,8 @@ async function asyncAssignEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
       if (value !== undefined) {
         return { events: [{ op: 'assign', target, value }], completion: { kind: 'normal' } };
       }
-    } catch {
-      throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+    } catch (error) {
+      throw asyncPreconditionError(ir, error);
     }
   }
   if (
@@ -202,8 +202,8 @@ async function asyncAssignEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
   let rhs: PortableScalar;
   try {
     rhs = await evalPortableValueForAsyncRunner(parseExpression(String(props.value)), env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
 
   let value: PortableScalar;
@@ -246,8 +246,8 @@ async function asyncFmtEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
         value += canonicalFmt(await evalPortableValueForAsyncRunner(node.expressions[i], env, options));
       }
     }
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
 
   defineBinding(env, name, value);
@@ -260,8 +260,8 @@ async function asyncPrintEffects(ir: IRNode, env: SemanticEnv, options: AsyncRef
   let text: string;
   try {
     text = printText(await evalPortableValueForAsyncRunner(parseExpression(raw), env, options));
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
   return { events: [{ op: 'stdout', text }], completion: { kind: 'normal' } };
 }
@@ -295,17 +295,22 @@ async function asyncReturnEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
         value: resolved,
       },
     };
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
+}
+
+function asyncPreconditionError(ir: IRNode, error: unknown): ReferenceRunnerError {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}": ${detail}`, ir);
 }
 
 async function asyncIfEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
   let truthy: boolean;
   try {
     truthy = await evaluateIfConditionAsync(ir, env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
   const elseNode = ir.props?.__pairedElse;
   const selectedChildren = truthy ? (ir.children ?? []) : isElseNode(elseNode) ? (elseNode.children ?? []) : [];
@@ -471,8 +476,8 @@ async function evaluateInitialAsyncWhileCondition(
 ): Promise<boolean> {
   try {
     return await evaluateWhileConditionAsync(ir, env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
 }
 

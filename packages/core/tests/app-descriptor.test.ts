@@ -197,6 +197,18 @@ describe('@kernlang/core/runtime app descriptor', () => {
         },
       }),
     ).resolves.toEqual(expect.objectContaining({ views: [expect.objectContaining({ sourcePath: 'c:/app/ui.kern' })] }));
+
+    await expect(
+      loadKernAppDescriptor(manifest(['app name=RootApp', '  view name=Home path="/" source="./ui.kern"']), {
+        appRoot: 'C:\\',
+        canonicalizePath(path) {
+          return path.includes('ui.kern') ? 'C:\\ui.kern' : 'C:\\';
+        },
+        readSource(sourcePath) {
+          return sourcePath === 'c:/ui.kern' ? source(['print value="\\"ok\\""']) : undefined;
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ views: [expect.objectContaining({ sourcePath: 'c:/ui.kern' })] }));
   });
 
   test('fails closed on malformed entry source without throwing a TypeError', async () => {
@@ -263,6 +275,29 @@ describe('@kernlang/core/runtime app descriptor', () => {
     );
 
     expect(descriptor.routes.map((route) => route.requiredCapabilities)).toEqual([['storage.get'], ['llm.complete']]);
+  });
+
+  test('ignores unsupported async work outside the selected non-main descriptor handler', async () => {
+    const descriptor = await load(
+      manifest([
+        'app name=SupportApp',
+        '  route name=Answer method=get path="/api/answer" source="./routes.kern" handler=answerRoute requires="storage.get"',
+      ]),
+      {
+        '/app/routes.kern': [
+          'fn name=unusedHelper returns=string',
+          '  handler lang="kern"',
+          '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"unused\\" }"',
+          '    return value="answer"',
+          'fn name=answerRoute returns=void',
+          '  handler lang="kern"',
+          '    capability namespace=storage operation=get name=question input="{ key: \\"question\\" }"',
+          '    print value="question"',
+        ].join('\n'),
+      },
+    );
+
+    expect(descriptor.routes[0].requiredCapabilities).toEqual(['storage.get']);
   });
 
   test('fails closed when helper capabilities are hidden inside member-call arguments', async () => {

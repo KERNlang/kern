@@ -244,6 +244,9 @@ export async function evalRunnerFunctionValueAsync(
     seed: env.seed,
     now: env.now,
   });
+  callEnv.runnerProtectedClassInstances = new WeakSet(
+    Array.from(callEnv.bindings.values()).filter(isRunnerClassInstanceValue),
+  );
   const trace = await options.runFunctionBody(fn.body, callEnv);
   if (trace.events.some(isDisallowedHelperSideEffect)) {
     throw new Error(`portable: function "${fnName}" produced side effects`);

@@ -94,29 +94,6 @@ export function isPortableScalar(value: unknown): value is PortableScalar {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TAGGED runtime Decimal VALUE — the runner's internal representation of a BOUND
-// Decimal (Slice 1). When `expression-v1` effects evaluate a `Decimal.<method>(...)`
-// expression they bind THIS tagged value into `env.bindings`, NOT a bare canonical
-// string. The Trace's observable `assign.value` is STILL the canonical string (the
-// differential observable the oracle reads); the binding carries the tag so the
-// runner can tell "this slot holds a Decimal" apart from "this slot holds the
-// string '1'".
-//
-// This is a runtime VALUE, not a new IR node type. It is DELIBERATELY not a
-// portable scalar — `isPortableScalar(makeDecimalValue(...))` is false (objects
-// never pass that guard), so any DOWNSTREAM portable expression that reads a
-// decimal binding (`d === "1"`, `d + 1`, `!d`, `String(d)`, `` `${d}` ``) makes
-// `evalPortableValue`'s `ident` case call `assertPortableScalar` on the tagged
-// value, which THROWS. The `expression-v1` precondition catches that throw and
-// returns false, so `referenceRun` ABSTAINS with the normal "Preconditions
-// failed …" instead of producing a value that diverges from BOTH emitted legs.
-//
-// SLICE-2 will give Decimal real downstream value semantics (`d === "1"` → false,
-// `String(d)` → "1"), matching the emitters. SLICE-1 only needs the runner to
-// STOP producing a divergent value — to refuse, never to misjudge.
-// ─────────────────────────────────────────────────────────────────────────────
-
 /** Brand symbol marking a runtime Decimal value. Symbol-keyed so it can never
  *  collide with a user JSON property and is dropped by structural JSON cloning. */
 export const DECIMAL_VALUE_TAG: unique symbol = Symbol('kern.decimalValue');
@@ -557,6 +534,9 @@ export function assignRunnerClassMember(
   const receiver = getBinding(env, receiverName);
   if (!isRunnerClassInstanceValue(receiver)) return undefined;
   const value = evalPortableValue(valueExpr, env);
+  if (mutate && env.runnerProtectedClassInstances?.has(receiver)) {
+    throw new Error('portable: function mutated class instance argument');
+  }
   if (mutate) receiver.fields[fieldName] = value;
   return value;
 }
@@ -1063,6 +1043,9 @@ export function evalRunnerFunctionValue(
     seed: env.seed,
     now: env.now,
   });
+  callEnv.runnerProtectedClassInstances = new WeakSet(
+    Array.from(callEnv.bindings.values()).filter(isRunnerClassInstanceValue),
+  );
   const trace = referenceRunSequence(fn.body, callEnv);
   if (trace.events.some((event) => event.op === 'stdout' || event.op === 'stderr' || event.op === 'call')) {
     throw new Error(`portable: function "${fnName}" produced side effects`);
@@ -1142,32 +1125,10 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
     case '/':
     case '%':
       return evalNumberBinary(node.op, left, right);
-    // D1a — STRICT `===`/`!==` cross-type equality is KIND-SENSITIVE and no longer
-    // abstains: un-same-typed scalars are simply NOT strictly-equal (`1 === "1"` →
-    // false, `true === 1` → false), matching core-runtime's `kernStrictEqual` AND
-    // both emitted legs (TS `===` is type-strict; Python routes through
-    // `_kern_strict_equal`). Same-type operands compare by value (so `1 === 1.0` is
-    // true — one numeric kind). This makes the reference a FULLER oracle; it was the
-    // only surface abstaining on a comparison the three producers already agree on.
-    // Scope: PORTABLE SCALARS only — a tagged Decimal (or any non-portable) operand
-    // never reaches here, it abstains UPSTREAM in `evalPortableValue` →
-    // `assertPortableScalar` (so `d === "1"` on a Decimal binding still throws).
     case '===':
       return sameType(left, right) ? left === right : false;
     case '!==':
       return sameType(left, right) ? left !== right : true;
-    // D1b — LOOSE `==`/`!=` cross-type equality is now RECONCILED (was the last
-    // abstaining surface here). KERN's loose `==` is NOT JS `==`: it adds ONLY the
-    // null/undefined crossing on top of strict equality and does NOT model JS
-    // coercion, so un-same-typed scalars are simply NOT loose-equal (`1 == "1"` →
-    // false, `true == 1` → false), matching core-runtime's `kernLooseEqual` AND both
-    // emitted legs (TS now routes loose ops through the `__kern_loose_eq` helper;
-    // Python through `_kern_loose_equal`). Same-type → value compare (for scalars
-    // loose === strict). Identical kind-sensitive shape to the D1a strict relax
-    // above. The null/undefined crossing is NOT reachable in this reducer: undefined
-    // is non-portable → abstains UPSTREAM in `evalPortableValue` → `assertPortableScalar`
-    // (same as D1a), so no unreachable nullish handling is added here. A tagged
-    // Decimal (or any non-portable) operand still abstains UPSTREAM.
     case '==':
       return sameType(left, right) ? left === right : false;
     case '!=':

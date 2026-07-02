@@ -178,7 +178,7 @@ function normalizePath(path: string): string {
     parts.push(part);
   }
   const normalized = parts.join('/');
-  if (drivePrefix) return normalized;
+  if (drivePrefix) return parts.length === 1 ? `${normalized}/` : normalized;
   if (absolute) return `/${normalized}`;
   return normalized;
 }
@@ -188,6 +188,9 @@ function isInsidePath(root: string, candidate: string): boolean {
   if (root === '/') return candidate.startsWith('/');
   const rootForCompare = root.match(/^[a-z]:\//i) ? root.toLowerCase() : root;
   const candidateForCompare = candidate.match(/^[a-z]:\//i) ? candidate.toLowerCase() : candidate;
+  if (/^[a-z]:\/$/i.test(rootForCompare)) {
+    return candidateForCompare === rootForCompare || candidateForCompare.startsWith(rootForCompare);
+  }
   return candidateForCompare === rootForCompare || candidateForCompare.startsWith(`${rootForCompare}/`);
 }
 
