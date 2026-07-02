@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   type AsyncEmbedder,
+  closeRetrievalStoresFailClosed,
   createInMemoryRagVectorStoreForConformance,
   defineRagVectorStoreAdapterContract,
   type Embedder,
@@ -1325,5 +1326,165 @@ describe('EXTERNAL VECTOR-STORE ADAPTERS: host-registered kinds gated by the con
     });
     expect(deniedReport.retrievals).toEqual([]);
     expect(deniedReport.diagnostics.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('RETRIEVAL STORE CLEANUP: closeRetrievalStoresFailClosed closes both families unconditionally', () => {
+  test('a local-persistent close error does not skip external adapter close() calls', () => {
+    // Regression (review finding): cleanup used `closeLocal(...) ??
+    // closeExternal(...)` — a local close ERROR short-circuited the nullish
+    // coalescing and external stores were never closed on the error path.
+    const closed: string[] = [];
+    const localError = new Error('local close failed');
+    const persistent = [
+      {
+        store: {
+          close() {
+            closed.push('persistent');
+            throw localError;
+          },
+        },
+      },
+    ];
+    const external = [
+      {
+        store: {
+          close() {
+            closed.push('external');
+          },
+        },
+      },
+    ];
+
+    const firstError = closeRetrievalStoresFailClosed(persistent, external);
+
+    expect(closed).toEqual(['persistent', 'external']);
+    expect(firstError).toBe(localError);
+  });
+
+  test('an external close error surfaces when local closes succeed, and success reports no error', () => {
+    const externalError = new Error('external close failed');
+    const externalOnlyError = closeRetrievalStoresFailClosed(
+      [{ store: { close() {} } }],
+      [
+        {
+          store: {
+            close() {
+              throw externalError;
+            },
+          },
+        },
+      ],
+    );
+    expect(externalOnlyError).toBe(externalError);
+    expect(closeRetrievalStoresFailClosed([{ store: { close() {} } }], [{ store: { close() {} } }])).toBeUndefined();
+  });
+});
+
+describe('EXTERNAL VECTOR-STORE ADAPTERS: fingerprint-keyed reuse and namespace collision detection', () => {
+  const EXTERNAL_KIND = 'example-external-fingerprint';
+  const MANIFEST = {
+    name: 'example-in-process-memory',
+    kind: 'vectorStore',
+    adapterKind: 'memory',
+    version: '1.0.0',
+    transport: 'in-process',
+    metrics: ['cosine'],
+    maxDimensions: 4096,
+    persistence: 'ephemeral',
+    capabilities: {
+      upsert: true,
+      upsertMany: true,
+      search: true,
+      snapshot: true,
+      clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
+    },
+  } as const;
+
+  function twoCorpusDoc(vectorStoreLine: string): string {
+    return [
+      'corpus name=DocsA',
+      '  source name=srcA kind=local uri="./docsA/**/*.md" media=markdown',
+      '  chunking source=srcA strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      'corpus name=DocsB',
+      '  source name=srcB kind=local uri="./docsB/**/*.md" media=markdown',
+      '  chunking source=srcB strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      '',
+      'embed name=EmbedA corpus=DocsA model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=EmbedB corpus=DocsB model=local-semantic-v1 dims=64 metric=cosine',
+      vectorStoreLine,
+      'ragIndex name=IndexA corpus=DocsA store=SharedStore embed=EmbedA',
+      'ragIndex name=IndexB corpus=DocsB store=SharedStore embed=EmbedB',
+      'retriever name=SearchA corpus=DocsA embed=EmbedA',
+      'rag name=Answer retriever=SearchA citations=true',
+      '  grounding requireCitations=true',
+      '  ragRetrieve name=FindA index=IndexA queryParam=question topK=1 output="RetrievedChunk[]"',
+      '  ragRetrieve name=FindB index=IndexB queryParam=question topK=1 output="RetrievedChunk[]"',
+    ].join('\n');
+  }
+
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-rag-external-fingerprint-'));
+    mkdirSync(join(dir, 'docsA'));
+    mkdirSync(join(dir, 'docsB'));
+    writeFileSync(join(dir, 'docsA/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docsB/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    registerExternalRagVectorStoreAdapter({
+      kind: EXTERNAL_KIND,
+      contract: defineRagVectorStoreAdapterContract({
+        manifest: MANIFEST,
+        createStore: (context: RagVectorStoreConformanceContext) => createInMemoryRagVectorStoreForConformance(context),
+      }),
+    });
+  });
+
+  afterEach(() => {
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('two indexes with different chunk content sharing one external namespace fail closed on incompatible fingerprints', () => {
+    // Regression (review finding): the external store cache reused a store
+    // instance without any fingerprint participation, so two declarations
+    // resolving to the same physical namespace with DIFFERENT content could
+    // silently share one store. Mirrors the local-persistent guard.
+    const doc = twoCorpusDoc(
+      `vectorStore name=SharedStore kind=${EXTERNAL_KIND} dims=64 metric=cosine namespace=shared`,
+    );
+    writeFileSync(join(dir, 'spec.kern'), doc);
+
+    expect(() =>
+      retrieveRagDocument(doc, { sourcePath: join(dir, 'spec.kern'), query: 'refund policy money back' }),
+    ).toThrow(/external namespace 'shared' with multiple incompatible fingerprints/u);
+  });
+
+  test('two indexes with different chunk content and distinct namespaces each search their OWN store', () => {
+    // Without an explicit vectorStore namespace, each index gets its own
+    // namespace (the index name) and its own fingerprint — the second search
+    // must never return the first store's chunks.
+    const doc = twoCorpusDoc(`vectorStore name=SharedStore kind=${EXTERNAL_KIND} dims=64 metric=cosine`);
+    writeFileSync(join(dir, 'spec.kern'), doc);
+
+    const report = retrieveRagDocument(doc, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'shipping delivery courier',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    const findA = report.retrievals.find((entry) => entry.name === 'FindA');
+    const findB = report.retrievals.find((entry) => entry.name === 'FindB');
+    // IndexA only ever indexed docsA content; IndexB only docsB content.
+    expect(findA?.result.chunks.every((chunk) => chunk.source === 'docsA/refunds.md')).toBe(true);
+    expect(findB?.result.chunks.map((chunk) => chunk.source)).toEqual(['docsB/shipping.md']);
+    // Two distinct stores were created — one indexed lifecycle per index.
+    expect(report.indexes.map((entry) => [entry.indexName, entry.status])).toEqual([
+      ['IndexA', 'indexed'],
+      ['IndexB', 'indexed'],
+    ]);
   });
 });

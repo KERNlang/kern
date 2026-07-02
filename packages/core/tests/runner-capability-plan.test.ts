@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import {
   type AsyncRuntimeCapabilityHandler,
   analyzeKernSourceCapabilities,
@@ -1060,6 +1064,38 @@ describe('@kernlang/core/runner async capability per-call timeout (promotion har
     // ends; if invokeRunnerCapabilityAsync did not swallow it, node:test
     // would surface an unhandled rejection and fail this test file.
     await providerRejected;
+  });
+
+  test('FAIL-CLOSED EXIT GUARD: the timeout fires even when the never-settling provider is the only pending work in the process', () => {
+    // Regression (review finding): with an unref'ed timeout timer, a
+    // never-settling provider that holds no other active handles let Node
+    // EXIT silently before the timeout fired — no error, no timeout, empty
+    // stdout. The spawned process below has NOTHING pending except the
+    // provider promise and the timeout timer, so this test only passes when
+    // the timer keeps the process alive until it fails closed.
+    const runnerUrl = pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), '../dist/runner.js')).href;
+    const script = [
+      `const { invokeRunnerCapabilityAsync } = await import(${JSON.stringify(runnerUrl)});`,
+      'const neverSettles = () => new Promise(() => {});',
+      'try {',
+      '  await invokeRunnerCapabilityAsync(',
+      '    { llm: { complete: neverSettles } },',
+      "    { namespace: 'llm', operation: 'complete' },",
+      '    {},',
+      '    { timeoutMs: 50 },',
+      '  );',
+      "  console.log('RESOLVED');",
+      '} catch (error) {',
+      '  console.log(`CAUGHT:${error.message}`);',
+      '}',
+    ].join('\n');
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      encoding: 'utf-8',
+      timeout: 20_000,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("CAUGHT:runner async capability 'llm.complete' timed out after 50ms");
   });
 
   test('omitting timeoutMs applies the default without needing an explicit value', async () => {

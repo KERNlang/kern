@@ -829,6 +829,7 @@ export type {
   RetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export {
+  closeRetrievalStoresFailClosed,
   parseRetrievedChunkCitationProvenance,
   ragRetrieveCorpusSourceSummary,
   registerExternalRagVectorStoreAdapter,

@@ -157,10 +157,14 @@ async function withCapabilityTimeout<T>(work: () => Promise<T>, timeoutMs: numbe
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    // The timer intentionally stays ref'ed: with an unref'ed timer, a
+    // never-settling provider holding no other active handles would let Node
+    // EXIT before the timeout fires — a silent exit instead of the
+    // fail-closed timeout error. The timer is cleared on settlement (finally
+    // below), so a fast provider never keeps the process alive.
     timer = setTimeout(() => {
       reject(new AsyncCapabilityTimeoutError(`timed out after ${ms}ms`));
     }, ms);
-    (timer as { unref?: () => void }).unref?.();
   });
   try {
     return await Promise.race([workPromise, timeoutPromise]);
