@@ -142,22 +142,22 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   let value: unknown;
   try {
     const parsed = parseExpression(String(props.value));
-    value = isArrayLiteralExpression(parsed)
-      ? await evalArrayLiteralValueAsync(parsed, env, options)
-      : isRecordLiteralExpression(parsed)
-        ? await evalRecordLiteralValueAsync(parsed, env, options)
-        : parsed.kind === 'new'
-          ? await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options))
-          : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
-            ? await evalRunnerFunctionValueAsync(parsed.callee.name, parsed.args, env, asyncEvalOptions(options))
-            : parsed.kind === 'ident' && hasBinding(env, parsed.name)
-              ? (() => {
-                  const binding = getBinding(env, parsed.name);
-                  return isRunnerClassInstanceValue(binding)
-                    ? binding
-                    : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
-                })()
-              : await evalPortableValueForAsyncRunner(parsed, env, options);
+    if (isArrayLiteralExpression(parsed)) {
+      value = await evalArrayLiteralValueAsync(parsed, env, options);
+    } else if (isRecordLiteralExpression(parsed)) {
+      value = await evalRecordLiteralValueAsync(parsed, env, options);
+    } else if (parsed.kind === 'new') {
+      value = await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+      value = await evalRunnerFunctionValueAsync(parsed.callee.name, parsed.args, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+      const binding = getBinding(env, parsed.name);
+      value = isRunnerClassInstanceValue(binding)
+        ? binding
+        : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+    } else {
+      value = await evalPortableValueForAsyncRunner(parsed, env, options);
+    }
   } catch (error) {
     throw asyncPreconditionError(ir, error);
   }
