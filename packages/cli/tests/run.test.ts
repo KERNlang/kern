@@ -907,6 +907,70 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(ingest.stdout).toBe('1\nindexed\n');
   });
 
+  test('PROMOTION: a promoted async capability in an IMPORTED module routes kern run through the async boundary', () => {
+    // Regression (review finding): default async-promotion routing analyzed
+    // only the ROOT source, so a promoted capability living in an imported
+    // helper was missed and the program wrongly routed through the sync
+    // executor. Requirement analysis must span the linked module graph.
+    const moduleDir = join(dir, `promoted-module-${counter++}`);
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(
+      join(moduleDir, 'helper.kern'),
+      [
+        'fn name=askModel returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"module hello\\" }"',
+        '    return value="answer"',
+      ].join('\n'),
+    );
+    const mainFile = join(moduleDir, 'main.kern');
+    writeFileSync(
+      mainFile,
+      [
+        'use path="./helper"',
+        '  from name=askModel kind=fn',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="askModel()"',
+      ].join('\n'),
+    );
+
+    const run = runArgs(['run', '--llm-response', 'module answer', mainFile]);
+    expect(run.status).toBe(0);
+    expect(run.stderr).toBe('');
+    expect(run.stdout).toBe('module answer\n');
+
+    const report = parseCapabilityReport(
+      runArgs(['run', '--capabilities', '--llm-response', 'module answer', mainFile]),
+    );
+    expect(report.capabilityReadinessMode).toBe('async');
+    expect(report.hasCapabilityBlockers).toBe(false);
+    expect(report.requirements.map((requirement) => requirement.id)).toContain('llm.complete');
+  });
+
+  test('PROMOTION HARDENING: --capability-timeout-ms rejects out-of-range values that would disable the guard', () => {
+    // Regression (review finding): Number('9'.repeat(400)) === Infinity, and
+    // the runtime treats a non-finite timeout as DISABLED — an overlong digit
+    // string silently removed the fail-closed bound. Values must be finite
+    // safe integers within [1, 3_600_000].
+    const file = writeFile(mainProgram(['print value="\\"ok\\""']));
+
+    const overlong = runArgs(['run', '--capability-timeout-ms', '9'.repeat(400), file]);
+    expect(overlong.status).toBe(2);
+    expect(overlong.stdout).toBe('');
+    expect(overlong.stderr).toContain('Usage: kern run');
+
+    const aboveCap = runArgs(['run', '--capability-timeout-ms', '3600001', file]);
+    expect(aboveCap.status).toBe(2);
+    expect(aboveCap.stdout).toBe('');
+    expect(aboveCap.stderr).toContain('Usage: kern run');
+
+    const atCap = runArgs(['run', '--capability-timeout-ms', '3600000', file]);
+    expect(atCap.status).toBe(0);
+    expect(atCap.stdout).toBe('ok\n');
+  });
+
   test('PROMOTION: fs.* and net.fetch still fail closed without --async-preview even though rag/llm are promoted', () => {
     const netOnly = runProgram([
       'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
@@ -1022,11 +1086,7 @@ describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib'
   });
 
   test('dynamic array index reads accept +/- arithmetic on a loop counter', () => {
-    const r = runProgram([
-      'let name=xs value="[10,20,30]"',
-      'for name=i from="0" to="2"',
-      '  print value="xs[i + 1]"',
-    ]);
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'for name=i from="0" to="2"', '  print value="xs[i + 1]"']);
     expect(r.stdout).toBe('20\n30\n');
     expect(r.status).toBe(0);
   });
@@ -1097,7 +1157,7 @@ describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib'
     expect(r.status).toBe(2);
   });
 
-  test('a well-formed non-BMP character (emoji) also fails closed under this slice\'s risk-valve narrowing', () => {
+  test("a well-formed non-BMP character (emoji) also fails closed under this slice's risk-valve narrowing", () => {
     const r = runProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);

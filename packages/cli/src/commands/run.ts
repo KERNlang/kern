@@ -54,7 +54,9 @@ const USAGE =
   'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] [--capability-timeout-ms <ms>] <file.kern>\n' +
   '  RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and llm.complete run by default without --async-preview.\n' +
   '  --async-preview is required only for fs.* and net.fetch.\n' +
-  '  --capability-timeout-ms bounds each async capability provider call (execute/async-preview only; defaults to 30000).';
+  '  --capability-timeout-ms bounds each async capability provider call (execute/async-preview only; 1..3600000, defaults to 30000).';
+const MIN_CAPABILITY_TIMEOUT_MS = 1;
+const MAX_CAPABILITY_TIMEOUT_MS = 3_600_000;
 const RUN_PROVIDED_CAPABILITY_NAMESPACES = Object.freeze(['crypto', 'rag', 'storage'] as const);
 const RUN_ASYNC_PROVIDER_FLAGS = Object.freeze({
   'fs.list': ['--fs-root <dir>'],
@@ -558,7 +560,8 @@ export async function runRun(args: string[]): Promise<void> {
     // parseRunArgs), so a program that needs them still fails closed with a
     // missing-async-provider diagnostic unless --async-preview is passed.
     const runsThroughAsyncBoundary =
-      parsed.mode === 'async-preview' || (parsed.mode === 'execute' && sourceRequiresAsyncBoundary(loaded.source));
+      parsed.mode === 'async-preview' ||
+      (parsed.mode === 'execute' && sourceRequiresAsyncBoundary(loaded.source, loaded.filePath));
     const output = runsThroughAsyncBoundary
       ? await executeKernSourceAsync(loaded.source, {
           sourcePath: loaded.filePath,
@@ -672,7 +675,19 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       if (!value || value.startsWith('--')) return undefined;
       if (capabilityTimeoutMs !== undefined) return undefined;
       if (!/^[1-9]\d*$/.test(value)) return undefined;
-      capabilityTimeoutMs = Number(value);
+      const parsedTimeout = Number(value);
+      // Fail closed on out-of-range values: an overlong digit string would
+      // otherwise become Infinity (or lose integer precision), which the
+      // runtime timeout guard treats as DISABLED — silently removing the
+      // fail-closed bound the flag exists to provide.
+      if (
+        !Number.isSafeInteger(parsedTimeout) ||
+        parsedTimeout < MIN_CAPABILITY_TIMEOUT_MS ||
+        parsedTimeout > MAX_CAPABILITY_TIMEOUT_MS
+      ) {
+        return undefined;
+      }
+      capabilityTimeoutMs = parsedTimeout;
       index += 1;
       continue;
     }
@@ -908,8 +923,16 @@ function sourceCapabilityRequirementIds(source: string, sourcePath?: string): Re
  * and net.fetch still fail closed there without --async-preview because no
  * fs-root/allow-net flags are ever wired outside that mode.
  */
-function sourceRequiresAsyncBoundary(source: string): boolean {
-  return analyzeKernSourceCapabilities(source, { parseOptions: NODE_PARSE_CAPS }).asyncBoundaryRequired;
+function sourceRequiresAsyncBoundary(source: string, sourcePath?: string): boolean {
+  // Requirement analysis must span the LINKED MODULE GRAPH, not only the root
+  // file: a promoted async capability living in an imported helper must still
+  // route execution through the async boundary. Same rule as
+  // sourceCapabilityRequirementIds and analyzeRunCapabilities.
+  return analyzeKernSourceCapabilities(source, {
+    parseOptions: NODE_PARSE_CAPS,
+    sourcePath,
+    moduleLoader: sourcePath ? createRunModuleLoader(sourcePath) : undefined,
+  }).asyncBoundaryRequired;
 }
 
 function sourceRagIngestUsesCliEmbedders(source: string): boolean {
