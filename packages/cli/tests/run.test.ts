@@ -180,6 +180,87 @@ describe('kern run module linking', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('escapes');
   });
+
+  test('importing a syntactically broken module fails closed (exit 2, no TypeError, no stdout)', () => {
+    writeNamedFile(
+      'broken-run/broken.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'broken-run/main.kern',
+      [
+        'use path="./broken"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).not.toMatch(/TypeError|unexpected failure/);
+  });
+
+  test('--capabilities on a broken imported module exits 2 with parse-error diagnostics, no crash', () => {
+    writeNamedFile(
+      'broken-caps/broken.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'broken-caps/main.kern',
+      [
+        'use path="./broken"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).not.toMatch(/TypeError|unexpected failure/);
+    const report = parseCapabilityReport(result);
+    expect(report.hasParseErrors).toBe(true);
+    expect(report.hasCapabilityBlockers).toBe(true);
+  });
+
+  test('--capabilities counts a capability inside an imported helper as executable (readiness parity)', () => {
+    writeNamedFile(
+      'caps-import/helper.kern',
+      [
+        'fn name=fetchIt returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=fs operation=readText name=t input="{ path: \\"a.txt\\" }"',
+        '    return value="t"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'caps-import/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=fetchIt kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="fetchIt()"',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+
+    expect(result.status).toBe(2);
+    const report = parseCapabilityReport(result);
+    expect(report.asyncBoundaryRequired).toBe(true);
+    expect(report.asyncPlannedCapabilities.map((c) => c.id)).toContain('fs.readText');
+    const hint = report.asyncProviderHints.find((h) => h.id === 'fs.readText');
+    expect(hint?.required).toBe(true);
+    expect(hint?.missing).toBe(true);
+    expect(hint?.providerFlags).toContain('--fs-root <dir>');
+  });
 });
 
 interface CapabilityReport {

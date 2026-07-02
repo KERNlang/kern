@@ -1,6 +1,7 @@
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { parseExpression } from './parser-expression.js';
+import { moduleLinkErrors, ownExplicitExportKinds, type RunnerModuleExportRecord } from './runner-module-link.js';
 import type { IRNode, ParseDiagnostic } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -152,8 +153,8 @@ export function analyzeKernSourceCapabilities(
   options: CapabilityAnalysisOptions = {},
 ): CapabilityAnalysis {
   const entryHandlerName = options.entryHandlerName ?? 'main';
+  const rootPath = options.sourcePath ?? '<entry>';
   const graph = parseCapabilityGraph(source, options);
-  const root = graph.roots[0]?.root ?? { type: 'document', children: [] };
   const diagnostics = graph.diagnostics;
   const hasParseErrors =
     graph.roots.length === 0 ||
@@ -195,15 +196,23 @@ export function analyzeKernSourceCapabilities(
   const asyncPlannedCapabilities = requirements.filter(
     (requirement) => requirement.descriptor.syncBoundary === 'async-planned',
   );
-  const executableRequirements = executableCapabilityRequirements(
-    root ?? { type: 'document', children: [] },
-    requirements,
+  // Executable-capability analysis walks the WHOLE linked module graph reachable
+  // from the entry handler, not just the root file: a capability inside an
+  // imported helper called from main must count exactly as if it lived in the
+  // root file (finding: preflight readiness parity across module boundaries).
+  const moduleRoots = graph.roots.map((module) => module.root);
+  const unsupportedHandlers = new Set<IRNode>();
+  const executableHandlers = crossModuleExecutableHandlers(
+    graph,
+    rootPath,
     entryHandlerName,
+    unsupportedHandlers,
   );
-  const executableAsyncPlannedCapabilities = executableAsyncRequirements(
-    root ?? { type: 'document', children: [] },
+  const executableRequirements = collectExecutableRequirements(moduleRoots, executableHandlers, requirements);
+  const executableAsyncPlannedCapabilities = collectExecutableRequirements(
+    moduleRoots,
+    executableHandlers,
     asyncPlannedCapabilities,
-    entryHandlerName,
   );
   return {
     requirements,
@@ -227,10 +236,11 @@ export function analyzeKernSourceCapabilities(
             requirement.descriptor.syncBoundary === 'async-planned' && !providedAsync.has(requirement.id),
         )
       : [],
-    unsupportedAsyncExecutions: unsupportedAsyncExecutions(
-      root ?? { type: 'document', children: [] },
+    unsupportedAsyncExecutions: collectUnsupportedAsyncExecutionsAcrossModules(
+      moduleRoots,
+      executableHandlers,
+      unsupportedHandlers,
       asyncPlannedCapabilities,
-      entryHandlerName,
     ),
     unknownProvidedCapabilities,
     unknownProvidedAsyncCapabilities,
@@ -240,9 +250,26 @@ export function analyzeKernSourceCapabilities(
   };
 }
 
+interface CapabilityGraphImport {
+  readonly localName: string;
+  readonly importedName: string;
+  readonly kind?: string;
+  readonly targetPath: string;
+  readonly exportOnly: boolean;
+}
+
 interface CapabilityGraphModule {
   readonly path: string;
   readonly root: IRNode;
+  readonly imports: readonly CapabilityGraphImport[];
+  readonly ownExports: Map<string, RunnerModuleExportRecord>;
+  readonly ownCallableNames: ReadonlySet<string>;
+}
+
+const PORTABLE_IMPORT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function isPortableImportName(value: unknown): value is string {
+  return typeof value === 'string' && PORTABLE_IMPORT_NAME.test(value);
 }
 
 function parseCapabilityGraph(
@@ -274,9 +301,93 @@ function parseCapabilityGraph(
     });
   }
 
+  // Resolve a module's export (own or re-exported) to its defining module and
+  // canonical name, unifying export-set computation with the runtime linker so
+  // preflight accepts exactly what the executor links (re-exports included).
+  function resolveModuleExport(
+    path: string,
+    name: string,
+    seen: Set<string>,
+  ): (RunnerModuleExportRecord & { readonly path: string }) | undefined {
+    const key = `${path} ${name}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    const module = modules.get(path);
+    if (!module) return undefined;
+    const own = module.ownExports.get(name);
+    if (own) return { ...own, path };
+    const reexport = module.imports.find((imported) => imported.exportOnly && imported.localName === name);
+    if (reexport && reexport.targetPath !== '') {
+      return resolveModuleExport(reexport.targetPath, reexport.importedName, seen);
+    }
+    return undefined;
+  }
+
+  function collectImports(root: IRNode, path: string): CapabilityGraphImport[] {
+    const imports: CapabilityGraphImport[] = [];
+    const localNames = new Set<string>();
+    for (const use of topLevelNodes(root)) {
+      if (use.type !== 'use') continue;
+      const rawPath = use.props?.path;
+      if (typeof rawPath !== 'string' || rawPath.trim() === '') {
+        linkError(moduleLinkErrors.useMissingPath(path));
+        continue;
+      }
+      let targetPath = '';
+      if (!loader) {
+        linkError(moduleLinkErrors.cannotResolveNoLoader(rawPath, path));
+      } else {
+        const resolved = loader.resolve(rawPath, { importer: path });
+        if (!resolved) linkError(moduleLinkErrors.cannotResolve(rawPath, path));
+        else targetPath = resolved;
+      }
+      for (const child of use.children ?? []) {
+        if (child.type !== 'from') continue;
+        const importedName = child.props?.name;
+        if (!isPortableImportName(importedName)) {
+          linkError(moduleLinkErrors.importMissingName(rawPath, path));
+          continue;
+        }
+        const aliasRaw = child.props?.as;
+        const localName = typeof aliasRaw === 'string' && aliasRaw !== '' ? aliasRaw : importedName;
+        if (!isPortableImportName(localName)) {
+          linkError(moduleLinkErrors.aliasNotPortable(localName, path));
+          continue;
+        }
+        const exportOnly = child.props?.export === true || child.props?.export === 'true';
+        if (!exportOnly) {
+          if (localNames.has(localName)) {
+            linkError(moduleLinkErrors.duplicateAlias(localName, path));
+            continue;
+          }
+          localNames.add(localName);
+        }
+        imports.push({
+          localName,
+          importedName,
+          kind: typeof child.props?.kind === 'string' ? child.props.kind : undefined,
+          targetPath,
+          exportOnly,
+        });
+      }
+    }
+    return imports;
+  }
+
+  function ownCallableNames(root: IRNode): Set<string> {
+    const names = new Set<string>();
+    for (const node of topLevelNodes(root)) {
+      if ((node.type === 'fn' && node.props?.name !== 'main') || node.type === 'class') {
+        const name = node.props?.name;
+        if (typeof name === 'string' && name !== '') names.add(name);
+      }
+    }
+    return names;
+  }
+
   function load(path: string, root: IRNode | undefined, imported: boolean): void {
     if (resolving.has(path)) {
-      linkError(`link error: import cycle involving '${path}'`);
+      linkError(moduleLinkErrors.importCycle(path));
       return;
     }
     if (modules.has(path)) return;
@@ -284,48 +395,63 @@ function parseCapabilityGraph(
     let moduleRoot = root;
     if (!moduleRoot) {
       if (!loader) {
-        linkError(`link error: missing module loader for '${path}'`);
+        linkError(moduleLinkErrors.missingLoader(path));
         resolving.delete(path);
         return;
       }
-      const parsed = parseDocumentWithDiagnostics(loader.readSource(path), undefined, options.parseOptions);
+      // Fail closed if a misbehaving loader hands back a non-string source: the
+      // parser would otherwise crash with a raw TypeError instead of a diagnostic.
+      const rawSource = loader.readSource(path);
+      if (typeof rawSource !== 'string') {
+        linkError(moduleLinkErrors.unreadableSource(path));
+        resolving.delete(path);
+        return;
+      }
+      const parsed = parseDocumentWithDiagnostics(rawSource, undefined, options.parseOptions);
       diagnostics.push(...parsed.diagnostics);
       moduleRoot = parsed.root;
     }
+    // Defensive: never index into a null/undefined or non-document root.
+    if (!moduleRoot || typeof (moduleRoot as { type?: unknown }).type !== 'string') {
+      linkError(moduleLinkErrors.unreadableSource(path));
+      resolving.delete(path);
+      return;
+    }
     if (imported && topLevelNodes(moduleRoot).some((node) => node.type === 'fn' && node.props?.name === 'main')) {
-      linkError(`link error: imported module '${path}' must not declare fn main`);
+      linkError(moduleLinkErrors.importedMain(path));
     }
-    const module = { path, root: moduleRoot };
+    const imports = collectImports(moduleRoot, path);
+    const module: CapabilityGraphModule = {
+      path,
+      root: moduleRoot,
+      imports,
+      ownExports: ownExplicitExportKinds(moduleRoot),
+      ownCallableNames: ownCallableNames(moduleRoot),
+    };
     modules.set(path, module);
-    const exports = explicitCapabilityExports(moduleRoot);
-    for (const use of topLevelNodes(moduleRoot).filter((node) => node.type === 'use')) {
-      const rawPath = use.props?.path;
-      if (typeof rawPath !== 'string' || rawPath.trim() === '') {
-        linkError(`link error: use in '${path}' must declare path=`);
+    const reexportLocals = new Set<string>();
+    for (const imported of imports) {
+      if (imported.targetPath !== '') load(imported.targetPath, undefined, true);
+      const resolved =
+        imported.targetPath !== ''
+          ? resolveModuleExport(imported.targetPath, imported.importedName, new Set())
+          : undefined;
+      if (imported.targetPath !== '' && !resolved) {
+        linkError(moduleLinkErrors.doesNotExport(imported.targetPath, imported.importedName, path));
         continue;
       }
-      if (!loader) {
-        linkError(`link error: cannot resolve import '${rawPath}' from '${path}' without a module loader`);
+      if (resolved && imported.kind && imported.kind !== resolved.kind) {
+        linkError(moduleLinkErrors.kindMismatch(imported.importedName, imported.targetPath, imported.kind, resolved.kind));
         continue;
       }
-      const targetPath = loader.resolve(rawPath, { importer: path });
-      if (!targetPath) {
-        linkError(`link error: cannot resolve import '${rawPath}' from '${path}'`);
-        continue;
-      }
-      load(targetPath, undefined, true);
-      const target = modules.get(targetPath);
-      const targetExports = target ? explicitCapabilityExports(target.root).names : new Set<string>();
-      for (const child of use.children ?? []) {
-        if (child.type !== 'from') continue;
-        const name = child.props?.name;
-        if (typeof name !== 'string' || !targetExports.has(name)) {
-          linkError(`link error: module '${targetPath}' does not export '${String(name)}' imported by '${path}'`);
+      if (imported.exportOnly) {
+        if (reexportLocals.has(imported.localName) || module.ownExports.has(imported.localName)) {
+          linkError(moduleLinkErrors.duplicateExport(imported.localName, path));
         }
+        reexportLocals.add(imported.localName);
+      } else if (module.ownCallableNames.has(imported.localName)) {
+        linkError(moduleLinkErrors.aliasConflicts(imported.localName, path));
       }
-    }
-    for (const name of exports.reexports) {
-      exports.names.add(name);
     }
     resolving.delete(path);
   }
@@ -338,59 +464,206 @@ function topLevelNodes(root: IRNode): readonly IRNode[] {
   return root.type === 'document' ? (root.children ?? []) : [];
 }
 
-function explicitCapabilityExports(root: IRNode): { names: Set<string>; reexports: Set<string> } {
-  const names = new Set<string>();
-  const reexports = new Set<string>();
-  for (const node of topLevelNodes(root)) {
-    const name = node.props?.name;
-    if (typeof name === 'string' && (node.props?.export === true || node.props?.export === 'true')) names.add(name);
-    if (node.type !== 'use') continue;
-    for (const child of node.children ?? []) {
-      if (child.type !== 'from' || (child.props?.export !== true && child.props?.export !== 'true')) continue;
-      const imported = child.props?.name;
-      const local = typeof child.props?.as === 'string' && child.props.as !== '' ? child.props.as : imported;
-      if (typeof local === 'string') reexports.add(local);
-    }
-  }
-  return { names, reexports };
-}
-
 export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new Set();
 
-function unsupportedAsyncExecutions(
-  root: IRNode,
-  asyncRequirements: readonly CapabilityRequirement[],
-  entryHandlerName = 'main',
-): UnsupportedAsyncCapabilityRequirement[] {
-  if (asyncRequirements.length === 0) return [];
-  const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
-  for (const requirement of asyncRequirements) {
-    const key = `${requirement.sourceLine}:${requirement.id}`;
-    const existing = requirementsByLineAndId.get(key);
-    if (existing) existing.push(requirement);
-    else requirementsByLineAndId.set(key, [requirement]);
+interface CapabilityModuleScope {
+  readonly path: string;
+  readonly root: IRNode;
+  readonly importedFn: Map<string, { readonly path: string; readonly name: string }>;
+  readonly importedClass: Map<string, { readonly path: string; readonly name: string }>;
+}
+
+function buildCapabilityModuleScopes(graph: {
+  readonly roots: readonly CapabilityGraphModule[];
+}): Map<string, CapabilityModuleScope> {
+  const byPath = new Map(graph.roots.map((module) => [module.path, module]));
+  const scopes = new Map<string, CapabilityModuleScope>();
+
+  function resolveExport(
+    path: string,
+    name: string,
+    seen: Set<string>,
+  ): (RunnerModuleExportRecord & { readonly path: string }) | undefined {
+    const key = `${path} ${name}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    const module = byPath.get(path);
+    if (!module) return undefined;
+    const own = module.ownExports.get(name);
+    if (own) return { ...own, path };
+    const reexport = module.imports.find((imported) => imported.exportOnly && imported.localName === name);
+    if (reexport && reexport.targetPath !== '') return resolveExport(reexport.targetPath, reexport.importedName, seen);
+    return undefined;
   }
-  const out: UnsupportedAsyncCapabilityRequirement[] = [];
-  const bad = new Set<IRNode>();
-  const executableHandlers = findExecutableKernHandlers(root, entryHandlerName, bad);
-  collectUnsupportedAsyncExecutions(root, executableHandlers, bad, false, undefined, requirementsByLineAndId, out);
+
+  for (const module of graph.roots) {
+    const importedFn = new Map<string, { path: string; name: string }>();
+    const importedClass = new Map<string, { path: string; name: string }>();
+    for (const imported of module.imports) {
+      if (imported.exportOnly || imported.targetPath === '') continue;
+      const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
+      if (!resolved) continue;
+      if (resolved.kind === 'fn') importedFn.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
+      else importedClass.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
+    }
+    scopes.set(module.path, { path: module.path, root: module.root, importedFn, importedClass });
+  }
+  return scopes;
+}
+
+/**
+ * Executable handler nodes reachable from the entry handler ACROSS the linked
+ * module graph. Within each module the existing single-file reachability walk is
+ * reused unchanged; imported function calls jump to the defining module and the
+ * walk continues there. Imported classes that are referenced are treated
+ * fail-closed (all members marked executable + unsupported), since class-member
+ * capabilities can never execute at runtime.
+ */
+function crossModuleExecutableHandlers(
+  graph: { readonly roots: readonly CapabilityGraphModule[] },
+  rootPath: string,
+  entryHandlerName: string,
+  unsupported: Set<IRNode>,
+): ReadonlySet<IRNode> {
+  const scopes = buildCapabilityModuleScopes(graph);
+  const out = new Set<IRNode>();
+  const visited = new Set<string>();
+  const queue: { path: string; entry: string }[] = [{ path: rootPath, entry: entryHandlerName }];
+  while (queue.length > 0) {
+    const item = queue.pop();
+    if (!item) continue;
+    const key = `${item.path} ${item.entry}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    const scope = scopes.get(item.path);
+    if (!scope) continue;
+    const localUnsupported = new Set<IRNode>();
+    const localHandlers = findExecutableKernHandlers(scope.root, item.entry, localUnsupported);
+    for (const handler of localHandlers) out.add(handler);
+    for (const handler of localUnsupported) unsupported.add(handler);
+    for (const handler of localHandlers) {
+      for (const name of calledSymbolNames(handler)) {
+        const importedFn = scope.importedFn.get(name);
+        if (importedFn) queue.push({ path: importedFn.path, entry: importedFn.name });
+        const importedClass = scope.importedClass.get(name);
+        if (importedClass) enqueueImportedClassMembers(importedClass, scopes, out, unsupported);
+      }
+    }
+  }
   return out;
 }
 
-function executableAsyncRequirements(
-  root: IRNode,
-  asyncRequirements: readonly CapabilityRequirement[],
-  entryHandlerName = 'main',
-): CapabilityRequirement[] {
-  return executableCapabilityRequirements(root, asyncRequirements, entryHandlerName);
+function enqueueImportedClassMembers(
+  ref: { readonly path: string; readonly name: string },
+  scopes: ReadonlyMap<string, CapabilityModuleScope>,
+  out: Set<IRNode>,
+  unsupported: Set<IRNode>,
+): void {
+  const scope = scopes.get(ref.path);
+  if (!scope) return;
+  for (const node of topLevelNodes(scope.root)) {
+    if (node.type !== 'class' || node.props?.name !== ref.name) continue;
+    for (const member of node.children ?? []) {
+      if (member.type !== 'method' && member.type !== 'getter' && member.type !== 'constructor') continue;
+      const handler = previewHelperHandler(member);
+      if (handler) {
+        out.add(handler);
+        unsupported.add(handler);
+      }
+    }
+  }
 }
 
-function executableCapabilityRequirements(
-  root: IRNode,
+function calledSymbolNames(handler: IRNode): Set<string> {
+  const names = new Set<string>();
+  for (const node of walkNodes(handler)) {
+    for (const expr of supportedHelperCallExpressions(node)) {
+      collectCalledSymbolNames(expr.node, names);
+    }
+  }
+  return names;
+}
+
+function collectCalledSymbolNames(node: ValueIR, names: Set<string>): void {
+  if (node.kind === 'call' && node.callee.kind === 'ident') names.add(node.callee.name);
+  if (node.kind === 'new' && node.argument.kind === 'call' && node.argument.callee.kind === 'ident') {
+    names.add(node.argument.callee.name);
+  }
+  for (const child of allValueChildren(node)) collectCalledSymbolNames(child, names);
+}
+
+function allValueChildren(node: ValueIR): readonly ValueIR[] {
+  switch (node.kind) {
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+    case 'propagate':
+      return [node.argument];
+    case 'binary':
+      return [node.left, node.right];
+    case 'conditional':
+      return [node.test, node.consequent, node.alternate];
+    case 'member':
+      return [node.object];
+    case 'index':
+      return [node.object, node.index];
+    case 'call':
+      return [node.callee, ...node.args];
+    case 'typeAssert':
+    case 'nonNull':
+      return [node.expression];
+    case 'tmplLit':
+      return node.expressions;
+    case 'arrayLit':
+      return node.items.filter((item): item is ValueIR => Boolean(item));
+    case 'objectLit':
+      return node.entries.map((entry) => ('kind' in entry ? entry.argument : entry.value));
+    default:
+      return [];
+  }
+}
+
+function collectExecutableRequirements(
+  roots: readonly IRNode[],
+  executableHandlers: ReadonlySet<IRNode>,
   requirements: readonly CapabilityRequirement[],
-  entryHandlerName = 'main',
 ): CapabilityRequirement[] {
   if (requirements.length === 0) return [];
+  const requirementsByLineAndId = requirementsByLine(requirements);
+  const out: CapabilityRequirement[] = [];
+  for (const root of roots) {
+    collectExecutableAsyncRequirements(root, executableHandlers, false, requirementsByLineAndId, out);
+  }
+  return out;
+}
+
+function collectUnsupportedAsyncExecutionsAcrossModules(
+  roots: readonly IRNode[],
+  executableHandlers: ReadonlySet<IRNode>,
+  unsupported: ReadonlySet<IRNode>,
+  asyncRequirements: readonly CapabilityRequirement[],
+): UnsupportedAsyncCapabilityRequirement[] {
+  if (asyncRequirements.length === 0) return [];
+  const requirementsByLineAndId = requirementsByLine(asyncRequirements);
+  const out: UnsupportedAsyncCapabilityRequirement[] = [];
+  for (const root of roots) {
+    collectUnsupportedAsyncExecutions(
+      root,
+      executableHandlers,
+      unsupported,
+      false,
+      undefined,
+      requirementsByLineAndId,
+      out,
+    );
+  }
+  return out;
+}
+
+function requirementsByLine(
+  requirements: readonly CapabilityRequirement[],
+): Map<string, CapabilityRequirement[]> {
   const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
   for (const requirement of requirements) {
     const key = `${requirement.sourceLine}:${requirement.id}`;
@@ -398,10 +671,7 @@ function executableCapabilityRequirements(
     if (existing) existing.push(requirement);
     else requirementsByLineAndId.set(key, [requirement]);
   }
-  const executableHandlers = findExecutableKernHandlers(root, entryHandlerName);
-  const out: CapabilityRequirement[] = [];
-  collectExecutableAsyncRequirements(root, executableHandlers, false, requirementsByLineAndId, out);
-  return out;
+  return requirementsByLineAndId;
 }
 
 function collectUnsupportedAsyncExecutions(

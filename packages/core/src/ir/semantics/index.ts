@@ -54,12 +54,27 @@ export interface SemanticEnv {
   now: number;
 }
 
+/**
+ * A module's private callable environment: the functions and classes visible
+ * for resolution WITHIN that module (its own declarations plus the symbols it
+ * imports). Each callable binding carries the scope of the module that DEFINED
+ * it, so an imported helper resolves its own module's private helpers/classes
+ * rather than the importer's — modules are singletons with their own scope, not
+ * flattened into the root namespace.
+ */
+export interface RunnerModuleScope {
+  readonly functions: Map<string, RunnerFunctionBinding>;
+  readonly classes: Map<string, RunnerClassBinding>;
+}
+
 export interface RunnerFunctionBinding {
   readonly name: string;
   readonly params: readonly string[];
   readonly returns?: unknown;
   readonly handler?: IRNode;
   readonly body: readonly IRNode[];
+  /** Defining module's scope; the body resolves calls here, not in the caller's scope. */
+  readonly module?: RunnerModuleScope;
 }
 
 export interface RunnerClassFieldBinding {
@@ -82,12 +97,16 @@ export interface RunnerClassBinding {
   readonly constructor?: RunnerClassMemberBinding;
   readonly methods: ReadonlyMap<string, RunnerClassMemberBinding>;
   readonly getters: ReadonlyMap<string, RunnerClassMemberBinding>;
+  /** Defining module's scope; construction and members resolve calls here. */
+  readonly module?: RunnerModuleScope;
 }
 
 export interface RunnerClassInstanceValue {
   readonly __kernRunnerClassInstance: true;
   readonly className: string;
   readonly fields: Record<string, unknown>;
+  /** Defining module's scope, so member resolution follows the class's module across boundaries. */
+  readonly module?: RunnerModuleScope;
 }
 
 /**
@@ -229,6 +248,9 @@ function cloneSemanticValue(value: unknown): unknown {
       fields: Object.fromEntries(
         Object.entries(instance.fields).map(([key, fieldValue]) => [key, cloneSemanticValue(fieldValue)]),
       ),
+      // Preserve the defining-module scope by reference so a cloned instance
+      // (e.g. passed as a function argument) still resolves its own module's members.
+      ...(instance.module ? { module: instance.module } : {}),
     } satisfies RunnerClassInstanceValue;
   }
   if (Array.isArray(value)) return value.map(cloneSemanticValue);

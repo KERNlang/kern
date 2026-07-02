@@ -235,8 +235,8 @@ export async function evalRunnerFunctionValueAsync(
   const callEnv = makeEnv({
     bindings,
     intProvenance,
-    runnerFunctions: functions,
-    runnerClasses: runnerClassesForEnv(env),
+    runnerFunctions: fn.module?.functions ?? functions,
+    runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
     runnerCallStack: [...callStack, fnName],
     runnerCallCache: env.runnerCallCache,
     capabilities: undefined,

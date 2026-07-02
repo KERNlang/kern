@@ -32,6 +32,7 @@ import {
   type RunnerClassInstanceValue,
   type RunnerClassMemberBinding,
   type RunnerFunctionBinding,
+  type RunnerModuleScope,
   type SemanticEnv,
 } from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
@@ -223,14 +224,30 @@ function assertRunnerFunctionValue(value: unknown, label: string): RunnerFunctio
   return assertRunnerPortableValue(value, label);
 }
 
+// Memoization keys must be scoped to the DEFINING module: two modules can each
+// declare a private `foo()`, and the call cache is shared across the whole run,
+// so a bare-name key would let one module's result satisfy the other's call.
+let moduleScopeSeq = 0;
+const moduleScopeIds = new WeakMap<object, number>();
+function moduleScopeCacheId(scope: RunnerModuleScope | undefined): number {
+  if (!scope) return 0;
+  let id = moduleScopeIds.get(scope);
+  if (id === undefined) {
+    id = (moduleScopeSeq += 1);
+    moduleScopeIds.set(scope, id);
+  }
+  return id;
+}
+
 function runnerFunctionCacheKey(
+  moduleId: number,
   fnName: string,
   argValues: readonly RunnerFunctionValue[],
   argIntProvenance: readonly boolean[],
 ): string | undefined {
   if (argValues.some(isRunnerClassInstanceValue)) return undefined;
   try {
-    return JSON.stringify([fnName, argValues.map((value, index) => [value, argIntProvenance[index]])]);
+    return JSON.stringify([moduleId, fnName, argValues.map((value, index) => [value, argIntProvenance[index]])]);
   } catch {
     return undefined;
   }
@@ -490,12 +507,14 @@ export function evalRunnerClassNewValueWithArguments(
   const classes = runnerClassesForEnv(env);
   const cls = classes?.get(className);
   if (!classes || !cls) throw new Error(`runner-class: unknown class "${className}"`);
+  const moduleEnv = withModuleScope(env, cls.module);
   const instance: RunnerClassInstanceValue = {
     __kernRunnerClassInstance: true,
-    className,
+    className: cls.name,
     fields: Object.create(null) as Record<string, unknown>,
+    ...(cls.module ? { module: cls.module } : {}),
   };
-  initializeRunnerClassInstance(cls, instance, args, env);
+  initializeRunnerClassInstance(cls, instance, args, moduleEnv);
   return instance;
 }
 
@@ -512,12 +531,14 @@ export async function evalRunnerClassNewValueWithArgumentsAsync(
   const classes = runnerClassesForEnv(env);
   const cls = classes?.get(className);
   if (!classes || !cls) throw new Error(`runner-class: unknown class "${className}"`);
+  const moduleEnv = withModuleScope(env, cls.module);
   const instance: RunnerClassInstanceValue = {
     __kernRunnerClassInstance: true,
-    className,
+    className: cls.name,
     fields: Object.create(null) as Record<string, unknown>,
+    ...(cls.module ? { module: cls.module } : {}),
   };
-  await initializeRunnerClassInstanceAsync(cls, instance, args, env, runBody);
+  await initializeRunnerClassInstanceAsync(cls, instance, args, moduleEnv, runBody);
   return instance;
 }
 
@@ -546,6 +567,19 @@ function runnerClassesForEnv(env: SemanticEnv): Map<string, RunnerClassBinding> 
     if (cur.runnerClasses) return cur.runnerClasses;
   }
   return undefined;
+}
+
+/**
+ * View `env` through a module's callable scope: the returned env resolves
+ * functions/classes in `scope` (the DEFINING module) while preserving the
+ * caller's capabilities, call stack, cache, seed, and clock. Used so an imported
+ * helper or class member executes against its own module's private symbols
+ * rather than the importer's flat namespace.
+ */
+function withModuleScope(env: SemanticEnv, scope: RunnerModuleScope | undefined): SemanticEnv {
+  if (!scope) return env;
+  if (env.runnerFunctions === scope.functions && env.runnerClasses === scope.classes) return env;
+  return { ...env, runnerFunctions: scope.functions, runnerClasses: scope.classes };
 }
 
 function evalRunnerClassArgument(node: ValueIR, env: SemanticEnv): unknown {
@@ -583,9 +617,10 @@ function evalRunnerClassMemberScalar(
   if (Object.hasOwn(receiver.fields, node.property)) {
     return assertPortableScalar(receiver.fields[node.property], `field "${node.property}"`);
   }
-  const getter = findRunnerClassMember(receiver.className, node.property, 'getter', env);
+  const menv = withModuleScope(env, receiver.module);
+  const getter = findRunnerClassMember(receiver.className, node.property, 'getter', menv);
   if (!getter) throw new Error(`runner-class: class "${receiver.className}" has no field or getter "${node.property}"`);
-  return invokeRunnerClassMember(getter, receiver, [], env);
+  return invokeRunnerClassMember(getter, receiver, [], menv);
 }
 
 function evalRunnerClassMethodScalar(
@@ -607,13 +642,14 @@ function evalRunnerClassMethodScalar(
   }
   const receiver = evalRunnerClassReceiver(node.callee.object, env);
   if (!receiver) return RUNNER_CLASS_NO_VALUE;
-  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', env);
+  const menv = withModuleScope(env, receiver.module);
+  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', menv);
   if (!method) throw new Error(`runner-class: class "${receiver.className}" has no method "${node.callee.property}"`);
   return invokeRunnerClassMember(
     method,
     receiver,
     node.args.map((arg) => evalRunnerClassArgument(arg, env)),
-    env,
+    menv,
   );
 }
 
@@ -632,9 +668,10 @@ export function evalRunnerClassMethodScalarWithArguments(
   }
   const receiver = evalRunnerClassReceiver(node.callee.object, env);
   if (!receiver) return undefined;
-  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', env);
+  const menv = withModuleScope(env, receiver.module);
+  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', menv);
   if (!method) throw new Error(`runner-class: class "${receiver.className}" has no method "${node.callee.property}"`);
-  return invokeRunnerClassMember(method, receiver, args, env);
+  return invokeRunnerClassMember(method, receiver, args, menv);
 }
 
 export async function evalRunnerClassMethodScalarWithArgumentsAsync(
@@ -653,9 +690,10 @@ export async function evalRunnerClassMethodScalarWithArgumentsAsync(
   }
   const receiver = evalRunnerClassReceiver(node.callee.object, env);
   if (!receiver) return undefined;
-  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', env);
+  const menv = withModuleScope(env, receiver.module);
+  const method = findRunnerClassMember(receiver.className, node.callee.property, 'method', menv);
   if (!method) throw new Error(`runner-class: class "${receiver.className}" has no method "${node.callee.property}"`);
-  return runRunnerClassBodyAsync(method, receiver, args, method.body, env, true, runBody);
+  return runRunnerClassBodyAsync(method, receiver, args, method.body, menv, true, runBody);
 }
 
 function initializeRunnerClassInstance(
@@ -952,6 +990,7 @@ function cloneRunnerClassFieldValue(value: unknown): unknown {
       __kernRunnerClassInstance: true,
       className: value.className,
       fields: cloneRunnerClassFields(value.fields),
+      ...(value.module ? { module: value.module } : {}),
     } satisfies RunnerClassInstanceValue;
   }
   if (value && typeof value === 'object') {
@@ -1028,7 +1067,7 @@ export function evalRunnerFunctionValue(
   }
 
   const cache = runnerCallCacheForEnv(env);
-  const cacheKey = runnerFunctionCacheKey(fnName, argValues, argIntProvenance);
+  const cacheKey = runnerFunctionCacheKey(moduleScopeCacheId(fn.module), fnName, argValues, argIntProvenance);
   if (cacheKey !== undefined && cache.has(cacheKey)) {
     return assertRunnerPortableValue(cache.get(cacheKey), `function "${fnName}" cached return`);
   }
@@ -1036,8 +1075,8 @@ export function evalRunnerFunctionValue(
   const callEnv = makeEnv({
     bindings,
     intProvenance,
-    runnerFunctions: functions,
-    runnerClasses: runnerClassesForEnv(env),
+    runnerFunctions: fn.module?.functions ?? functions,
+    runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
     runnerCallStack: [...callStack, fnName],
     runnerCallCache: cache,
     seed: env.seed,
