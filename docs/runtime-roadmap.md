@@ -37,7 +37,10 @@ The preview surface is the documented, tested subset used by the smoke gate:
 - portable array-literal binding, including nested array literals for iteration,
   plus in-bounds literal array index reads
 - flat record-literal binding with scalar dot-field reads
-- same-file pure KERN helper functions returning portable scalars
+- pure KERN helper functions returning portable scalars, including explicit
+  `use path="..."` imports from host-resolved `.kern` modules
+- runner-native classes, including explicit imports of exported classes through
+  `use` / `from`
 - explicit `capability namespace=... operation=...` calls when an embedder
   injects a browser-safe capability provider through `@kernlang/core/runner`
   or the narrower `@kernlang/core/runner/browser` subpath
@@ -77,6 +80,12 @@ The preview surface is the documented, tested subset used by the smoke gate:
   slots are reported separately from missing provider flags, and explicit
   async-preview execution fails closed on those reported unsupported shapes
   before falling back to the sync runner
+- native-runner module linking is eager and fail-closed: the root and all
+  host-resolved `use path="..."` `.kern` imports are parsed and validated before
+  user code executes; imported modules may not declare `fn main`; runtime import
+  cycles, missing explicit exports, duplicate local import aliases, and host
+  path-containment failures are link errors; `kern run --capabilities`
+  aggregates capability requirements across the whole loaded graph
 - `storage` capability calls backed by `createMemoryStorageCapability`, a
   browser-safe volatile provider for in-run state
 - `crypto` capability calls backed by `createWebCryptoCapability`, a
@@ -223,6 +232,19 @@ providers remain explicit host-adapter work.
    Descriptor-level async policy remains a preflight concern, signaled through
    `asyncBoundaryRequired`; streams and broad async control-flow execution are
    still future work in the CLI.
+
+3a. **Native module linking**
+   The native runner now supports explicit value imports for the tested
+   portable helper-function and class surface. `executeKernSource` and
+   `executeKernSourceAsync` accept a browser-safe module loader hook; Node CLI
+   execution supplies a filesystem loader rooted at the entry file directory
+   and rejects escaping imports. Linking is eager: the whole reachable graph is
+   parsed, import paths are canonicalized by the host, module records are
+   memoized by canonical path, exported names must be explicit (`export=true`
+   declarations or `from ... export=true` re-exports), and runtime import cycles
+   are rejected before stdout is produced. The root entry remains the only file
+   allowed to declare `fn main`. This is not a package manager or bare-module
+   resolver; unsupported import shapes and host-denied paths fail closed.
 
 4. **RAG runtime operations**
    Move from runner/tooling-only RAG commands toward runtime-executable RAG

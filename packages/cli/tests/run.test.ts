@@ -83,6 +83,13 @@ function writeFile(source: string): string {
   return file;
 }
 
+function writeNamedFile(name: string, source: string): string {
+  const file = join(dir, name);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, source);
+  return file;
+}
+
 /** Wrap body statement lines in a void `fn main` + kern handler (the entry convention). */
 function mainProgram(bodyLines: string[]): string {
   return ['fn name=main returns=void', '  handler lang="kern"', ...bodyLines.map((l) => `    ${l}`)].join('\n');
@@ -114,6 +121,66 @@ function runArgs(args: string[], options: { readonly env?: NodeJS.ProcessEnv } =
 function runProgram(bodyLines: string[]): RunResult {
   return runFile(writeFile(mainProgram(bodyLines)));
 }
+
+describe('kern run module linking', () => {
+  test('executes multi-file native programs through the CLI filesystem loader', () => {
+    writeNamedFile(
+      'multi-run/helper.kern',
+      [
+        'fn name=double params="x:number" returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="x * 2"',
+        'class name=Box export=true',
+        '  field name=value value="7"',
+        '  method name=read returns=number',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'multi-run/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=double kind=fn as=twice',
+        '  from name=Box kind=class',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="twice(21)"',
+        '    let name=box value="new Box()"',
+        '    print value="box.read()"',
+      ].join('\n'),
+    );
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('42\n7\n');
+  });
+
+  test('rejects module imports that escape the entry directory before stdout', () => {
+    writeNamedFile(
+      'outside.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="1"'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'escape/main.kern',
+      [
+        'use path="../outside"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('escapes');
+  });
+});
 
 interface CapabilityReport {
   readonly hasCapabilityBlockers: boolean;
@@ -679,6 +746,39 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
 });
 
 describe('kern run --capabilities — preflights capability requirements without execution', () => {
+  test('aggregates capability requirements from imported modules', () => {
+    writeNamedFile(
+      'multi-cap/helper.kern',
+      [
+        'fn name=readConfig returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=fs operation=readText name=text input="{ path: \\"config.txt\\" }"',
+        '    return value="text"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'multi-cap/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=readConfig kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"EXECUTED\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).not.toContain('EXECUTED');
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+  });
+
   test('reports CLI-provided shipped capabilities as runnable JSON', () => {
     const file = writeFile(
       mainProgram([

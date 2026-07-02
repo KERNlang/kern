@@ -37,6 +37,8 @@ they can leak partial output or implicit host effects.
 | Feature | KERN 5 status | Evidence |
 | --- | --- | --- |
 | Functions and same-file pure helper calls | Supported | `packages/core/tests/runner-source-executor.test.ts` |
+| Explicit multi-file `use` / `from` imports for pure helper functions and classes | Supported for host-resolved `.kern` files with explicit exports | `packages/core/tests/runner-source-executor.test.ts`, `packages/cli/tests/run.test.ts`, `examples/native-multifile` |
+| Missing exports, duplicate imported aliases, import cycles, imported `fn main`, and path-containment failures | Fail-closed link errors before stdout | `packages/core/tests/runner-source-executor.test.ts`, `packages/cli/tests/run.test.ts` |
 | Helper calls with scalar, record, array, and class-instance values | Supported in tested sync and descriptor async paths | `packages/core/tests/runner-source-executor.test.ts` |
 | `let`, mutable `let`, and `assign` | Supported for portable values and tested class fields | `packages/core/tests/runner-source-executor.test.ts` |
 | `if`, `branch`, `while`, `for`, and `each` | Supported for tested portable runner shapes | `packages/core/tests/runner-source-executor.test.ts`, `packages/core/tests/runner-capability-plan.test.ts` |
@@ -68,7 +70,8 @@ Capability requirements are checked before execution. Unknown, undeclared,
 missing, unsupported, and unprovided capabilities reject before app code can
 continue. The preview app treats `app.kern` as the authoritative policy and
 capability declaration; JavaScript may only provide host adapters for declared
-capabilities.
+capabilities. `kern run --capabilities` aggregates requirements over the whole
+linked native-runner module graph, not only the root file.
 
 ## Reference App
 
@@ -88,6 +91,7 @@ The following are not KERN 5.0 final promises:
 - Side-effecting helper functions.
 - Async capability calls inside streams or broad unsupported async control-flow
   shapes.
-- A multi-file KERN package/linker system beyond manifest source loading.
+- Bare package imports, implicit top-level leakage, lazy module initialization,
+  and value import cycles in the native runner.
 - Production network, filesystem, vector database, or model-provider adapters
   without explicit host wiring and capability declarations.

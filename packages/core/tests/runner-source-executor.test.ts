@@ -1,5 +1,6 @@
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
 import {
+  analyzeKernSourceCapabilities,
   CONTRACT_REGISTRY,
   createMemoryStorageCapability,
   createWebCryptoCapability,
@@ -22,6 +23,31 @@ function mainProgram(bodyLines: string[]): string {
 
 function programWithFunctions(functions: string[][], mainBodyLines: string[]): string {
   return [...functions.map((lines) => lines.join('\n')), mainProgram(mainBodyLines)].join('\n');
+}
+
+function memoryModuleLoader(modules: Record<string, string>, options: { readonly rejectEscape?: boolean } = {}) {
+  return {
+    resolve(specifier: string, context: { readonly importer: string }): string | null {
+      if (options.rejectEscape && specifier.startsWith('../')) {
+        throw new KernRunnerError(`link error: import '${specifier}' escapes test root`);
+      }
+      const base = context.importer.slice(0, context.importer.lastIndexOf('/'));
+      const parts = `${base}/${specifier.endsWith('.kern') ? specifier : `${specifier}.kern`}`.split('/');
+      const resolved: string[] = [];
+      for (const part of parts) {
+        if (!part || part === '.') continue;
+        if (part === '..') resolved.pop();
+        else resolved.push(part);
+      }
+      const path = `/${resolved.join('/')}`;
+      return Object.hasOwn(modules, path) ? path : null;
+    },
+    readSource(path: string): string {
+      const source = modules[path];
+      if (source === undefined) throw new KernRunnerError(`missing test module ${path}`);
+      return source;
+    },
+  };
 }
 
 describe('@kernlang/core/runner source executor', () => {
@@ -3319,5 +3345,180 @@ describe('@kernlang/core/runner source executor', () => {
     } finally {
       CONTRACT_REGISTRY.delete(custom.nodeType);
     }
+  });
+});
+
+describe('@kernlang/core/runner module linking', () => {
+  test('executes imported pure helper functions and classes by explicit alias', () => {
+    const modules = {
+      '/app/math.kern': [
+        'fn name=double params="x:number" returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="x * 2"',
+        'class name=Box export=true',
+        '  field name=value value="10"',
+        '  method name=read returns=number',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+      ].join('\n'),
+    };
+    const root = [
+      'use path="./math"',
+      '  from name=double kind=fn as=twice',
+      '  from name=Box kind=class as=ImportedBox',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="twice(21)"',
+      '    let name=box value="new ImportedBox()"',
+      '    print value="box.read()"',
+    ].join('\n');
+
+    expect(
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader(modules),
+      }),
+    ).toBe('42\n10\n');
+  });
+
+  test('capability preflight aggregates imported module requirements', () => {
+    const modules = {
+      '/app/helper.kern': [
+        'fn name=readConfig returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=fs operation=readText name=text input="{ path: \\"config.txt\\" }"',
+        '    return value="text"',
+      ].join('\n'),
+    };
+    const root = [
+      'use path="./helper"',
+      '  from name=readConfig kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"root\\""',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(root, {
+      sourcePath: '/app/main.kern',
+      moduleLoader: memoryModuleLoader(modules),
+      providedCapabilities: [],
+      providedAsyncCapabilities: [],
+    });
+
+    expect(analysis.requirements.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(analysis.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+  });
+
+  test('missing export rejects before stdout', () => {
+    const root = [
+      'use path="./helper"',
+      '  from name=missing kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader({ '/app/helper.kern': '' }),
+      }),
+    ).toThrow(/does not export 'missing'/);
+  });
+
+  test('duplicate imported aliases reject at link time', () => {
+    const root = [
+      'use path="./helper"',
+      '  from name=a kind=fn as=same',
+      '  from name=b kind=fn as=same',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    const helper = [
+      'fn name=a returns=number export=true',
+      '  handler lang="kern"',
+      '    return value="1"',
+      'fn name=b returns=number export=true',
+      '  handler lang="kern"',
+      '    return value="2"',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader({ '/app/helper.kern': helper }),
+      }),
+    ).toThrow(/duplicate imported alias 'same'/);
+  });
+
+  test('runtime import cycles reject fail-closed', () => {
+    const modules = {
+      '/app/a.kern': [
+        'use path="./b"',
+        '  from name=b kind=fn',
+        'fn name=a returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="1"',
+      ].join('\n'),
+      '/app/b.kern': [
+        'use path="./a"',
+        '  from name=a kind=fn',
+        'fn name=b returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="2"',
+      ].join('\n'),
+    };
+    const root = [
+      'use path="./a"',
+      '  from name=a kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="a()"',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader(modules),
+      }),
+    ).toThrow(/import cycle/);
+  });
+
+  test('fn main in imported files rejects at link time', () => {
+    const root = [
+      'use path="./helper"',
+      '  from name=helper kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    const helper = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"bad\\""',
+      'fn name=helper returns=number export=true',
+      '  handler lang="kern"',
+      '    return value="1"',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader({ '/app/helper.kern': helper }),
+      }),
+    ).toThrow(/must not declare fn main/);
+  });
+
+  test('host path containment errors reject before execution', () => {
+    const root = [
+      'use path="../outside"',
+      '  from name=helper kind=fn',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="\\"unreached\\""',
+    ].join('\n');
+    expect(() =>
+      executeKernSource(root, {
+        sourcePath: '/app/main.kern',
+        moduleLoader: memoryModuleLoader({}, { rejectEscape: true }),
+      }),
+    ).toThrow(/escapes test root/);
   });
 });

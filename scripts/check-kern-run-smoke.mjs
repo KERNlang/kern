@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = resolve(ROOT, 'packages/cli/dist/cli.js');
 const FIXTURE = resolve(ROOT, 'examples/native-runtime-smoke.kern');
+const MULTIFILE_FIXTURE = resolve(ROOT, 'examples/native-multifile/main.kern');
 const ASYNC_FS_FIXTURE = resolve(ROOT, 'examples/native-runtime-async-fs-preview.kern');
 const ASYNC_HOST_FIXTURE = resolve(ROOT, 'examples/native-runtime-async-host-preview.kern');
 const RAG_ANSWER_FIXTURE = resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern');
@@ -17,6 +18,7 @@ const RAG_ASYNC_RETRIEVE_FIXTURE = resolve(
 );
 const RAG_ANSWER_CAPABILITY_FIXTURE = resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern');
 const EXPECTED_STDOUT = 'sum-ok\n0\n1\n20\nrag\nruntime\nfmt-6\nbranch\ncaught\nfinally\ntrue\npreview\ntrue\n3\n';
+const EXPECTED_MULTIFILE_STDOUT = '42\n7\n';
 const EXPECTED_ASYNC_FS_STDOUT = '1\nasync smoke\ntrue\n';
 const EXPECTED_ASYNC_HOST_STDOUT = 'host input\nhost-preview\nhost answer\n';
 const EXPECTED_RAG_ANSWER_MARKERS = [
@@ -79,6 +81,37 @@ if (result.stdout !== EXPECTED_STDOUT) {
   console.error('kern run smoke stdout drifted');
   console.error(`expected:\n${EXPECTED_STDOUT}`);
   console.error(`actual:\n${result.stdout ?? ''}`);
+  process.exit(1);
+}
+
+const multifileResult = runCli(['run', MULTIFILE_FIXTURE]);
+
+if (multifileResult.error) {
+  console.error(multifileResult.error.message);
+  process.exit(2);
+}
+
+if (multifileResult.signal) {
+  console.error(`kern run multi-file smoke was killed by signal ${multifileResult.signal}`);
+  if (multifileResult.stderr) console.error(multifileResult.stderr);
+  process.exit(2);
+}
+
+if (multifileResult.status !== 0) {
+  console.error(`kern run multi-file smoke exited ${multifileResult.status}`);
+  if (multifileResult.stderr) console.error(multifileResult.stderr);
+  process.exit(1);
+}
+
+if (multifileResult.stderr) {
+  console.error(`kern run multi-file smoke emitted unexpected stderr:\n${multifileResult.stderr}`);
+  process.exit(1);
+}
+
+if (multifileResult.stdout !== EXPECTED_MULTIFILE_STDOUT) {
+  console.error('kern run multi-file smoke stdout drifted');
+  console.error(`expected:\n${EXPECTED_MULTIFILE_STDOUT}`);
+  console.error(`actual:\n${multifileResult.stdout ?? ''}`);
   process.exit(1);
 }
 
