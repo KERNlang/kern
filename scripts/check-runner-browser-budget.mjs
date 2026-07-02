@@ -40,8 +40,17 @@ const FORBIDDEN_BARE_SPECIFIERS = new Set([
   'https',
 ]);
 
-const MAX_INTERNAL_RAW_BYTES = 1_100_000;
-const MAX_INTERNAL_GZIP_BYTES = 260_000;
+// Re-baselined 2026-07-02 for the KERN 5 plan (docs/kern-5-own-language-plan.md,
+// milestone 5.0): measured closure at re-baseline was 1,096,839 raw /
+// 253,503 gzip — 0.3% under the old 1,100,000/260,000 ceilings. The ceilings
+// below restore a small (~5%) accidental-bloat margin only; the planned 5.1
+// runner work (module linking + executable stdlib) must re-baseline again
+// with ITS measured numbers when it lands, keeping the guard tight in
+// between (agon review 2026-07-02: do not pre-grant unlanded growth). The
+// import-graph invariant (no `typescript`, no Node builtins) is unchanged
+// and remains the hard boundary.
+const MAX_INTERNAL_RAW_BYTES = 1_150_000;
+const MAX_INTERNAL_GZIP_BYTES = 270_000;
 const MAX_COLD_IMPORT_EXECUTE_MS = 150;
 const MAX_BROWSER_IMPORT_EXECUTE_MS = 750;
 const COLD_START_RUNS = 5;

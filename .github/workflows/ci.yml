@@ -110,6 +110,16 @@ jobs:
       - name: Native KERN Tests
         run: pnpm test:kern
 
+      # Runner smoke + browser budget gate (KERN 5 plan, milestone 5.0): runs
+      # `kern run` smoke fixtures, the KERN 5 preview app end-to-end check, and
+      # the browser-runner budget (import-graph invariant: the browser entry
+      # must never pull `typescript` or Node builtins; static closure size,
+      # cold import+execute, and — when Chrome is present on the runner — a
+      # measured headless-browser lane). Previously manual-only, which meant a
+      # browser-unsafe import could merge green.
+      - name: Runner smoke + browser budget
+        run: pnpm test:runner-smoke
+
       # PR review is handled by the kern-guard GitHub App (KERNlang/kern-guard),
       # installed on this repo — it runs the same @kernlang/review engine on the
       # PR head (changed files only, baseline-deduped, posted as Checks
