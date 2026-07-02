@@ -35,13 +35,18 @@
  * mutual) up to an explicit 512-deep call limit / branch path/default
  * dispatch / fmt interpolation bindings / explicit `throw new Error("...")`
  * inside try/catch/finally with caught `.message` reads / explicit runner
- * capability calls. The CLI path provides local RAG retrieval, volatile
+ * capability calls / `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`,
+ * `Text.indexOf(needle)`, and `Text.startsWith(prefix)` for BMP-SAFE strings
+ * under the tribunal-locked code-point contract (a well-formed non-BMP
+ * character fails closed too — a deliberate risk-valve narrowing, see
+ * portable-string.ts). The CLI path provides local RAG retrieval, volatile
  * in-run storage, and browser-safe crypto today; other host capabilities
  * still fail closed.
  * Constructs the runner does not yet execute over PRODUCTION IR (whole-array /
  * whole-record rendering, nested or dynamic records, `*`/`/`/`%`/unary
  * arithmetic index expressions, non-empty `new Map(...)` construction,
- * non-string Map keys, string `.length` and other string ops,
+ * non-string Map keys, non-BMP characters in any `Text.*` op, other string
+ * ops (`upper`/`lower`/`trim`/`includes`/`endsWith`/`split`/`replace`),
  * non-canonical throws, and recursion past the 512-deep call limit) ABSTAIN
  * -> exit 2.
  *
@@ -979,6 +984,55 @@ describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib'
     expect(r.stdout).toBe('3\n1\ntrue\nfalse\n');
     expect(r.status).toBe(0);
     expect(r.stderr).toBe('');
+  });
+
+  // String ops (tribunal-locked contract, Option D — code points), added
+  // AFTER the initial four slices above. Scope note: this reference-runner
+  // implementation is BMP-safe-or-fail-closed (see portable-string.ts) — a
+  // well-formed non-BMP character (emoji, rare CJK extension chars) fails
+  // closed here too, a deliberate risk-valve narrowing, NOT the tribunal's
+  // final target for non-BMP input.
+  test('Text.length/charAt/slice/indexOf/startsWith execute natively (BMP-safe, code points)', () => {
+    const r = runProgram([
+      'let name=s value="\\"hello world\\""',
+      'print value="Text.length(s)"',
+      'print value="Text.charAt(s, 0)"',
+      'print value="Text.slice(s, 6, 11)"',
+      'print value="Text.indexOf(s, \\"world\\")"',
+      'print value="Text.startsWith(s, \\"hello\\")"',
+    ]);
+    expect(r.stdout).toBe('11\nh\nworld\n6\ntrue\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('Text.length on a BMP non-ASCII string counts code points, not UTF-16 units (日本語 -> 3)', () => {
+    const r = runProgram(['print value="Text.length(\\"日本語\\")"']);
+    expect(r.stdout).toBe('3\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('a lone surrogate fails closed on Text.length (the tribunal fail-closed set)', () => {
+    const r = runProgram(['print value="Text.length(\\"\\ud800\\")"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('a well-formed non-BMP character (emoji) also fails closed under this slice\'s risk-valve narrowing', () => {
+    const r = runProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('Text.charAt and Text.slice fail closed on out-of-bounds (strict bounds policy, no silent clamping)', () => {
+    expect(runProgram(['print value="Text.charAt(\\"hi\\", 2)"']).status).toBe(2);
+    expect(runProgram(['print value="Text.slice(\\"hi\\", 0, 5)"']).status).toBe(2);
+  });
+
+  test('Text.indexOf returns -1 for a missing needle (not an error)', () => {
+    const r = runProgram(['print value="Text.indexOf(\\"hello\\", \\"z\\")"']);
+    expect(r.stdout).toBe('-1\n');
+    expect(r.status).toBe(0);
   });
 });
 

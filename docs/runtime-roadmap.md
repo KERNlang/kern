@@ -47,6 +47,23 @@ The preview surface is the documented, tested subset used by the smoke gate:
   string keys and portable-scalar values (`Map.set` only inside `do`,
   the same functional-rebind mutation model as array append; `Map.get` on a
   missing key fails closed — use `Map.has` to probe first)
+- `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`, `Text.indexOf(needle)`,
+  and `Text.startsWith(prefix)`, under the tribunal-locked Unicode
+  code-point contract (Option D, decided 2026-07-02), for BMP-SAFE strings
+  only (no character outside U+0000..U+FFFF, no surrogate-range code unit
+  in the receiver or any string argument) — a deliberate risk-valve
+  narrowing (see `packages/core/src/ir/semantics/portable-string.ts`): a
+  well-formed non-BMP character (emoji, rare CJK extension characters) is
+  NOT yet supported and fails closed identically to a malformed surrogate,
+  pending a follow-up slice with full code-point-index emulation.
+  `charAt`/`slice` fail closed on out-of-bounds/negative indices (a
+  deliberately stricter bounds policy than JS's/Python's native silent
+  clamping); `indexOf` returns a code-point offset or `-1` (not an error).
+  This slice reaches the REFERENCE RUNNER ONLY — the production TS/Python
+  codegen legs (`kern build`/`kern compile`) do not yet lower `Text.charAt`/
+  `Text.slice`/`Text.indexOf`, and `Text.length`'s existing UTF-16-based
+  lowering is UNCHANGED on those two legs; wiring the shared preamble/helper
+  injection needed for 3-leg parity is deferred to a follow-up slice.
 - flat record-literal binding with scalar dot-field reads
 - pure KERN helper functions returning portable scalars, including explicit
   `use path="..."` imports from host-resolved `.kern` modules, and same-file
@@ -151,11 +168,17 @@ records, `*`/`/`/`%`/unary array-index arithmetic (only `+`/`-` between
 provenanced operands is proven divergence-free), non-empty `new Map(...)`
 construction (only the empty `new Map()` form is supported), non-string Map
 keys and non-scalar Map values, recursion past the explicit 512-deep call
-limit, string `.length` and other string operations, non-canonical throws,
-side-effecting helper calls, implicit host globals, non-RAG/non-storage/non-crypto
-CLI host capabilities, provider-backed async RAG retrieval, async capability
-calls inside streams, async helper calls from unsupported expression
-positions, and broad async control flow.
+limit, non-BMP (surrogate-pair) characters in ANY `Text.*` string op (a
+well-formed emoji/rare-CJK character fails closed the same as a malformed
+surrogate — see the `Text.*` entry above), other string operations beyond
+`length`/`charAt`/`slice`/`indexOf`/`startsWith` (`upper`/`lower`/`trim`/
+`includes`/`endsWith`/`split`/`replace` still abstain in the reference
+runner despite existing in the KERN-stdlib lowering table for the other
+legs), non-canonical throws, side-effecting helper calls, implicit host
+globals, non-RAG/non-storage/non-crypto CLI host capabilities,
+provider-backed async RAG retrieval, async capability calls inside streams,
+async helper calls from unsupported expression positions, and broad async
+control flow.
 
 ## Phase 0 Gate
 

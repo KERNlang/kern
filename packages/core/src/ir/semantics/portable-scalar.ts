@@ -36,6 +36,7 @@ import {
   type SemanticEnv,
 } from './index.js';
 import { evalMapReadCall } from './portable-map.js';
+import { evalStringOpCall } from './portable-string.js';
 import { referenceRunSequence } from './reference-runner.js';
 
 export type PortableScalar = string | number | boolean | null;
@@ -526,6 +527,8 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       if (listLengthScalar !== undefined) return listLengthScalar;
       const mapReadScalar = evalMapReadCall(node, env);
       if (mapReadScalar !== undefined) return mapReadScalar;
+      const stringOpScalar = evalStringOpCall(node, env);
+      if (stringOpScalar !== undefined) return stringOpScalar;
       if (node.callee.kind === 'ident') return evalRunnerFunctionCall(node.callee.name, node.args, env);
       throw new Error('portable: unsupported non-identifier call');
     }
