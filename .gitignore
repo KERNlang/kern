@@ -7,6 +7,7 @@ examples/*.tsx
 *.min.kern
 .claude/
 docs/*
+!docs/kern-5-own-language-plan.md
 .claude*.tsbuildinfo
 *.tsbuildinfo
 .pnpm-store/
