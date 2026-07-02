@@ -91,6 +91,11 @@ export interface CapabilityAnalysisOptions {
   readonly entryHandlerName?: string;
   readonly providedCapabilities?: readonly string[];
   readonly providedAsyncCapabilities?: readonly string[];
+  readonly moduleLoader?: {
+    resolve(specifier: string, context: { readonly importer: string }): string | null;
+    readSource(canonicalPath: string): string;
+  };
+  readonly sourcePath?: string;
 }
 
 export interface CapabilityAnalysis {
@@ -147,9 +152,13 @@ export function analyzeKernSourceCapabilities(
   options: CapabilityAnalysisOptions = {},
 ): CapabilityAnalysis {
   const entryHandlerName = options.entryHandlerName ?? 'main';
-  const parseResult = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
-  const { root, diagnostics } = parseResult;
-  const hasParseErrors = root == null || diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+  const graph = parseCapabilityGraph(source, options);
+  const root = graph.roots[0]?.root ?? { type: 'document', children: [] };
+  const diagnostics = graph.diagnostics;
+  const hasParseErrors =
+    graph.roots.length === 0 ||
+    graph.linkErrors.length > 0 ||
+    diagnostics.some((diagnostic) => diagnostic.severity === 'error');
   const provided = options.providedCapabilities
     ? new Set(options.providedCapabilities.filter((id) => CAPABILITY_DESCRIPTOR_MAP.has(id)))
     : undefined;
@@ -166,19 +175,21 @@ export function analyzeKernSourceCapabilities(
   const unknownCapabilities: UnknownCapabilityRequirement[] = [];
   const malformedCapabilities: MalformedCapabilityRequirement[] = [];
 
-  for (const node of walkNodes(root ?? { type: 'document', children: [] })) {
-    if (node.type !== 'capability') continue;
-    const parsed = capabilityNodeRequirement(node);
-    if ('reason' in parsed) {
-      malformedCapabilities.push(parsed);
-      continue;
+  for (const module of graph.roots) {
+    for (const node of walkNodes(module.root)) {
+      if (node.type !== 'capability') continue;
+      const parsed = capabilityNodeRequirement(node);
+      if ('reason' in parsed) {
+        malformedCapabilities.push(parsed);
+        continue;
+      }
+      const descriptor = CAPABILITY_DESCRIPTOR_MAP.get(parsed.id);
+      if (!descriptor) {
+        unknownCapabilities.push(parsed);
+        continue;
+      }
+      requirements.push({ ...parsed, id: descriptor.id, descriptor });
     }
-    const descriptor = CAPABILITY_DESCRIPTOR_MAP.get(parsed.id);
-    if (!descriptor) {
-      unknownCapabilities.push(parsed);
-      continue;
-    }
-    requirements.push({ ...parsed, id: descriptor.id, descriptor });
   }
 
   const asyncPlannedCapabilities = requirements.filter(
@@ -203,7 +214,7 @@ export function analyzeKernSourceCapabilities(
     asyncPlannedCapabilities,
     executableAsyncPlannedCapabilities,
     missingProviders: provided
-      ? executableRequirements.filter(
+      ? requirements.filter(
           (requirement) =>
             requirement.descriptor.status === 'shipped' &&
             requirement.descriptor.syncBoundary === 'sync' &&
@@ -225,8 +236,123 @@ export function analyzeKernSourceCapabilities(
     unknownProvidedAsyncCapabilities,
     asyncBoundaryRequired: executableAsyncPlannedCapabilities.length > 0,
     hasParseErrors,
-    parseDiagnostics: diagnostics,
+    parseDiagnostics: [...diagnostics, ...graph.linkErrors],
   };
+}
+
+interface CapabilityGraphModule {
+  readonly path: string;
+  readonly root: IRNode;
+}
+
+function parseCapabilityGraph(
+  source: string,
+  options: CapabilityAnalysisOptions,
+): {
+  readonly roots: readonly CapabilityGraphModule[];
+  readonly diagnostics: readonly ParseDiagnostic[];
+  readonly linkErrors: readonly ParseDiagnostic[];
+} {
+  const rootPath = options.sourcePath ?? '<entry>';
+  const rootResult = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
+  const diagnostics = [...rootResult.diagnostics];
+  const linkErrors: ParseDiagnostic[] = [];
+  const modules = new Map<string, CapabilityGraphModule>();
+  const resolving = new Set<string>();
+  const loader = options.moduleLoader;
+
+  function linkError(message: string): void {
+    linkErrors.push({
+      code: 'INVALID_PROPAGATION',
+      severity: 'error',
+      message,
+      line: 1,
+      col: 1,
+      endCol: 2,
+      suggestion: 'Fix the module import graph before running capability preflight.',
+      category: 'validator',
+    });
+  }
+
+  function load(path: string, root: IRNode | undefined, imported: boolean): void {
+    if (modules.has(path)) return;
+    if (resolving.has(path)) {
+      linkError(`link error: import cycle involving '${path}'`);
+      return;
+    }
+    resolving.add(path);
+    let moduleRoot = root;
+    if (!moduleRoot) {
+      if (!loader) {
+        linkError(`link error: missing module loader for '${path}'`);
+        resolving.delete(path);
+        return;
+      }
+      const parsed = parseDocumentWithDiagnostics(loader.readSource(path), undefined, options.parseOptions);
+      diagnostics.push(...parsed.diagnostics);
+      moduleRoot = parsed.root;
+    }
+    if (imported && topLevelNodes(moduleRoot).some((node) => node.type === 'fn' && node.props?.name === 'main')) {
+      linkError(`link error: imported module '${path}' must not declare fn main`);
+    }
+    const module = { path, root: moduleRoot };
+    modules.set(path, module);
+    const exports = explicitCapabilityExports(moduleRoot);
+    for (const use of topLevelNodes(moduleRoot).filter((node) => node.type === 'use')) {
+      const rawPath = use.props?.path;
+      if (typeof rawPath !== 'string' || rawPath.trim() === '') {
+        linkError(`link error: use in '${path}' must declare path=`);
+        continue;
+      }
+      if (!loader) {
+        linkError(`link error: cannot resolve import '${rawPath}' from '${path}' without a module loader`);
+        continue;
+      }
+      const targetPath = loader.resolve(rawPath, { importer: path });
+      if (!targetPath) {
+        linkError(`link error: cannot resolve import '${rawPath}' from '${path}'`);
+        continue;
+      }
+      load(targetPath, undefined, true);
+      const target = modules.get(targetPath);
+      const targetExports = target ? explicitCapabilityExports(target.root).names : new Set<string>();
+      for (const child of use.children ?? []) {
+        if (child.type !== 'from') continue;
+        const name = child.props?.name;
+        if (typeof name !== 'string' || !targetExports.has(name)) {
+          linkError(`link error: module '${targetPath}' does not export '${String(name)}' imported by '${path}'`);
+        }
+      }
+    }
+    for (const name of exports.reexports) {
+      exports.names.add(name);
+    }
+    resolving.delete(path);
+  }
+
+  load(rootPath, rootResult.root, false);
+  return { roots: [...modules.values()], diagnostics, linkErrors };
+}
+
+function topLevelNodes(root: IRNode): readonly IRNode[] {
+  return root.type === 'document' ? (root.children ?? []) : [];
+}
+
+function explicitCapabilityExports(root: IRNode): { names: Set<string>; reexports: Set<string> } {
+  const names = new Set<string>();
+  const reexports = new Set<string>();
+  for (const node of topLevelNodes(root)) {
+    const name = node.props?.name;
+    if (typeof name === 'string' && (node.props?.export === true || node.props?.export === 'true')) names.add(name);
+    if (node.type !== 'use') continue;
+    for (const child of node.children ?? []) {
+      if (child.type !== 'from' || (child.props?.export !== true && child.props?.export !== 'true')) continue;
+      const imported = child.props?.name;
+      const local = typeof child.props?.as === 'string' && child.props.as !== '' ? child.props.as : imported;
+      if (typeof local === 'string') reexports.add(local);
+    }
+  }
+  return { names, reexports };
 }
 
 export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new Set();

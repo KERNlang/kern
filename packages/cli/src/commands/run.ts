@@ -40,7 +40,7 @@ import {
   type WebCryptoCapabilitySource,
 } from '@kernlang/core/runner';
 import { existsSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, relative, resolve, sep } from 'path';
 import { createCliAsyncFsCapability } from './run-async-fs.js';
 import {
   type CliAsyncOpenAICompatibleLlmCapabilityOptions,
@@ -90,6 +90,8 @@ export function executeKernSource(source: string, options: { sourcePath?: string
     parseOptions: NODE_PARSE_CAPS,
     capabilities,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
+    sourcePath: options.sourcePath,
+    moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
   });
 }
 
@@ -107,7 +109,7 @@ export async function executeKernSourceAsync(
   if (options.llmResponse !== undefined && options.llmProvider !== undefined) {
     throw new KernRunnerError('kern run --async-preview: --llm-response and --llm-provider are mutually exclusive.');
   }
-  const requiredCapabilities = sourceCapabilityRequirementIds(source);
+  const requiredCapabilities = sourceCapabilityRequirementIds(source, options.sourcePath);
   const sourceRequiresRagAnswer = requiredCapabilities.has('rag.answer');
   const sourceRequiresRagIngest = requiredCapabilities.has('rag.ingest');
   const sourceRequiresRagRetrieveAsync = requiredCapabilities.has('rag.retrieveAsync');
@@ -192,6 +194,8 @@ export async function executeKernSourceAsync(
     asyncCapabilities,
     providedAsyncCapabilities,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
+    sourcePath: options.sourcePath,
+    moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
   });
 }
 
@@ -322,6 +326,8 @@ export function analyzeRunCapabilities(
     parseOptions: NODE_PARSE_CAPS,
     providedCapabilities,
     providedAsyncCapabilities,
+    sourcePath: filePath,
+    moduleLoader: createRunModuleLoader(filePath),
   });
   const hasSyncCapabilityBlockers =
     analysis.hasParseErrors ||
@@ -387,6 +393,33 @@ function createRunCapabilities(source: string, sourcePath: string | undefined, r
       `kern run: capability setup failed (${err instanceof Error ? err.message : String(err)})`,
     );
   }
+}
+
+function createRunModuleLoader(entryPath: string) {
+  const rootDir = dirname(resolve(entryPath));
+  return {
+    resolve(specifier: string, context: { readonly importer: string }): string | null {
+      if (!specifier.startsWith('./') && !specifier.startsWith('../')) return null;
+      const withExt = specifier.endsWith('.kern') ? specifier : `${specifier}.kern`;
+      const candidate = resolve(dirname(context.importer), withExt);
+      if (!isInsideRunRoot(rootDir, candidate)) {
+        throw new KernRunnerError(`link error: import '${specifier}' from '${context.importer}' escapes '${rootDir}'`);
+      }
+      if (!existsSync(candidate)) return null;
+      return candidate;
+    },
+    readSource(canonicalPath: string): string {
+      if (!isInsideRunRoot(rootDir, canonicalPath)) {
+        throw new KernRunnerError(`link error: import '${canonicalPath}' escapes '${rootDir}'`);
+      }
+      return readFileSync(canonicalPath, 'utf-8');
+    },
+  };
+}
+
+function isInsideRunRoot(rootDir: string, candidate: string): boolean {
+  const rel = relative(rootDir, candidate);
+  return rel === '' || (!rel.startsWith('..') && !rel.startsWith(sep));
 }
 
 function cliCryptoSource(): WebCryptoCapabilitySource {
@@ -769,11 +802,13 @@ async function validateAsyncPreviewProviderFlags(options: {
   }
 }
 
-function sourceCapabilityRequirementIds(source: string): ReadonlySet<CapabilityId> {
+function sourceCapabilityRequirementIds(source: string, sourcePath?: string): ReadonlySet<CapabilityId> {
   return new Set(
-    analyzeKernSourceCapabilities(source, { parseOptions: NODE_PARSE_CAPS }).requirements.map(
-      (requirement) => requirement.id,
-    ),
+    analyzeKernSourceCapabilities(source, {
+      parseOptions: NODE_PARSE_CAPS,
+      sourcePath,
+      moduleLoader: sourcePath ? createRunModuleLoader(sourcePath) : undefined,
+    }).requirements.map((requirement) => requirement.id),
   );
 }
 
