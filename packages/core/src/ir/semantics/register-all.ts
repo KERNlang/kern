@@ -16,6 +16,7 @@
 import { _resetAssignContractForTest, registerAssignContract } from './assign.js';
 import { _resetBranchContractForTest, registerBranchContract } from './branch.js';
 import { _resetCapabilityContractForTest, registerCapabilityContract } from './capability.js';
+import { _resetDoContractForTest, registerDoContract } from './do.js';
 import { _resetEachContractForTest, registerEachContract } from './each.js';
 import { _resetExpressionV1ContractForTest, registerExpressionV1Contract } from './expression-v1.js';
 import { _resetFmtContractForTest, registerFmtContract } from './fmt.js';
@@ -38,6 +39,7 @@ export function registerAllContracts(): void {
   registerLambdaContract();
   registerLetContract();
   registerAssignContract();
+  registerDoContract();
   registerFmtContract();
   registerWhileContract();
   registerTryContract();
@@ -55,6 +57,7 @@ export function resetAllContractRegistration(): void {
   _resetLambdaContractForTest();
   _resetLetContractForTest();
   _resetAssignContractForTest();
+  _resetDoContractForTest();
   _resetFmtContractForTest();
   _resetWhileContractForTest();
   _resetTryContractForTest();

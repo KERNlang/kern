@@ -89,6 +89,28 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "do",
+      "forbiddenRewrites": [
+        "emit an {op:\"assign\"} trace event for push (the uninstrumented emitters produce none)",
+        "mutate the underlying array object in place instead of rebinding a new frozen value",
+        "treat a non-push discarded expression as a supported no-op",
+        "evaluate the pushed element more than once"
+      ],
+      "fixtureCount": 6,
+      "fixtureSamples": [
+        {
+          "description": "do: empty value is a no-op",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 0
+        },
+        {
+          "description": "do: push grows .length by one",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        }
+      ]
+    },
+    {
       "nodeType": "each",
       "forbiddenRewrites": [
         "hoist iteration binding out of body",

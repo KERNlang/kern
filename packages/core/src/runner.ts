@@ -182,6 +182,7 @@ const REQUIRED_RUNNER_CONTRACTS = [
   'assign',
   'branch',
   'capability',
+  'do',
   'each',
   'expression-v1',
   'fmt',
