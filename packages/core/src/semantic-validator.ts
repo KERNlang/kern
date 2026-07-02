@@ -41,6 +41,7 @@ import {
   ragMetadataFilterFromProps,
 } from './rag-metadata-filter.js';
 import { parseRagQueryTemplate } from './rag-query-template.js';
+import { isRegisteredExternalRagVectorStoreKind } from './rag-vector-store-registry.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -1746,12 +1747,18 @@ function validateRagVectorStore(vectorStore: RagVectorStoreInfo, violations: Sem
       vectorStore.node,
       'RAG vectorStore kind must be a non-empty adapter name.',
     );
-  } else if (kind !== undefined && !SUPPORTED_RAG_VECTOR_STORE_KINDS.includes(kind as RagVectorStoreKind)) {
+  } else if (
+    kind !== undefined &&
+    !SUPPORTED_RAG_VECTOR_STORE_KINDS.includes(kind as RagVectorStoreKind) &&
+    // Host-registered external adapter kinds (which passed the vector-store
+    // conformance suite at registration) are first-class store kinds.
+    !isRegisteredExternalRagVectorStoreKind(kind)
+  ) {
     pushRagViolation(
       violations,
       'rag-vector-store-kind-unsupported',
       vectorStore.node,
-      `RAG vectorStore kind '${kind}' is not supported by this runtime slice.`,
+      `RAG vectorStore kind '${kind}' is not supported by this runtime slice (built-in kinds: memory, local-persistent; external kinds require registerExternalRagVectorStoreAdapter).`,
     );
   }
 

@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { parseDocument } from './parser.js';
+import {
+  type RagVectorStoreAdapterContract,
+  type RagVectorStoreConformanceReport,
+  runRagVectorStoreConformance,
+} from './rag-adapter-conformance.js';
 import { inferRagAnswerGroundingSpansFromInlineCitations } from './rag-answer-citations.js';
 import {
   canonicalRagEmbedModel,
@@ -10,7 +15,13 @@ import {
   resolveAsyncRagEmbedderForModel,
   resolveSyncRagEmbedderForModel,
 } from './rag-embed-resolver.js';
-import { type AsyncEmbedder, AsyncEmbeddingRagIndex, type Embedder, EmbeddingRagIndex } from './rag-embedding.js';
+import {
+  type AsyncEmbedder,
+  AsyncEmbeddingRagIndex,
+  type Embedder,
+  EmbeddingRagIndex,
+  type RagVectorStoreAdapter,
+} from './rag-embedding.js';
 import { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
 import { ingestRagDeclaredLocalSources, type RagIngestResult } from './rag-ingest.js';
 import { cloneRagMetadataFilter } from './rag-metadata-filter.js';
@@ -26,6 +37,13 @@ import {
   type RetrieveOptions,
   type RetrieveResult,
 } from './rag-runtime.js';
+import {
+  BUILTIN_RUNTIME_RAG_VECTOR_STORE_KINDS,
+  isRegisteredExternalRagVectorStoreKind,
+  type RegisteredExternalRagVectorStoreAdapter,
+  registeredExternalRagVectorStoreAdapter,
+  unsafeSetRegisteredExternalRagVectorStoreAdapter,
+} from './rag-vector-store-registry.js';
 import type { RuntimeCapabilityProvider, RuntimeCapabilityValue } from './runner-capabilities.js';
 import {
   collectRagSemanticFacts,
@@ -64,7 +82,8 @@ export interface RagRetrieveIndexLifecycle {
   readonly indexName: string;
   readonly corpusName: string;
   readonly storeName: string;
-  readonly storeKind: 'memory' | 'local-persistent';
+  /** Built-in 'memory'/'local-persistent' or a host-registered external adapter kind. */
+  readonly storeKind: string;
   readonly chunkingName?: string;
   readonly status: RagRetrieveIndexLifecycleStatus;
   readonly chunkCount: number;
@@ -907,10 +926,154 @@ function stableCapabilityJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+export interface RegisterExternalRagVectorStoreAdapterOptions {
+  /** The `.kern` vectorStore kind= value this adapter serves (runner token grammar). */
+  readonly kind: string;
+  /** Adapter contract (manifest + sync createStore factory) to certify and register. */
+  readonly contract: RagVectorStoreAdapterContract;
+  /** Optional deterministic embedder override for the conformance run. */
+  readonly embedder?: Embedder;
+}
+
+/**
+ * Registers a host-supplied EXTERNAL vector-store adapter kind for the
+ * runtime ragRetrieve runner (KERN 5.2). Fail-closed at every step:
+ *
+ * - the kind must match the runner token grammar and must not shadow a
+ *   built-in kind (`memory`, `local-persistent`) or an existing registration;
+ * - the contract must provide a synchronous `createStore` factory (async
+ *   adapters are not accepted by the runtime retrieval slice yet);
+ * - the FULL vector-store conformance suite (rag-adapter-conformance.ts) is
+ *   run against the contract HERE, at registration time — an adapter that
+ *   fails any case is rejected and never becomes retrievable.
+ *
+ * On success the adapter kind becomes valid in `.kern` `vectorStore kind=`
+ * declarations for this process, and the passing conformance report is
+ * returned (and retained alongside the registration).
+ */
+export function registerExternalRagVectorStoreAdapter(
+  options: RegisterExternalRagVectorStoreAdapterOptions,
+): RagVectorStoreConformanceReport {
+  const kind = options.kind;
+  if (typeof kind !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(kind)) {
+    throw new Error(
+      `KERN RAG external vector-store adapter kind '${String(kind)}' must match the runner token grammar.`,
+    );
+  }
+  if ((BUILTIN_RUNTIME_RAG_VECTOR_STORE_KINDS as readonly string[]).includes(kind)) {
+    throw new Error(`KERN RAG external vector-store adapter kind '${kind}' shadows a built-in store kind.`);
+  }
+  if (isRegisteredExternalRagVectorStoreKind(kind)) {
+    throw new Error(
+      `KERN RAG external vector-store adapter kind '${kind}' is already registered; unregister it first to replace it.`,
+    );
+  }
+  const contract = options.contract;
+  if (typeof contract?.createStore !== 'function') {
+    throw new Error(
+      `KERN RAG external vector-store adapter kind '${kind}' requires a synchronous createStore factory; async adapters are not supported by the runtime retrieval slice yet.`,
+    );
+  }
+  const conformance = runRagVectorStoreConformance({
+    manifest: contract.manifest,
+    createStore: contract.createStore,
+    ...(options.embedder ? { embedder: options.embedder } : {}),
+    runId: `external-adapter-registration-${kind}`,
+  });
+  if (!conformance.passed) {
+    const failed = conformance.cases
+      .filter((entry) => entry.status === 'failed')
+      .map((entry) => (entry.message ? `${entry.name} (${entry.message})` : entry.name));
+    throw new Error(`KERN RAG external vector-store adapter kind '${kind}' failed conformance: ${failed.join('; ')}`);
+  }
+  unsafeSetRegisteredExternalRagVectorStoreAdapter({ kind, contract, conformance });
+  return conformance;
+}
+
+interface ExternalStoreEntry {
+  readonly fingerprint: string;
+  readonly store: RagVectorStoreAdapter;
+}
+
+function externalStoreFingerprint(
+  registered: RegisteredExternalRagVectorStoreAdapter,
+  vectorStore: RagSemanticVectorStoreFact,
+  index: RagSemanticIndexFact,
+  embedder: Pick<Embedder, 'dims' | 'id'>,
+  chunks: readonly RagChunkInput[],
+): string {
+  return sha256(
+    JSON.stringify({
+      version: 'kern-rag-external-adapter-retrieve-v1',
+      adapterKind: registered.kind,
+      adapterName: registered.contract.manifest.name,
+      adapterVersion: registered.contract.manifest.version,
+      corpusName: index.corpusName,
+      indexName: index.name,
+      chunkingName: index.chunkingName ?? '',
+      storeName: vectorStore.name,
+      embedderId: embedder.id,
+      dims: embedder.dims,
+      chunks: stableChunkDigest(chunks),
+    }),
+  );
+}
+
+function createExternalStoreEntry(
+  registered: RegisteredExternalRagVectorStoreAdapter,
+  vectorStore: RagSemanticVectorStoreFact,
+  index: RagSemanticIndexFact,
+  embedder: Pick<Embedder, 'dims' | 'id'>,
+  chunks: readonly RagChunkInput[],
+): ExternalStoreEntry {
+  const createStore = registered.contract.createStore;
+  if (typeof createStore !== 'function') {
+    throw new Error(`KERN RAG external vector-store adapter kind '${registered.kind}' lost its createStore factory.`);
+  }
+  const fingerprint = externalStoreFingerprint(registered, vectorStore, index, embedder, chunks);
+  const store = createStore({
+    fingerprint,
+    dims: embedder.dims,
+    namespace: vectorStore.namespace ?? index.name,
+  });
+  return { fingerprint, store };
+}
+
+function externalStoreCacheKey(
+  kind: string,
+  vectorStore: RagSemanticVectorStoreFact,
+  index: RagSemanticIndexFact,
+  embedder: Pick<Embedder, 'dims' | 'id'>,
+): string {
+  return JSON.stringify([
+    'external',
+    kind,
+    vectorStore.name,
+    index.corpusName,
+    index.chunkingName ?? '',
+    embedder.id,
+    embedder.dims,
+  ]);
+}
+
+function closeExternalStores(entries: Iterable<ExternalStoreEntry>): unknown {
+  let firstError: unknown;
+  for (const { store } of entries) {
+    try {
+      store.close();
+    } catch (error) {
+      firstError ??= error;
+    }
+  }
+  return firstError;
+}
+
 /**
  * Execute runtime ragRetrieve declarations over declared local sources.
  * The current synchronous path supports memory and local-persistent vector stores
- * over declared local sources. Provider vector stores remain future async work.
+ * over declared local sources, plus host-registered external adapter kinds
+ * that passed conformance registration. Provider vector stores remain future
+ * async work.
  */
 export function retrieveRagDocument(source: string, options: RagRetrieveDocumentOptions): RagRetrieveDocumentReport {
   const root = parseDocument(source);
@@ -931,6 +1094,7 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
     string,
     { readonly fingerprint: string; readonly store: LocalPersistentRagVectorStoreAdapter }
   >();
+  const externalStoreByKey = new Map<string, ExternalStoreEntry>();
   const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   let retrievals: RagRetrieveDocumentEntry[] = [];
   let retrievalError: unknown;
@@ -943,7 +1107,39 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
       const queryVectorByEmbedder = new Map<string, Float64Array>();
       const results = targets.map(({ index, embedder, vectorStore }) => {
         const corpusChunks = chunksForIndex(byIndexKey, index);
-        if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
+        const storeKind = vectorStore.kind ?? 'memory';
+        if (storeKind !== 'memory' && storeKind !== 'local-persistent') {
+          const registered = registeredExternalRagVectorStoreAdapter(storeKind);
+          if (!registered) {
+            throw new Error(
+              `KERN RAG vectorStore '${vectorStore.name}' kind='${storeKind}' is not a registered external adapter.`,
+            );
+          }
+          const cacheKey = externalStoreCacheKey(storeKind, vectorStore, index, embedder);
+          let entry = externalStoreByKey.get(cacheKey);
+          let status: RagRetrieveIndexLifecycleStatus = 'reused';
+          if (!entry) {
+            const created = createExternalStoreEntry(registered, vectorStore, index, embedder, corpusChunks);
+            created.store.upsertMany(
+              corpusChunks.map((chunk) => ({
+                chunk,
+                vector: embedder.embed(chunk.text),
+                fingerprint: created.fingerprint,
+              })),
+            );
+            externalStoreByKey.set(cacheKey, created);
+            entry = created;
+            status = 'indexed';
+          }
+          indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
+          return entry.store.search(
+            query,
+            cachedSyncQueryVector(queryVectorByEmbedder, embedder, query),
+            perIndexRetrieveOptions,
+            entry.fingerprint,
+          );
+        }
+        if (storeKind === 'local-persistent') {
           const config = localPersistentStoreConfig(vectorStore, index, embedder, corpusChunks, options.sourcePath);
           let entry = persistentStoreByKey.get(config.physicalKey);
           if (entry && entry.fingerprint !== config.fingerprint) {
@@ -1007,7 +1203,8 @@ export function retrieveRagDocument(source: string, options: RagRetrieveDocument
   } catch (error) {
     retrievalError = error;
   } finally {
-    closeError = closeLocalPersistentStores(persistentStoreByKey.values());
+    closeError =
+      closeLocalPersistentStores(persistentStoreByKey.values()) ?? closeExternalStores(externalStoreByKey.values());
   }
   if (retrievalError) {
     throw errorWithCloseError(retrievalError, closeError);
@@ -1037,6 +1234,7 @@ export async function retrieveRagDocumentAsync(
     string,
     { readonly fingerprint: string; readonly store: LocalPersistentRagVectorStoreAdapter }
   >();
+  const externalStoreByKey = new Map<string, ExternalStoreEntry>();
   const indexLifecycleByName = new Map<string, RagRetrieveIndexLifecycle>();
   const retrievals: RagRetrieveDocumentEntry[] = [];
   let retrievalError: unknown;
@@ -1050,7 +1248,50 @@ export async function retrieveRagDocumentAsync(
       const results: RetrieveResult[] = [];
       for (const { index, embedder, vectorStore } of targets) {
         const corpusChunks = chunksForIndex(byIndexKey, index);
-        if ((vectorStore.kind ?? 'memory') === 'local-persistent') {
+        const storeKind = vectorStore.kind ?? 'memory';
+        if (storeKind !== 'memory' && storeKind !== 'local-persistent') {
+          const registered = registeredExternalRagVectorStoreAdapter(storeKind);
+          if (!registered) {
+            throw new Error(
+              `KERN RAG vectorStore '${vectorStore.name}' kind='${storeKind}' is not a registered external adapter.`,
+            );
+          }
+          const cacheKey = externalStoreCacheKey(storeKind, vectorStore, index, embedder);
+          let entry = externalStoreByKey.get(cacheKey);
+          let status: RagRetrieveIndexLifecycleStatus = 'reused';
+          let queryVector: Float64Array;
+          try {
+            if (!entry) {
+              const created = createExternalStoreEntry(registered, vectorStore, index, embedder, corpusChunks);
+              const vectors = await embedManyForRetrieve(
+                embedder,
+                corpusChunks.map((chunk) => chunk.text),
+              );
+              if (vectors.length !== corpusChunks.length) {
+                throw new Error(
+                  `KERN async embedder returned ${vectors.length} vectors for ${corpusChunks.length} inputs.`,
+                );
+              }
+              created.store.upsertMany(
+                corpusChunks.map((chunk, chunkIndex) => ({
+                  chunk,
+                  vector: vectors[chunkIndex],
+                  fingerprint: created.fingerprint,
+                })),
+              );
+              externalStoreByKey.set(cacheKey, created);
+              entry = created;
+              status = 'indexed';
+            }
+            queryVector = await cachedAsyncQueryVector(queryVectorByEmbedder, embedder, query);
+          } catch (error) {
+            throw providerError(error, index, embedder);
+          }
+          indexLifecycleByName.set(index.name, indexLifecycleEntry(index, vectorStore, corpusChunks, status));
+          results.push(entry.store.search(query, queryVector, perIndexRetrieveOptions, entry.fingerprint));
+          continue;
+        }
+        if (storeKind === 'local-persistent') {
           const config = localPersistentStoreConfig(vectorStore, index, embedder, corpusChunks, options.sourcePath);
           let entry = persistentStoreByKey.get(config.physicalKey);
           if (entry && entry.fingerprint !== config.fingerprint) {
@@ -1121,7 +1362,8 @@ export async function retrieveRagDocumentAsync(
   } catch (error) {
     retrievalError = error;
   } finally {
-    closeError = closeLocalPersistentStores(persistentStoreByKey.values());
+    closeError =
+      closeLocalPersistentStores(persistentStoreByKey.values()) ?? closeExternalStores(externalStoreByKey.values());
   }
   if (retrievalError) {
     throw errorWithCloseError(retrievalError, closeError);
@@ -1157,9 +1399,13 @@ function prepareRuntimeRetrievals<TEmbedder extends Pick<Embedder, 'dims' | 'id'
           throw new Error(`KERN RAG runtime retrieval '${retrieval.name}' references missing vector store.`);
         }
         const vectorStoreKind = vectorStore.kind ?? 'memory';
-        if (vectorStoreKind !== 'memory' && vectorStoreKind !== 'local-persistent') {
+        if (
+          vectorStoreKind !== 'memory' &&
+          vectorStoreKind !== 'local-persistent' &&
+          !isRegisteredExternalRagVectorStoreKind(vectorStoreKind)
+        ) {
           throw new Error(
-            `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory and kind=local-persistent.`,
+            `KERN RAG runtime retrieval '${retrieval.name}' references vectorStore '${vectorStore.name}' kind='${vectorStoreKind}', but the ragRetrieve runner only supports kind=memory, kind=local-persistent, and host-registered external adapter kinds (registerExternalRagVectorStoreAdapter).`,
           );
         }
         return { index, embedder: embedderFor(index), vectorStore };
@@ -1235,7 +1481,7 @@ function indexLifecycleEntry(
     indexName: index.name,
     corpusName: index.corpusName,
     storeName: vectorStore.name,
-    storeKind: (vectorStore.kind ?? 'memory') as 'memory' | 'local-persistent',
+    storeKind: vectorStore.kind ?? 'memory',
     ...(index.chunkingName ? { chunkingName: index.chunkingName } : {}),
     status,
     chunkCount: chunks.length,

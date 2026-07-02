@@ -4,10 +4,15 @@ import { join } from 'node:path';
 
 import {
   type AsyncEmbedder,
+  createInMemoryRagVectorStoreForConformance,
+  defineRagVectorStoreAdapterContract,
   type Embedder,
   parseRetrievedChunkCitationProvenance,
+  type RagVectorStoreConformanceContext,
+  registerExternalRagVectorStoreAdapter,
   retrieveRagDocument,
   retrieveRagDocumentAsync,
+  unregisterExternalRagVectorStoreAdapter,
 } from '../src/index.js';
 import { createAsyncLocalRagRetrieveCapability, createLocalRagCapability } from '../src/rag-retrieve-runner.js';
 
@@ -1159,5 +1164,166 @@ describe('PROVENANCE NORMALIZATION: parseRetrievedChunkCitationProvenance (share
     expect(() => parseRetrievedChunkCitationProvenance({ citation: 'docs/refunds.md' as never }, 'chunks[0]')).toThrow(
       'chunks[0].citation must be a record.',
     );
+  });
+});
+
+describe('EXTERNAL VECTOR-STORE ADAPTERS: host-registered kinds gated by the conformance contract', () => {
+  const EXTERNAL_KIND = 'example-external-memory';
+  const EXTERNAL_DOC = DOC.replace(
+    'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+    `vectorStore name=DocsMemory kind=${EXTERNAL_KIND} dims=64 metric=cosine`,
+  );
+  // Manifest mirrors examples/rag-vector-store-adapter/adapter.mjs — the
+  // documented external-adapter authoring pattern this registration path is
+  // designed for.
+  const EXTERNAL_ADAPTER_MANIFEST = {
+    name: 'example-in-process-memory',
+    kind: 'vectorStore',
+    adapterKind: 'memory',
+    version: '1.0.0',
+    transport: 'in-process',
+    metrics: ['cosine'],
+    maxDimensions: 4096,
+    persistence: 'ephemeral',
+    capabilities: {
+      upsert: true,
+      upsertMany: true,
+      search: true,
+      snapshot: true,
+      clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
+    },
+  } as const;
+
+  function conformantContract() {
+    return defineRagVectorStoreAdapterContract({
+      manifest: EXTERNAL_ADAPTER_MANIFEST,
+      createStore: (context) => createInMemoryRagVectorStoreForConformance(context),
+    });
+  }
+
+  /** A subtly-broken adapter: its search ignores retrieve options (topK). */
+  function nonConformantContract() {
+    return defineRagVectorStoreAdapterContract({
+      manifest: EXTERNAL_ADAPTER_MANIFEST,
+      createStore(context: RagVectorStoreConformanceContext) {
+        const inner = createInMemoryRagVectorStoreForConformance(context);
+        return {
+          kind: inner.kind,
+          fingerprint: inner.fingerprint,
+          dims: inner.dims,
+          metric: inner.metric,
+          upsert: inner.upsert.bind(inner),
+          upsertMany: inner.upsertMany.bind(inner),
+          search(query, queryVector, _options, fingerprint) {
+            return inner.search(query, queryVector, {}, fingerprint);
+          },
+          snapshot: inner.snapshot.bind(inner),
+          clear: inner.clear.bind(inner),
+          close: inner.close.bind(inner),
+        };
+      },
+    });
+  }
+
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-rag-external-adapter-'));
+    mkdirSync(join(dir, 'docs'));
+    writeFileSync(join(dir, 'spec.kern'), EXTERNAL_DOC);
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+  });
+
+  afterEach(() => {
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('fails closed when the external kind is not registered', () => {
+    const report = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics.some((violation) => violation.message.includes(`kind '${EXTERNAL_KIND}'`))).toBe(true);
+    expect(
+      report.diagnostics.some((violation) => violation.message.includes('registerExternalRagVectorStoreAdapter')),
+    ).toBe(true);
+  });
+
+  test('rejects a non-conformant adapter at registration and stays deny-by-default', () => {
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: nonConformantContract() }),
+    ).toThrow(/failed conformance: .*topk-is-respected/u);
+
+    // The failed registration must not have registered anything.
+    const report = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('rejects builtin-shadowing, malformed, duplicate, and async-only registrations', () => {
+    expect(() => registerExternalRagVectorStoreAdapter({ kind: 'memory', contract: conformantContract() })).toThrow(
+      /shadows a built-in store kind/u,
+    );
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: 'not a token', contract: conformantContract() }),
+    ).toThrow(/runner token grammar/u);
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({
+        kind: EXTERNAL_KIND,
+        contract: {
+          manifest: EXTERNAL_ADAPTER_MANIFEST,
+          createStoreAsync: async (context) => {
+            throw new Error(`async adapter unsupported for ${context.namespace}`);
+          },
+        } as unknown as ReturnType<typeof conformantContract>,
+      }),
+    ).toThrow(/requires a synchronous createStore factory/u);
+
+    registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() });
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() }),
+    ).toThrow(/already registered/u);
+  });
+
+  test('a conformant registered adapter serves sync and async runtime retrieval', async () => {
+    const conformance = registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() });
+    expect(conformance.passed).toBe(true);
+
+    const syncReport = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(syncReport.diagnostics).toEqual([]);
+    expect(syncReport.indexes[0]).toEqual(
+      expect.objectContaining({ storeKind: EXTERNAL_KIND, status: 'indexed', chunkCount: 2 }),
+    );
+    expect(syncReport.retrievals[0]?.result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
+
+    const asyncReport = await retrieveRagDocumentAsync(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(asyncReport.diagnostics).toEqual([]);
+    expect(asyncReport.indexes[0]).toEqual(expect.objectContaining({ storeKind: EXTERNAL_KIND, status: 'indexed' }));
+    expect(asyncReport.retrievals[0]?.result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
+
+    // Unregistering restores deny-by-default for the same source.
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    const deniedReport = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(deniedReport.retrievals).toEqual([]);
+    expect(deniedReport.diagnostics.length).toBeGreaterThanOrEqual(1);
   });
 });

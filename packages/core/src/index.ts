@@ -825,11 +825,13 @@ export type {
   RagRetrieveDocumentReport,
   RagRetrieveIndexLifecycle,
   RagRetrieveIndexLifecycleStatus,
+  RegisterExternalRagVectorStoreAdapterOptions,
   RetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export {
   parseRetrievedChunkCitationProvenance,
   ragRetrieveCorpusSourceSummary,
+  registerExternalRagVectorStoreAdapter,
   retrieveRagDocument,
   retrieveRagDocumentAsync,
   toRetrievedChunkCapabilityValue,
@@ -884,6 +886,12 @@ export {
   tokenizeForRetrieval,
   withRagRuntimeProvenance,
 } from './rag-runtime.js';
+export type { RegisteredExternalRagVectorStoreAdapter } from './rag-vector-store-registry.js';
+export {
+  isRegisteredExternalRagVectorStoreKind,
+  registeredExternalRagVectorStoreKinds,
+  unregisterExternalRagVectorStoreAdapter,
+} from './rag-vector-store-registry.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';
