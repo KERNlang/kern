@@ -2186,6 +2186,24 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       if (arg.kind === 'ident' && arg.name === 'Error') {
         return 'Exception()';
       }
+      // Milestone 5.1b — `new Map()` (EMPTY constructor only) → Python `dict()`.
+      // Without this, `new Map()` fell through to the generic `arg` emit path
+      // below and produced a bare, undefined `Map()` call (Python has no
+      // global `Map`) — a real pre-existing gap, closed here because the new
+      // Map.get/has/set stdlib slice needs a working Python-side constructor
+      // to be reachable at all. A non-empty form (`new Map([[k,v],...])`)
+      // still falls through unmapped (unsupported, not this slice's scope).
+      // Honors user shadowing via `isProvenUserBinding`, same as the RegExp
+      // guard just below.
+      if (
+        arg.kind === 'call' &&
+        arg.callee.kind === 'ident' &&
+        arg.callee.name === 'Map' &&
+        arg.args.length === 0 &&
+        !isProvenUserBinding(ctx, 'Map')
+      ) {
+        return 'dict()';
+      }
       // Slice 2 — `new RegExp(p)` (with or without parens) fails-close BEFORE the
       // fall-through, with the shared regex message (the TS emitter + IR-validate
       // throw the same string). Without this the Python `new` case falls through

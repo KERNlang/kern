@@ -35,6 +35,7 @@ import {
   type RunnerModuleScope,
   type SemanticEnv,
 } from './index.js';
+import { evalMapReadCall } from './portable-map.js';
 import { referenceRunSequence } from './reference-runner.js';
 
 export type PortableScalar = string | number | boolean | null;
@@ -521,6 +522,10 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
         const val = evalPortableValue(node.args[0], env);
         return coerceToString(val);
       }
+      const listLengthScalar = evalListLengthNamespaceCall(node, env);
+      if (listLengthScalar !== undefined) return listLengthScalar;
+      const mapReadScalar = evalMapReadCall(node, env);
+      if (mapReadScalar !== undefined) return mapReadScalar;
       if (node.callee.kind === 'ident') return evalRunnerFunctionCall(node.callee.name, node.args, env);
       throw new Error('portable: unsupported non-identifier call');
     }
@@ -1066,6 +1071,32 @@ function cloneRunnerClassFieldValue(value: unknown): unknown {
 function restoreRunnerClassFields(target: Record<string, unknown>, snapshot: Record<string, unknown>): void {
   for (const key of Object.keys(target)) delete target[key];
   for (const [key, value] of Object.entries(snapshot)) target[key] = cloneRunnerClassFieldValue(value);
+}
+
+/**
+ * Milestone 5.1b — `List.length(xs)`, the KERN-stdlib NAMESPACE-CALL form of
+ * the SAME operation the `member` case already certifies as `xs.length`
+ * (see kern-stdlib.ts's `List.length` lowering: `ts: '$0.length'`,
+ * `py: 'len($0)'`). Returns `undefined` when `node` is not this exact shape
+ * (so the caller falls through to the generic call path); throws on a
+ * recognized-but-invalid shape (wrong arity, non-ident/non-array receiver) so
+ * the runner abstains atomically. Gated on `List` being UNSHADOWED, mirroring
+ * the Decimal/Map namespace-call precedent.
+ */
+function evalListLengthNamespaceCall(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv): number | undefined {
+  if (node.optional) return undefined;
+  const callee = node.callee;
+  if (callee.kind !== 'member' || callee.optional || callee.property !== 'length') return undefined;
+  if (callee.object.kind !== 'ident' || callee.object.name !== 'List' || hasBinding(env, 'List')) return undefined;
+  if (node.args.length !== 1) throw new Error('portable: List.length expects exactly 1 argument');
+  const arrayArg = node.args[0];
+  if (!isValueIR(arrayArg) || arrayArg.kind !== 'ident' || !isPortableBindingName(arrayArg.name)) {
+    throw new Error('portable: List.length argument must be a bare array-binding identifier');
+  }
+  if (!hasBinding(env, arrayArg.name)) throw new Error(`portable: binding "${arrayArg.name}" not found`);
+  const arrayValue = getBinding(env, arrayArg.name);
+  if (!Array.isArray(arrayValue)) throw new Error(`portable: "${arrayArg.name}" is not an array binding`);
+  return arrayValue.length;
 }
 
 function runnerFunctionsForEnv(env: SemanticEnv): Map<string, RunnerFunctionBinding> | undefined {

@@ -25,17 +25,25 @@
  * Executable surface is exactly what the runner certifies today: print / let /
  * assign / for / if / while / each / return / portable arithmetic / portable
  * array-literal binding / literal in-bounds array index reads / array `.length`
- * (value AND as a for-range bound) / for-counter dynamic index reads (`xs[i]`) /
- * flat record-literal binding and scalar dot-field reads / same-file pure
- * KERN function calls returning portable scalars / branch path/default dispatch /
- * fmt interpolation bindings / explicit `throw new Error("...")` inside
- * try/catch/finally with caught `.message` reads / explicit runner capability
- * calls. The CLI path provides local RAG retrieval, volatile in-run storage, and
- * browser-safe crypto today; other host capabilities still fail closed.
+ * (value AND as a for-range bound) / dynamic index reads by a for-counter OR
+ * `+`/`-` arithmetic between provenanced operands (`xs[i]`, `xs[i + 1]`) /
+ * array append (`do value="xs.push(...)"`, functional rebind, no synthetic
+ * trace event) / `List.length`, `new Map()`, `Map.get`/`Map.has`/`Map.set`
+ * from the KERN-stdlib lowering table (milestone 5.1b) / flat record-literal
+ * binding and scalar dot-field reads / same-file pure KERN function calls
+ * returning portable scalars, INCLUDING same-file recursion (direct or
+ * mutual) up to an explicit 512-deep call limit / branch path/default
+ * dispatch / fmt interpolation bindings / explicit `throw new Error("...")`
+ * inside try/catch/finally with caught `.message` reads / explicit runner
+ * capability calls. The CLI path provides local RAG retrieval, volatile
+ * in-run storage, and browser-safe crypto today; other host capabilities
+ * still fail closed.
  * Constructs the runner does not yet execute over PRODUCTION IR (whole-array /
- * whole-record rendering, nested or dynamic records, NON-counter dynamic index
- * reads, arithmetic-on-counter index, string `.length`, non-canonical throws,
- * recursive or side-effecting helper calls) ABSTAIN -> exit 2.
+ * whole-record rendering, nested or dynamic records, `*`/`/`/`%`/unary
+ * arithmetic index expressions, non-empty `new Map(...)` construction,
+ * non-string Map keys, string `.length` and other string ops,
+ * non-canonical throws, and recursion past the 512-deep call limit) ABSTAIN
+ * -> exit 2.
  *
  * Every expected stdout byte below was verified empirically against the built
  * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
@@ -886,6 +894,91 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     );
 
     expect(stdout).toBe('true\nunit\n2\n');
+  });
+});
+
+// ── Milestone 5.1b — self-hosting blockers lifted from the reference runner:
+// recursive helper calls (explicit depth limit), dynamic array index
+// arithmetic, array append (`do` + `.push`), and List.length/Map.get/has/set
+// from the KERN-stdlib lowering table. ─────────────────────────────────────
+describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib', () => {
+  test('a self-recursive helper with a base case computes factorial(5)', () => {
+    const source = [
+      'fn name=factorial params="n:number" returns=number',
+      '  handler lang="kern"',
+      '    if cond="n <= 1"',
+      '      return value="1"',
+      '    return value="n * factorial(n - 1)"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="factorial(5)"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.stdout).toBe('120\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('unbounded mutual recursion with no base case fails closed at the depth limit (exit 2, no stdout)', () => {
+    const source = [
+      'fn name=a returns=number',
+      '  handler lang="kern"',
+      '    return value="b()"',
+      'fn name=b returns=number',
+      '  handler lang="kern"',
+      '    return value="a()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="a()"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr.length).toBeGreaterThan(0);
+  });
+
+  test('dynamic array index reads accept +/- arithmetic on a loop counter', () => {
+    const r = runProgram([
+      'let name=xs value="[10,20,30]"',
+      'for name=i from="0" to="2"',
+      '  print value="xs[i + 1]"',
+    ]);
+    expect(r.stdout).toBe('20\n30\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('`*` arithmetic on a counter still abstains (exit 2, no stdout)', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'for name=i from="0" to="2"', '  print value="xs[i * 1]"']);
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  test('array append via `do value="xs.push(...)"` builds a result list across a loop', () => {
+    const r = runProgram([
+      'let name=results value="[]"',
+      'for name=i from="0" to="3"',
+      '  do value="results.push(i * 2)"',
+      'print value="results.length"',
+      'print value="results[0]"',
+      'print value="results[2]"',
+    ]);
+    expect(r.stdout).toBe('3\n0\n4\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('List.length + new Map()/Map.set/Map.get/Map.has execute natively', () => {
+    const r = runProgram([
+      'let name=xs value="[1,2,3]"',
+      'print value="List.length(xs)"',
+      'let name=m value="new Map()"',
+      'do value="Map.set(m, \\"a\\", 1)"',
+      'print value="Map.get(m, \\"a\\")"',
+      'print value="Map.has(m, \\"a\\")"',
+      'print value="Map.has(m, \\"missing\\")"',
+    ]);
+    expect(r.stdout).toBe('3\n1\ntrue\nfalse\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
   });
 });
 
@@ -2369,10 +2462,20 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('an arithmetic index abstains (only bare safe-integer literals certify)', () => {
-    // `1 + 1` is in-bounds but computed indices abstain: integer `%` diverges by
-    // sign and `+/-/*` can overflow 2^53 (JS rounds, Python is exact).
+  // Milestone 5.1b — `+`/`-` between two safe-integer literals now certifies
+  // (see isIntProvenancedExpr's exact-IEEE-754 no-divergence argument in
+  // portable-scalar.ts). This test used to assert `xs[1 + 1]` abstained; `*`
+  // stays out of the provenanced-arithmetic domain and still abstains.
+  test('ARITHMETIC (+) between two literals now certifies: `xs[1 + 1]`', () => {
     const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[1 + 1]"']);
+    expect(r.stdout).toBe('30\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('MULTIPLICATION index still abstains (`*` is excluded from the arithmetic domain)', () => {
+    // integer `%` diverges by sign and `*`/`/` are excluded from
+    // isIntProvenancedExpr; only `+`/`-` are proven divergence-free.
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[1 * 2]"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
@@ -2451,10 +2554,13 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('ARITHMETIC on a for-counter index (`xs[i + 1]`) abstains (out of slice)', () => {
+  // Milestone 5.1b — `xs[i + 1]` (a for-counter plus a literal offset) now
+  // certifies; this was the exact restriction the task lifts. `*` on the
+  // counter is covered separately above and still abstains.
+  test('ARITHMETIC (+) on a for-counter index (`xs[i + 1]`) now certifies', () => {
     const r = runProgram(['let name=xs value="[10,20,30]"', 'for name=i from="0" to="2"', '  print value="xs[i + 1]"']);
-    expect(r.stdout).toBe('');
-    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('20\n30\n');
+    expect(r.status).toBe(0);
   });
 
   test('a NON-counter (plain let) index abstains even when in-bounds', () => {

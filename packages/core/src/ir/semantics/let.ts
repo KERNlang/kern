@@ -46,6 +46,7 @@ import {
   type SemanticEnv,
 } from './index.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
+import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
   assertRunnerPortableValue,
   evalPortableValue,
@@ -84,6 +85,12 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
       evalRecordLiteralValue(parsed, env);
       return true;
     }
+    // Milestone 5.1b — `new Map()` (empty-map construction only; see
+    // portable-map.ts) must be checked BEFORE the generic class-new branch,
+    // which would otherwise reject Map as an unknown runner class.
+    if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
+      return true;
+    }
     if (parsed.kind === 'new') {
       evalRunnerClassNewValue(parsed, env);
       return true;
@@ -112,18 +119,20 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
     ? evalArrayLiteralValue(parsed, env)
     : isRecordLiteralExpression(parsed)
       ? evalRecordLiteralValue(parsed, env)
-      : parsed.kind === 'new'
-        ? evalRunnerClassNewValue(parsed, env)
-        : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
-          ? evalRunnerFunctionValue(parsed.callee.name, parsed.args, env)
-          : parsed.kind === 'ident' && hasBinding(env, parsed.name)
-            ? (() => {
-                const binding = getBinding(env, parsed.name);
-                return isRunnerClassInstanceValue(binding)
-                  ? binding
-                  : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
-              })()
-            : evalPortableValue(parsed, env);
+      : parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)
+        ? new Map<string, unknown>()
+        : parsed.kind === 'new'
+          ? evalRunnerClassNewValue(parsed, env)
+          : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
+            ? evalRunnerFunctionValue(parsed.callee.name, parsed.args, env)
+            : parsed.kind === 'ident' && hasBinding(env, parsed.name)
+              ? (() => {
+                  const binding = getBinding(env, parsed.name);
+                  return isRunnerClassInstanceValue(binding)
+                    ? binding
+                    : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+                })()
+              : evalPortableValue(parsed, env);
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }

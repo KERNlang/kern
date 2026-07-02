@@ -1357,6 +1357,57 @@ describe('@kernlang/core/runner source executor', () => {
     ).toThrow(KernRunnerError);
   });
 
+  test('appends to an array with `do value="xs.push(...)"` and reads the result back', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=xs value="[1,2]"',
+        'do value="xs.push(3)"',
+        'print value="xs[2]"',
+        'print value="xs.length"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n3\n');
+  });
+
+  test('builds a result list across a loop via repeated `do value="xs.push(...)"`', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=results value="[]"',
+        'for name=i from="0" to="3"',
+        '  do value="results.push(i * 2)"',
+        'print value="results[0]"',
+        'print value="results[1]"',
+        'print value="results[2]"',
+        'print value="results.length"',
+      ]),
+    );
+
+    expect(stdout).toBe('0\n2\n4\n3\n');
+  });
+
+  test('fails closed pushing onto a non-array binding', () => {
+    expect(() =>
+      executeKernSource(mainProgram(['let name=n value="1"', 'do value="n.push(1)"', 'print value="1"'])),
+    ).toThrow(KernRunnerError);
+  });
+
+  test('reads List.length(xs) and builds/reads a Map via new Map()/Map.set/Map.get/Map.has', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=xs value="[10,20,30]"',
+        'print value="List.length(xs)"',
+        'let name=m value="new Map()"',
+        'do value="Map.set(m, \\"a\\", 1)"',
+        'print value="Map.get(m, \\"a\\")"',
+        'print value="Map.has(m, \\"a\\")"',
+        'print value="Map.has(m, \\"missing\\")"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n1\ntrue\nfalse\n');
+  });
+
   test('rejects runner functions that produce side effects', () => {
     expect(() =>
       executeKernSource(

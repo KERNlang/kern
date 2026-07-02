@@ -17,22 +17,24 @@
  * indistinguishable from a real in-place mutation for every reachable
  * observation, because no alias of the container can ever exist.
  *
- * Exactly one shape certifies:
- *   Array append:  `<arrayIdent>.push(<elementExpr>)`
- * (A second shape, `Map.set(<mapIdent>, <keyExpr>, <valueExpr>)`, is added by
- * the stdlib slice that follows — see `portable-map.ts`.) Everything else —
- * including an EMPTY/absent `value=` (matching the emitters' genuine no-op) —
- * either no-ops or abstains; there is no general "arbitrary discarded
- * expression" support here.
+ * Exactly two shapes certify:
+ *   1. Array append:  `<arrayIdent>.push(<elementExpr>)`
+ *   2. Map set:       `Map.set(<mapIdent>, <keyExpr>, <valueExpr>)`
+ * (see `portable-map.ts` for the Map value domain — construction, string
+ * keys, portable-scalar values). Everything else — including an
+ * EMPTY/absent `value=` (matching the emitters' genuine no-op) — either
+ * no-ops or abstains; there is no general "arbitrary discarded expression"
+ * support here.
  *
  * Observability: neither shape emits an `{op:'assign'}` trace event. This
  * matches the UNINSTRUMENTED TS/Python emitters exactly — a bare
- * `arr.push(x);` / `arr.append(x)` statement produces no observable trace
- * hook of its own; the mutation is only observable through a LATER read
+ * `arr.push(x);` / `arr.append(x)` (and, for Map.set, `m.set(k, v);` /
+ * `m.__setitem__(k, v)`) statement produces no observable trace hook of its
+ * own; the mutation is only observable through a LATER read
  * (print/return/index) of the container. Emitting a synthetic `assign` event
  * here would create a reference-vs-TS-leg trace mismatch in the differential
  * harness (see `ts-leg.ts`'s `shouldTraceLetAssign`, which does NOT include
- * `do`/`push` — the LET SETUP inside a `do` fixture still needs
+ * `do`/`push`/`Map.set` — the LET SETUP inside a `do` fixture still needs
  * `__semanticContract: 'do'` so the surrounding declarations trace correctly).
  */
 
@@ -48,6 +50,7 @@ import {
   type SemanticEnv,
 } from './index.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression, type PortableArrayElement } from './portable-array.js';
+import { resolveMapSetCall } from './portable-map.js';
 import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
 import { parseExpression } from '../../parser-expression.js';
 import { emptyTrace, type Trace } from './trace.js';
@@ -70,7 +73,13 @@ interface ResolvedPush {
   readonly newArray: readonly PortableArrayElement[];
 }
 
-type ResolvedDo = { readonly kind: 'noop' } | ResolvedPush;
+interface ResolvedMapSet {
+  readonly kind: 'map-set';
+  readonly targetName: string;
+  readonly newMap: ReadonlyMap<string, unknown>;
+}
+
+type ResolvedDo = { readonly kind: 'noop' } | ResolvedPush | ResolvedMapSet;
 
 /**
  * Pure resolution shared by preconditions and effects — never mutates `env`.
@@ -81,16 +90,20 @@ function resolveDo(ir: IRNode, env: SemanticEnv): ResolvedDo {
   const props = asDoProps(ir);
   if (isEmptyDoValue(props)) return { kind: 'noop' };
   const parsed = parseExpression(String(props.value));
-  const pushTarget = pushCallTarget(parsed);
-  if (pushTarget) {
-    const { targetName, elementExpr } = pushTarget;
-    if (!hasBinding(env, targetName)) throw new Error(`do: binding "${targetName}" not found`);
-    const current = getBinding(env, targetName);
-    if (!Array.isArray(current)) throw new Error(`do: "${targetName}.push(...)" requires an array binding`);
-    const element = evalPortableArrayElement(elementExpr, env);
-    return { kind: 'push', targetName, newArray: Object.freeze([...current, element]) };
+  if (parsed.kind === 'call') {
+    const pushTarget = pushCallTarget(parsed);
+    if (pushTarget) {
+      const { targetName, elementExpr } = pushTarget;
+      if (!hasBinding(env, targetName)) throw new Error(`do: binding "${targetName}" not found`);
+      const current = getBinding(env, targetName);
+      if (!Array.isArray(current)) throw new Error(`do: "${targetName}.push(...)" requires an array binding`);
+      const element = evalPortableArrayElement(elementExpr, env);
+      return { kind: 'push', targetName, newArray: Object.freeze([...current, element]) };
+    }
+    const mapSet = resolveMapSetCall(parsed, env);
+    if (mapSet) return { kind: 'map-set', targetName: mapSet.targetName, newMap: mapSet.newMap };
   }
-  throw new Error('do: only "<array>.push(<element>)" is supported');
+  throw new Error('do: only "<array>.push(<element>)" and "Map.set(<map>, <key>, <value>)" are supported');
 }
 
 /** True + the receiver/argument shape iff `node` is `<bareIdent>.push(<expr>)`
@@ -124,7 +137,11 @@ function doPreconditions(ir: IRNode, env: SemanticEnv): boolean {
 function doEffects(ir: IRNode, env: SemanticEnv): Trace {
   const resolved = resolveDo(ir, env);
   if (resolved.kind === 'noop') return emptyTrace();
-  assignBinding(env, resolved.targetName, resolved.newArray);
+  if (resolved.kind === 'push') {
+    assignBinding(env, resolved.targetName, resolved.newArray);
+    return emptyTrace();
+  }
+  assignBinding(env, resolved.targetName, resolved.newMap);
   return emptyTrace();
 }
 
@@ -133,10 +150,10 @@ function doCompletion(ir: IRNode, env: SemanticEnv) {
 }
 
 const FORBIDDEN_REWRITES: readonly string[] = Object.freeze([
-  'emit an {op:"assign"} trace event for push (the uninstrumented emitters produce none)',
-  'mutate the underlying array object in place instead of rebinding a new frozen value',
-  'treat a non-push discarded expression as a supported no-op',
-  'evaluate the pushed element more than once',
+  'emit an {op:"assign"} trace event for push/Map.set (the uninstrumented emitters produce none)',
+  'mutate the underlying array/map object in place instead of rebinding a new frozen value',
+  'treat a non-push/non-Map.set discarded expression as a supported no-op',
+  'evaluate the pushed element / map key / map value more than once',
 ]);
 
 function fixture(
@@ -187,8 +204,8 @@ function fixture(
  */
 function doFixture(
   description: string,
-  initialArray: unknown[],
-  arrayName: string,
+  containerName: string,
+  initialValue: unknown,
   probeInit: string,
   doNode: IRNode,
   probeExpr: string,
@@ -200,7 +217,7 @@ function doFixture(
   return {
     description,
     ir: { type: '__block', props: { __semanticContract: 'do' }, children: [probe, doNode, readBack] },
-    env: { bindings: new Map([[arrayName, initialArray]]) },
+    env: { bindings: new Map([[containerName, initialValue]]) },
     expected: {
       events: [
         { op: 'assign', target: probeName, value: JSON.parse(probeInit) },
@@ -215,12 +232,16 @@ function doPush(target: string, value: string): IRNode {
   return { type: 'do', props: { value: `${target}.push(${value})` } };
 }
 
+function doMapSet(target: string, key: string, value: string): IRNode {
+  return { type: 'do', props: { value: `Map.set(${target}, ${key}, ${value})` } };
+}
+
 const FIXTURES: readonly NodeFixture[] = Object.freeze([
   fixture('do: empty value is a no-op', { type: 'do', props: {} }, undefined),
   doFixture(
     'do: array push appends one element, observable on the NEXT index read',
-    [1, 2],
     'xs',
+    [1, 2],
     '0',
     doPush('xs', '3'),
     'xs[2]',
@@ -229,26 +250,75 @@ const FIXTURES: readonly NodeFixture[] = Object.freeze([
   ),
   doFixture(
     'do: push does not disturb existing elements',
-    [10, 20],
     'xs',
+    [10, 20],
     '0',
     doPush('xs', '30'),
     'xs[0]',
     'probe',
     10,
   ),
-  doFixture('do: push grows .length by one', [1], 'xs', '0', doPush('xs', '2'), 'xs.length', 'probe', 2),
+  doFixture('do: push grows .length by one', 'xs', [1], '0', doPush('xs', '2'), 'xs.length', 'probe', 2),
   doFixture(
     'do: pushing onto an empty array yields a single-element array',
-    [],
     'xs',
+    [],
     '0',
     doPush('xs', '1'),
     'xs[0]',
     'probe',
     1,
   ),
-  doFixture('do: push accepts a nested array-literal element', [], 'rows', '0', doPush('rows', '[1,2]'), 'rows.length', 'probe', 1),
+  doFixture(
+    'do: push accepts a nested array-literal element',
+    'rows',
+    [],
+    '0',
+    doPush('rows', '[1,2]'),
+    'rows.length',
+    'probe',
+    1,
+  ),
+  doFixture(
+    'do: Map.set adds a new key, observable via Map.get',
+    'm',
+    new Map<string, unknown>(),
+    '0',
+    doMapSet('m', '"a"', '1'),
+    'Map.get(m, "a")',
+    'probe',
+    1,
+  ),
+  doFixture(
+    'do: Map.set does not disturb an existing key',
+    'm',
+    new Map<string, unknown>([['a', 1]]),
+    '0',
+    doMapSet('m', '"b"', '2'),
+    'Map.get(m, "a")',
+    'probe',
+    1,
+  ),
+  doFixture(
+    'do: Map.set overwrites an existing key',
+    'm',
+    new Map<string, unknown>([['a', 1]]),
+    '0',
+    doMapSet('m', '"a"', '2'),
+    'Map.get(m, "a")',
+    'probe',
+    2,
+  ),
+  doFixture(
+    'do: Map.set makes Map.has true for the new key',
+    'm',
+    new Map<string, unknown>(),
+    'false',
+    doMapSet('m', '"a"', '1'),
+    'Map.has(m, "a")',
+    'probe',
+    true,
+  ),
 ]);
 
 export const doContract: NodeContract = {

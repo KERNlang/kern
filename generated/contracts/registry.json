@@ -91,12 +91,12 @@
     {
       "nodeType": "do",
       "forbiddenRewrites": [
-        "emit an {op:\"assign\"} trace event for push (the uninstrumented emitters produce none)",
-        "mutate the underlying array object in place instead of rebinding a new frozen value",
-        "treat a non-push discarded expression as a supported no-op",
-        "evaluate the pushed element more than once"
+        "emit an {op:\"assign\"} trace event for push/Map.set (the uninstrumented emitters produce none)",
+        "mutate the underlying array/map object in place instead of rebinding a new frozen value",
+        "treat a non-push/non-Map.set discarded expression as a supported no-op",
+        "evaluate the pushed element / map key / map value more than once"
       ],
-      "fixtureCount": 6,
+      "fixtureCount": 10,
       "fixtureSamples": [
         {
           "description": "do: empty value is a no-op",
@@ -104,7 +104,7 @@
           "expectedEventCount": 0
         },
         {
-          "description": "do: push grows .length by one",
+          "description": "do: push accepts a nested array-literal element",
           "expectedCompletionKind": "normal",
           "expectedEventCount": 2
         }

@@ -35,10 +35,24 @@ The preview surface is the documented, tested subset used by the smoke gate:
   plus normal `finally` cleanup and caught-error `.message` reads
 - portable scalar arithmetic, comparison, booleans, strings, and null
 - portable array-literal binding, including nested array literals for iteration,
-  plus in-bounds literal array index reads
+  plus in-bounds array index reads by a bare safe-integer literal, an
+  integer-provenanced `for` counter, or `+`/`-` arithmetic recursively
+  combining such operands (`xs[i + 1]`, `xs[1 + 1]`) — `*`, `/`, `%`, and
+  unary stay outside the provenanced-arithmetic domain
+- array append via `do value="<arrayIdent>.push(<elementExpr>)"` (a
+  functional rebind of the target identifier to a new array; no synthetic
+  trace event, matching the uninstrumented TS/Python emitters)
+- `List.length(xs)` (the namespace-call form of `xs.length`), `new Map()`
+  (empty-map construction only), and `Map.get`/`Map.has`/`Map.set` over
+  string keys and portable-scalar values (`Map.set` only inside `do`,
+  the same functional-rebind mutation model as array append; `Map.get` on a
+  missing key fails closed — use `Map.has` to probe first)
 - flat record-literal binding with scalar dot-field reads
 - pure KERN helper functions returning portable scalars, including explicit
-  `use path="..."` imports from host-resolved `.kern` modules
+  `use path="..."` imports from host-resolved `.kern` modules, and same-file
+  RECURSION (direct self-calls and mutual/indirect cycles) up to an explicit
+  512-deep call limit — unbounded recursion with no base case still fails
+  closed once it exceeds the limit
 - runner-native classes, including explicit imports of exported classes through
   `use` / `from`
 - explicit `capability namespace=... operation=...` calls when an embedder
@@ -133,12 +147,15 @@ The preview surface is the documented, tested subset used by the smoke gate:
 Anything outside this surface is not a runtime promise until it has a contract,
 three-leg parity coverage where applicable, and a native runner test. Current
 known exclusions include whole-array / whole-record rendering, nested or dynamic
-records, non-counter dynamic array indices, arithmetic-on-counter array indices,
-string `.length`, non-canonical throws, recursive helper calls, side-effecting
-helper calls, implicit host globals, non-RAG/non-storage/non-crypto CLI host
-capabilities, provider-backed async RAG retrieval, async capability calls inside
-streams, async helper calls from unsupported expression positions, and broad
-async control flow.
+records, `*`/`/`/`%`/unary array-index arithmetic (only `+`/`-` between
+provenanced operands is proven divergence-free), non-empty `new Map(...)`
+construction (only the empty `new Map()` form is supported), non-string Map
+keys and non-scalar Map values, recursion past the explicit 512-deep call
+limit, string `.length` and other string operations, non-canonical throws,
+side-effecting helper calls, implicit host globals, non-RAG/non-storage/non-crypto
+CLI host capabilities, provider-backed async RAG retrieval, async capability
+calls inside streams, async helper calls from unsupported expression
+positions, and broad async control flow.
 
 ## Phase 0 Gate
 
