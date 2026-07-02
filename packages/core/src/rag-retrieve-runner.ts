@@ -801,6 +801,10 @@ function optionalStringCapabilityField(
 function ragPromptContextCapabilityValue(context: RagPromptContext): RagPromptContextCapabilityValue {
   return {
     text: context.text,
+    // Injection resistance (KERN 5.2 promotion hardening): `.kern` source
+    // composing an llm.complete prompt from retrieved chunks should read
+    // context.safeText, not context.text — see RagPromptContext.safeText.
+    safeText: context.safeText,
     includedCount: context.includedCount,
     omittedCount: context.omittedCount,
     truncated: context.truncated,
