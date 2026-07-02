@@ -459,9 +459,9 @@ function linkRunnerModules(source: string, options: ExecuteKernSourceOptions): L
   const resolving = new Set<string>();
 
   const load = (path: string, moduleSource: string | undefined, isRoot: boolean): LinkedModuleRecord => {
+    if (resolving.has(path)) throw new KernRunnerError(`link error: import cycle involving '${path}'`);
     const existing = records.get(path);
     if (existing) return existing;
-    if (resolving.has(path)) throw new KernRunnerError(`link error: import cycle involving '${path}'`);
     resolving.add(path);
     const moduleRoot = moduleSource === undefined ? parseRunnerModule(path, loader.readSource(path), options) : root;
     if (!isRoot) assertNoMainInImportedModule(moduleRoot, path);

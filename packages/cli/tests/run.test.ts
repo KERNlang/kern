@@ -776,7 +776,7 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(['fs.readText']);
     expect(report.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
     expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
-    expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.missingAsyncProviders).toEqual([]);
   });
 
   test('reports CLI-provided shipped capabilities as runnable JSON', () => {

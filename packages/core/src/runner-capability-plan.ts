@@ -214,7 +214,7 @@ export function analyzeKernSourceCapabilities(
     asyncPlannedCapabilities,
     executableAsyncPlannedCapabilities,
     missingProviders: provided
-      ? requirements.filter(
+      ? executableRequirements.filter(
           (requirement) =>
             requirement.descriptor.status === 'shipped' &&
             requirement.descriptor.syncBoundary === 'sync' &&
@@ -275,11 +275,11 @@ function parseCapabilityGraph(
   }
 
   function load(path: string, root: IRNode | undefined, imported: boolean): void {
-    if (modules.has(path)) return;
     if (resolving.has(path)) {
       linkError(`link error: import cycle involving '${path}'`);
       return;
     }
+    if (modules.has(path)) return;
     resolving.add(path);
     let moduleRoot = root;
     if (!moduleRoot) {
