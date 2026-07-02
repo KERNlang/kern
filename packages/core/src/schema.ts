@@ -2260,11 +2260,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   policy: {
     description:
-      'Application policy declaration. Policies attach named constraints and capability requirements to app routes/views so host adapters cannot hide policy in JS.',
+      'Application policy declaration. Policies attach named constraints and capability requirements to app routes/views so host adapters cannot hide policy in JS. slot=pre|post makes the policy EXECUTABLE around the entry handler (KERN 5.2: only kind=passthrough); source=/handler= optionally reference a policy .kern handler inside the app root.',
     example: 'policy name=GroundedAnswer kind=rag-grounding requires="rag.checkAnswer" failureStatus=422',
     props: {
       name: { required: true, kind: 'identifier' },
       kind: { kind: 'string' },
+      slot: { kind: 'identifier' },
+      source: { kind: 'string' },
+      handler: { kind: 'identifier' },
       requires: { kind: 'string' },
       failureStatus: { kind: 'number' },
       description: { kind: 'string' },

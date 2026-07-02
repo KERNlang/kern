@@ -2,7 +2,11 @@ import { createServer } from 'node:http';
 import { readFile, realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findMissingKernAppEntryCapability, loadKernAppDescriptor } from '../../packages/core/dist/runtime.js';
+import {
+  executeKernAppEntryPolicySlot,
+  findMissingKernAppEntryCapability,
+  loadKernAppDescriptor,
+} from '../../packages/core/dist/runtime.js';
 import { executeKernEntrySource, executeKernEntrySourceAsync } from '../../packages/core/dist/runner.js';
 import {
   createAsyncLocalRagRetrieveCapability,
@@ -234,6 +238,10 @@ export async function answerQuestion(question, options = {}) {
     providedAsyncCapabilities,
   );
   if (missingProvider) throw new DemoMissingCapabilityError(missingProvider);
+  // Policy-slot skeleton (5.2): run declared pre-slot policies before the
+  // route handler and post-slot policies after it. Today only passthrough
+  // policies exist; 5.3 guard kinds slot into these same two hook points.
+  await executeKernAppEntryPolicySlot(manifest.answerRoute, 'pre');
   const stdout = await executeKernEntrySourceAsync(source, manifest.answerRoute, {
     capabilities: {
       'app-http': createAppHttpCapability({ question: normalized }),
@@ -244,6 +252,7 @@ export async function answerQuestion(question, options = {}) {
     providedAsyncCapabilities,
     capabilityContext: { sourceName: manifest.answerRoute.sourcePath },
   });
+  await executeKernAppEntryPolicySlot(manifest.answerRoute, 'post');
   return parseAnswerRouteOutput(stdout);
 }
 

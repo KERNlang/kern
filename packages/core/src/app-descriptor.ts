@@ -34,6 +34,45 @@ export interface LoadKernAppDescriptorOptions {
   ) => string | undefined | Promise<string | undefined>;
 }
 
+/**
+ * Policy-slot skeleton (KERN 5.2 scaffolding for 5.3 guard execution).
+ *
+ * A `policy` node MAY declare `slot=pre|post` to become an EXECUTABLE policy
+ * that runs before (`pre`) or after (`post`) the route/view handler. In 5.2
+ * only the no-op `kind=passthrough` is allowed for slot policies — the slot
+ * SHAPE and plumbing exist so 5.3 can add real guard kinds (auth,
+ * hmacSignature, rag-review) without redesigning routing. Slot policies may
+ * optionally reference their own `.kern` source (`source=` + `handler=`),
+ * which is resolved inside the app root and validated fail-closed at load
+ * time exactly like entry sources. Policies WITHOUT `slot=` remain the
+ * declarative-only policies shipped in 5.0 (free-form `kind`, no execution).
+ */
+export type KernAppPolicySlot = 'pre' | 'post';
+export const KERN_APP_POLICY_EXECUTABLE_KINDS = Object.freeze(['passthrough'] as const);
+export type KernAppExecutablePolicyKind = (typeof KERN_APP_POLICY_EXECUTABLE_KINDS)[number];
+
+export interface KernAppPolicySlotDescriptor {
+  readonly node: IRNode;
+  readonly name: string;
+  readonly slot: KernAppPolicySlot;
+  readonly kind: KernAppExecutablePolicyKind;
+  /** Optional policy handler source, resolved inside the app root. */
+  readonly sourcePath?: string;
+  /** Handler name inside sourcePath; only meaningful when sourcePath is set. */
+  readonly handler: string;
+  readonly requires: readonly CapabilityId[];
+  readonly label: string;
+}
+
+/** One executed policy hook record returned by {@link executeKernAppEntryPolicySlot}. */
+export interface KernAppPolicyExecution {
+  readonly name: string;
+  readonly slot: KernAppPolicySlot;
+  readonly kind: KernAppExecutablePolicyKind;
+  /** 5.2 skeleton: the only implemented action is the no-op passthrough. */
+  readonly action: 'passthrough';
+}
+
 export interface KernAppEntryDescriptor {
   readonly node: IRNode;
   readonly kind: 'view' | 'route';
@@ -43,6 +82,10 @@ export interface KernAppEntryDescriptor {
   readonly handler: string;
   readonly policies: readonly IRNode[];
   readonly policyName?: string;
+  /** Executable policies to run BEFORE the entry handler (5.2: passthrough only). */
+  readonly prePolicies: readonly KernAppPolicySlotDescriptor[];
+  /** Executable policies to run AFTER the entry handler (5.2: passthrough only). */
+  readonly postPolicies: readonly KernAppPolicySlotDescriptor[];
   readonly appCapabilities: readonly CapabilityId[];
   readonly entryCapabilities: readonly CapabilityId[];
   readonly policyCapabilities: readonly CapabilityId[];
@@ -213,11 +256,59 @@ function assertUnique(values: readonly string[], label: string): void {
   }
 }
 
+/**
+ * Fail-closed parse of a policy node's OPTIONAL execution-slot declaration.
+ * Returns undefined for declarative-only policies (no `slot=`). Throws for:
+ * an unknown slot value, a slot policy whose kind is not an executable kind
+ * (only `passthrough` in 5.2), `handler=` without `source=`, or a slot
+ * policy source that escapes the app root.
+ */
+function policySlotDescriptor(policy: IRNode, appRoot: string): KernAppPolicySlotDescriptor | undefined {
+  const name = requiredStringProp(policy, 'name', 'policy');
+  const label = `policy ${name}`;
+  const slot = optionalStringProp(policy, 'slot');
+  const source = optionalStringProp(policy, 'source');
+  const handler = optionalStringProp(policy, 'handler');
+  if (slot === undefined) {
+    if (source !== undefined || handler !== undefined) {
+      throw new KernAppDescriptorError(
+        `${label} declares source/handler without slot=; executable policies must declare slot=pre or slot=post`,
+      );
+    }
+    return undefined;
+  }
+  if (slot !== 'pre' && slot !== 'post') {
+    throw new KernAppDescriptorError(`${label} declares unknown slot '${slot}' (expected pre or post)`);
+  }
+  const kind = optionalStringProp(policy, 'kind');
+  if (kind === undefined || !(KERN_APP_POLICY_EXECUTABLE_KINDS as readonly string[]).includes(kind)) {
+    throw new KernAppDescriptorError(
+      `${label} slot=${slot} requires an executable kind (${KERN_APP_POLICY_EXECUTABLE_KINDS.join(', ')} only in KERN 5.2)${
+        kind !== undefined ? `, got '${kind}'` : ''
+      }`,
+    );
+  }
+  if (handler !== undefined && source === undefined) {
+    throw new KernAppDescriptorError(`${label} declares handler= without source=`);
+  }
+  return {
+    node: policy,
+    name,
+    slot,
+    kind: kind as KernAppExecutablePolicyKind,
+    ...(source !== undefined ? { sourcePath: resolveAppSource(source, label, appRoot) } : {}),
+    handler: handler ?? 'main',
+    requires: capabilityList(optionalStringProp(policy, 'requires'), label),
+    label,
+  };
+}
+
 function normalizeManifestEntry(
   app: IRNode,
   node: IRNode,
   kind: 'view' | 'route',
   policies: readonly IRNode[],
+  policySlotsByName: ReadonlyMap<string, KernAppPolicySlotDescriptor>,
   appRoot: string,
 ): KernAppEntryDescriptor {
   const explicitName = optionalStringProp(node, 'name');
@@ -233,6 +324,9 @@ function normalizeManifestEntry(
   const label = `${kind} ${name}`;
   const requirements = manifestEntryCapabilityRequirements(app, node, matchedPolicies, label);
   const { sync, async } = splitCapabilityBoundaries(requirements.declaredCapabilities);
+  const matchedSlotPolicies = matchedPolicies
+    .map((policy) => policySlotsByName.get(String(policy.props?.name ?? '')))
+    .filter((slotPolicy): slotPolicy is KernAppPolicySlotDescriptor => slotPolicy !== undefined);
   return {
     node,
     kind,
@@ -242,6 +336,8 @@ function normalizeManifestEntry(
     handler,
     policies: matchedPolicies,
     policyName,
+    prePolicies: matchedSlotPolicies.filter((slotPolicy) => slotPolicy.slot === 'pre'),
+    postPolicies: matchedSlotPolicies.filter((slotPolicy) => slotPolicy.slot === 'post'),
     appCapabilities: requirements.appCapabilities,
     entryCapabilities: requirements.entryCapabilities,
     policyCapabilities: requirements.policyCapabilities,
@@ -324,21 +420,83 @@ async function canonicalizeEntries(
   canonicalizePath: LoadKernAppDescriptorOptions['canonicalizePath'],
 ): Promise<readonly KernAppEntryDescriptor[]> {
   if (!canonicalizePath) return entries;
-  const canonicalAppRoot = normalizePath(await canonicalizePath(appRoot));
+  const canonicalize = canonicalizePath;
+  const canonicalAppRoot = normalizePath(await canonicalize(appRoot));
+  async function canonicalizeSourcePath(rawSourcePath: string, label: string): Promise<string> {
+    let sourcePath: string;
+    try {
+      sourcePath = normalizePath(await canonicalize(rawSourcePath));
+    } catch {
+      throw new KernAppDescriptorError(`${label} source does not exist`);
+    }
+    if (!isInsidePath(canonicalAppRoot, sourcePath)) {
+      throw new KernAppDescriptorError(`${label} source must stay inside the app directory`);
+    }
+    return sourcePath;
+  }
   return Promise.all(
     entries.map(async (entry) => {
-      let sourcePath: string;
-      try {
-        sourcePath = normalizePath(await canonicalizePath(entry.sourcePath));
-      } catch {
-        throw new KernAppDescriptorError(`${entry.label} source does not exist`);
+      const sourcePath = await canonicalizeSourcePath(entry.sourcePath, entry.label);
+      async function canonicalizeSlotPolicies(
+        slotPolicies: readonly KernAppPolicySlotDescriptor[],
+      ): Promise<readonly KernAppPolicySlotDescriptor[]> {
+        return Promise.all(
+          slotPolicies.map(async (slotPolicy) =>
+            slotPolicy.sourcePath === undefined
+              ? slotPolicy
+              : { ...slotPolicy, sourcePath: await canonicalizeSourcePath(slotPolicy.sourcePath, slotPolicy.label) },
+          ),
+        );
       }
-      if (!isInsidePath(canonicalAppRoot, sourcePath)) {
-        throw new KernAppDescriptorError(`${entry.label} source must stay inside the app directory`);
-      }
-      return { ...entry, sourcePath };
+      return {
+        ...entry,
+        sourcePath,
+        prePolicies: await canonicalizeSlotPolicies(entry.prePolicies),
+        postPolicies: await canonicalizeSlotPolicies(entry.postPolicies),
+      };
     }),
   );
+}
+
+/**
+ * Fail-closed validation of an executable slot policy's optional handler
+ * source: it must exist, parse, and contain the referenced handler. 5.2
+ * intentionally validates SHAPE only (parse + handler resolution) — guard
+ * semantics, capability analysis, and execution of the policy body arrive
+ * with the real guard kinds in 5.3.
+ */
+async function validatePolicySlotSources(
+  entries: readonly KernAppEntryDescriptor[],
+  readSource: LoadKernAppDescriptorOptions['readSource'],
+  entryByLabel: ReadonlyMap<string, KernAppEntryDescriptor>,
+): Promise<void> {
+  if (!readSource) return;
+  const validated = new Set<string>();
+  for (const entry of entries) {
+    for (const slotPolicy of [...entry.prePolicies, ...entry.postPolicies]) {
+      if (slotPolicy.sourcePath === undefined) continue;
+      const key = `${slotPolicy.sourcePath}:${slotPolicy.handler}`;
+      if (validated.has(key)) continue;
+      validated.add(key);
+      let source: string | undefined;
+      try {
+        source = await readSource(slotPolicy.sourcePath, { entry: entryByLabel.get(entry.label) ?? entry });
+      } catch {
+        throw new KernAppDescriptorError(`${slotPolicy.label} source does not exist`);
+      }
+      if (source === undefined) throw new KernAppDescriptorError(`${slotPolicy.label} source does not exist`);
+      const { root, diagnostics } = parseDocumentWithDiagnostics(source);
+      const firstParseError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (firstParseError || !root) {
+        throw new KernAppDescriptorError(firstParseError?.message ?? `${slotPolicy.label} source has parse errors`);
+      }
+      try {
+        resolveKernEntryHandler(root, { handler: slotPolicy.handler, label: slotPolicy.label });
+      } catch (error) {
+        throw new KernAppDescriptorError(error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
 }
 
 async function validateEntrySources(
@@ -356,6 +514,7 @@ async function validateEntrySources(
     if (source === undefined) throw new KernAppDescriptorError(`${entry.label} source does not exist`);
     await assertEntrySourceContract(entry, source);
   }
+  await validatePolicySlotSources(entries, readSource, new Map(entries.map((entry) => [entry.label, entry])));
 }
 
 export async function loadKernAppDescriptor(
@@ -384,14 +543,24 @@ export async function loadKernAppDescriptor(
     policies.map((policy) => requiredStringProp(policy, 'name', 'policy')),
     'policy',
   );
+  // Validate every policy's slot declaration up front — a malformed slot
+  // policy fails the whole manifest load even if no route references it yet.
+  const policySlotsByName = new Map<string, KernAppPolicySlotDescriptor>();
+  for (const policy of policies) {
+    const slotDescriptor = policySlotDescriptor(policy, appRoot);
+    if (slotDescriptor) policySlotsByName.set(slotDescriptor.name, slotDescriptor);
+  }
 
   const views = (app.children ?? [])
     .filter((node) => node.type === 'view')
-    .map((node) => normalizeManifestEntry(app, node, 'view', policies, appRoot) as KernAppViewDescriptor);
+    .map(
+      (node) =>
+        normalizeManifestEntry(app, node, 'view', policies, policySlotsByName, appRoot) as KernAppViewDescriptor,
+    );
   const routes = (app.children ?? [])
     .filter((node) => node.type === 'route')
     .map((node): KernAppRouteDescriptor => {
-      const entry = normalizeManifestEntry(app, node, 'route', policies, appRoot);
+      const entry = normalizeManifestEntry(app, node, 'route', policies, policySlotsByName, appRoot);
       const method = optionalStringProp(node, 'method') ?? 'get';
       return {
         ...entry,
@@ -427,4 +596,35 @@ export function findMissingKernAppEntryCapability(
     entry.requiredSyncCapabilities.find((capability) => !providedSync.has(capability)) ??
     entry.requiredAsyncCapabilities.find((capability) => !providedAsync.has(capability))
   );
+}
+
+/**
+ * Policy-slot execution hook (KERN 5.2 skeleton). Hosts call this around
+ * entry execution: `pre` before running the entry handler, `post` after a
+ * successful run. In 5.2 the only executable policy kind is the no-op
+ * `passthrough`, so this returns the executed hook records without side
+ * effects — the point is that the HOOK exists with a stable shape so 5.3
+ * guard kinds (auth, hmacSignature, rag-review) slot in without a routing
+ * redesign. Fail-closed: an unknown slot value or a policy whose kind has no
+ * executable implementation throws {@link KernAppDescriptorError} instead of
+ * being silently skipped.
+ */
+export async function executeKernAppEntryPolicySlot(
+  entry: KernAppEntryDescriptor,
+  slot: KernAppPolicySlot,
+): Promise<readonly KernAppPolicyExecution[]> {
+  const slotPolicies = slot === 'pre' ? entry.prePolicies : slot === 'post' ? entry.postPolicies : undefined;
+  if (slotPolicies === undefined) {
+    throw new KernAppDescriptorError(`unknown policy slot '${String(slot)}' (expected pre or post)`);
+  }
+  const executions: KernAppPolicyExecution[] = [];
+  for (const slotPolicy of slotPolicies) {
+    if (slotPolicy.kind !== 'passthrough') {
+      throw new KernAppDescriptorError(
+        `${slotPolicy.label} kind '${slotPolicy.kind}' has no executable implementation in KERN 5.2`,
+      );
+    }
+    executions.push({ name: slotPolicy.name, slot, kind: slotPolicy.kind, action: 'passthrough' });
+  }
+  return executions;
 }

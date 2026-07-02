@@ -1,4 +1,9 @@
-import { findMissingKernAppEntryCapability, loadKernAppDescriptor } from '../src/runtime.js';
+import {
+  executeKernAppEntryPolicySlot,
+  findMissingKernAppEntryCapability,
+  type KernAppPolicySlot,
+  loadKernAppDescriptor,
+} from '../src/runtime.js';
 
 function manifest(lines: string[]): string {
   return lines.join('\n');
@@ -565,5 +570,140 @@ describe('@kernlang/core/runtime app descriptor', () => {
 
     expect(findMissingKernAppEntryCapability(descriptor.routes[0], ['storage.get'], [])).toBe('llm.complete');
     expect(findMissingKernAppEntryCapability(descriptor.routes[0], ['storage.get'], ['llm.complete'])).toBeUndefined();
+  });
+});
+
+describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 guards)', () => {
+  const ROUTE_SOURCE = source(['print value="\\"ok\\""']);
+  const POLICY_SOURCE = [
+    'fn name=checkRequest returns=void',
+    '  handler lang="kern"',
+    '    print value="\\"policy\\""',
+  ].join('\n');
+
+  test('routes gain pre/post policy slots from slot= policies; declarative policies stay slot-less', async () => {
+    const descriptor = await load(
+      manifest([
+        'app name=SupportApp',
+        '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate',
+        '  route name=Audit method=get path="/api/audit" source="./answer.kern" policy=PostGate',
+        '  route name=Plain method=get path="/api/plain" source="./answer.kern" policy=Declarative',
+        '  policy name=PreGate kind=passthrough slot=pre',
+        '  policy name=PostGate kind=passthrough slot=post',
+        '  policy name=Declarative kind=rag-grounding failureStatus=422',
+      ]),
+      { '/app/answer.kern': ROUTE_SOURCE },
+    );
+
+    const [answer, audit, plain] = descriptor.routes;
+    expect(answer.prePolicies.map((policy) => policy.name)).toEqual(['PreGate']);
+    expect(answer.postPolicies).toEqual([]);
+    expect(answer.prePolicies[0]).toEqual(
+      expect.objectContaining({ slot: 'pre', kind: 'passthrough', handler: 'main' }),
+    );
+    expect(audit.prePolicies).toEqual([]);
+    expect(audit.postPolicies.map((policy) => policy.name)).toEqual(['PostGate']);
+    expect(plain.prePolicies).toEqual([]);
+    expect(plain.postPolicies).toEqual([]);
+  });
+
+  test('a slot policy with source=/handler= resolves inside the app root and validates fail-closed', async () => {
+    const descriptor = await load(
+      manifest([
+        'app name=SupportApp',
+        '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate',
+        '  policy name=PreGate kind=passthrough slot=pre source="./policy.kern" handler=checkRequest',
+      ]),
+      { '/app/answer.kern': ROUTE_SOURCE, '/app/policy.kern': POLICY_SOURCE },
+    );
+    expect(descriptor.routes[0].prePolicies[0]).toEqual(
+      expect.objectContaining({ sourcePath: '/app/policy.kern', handler: 'checkRequest' }),
+    );
+
+    // Missing policy source file fails the whole load.
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate',
+          '  policy name=PreGate kind=passthrough slot=pre source="./missing.kern"',
+        ]),
+        { '/app/answer.kern': ROUTE_SOURCE },
+      ),
+    ).rejects.toThrow(/policy PreGate source does not exist/);
+
+    // Policy source without the referenced handler fails the whole load.
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate',
+          '  policy name=PreGate kind=passthrough slot=pre source="./policy.kern" handler=missingHandler',
+        ]),
+        { '/app/answer.kern': ROUTE_SOURCE, '/app/policy.kern': POLICY_SOURCE },
+      ),
+    ).rejects.toThrow(/missingHandler/);
+
+    // Policy source escaping the app root fails the whole load.
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate',
+          '  policy name=PreGate kind=passthrough slot=pre source="./../outside.kern"',
+        ]),
+        { '/app/answer.kern': ROUTE_SOURCE },
+      ),
+    ).rejects.toThrow(/must stay inside the app directory/);
+  });
+
+  test('fails closed on unknown slots, non-passthrough slot kinds, and orphaned slot props — even when unreferenced', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern"';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+
+    await expect(
+      load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=passthrough slot=around']), files),
+    ).rejects.toThrow(/policy Bad declares unknown slot 'around' \(expected pre or post\)/);
+
+    await expect(
+      load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-grounding slot=pre']), files),
+    ).rejects.toThrow(
+      /policy Bad slot=pre requires an executable kind \(passthrough only in KERN 5\.2\), got 'rag-grounding'/,
+    );
+
+    await expect(
+      load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad slot=pre']), files),
+    ).rejects.toThrow(/policy Bad slot=pre requires an executable kind/);
+
+    await expect(
+      load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=passthrough source="./p.kern"']), files),
+    ).rejects.toThrow(/policy Bad declares source\/handler without slot=/);
+
+    await expect(
+      load(
+        manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=passthrough slot=pre handler=check']),
+        files,
+      ),
+    ).rejects.toThrow(/policy Bad declares handler= without source=/);
+  });
+
+  test('executeKernAppEntryPolicySlot runs passthrough hooks in order and fails closed on unknown slots', async () => {
+    const descriptor = await load(
+      manifest([
+        'app name=SupportApp',
+        '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate',
+        '  policy name=PreGate kind=passthrough slot=pre',
+      ]),
+      { '/app/answer.kern': ROUTE_SOURCE },
+    );
+    const route = descriptor.routes[0];
+
+    await expect(executeKernAppEntryPolicySlot(route, 'pre')).resolves.toEqual([
+      { name: 'PreGate', slot: 'pre', kind: 'passthrough', action: 'passthrough' },
+    ]);
+    await expect(executeKernAppEntryPolicySlot(route, 'post')).resolves.toEqual([]);
+    await expect(executeKernAppEntryPolicySlot(route, 'around' as KernAppPolicySlot)).rejects.toThrow(
+      /unknown policy slot 'around' \(expected pre or post\)/,
+    );
   });
 });
