@@ -18,6 +18,12 @@ stays at the host boundary:
   adapter wiring, and deterministic LLM wiring; it reads `app.kern` and fails
   closed if the route source uses undeclared capabilities.
 
+The route's async capabilities (`rag.retrieveAsync`, `llm.complete`) run
+through the promoted default async lane — no `--async-preview` flag is
+involved anywhere in this app. The host also exercises the KERN 5.2
+policy-slot hooks (`executeKernAppEntryPolicySlot`) before and after the
+answer route; real guard kinds arrive in 5.3.
+
 ## Run
 
 Start the local demo with one command:

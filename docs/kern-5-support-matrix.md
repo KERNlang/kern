@@ -61,17 +61,38 @@ they can leak partial output or implicit host effects.
 | `rag.retrieve` | Shipped sync | Node/local RAG adapter only |
 | `rag.promptContext` | Shipped sync | Explicit host injection required |
 | `rag.checkAnswer` | Shipped sync | Explicit host injection required |
-| `fs.*` | Async-planned | Explicit async provider required |
-| `net.fetch` | Async-planned | Explicit async provider required |
-| `llm.complete` | Async-planned | Explicit async provider required |
-| `rag.retrieveAsync` and `rag.answer` | Async-planned | Explicit async provider required |
+| `fs.*` | Async preview (`--async-preview` only) | Explicit async provider required (`--fs-root` / `--fs-write-root`) |
+| `net.fetch` | Async preview (`--async-preview` only) | Explicit async provider required (`--allow-net <origin>`) |
+| `llm.complete` | Shipped async (no `--async-preview`) | Explicit async provider required (`--llm-response` / `--llm-provider openai`); per-call timeout via `--capability-timeout-ms` (default 30s, fail-closed) |
+| `rag.retrieveAsync`, `rag.answer`, and `rag.ingest` | Shipped async (no `--async-preview`) | Explicit async provider required; `kern run` routes through the async executor automatically when the program's executable requirements need the async boundary |
 
 Capability requirements are checked before execution. Unknown, undeclared,
 missing, unsupported, and unprovided capabilities reject before app code can
 continue. The preview app treats `app.kern` as the authoritative policy and
 capability declaration; JavaScript may only provide host adapters for declared
 capabilities. `kern run --capabilities` aggregates requirements over the whole
-linked native-runner module graph, not only the root file.
+linked native-runner module graph, not only the root file; its
+`capabilityReadinessMode` reports `sync`, `async` (promoted lane, no flag), or
+`async-preview` (still-gated `fs.*`/`net.fetch`).
+
+Promotion hardening shipped with the KERN 5.2 lane: every async capability
+provider call is bounded by a host-configurable per-call timeout
+(`capabilityTimeoutMs` / `--capability-timeout-ms`, default 30s; a timed-out
+provider fails closed), retrieved-chunk citation provenance uses one
+normalized wire shape across `rag.retrieve`/`rag.retrieveAsync` emission and
+`rag.promptContext`/`rag.checkAnswer`/`rag.answer` parsing (disagreeing
+duplicate encodings fail closed), and `rag.promptContext` returns `safeText` —
+the assembled context wrapped in instruction-boundary markers with
+boundary-marker lookalikes in retrieved data neutralized — which `rag.answer`
+uses for its default prompt.
+
+Routes and views may attach executable policy slots (`policy ... slot=pre|post
+kind=passthrough`, optional `source=`/`handler=`); KERN 5.2 ships the slot
+shape, fail-closed validation, and the `executeKernAppEntryPolicySlot` hook
+with the no-op passthrough kind only — real guard kinds land in 5.3. External
+vector-store adapter kinds become retrievable only through
+`registerExternalRagVectorStoreAdapter`, which runs the full vector-store
+conformance suite at registration and fails closed on any failing case.
 
 ## Reference App
 
