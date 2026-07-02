@@ -139,6 +139,13 @@ export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions 
    * control flow remains fail-closed.
    */
   asyncCapabilities?: KernRunnerAsyncCapabilities;
+  /**
+   * Per-call timeout for async capability provider invocations, in
+   * milliseconds. Host-configurable; a provider that has not settled within
+   * this window fails closed rather than hanging the run. Defaults to
+   * {@link DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS} when omitted.
+   */
+  capabilityTimeoutMs?: number;
 }
 
 export interface KernRunnerEntryDescriptor {
@@ -1297,6 +1304,7 @@ async function executeKernSourceAsyncWithEntry(
       env.runnerCallCache = new Map();
       trace = await asyncReferenceRunSequence(handler.children ?? [], env, {
         asyncCapabilities: options.asyncCapabilities,
+        capabilityTimeoutMs: options.capabilityTimeoutMs,
       });
     } catch (err) {
       if (err instanceof ReferenceRunnerError) {
@@ -1359,6 +1367,7 @@ export { parseExpression } from './parser-expression.js';
 export type {
   AsyncRuntimeCapabilityHandler,
   AsyncRuntimeCapabilityProvider,
+  InvokeRunnerCapabilityAsyncOptions,
   KernRunnerAsyncCapabilities,
   KernRunnerCapabilities,
   KernRunnerCapabilityContext,
@@ -1371,6 +1380,7 @@ export type {
 } from './runner-capabilities.js';
 export {
   assertRuntimeCapabilityValue,
+  DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS,
   invokeRunnerCapability,
   invokeRunnerCapabilityAsync,
   isRuntimeCapabilityValue,

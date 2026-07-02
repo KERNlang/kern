@@ -51,9 +51,10 @@ import {
 } from './run-async-host.js';
 
 const USAGE =
-  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] <file.kern>\n' +
+  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] [--capability-timeout-ms <ms>] <file.kern>\n' +
   '  RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and llm.complete run by default without --async-preview.\n' +
-  '  --async-preview is required only for fs.* and net.fetch.';
+  '  --async-preview is required only for fs.* and net.fetch.\n' +
+  '  --capability-timeout-ms bounds each async capability provider call (execute/async-preview only; defaults to 30000).';
 const RUN_PROVIDED_CAPABILITY_NAMESPACES = Object.freeze(['crypto', 'rag', 'storage'] as const);
 const RUN_ASYNC_PROVIDER_FLAGS = Object.freeze({
   'fs.list': ['--fs-root <dir>'],
@@ -106,6 +107,8 @@ export async function executeKernSourceAsync(
     netAllowedOrigins?: readonly string[];
     llmResponse?: string;
     llmProvider?: CliAsyncOpenAICompatibleLlmCapabilityOptions;
+    /** Per-call async capability provider timeout, in milliseconds. See --capability-timeout-ms. */
+    capabilityTimeoutMs?: number;
   },
 ): Promise<string> {
   if (options.llmResponse !== undefined && options.llmProvider !== undefined) {
@@ -179,6 +182,7 @@ export async function executeKernSourceAsync(
           assertRetrievedChunks(query, chunks) {
             assertLocalRagCapabilityChunksWereRetrieved(query, chunks, ragSession);
           },
+          timeoutMs: options.capabilityTimeoutMs,
         }),
       );
       providedAsyncCapabilities.push('rag.answer');
@@ -195,6 +199,7 @@ export async function executeKernSourceAsync(
     providedCapabilities: runProvidedCapabilities(),
     asyncCapabilities,
     providedAsyncCapabilities,
+    capabilityTimeoutMs: options.capabilityTimeoutMs,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
     sourcePath: options.sourcePath,
     moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
@@ -212,6 +217,7 @@ type ParsedRunArgs =
       readonly fileArg: string;
       readonly llmResponse?: string;
       readonly llmProvider?: ParsedLlmProviderOptions;
+      readonly capabilityTimeoutMs?: number;
     }
   | {
       readonly mode: 'capabilities';
@@ -230,6 +236,7 @@ type ParsedRunArgs =
       readonly netAllowedOrigins: readonly string[];
       readonly llmResponse?: string;
       readonly llmProvider?: ParsedLlmProviderOptions;
+      readonly capabilityTimeoutMs?: number;
     };
 
 interface ParsedLlmProviderOptions {
@@ -564,6 +571,9 @@ export async function runRun(args: string[]): Promise<void> {
             : {}),
           llmResponse: parsed.llmResponse,
           ...(llmProvider ? { llmProvider } : {}),
+          ...(parsed.mode === 'async-preview' || parsed.mode === 'execute'
+            ? { capabilityTimeoutMs: parsed.capabilityTimeoutMs }
+            : {}),
         })
       : executeKernSource(loaded.source, { sourcePath: loaded.filePath });
     // `process.exitCode` + a return (instead of `process.exit()`) lets Node flush
@@ -592,6 +602,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
   let llmProvider: ParsedLlmProviderOptions | undefined;
   let llmModel: string | undefined;
   let llmBaseUrl: string | undefined;
+  let capabilityTimeoutMs: number | undefined;
   const files: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -656,12 +667,24 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       index += 1;
       continue;
     }
+    if (arg === '--capability-timeout-ms') {
+      const value = rest[index + 1];
+      if (!value || value.startsWith('--')) return undefined;
+      if (capabilityTimeoutMs !== undefined) return undefined;
+      if (!/^[1-9]\d*$/.test(value)) return undefined;
+      capabilityTimeoutMs = Number(value);
+      index += 1;
+      continue;
+    }
     if (arg.startsWith('--')) return undefined;
     files.push(arg);
   }
 
   const fileArg = files[0];
   if (files.length !== 1 || !fileArg || (capabilityReportMode && asyncPreviewMode)) return undefined;
+  // --capability-timeout-ms configures execution (sync-lane bypass through the
+  // async boundary), not the --capabilities readiness report.
+  if (capabilityReportMode && capabilityTimeoutMs !== undefined) return undefined;
   if (llmResponse !== undefined && llmProvider !== undefined) return undefined;
   if ((llmModel !== undefined || llmBaseUrl !== undefined) && llmProvider === undefined) return undefined;
   const resolvedLlmProvider =
@@ -703,6 +726,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       ...(fsWriteRoot ? { fsWriteRoot } : {}),
       ...(llmResponse !== undefined ? { llmResponse } : {}),
       ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
+      ...(capabilityTimeoutMs !== undefined ? { capabilityTimeoutMs } : {}),
     };
   }
   return {
@@ -710,6 +734,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
     fileArg,
     ...(llmResponse !== undefined ? { llmResponse } : {}),
     ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
+    ...(capabilityTimeoutMs !== undefined ? { capabilityTimeoutMs } : {}),
   };
 }
 

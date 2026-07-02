@@ -122,6 +122,54 @@ export function invokeRunnerCapability(
 }
 
 /**
+ * Default per-call timeout for {@link invokeRunnerCapabilityAsync}, in
+ * milliseconds. A host-injected async capability provider that has not
+ * settled within this window fails closed rather than hanging the run
+ * indefinitely. Host-configurable via {@link InvokeRunnerCapabilityAsyncOptions.timeoutMs}
+ * (threaded through `ExecuteKernSourceAsyncOptions.capabilityTimeoutMs` and the
+ * CLI `--capability-timeout-ms` flag); pass `0` or a non-finite value to
+ * disable the guard entirely (not recommended outside deterministic tests that
+ * apply their own bound).
+ */
+export const DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS = 30_000;
+
+export interface InvokeRunnerCapabilityAsyncOptions {
+  /** Per-call timeout override, in milliseconds. Defaults to {@link DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS}. */
+  readonly timeoutMs?: number;
+}
+
+class AsyncCapabilityTimeoutError extends Error {}
+
+/**
+ * Races `work` against a timer. The ABI has no generic way to cancel an
+ * arbitrary host handler, so a timeout only stops WAITING — the underlying
+ * call may still resolve or reject later. That late settlement is swallowed
+ * here (via a handled no-op `.catch`) so it can never surface as an
+ * unhandled rejection; the caller has already failed closed on the timeout.
+ */
+async function withCapabilityTimeout<T>(work: () => Promise<T>, timeoutMs: number | undefined): Promise<T> {
+  const ms = timeoutMs ?? DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS;
+  if (!Number.isFinite(ms) || ms <= 0) return work();
+  const workPromise = (async () => work())();
+  workPromise.catch(() => {
+    // Handled: a late rejection after timeout must not become an unhandled
+    // rejection. The race below already resolves/rejects for the caller.
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new AsyncCapabilityTimeoutError(`timed out after ${ms}ms`));
+    }, ms);
+    (timer as { unref?: () => void }).unref?.();
+  });
+  try {
+    return await Promise.race([workPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Dispatches a host-injected async capability and validates its portable value.
  * Descriptor-level policy is intentionally handled by analyzeKernSourceCapabilities
  * so this small browser-safe ABI can stay independent of the preflight table.
@@ -130,6 +178,7 @@ export async function invokeRunnerCapabilityAsync(
   capabilities: KernRunnerAsyncCapabilities | undefined,
   call: RuntimeCapabilityCall,
   context: KernRunnerCapabilityContext = {},
+  options: InvokeRunnerCapabilityAsyncOptions = {},
 ): Promise<RuntimeCapabilityValue | undefined> {
   if (!isCapabilityToken(call.namespace) || !isCapabilityToken(call.operation)) {
     throw new KernCapabilityError(call.namespace, call.operation, 'runner async capability call is malformed');
@@ -147,9 +196,16 @@ export async function invokeRunnerCapabilityAsync(
 
   let result: RuntimeCapabilityValue | undefined;
   try {
-    result = await handler(normalizedCall, context);
+    result = await withCapabilityTimeout(async () => handler(normalizedCall, context), options.timeoutMs);
   } catch (error) {
     if (error instanceof KernCapabilityError) throw error;
+    if (error instanceof AsyncCapabilityTimeoutError) {
+      throw new KernCapabilityError(
+        call.namespace,
+        call.operation,
+        `runner async capability '${call.namespace}.${call.operation}' ${error.message}`,
+      );
+    }
     throw new KernCapabilityError(
       call.namespace,
       call.operation,

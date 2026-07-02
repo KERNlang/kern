@@ -2,8 +2,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { type AsyncEmbedder, type Embedder, retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
-import { createLocalRagCapability } from '../src/rag-retrieve-runner.js';
+import {
+  type AsyncEmbedder,
+  type Embedder,
+  parseRetrievedChunkCitationProvenance,
+  retrieveRagDocument,
+  retrieveRagDocumentAsync,
+} from '../src/index.js';
+import { createAsyncLocalRagRetrieveCapability, createLocalRagCapability } from '../src/rag-retrieve-runner.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -247,6 +253,29 @@ describe('retrieveRagDocument', () => {
     expect(chunk.source).toBe('docs/refunds.md');
     expect(chunk.citationUri).toBe('docs/refunds.md');
     expect(typeof chunk.citationLocator).toBe('string');
+  });
+
+  test('PROVENANCE NORMALIZATION: rag.retrieve and rag.retrieveAsync emit byte-identical chunk provenance for the same query', async () => {
+    const syncCapability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const asyncCapability = createAsyncLocalRagRetrieveCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const syncResult = syncCapability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+    const asyncResult = await asyncCapability.retrieveAsync({
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(Array.isArray(syncResult)).toBe(true);
+    expect(asyncResult).toEqual(syncResult);
+    const [chunk] = syncResult as Array<Record<string, unknown>>;
+    // The one normalized wire shape: exactly these six fields, citation
+    // provenance as `string | null` — never `undefined` — on both paths.
+    expect(Object.keys(chunk).sort()).toEqual(['citationLocator', 'citationUri', 'id', 'score', 'source', 'text']);
   });
 
   test('creates local prompt context from rag.retrieve capability chunks', () => {
@@ -1075,5 +1104,60 @@ describe('retrieveRagDocument', () => {
         embedder: failingEmbedder,
       }),
     ).rejects.toThrow(/KERN RAG provider-backed retrieval failed for index 'DocsIndex'.*socket closed for sk-\*\*\*/u);
+  });
+});
+
+describe('PROVENANCE NORMALIZATION: parseRetrievedChunkCitationProvenance (shared by promptContext/checkAnswer/answer)', () => {
+  test('accepts the flat citationUri/citationLocator wire shape rag.retrieve/rag.retrieveAsync emit', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citationUri: 'docs/refunds.md', citationLocator: 'p1' }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md', locator: 'p1' });
+  });
+
+  test('accepts the nested citation record form for chunks authored directly in .kern source', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citation: { uri: 'docs/refunds.md', locator: 'p1' } }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md', locator: 'p1' });
+  });
+
+  test('treats null citation fields as absent, never as a literal "null" string', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citationUri: 'docs/refunds.md', citationLocator: null }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md' });
+    expect(parseRetrievedChunkCitationProvenance({}, 'chunks[0]')).toEqual({});
+  });
+
+  test('accepts both forms together when they agree', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md' }, citationUri: 'docs/refunds.md' },
+        'chunks[0]',
+      ),
+    ).toEqual({ uri: 'docs/refunds.md' });
+  });
+
+  test('fails closed when the nested and flat forms disagree, rather than silently preferring one', () => {
+    expect(() =>
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md' }, citationUri: 'docs/other.md' },
+        'chunks[0]',
+      ),
+    ).toThrow(
+      'chunks[0] declares both citation.uri and citationUri with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+    expect(() =>
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md', locator: 'p1' }, citationLocator: 'p2' },
+        'chunks[0]',
+      ),
+    ).toThrow(
+      'chunks[0] declares both citation.locator and citationLocator with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+  });
+
+  test('rejects a non-record citation field', () => {
+    expect(() => parseRetrievedChunkCitationProvenance({ citation: 'docs/refunds.md' as never }, 'chunks[0]')).toThrow(
+      'chunks[0].citation must be a record.',
+    );
   });
 });

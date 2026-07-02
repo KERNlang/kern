@@ -2191,6 +2191,64 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     await expect(functionProvider.answer({ input })).resolves.toEqual(expect.objectContaining({ passed: true }));
   });
 
+  test('PROVENANCE NORMALIZATION: rag.answer accepts the flat citationUri/citationLocator wire shape rag.retrieve/rag.retrieveAsync emit, identically to the nested form', async () => {
+    const llm = {
+      async complete() {
+        return 'Refunds are available within thirty days [1]';
+      },
+    };
+    const baseChunk = {
+      id: 'refunds',
+      text: 'Refunds are available within thirty days',
+      score: 0.98,
+      source: 'corpus/refunds.md',
+    };
+    const baseInput = {
+      query: 'refund policy',
+      requireCitations: true,
+      minCitedChunks: 1,
+      minGroundingCoverage: 0.85,
+    };
+    const provider = createCliAsyncRagAnswerCapability({ llm }) as {
+      answer: (call: { input: unknown }) => Promise<unknown>;
+    };
+
+    // The exact wire shape rag.retrieve/rag.retrieveAsync emit (see
+    // toRetrievedChunkCapabilityValue): flat citationUri/citationLocator.
+    const flatResult = await provider.answer({
+      input: { ...baseInput, chunks: [{ ...baseChunk, citationUri: 'corpus/refunds.md', citationLocator: null }] },
+    });
+    // The nested form a chunk authored directly in .kern source may use.
+    const nestedResult = await provider.answer({
+      input: { ...baseInput, chunks: [{ ...baseChunk, citation: { uri: 'corpus/refunds.md', locator: null } }] },
+    });
+
+    expect(flatResult).toEqual(nestedResult);
+    expect(flatResult).toEqual(expect.objectContaining({ passed: true, sources: ['corpus/refunds.md'] }));
+
+    // Both forms together, agreeing, are also accepted.
+    const bothAgreeingResult = await provider.answer({
+      input: {
+        ...baseInput,
+        chunks: [{ ...baseChunk, citation: { uri: 'corpus/refunds.md' }, citationUri: 'corpus/refunds.md' }],
+      },
+    });
+    expect(bothAgreeingResult).toEqual(flatResult);
+
+    // Both forms together, disagreeing, fail closed rather than silently
+    // preferring one encoding over the other.
+    await expect(
+      provider.answer({
+        input: {
+          ...baseInput,
+          chunks: [{ ...baseChunk, citation: { uri: 'corpus/refunds.md' }, citationUri: 'corpus/other.md' }],
+        },
+      }),
+    ).rejects.toThrow(
+      'rag.answer chunks[0] declares both citation.uri and citationUri with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+  });
+
   test('rag.answer rejects unsupported fields and ungrounded provider output', async () => {
     expect(() =>
       createCliAsyncRagAnswerCapability({ llm: {} as Parameters<typeof createCliAsyncRagAnswerCapability>[0]['llm'] }),
@@ -2535,6 +2593,74 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     expect(netFlagWithoutPreview.status).toBe(2);
     expect(netFlagWithoutPreview.stdout).toBe('');
     expect(netFlagWithoutPreview.stderr).toContain('Usage: kern run');
+  });
+
+  test('PROMOTION HARDENING: --capability-timeout-ms parses in execute/async-preview modes and rejects invalid usage', () => {
+    const file = writeFile(mainProgram(['print value="\\"ok\\""']));
+
+    const execute = runArgs(['run', '--capability-timeout-ms', '5000', file]);
+    expect(execute.status).toBe(0);
+    expect(execute.stdout).toBe('ok\n');
+
+    const asyncPreview = runArgs(['run', '--async-preview', '--capability-timeout-ms', '5000', file]);
+    expect(asyncPreview.status).toBe(0);
+    expect(asyncPreview.stdout).toBe('ok\n');
+
+    const withCapabilities = runArgs(['run', '--capabilities', '--capability-timeout-ms', '5000', file]);
+    expect(withCapabilities.status).toBe(2);
+    expect(withCapabilities.stdout).toBe('');
+    expect(withCapabilities.stderr).toContain('Usage: kern run');
+
+    const zero = runArgs(['run', '--capability-timeout-ms', '0', file]);
+    expect(zero.status).toBe(2);
+    expect(zero.stdout).toBe('');
+    expect(zero.stderr).toContain('Usage: kern run');
+
+    const negative = runArgs(['run', '--capability-timeout-ms', '-5', file]);
+    expect(negative.status).toBe(2);
+    expect(negative.stdout).toBe('');
+    expect(negative.stderr).toContain('Usage: kern run');
+
+    const nonNumeric = runArgs(['run', '--capability-timeout-ms', 'soon', file]);
+    expect(nonNumeric.status).toBe(2);
+    expect(nonNumeric.stdout).toBe('');
+    expect(nonNumeric.stderr).toContain('Usage: kern run');
+
+    const duplicate = runArgs(['run', '--capability-timeout-ms', '10', '--capability-timeout-ms', '20', file]);
+    expect(duplicate.status).toBe(2);
+    expect(duplicate.stdout).toBe('');
+    expect(duplicate.stderr).toContain('Usage: kern run');
+  });
+
+  test('PROMOTION HARDENING: --capability-timeout-ms fails a real async capability call closed deterministically', async () => {
+    const source = mainProgram([
+      'capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"',
+      'print value="answer"',
+    ]);
+    // Resolves well after the 5ms capabilityTimeoutMs below, but still
+    // resolves — a promise that never settles would leak past this test and
+    // trip node:test's own "Promise resolution is still pending" detector.
+    let resolveSettled: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      resolveSettled = resolve;
+    });
+    const slowFetch = (() =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(Response.json({ choices: [{ message: { content: 'too late' } }] }));
+          resolveSettled();
+        }, 50);
+      })) as unknown as typeof fetch;
+
+    await expect(
+      executeKernSourceAsync(source, {
+        llmProvider: { apiKey: 'test-secret', model: 'test-model', fetch: slowFetch },
+        capabilityTimeoutMs: 5,
+      }),
+    ).rejects.toThrow("runner async capability 'llm.complete' timed out after 5ms");
+    await settled;
+    // Let any trailing microtasks from the swallowed background chain flush.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
 

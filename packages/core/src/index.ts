@@ -825,11 +825,14 @@ export type {
   RagRetrieveDocumentReport,
   RagRetrieveIndexLifecycle,
   RagRetrieveIndexLifecycleStatus,
+  RetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export {
+  parseRetrievedChunkCitationProvenance,
   ragRetrieveCorpusSourceSummary,
   retrieveRagDocument,
   retrieveRagDocumentAsync,
+  toRetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,

@@ -1,4 +1,5 @@
 import {
+  type AsyncRuntimeCapabilityHandler,
   analyzeKernSourceCapabilities,
   CAPABILITY_DESCRIPTORS,
   type CapabilityId,
@@ -944,5 +945,134 @@ describe('@kernlang/core/runner async capability dispatch contract', () => {
         { namespace: 'net', operation: 'fetch' },
       ),
     ).rejects.toThrow("runner async capability 'net.fetch' returned a non-portable value");
+  });
+});
+
+describe('@kernlang/core/runner async capability per-call timeout (promotion hardening)', () => {
+  /**
+   * A provider slower than any timeoutMs used below but that still SETTLES —
+   * a genuinely-never-settling promise would leak past the test and trip
+   * node:test's own "Promise resolution is still pending" leak detector.
+   * Callers must await `settled` before the test ends.
+   */
+  function slowerThanTimeout(delayMs = 20): {
+    readonly handler: AsyncRuntimeCapabilityHandler;
+    readonly settled: Promise<void>;
+  } {
+    let resolveSettled: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      resolveSettled = resolve;
+    });
+    const handler: AsyncRuntimeCapabilityHandler = () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve('too-late');
+          resolveSettled();
+        }, delayMs);
+      });
+    return { handler, settled };
+  }
+
+  test('fails closed when a provider does not settle within an explicit deterministic timeoutMs', async () => {
+    const { handler, settled } = slowerThanTimeout();
+    await expect(
+      invokeRunnerCapabilityAsync(
+        { llm: { complete: handler } },
+        { namespace: 'llm', operation: 'complete' },
+        {},
+        { timeoutMs: 5 },
+      ),
+    ).rejects.toThrow("runner async capability 'llm.complete' timed out after 5ms");
+    await settled;
+  });
+
+  test('a timed-out call rejects with KernCapabilityError, not a raw timeout error', async () => {
+    const { handler, settled } = slowerThanTimeout();
+    let caught: unknown;
+    try {
+      await invokeRunnerCapabilityAsync(
+        { llm: { complete: handler } },
+        { namespace: 'llm', operation: 'complete' },
+        {},
+        { timeoutMs: 5 },
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(KernCapabilityError);
+    await settled;
+  });
+
+  test('a fast provider resolves before a deterministic timeoutMs elapses', async () => {
+    const result = await invokeRunnerCapabilityAsync(
+      {
+        llm: {
+          async complete() {
+            return 'fast';
+          },
+        },
+      },
+      { namespace: 'llm', operation: 'complete' },
+      {},
+      { timeoutMs: 5_000 },
+    );
+    expect(result).toBe('fast');
+  });
+
+  test('timeoutMs: 0 disables the guard even for a provider slower than the default deterministic bound', async () => {
+    const result = await invokeRunnerCapabilityAsync(
+      {
+        llm: {
+          async complete() {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return 'slow-but-allowed';
+          },
+        },
+      },
+      { namespace: 'llm', operation: 'complete' },
+      {},
+      { timeoutMs: 0 },
+    );
+    expect(result).toBe('slow-but-allowed');
+  });
+
+  test('a late rejection after timeout does not escape as an unhandled rejection', async () => {
+    let providerRejected: Promise<void> | undefined;
+    const handler: AsyncRuntimeCapabilityHandler = () => {
+      providerRejected = new Promise((resolve) => {
+        setTimeout(() => resolve(), 20);
+      });
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new Error('late provider failure')), 20);
+      });
+    };
+    await expect(
+      invokeRunnerCapabilityAsync(
+        { llm: { complete: handler } },
+        { namespace: 'llm', operation: 'complete' },
+        {},
+        {
+          timeoutMs: 5,
+        },
+      ),
+    ).rejects.toThrow("runner async capability 'llm.complete' timed out after 5ms");
+    // Let the provider's own late rejection actually happen before the test
+    // ends; if invokeRunnerCapabilityAsync did not swallow it, node:test
+    // would surface an unhandled rejection and fail this test file.
+    await providerRejected;
+  });
+
+  test('omitting timeoutMs applies the default without needing an explicit value', async () => {
+    const result = await invokeRunnerCapabilityAsync(
+      {
+        llm: {
+          async complete() {
+            return 'default-timeout-ok';
+          },
+        },
+      },
+      { namespace: 'llm', operation: 'complete' },
+    );
+    expect(result).toBe('default-timeout-ok');
   });
 });

@@ -48,6 +48,13 @@ import { WHILE_MAX_ITERATIONS } from './while.js';
 
 export interface AsyncReferenceRunnerOptions {
   readonly asyncCapabilities?: KernRunnerAsyncCapabilities;
+  /**
+   * Per-call timeout for async capability provider invocations, in
+   * milliseconds. Host-configurable; forwarded to
+   * {@link invokeRunnerCapabilityAsync}, which defaults it when omitted. A
+   * provider that has not settled within this window fails closed.
+   */
+  readonly capabilityTimeoutMs?: number;
 }
 
 /**
@@ -553,6 +560,7 @@ async function asyncCapabilityEffects(
     options.asyncCapabilities,
     { namespace, operation, input },
     env.capabilityContext,
+    { timeoutMs: options.capabilityTimeoutMs },
   );
   const result =
     rawResult === undefined

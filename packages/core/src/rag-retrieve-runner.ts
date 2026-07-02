@@ -135,7 +135,28 @@ interface LocalRagCapabilityInput {
   readonly templateParams?: Readonly<Record<string, RagQueryTemplateParamValue>>;
 }
 
-type RagCapabilityChunkValue = Readonly<Record<string, RuntimeCapabilityValue>>;
+/**
+ * The one normalized wire shape retrieved-chunk provenance takes across every
+ * capability that crosses the runtime boundary: rag.retrieve and
+ * rag.retrieveAsync EMIT exactly this record (see
+ * {@link toRetrievedChunkCapabilityValue}); rag.promptContext, rag.checkAnswer,
+ * and rag.answer PARSE it back (see {@link parseRetrievedChunkCitationProvenance}
+ * for the citation fields specifically, which also accept the nested
+ * `citation: { uri, locator }` form for chunks authored directly in `.kern`
+ * source). `citationUri`/`citationLocator` are `string | null` — never
+ * `undefined` — so every surface can round-trip a chunk without reshaping it.
+ */
+export interface RetrievedChunkCapabilityValue {
+  readonly [key: string]: RuntimeCapabilityValue;
+  readonly id: string;
+  readonly text: string;
+  readonly score: number;
+  readonly source: string;
+  readonly citationUri: string | null;
+  readonly citationLocator: string | null;
+}
+
+type RagCapabilityChunkValue = RetrievedChunkCapabilityValue;
 type RagPromptContextCapabilityValue = Readonly<Record<string, RuntimeCapabilityValue>>;
 type RagCheckAnswerCapabilityValue = Readonly<Record<string, RuntimeCapabilityValue>>;
 
@@ -231,7 +252,7 @@ export function createLocalRagCapability(
         retrievalResult.chunks,
         session.retrievedChunkQueriesByFingerprint,
       );
-      const chunks = retrievalResult.chunks.map(ragChunkCapabilityValue);
+      const chunks = retrievalResult.chunks.map(toRetrievedChunkCapabilityValue);
       if (retrieveCache.size >= MAX_LOCAL_RAG_RETRIEVE_CACHE_ENTRIES) {
         const oldestKey = retrieveCache.keys().next().value;
         if (oldestKey !== undefined) retrieveCache.delete(oldestKey);
@@ -292,7 +313,7 @@ export function createAsyncLocalRagRetrieveCapability(
         retrievalResult.chunks,
         session.retrievedChunkQueriesByFingerprint,
       );
-      const chunks = retrievalResult.chunks.map(ragChunkCapabilityValue);
+      const chunks = retrievalResult.chunks.map(toRetrievedChunkCapabilityValue);
       if (retrieveCache.size >= MAX_LOCAL_RAG_RETRIEVE_CACHE_ENTRIES) {
         const oldestKey = retrieveCache.keys().next().value;
         if (oldestKey !== undefined) retrieveCache.delete(oldestKey);
@@ -658,7 +679,9 @@ function isPlainRecordInput(
   return value !== undefined && isPlainRecord(value);
 }
 
-function ragChunkCapabilityValue(chunk: RetrieveResult['chunks'][number]): RagCapabilityChunkValue {
+export function toRetrievedChunkCapabilityValue(
+  chunk: RetrieveResult['chunks'][number],
+): RetrievedChunkCapabilityValue {
   return {
     id: chunk.id,
     text: chunk.text,
@@ -710,20 +733,52 @@ function ragCapabilityValueCitation(
   input: Readonly<Record<string, RuntimeCapabilityValue>>,
   index: number,
 ): RetrievedChunk['citation'] {
+  return parseRetrievedChunkCitationProvenance(input, `chunks[${index}]`);
+}
+
+/**
+ * Canonical, fail-closed parse of a retrieved chunk's citation provenance
+ * fields — shared by rag.promptContext, rag.checkAnswer (this module), and
+ * rag.answer (the CLI async host adapter), so all three surfaces that accept
+ * chunk records as input agree on exactly one normalized shape.
+ *
+ * A chunk record may declare citation provenance either as a nested
+ * `citation: { uri, locator }` record or as flat `citationUri`/
+ * `citationLocator` fields (the wire shape rag.retrieve/rag.retrieveAsync
+ * emit — see {@link toRetrievedChunkCapabilityValue}). Both forms are accepted, but
+ * if a record supplies BOTH forms for the same field with disagreeing
+ * non-null values, this fails closed rather than silently preferring one —
+ * a caller round-tripping a chunk should never have its citation silently
+ * reinterpreted.
+ */
+export function parseRetrievedChunkCitationProvenance(
+  input: Readonly<Record<string, RuntimeCapabilityValue>>,
+  label: string,
+): RetrievedChunk['citation'] {
   const citation = input.citation;
+  let nestedUri: string | undefined;
+  let nestedLocator: string | undefined;
   if (citation !== undefined && citation !== null) {
     if (!isPlainRecord(citation) || Array.isArray(citation)) {
-      throw new Error(`RAG capability promptContext input field 'chunks[${index}].citation' must be a record.`);
+      throw new Error(`${label}.citation must be a record.`);
     }
-    const uri = optionalStringCapabilityField(citation, 'uri', `chunks[${index}].citation`);
-    const locator = optionalStringCapabilityField(citation, 'locator', `chunks[${index}].citation`);
-    return {
-      ...(uri !== undefined ? { uri } : {}),
-      ...(locator !== undefined ? { locator } : {}),
-    };
+    nestedUri = optionalStringCapabilityField(citation, 'uri', `${label}.citation`);
+    nestedLocator = optionalStringCapabilityField(citation, 'locator', `${label}.citation`);
   }
-  const uri = optionalStringCapabilityField(input, 'citationUri', `chunks[${index}]`);
-  const locator = optionalStringCapabilityField(input, 'citationLocator', `chunks[${index}]`);
+  const flatUri = optionalStringCapabilityField(input, 'citationUri', label);
+  const flatLocator = optionalStringCapabilityField(input, 'citationLocator', label);
+  if (nestedUri !== undefined && flatUri !== undefined && nestedUri !== flatUri) {
+    throw new Error(
+      `${label} declares both citation.uri and citationUri with disagreeing values; provide exactly one citation provenance encoding.`,
+    );
+  }
+  if (nestedLocator !== undefined && flatLocator !== undefined && nestedLocator !== flatLocator) {
+    throw new Error(
+      `${label} declares both citation.locator and citationLocator with disagreeing values; provide exactly one citation provenance encoding.`,
+    );
+  }
+  const uri = nestedUri ?? flatUri;
+  const locator = nestedLocator ?? flatLocator;
   return {
     ...(uri !== undefined ? { uri } : {}),
     ...(locator !== undefined ? { locator } : {}),
