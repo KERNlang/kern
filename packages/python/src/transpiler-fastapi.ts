@@ -25,6 +25,10 @@ import {
 import { dirname, resolve } from 'path';
 import { emitImports } from './core/emit-imports.js';
 import { emitModels } from './core/emit-models.js';
+import {
+  buildFastApiPolicyRuntimeArtifact,
+  FASTAPI_POLICY_RUNTIME_MODULE_BASENAME,
+} from './fastapi-policy-runtime.js';
 import { buildCorsMiddlewareLine, resolveMiddlewareUsage } from './fastapi-middleware.js';
 import { buildRouteArtifact } from './fastapi-route.js';
 import type { MiddlewareArtifactRef } from './fastapi-types.js';
@@ -281,6 +285,21 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     buildRouteArtifact(routeNode, index, sourceMap, routeAuthModuleSpec),
   );
 
+  // A freshly generated app must be self-sufficient for policy-guarded
+  // routes: install the default pre-slot policy executor on `app.state` at
+  // construction time so `request.app.state.execute_kern_policy_slot(...)`
+  // (emitted by buildRouteArtifact whenever a route declares a `policy`
+  // child) never hits an AttributeError. Only emitted when at least one
+  // route actually declares a policy — keeps policy-free apps lean.
+  const hasPolicyRoutes = routeNodes.some((routeNode) => getChildren(routeNode, 'policy').length > 0);
+  let policyRuntimeArtifact: GeneratedArtifact | null = null;
+  if (hasPolicyRoutes) {
+    policyRuntimeArtifact = buildFastApiPolicyRuntimeArtifact();
+    serverImports.add(
+      `from ${artifactModuleSpec(FASTAPI_POLICY_RUNTIME_MODULE_BASENAME)} import create_execute_kern_policy_slot`,
+    );
+  }
+
   // Auth: generate auth.py artifact when any route uses auth
   const hasAuth = routeNodes.some((r) => getFirstChild(r, 'auth'));
   let authArtifact: GeneratedArtifact | null = null;
@@ -430,6 +449,14 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // App instantiation
   lines.push(`app = FastAPI(title="${serverName}")`);
+  if (hasPolicyRoutes) {
+    // Bind the default pre-slot policy executor to THIS app instance so it
+    // can reach app.state provider hooks (kern_auth_verifier,
+    // kern_hmac_key_provider, kern_rag_grounding_adapter) at request time.
+    // Host apps may still overwrite `app.state.execute_kern_policy_slot`
+    // themselves to fully replace the guard runtime.
+    lines.push('app.state.execute_kern_policy_slot = create_execute_kern_policy_slot(app)');
+  }
   lines.push('');
 
   // DB startup event
@@ -634,6 +661,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     ...wsArtifacts.map((w) => w.artifact),
     ...[...middlewareArtifacts.values()].map((m) => m.artifact),
     ...(authArtifact ? [authArtifact] : []),
+    ...(policyRuntimeArtifact ? [policyRuntimeArtifact] : []),
     ...alembicArtifacts,
     ...packageArtifacts,
   ];

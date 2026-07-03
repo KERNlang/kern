@@ -344,7 +344,14 @@ function pyPolicyDescriptor(policyNodes: readonly IRNode[], method: string, path
                   // a passthrough here would ship an unguarded route.
                   throw new Error(`fastapi emitter: unsupported pre-slot policy kind '${kind}' for policy ${name}`);
                 })();
-    return `{"node": {"type": "policy", "props": ${JSON.stringify(props)}, "children": []}, "name": "${escapePyStr(name)}", "slot": "pre", "kind": "${escapePyStr(kind)}", "handler": "main", "requires": [], "plan": ${plan}, "label": "policy ${escapePyStr(name)}"}`;
+    // `props` is a raw IR node.props blob — JSON.stringify's output is a
+    // JS-object-literal-compatible subset of JSON that happens to double as
+    // Python syntax for strings/numbers/nested structures, but JSON's
+    // `true`/`false`/`null` are NameErrors in Python. Round-trip through
+    // json.loads(...) so ANY JSON-representable prop value (not just the
+    // string/number props this emitter currently reads) lowers correctly.
+    const propsJson = escapePyStr(JSON.stringify(props));
+    return `{"node": {"type": "policy", "props": json.loads("${propsJson}"), "children": []}, "name": "${escapePyStr(name)}", "slot": "pre", "kind": "${escapePyStr(kind)}", "handler": "main", "requires": [], "plan": ${plan}, "label": "policy ${escapePyStr(name)}"}`;
   });
   return `{"node": {"type": "route", "props": {}, "children": []}, "kind": "route", "name": "GeneratedRoute", "path": "${escapePyStr(path)}", "sourcePath": "./generated.kern", "handler": "main", "policies": [], "prePolicies": [${policies.join(', ')}], "postPolicies": [], "appCapabilities": [], "entryCapabilities": [], "policyCapabilities": [], "declaredCapabilities": [], "requiredCapabilities": [], "requiredSyncCapabilities": [], "requiredAsyncCapabilities": [], "label": "route GeneratedRoute", "method": "${escapePyStr(method)}", "key": "${escapePyStr(method.toUpperCase())} ${escapePyStr(path)}"}`;
 }
@@ -773,11 +780,21 @@ export function buildRouteArtifact(
   // Generate handler body lines first (may add to imports)
   const bodyLines: string[] = [];
   if (hasPolicyNodes) {
+    imports.add('import json');
     bodyLines.push(`__kern_route_policy_entry = ${pyPolicyDescriptor(policyNodes, normalizedMethod, fastapiPath)}`);
     if (hmacPolicyNodes.length > 0) {
       bodyLines.push(`# HMAC compare must use hmac.compare_digest; core policy runtime owns guard meaning.`);
       bodyLines.push(`__kern_hmac_compare = hmac.compare_digest`);
     }
+    // Fail-closed fallback for `request.app.state.execute_kern_policy_slot`.
+    // transpileFastAPI installs the real executor on `app.state` whenever any
+    // route declares a policy (see fastapi-policy-runtime.ts); this fallback
+    // only fires if a route module is imported/mounted outside that app
+    // construction path — it denies instead of raising AttributeError.
+    bodyLines.push('async def __kern_policy_runtime_missing(entry, slot, facts):');
+    bodyLines.push(
+      '    return [{"action": "deny", "status": 401, "body": {"error": "policy_denied", "reason": "policy runtime not installed"}}]',
+    );
     bodyLines.push('');
   }
 
@@ -837,8 +854,18 @@ export function buildRouteArtifact(
       paramNames.push(snake);
     }
 
+    // A policy-guarded route with a declared body schema must NOT bind
+    // `body: RequestBody` directly in the def signature — FastAPI's
+    // dependency solver parses/validates every declared parameter (Pydantic
+    // models included) BEFORE the function body runs, which would let
+    // Pydantic reject (422) or consume the raw body ahead of the pre-slot
+    // guard. `body` is instead constructed from the raw bytes AFTER an
+    // allow decision, further down. It still claims the `body` name in
+    // paramNames so a native KERN `let body` inside the handler still
+    // triggers the shadow-rename protection.
+    const bindsBodyAsHandlerLocal = !!schema.body && hasPolicyNodes;
     if (schema.body) {
-      paramParts.push('body: RequestBody');
+      if (!hasPolicyNodes) paramParts.push('body: RequestBody');
       paramNames.push('body');
     }
 
@@ -887,13 +914,23 @@ export function buildRouteArtifact(
         `    __kern_policy_facts = getattr(request.app.state, "kern_policy_facts", lambda request, raw_body: {"headers": dict(request.headers), "rawBody": raw_body})(request, __kern_raw_body)`,
       );
       bodyLines.push(
-        `    __kern_decision = await getattr(request.app.state, "execute_kern_policy_slot")(__kern_route_policy_entry, "pre", __kern_policy_facts)`,
+        `    __kern_decision = await getattr(request.app.state, "execute_kern_policy_slot", __kern_policy_runtime_missing)(__kern_route_policy_entry, "pre", __kern_policy_facts)`,
       );
       bodyLines.push(`    __kern_denied = next((p for p in __kern_decision if p.get("action") == "deny"), None)`);
       bodyLines.push(`    if __kern_denied is not None:`);
       bodyLines.push(
         `        raise HTTPException(status_code=__kern_denied.get("status", 401), detail=__kern_denied.get("body", {"error": "policy_denied"}))`,
       );
+      if (bindsBodyAsHandlerLocal) {
+        // Only reachable past an allow decision — the Pydantic model is
+        // constructed from the SAME raw bytes the guard verified, so the
+        // handler still receives the parsed model (H7) without giving
+        // Pydantic a chance to run ahead of the guard.
+        bodyLines.push('    try:');
+        bodyLines.push('        body = RequestBody.model_validate_json(__kern_raw_body)');
+        bodyLines.push('    except Exception as __kern_body_error:');
+        bodyLines.push('        raise HTTPException(status_code=422, detail=str(__kern_body_error))');
+      }
     }
 
     // v3 error contract as docstring
