@@ -20,6 +20,7 @@ import {
   detectReactHookDeps,
   detectTarget,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesTextOps,
   expandTemplateNode,
   generateCoreNode,
   injectKernStdlibPreamble,
@@ -1120,6 +1121,16 @@ function applyKernStdlibPreamble(
     (result.artifacts?.some((art) => isTsArtifactPath(art.path) && emittedCodeUsesLooseEq(art.content)) ?? false)
   ) {
     usage.looseEq = true;
+  }
+  // KERN 4.5.0 item 3 — same "detection == emission" pattern as `looseEq` above:
+  // an emitted `__kern_text_*(` call means a `Text.length`/`charAt`/`slice`/
+  // `indexOf`/`startsWith` lowering fired somewhere in this module, so the
+  // code-point-ops helper block must be injected.
+  if (
+    emittedCodeUsesTextOps(result.code) ||
+    (result.artifacts?.some((art) => isTsArtifactPath(art.path) && emittedCodeUsesTextOps(art.content)) ?? false)
+  ) {
+    usage.textOps = true;
   }
   const preamble = kernStdlibPreamble(usage);
   if (preamble.length === 0) return result;
