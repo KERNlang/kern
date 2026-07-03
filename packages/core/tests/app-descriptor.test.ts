@@ -657,7 +657,7 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
     ).rejects.toThrow(/must stay inside the app directory/);
   });
 
-  test('fails closed on unknown slots, non-passthrough slot kinds, and orphaned slot props — even when unreferenced', async () => {
+  test('fails closed on unknown slots, non-executable slot kinds, and orphaned slot props — even when unreferenced', async () => {
     const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern"';
     const files = { '/app/answer.kern': ROUTE_SOURCE };
 
@@ -665,10 +665,16 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
       load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=passthrough slot=around']), files),
     ).rejects.toThrow(/policy Bad declares unknown slot 'around' \(expected pre or post\)/);
 
+    // The three guardrail kinds are executable pre-slot policies since 4.5.0 —
+    // a bare declaration loads; enforcement wiring is validated at its own layer.
+    for (const kind of ['auth', 'hmacSignature', 'rag-review']) {
+      await load(manifest(['app name=SupportApp', routeLine, `  policy name=Guard kind=${kind} slot=pre`]), files);
+    }
+
     await expect(
       load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-grounding slot=pre']), files),
     ).rejects.toThrow(
-      /policy Bad slot=pre requires an executable kind \(passthrough only in KERN 5\.2\), got 'rag-grounding'/,
+      /policy Bad slot=pre requires an executable kind, got 'rag-grounding'; executable kinds: passthrough, auth, hmacSignature, rag-review/,
     );
 
     await expect(

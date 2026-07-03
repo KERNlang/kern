@@ -38,8 +38,9 @@
  * `__semanticContract: 'do'` so the surrounding declarations trace correctly).
  */
 
-import type { ValueIR } from '../../value-ir.js';
+import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
+import type { ValueIR } from '../../value-ir.js';
 import {
   assignBinding,
   getBinding,
@@ -52,7 +53,6 @@ import {
 import { evalArrayLiteralValue, isArrayLiteralExpression, type PortableArrayElement } from './portable-array.js';
 import { resolveMapSetCall } from './portable-map.js';
 import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
-import { parseExpression } from '../../parser-expression.js';
 import { emptyTrace, type Trace } from './trace.js';
 
 interface DoProps {

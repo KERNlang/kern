@@ -1304,6 +1304,34 @@ describe('RAG answer runtime contracts', () => {
     );
   });
 
+  test('computes grounding coverage over Unicode code points', () => {
+    const answer = 'X\u{1F600}';
+    const result = evaluateRagAnswerContract({
+      query: 'q',
+      answer,
+      retrieval: {
+        query: 'q',
+        chunks: [
+          {
+            id: 'emoji',
+            text: '\u{1F600}',
+            score: 1,
+            source: 'docs/emoji.md',
+            citation: { uri: 'docs/emoji.md' },
+          },
+        ],
+      },
+      minGroundingCoverage: 1,
+      groundingSpans: [{ start: 1, end: 3, chunkIds: ['emoji'] }],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.answerChars).toBe(2);
+    expect(result.groundedChars).toBe(1);
+    expect(result.groundingCoverage).toBe(0.5);
+    expect(result.diagnostics).toEqual([expect.objectContaining({ code: 'GROUNDING_BELOW_THRESHOLD' })]);
+  });
+
   test('enforces grounded answer citation counts evidence policy and abstention', () => {
     const retrieval = {
       query: 'refund policy',

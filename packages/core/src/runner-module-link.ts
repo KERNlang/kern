@@ -38,7 +38,8 @@ export const moduleLinkErrors = {
     `${PREFIX}: import alias '${localName}' in '${importer}' is not portable`,
   duplicateAlias: (localName: string, importer: string): string =>
     `${PREFIX}: duplicate imported alias '${localName}' in '${importer}'`,
-  duplicateExport: (localName: string, path: string): string => `${PREFIX}: duplicate export '${localName}' in '${path}'`,
+  duplicateExport: (localName: string, path: string): string =>
+    `${PREFIX}: duplicate export '${localName}' in '${path}'`,
   doesNotExport: (targetPath: string, name: string, importer: string): string =>
     `${PREFIX}: module '${targetPath}' does not export '${name}' imported by '${importer}'`,
   kindMismatch: (importedName: string, targetPath: string, expected: string, found: string): string =>
