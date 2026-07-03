@@ -95,6 +95,38 @@ export interface CrossFileExtensionRequest {
   payload: Record<string, unknown>;
 }
 
+/**
+ * Citation attaching a mined repo rule to an LLM-sourced finding — the RAG
+ * grounding gate's load-bearing field (see `rag-grounding.ts`'s
+ * `groundFindings`). Distinct from `provenance` (HOW a finding was derived,
+ * e.g. a taint path): `citation` answers WHAT justifies the finding
+ * existing at all — which rule in the repo's mined corpus it claims to
+ * violate.
+ *
+ * Set at emission (`parseLLMResponse` in llm-review.ts) with
+ * `groundedBy: 'membership'` — the LLM's unverified claim that the cited
+ * ruleId is real. `groundFindings` is the only code that upgrades
+ * `groundedBy` to `'entailment'`, after Tier B's violation-entailment judge
+ * confirms the claim against the rule's text and the diff hunk containing
+ * the finding's span. A finding whose citation fails Tier A (unknown
+ * ruleId, or missing entirely) never reaches a consumer — see
+ * `GroundingDropReason` in rag-grounding.ts.
+ */
+export interface RuleCitation {
+  /** The mined rule's stable id, as it appears in `RuleCorpus.listRuleIds()`. */
+  ruleId: string;
+  /**
+   * Strongest tier that has grounded this finding so far. 'membership' =
+   * only Tier A (ruleId exists in the corpus) has verified it; 'entailment'
+   * = Tier B's judge additionally confirmed the finding's claimed violation
+   * against the rule's text + diff hunk.
+   */
+  groundedBy: 'membership' | 'entailment';
+  /** Present only once Tier B's judge has actually run over this finding
+   *  (shadow or enforcing mode). Absent for Tier-A-only grounding. */
+  entailment?: { violates: boolean; reason: string };
+}
+
 /** Semantic root cause used to group findings that describe the same underlying issue. */
 export interface RootCause {
   /** Stable grouping key. Prefer graph/concept IDs over raw line numbers. */
@@ -175,6 +207,15 @@ export interface ReviewFinding {
    * triage is model-driven interruption-cost grading.
    */
   triage?: import('./triage/types.js').FindingTriage;
+  /**
+   * RAG grounding citation — present when this LLM finding claims to
+   * violate a specific mined repo rule. Consumed by `groundFindings`
+   * (rag-grounding.ts); kern-guard enforces the gate at the worker seam
+   * between the LLM batch pass and the comment engine. Absent = the
+   * finding cites no rule, which drops it under Tier A once grounding is
+   * enabled for the host (reason `'no-citation'`).
+   */
+  citation?: RuleCitation;
 }
 
 /** One step of calibration applied to a finding. */
