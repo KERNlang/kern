@@ -22,20 +22,6 @@ import {
 // Re-export buildPrismaArtifact for external consumers
 export { buildPrismaArtifact } from './express-prisma.js';
 
-// Builds the SOURCE TEXT of a regex literal (e.g. `/^\/webhook\/[^/]+\/?$/`)
-// matching a KERN route path template against Express's runtime `req.path`
-// (which never contains a query string). `:param` segments become a
-// single-segment wildcard; every other segment is regex-escaped. Emitted
-// directly into generated code as a literal, not a quoted string.
-function hmacJsonGuardPatternSource(path: string): string {
-  const segments = path
-    .split('/')
-    .map((segment) =>
-      segment.startsWith(':') ? '[^/]+' : segment.replace(/[.*+?^${}()|[\]\\]/g, (char) => `\\${char}`),
-    );
-  return `/^${segments.join('\\/')}\\/?$/`;
-}
-
 export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   const sourceMap: import('@kernlang/core').SourceMapEntry[] = [];
   const accounted = new Map<IRNode, AccountedEntry>();
@@ -59,30 +45,31 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Routes carrying an hmacSignature pre-policy must see the EXACT raw
   // request bytes (each route's own artifact captures them via
   // __kernCaptureRawBody before evaluating the guard). A whole-app server
-  // also installs a GLOBAL express.json() body parser ahead of route
+  // normally installs a GLOBAL express.json() body parser ahead of route
   // registration (either the strict-mode default below, or an explicit
   // `middleware name=json` at the server level) — that global parser reads
   // and consumes the request stream first, so the route-level raw capture
-  // never fires (oracle H10: guard must run BEFORE body parsing). Any global
-  // JSON parser must skip method+path pairs that carry an hmacSignature
-  // guard and let the route's own raw-capture + post-allow parse handle them.
-  const hmacGuardedRoutes = routeNodes
-    .filter((routeNode) =>
-      getChildren(routeNode, 'policy').some(
-        (policyNode) => String(getProps(policyNode).kind || '') === 'hmacSignature',
-      ),
-    )
-    .map((routeNode) => {
-      const routeProps = getProps(routeNode);
-      return {
-        method: String(routeProps.method || 'get').toUpperCase(),
-        path: String(routeProps.path || '/'),
-      };
-    });
+  // never fires (oracle H10: guard must run BEFORE body parsing).
+  //
+  // When ANY route is HMAC-guarded, body parsing therefore moves PER-ROUTE:
+  // the transpiler knows every route statically, so each non-HMAC route gets
+  // the JSON parser in its own middleware chain and HMAC routes keep their
+  // raw-capture -> policy -> parse-after-allow pipeline. No global parser is
+  // emitted at all in that case. (An earlier design wrapped the global parser
+  // in a method+path-shape regex matcher that skipped HMAC routes — but shape
+  // matching also skipped UNGUARDED routes that merely share a shape with a
+  // guarded ':param' route, silently leaving their req.body undefined. Exact
+  // per-route decisions replace the heuristic entirely.)
+  const hasHmacGuardedRoutes = routeNodes.some((routeNode) =>
+    getChildren(routeNode, 'policy').some((policyNode) => String(getProps(policyNode).kind || '') === 'hmacSignature'),
+  );
 
   const serverImports = new Set<string>();
   const serverMiddlewareInvocations: string[] = [];
   const dependencyComments: string[] = [];
+  // The JSON-parser invocation each non-HMAC route receives when parsing has
+  // moved per-route; undefined when the global parser stays global.
+  let perRouteJsonParserInvocation: string | undefined;
 
   // Server-level `import` nodes flow into both the main server file and every
   // route file (with relative paths rewritten for the routes/ subdirectory),
@@ -98,7 +85,16 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   for (const middlewareNode of serverMiddlewares) {
     const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, './', isStrict ? 'strict' : 'relaxed');
     if (usage.importLine) serverImports.add(usage.importLine);
+    if (hasHmacGuardedRoutes && usage.invocation.startsWith('express.json(')) {
+      // Explicit server-level JSON middleware moves per-route (see above).
+      perRouteJsonParserInvocation = usage.invocation;
+      continue;
+    }
     serverMiddlewareInvocations.push(usage.invocation);
+  }
+  if (hasHmacGuardedRoutes && isStrict && !hasJsonMiddleware) {
+    // The strict-mode default global parser also moves per-route.
+    perRouteJsonParserInvocation = `express.json({ limit: '1mb' })`;
   }
 
   // Helmet/compression: opt-in via config
@@ -138,6 +134,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       sourceMap,
       isStrict ? 'strict' : 'relaxed',
       propagatedRouteImports,
+      perRouteJsonParserInvocation,
     ),
   );
   const hasHealthRoute = routeNodes.some((routeNode) => {
@@ -245,32 +242,6 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push(`const serverName = '${escapeSingleQuotes(serverName)}';`);
   lines.push('');
 
-  if (hmacGuardedRoutes.length > 0) {
-    lines.push(`const __kernHmacGuardedRoutes: ReadonlyArray<{ method: string; pattern: RegExp }> = [`);
-    for (const route of hmacGuardedRoutes) {
-      lines.push(
-        `  { method: '${escapeSingleQuotes(route.method)}', pattern: ${hmacJsonGuardPatternSource(route.path)} },`,
-      );
-    }
-    lines.push(`];`);
-    // Wraps a body-parsing middleware (e.g. express.json()) so it never
-    // touches the request stream for an hmacSignature-guarded route — the
-    // route's own __kernCaptureRawBody + post-allow parse owns that body.
-    lines.push(
-      `function __kernSkipBodyParserForHmacRoutes(parser: (req: Request, res: Response, next: NextFunction) => void) {`,
-    );
-    lines.push(`  return (req: Request, res: Response, next: NextFunction) => {`);
-    lines.push(
-      `    if (__kernHmacGuardedRoutes.some((route) => route.method === req.method.toUpperCase() && route.pattern.test(req.path))) {`,
-    );
-    lines.push(`      return next();`);
-    lines.push(`    }`);
-    lines.push(`    return parser(req, res, next);`);
-    lines.push(`  };`);
-    lines.push(`}`);
-    lines.push('');
-  }
-
   // Hardened defaults (strict mode)
   if (isStrict) {
     lines.push(`app.disable('x-powered-by');`);
@@ -280,22 +251,16 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push(`  (req as any).requestId = id;`);
     lines.push(`  next();`);
     lines.push(`});`);
-    if (!hasJsonMiddleware) {
-      lines.push(
-        hmacGuardedRoutes.length > 0
-          ? `app.use(__kernSkipBodyParserForHmacRoutes(express.json({ limit: '1mb' })));`
-          : `app.use(express.json({ limit: '1mb' }));`,
-      );
+    // With an HMAC-guarded route in the app, JSON parsing is per-route
+    // (perRouteJsonParserInvocation) — no global parser at all.
+    if (!hasJsonMiddleware && !hasHmacGuardedRoutes) {
+      lines.push(`app.use(express.json({ limit: '1mb' }));`);
     }
     lines.push('');
   }
 
   for (const invocation of serverMiddlewareInvocations) {
-    const guardedInvocation =
-      hmacGuardedRoutes.length > 0 && invocation.startsWith('express.json(')
-        ? `__kernSkipBodyParserForHmacRoutes(${invocation})`
-        : invocation;
-    lines.push(`app.use(${guardedInvocation});`);
+    lines.push(`app.use(${invocation});`);
   }
   if (serverMiddlewareInvocations.length > 0 && routeArtifacts.length > 0) {
     lines.push('');
