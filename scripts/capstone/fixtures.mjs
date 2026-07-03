@@ -55,9 +55,24 @@ export const FIXTURES = [
     b: { a: {}, b: {} },
     why:
       'must FAIL — kills a tag-ignoring compare that only looks at childCount ' +
-      '(null has no children, an empty list/map both have 0 children — a compare ' +
-      'that skips the type tag would see "0 children" on both sides of `a` and ' +
-      'wrongly PASS it, and would not distinguish list vs map on `b`).',
+      '(null has no children, an empty map has 0 children — a compare that ' +
+      'skips the type tag would see "0 children" on both sides of `a` and ' +
+      'wrongly PASS it). NOTE: sorted-key compare short-circuits at key "a" ' +
+      '(null vs map), so the list-vs-map pair on `b` is NOT exercised here — ' +
+      'the empty-list-vs-empty-map fixture isolates that kill.',
+  },
+  {
+    id: 'empty-list-vs-empty-map',
+    a: { x: [] },
+    b: { x: {} },
+    why:
+      'must FAIL with a type mismatch at path x — the ONLY difference is an ' +
+      'empty list vs an empty map (both flatten to childCount "0"), so this is ' +
+      'the lone fixture isolating the list/map TYPE-TAG check on empty ' +
+      'containers: a tag-ignoring compare (0 children == 0 children, value ' +
+      '"0" == "0") would wrongly PASS it and survive every other fixture in ' +
+      'the corpus (type-confusion short-circuits at key "a" before reaching ' +
+      'its list-vs-map pair).',
   },
   {
     id: 'hostile-key-dotted',
