@@ -110,8 +110,11 @@ export interface RagPromptContext {
  * corpus document an adversary controls.
  */
 function neutralizeRagPromptContextBoundaryMarkers(text: string): string {
-  return text.split(RAG_PROMPT_CONTEXT_BOUNDARY_BEGIN).join(RAG_PROMPT_CONTEXT_BOUNDARY_NEUTRALIZED_MARKER)
-    .split(RAG_PROMPT_CONTEXT_BOUNDARY_END).join(RAG_PROMPT_CONTEXT_BOUNDARY_NEUTRALIZED_MARKER);
+  return text
+    .split(RAG_PROMPT_CONTEXT_BOUNDARY_BEGIN)
+    .join(RAG_PROMPT_CONTEXT_BOUNDARY_NEUTRALIZED_MARKER)
+    .split(RAG_PROMPT_CONTEXT_BOUNDARY_END)
+    .join(RAG_PROMPT_CONTEXT_BOUNDARY_NEUTRALIZED_MARKER);
 }
 
 function ragPromptContextSafeText(text: string): string {

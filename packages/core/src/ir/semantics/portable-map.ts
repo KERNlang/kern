@@ -34,9 +34,9 @@
  *     mutation of a shared object.
  */
 
+import { isValueIR, type ValueIR } from '../../value-ir.js';
 import { getBinding, hasBinding, type SemanticEnv } from './index.js';
 import { evalPortableValue, isPortableBindingName, type PortableScalar } from './portable-scalar.js';
-import { isValueIR, type ValueIR } from '../../value-ir.js';
 
 export type PortableMapValue = ReadonlyMap<string, PortableScalar>;
 
@@ -82,7 +82,10 @@ function requireStringKey(node: ValueIR, env: SemanticEnv, label: string): strin
  * invalid shape (wrong arity, non-ident receiver, non-string key, missing
  * `.get` key) so the runner abstains atomically rather than guess.
  */
-export function evalMapReadCall(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv): PortableScalar | undefined {
+export function evalMapReadCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+): PortableScalar | undefined {
   if (node.optional) return undefined;
   const callee = node.callee;
   if (callee.kind !== 'member' || callee.optional) return undefined;

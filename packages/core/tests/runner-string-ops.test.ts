@@ -243,8 +243,8 @@ describe('runner string ops — executeKernSource + kern run acceptance', () => 
   });
 
   it('fails closed on a non-BMP string via the CLI-facing entry (exit-mapped KernRunnerError)', () => {
-    expect(() =>
-      executeKernSource(mainProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"'])),
-    ).toThrow(KernRunnerError);
+    expect(() => executeKernSource(mainProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']))).toThrow(
+      KernRunnerError,
+    );
   });
 });

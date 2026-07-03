@@ -15,8 +15,8 @@
  * vs-Python-`None` gap documented in portable-map.ts and kern-stdlib.ts).
  */
 
-import { executeKernSource, KernRunnerError } from '../src/runner.js';
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
+import { executeKernSource, KernRunnerError } from '../src/runner.js';
 import type { IRNode } from '../src/types.js';
 
 beforeAll(() => {
@@ -51,9 +51,7 @@ describe('runner stdlib namespace calls — List.length', () => {
   });
 
   it('matches the member-access form on the same array', () => {
-    expect(
-      runStdout([letBind('xs', '[1,2]'), print('List.length(xs)'), print('xs.length')]),
-    ).toBe('2\n2\n');
+    expect(runStdout([letBind('xs', '[1,2]'), print('List.length(xs)'), print('xs.length')])).toBe('2\n2\n');
   });
 
   it('reads zero for an empty array', () => {
@@ -73,9 +71,9 @@ describe('runner stdlib namespace calls — List.length', () => {
     // `List.length(...)` is then a member/call on the SHADOWING value, which
     // is outside the portable domain here, so the program still abstains
     // (never silently falls back to the builtin against the user's intent).
-    expect(() =>
-      runStdout([letBind('List', '1'), letBind('xs', '[1]'), print('List.length(xs)')]),
-    ).toThrow(ReferenceRunnerError);
+    expect(() => runStdout([letBind('List', '1'), letBind('xs', '[1]'), print('List.length(xs)')])).toThrow(
+      ReferenceRunnerError,
+    );
   });
 });
 
@@ -109,9 +107,7 @@ describe('runner stdlib namespace calls — Map construction + get/has (executeK
 
   it('fails closed reading a missing key via Map.get (Map.has probes safely)', () => {
     expect(() =>
-      executeKernSource(
-        mainProgram(['let name=m value="new Map()"', 'print value="Map.get(m, \\"missing\\")"']),
-      ),
+      executeKernSource(mainProgram(['let name=m value="new Map()"', 'print value="Map.get(m, \\"missing\\")"'])),
     ).toThrow(KernRunnerError);
   });
 
@@ -142,9 +138,9 @@ describe('runner stdlib namespace calls — Map construction + get/has (executeK
   });
 
   it('fails closed on `Map.get`/`Map.has` on a non-Map binding', () => {
-    expect(() =>
-      executeKernSource(mainProgram(['let name=n value="1"', 'print value="Map.has(n, \\"a\\")"'])),
-    ).toThrow(KernRunnerError);
+    expect(() => executeKernSource(mainProgram(['let name=n value="1"', 'print value="Map.has(n, \\"a\\")"']))).toThrow(
+      KernRunnerError,
+    );
   });
 });
 

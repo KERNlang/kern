@@ -245,7 +245,7 @@ function moduleScopeCacheId(scope: RunnerModuleScope | undefined): number {
   if (!scope) return 0;
   let id = moduleScopeIds.get(scope);
   if (id === undefined) {
-    id = (moduleScopeSeq += 1);
+    id = moduleScopeSeq += 1;
     moduleScopeIds.set(scope, id);
   }
   return id;

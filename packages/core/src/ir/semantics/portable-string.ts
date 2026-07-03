@@ -52,9 +52,9 @@
  *   - `startsWith(prefix)` returns a boolean; there is no out-of-range case.
  */
 
+import { isValueIR, type ValueIR } from '../../value-ir.js';
 import { hasBinding, type SemanticEnv } from './index.js';
 import { evalPortableValue, type PortableScalar } from './portable-scalar.js';
-import { isValueIR, type ValueIR } from '../../value-ir.js';
 
 /**
  * True iff `s` contains NO UTF-16 code unit in the surrogate range
@@ -103,7 +103,10 @@ const STRING_OP_ARITY: Readonly<Record<string, number>> = Object.freeze({
  * invalid shape (wrong arity, non-BMP-safe operand, out-of-range index) so
  * the runner abstains atomically rather than guess.
  */
-export function evalStringOpCall(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv): PortableScalar | undefined {
+export function evalStringOpCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+): PortableScalar | undefined {
   if (node.optional) return undefined;
   const callee = node.callee;
   if (callee.kind !== 'member' || callee.optional) return undefined;
@@ -112,7 +115,8 @@ export function evalStringOpCall(node: Extract<ValueIR, { kind: 'call' }>, env: 
   const arity = STRING_OP_ARITY[method];
   if (arity === undefined) return undefined;
   const label = `Text.${method}`;
-  if (node.args.length !== arity) throw new Error(`portable: ${label} expects exactly ${arity} argument${arity === 1 ? '' : 's'}`);
+  if (node.args.length !== arity)
+    throw new Error(`portable: ${label} expects exactly ${arity} argument${arity === 1 ? '' : 's'}`);
 
   const receiverArg = node.args[0];
   if (!isValueIR(receiverArg)) throw new Error(`portable: ${label} requires a string receiver`);

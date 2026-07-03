@@ -120,15 +120,15 @@ describe('runner dynamic index — for-counter reads certify (3-leg portable)', 
   // previously "ARITHMETIC on the counter abstains: `xs[i + 1]` is out of
   // slice" — the exact capability this milestone lifts.
   it('ARITHMETIC (+) on a for-counter now certifies: `xs[i + 1]`', () => {
-    expect(
-      runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '2' }, print('xs[i + 1]'))]),
-    ).toBe('20\n30\n');
+    expect(runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '2' }, print('xs[i + 1]'))])).toBe(
+      '20\n30\n',
+    );
   });
 
   it('ARITHMETIC (-) on a for-counter now certifies: `xs[i - 1]`', () => {
-    expect(
-      runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '1', to: '3' }, print('xs[i - 1]'))]),
-    ).toBe('10\n20\n');
+    expect(runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '1', to: '3' }, print('xs[i - 1]'))])).toBe(
+      '10\n20\n',
+    );
   });
 
   it('NESTED arithmetic on a for-counter certifies: `xs[i + 1 - 1]`', () => {
