@@ -712,4 +712,131 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
       /unknown policy slot 'around' \(expected pre or post\)/,
     );
   });
+
+  test('a guard reading the DEFAULT credential/signature header (no explicit prop override) loads — the allowlist derives from the normalized plan', async () => {
+    const routeLine =
+      '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Authz';
+    const guardSource = (header: string) =>
+      [
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        `    capability namespace=app-http operation=header name=h input="{ name: \\"${header}\\" }"`,
+      ].join('\n');
+    const files = { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('authorization') };
+
+    // auth's default credentialHeader is 'authorization' — reading it with NO
+    // credentialHeader= override and NO headers= allowlist previously failed
+    // load-time validation as "undeclared", even though it is exactly the
+    // header the auth plan checks at runtime.
+    await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Authz kind=auth slot=pre source="./guard.kern"']),
+      files,
+    );
+
+    // hmacSignature's default signatureHeader is 'x-signature'.
+    await load(
+      manifest([
+        'app name=SupportApp',
+        routeLine,
+        '  policy name=Authz kind=hmacSignature slot=pre source="./guard.kern"',
+      ]),
+      { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('x-signature') },
+    );
+
+    // A header that is neither the default nor explicitly allowlisted still
+    // fails closed.
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          routeLine,
+          '  policy name=Authz kind=auth slot=pre source="./guard.kern"',
+        ]),
+        { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('x-not-allowed') },
+      ),
+    ).rejects.toThrow(/reads undeclared HTTP header/);
+  });
+
+  test('a policy guard source with parse errors or malformed/unknown capability declarations fails the whole load, matching entry-source validation', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+    const appLines = ['app name=SupportApp', routeLine, '  policy name=PreGate kind=passthrough slot=pre source="./guard.kern"'];
+
+    // Unknown capability namespace/operation.
+    await expect(
+      load(manifest(appLines), {
+        ...files,
+        '/app/guard.kern': [
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    capability namespace=totally-unknown operation=nope name=h',
+        ].join('\n'),
+      }),
+    ).rejects.toThrow(/malformed or unknown capability declarations/);
+
+    // Malformed capability node (missing required namespace).
+    await expect(
+      load(manifest(appLines), {
+        ...files,
+        '/app/guard.kern': [
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    capability operation=header name=h',
+        ].join('\n'),
+      }),
+    ).rejects.toThrow(/malformed or unknown capability declarations/);
+  });
+
+  test('rag-review minGroundingCoverage must stay within [0, 1] — a negative value would silently disable the threshold', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern"';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+
+    await expect(
+      load(
+        manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=-0.2']),
+        files,
+      ),
+    ).rejects.toThrow(/minGroundingCoverage must be between 0 and 1/);
+
+    await expect(
+      load(
+        manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=1.5']),
+        files,
+      ),
+    ).rejects.toThrow(/minGroundingCoverage must be between 0 and 1/);
+
+    // Boundary values are accepted.
+    await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Ok kind=rag-review slot=pre minGroundingCoverage=0']),
+      files,
+    );
+    await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Ok kind=rag-review slot=pre minGroundingCoverage=1']),
+      files,
+    );
+  });
+
+  test('a policy failureStatus must be a valid HTTP status code, and denied decisions honor it instead of hardcoding 401', async () => {
+    const routeLine =
+      '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Sig';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+
+    await expect(
+      load(
+        manifest(['app name=SupportApp', routeLine, '  policy name=Sig kind=hmacSignature slot=pre failureStatus=12']),
+        files,
+      ),
+    ).rejects.toThrow(/failureStatus must be a valid HTTP status code/);
+
+    const descriptor = await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Sig kind=hmacSignature slot=pre failureStatus=422']),
+      files,
+    );
+    const route = descriptor.routes[0];
+    // No signature/rawBody in facts denies immediately, with no host wiring.
+    const [decision] = await executeKernAppEntryPolicySlot(route, 'pre', {});
+    expect(decision).toEqual(
+      expect.objectContaining({ action: 'deny', status: 422 }),
+    );
+  });
 });

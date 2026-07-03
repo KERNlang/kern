@@ -278,13 +278,23 @@ function policySlotPlan(policy: IRNode, kind: KernAppExecutablePolicyKind, label
       ...(optionalStringProp(policy, 'prefix') ? { prefix: optionalStringProp(policy, 'prefix') } : {}),
     };
   }
+  const minGroundingCoverage = optionalNumberProp(policy, 'minGroundingCoverage', 1);
+  // A coverage threshold outside [0, 1] is either a malformed config (e.g. a
+  // stray percentage like 80) or — critically — a NEGATIVE value, which
+  // silently disables the check entirely (evaluatePolicyRagReview's
+  // `coverage < minGroundingCoverage` is never true when the RHS is
+  // negative). Fail the manifest load instead of shipping a guard that can
+  // never deny on ungrounded coverage.
+  if (!(minGroundingCoverage >= 0 && minGroundingCoverage <= 1)) {
+    throw new KernAppDescriptorError(`${label} minGroundingCoverage must be between 0 and 1`);
+  }
   return {
     kind,
     queryField: optionalStringProp(policy, 'queryField') ?? 'query',
     answerField: optionalStringProp(policy, 'answerField') ?? 'answer',
     citedChunkIdsField: optionalStringProp(policy, 'citedChunkIdsField') ?? 'citedChunkIds',
     groundingSpansField: optionalStringProp(policy, 'groundingSpansField') ?? 'groundingSpans',
-    minGroundingCoverage: optionalNumberProp(policy, 'minGroundingCoverage', 1),
+    minGroundingCoverage,
   };
 }
 
@@ -434,6 +444,13 @@ function policySlotDescriptor(policy: IRNode, appRoot: string): KernAppPolicySlo
   const plan = policySlotPlan(policy, executableKind, label);
   if (handler !== undefined && source === undefined) {
     throw new KernAppDescriptorError(`${label} declares handler= without source=`);
+  }
+  const failureStatusRaw = policy.props?.['failureStatus'];
+  if (failureStatusRaw !== undefined) {
+    const failureStatusNumber = typeof failureStatusRaw === 'number' ? failureStatusRaw : Number(failureStatusRaw);
+    if (!Number.isInteger(failureStatusNumber) || failureStatusNumber < 100 || failureStatusNumber > 599) {
+      throw new KernAppDescriptorError(`${label} failureStatus must be a valid HTTP status code`);
+    }
   }
   return {
     node: policy,
@@ -644,14 +661,31 @@ async function validatePolicySlotSources(
         entryHandlerName: slotPolicy.handler,
         providedCapabilities: slotPolicy.requires,
       });
-      const allowedHeaders = new Set(headerListProp(slotPolicy.node, 'headers', slotPolicy.label));
-      const explicitCredentialHeader = optionalStringProp(slotPolicy.node, 'credentialHeader');
-      if (slotPolicy.plan.kind === 'auth' && explicitCredentialHeader !== undefined) {
-        allowedHeaders.add(normalizeHeaderName(explicitCredentialHeader, slotPolicy.label));
+      // Fail-closed on parse/capability-shape problems in the guard source
+      // itself — mirrors assertEntrySourceContract's entry-source gate.
+      // Without this, a policy handler with a malformed or unknown capability
+      // declaration (or unparseable source) silently passed validation here
+      // while the same defect fails a route/view entry's load.
+      const firstAnalysisError = analysis.parseDiagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (firstAnalysisError || analysis.hasParseErrors) {
+        throw new KernAppDescriptorError(firstAnalysisError?.message ?? `${slotPolicy.label} source has parse errors`);
       }
-      const explicitSignatureHeader = optionalStringProp(slotPolicy.node, 'signatureHeader');
-      if (slotPolicy.plan.kind === 'hmacSignature' && explicitSignatureHeader !== undefined) {
-        allowedHeaders.add(normalizeHeaderName(explicitSignatureHeader, slotPolicy.label));
+      if (analysis.malformedCapabilities.length > 0 || analysis.unknownCapabilities.length > 0) {
+        throw new KernAppDescriptorError(`${slotPolicy.label} source has malformed or unknown capability declarations`);
+      }
+      // The header allowlist is derived from the NORMALIZED plan (which already
+      // folds in the kind-specific default — 'authorization' for auth,
+      // 'x-signature' for hmacSignature) rather than only an explicit node prop.
+      // A guard that reads the default header via app-http.header(...) with no
+      // credentialHeader=/signatureHeader= override previously failed load-time
+      // validation as an "undeclared" header even though it is exactly the
+      // header the plan will check at runtime.
+      const allowedHeaders = new Set(headerListProp(slotPolicy.node, 'headers', slotPolicy.label));
+      if (slotPolicy.plan.kind === 'auth') {
+        allowedHeaders.add(slotPolicy.plan.credentialHeader);
+      }
+      if (slotPolicy.plan.kind === 'hmacSignature') {
+        allowedHeaders.add(slotPolicy.plan.signatureHeader);
       }
       const sourceLines = source.split(/\r?\n/);
       for (const requirement of [...analysis.requirements, ...analysis.executableRequirements]) {
@@ -823,10 +857,27 @@ function denied(
     slot,
     kind: slotPolicy.kind,
     action: 'deny',
-    status: 401,
+    status: policyFailureStatus(slotPolicy),
     body: { error: 'policy_denied', policy: slotPolicy.name, kind: slotPolicy.kind },
     diagnostics,
   };
+}
+
+/**
+ * A policy MAY declare `failureStatus=<code>` (schema-documented, e.g.
+ * `failureStatus=422`) to override the default 401 deny status. Read
+ * defensively off `node.props` rather than a dedicated descriptor field so
+ * this works uniformly across the real `KernAppPolicySlotDescriptor` built by
+ * `policySlotDescriptor` (validated at manifest-load time) AND the literal
+ * descriptor objects the Express/FastAPI emitters bake directly into
+ * generated route code (same `node.props` shape, no load-time validation
+ * pass) — the runtime honors whatever value is present and falls back to 401
+ * on anything malformed instead of throwing.
+ */
+function policyFailureStatus(slotPolicy: KernAppPolicySlotDescriptor): number {
+  const raw = slotPolicy.node?.props?.['failureStatus'];
+  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  return Number.isInteger(value) && value >= 100 && value <= 599 ? value : 401;
 }
 
 async function executePolicySlotPlan(
