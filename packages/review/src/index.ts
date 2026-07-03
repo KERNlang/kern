@@ -270,7 +270,7 @@ export type {
 } from './llm-bridge.js';
 // LLM bridge (Phase 3)
 export { buildReviewInstructions, isLLMAvailable, runLLMReview } from './llm-bridge.js';
-export type { LLMGraphContext } from './llm-review.js';
+export type { LLMGraphContext, MinedRuleRef } from './llm-review.js';
 export { buildLLMPrompt, exportKernIR, parseLLMResponse } from './llm-review.js';
 export { extractTsConcepts } from './mappers/ts-concepts.js';
 export type { NormViolation } from './norm-miner.js';
@@ -295,6 +295,19 @@ export {
   resolveSpecifierToSrc,
 } from './public-api.js';
 export { runQualityRules } from './quality-rules.js';
+// RAG grounding gate (cite-or-drop enforcement for LLM findings against a
+// mined-rule corpus) — see rag-grounding.ts module doc for Tier A/B design.
+export type {
+  DroppedFinding,
+  EntailmentJudgeInput,
+  EntailmentJudgeResult,
+  GroundingDropReason,
+  GroundingPolicy,
+  GroundResult,
+  RuleCorpus,
+  RuleText,
+} from './rag-grounding.js';
+export { groundFindings, isGroundingEligible } from './rag-grounding.js';
 export {
   assignDefaultConfidence,
   calculateStats,
@@ -441,6 +454,7 @@ export type {
   ReviewStats,
   ReviewTelemetryConfig,
   RootCause,
+  RuleCitation,
   RuleContext,
   RuntimeBoundary,
   SourceSpan,
