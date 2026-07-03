@@ -16,7 +16,7 @@
  * no piped exit codes, build-then-run, drift check before executing.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,11 +33,27 @@ if (!existsSync(CLI)) {
   process.exit(2);
 }
 
-// Regenerate main.kern from the shared fixture corpus so the .kern engine
-// leg can never silently drift from scripts/capstone/fixtures.mjs (the
-// single source of truth also used for the TS-verdict leg below).
+// DRIFT GATE (agon review, round 2): the gate NEVER writes. It regenerates
+// main.kern in memory from the shared fixture corpus and byte-compares it
+// against the CHECKED-IN file; on mismatch it fails with a regeneration hint.
+// A silent overwrite here would (a) make CI unable to detect a stale
+// checked-in examples/capstone-assertion-engine/main.kern and (b) dirty the
+// local worktree on every gate run. The generator
+// (scripts/capstone/gen-fixtures-kern.mjs) is the ONLY writer.
 const generated = generateMainKern();
-writeFileSync(MAIN_KERN, generated);
+let onDisk;
+try {
+  onDisk = readFileSync(MAIN_KERN, 'utf-8');
+} catch {
+  console.error(`missing ${MAIN_KERN} — run: node scripts/capstone/gen-fixtures-kern.mjs`);
+  process.exit(1);
+}
+if (onDisk !== generated) {
+  console.error(
+    `${MAIN_KERN} is stale (does not match scripts/capstone/fixtures.mjs) — run: node scripts/capstone/gen-fixtures-kern.mjs`,
+  );
+  process.exit(1);
+}
 
 const result = spawnSync(process.execPath, [CLI, 'run', MAIN_KERN], {
   encoding: 'utf-8',
