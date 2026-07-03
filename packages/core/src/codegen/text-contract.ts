@@ -233,23 +233,53 @@ export const KERN_TEXT_OPS_HELPER_PY = [
   `        raise Exception('portable: ' + label + ' ' + ${pyStr(TEXT_MALFORMED_SURROGATE_FAILCLOSE)})`,
   '    return s',
   '',
+  // INT/FLOAT parity (agon review, confirmed) — KERN arithmetic diverges by
+  // NUMERIC TYPE across legs: `4 / 2` is the int-valued float `2.0` on Python
+  // (true division) but the plain number `2` on JS, so a strict
+  // `isinstance(i, int)` check accepted `Text.charAt(s, 2)` on the TS leg
+  // while raising on Python — a silent cross-leg divergence (the exact trap
+  // the runner's dynamic-index work documented). The contract on BOTH legs is
+  // "any integer-VALUED number is a valid index": Python coerces an
+  // `.is_integer()` float to int here (never bool — Python bool subclasses
+  // int); the TS twin's `Number.isInteger` accepts the same value set by
+  // construction (JS has only one number type, so `2.0 === 2`). A NON-integer
+  // value (`3 / 2` = 1.5) returns None here and falls into the same bounds
+  // error the TS leg throws for `!Number.isInteger(1.5)`.
+  'def _kern_text_int_index(i):',
+  '    if isinstance(i, bool):',
+  '        return None',
+  '    if isinstance(i, int):',
+  '        return i',
+  '    if isinstance(i, float) and i.is_integer():',
+  '        return int(i)',
+  '    return None',
+  '',
+  // Render an index for the bounds-error message with JS-parity: an
+  // integer-valued float renders as its int form (JS String(2.0) is "2",
+  // Python str(2.0) is "2.0" — coerce so both legs' messages agree); a
+  // non-integer float renders identically on both legs already ("1.5").
+  'def _kern_text_index_str(i):',
+  '    k = _kern_text_int_index(i)',
+  '    return str(k) if k is not None else str(i)',
+  '',
   'def _kern_text_length(s):',
   "    return len(_kern_text_require_well_formed(s, 'Text.length'))",
   '',
   'def _kern_text_char_at(s, i):',
   "    s = _kern_text_require_well_formed(s, 'Text.charAt')",
-  '    if not isinstance(i, int) or isinstance(i, bool) or i < 0 or i >= len(s):',
-  "        raise Exception('portable: Text.charAt index ' + str(i) + ' is out of bounds for a string of length ' + str(len(s)) + ' (0 <= index < length required)')",
-  '    return s[i]',
+  '    k = _kern_text_int_index(i)',
+  '    if k is None or k < 0 or k >= len(s):',
+  "        raise Exception('portable: Text.charAt index ' + _kern_text_index_str(i) + ' is out of bounds for a string of length ' + str(len(s)) + ' (0 <= index < length required)')",
+  '    return s[k]',
   '',
   'def _kern_text_slice(s, a, b):',
   "    s = _kern_text_require_well_formed(s, 'Text.slice')",
   '    n = len(s)',
-  '    a_ok = isinstance(a, int) and not isinstance(a, bool)',
-  '    b_ok = isinstance(b, int) and not isinstance(b, bool)',
-  '    if not a_ok or not b_ok or a < 0 or b < 0 or a > n or b > n or a > b:',
-  "        raise Exception('portable: Text.slice(' + str(a) + ', ' + str(b) + ') is out of bounds for a string of length ' + str(n) + ' (0 <= start <= end <= length required)')",
-  '    return s[a:b]',
+  '    ka = _kern_text_int_index(a)',
+  '    kb = _kern_text_int_index(b)',
+  '    if ka is None or kb is None or ka < 0 or kb < 0 or ka > n or kb > n or ka > kb:',
+  "        raise Exception('portable: Text.slice(' + _kern_text_index_str(a) + ', ' + _kern_text_index_str(b) + ') is out of bounds for a string of length ' + str(n) + ' (0 <= start <= end <= length required)')",
+  '    return s[ka:kb]',
   '',
   'def _kern_text_index_of(s, needle):',
   "    s = _kern_text_require_well_formed(s, 'Text.indexOf')",

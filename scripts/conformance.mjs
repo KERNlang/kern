@@ -1447,6 +1447,36 @@ fn name=probe returns=boolean
     body: `return value="Text.length(s)"`,
     expected: 5 },
 
+  // ── INT/FLOAT index parity (agon review, confirmed finding) — KERN `/` is
+  //    TRUE division on both legs, but the RESULT TYPE diverges: `4 / 2` is the
+  //    plain number 2 on JS and the int-valued FLOAT 2.0 on Python (both legs
+  //    emit the division verbatim). The Text helpers accept any
+  //    integer-VALUED number as an index (Python coerces an `.is_integer()`
+  //    float to int; JS's Number.isInteger accepts the same value set by
+  //    construction since 2.0 === 2) and reject a NON-integer value (1.5)
+  //    with the same bounds error on both legs. DISCRIMINATING: a strict
+  //    `isinstance(i, int)` Python impl fails the computed-index cases (2.0
+  //    raises → ts ≠ py), and an unchecked JS impl fails the 3/2 throws-case
+  //    (cps[1.5] silently yields undefined instead of throwing).
+  { kind: 'stmt', name: 'stmt: Text.charAt with a COMPUTED index (i/2 -> 2.0 on Python, 2 on JS) works on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'i', type: 'number', value: 4 }],
+    body: `return value="Text.charAt(s, i / 2)"`,
+    expected: 'l' },
+  { kind: 'stmt', name: 'stmt: Text.slice with COMPUTED bounds (a/2, b/2) works on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'a', type: 'number', value: 2 }, { name: 'b', type: 'number', value: 6 }],
+    body: `return value="Text.slice(s, a / 2, b / 2)"`,
+    expected: 'el' },
+  { kind: 'stmt', name: 'stmt: Text.charAt COMPUTED index at an astral boundary returns the whole astral character',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'i', type: 'number', value: 2 }],
+    body: `return value="Text.charAt(s, i / 2)"`,
+    expected: '\u{1F4A9}' },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.charAt with a NON-integer index (i/2 = 1.5) fails closed on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'i', type: 'number', value: 3 }],
+    body: `return value="Text.charAt(s, i / 2)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.slice with a NON-integer bound (b/2 = 1.5) fails closed on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'a', type: 'number', value: 0 }, { name: 'b', type: 'number', value: 3 }],
+    body: `return value="Text.slice(s, a, b / 2)"` },
+
   // ── Malformed-surrogate FAIL-CLOSED parity (kind:'stmt', throws:true) — both
   //    legs must throw on the SAME input; a leg that silently "succeeds" on a
   //    malformed surrogate is a parity violation (the runner already fails

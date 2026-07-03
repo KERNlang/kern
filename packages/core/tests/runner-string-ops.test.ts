@@ -88,6 +88,19 @@ describe('runner string ops — Text.charAt (code-point indexed, strict bounds)'
   it('fails closed on a negative index (does not inherit JS empty-string behavior)', () => {
     expect(() => runStdout([print('Text.charAt("hi", -1)')])).toThrow(ReferenceRunnerError);
   });
+
+  // INT/FLOAT index parity (agon review) — the runner leg is JS, where
+  // `4 / 2` is the plain number 2 (JS collapses int/float), so an
+  // integer-VALUED computed index certifies; a NON-integer one (3 / 2 = 1.5)
+  // fails closed. Same "integer-valued number" contract the two codegen legs'
+  // helpers enforce (Python coerces the int-valued float 2.0 to 2).
+  it('accepts a COMPUTED integer-valued index (4 / 2)', () => {
+    expect(runStdout([print('Text.charAt("hello", 4 / 2)')])).toBe('l\n');
+  });
+
+  it('fails closed on a NON-integer computed index (3 / 2 = 1.5)', () => {
+    expect(() => runStdout([print('Text.charAt("hello", 3 / 2)')])).toThrow(ReferenceRunnerError);
+  });
 });
 
 describe('runner string ops — Text.slice (code-point indexed, strict bounds)', () => {
