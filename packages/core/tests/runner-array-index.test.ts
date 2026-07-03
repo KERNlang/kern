@@ -109,9 +109,7 @@ describe('runner array index — in-bounds literal reads certify (3-leg portable
 
   it('ARITHMETIC on a for-loop counter now certifies: `xs[i + 1]`', () => {
     // The task headline capability — a loop counter plus a literal offset.
-    expect(
-      runStdout([letArr('xs', '[10,20,30]'), forLoop('i', '0', '2', print('xs[i + 1]'))]),
-    ).toBe('20\n30\n');
+    expect(runStdout([letArr('xs', '[10,20,30]'), forLoop('i', '0', '2', print('xs[i + 1]'))])).toBe('20\n30\n');
   });
 
   it('a null element prints "null"', () => {

@@ -208,12 +208,7 @@ export function analyzeKernSourceCapabilities(
   // root file (finding: preflight readiness parity across module boundaries).
   const moduleRoots = graph.roots.map((module) => module.root);
   const unsupportedHandlers = new Set<IRNode>();
-  const executableHandlers = crossModuleExecutableHandlers(
-    graph,
-    rootPath,
-    entryHandlerName,
-    unsupportedHandlers,
-  );
+  const executableHandlers = crossModuleExecutableHandlers(graph, rootPath, entryHandlerName, unsupportedHandlers);
   const executableRequirements = collectExecutableRequirements(moduleRoots, executableHandlers, requirements);
   const executableAsyncPlannedCapabilities = collectExecutableRequirements(
     moduleRoots,
@@ -447,7 +442,9 @@ function parseCapabilityGraph(
         continue;
       }
       if (resolved && imported.kind && imported.kind !== resolved.kind) {
-        linkError(moduleLinkErrors.kindMismatch(imported.importedName, imported.targetPath, imported.kind, resolved.kind));
+        linkError(
+          moduleLinkErrors.kindMismatch(imported.importedName, imported.targetPath, imported.kind, resolved.kind),
+        );
         continue;
       }
       if (imported.exportOnly) {
@@ -514,7 +511,8 @@ function buildCapabilityModuleScopes(graph: {
       if (imported.targetPath === '') continue;
       const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
       if (!resolved) continue;
-      if (resolved.kind === 'fn') importedFn.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
+      if (resolved.kind === 'fn')
+        importedFn.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
       else importedClass.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
     }
     scopes.set(module.path, { path: module.path, root: module.root, importedFn, importedClass });
@@ -672,9 +670,7 @@ function collectUnsupportedAsyncExecutionsAcrossModules(
   return out;
 }
 
-function requirementsByLine(
-  requirements: readonly CapabilityRequirement[],
-): Map<string, CapabilityRequirement[]> {
+function requirementsByLine(requirements: readonly CapabilityRequirement[]): Map<string, CapabilityRequirement[]> {
   const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
   for (const requirement of requirements) {
     const key = `${requirement.sourceLine}:${requirement.id}`;

@@ -3657,9 +3657,9 @@ describe('@kernlang/core/runner module linking', () => {
       '    print value="double(5)"',
     ].join('\n');
 
-    expect(
-      executeKernSource(root, { sourcePath: '/app/main.kern', moduleLoader: memoryModuleLoader(modules) }),
-    ).toBe('12\n10\n');
+    expect(executeKernSource(root, { sourcePath: '/app/main.kern', moduleLoader: memoryModuleLoader(modules) })).toBe(
+      '12\n10\n',
+    );
   });
 
   test('module loader returning non-string source fails closed as a link error', () => {
@@ -3674,9 +3674,9 @@ describe('@kernlang/core/runner module linking', () => {
       resolve: (specifier: string) => (specifier.startsWith('./helper') ? '/app/helper.kern' : null),
       readSource: () => 42 as unknown as string,
     };
-    expect(() =>
-      executeKernSource(root, { sourcePath: '/app/main.kern', moduleLoader: loader }),
-    ).toThrow(/source is unavailable/);
+    expect(() => executeKernSource(root, { sourcePath: '/app/main.kern', moduleLoader: loader })).toThrow(
+      /source is unavailable/,
+    );
   });
 
   test('async executor delegates sync-only multi-file programs with the module loader intact', async () => {
@@ -4013,9 +4013,11 @@ describe('@kernlang/core/runner module linking', () => {
 
   test('a re-exported symbol is accepted by BOTH preflight and executor', () => {
     const modules = {
-      '/app/base.kern': ['fn name=orig returns=number export=true', '  handler lang="kern"', '    return value="7"'].join(
-        '\n',
-      ),
+      '/app/base.kern': [
+        'fn name=orig returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="7"',
+      ].join('\n'),
       '/app/mid.kern': ['use path="./base"', '  from name=orig kind=fn export=true'].join('\n'),
     };
     const root = [
@@ -4036,9 +4038,11 @@ describe('@kernlang/core/runner module linking', () => {
 
   test('importing a syntactically broken module fails closed with diagnostics, no crash', () => {
     const modules = {
-      '/app/broken.kern': ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="'].join(
-        '\n',
-      ),
+      '/app/broken.kern': [
+        'fn name=helper returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="',
+      ].join('\n'),
     };
     const root = [
       'use path="./broken"',
@@ -4088,8 +4092,8 @@ describe('@kernlang/core/runner module linking', () => {
       });
     }).not.toThrow();
     expect(analysis?.hasParseErrors).toBe(true);
-    expect(analysis?.parseDiagnostics.some((d) => d.severity === 'error' && /source is unavailable/.test(d.message))).toBe(
-      true,
-    );
+    expect(
+      analysis?.parseDiagnostics.some((d) => d.severity === 'error' && /source is unavailable/.test(d.message)),
+    ).toBe(true);
   });
 });

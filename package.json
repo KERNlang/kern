@@ -65,7 +65,7 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
+    "@biomejs/biome": "2.5.1",
     "@types/node": "^26.0.1",
     "express": "^5.2.1",
     "tsx": "^4.22.5",

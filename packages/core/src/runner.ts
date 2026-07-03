@@ -14,7 +14,6 @@ import {
 } from './ir/semantics/index.js';
 import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
 import { resetAllContractRegistration } from './ir/semantics/register-all.js';
-import { moduleLinkErrors } from './runner-module-link.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { parseExpression } from './parser-expression.js';
@@ -31,6 +30,7 @@ import {
   type MalformedCapabilityRequirement,
   type UnknownCapabilityRequirement,
 } from './runner-capability-plan.js';
+import { moduleLinkErrors } from './runner-module-link.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 

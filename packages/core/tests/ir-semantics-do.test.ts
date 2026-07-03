@@ -57,39 +57,37 @@ describe('do contract — positive fixtures', () => {
     );
   });
 
-  it.each(doContract.fixtures.map((f) => [f.description, f] as const))(
-    'reference fixture: %s',
-    async (_desc, fixture) => {
-      const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
-      if (result.verdict !== 'pass') {
-        throw new Error(
-          `verdict=${result.verdict}\nfixture=${fixture.description}\nreference=${JSON.stringify(
-            result.reference,
-            null,
-            2,
-          )}`,
-        );
-      }
-      expect(result.verdict).toBe<Verdict>('pass');
-    },
-  );
+  it.each(
+    doContract.fixtures.map((f) => [f.description, f] as const),
+  )('reference fixture: %s', async (_desc, fixture) => {
+    const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
+    if (result.verdict !== 'pass') {
+      throw new Error(
+        `verdict=${result.verdict}\nfixture=${fixture.description}\nreference=${JSON.stringify(
+          result.reference,
+          null,
+          2,
+        )}`,
+      );
+    }
+    expect(result.verdict).toBe<Verdict>('pass');
+  });
 
-  it.each(doContract.fixtures.map((f) => [f.description, f] as const))(
-    'TS differential fixture: %s',
-    async (_desc, fixture) => {
-      const result = await runDifferential(fixture, { skipPython: true });
-      if (result.verdict !== 'pass') {
-        throw new Error(
-          `verdict=${result.verdict}\n` +
-            `fixture=${fixture.description}\n` +
-            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
-            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
-            `legError=${JSON.stringify(result.legError, null, 2)}`,
-        );
-      }
-      expect(result.verdict).toBe<Verdict>('pass');
-    },
-  );
+  it.each(
+    doContract.fixtures.map((f) => [f.description, f] as const),
+  )('TS differential fixture: %s', async (_desc, fixture) => {
+    const result = await runDifferential(fixture, { skipPython: true });
+    if (result.verdict !== 'pass') {
+      throw new Error(
+        `verdict=${result.verdict}\n` +
+          `fixture=${fixture.description}\n` +
+          `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+          `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+          `legError=${JSON.stringify(result.legError, null, 2)}`,
+      );
+    }
+    expect(result.verdict).toBe<Verdict>('pass');
+  });
 });
 
 describe('do contract — preconditions reject out-of-domain IR', () => {
@@ -114,7 +112,12 @@ describe('do contract — preconditions reject out-of-domain IR', () => {
   });
 
   it('rejects push on a non-array (scalar) binding', () => {
-    mustReject(block([{ type: 'let', props: { name: 'n', value: '1' } }, { type: 'do', props: { value: 'n.push(1)' } }]));
+    mustReject(
+      block([
+        { type: 'let', props: { name: 'n', value: '1' } },
+        { type: 'do', props: { value: 'n.push(1)' } },
+      ]),
+    );
   });
 
   it('rejects an OPTIONAL push receiver (`xs?.push(1)`)', () => {
