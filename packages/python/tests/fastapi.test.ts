@@ -3723,4 +3723,24 @@ describe('FastAPI policy-slot self-sufficiency (guardrails 4.5.0 item 1)', () =>
     const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
     expect(code).toContain('"algorithm": "sha256"');
   });
+
+  test('an hmacSignature encoding outside hex/base64 fails the BUILD, matching the core loader (fail-closed)', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        {
+          type: 'policy',
+          props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', encoding: 'base32' },
+          children: [],
+        },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    // Emitted verbatim, a malformed encoding reaches the generated runtime,
+    // where every non-hex value is treated as base64 — silently drifted
+    // semantics instead of a build error.
+    expect(() => buildRouteArtifact(routeNode as any, 0, [])).toThrow(/hmacSignature encoding must be hex or base64/);
+  });
 });

@@ -339,11 +339,20 @@ function pyPolicyDescriptor(policyNodes: readonly IRNode[], method: string, path
     if (kind === 'rag-review' && !(minGroundingCoverage >= 0 && minGroundingCoverage <= 1)) {
       throw new Error(`fastapi emitter: policy ${name} minGroundingCoverage must be between 0 and 1`);
     }
+    // Same fail-closed rule as core's loader for the HMAC signature encoding:
+    // anything other than the two supported encodings must fail the BUILD.
+    // Emitted verbatim it reaches generated runtime code, where the Python
+    // runtime treats every non-hex value as base64 — silently drifted
+    // semantics instead of a build error.
+    const encoding = String(props.encoding || 'hex');
+    if (kind === 'hmacSignature' && encoding !== 'hex' && encoding !== 'base64') {
+      throw new Error(`fastapi emitter: policy ${name} hmacSignature encoding must be hex or base64`);
+    }
     const plan =
       kind === 'auth'
         ? `{"kind": "auth", "verifierRef": "${escapePyStr(String(props.verifierRef || props.ref || 'default'))}", "credentialHeader": "${escapePyStr(String(props.credentialHeader || 'authorization').toLowerCase())}"}`
         : kind === 'hmacSignature'
-          ? `{"kind": "hmacSignature", "keyRef": "${escapePyStr(String(props.keyRef || 'default'))}", "algorithm": "${escapePyStr(normalizeKernHmacAlgorithm(String(props.algorithm || 'sha256')))}", "signatureHeader": "${escapePyStr(String(props.signatureHeader || 'x-signature').toLowerCase())}", "encoding": "${escapePyStr(String(props.encoding || 'hex'))}"${props.prefix ? `, "prefix": "${escapePyStr(String(props.prefix))}"` : ''}}`
+          ? `{"kind": "hmacSignature", "keyRef": "${escapePyStr(String(props.keyRef || 'default'))}", "algorithm": "${escapePyStr(normalizeKernHmacAlgorithm(String(props.algorithm || 'sha256')))}", "signatureHeader": "${escapePyStr(String(props.signatureHeader || 'x-signature').toLowerCase())}", "encoding": "${escapePyStr(encoding)}"${props.prefix ? `, "prefix": "${escapePyStr(String(props.prefix))}"` : ''}}`
           : kind === 'rag-review'
             ? `{"kind": "rag-review", "queryField": "query", "answerField": "answer", "citedChunkIdsField": "citedChunkIds", "groundingSpansField": "groundingSpans", "minGroundingCoverage": ${minGroundingCoverage}}`
             : kind === 'passthrough'

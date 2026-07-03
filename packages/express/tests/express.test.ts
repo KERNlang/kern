@@ -1700,6 +1700,29 @@ describe('Express Transpiler', () => {
       const code = await guardedRouteContent();
       expect(code).toContain('const __KERN_RAW_BODY_LIMIT_BYTES = 1048576;');
       expect(code).toContain(`res.status(413).json({ error: 'Payload Too Large' });`);
+      // Overflow stops reading immediately (TCP backpressure) and tears the
+      // connection down after a short lingering close — draining the rest
+      // would let a client keep pumping bytes at full bandwidth.
+      expect(code).toContain(`res.setHeader('Connection', 'close');`);
+      expect(code).toContain('req.pause();');
+      expect(code).toContain(`res.once('finish', () => setTimeout(() => req.destroy(), 1000).unref());`);
+      // An already-consumed stream never fires 'end' — guard with an empty
+      // raw body (denied downstream) instead of hanging the request.
+      expect(code).toContain('if (req.readableEnded) {');
+    });
+
+    test('an hmacSignature encoding outside hex/base64 fails the BUILD, matching the core loader (fail-closed)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre encoding=base32',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      expect(() => transpileExpress(parse(source))).toThrow(/hmacSignature encoding must be hex or base64/);
     });
 
     test("the emitted HMAC plan canonicalizes 'sha-256' to 'sha256' and the runtime verifier normalizes defensively", async () => {

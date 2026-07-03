@@ -33,11 +33,20 @@ function expressPolicyDescriptor(policyNodes: readonly IRNode[], method: string,
     if (kind === 'rag-review' && !(minGroundingCoverage >= 0 && minGroundingCoverage <= 1)) {
       throw new Error(`express emitter: policy ${name} minGroundingCoverage must be between 0 and 1`);
     }
+    // Same fail-closed rule as core's loader for the HMAC signature encoding:
+    // anything other than the two supported encodings must fail the BUILD.
+    // Emitted verbatim it reaches generated runtime code, where the Python
+    // runtime treats every non-hex value as base64 — silently drifted
+    // semantics instead of a build error.
+    const encoding = String(props.encoding || 'hex');
+    if (kind === 'hmacSignature' && encoding !== 'hex' && encoding !== 'base64') {
+      throw new Error(`express emitter: policy ${name} hmacSignature encoding must be hex or base64`);
+    }
     const plan =
       kind === 'auth'
         ? `{ kind: 'auth', verifierRef: '${escapeSingleQuotes(String(props.verifierRef || props.ref || 'default'))}', credentialHeader: '${escapeSingleQuotes(String(props.credentialHeader || 'authorization').toLowerCase())}' }`
         : kind === 'hmacSignature'
-          ? `{ kind: 'hmacSignature', keyRef: '${escapeSingleQuotes(String(props.keyRef || 'default'))}', algorithm: '${escapeSingleQuotes(normalizeKernHmacAlgorithm(String(props.algorithm || 'sha256')))}', signatureHeader: '${escapeSingleQuotes(String(props.signatureHeader || 'x-signature').toLowerCase())}', encoding: '${escapeSingleQuotes(String(props.encoding || 'hex'))}'${props.prefix ? `, prefix: '${escapeSingleQuotes(String(props.prefix))}'` : ''} }`
+          ? `{ kind: 'hmacSignature', keyRef: '${escapeSingleQuotes(String(props.keyRef || 'default'))}', algorithm: '${escapeSingleQuotes(normalizeKernHmacAlgorithm(String(props.algorithm || 'sha256')))}', signatureHeader: '${escapeSingleQuotes(String(props.signatureHeader || 'x-signature').toLowerCase())}', encoding: '${escapeSingleQuotes(encoding)}'${props.prefix ? `, prefix: '${escapeSingleQuotes(String(props.prefix))}'` : ''} }`
           : kind === 'rag-review'
             ? `{ kind: 'rag-review', queryField: 'query', answerField: 'answer', citedChunkIdsField: 'citedChunkIds', groundingSpansField: 'groundingSpans', minGroundingCoverage: ${minGroundingCoverage} }`
             : kind === 'passthrough'
@@ -347,6 +356,16 @@ export function buildRouteArtifact(
     lines.push(`const __KERN_RAW_BODY_LIMIT_BYTES = 1048576;`);
     lines.push('');
     lines.push(`function __kernCaptureRawBody(req: Request, res: Response, next: NextFunction): void {`);
+    // Defensive: a stream something upstream already consumed never fires
+    // 'end', so waiting on it would hang the request forever. Capture is
+    // registered first so generated code cannot currently reach this state —
+    // but if a host composes extra middleware ahead of it, fail safe with an
+    // empty raw body (which the guard then denies) instead of hanging.
+    lines.push(`  if (req.readableEnded) {`);
+    lines.push(`    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.alloc(0);`);
+    lines.push(`    next();`);
+    lines.push(`    return;`);
+    lines.push(`  }`);
     lines.push(`  const chunks: Buffer[] = [];`);
     lines.push(`  let receivedBytes = 0;`);
     lines.push(`  let overflowed = false;`);
@@ -357,7 +376,18 @@ export function buildRouteArtifact(
     lines.push(`    if (receivedBytes > __KERN_RAW_BODY_LIMIT_BYTES) {`);
     lines.push(`      overflowed = true;`);
     lines.push(`      chunks.length = 0;`);
+    // Overflow: respond 413, STOP READING immediately (req.pause() lets TCP
+    // backpressure stall the sender instead of draining an arbitrarily large
+    // upload at full bandwidth), and tear the connection down after a short
+    // lingering close. Destroying the instant the response flushes can RST
+    // the connection while unread upload bytes sit in the receive buffer,
+    // discarding the in-flight 413 before the client reads it — the linger
+    // (unref'd, so it never holds the process) lets a well-behaved client
+    // observe the status first; a misbehaving one is cut off regardless.
+    lines.push(`      res.setHeader('Connection', 'close');`);
     lines.push(`      res.status(413).json({ error: 'Payload Too Large' });`);
+    lines.push(`      req.pause();`);
+    lines.push(`      res.once('finish', () => setTimeout(() => req.destroy(), 1000).unref());`);
     lines.push(`      return;`);
     lines.push(`    }`);
     lines.push(`    chunks.push(buffer);`);
@@ -367,7 +397,12 @@ export function buildRouteArtifact(
     lines.push(`    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.concat(chunks);`);
     lines.push(`    next();`);
     lines.push(`  });`);
-    lines.push(`  req.on('error', next);`);
+    // After an overflow teardown the destroyed request may emit an error;
+    // the 413 response is already finished, so routing it into the error
+    // middleware would only produce a headers-already-sent crash.
+    lines.push(`  req.on('error', (error) => {`);
+    lines.push(`    if (!overflowed) next(error);`);
+    lines.push(`  });`);
     lines.push('}');
     lines.push('');
     lines.push(
