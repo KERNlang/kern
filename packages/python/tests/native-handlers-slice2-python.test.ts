@@ -48,7 +48,8 @@ describe('KERN-stdlib expansion — Python target', () => {
   test.each([
     // Text additions — Python `in` operator + Python method names
     ['Text.includes(s, "x")', '"x" in s'],
-    ['Text.startsWith(s, "p")', 's.startswith("p")'],
+    // KERN 4.5.0 item 3 — code-point-indexed helper, not native .startswith.
+    ['Text.startsWith(s, "p")', '_kern_text_starts_with(s, "p")'],
     ['Text.endsWith(s, "p")', 's.endswith("p")'],
     ['Text.split(s, ",")', 's.split(",")'],
     // Review fix: replace-all semantics. Python `replace` is replace-all by
@@ -241,8 +242,8 @@ describe('emitPyExpression — arithmetic + comparison + unary', () => {
   });
 
   test('combined Text.length + comparison', () => {
-    // Text.length(s) > 0 → len(s) > 0 (free-fn lowering, then >)
-    expect(emitPyExpression(parseExpression('Text.length(s) > 0'))).toBe('len(s) > 0');
+    // Text.length(s) > 0 → _kern_text_length(s) > 0 (KERN 4.5.0 item 3 — code-point op)
+    expect(emitPyExpression(parseExpression('Text.length(s) > 0'))).toBe('_kern_text_length(s) > 0');
   });
 
   test('relational ops with paren-wrapped binary args inside stdlib call', () => {
@@ -514,7 +515,8 @@ describe('FastAPI fn lang=kern with slice-2 features', () => {
     expect(out).toContain('trimmed = raw.strip()');
     // Slice S4 — `if cond=` wraps the condition in `_kern_truthy(...)`.
     // Slice S7 — the `=== 0` routes through `_kern_strict_equal`.
-    expect(out).toContain('if _kern_truthy(_kern_strict_equal(len(trimmed), 0)):');
+    // KERN 4.5.0 item 3 — `Text.length` is now the code-point-op helper, not `len(...)`.
+    expect(out).toContain('if _kern_truthy(_kern_strict_equal(_kern_text_length(trimmed), 0)):');
     expect(out).toContain('return Result.err({"kind": "empty"})');
     expect(out).toContain('return Result.ok(trimmed.upper())');
   });
