@@ -1,0 +1,9 @@
+use path="./math"
+  from name=double kind=fn as=twice
+  from name=Box kind=class
+
+fn name=main returns=void
+  handler lang="kern"
+    print value="twice(21)"
+    let name=box value="new Box()"
+    print value="box.read()"

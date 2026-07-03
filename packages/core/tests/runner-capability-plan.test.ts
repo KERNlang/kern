@@ -1,4 +1,9 @@
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import {
+  type AsyncRuntimeCapabilityHandler,
   analyzeKernSourceCapabilities,
   CAPABILITY_DESCRIPTORS,
   type CapabilityId,
@@ -14,6 +19,7 @@ function program(bodyLines: string[]): string {
 describe('@kernlang/core/runner capability preflight', () => {
   test('classifies shipped capability requirements with source lines and literal input', () => {
     const source = program([
+      'capability namespace=app-http operation=queryParam name=question input="{ name: \\"question\\" }"',
       'capability namespace=storage operation=set name=setOk input="{ key: \\"theme\\", value: \\"dark\\" }"',
       'capability namespace=crypto operation=randomHex name=hex input="{ length: 4 }"',
       'capability namespace=rag operation=retrieve name=chunks input="{ question: \\"refund\\", retrieval: \\"FindDocs\\" }"',
@@ -31,6 +37,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.plannedCapabilities).toEqual([]);
     expect(analysis.missingProviders).toEqual([]);
     expect(analysis.requirements.map((requirement) => requirement.id)).toEqual([
+      'app-http.queryParam',
       'storage.set',
       'crypto.randomHex',
       'rag.retrieve',
@@ -39,8 +46,8 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
     expect(analysis.requirements[0]).toEqual(
       expect.objectContaining({
-        bindingName: 'setOk',
-        literalInput: '{ key: "theme", value: "dark" }',
+        bindingName: 'question',
+        literalInput: '{ name: "question" }',
         sourceLine: 3,
       }),
     );
@@ -50,10 +57,11 @@ describe('@kernlang/core/runner capability preflight', () => {
       'shipped',
       'shipped',
       'shipped',
+      'shipped',
     ]);
   });
 
-  test('flags planned fs, net, llm, and async rag capabilities without marking them unknown', () => {
+  test('flags planned fs/net and promoted (shipped-async) llm/rag capabilities without marking them unknown', () => {
     const source = program([
       'capability namespace=fs operation=readText name=file input="{ path: \\"README.md\\" }"',
       'capability namespace=net operation=fetch name=response input="{ method: \\"GET\\", url: \\"https://example.test\\" }"',
@@ -65,13 +73,10 @@ describe('@kernlang/core/runner capability preflight', () => {
     const analysis = analyzeKernSourceCapabilities(source);
 
     expect(analysis.unknownCapabilities).toEqual([]);
-    expect(analysis.plannedCapabilities.map((requirement) => requirement.id)).toEqual([
-      'fs.readText',
-      'net.fetch',
-      'llm.complete',
-      'rag.retrieveAsync',
-      'rag.answer',
-    ]);
+    // fs.* and net.fetch stay preview-gated (`planned`); llm.complete and the
+    // async rag ops are promoted (`shipped-async`) so they fall out of
+    // plannedCapabilities even though they still need the async boundary.
+    expect(analysis.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText', 'net.fetch']);
     expect(analysis.asyncBoundaryRequired).toBe(true);
     expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
       'fs.readText',
@@ -80,12 +85,19 @@ describe('@kernlang/core/runner capability preflight', () => {
       'rag.retrieveAsync',
       'rag.answer',
     ]);
-    expect(analysis.plannedCapabilities.map((requirement) => requirement.descriptor.syncBoundary)).toEqual([
+    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.descriptor.syncBoundary)).toEqual([
       'async-planned',
       'async-planned',
       'async-planned',
       'async-planned',
       'async-planned',
+    ]);
+    expect(analysis.asyncPlannedCapabilities.map((requirement) => requirement.descriptor.status)).toEqual([
+      'planned',
+      'planned',
+      'shipped-async',
+      'shipped-async',
+      'shipped-async',
     ]);
   });
 
@@ -211,7 +223,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'net.fetch',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
     expect(analysis.asyncBoundaryRequired).toBe(false);
@@ -236,6 +248,302 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.asyncBoundaryRequired).toBe(true);
     expect(analysis.missingAsyncProviders).toEqual([]);
     expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('treats helper calls in member-call arguments as executable capability reachability', () => {
+    const source = [
+      'class name=Sink',
+      '  method name=accept returns=string',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      return value="value"',
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=sink value="new Sink()"',
+      '    print value="sink.accept(helper())"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+  });
+
+  test('treats called class methods as executable capability reachability', () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"method\\" }"',
+      '      return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'unsupported',
+      }),
+    ]);
+  });
+
+  test('treats class getters read from member expressions as executable capability reachability', () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  getter name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"getter\\" }"',
+      '      return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.read"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+  });
+
+  test('fails closed for shadowed class receiver getter reachability', () => {
+    const source = [
+      'class name=LocalLabel',
+      '  getter name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="\\"local\\""',
+      'class name=RemoteLabel',
+      '  getter name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"getter\\" }"',
+      '      return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new LocalLabel()"',
+      '    if cond="true"',
+      '      let name=label value="new RemoteLabel()"',
+      '      print value="label.read"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+  });
+
+  test('treats helper-returned class getters as executable capability reachability', () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  getter name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"getter\\" }"',
+      '      return value="answer"',
+      'fn name=makeLabel returns=RemoteLabel',
+      '  handler lang="kern"',
+      '    return value="new RemoteLabel()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="makeLabel()"',
+      '    print value="label.read"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(true);
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+  });
+
+  test('does not treat ordinary record member reads as ambiguous getter reachability', () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  getter name=text returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"getter\\" }"',
+      '      return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=context value="{ text: \\"local\\" }"',
+      '    print value="context.text"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.executableRequirements).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({ id: 'llm.complete', reason: 'outside-main' }),
+    ]);
+  });
+
+  test('does not treat same-named methods on unrelated known receiver classes as reachable', () => {
+    const source = [
+      'class name=RemoteLabel',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"method\\" }"',
+      '      return value="answer"',
+      'class name=LocalLabel',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="\\"local\\""',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new LocalLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.executableRequirements).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({ id: 'llm.complete', reason: 'outside-main' }),
+    ]);
+  });
+
+  test('treats class constructors as executable capability reachability', () => {
+    const source = [
+      'class name=NeedsStorage',
+      '  constructor',
+      '    handler lang="kern"',
+      '      capability namespace=storage operation=get name=value input="{ key: \\"mode\\" }"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=item value="new NeedsStorage()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedCapabilities: ['storage.get'],
+    });
+
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['storage.get']);
+    expect(analysis.missingProviders).toEqual([]);
+  });
+
+  test('treats constructors in member-call receiver expressions as executable reachability', () => {
+    const source = [
+      'class name=NeedsStorage',
+      '  constructor',
+      '    handler lang="kern"',
+      '      capability namespace=storage operation=get name=value input="{ key: \\"mode\\" }"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="\\"ok\\""',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="(new NeedsStorage()).read()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedCapabilities: ['storage.get'],
+    });
+
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['storage.get']);
+    expect(analysis.missingProviders).toEqual([]);
+  });
+
+  test('treats inherited methods and base constructors as executable capability reachability', () => {
+    const source = [
+      'class name=Base',
+      '  constructor',
+      '    handler lang="kern"',
+      '      capability namespace=storage operation=get name=mode input="{ key: \\"mode\\" }"',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"base\\" }"',
+      '      return value="answer"',
+      'class name=Child extends=Base',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=item value="new Child()"',
+      '    print value="item.read()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedCapabilities: ['storage.get'],
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual([
+      'storage.get',
+      'llm.complete',
+    ]);
+    expect(analysis.missingProviders).toEqual([]);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'unsupported',
+      }),
+    ]);
+  });
+
+  test('treats class field initializers and super-call arguments as constructor reachability', () => {
+    const source = [
+      'fn name=loadMode returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=storage operation=get name=mode input="{ key: \\"mode\\" }"',
+      '    return value="mode"',
+      'fn name=remoteValue returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=value input="{ prompt: \\"super\\" }"',
+      '    return value="value"',
+      'class name=Base',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      'class name=Child extends=Base',
+      '  field name=mode type=string value="loadMode()"',
+      '  constructor',
+      '    handler lang="kern"',
+      '      do value="super(remoteValue())"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=item value="new Child()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedCapabilities: ['storage.get'],
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual([
+      'storage.get',
+      'llm.complete',
+    ]);
+    expect(analysis.missingProviders).toEqual([]);
+    expect(analysis.missingAsyncProviders).toEqual([]);
   });
 
   test('reports missing async providers for called helper requirements', () => {
@@ -280,7 +588,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
   });
@@ -308,7 +616,35 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
+      }),
+    ]);
+  });
+
+  test('keeps unsupported helper-call async requirements out of executable readiness when async providers are supplied', () => {
+    const source = [
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    branch on="helper()"',
+      '      path value="ok"',
+      '        print value="\\"ok\\""',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.executableAsyncPlannedCapabilities).toEqual([]);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main',
       }),
     ]);
   });
@@ -334,7 +670,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
   });
@@ -359,7 +695,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
   });
@@ -384,7 +720,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
   });
@@ -505,11 +841,17 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(CAPABILITY_DESCRIPTORS['rag.retrieve']).toEqual(expect.objectContaining({ status: 'shipped' }));
     expect(CAPABILITY_DESCRIPTORS['rag.promptContext']).toEqual(expect.objectContaining({ status: 'shipped' }));
     expect(CAPABILITY_DESCRIPTORS['rag.checkAnswer']).toEqual(expect.objectContaining({ status: 'shipped' }));
+    // fs.* and net.fetch remain preview-gated behind --async-preview.
     expect(CAPABILITY_DESCRIPTORS['fs.readText']).toEqual(expect.objectContaining({ status: 'planned' }));
+    expect(CAPABILITY_DESCRIPTORS['fs.writeText']).toEqual(expect.objectContaining({ status: 'planned' }));
+    expect(CAPABILITY_DESCRIPTORS['fs.list']).toEqual(expect.objectContaining({ status: 'planned' }));
     expect(CAPABILITY_DESCRIPTORS['net.fetch']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['llm.complete']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['rag.answer']).toEqual(expect.objectContaining({ status: 'planned' }));
-    expect(CAPABILITY_DESCRIPTORS['rag.retrieveAsync']).toEqual(expect.objectContaining({ status: 'planned' }));
+    // Promoted out of --async-preview: the async runner boundary executes
+    // these by default whenever async providers are supplied.
+    expect(CAPABILITY_DESCRIPTORS['llm.complete']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.answer']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.ingest']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
+    expect(CAPABILITY_DESCRIPTORS['rag.retrieveAsync']).toEqual(expect.objectContaining({ status: 'shipped-async' }));
   });
 
   test('descriptor table keeps async boundary ids explicit', () => {
@@ -635,5 +977,166 @@ describe('@kernlang/core/runner async capability dispatch contract', () => {
         { namespace: 'net', operation: 'fetch' },
       ),
     ).rejects.toThrow("runner async capability 'net.fetch' returned a non-portable value");
+  });
+});
+
+describe('@kernlang/core/runner async capability per-call timeout (promotion hardening)', () => {
+  /**
+   * A provider slower than any timeoutMs used below but that still SETTLES —
+   * a genuinely-never-settling promise would leak past the test and trip
+   * node:test's own "Promise resolution is still pending" leak detector.
+   * Callers must await `settled` before the test ends.
+   */
+  function slowerThanTimeout(delayMs = 20): {
+    readonly handler: AsyncRuntimeCapabilityHandler;
+    readonly settled: Promise<void>;
+  } {
+    let resolveSettled: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      resolveSettled = resolve;
+    });
+    const handler: AsyncRuntimeCapabilityHandler = () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve('too-late');
+          resolveSettled();
+        }, delayMs);
+      });
+    return { handler, settled };
+  }
+
+  test('fails closed when a provider does not settle within an explicit deterministic timeoutMs', async () => {
+    const { handler, settled } = slowerThanTimeout();
+    await expect(
+      invokeRunnerCapabilityAsync(
+        { llm: { complete: handler } },
+        { namespace: 'llm', operation: 'complete' },
+        {},
+        { timeoutMs: 5 },
+      ),
+    ).rejects.toThrow("runner async capability 'llm.complete' timed out after 5ms");
+    await settled;
+  });
+
+  test('a timed-out call rejects with KernCapabilityError, not a raw timeout error', async () => {
+    const { handler, settled } = slowerThanTimeout();
+    let caught: unknown;
+    try {
+      await invokeRunnerCapabilityAsync(
+        { llm: { complete: handler } },
+        { namespace: 'llm', operation: 'complete' },
+        {},
+        { timeoutMs: 5 },
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(KernCapabilityError);
+    await settled;
+  });
+
+  test('a fast provider resolves before a deterministic timeoutMs elapses', async () => {
+    const result = await invokeRunnerCapabilityAsync(
+      {
+        llm: {
+          async complete() {
+            return 'fast';
+          },
+        },
+      },
+      { namespace: 'llm', operation: 'complete' },
+      {},
+      { timeoutMs: 5_000 },
+    );
+    expect(result).toBe('fast');
+  });
+
+  test('timeoutMs: 0 disables the guard even for a provider slower than the default deterministic bound', async () => {
+    const result = await invokeRunnerCapabilityAsync(
+      {
+        llm: {
+          async complete() {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return 'slow-but-allowed';
+          },
+        },
+      },
+      { namespace: 'llm', operation: 'complete' },
+      {},
+      { timeoutMs: 0 },
+    );
+    expect(result).toBe('slow-but-allowed');
+  });
+
+  test('a late rejection after timeout does not escape as an unhandled rejection', async () => {
+    let providerRejected: Promise<void> | undefined;
+    const handler: AsyncRuntimeCapabilityHandler = () => {
+      providerRejected = new Promise((resolve) => {
+        setTimeout(() => resolve(), 20);
+      });
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new Error('late provider failure')), 20);
+      });
+    };
+    await expect(
+      invokeRunnerCapabilityAsync(
+        { llm: { complete: handler } },
+        { namespace: 'llm', operation: 'complete' },
+        {},
+        {
+          timeoutMs: 5,
+        },
+      ),
+    ).rejects.toThrow("runner async capability 'llm.complete' timed out after 5ms");
+    // Let the provider's own late rejection actually happen before the test
+    // ends; if invokeRunnerCapabilityAsync did not swallow it, node:test
+    // would surface an unhandled rejection and fail this test file.
+    await providerRejected;
+  });
+
+  test('FAIL-CLOSED EXIT GUARD: the timeout fires even when the never-settling provider is the only pending work in the process', () => {
+    // Regression (review finding): with an unref'ed timeout timer, a
+    // never-settling provider that holds no other active handles let Node
+    // EXIT silently before the timeout fired — no error, no timeout, empty
+    // stdout. The spawned process below has NOTHING pending except the
+    // provider promise and the timeout timer, so this test only passes when
+    // the timer keeps the process alive until it fails closed.
+    const runnerUrl = pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), '../dist/runner.js')).href;
+    const script = [
+      `const { invokeRunnerCapabilityAsync } = await import(${JSON.stringify(runnerUrl)});`,
+      'const neverSettles = () => new Promise(() => {});',
+      'try {',
+      '  await invokeRunnerCapabilityAsync(',
+      '    { llm: { complete: neverSettles } },',
+      "    { namespace: 'llm', operation: 'complete' },",
+      '    {},',
+      '    { timeoutMs: 50 },',
+      '  );',
+      "  console.log('RESOLVED');",
+      '} catch (error) {',
+      '  console.log(`CAUGHT:${error.message}`);',
+      '}',
+    ].join('\n');
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      encoding: 'utf-8',
+      timeout: 20_000,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("CAUGHT:runner async capability 'llm.complete' timed out after 50ms");
+  });
+
+  test('omitting timeoutMs applies the default without needing an explicit value', async () => {
+    const result = await invokeRunnerCapabilityAsync(
+      {
+        llm: {
+          async complete() {
+            return 'default-timeout-ok';
+          },
+        },
+      },
+      { namespace: 'llm', operation: 'complete' },
+    );
+    expect(result).toBe('default-timeout-ok');
   });
 });

@@ -72,6 +72,9 @@ export const NODE_TYPES = [
   'theme',
   'doc',
   'decorator',
+  'app',
+  'view',
+  'policy',
   // Backend
   'server',
   'route',

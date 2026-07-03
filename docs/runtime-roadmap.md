@@ -3,6 +3,10 @@
 This roadmap tracks the path from portable KERN codegen to KERN executing useful
 programs through its own runtime surface.
 
+The bounded KERN 5.0 native-runner app contract is frozen in
+[`kern-5-support-matrix.md`](./kern-5-support-matrix.md). This roadmap remains
+the forward-looking document for surfaces outside that release matrix.
+
 ## Current Contract
 
 `kern run <file.kern>` is the native runner preview. It parses one `.kern` file,
@@ -31,9 +35,43 @@ The preview surface is the documented, tested subset used by the smoke gate:
   plus normal `finally` cleanup and caught-error `.message` reads
 - portable scalar arithmetic, comparison, booleans, strings, and null
 - portable array-literal binding, including nested array literals for iteration,
-  plus in-bounds literal array index reads
+  plus in-bounds array index reads by a bare safe-integer literal, an
+  integer-provenanced `for` counter, or `+`/`-` arithmetic recursively
+  combining such operands (`xs[i + 1]`, `xs[1 + 1]`) — `*`, `/`, `%`, and
+  unary stay outside the provenanced-arithmetic domain
+- array append via `do value="<arrayIdent>.push(<elementExpr>)"` (a
+  functional rebind of the target identifier to a new array; no synthetic
+  trace event, matching the uninstrumented TS/Python emitters)
+- `List.length(xs)` (the namespace-call form of `xs.length`), `new Map()`
+  (empty-map construction only), and `Map.get`/`Map.has`/`Map.set` over
+  string keys and portable-scalar values (`Map.set` only inside `do`,
+  the same functional-rebind mutation model as array append; `Map.get` on a
+  missing key fails closed — use `Map.has` to probe first)
+- `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`, `Text.indexOf(needle)`,
+  and `Text.startsWith(prefix)`, under the tribunal-locked Unicode
+  code-point contract (Option D, decided 2026-07-02), for BMP-SAFE strings
+  only (no character outside U+0000..U+FFFF, no surrogate-range code unit
+  in the receiver or any string argument) — a deliberate risk-valve
+  narrowing (see `packages/core/src/ir/semantics/portable-string.ts`): a
+  well-formed non-BMP character (emoji, rare CJK extension characters) is
+  NOT yet supported and fails closed identically to a malformed surrogate,
+  pending a follow-up slice with full code-point-index emulation.
+  `charAt`/`slice` fail closed on out-of-bounds/negative indices (a
+  deliberately stricter bounds policy than JS's/Python's native silent
+  clamping); `indexOf` returns a code-point offset or `-1` (not an error).
+  This slice reaches the REFERENCE RUNNER ONLY — the production TS/Python
+  codegen legs (`kern build`/`kern compile`) do not yet lower `Text.charAt`/
+  `Text.slice`/`Text.indexOf`, and `Text.length`'s existing UTF-16-based
+  lowering is UNCHANGED on those two legs; wiring the shared preamble/helper
+  injection needed for 3-leg parity is deferred to a follow-up slice.
 - flat record-literal binding with scalar dot-field reads
-- same-file pure KERN helper functions returning portable scalars
+- pure KERN helper functions returning portable scalars, including explicit
+  `use path="..."` imports from host-resolved `.kern` modules, and same-file
+  RECURSION (direct self-calls and mutual/indirect cycles) up to an explicit
+  512-deep call limit — unbounded recursion with no base case still fails
+  closed once it exceeds the limit
+- runner-native classes, including explicit imports of exported classes through
+  `use` / `from`
 - explicit `capability namespace=... operation=...` calls when an embedder
   injects a browser-safe capability provider through `@kernlang/core/runner`
   or the narrower `@kernlang/core/runner/browser` subpath
@@ -73,6 +111,12 @@ The preview surface is the documented, tested subset used by the smoke gate:
   slots are reported separately from missing provider flags, and explicit
   async-preview execution fails closed on those reported unsupported shapes
   before falling back to the sync runner
+- native-runner module linking is eager and fail-closed: the root and all
+  host-resolved `use path="..."` `.kern` imports are parsed and validated before
+  user code executes; imported modules may not declare `fn main`; runtime import
+  cycles, missing explicit exports, duplicate local import aliases, and host
+  path-containment failures are link errors; `kern run --capabilities`
+  aggregates capability requirements across the whole loaded graph
 - `storage` capability calls backed by `createMemoryStorageCapability`, a
   browser-safe volatile provider for in-run state
 - `crypto` capability calls backed by `createWebCryptoCapability`, a
@@ -80,10 +124,11 @@ The preview surface is the documented, tested subset used by the smoke gate:
   `randomHex`; embedders must inject the host crypto source explicitly
 - in the Node CLI path, local `rag.retrieve` capability calls over declared
   `ragRetrieve` specs with deterministic local embeddings
-- in the Node CLI async-preview path, `rag.retrieveAsync` capability calls run
-  the same declared `ragRetrieve` specs through the explicit async retrieval
-  adapter (`retrieveRagDocumentAsync`) while preserving retrieved-chunk
-  provenance for later `rag.answer` / `rag.checkAnswer` guards
+- in the Node CLI default async path (promoted out of `--async-preview` in the
+  KERN 5.2 lane), `rag.retrieveAsync` capability calls run the same declared
+  `ragRetrieve` specs through the explicit async retrieval adapter
+  (`retrieveRagDocumentAsync`) while preserving the normalized retrieved-chunk
+  provenance shape for later `rag.answer` / `rag.checkAnswer` guards
 - in the Node CLI path, local `rag.promptContext` capability calls assemble
   retrieved chunks into a deterministic prompt-context record
 - in the Node CLI path, local `rag.checkAnswer` capability calls enforce
@@ -92,22 +137,25 @@ The preview surface is the documented, tested subset used by the smoke gate:
   inline chunk citations such as `[1]` when citation or grounding settings
   request them; inline citation extraction now lives in a shared pure helper so
   a dedicated answer-synthesis surface can reuse the same grounding contract
-- in the Node CLI async-preview path, `rag.answer` synthesizes an answer over
+- in the Node CLI default async path, `rag.answer` synthesizes an answer over
   already-retrieved chunks through the configured deterministic or
-  OpenAI-compatible `llm.complete` provider, then fails closed through the same
-  inline-citation-derived grounding contract before returning an answer result
-- in the Node CLI async-preview path, `rag.ingest` indexes declared
+  OpenAI-compatible `llm.complete` provider (prompting through the
+  instruction-boundary-marked `safeText` context), then fails closed through
+  the same inline-citation-derived grounding contract before returning an
+  answer result
+- in the Node CLI default async path, `rag.ingest` indexes declared
   local-persistent RAG stores through the existing async indexing workflow and
   returns a portable index lifecycle report without changing the shipped sync
   `rag.retrieve` boundary
-- a KERN-authored RAG answer preview at
+- a KERN-authored RAG answer example at
   `examples/rag-starter/runtime-answer-preview.kern` that composes local
   `rag.retrieve`, `rag.promptContext`, deterministic `llm.complete`, and
-  `rag.checkAnswer` through `kern run --async-preview`
-- a KERN-authored async retrieval answer preview at
+  `rag.checkAnswer` through plain `kern run` (no `--async-preview`)
+- a KERN-authored async retrieval answer example at
   `examples/rag-starter/runtime-answer-async-retrieve-preview.kern` that
   composes `rag.retrieveAsync`, `rag.promptContext`, deterministic
-  `llm.complete`, and `rag.checkAnswer` through `kern run --async-preview`
+  `llm.complete`, and `rag.checkAnswer` through plain `kern run` (no
+  `--async-preview`)
 - a KERN-authored RAG answer-capability preview at
   `examples/rag-starter/runtime-answer-capability-preview.kern` that keeps
   retrieval explicit but replaces manual prompt assembly, completion, and answer
@@ -120,12 +168,21 @@ The preview surface is the documented, tested subset used by the smoke gate:
 Anything outside this surface is not a runtime promise until it has a contract,
 three-leg parity coverage where applicable, and a native runner test. Current
 known exclusions include whole-array / whole-record rendering, nested or dynamic
-records, non-counter dynamic array indices, arithmetic-on-counter array indices,
-string `.length`, non-canonical throws, recursive helper calls, side-effecting
-helper calls, implicit host globals, non-RAG/non-storage/non-crypto CLI host
-capabilities, provider-backed async RAG retrieval, async capability calls inside
-streams, async helper calls from unsupported expression positions, and broad
-async control flow.
+records, `*`/`/`/`%`/unary array-index arithmetic (only `+`/`-` between
+provenanced operands is proven divergence-free), non-empty `new Map(...)`
+construction (only the empty `new Map()` form is supported), non-string Map
+keys and non-scalar Map values, recursion past the explicit 512-deep call
+limit, non-BMP (surrogate-pair) characters in ANY `Text.*` string op (a
+well-formed emoji/rare-CJK character fails closed the same as a malformed
+surrogate — see the `Text.*` entry above), other string operations beyond
+`length`/`charAt`/`slice`/`indexOf`/`startsWith` (`upper`/`lower`/`trim`/
+`includes`/`endsWith`/`split`/`replace` still abstain in the reference
+runner despite existing in the KERN-stdlib lowering table for the other
+legs), non-canonical throws, side-effecting helper calls, implicit host
+globals, non-RAG/non-storage/non-crypto CLI host capabilities,
+provider-backed async RAG retrieval, async capability calls inside streams,
+async helper calls from unsupported expression positions, and broad async
+control flow.
 
 ## Phase 0 Gate
 
@@ -147,8 +204,9 @@ probe. It also runs `examples/native-runtime-async-fs-preview.kern` and
 with temporary roots, a `data:` scheme allowlist, and deterministic LLM output.
 It also runs `examples/rag-starter/runtime-answer-preview.kern`,
 `examples/rag-starter/runtime-answer-async-retrieve-preview.kern`, and
-`examples/rag-starter/runtime-answer-capability-preview.kern` through
-`kern run --async-preview --llm-response ...` to prove local RAG retrieval can
+`examples/rag-starter/runtime-answer-capability-preview.kern` through plain
+`kern run --llm-response ...` (the promoted default async lane — no
+`--async-preview`) to prove local RAG retrieval can
 feed deterministic async LLM completion both through the manual primitive chain,
 the explicit async retrieval boundary, and the dedicated `rag.answer` synthesis
 boundary inside KERN-authored preview programs. The same gate also runs
@@ -220,6 +278,19 @@ providers remain explicit host-adapter work.
    `asyncBoundaryRequired`; streams and broad async control-flow execution are
    still future work in the CLI.
 
+3a. **Native module linking**
+   The native runner now supports explicit value imports for the tested
+   portable helper-function and class surface. `executeKernSource` and
+   `executeKernSourceAsync` accept a browser-safe module loader hook; Node CLI
+   execution supplies a filesystem loader rooted at the entry file directory
+   and rejects escaping imports. Linking is eager: the whole reachable graph is
+   parsed, import paths are canonicalized by the host, module records are
+   memoized by canonical path, exported names must be explicit (`export=true`
+   declarations or `from ... export=true` re-exports), and runtime import cycles
+   are rejected before stdout is produced. The root entry remains the only file
+   allowed to declare `fn main`. This is not a package manager or bare-module
+   resolver; unsupported import shapes and host-denied paths fail closed.
+
 4. **RAG runtime operations**
    Move from runner/tooling-only RAG commands toward runtime-executable RAG
    operations behind explicit capabilities. The first local retrieval slice is
@@ -258,26 +329,35 @@ providers remain explicit host-adapter work.
 | `storage.get` / `storage.set` / `storage.has` / `storage.delete` / `storage.clear` / `storage.keys` | Shipped | Sync | Browser-safe volatile provider, explicit injection through runner capabilities |
 | `crypto.randomUUID` / `crypto.randomBytes` / `crypto.randomHex` | Shipped | Sync | Browser-safe provider with explicit host crypto source |
 | `rag.retrieve` | Shipped | Sync | Node CLI local RAG adapter over declared local sources |
-| `rag.retrieveAsync` | Preview | Async planned | Node CLI preview async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves retrieval provenance |
+| `rag.retrieveAsync` | Shipped (async) | Async | Runs by default without `--async-preview`; Node CLI async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves the normalized retrieval provenance shape |
 | `rag.promptContext` | Shipped | Sync | Node CLI local prompt-context assembly over retrieved RAG chunks |
 | `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved RAG chunks |
-| `rag.answer` | Preview | Async planned | Node CLI preview answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, fail-closed by grounding/citation checks |
-| `rag.ingest` | Preview | Async planned | Node CLI preview indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
+| `rag.answer` | Shipped (async) | Async | Runs by default without `--async-preview`; answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, prompt assembled with instruction-boundary marking, fail-closed by grounding/citation checks |
+| `rag.ingest` | Shipped (async) | Async | Runs by default without `--async-preview`; indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
 | `fs.readText` / `fs.writeText` / `fs.list` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides root-scoped `fs.list` / `fs.readText` and opt-in `fs.writeText` |
 | `net.fetch` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview requires explicit `--allow-net <origin>` or `--allow-net data:` and denies redirects |
-| `llm.complete` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides deterministic `--llm-response <text>` and OpenAI-compatible `--llm-provider openai` |
+| `llm.complete` | Shipped (async) | Async | Runs by default without `--async-preview`; must be host-injected; runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI provides deterministic `--llm-response <text>` and OpenAI-compatible `--llm-provider openai`; per-call provider timeout via `--capability-timeout-ms` (default 30s) |
 
 All shipped `executeKernSource` capabilities in this ABI slice are synchronous.
 Async providers are not invoked by `executeKernSource`; `executeKernSourceAsync`
 accepts the async host adapter shape, preflights explicit async provider ids,
-and awaits async providers only in the narrow preview lane. Async capabilities
-inside streams, unsupported helper expression positions, and broader control
-flow still fail closed.
+and awaits async providers. The KERN 5.2 promotion moved the RAG async lane
+(`rag.retrieveAsync`, `rag.answer`, `rag.ingest`) plus `llm.complete` out of
+`--async-preview`: `kern run` detects when a program's executable requirements
+need the async boundary and runs the async executor by default. `fs.*` and
+`net.fetch` stay preview-gated behind `--async-preview`. Every async capability
+provider call is bounded by a host-configurable per-call timeout
+(`--capability-timeout-ms`, default 30s; a timed-out provider fails closed).
+Async capabilities inside streams, unsupported helper expression positions,
+and broader control flow still fail closed. External vector-store adapter
+kinds registered through `registerExternalRagVectorStoreAdapter` (which runs
+the vector-store conformance suite fail-closed at registration) join
+`memory`/`local-persistent` as valid runtime `vectorStore kind=` values.
 
 The preflight analyzer refuses fake broad ABI by separating:
 
 - `requirements`: known capability calls found in parsed KERN source.
-- `plannedCapabilities`: known non-shipped capabilities such as `fs.readText`, `net.fetch`, and `llm.complete`.
+- `plannedCapabilities`: known still-preview-gated capabilities (`fs.*`, `net.fetch`). Promoted async capabilities (`rag.retrieveAsync`, `rag.answer`, `rag.ingest`, `llm.complete`, descriptor status `shipped-async`) no longer appear here even though they need the async boundary.
 - `asyncPlannedCapabilities`: known capability calls whose descriptor requires
   the future async runner boundary. This currently matches
   `plannedCapabilities`, but it tracks execution shape rather than release

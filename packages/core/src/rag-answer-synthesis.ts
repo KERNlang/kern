@@ -53,7 +53,10 @@ export async function synthesizeRagAnswer(options: RagAnswerSynthesisOptions): P
   }
   const context = assembleRagPromptContext(options.chunks, { maxChars: options.maxContextChars });
   const visibleChunks = contextChunksToRetrievedChunks(context);
-  const prompt = options.prompt ?? defaultRagAnswerPrompt(options.query, context.text);
+  // safeText, not text: rag.answer is fully automated (no human review before
+  // the assembled context reaches an LLM), so its default prompt always uses
+  // the instruction-boundary-wrapped, marker-neutralized variant.
+  const prompt = options.prompt ?? defaultRagAnswerPrompt(options.query, context.safeText);
   if (typeof prompt !== 'string' || prompt.trim() === '') {
     throw new Error('RAG answer synthesis prompt must be a non-empty string.');
   }

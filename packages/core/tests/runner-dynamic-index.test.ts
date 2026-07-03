@@ -25,7 +25,9 @@
  *   - `let j = 4 / 2; xs[j]`            → abstain (a plain let is not provenanced)
  *   - `for i..: let j = i; xs[j]`       → abstain (provenance is NOT transitive)
  *   - `for i..: assign i = 4/2; xs[i]`  → abstain (assign clears provenance)
- *   - `xs[i + 1]`                        → abstain (arithmetic on a counter deferred)
+ *   - `xs[i + 1]`                        → CERTIFIES as of milestone 5.1b
+ *     (`+`/`-` arithmetic between provenanced operands; see
+ *     `isIntProvenancedExpr` in portable-scalar.ts). `xs[i * 1]` still abstains.
  * Provenance proves INTEGER-NESS, not in-bounds-ness — the existing runtime
  * bounds check still applies, so a reverse loop reaching a NEGATIVE index or a
  * range exceeding the array ABSTAINS mid-loop (TS xs[3]=undefined / xs[-1]=undefined
@@ -113,6 +115,28 @@ describe('runner dynamic index — for-counter reads certify (3-leg portable)', 
     );
   });
 
+  // Milestone 5.1b — `+`/`-` arithmetic between provenanced operands now
+  // certifies (see `isIntProvenancedExpr` in portable-scalar.ts). This was
+  // previously "ARITHMETIC on the counter abstains: `xs[i + 1]` is out of
+  // slice" — the exact capability this milestone lifts.
+  it('ARITHMETIC (+) on a for-counter now certifies: `xs[i + 1]`', () => {
+    expect(runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '2' }, print('xs[i + 1]'))])).toBe(
+      '20\n30\n',
+    );
+  });
+
+  it('ARITHMETIC (-) on a for-counter now certifies: `xs[i - 1]`', () => {
+    expect(runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '1', to: '3' }, print('xs[i - 1]'))])).toBe(
+      '10\n20\n',
+    );
+  });
+
+  it('NESTED arithmetic on a for-counter certifies: `xs[i + 1 - 1]`', () => {
+    expect(
+      runStdout([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '3' }, print('xs[i + 1 - 1]'))]),
+    ).toBe('10\n20\n30\n');
+  });
+
   it('a NESTED loop resolves the OUTER counter across scopes (declaringScope provenance)', () => {
     // `xs[i]` is read in the INNER loop's scope while `i` is the OUTER counter —
     // isIntProvenanced must walk to the declaring scope to find i's mark.
@@ -170,8 +194,12 @@ describe('runner dynamic index — fail-close fences (abstain, never a value)', 
     ]);
   });
 
-  it('ARITHMETIC on the counter abstains: `xs[i + 1]` is out of slice', () => {
-    abstains([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '2' }, print('xs[i + 1]'))]);
+  it('MULTIPLICATION on the counter still abstains: `xs[i * 1]`', () => {
+    abstains([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '2' }, print('xs[i * 1]'))]);
+  });
+
+  it('OUT-OF-BOUNDS arithmetic on the counter abstains atomically: `xs[i + 5]`', () => {
+    abstains([letBind('xs', '[10,20,30]'), forL({ name: 'i', from: '0', to: '2' }, print('xs[i + 5]'))]);
   });
 
   it('OUT-OF-BOUNDS mid-loop abstains ATOMICALLY (no partial stdout)', () => {

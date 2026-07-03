@@ -31,8 +31,12 @@ export interface SemanticEnv {
   bindings: Map<string, unknown>;
   intProvenance?: Set<string>;
   runnerFunctions?: Map<string, RunnerFunctionBinding>;
+  runnerClasses?: Map<string, RunnerClassBinding>;
   runnerCallStack?: string[];
   runnerCallCache?: Map<string, unknown>;
+  runnerThis?: RunnerClassInstanceValue;
+  runnerSuperClass?: string;
+  runnerProtectedClassInstances?: WeakSet<RunnerClassInstanceValue>;
   capabilities?: KernRunnerCapabilities;
   capabilityContext?: KernRunnerCapabilityContext;
   /**
@@ -50,12 +54,59 @@ export interface SemanticEnv {
   now: number;
 }
 
+/**
+ * A module's private callable environment: the functions and classes visible
+ * for resolution WITHIN that module (its own declarations plus the symbols it
+ * imports). Each callable binding carries the scope of the module that DEFINED
+ * it, so an imported helper resolves its own module's private helpers/classes
+ * rather than the importer's — modules are singletons with their own scope, not
+ * flattened into the root namespace.
+ */
+export interface RunnerModuleScope {
+  readonly functions: Map<string, RunnerFunctionBinding>;
+  readonly classes: Map<string, RunnerClassBinding>;
+}
+
 export interface RunnerFunctionBinding {
   readonly name: string;
   readonly params: readonly string[];
   readonly returns?: unknown;
   readonly handler?: IRNode;
   readonly body: readonly IRNode[];
+  /** Defining module's scope; the body resolves calls here, not in the caller's scope. */
+  readonly module?: RunnerModuleScope;
+}
+
+export interface RunnerClassFieldBinding {
+  readonly name: string;
+  readonly value?: unknown;
+}
+
+export interface RunnerClassMemberBinding {
+  readonly name: string;
+  readonly params: readonly string[];
+  readonly handler?: IRNode;
+  readonly body: readonly IRNode[];
+  readonly ownerClass: string;
+}
+
+export interface RunnerClassBinding {
+  readonly name: string;
+  readonly extendsName?: string;
+  readonly fields: readonly RunnerClassFieldBinding[];
+  readonly constructor?: RunnerClassMemberBinding;
+  readonly methods: ReadonlyMap<string, RunnerClassMemberBinding>;
+  readonly getters: ReadonlyMap<string, RunnerClassMemberBinding>;
+  /** Defining module's scope; construction and members resolve calls here. */
+  readonly module?: RunnerModuleScope;
+}
+
+export interface RunnerClassInstanceValue {
+  readonly __kernRunnerClassInstance: true;
+  readonly className: string;
+  readonly fields: Record<string, unknown>;
+  /** Defining module's scope, so member resolution follows the class's module across boundaries. */
+  readonly module?: RunnerModuleScope;
 }
 
 /**
@@ -72,8 +123,12 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
     intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
     runnerFunctions: overrides.runnerFunctions,
+    runnerClasses: overrides.runnerClasses,
     runnerCallStack: overrides.runnerCallStack ? [...overrides.runnerCallStack] : [],
     runnerCallCache: overrides.runnerCallCache,
+    runnerThis: overrides.runnerThis,
+    runnerSuperClass: overrides.runnerSuperClass,
+    runnerProtectedClassInstances: overrides.runnerProtectedClassInstances,
     capabilities: overrides.capabilities,
     capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
     seed: overrides.seed ?? 0,
@@ -108,8 +163,12 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     bindings: new Map(),
     intProvenance: new Set(),
     runnerFunctions: parent.runnerFunctions,
+    runnerClasses: parent.runnerClasses,
     runnerCallStack: parent.runnerCallStack,
     runnerCallCache: parent.runnerCallCache,
+    runnerThis: parent.runnerThis,
+    runnerSuperClass: parent.runnerSuperClass,
+    runnerProtectedClassInstances: parent.runnerProtectedClassInstances,
     capabilities: parent.capabilities,
     capabilityContext: parent.capabilityContext,
     parent,
@@ -177,6 +236,23 @@ export function deleteOwnBinding(env: SemanticEnv, name: string): void {
 }
 
 function cloneSemanticValue(value: unknown): unknown {
+  if (
+    value &&
+    typeof value === 'object' &&
+    (value as Partial<RunnerClassInstanceValue>).__kernRunnerClassInstance === true
+  ) {
+    const instance = value as RunnerClassInstanceValue;
+    return {
+      __kernRunnerClassInstance: true,
+      className: instance.className,
+      fields: Object.fromEntries(
+        Object.entries(instance.fields).map(([key, fieldValue]) => [key, cloneSemanticValue(fieldValue)]),
+      ),
+      // Preserve the defining-module scope by reference so a cloned instance
+      // (e.g. passed as a function argument) still resolves its own module's members.
+      ...(instance.module ? { module: instance.module } : {}),
+    } satisfies RunnerClassInstanceValue;
+  }
   if (Array.isArray(value)) return value.map(cloneSemanticValue);
   if (value instanceof Map) {
     return new Map(Array.from(value.entries(), ([k, v]) => [cloneSemanticValue(k), cloneSemanticValue(v)]));

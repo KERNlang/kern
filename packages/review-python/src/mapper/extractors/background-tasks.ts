@@ -31,7 +31,7 @@ export function extractBackgroundTasks(
 
     walkNodes(body, 'call', (callNode) => {
       const fnNode = callNode.childForFieldName('function');
-      if (!fnNode || fnNode.type !== 'attribute') return;
+      if (fnNode?.type !== 'attribute') return;
 
       const obj = fnNode.childForFieldName('object');
       const attr = fnNode.childForFieldName('attribute');

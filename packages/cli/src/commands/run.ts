@@ -40,8 +40,8 @@ import {
   type UnsupportedAsyncCapabilityRequirement,
   type WebCryptoCapabilitySource,
 } from '@kernlang/core/runner';
-import { existsSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, readFileSync, realpathSync } from 'fs';
+import { dirname, relative, resolve, sep } from 'path';
 import { createCliAsyncFsCapability } from './run-async-fs.js';
 import {
   type CliAsyncOpenAICompatibleLlmCapabilityOptions,
@@ -52,7 +52,12 @@ import {
 } from './run-async-host.js';
 
 const USAGE =
-  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] <file.kern>';
+  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] [--capability-timeout-ms <ms>] <file.kern>\n' +
+  '  RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and llm.complete run by default without --async-preview.\n' +
+  '  --async-preview is required only for fs.* and net.fetch.\n' +
+  '  --capability-timeout-ms bounds each async capability provider call (execute/async-preview only; 1..3600000, defaults to 30000).';
+const MIN_CAPABILITY_TIMEOUT_MS = 1;
+const MAX_CAPABILITY_TIMEOUT_MS = 3_600_000;
 const RUN_PROVIDED_CAPABILITY_NAMESPACES = Object.freeze(['crypto', 'rag', 'storage'] as const);
 const RUN_ASYNC_PROVIDER_FLAGS = Object.freeze({
   'fs.list': ['--fs-root <dir>'],
@@ -91,6 +96,8 @@ export function executeKernSource(source: string, options: { sourcePath?: string
     parseOptions: NODE_PARSE_CAPS,
     capabilities,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
+    sourcePath: options.sourcePath,
+    moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
   });
 }
 
@@ -103,12 +110,14 @@ export async function executeKernSourceAsync(
     netAllowedOrigins?: readonly string[];
     llmResponse?: string;
     llmProvider?: CliAsyncOpenAICompatibleLlmCapabilityOptions;
+    /** Per-call async capability provider timeout, in milliseconds. See --capability-timeout-ms. */
+    capabilityTimeoutMs?: number;
   },
 ): Promise<string> {
   if (options.llmResponse !== undefined && options.llmProvider !== undefined) {
     throw new KernRunnerError('kern run --async-preview: --llm-response and --llm-provider are mutually exclusive.');
   }
-  const requiredCapabilities = sourceCapabilityRequirementIds(source);
+  const requiredCapabilities = sourceCapabilityRequirementIds(source, options.sourcePath);
   const sourceRequiresRagAnswer = requiredCapabilities.has('rag.answer');
   const sourceRequiresRagIngest = requiredCapabilities.has('rag.ingest');
   const sourceRequiresRagRetrieveAsync = requiredCapabilities.has('rag.retrieveAsync');
@@ -176,6 +185,7 @@ export async function executeKernSourceAsync(
           assertRetrievedChunks(query, chunks) {
             assertLocalRagCapabilityChunksWereRetrieved(query, chunks, ragSession);
           },
+          timeoutMs: options.capabilityTimeoutMs,
         }),
       );
       providedAsyncCapabilities.push('rag.answer');
@@ -192,7 +202,10 @@ export async function executeKernSourceAsync(
     providedCapabilities: runProvidedCapabilities(),
     asyncCapabilities,
     providedAsyncCapabilities,
+    capabilityTimeoutMs: options.capabilityTimeoutMs,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
+    sourcePath: options.sourcePath,
+    moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
   });
 }
 
@@ -202,7 +215,13 @@ interface LoadedRunSource {
 }
 
 type ParsedRunArgs =
-  | { readonly mode: 'execute'; readonly fileArg: string }
+  | {
+      readonly mode: 'execute';
+      readonly fileArg: string;
+      readonly llmResponse?: string;
+      readonly llmProvider?: ParsedLlmProviderOptions;
+      readonly capabilityTimeoutMs?: number;
+    }
   | {
       readonly mode: 'capabilities';
       readonly fileArg: string;
@@ -220,6 +239,7 @@ type ParsedRunArgs =
       readonly netAllowedOrigins: readonly string[];
       readonly llmResponse?: string;
       readonly llmProvider?: ParsedLlmProviderOptions;
+      readonly capabilityTimeoutMs?: number;
     };
 
 interface ParsedLlmProviderOptions {
@@ -275,7 +295,14 @@ interface RunCapabilityReport {
   readonly mode: 'kern-run-capabilities';
   readonly file: string;
   readonly hasCapabilityBlockers: boolean;
-  readonly capabilityReadinessMode: 'sync' | 'async-preview';
+  /**
+   * `sync`: no async runner boundary needed. `async`: the source needs the
+   * async boundary but only for promoted ops (rag.retrieveAsync, rag.answer,
+   * rag.ingest, llm.complete) — runnable by default without --async-preview.
+   * `async-preview`: the source needs a still-preview-gated op (fs.*,
+   * net.fetch) and requires --async-preview regardless of other flags.
+   */
+  readonly capabilityReadinessMode: 'sync' | 'async' | 'async-preview';
   readonly hasSyncCapabilityBlockers: boolean;
   readonly hasAsyncCapabilityBlockers: boolean;
   readonly providedCapabilities: readonly CapabilityId[];
@@ -310,7 +337,7 @@ export function analyzeRunCapabilities(
   } = {},
 ): RunCapabilityReport {
   const providedCapabilities = runProvidedCapabilities();
-  const requiredCapabilities = sourceCapabilityRequirementIds(source);
+  const requiredCapabilities = sourceCapabilityRequirementIds(source, filePath);
   const providedAsyncCapabilities = runProvidedAsyncCapabilities(options, {
     includeRagAnswer: requiredCapabilities.has('rag.answer'),
     includeRagIngest: requiredCapabilities.has('rag.ingest') && sourceRagIngestUsesCliEmbedders(source),
@@ -323,10 +350,14 @@ export function analyzeRunCapabilities(
     parseOptions: NODE_PARSE_CAPS,
     providedCapabilities,
     providedAsyncCapabilities,
+    sourcePath: filePath,
+    moduleLoader: createRunModuleLoader(filePath),
   });
   const hasSyncCapabilityBlockers =
     analysis.hasParseErrors ||
-    analysis.plannedCapabilities.length > 0 ||
+    // Any async-boundary requirement blocks the plain sync executor, whether
+    // or not it has been promoted out of --async-preview.
+    analysis.asyncPlannedCapabilities.length > 0 ||
     analysis.missingProviders.length > 0 ||
     analysis.unknownCapabilities.length > 0 ||
     analysis.malformedCapabilities.length > 0 ||
@@ -341,9 +372,21 @@ export function analyzeRunCapabilities(
     analysis.malformedCapabilities.length > 0 ||
     analysis.unknownProvidedCapabilities.length > 0 ||
     analysis.unknownProvidedAsyncCapabilities.length > 0;
-  const capabilityReadinessMode = providedAsyncCapabilities.length > 0 ? 'async-preview' : 'sync';
+  // Preview-only (still-gated) capability involved either in what the source
+  // needs or in what was actually wired via CLI flags -> report async-preview.
+  // Otherwise, once any async provider is wired, the promoted (shipped-async)
+  // lane covers it -> report async. Mode stays keyed off `providedAsyncCapabilities`
+  // (not `asyncBoundaryRequired`) so a flag with no matching source requirement
+  // (e.g. --llm-provider on a program that never calls llm.complete) still
+  // surfaces provider policy blockers, and a source requirement with no
+  // matching provider (e.g. --fs-write-root alone) still reports `sync`.
+  const requiresPreviewOnlyCapability =
+    analysis.asyncPlannedCapabilities.some((requirement) => requirement.descriptor.status === 'planned') ||
+    providedAsyncCapabilities.some((id) => CAPABILITY_DESCRIPTORS[id]?.status === 'planned');
+  const capabilityReadinessMode: RunCapabilityReport['capabilityReadinessMode'] =
+    providedAsyncCapabilities.length === 0 ? 'sync' : requiresPreviewOnlyCapability ? 'async-preview' : 'async';
   const hasCapabilityBlockers =
-    capabilityReadinessMode === 'async-preview' ? hasAsyncCapabilityBlockers : hasSyncCapabilityBlockers;
+    capabilityReadinessMode === 'sync' ? hasSyncCapabilityBlockers : hasAsyncCapabilityBlockers;
 
   return {
     schemaVersion: 1,
@@ -388,6 +431,53 @@ function createRunCapabilities(source: string, sourcePath: string | undefined, r
       `kern run: capability setup failed (${err instanceof Error ? err.message : String(err)})`,
     );
   }
+}
+
+function createRunModuleLoader(entryPath: string) {
+  const rootDir = dirname(resolve(entryPath));
+  // Containment must hold for the REAL file, not just the lexical path: a
+  // symlink placed under the entry directory can point anywhere on disk, so
+  // the lexical isInsideRunRoot check alone is bypassable. Canonicalize both
+  // sides (the root itself may live behind a symlink, e.g. /tmp on macOS)
+  // and re-check after resolution. The canonical module id is the realpath,
+  // so two symlinked aliases of one file link as one module singleton.
+  const rootReal = safeRealpath(rootDir) ?? rootDir;
+  return {
+    resolve(specifier: string, context: { readonly importer: string }): string | null {
+      if (!specifier.startsWith('./') && !specifier.startsWith('../')) return null;
+      const withExt = specifier.endsWith('.kern') ? specifier : `${specifier}.kern`;
+      const candidate = resolve(dirname(context.importer), withExt);
+      if (!isInsideRunRoot(rootDir, candidate)) {
+        throw new KernRunnerError(`link error: import '${specifier}' from '${context.importer}' escapes '${rootDir}'`);
+      }
+      if (!existsSync(candidate)) return null;
+      const real = safeRealpath(candidate);
+      if (!real || !isInsideRunRoot(rootReal, real)) {
+        throw new KernRunnerError(`link error: import '${specifier}' from '${context.importer}' escapes '${rootDir}'`);
+      }
+      return real;
+    },
+    readSource(canonicalPath: string): string {
+      const real = safeRealpath(canonicalPath);
+      if (!real || (!isInsideRunRoot(rootReal, real) && !isInsideRunRoot(rootDir, real))) {
+        throw new KernRunnerError(`link error: import '${canonicalPath}' escapes '${rootDir}'`);
+      }
+      return readFileSync(real, 'utf-8');
+    },
+  };
+}
+
+function safeRealpath(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function isInsideRunRoot(rootDir: string, candidate: string): boolean {
+  const rel = relative(rootDir, candidate);
+  return rel === '' || (!rel.startsWith('..') && !rel.startsWith(sep));
 }
 
 function cliCryptoSource(): WebCryptoCapabilitySource {
@@ -461,20 +551,35 @@ export async function runRun(args: string[]): Promise<void> {
 
   try {
     const llmProvider =
-      parsed.mode === 'async-preview' && parsed.llmProvider
+      (parsed.mode === 'async-preview' || parsed.mode === 'execute') && parsed.llmProvider
         ? resolveCliLlmProviderOptions(parsed.llmProvider)
         : undefined;
-    const output =
-      parsed.mode === 'async-preview'
-        ? await executeKernSourceAsync(loaded.source, {
-            sourcePath: loaded.filePath,
-            fsRoot: parsed.fsRoot,
-            fsWriteRoot: parsed.fsWriteRoot,
-            netAllowedOrigins: parsed.netAllowedOrigins,
-            llmResponse: parsed.llmResponse,
-            ...(llmProvider ? { llmProvider } : {}),
-          })
-        : executeKernSource(loaded.source, { sourcePath: loaded.filePath });
+    // Promoted RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and
+    // llm.complete run through the async boundary by default — no
+    // --async-preview flag required. fs.* and net.fetch remain preview-gated:
+    // in `execute` mode no fs-root/allow-net flags are ever parsed (see
+    // parseRunArgs), so a program that needs them still fails closed with a
+    // missing-async-provider diagnostic unless --async-preview is passed.
+    const runsThroughAsyncBoundary =
+      parsed.mode === 'async-preview' ||
+      (parsed.mode === 'execute' && sourceRequiresAsyncBoundary(loaded.source, loaded.filePath));
+    const output = runsThroughAsyncBoundary
+      ? await executeKernSourceAsync(loaded.source, {
+          sourcePath: loaded.filePath,
+          ...(parsed.mode === 'async-preview'
+            ? {
+                fsRoot: parsed.fsRoot,
+                fsWriteRoot: parsed.fsWriteRoot,
+                netAllowedOrigins: parsed.netAllowedOrigins,
+              }
+            : {}),
+          llmResponse: parsed.llmResponse,
+          ...(llmProvider ? { llmProvider } : {}),
+          ...(parsed.mode === 'async-preview' || parsed.mode === 'execute'
+            ? { capabilityTimeoutMs: parsed.capabilityTimeoutMs }
+            : {}),
+        })
+      : executeKernSource(loaded.source, { sourcePath: loaded.filePath });
     // `process.exitCode` + a return (instead of `process.exit()`) lets Node flush
     // stdout/stderr naturally before exiting — no truncation on a pipe.
     if (output) process.stdout.write(output);
@@ -501,6 +606,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
   let llmProvider: ParsedLlmProviderOptions | undefined;
   let llmModel: string | undefined;
   let llmBaseUrl: string | undefined;
+  let capabilityTimeoutMs: number | undefined;
   const files: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -565,12 +671,36 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       index += 1;
       continue;
     }
+    if (arg === '--capability-timeout-ms') {
+      const value = rest[index + 1];
+      if (!value || value.startsWith('--')) return undefined;
+      if (capabilityTimeoutMs !== undefined) return undefined;
+      if (!/^[1-9]\d*$/.test(value)) return undefined;
+      const parsedTimeout = Number(value);
+      // Fail closed on out-of-range values: an overlong digit string would
+      // otherwise become Infinity (or lose integer precision), which the
+      // runtime timeout guard treats as DISABLED — silently removing the
+      // fail-closed bound the flag exists to provide.
+      if (
+        !Number.isSafeInteger(parsedTimeout) ||
+        parsedTimeout < MIN_CAPABILITY_TIMEOUT_MS ||
+        parsedTimeout > MAX_CAPABILITY_TIMEOUT_MS
+      ) {
+        return undefined;
+      }
+      capabilityTimeoutMs = parsedTimeout;
+      index += 1;
+      continue;
+    }
     if (arg.startsWith('--')) return undefined;
     files.push(arg);
   }
 
   const fileArg = files[0];
   if (files.length !== 1 || !fileArg || (capabilityReportMode && asyncPreviewMode)) return undefined;
+  // --capability-timeout-ms configures execution (sync-lane bypass through the
+  // async boundary), not the --capabilities readiness report.
+  if (capabilityReportMode && capabilityTimeoutMs !== undefined) return undefined;
   if (llmResponse !== undefined && llmProvider !== undefined) return undefined;
   if ((llmModel !== undefined || llmBaseUrl !== undefined) && llmProvider === undefined) return undefined;
   const resolvedLlmProvider =
@@ -581,14 +711,13 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
           ...(llmBaseUrl !== undefined ? { baseUrl: llmBaseUrl } : {}),
         }
       : undefined;
+  // fs.* and net.fetch stay gated behind --async-preview (or --capabilities for
+  // readiness reporting). llm-response/llm-provider are NOT restricted here:
+  // llm.complete and rag.answer are promoted and run by default without the flag.
   if (
     !asyncPreviewMode &&
     !capabilityReportMode &&
-    (fsRoot !== undefined ||
-      fsWriteRoot !== undefined ||
-      netAllowedOrigins.length > 0 ||
-      llmResponse !== undefined ||
-      resolvedLlmProvider !== undefined)
+    (fsRoot !== undefined || fsWriteRoot !== undefined || netAllowedOrigins.length > 0)
   ) {
     return undefined;
   }
@@ -613,9 +742,16 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       ...(fsWriteRoot ? { fsWriteRoot } : {}),
       ...(llmResponse !== undefined ? { llmResponse } : {}),
       ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
+      ...(capabilityTimeoutMs !== undefined ? { capabilityTimeoutMs } : {}),
     };
   }
-  return { mode: 'execute', fileArg };
+  return {
+    mode: 'execute',
+    fileArg,
+    ...(llmResponse !== undefined ? { llmResponse } : {}),
+    ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
+    ...(capabilityTimeoutMs !== undefined ? { capabilityTimeoutMs } : {}),
+  };
 }
 
 function loadRunSource(fileArg: string): LoadedRunSource | undefined {
@@ -770,12 +906,34 @@ async function validateAsyncPreviewProviderFlags(options: {
   }
 }
 
-function sourceCapabilityRequirementIds(source: string): ReadonlySet<CapabilityId> {
+function sourceCapabilityRequirementIds(source: string, sourcePath?: string): ReadonlySet<CapabilityId> {
   return new Set(
-    analyzeKernSourceCapabilities(source, { parseOptions: NODE_PARSE_CAPS }).requirements.map(
-      (requirement) => requirement.id,
-    ),
+    analyzeKernSourceCapabilities(source, {
+      parseOptions: NODE_PARSE_CAPS,
+      sourcePath,
+      moduleLoader: sourcePath ? createRunModuleLoader(sourcePath) : undefined,
+    }).requirements.map((requirement) => requirement.id),
   );
+}
+
+/**
+ * True when `source` has an executable requirement that needs the async
+ * runner boundary (fs.*, net.fetch, llm.complete, or a rag async op), whether
+ * or not any CLI async provider flags were supplied. `execute` mode uses this
+ * to route promoted RAG/llm ops through the async executor by default; fs.*
+ * and net.fetch still fail closed there without --async-preview because no
+ * fs-root/allow-net flags are ever wired outside that mode.
+ */
+function sourceRequiresAsyncBoundary(source: string, sourcePath?: string): boolean {
+  // Requirement analysis must span the LINKED MODULE GRAPH, not only the root
+  // file: a promoted async capability living in an imported helper must still
+  // route execution through the async boundary. Same rule as
+  // sourceCapabilityRequirementIds and analyzeRunCapabilities.
+  return analyzeKernSourceCapabilities(source, {
+    parseOptions: NODE_PARSE_CAPS,
+    sourcePath,
+    moduleLoader: sourcePath ? createRunModuleLoader(sourcePath) : undefined,
+  }).asyncBoundaryRequired;
 }
 
 function sourceRagIngestUsesCliEmbedders(source: string): boolean {
@@ -973,7 +1131,6 @@ function unsupportedAsyncRequirementReport(
   return {
     ...knownRequirementReport(requirement),
     reason: requirement.reason,
-    ...(requirement.containerType ? { containerType: requirement.containerType } : {}),
   };
 }
 

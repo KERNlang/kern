@@ -825,11 +825,17 @@ export type {
   RagRetrieveDocumentReport,
   RagRetrieveIndexLifecycle,
   RagRetrieveIndexLifecycleStatus,
+  RegisterExternalRagVectorStoreAdapterOptions,
+  RetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export {
+  closeRetrievalStoresFailClosed,
+  parseRetrievedChunkCitationProvenance,
   ragRetrieveCorpusSourceSummary,
+  registerExternalRagVectorStoreAdapter,
   retrieveRagDocument,
   retrieveRagDocumentAsync,
+  toRetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,
@@ -872,12 +878,21 @@ export {
   hashRetrievedChunkText,
   InMemoryRagCorpus,
   MAX_IN_MEMORY_RAG_TOP_K,
+  RAG_PROMPT_CONTEXT_BOUNDARY_BEGIN,
+  RAG_PROMPT_CONTEXT_BOUNDARY_END,
+  RAG_PROMPT_CONTEXT_BOUNDARY_INSTRUCTION,
   ragAnswerContractFromSemanticFact,
   ragMcpRetrieveProvenanceMapping,
   retrieveFromInMemoryCorpus,
   tokenizeForRetrieval,
   withRagRuntimeProvenance,
 } from './rag-runtime.js';
+export type { RegisteredExternalRagVectorStoreAdapter } from './rag-vector-store-registry.js';
+export {
+  isRegisteredExternalRagVectorStoreKind,
+  registeredExternalRagVectorStoreKinds,
+  unregisterExternalRagVectorStoreAdapter,
+} from './rag-vector-store-registry.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

@@ -25,17 +25,30 @@
  * Executable surface is exactly what the runner certifies today: print / let /
  * assign / for / if / while / each / return / portable arithmetic / portable
  * array-literal binding / literal in-bounds array index reads / array `.length`
- * (value AND as a for-range bound) / for-counter dynamic index reads (`xs[i]`) /
- * flat record-literal binding and scalar dot-field reads / same-file pure
- * KERN function calls returning portable scalars / branch path/default dispatch /
- * fmt interpolation bindings / explicit `throw new Error("...")` inside
- * try/catch/finally with caught `.message` reads / explicit runner capability
- * calls. The CLI path provides local RAG retrieval, volatile in-run storage, and
- * browser-safe crypto today; other host capabilities still fail closed.
+ * (value AND as a for-range bound) / dynamic index reads by a for-counter OR
+ * `+`/`-` arithmetic between provenanced operands (`xs[i]`, `xs[i + 1]`) /
+ * array append (`do value="xs.push(...)"`, functional rebind, no synthetic
+ * trace event) / `List.length`, `new Map()`, `Map.get`/`Map.has`/`Map.set`
+ * from the KERN-stdlib lowering table (milestone 5.1b) / flat record-literal
+ * binding and scalar dot-field reads / same-file pure KERN function calls
+ * returning portable scalars, INCLUDING same-file recursion (direct or
+ * mutual) up to an explicit 512-deep call limit / branch path/default
+ * dispatch / fmt interpolation bindings / explicit `throw new Error("...")`
+ * inside try/catch/finally with caught `.message` reads / explicit runner
+ * capability calls / `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`,
+ * `Text.indexOf(needle)`, and `Text.startsWith(prefix)` for BMP-SAFE strings
+ * under the tribunal-locked code-point contract (a well-formed non-BMP
+ * character fails closed too — a deliberate risk-valve narrowing, see
+ * portable-string.ts). The CLI path provides local RAG retrieval, volatile
+ * in-run storage, and browser-safe crypto today; other host capabilities
+ * still fail closed.
  * Constructs the runner does not yet execute over PRODUCTION IR (whole-array /
- * whole-record rendering, nested or dynamic records, NON-counter dynamic index
- * reads, arithmetic-on-counter index, string `.length`, non-canonical throws,
- * recursive or side-effecting helper calls) ABSTAIN -> exit 2.
+ * whole-record rendering, nested or dynamic records, `*`/`/`/`%`/unary
+ * arithmetic index expressions, non-empty `new Map(...)` construction,
+ * non-string Map keys, non-BMP characters in any `Text.*` op, other string
+ * ops (`upper`/`lower`/`trim`/`includes`/`endsWith`/`split`/`replace`),
+ * non-canonical throws, and recursion past the 512-deep call limit) ABSTAIN
+ * -> exit 2.
  *
  * Every expected stdout byte below was verified empirically against the built
  * runner before this oracle was authored (the `(1/3)*3 != 1` lesson).
@@ -83,6 +96,13 @@ function writeFile(source: string): string {
   return file;
 }
 
+function writeNamedFile(name: string, source: string): string {
+  const file = join(dir, name);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, source);
+  return file;
+}
+
 /** Wrap body statement lines in a void `fn main` + kern handler (the entry convention). */
 function mainProgram(bodyLines: string[]): string {
   return ['fn name=main returns=void', '  handler lang="kern"', ...bodyLines.map((l) => `    ${l}`)].join('\n');
@@ -115,9 +135,213 @@ function runProgram(bodyLines: string[]): RunResult {
   return runFile(writeFile(mainProgram(bodyLines)));
 }
 
+describe('kern run module linking', () => {
+  test('executes multi-file native programs through the CLI filesystem loader', () => {
+    writeNamedFile(
+      'multi-run/helper.kern',
+      [
+        'fn name=double params="x:number" returns=number export=true',
+        '  handler lang="kern"',
+        '    return value="x * 2"',
+        'class name=Box export=true',
+        '  field name=value value="7"',
+        '  method name=read returns=number',
+        '    handler lang="kern"',
+        '      return value="this.value"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'multi-run/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=double kind=fn as=twice',
+        '  from name=Box kind=class',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="twice(21)"',
+        '    let name=box value="new Box()"',
+        '    print value="box.read()"',
+      ].join('\n'),
+    );
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('42\n7\n');
+  });
+
+  test('rejects module imports that escape the entry directory before stdout', () => {
+    writeNamedFile(
+      'outside.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="1"'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'escape/main.kern',
+      [
+        'use path="../outside"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('escapes');
+  });
+
+  test('rejects symlinked module imports whose real target escapes the entry directory', () => {
+    writeNamedFile(
+      'symlink-outside.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="1"'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'symlink-escape/main.kern',
+      [
+        'use path="./linked"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+    symlinkSync(join(dir, 'symlink-outside.kern'), join(dir, 'symlink-escape', 'linked.kern'));
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('escapes');
+  });
+
+  test('capability report includes async providers required only by an imported module', () => {
+    writeNamedFile(
+      'caps-import/helper.kern',
+      [
+        'fn name=answerIt returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=answer name=answer input="{ question: \\"q\\" }"',
+        '    return value="answer.text"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'caps-import/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=answerIt kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"root\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', '--llm-response', 'grounded [1]', file]);
+    const report = parseCapabilityReport(result);
+
+    // The imported capability must be aggregated (requirement + provider
+    // inclusion) AND honestly classified: a capability call in a helper
+    // outside main is an unsupported async execution shape, so the report
+    // carries blockers and the CLI exits non-zero.
+    expect(result.status).toBe(2);
+    expect(report.requirements.map((requirement: { id: string }) => requirement.id)).toEqual(
+      expect.arrayContaining(['rag.answer']),
+    );
+    expect(report.providedAsyncCapabilities).toContain('rag.answer');
+    expect(
+      report.unsupportedAsyncExecutions.map((entry: { id: string; reason: string }) => `${entry.id}:${entry.reason}`),
+    ).toContain('rag.answer:outside-main');
+    expect(report.hasCapabilityBlockers).toBe(true);
+  });
+
+  test('importing a syntactically broken module fails closed (exit 2, no TypeError, no stdout)', () => {
+    writeNamedFile(
+      'broken-run/broken.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'broken-run/main.kern',
+      [
+        'use path="./broken"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+
+    const result = runFile(file);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).not.toMatch(/TypeError|unexpected failure/);
+  });
+
+  test('--capabilities on a broken imported module exits 2 with parse-error diagnostics, no crash', () => {
+    writeNamedFile(
+      'broken-caps/broken.kern',
+      ['fn name=helper returns=number export=true', '  handler lang="kern"', '    return value="'].join('\n'),
+    );
+    const file = writeNamedFile(
+      'broken-caps/main.kern',
+      [
+        'use path="./broken"',
+        '  from name=helper kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"unreached\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).not.toMatch(/TypeError|unexpected failure/);
+    const report = parseCapabilityReport(result);
+    expect(report.hasParseErrors).toBe(true);
+    expect(report.hasCapabilityBlockers).toBe(true);
+  });
+
+  test('--capabilities counts a capability inside an imported helper as executable (readiness parity)', () => {
+    writeNamedFile(
+      'caps-import/helper.kern',
+      [
+        'fn name=fetchIt returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=fs operation=readText name=t input="{ path: \\"a.txt\\" }"',
+        '    return value="t"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'caps-import/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=fetchIt kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="fetchIt()"',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+
+    expect(result.status).toBe(2);
+    const report = parseCapabilityReport(result);
+    expect(report.asyncBoundaryRequired).toBe(true);
+    expect(report.asyncPlannedCapabilities.map((c) => c.id)).toContain('fs.readText');
+    const hint = report.asyncProviderHints.find((h) => h.id === 'fs.readText');
+    expect(hint?.required).toBe(true);
+    expect(hint?.missing).toBe(true);
+    expect(hint?.providerFlags).toContain('--fs-root <dir>');
+  });
+});
+
 interface CapabilityReport {
   readonly hasCapabilityBlockers: boolean;
-  readonly capabilityReadinessMode: 'sync' | 'async-preview';
+  readonly capabilityReadinessMode: 'sync' | 'async' | 'async-preview';
   readonly hasSyncCapabilityBlockers: boolean;
   readonly hasAsyncCapabilityBlockers: boolean;
   readonly providedCapabilities: readonly string[];
@@ -622,6 +846,149 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(r.stderr).toContain('must match a chunk previously returned by rag.retrieve');
   });
 
+  test('PROMOTION: rag.answer, rag.retrieveAsync, rag.ingest, and llm.complete run by default without --async-preview', () => {
+    const answer = runArgs([
+      'run',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-preview.kern'),
+    ]);
+    expect(answer.status).toBe(0);
+    expect(answer.stderr).toBe('');
+    expect(answer.stdout).toMatch(/Refunds are available[\s\S]*Refunds are available within thirty days \[1\]/u);
+
+    const asyncRetrieve = runArgs([
+      'run',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-async-retrieve-preview.kern'),
+    ]);
+    expect(asyncRetrieve.status).toBe(0);
+    expect(asyncRetrieve.stderr).toBe('');
+    expect(asyncRetrieve.stdout).toContain('\nRefunds are available within thirty days [1]\n');
+
+    const ragAnswerCapability = runArgs([
+      'run',
+      '--llm-response',
+      'Refunds are available within thirty days [1]',
+      resolve(ROOT, 'examples/rag-starter/runtime-answer-capability-preview.kern'),
+    ]);
+    expect(ragAnswerCapability.status).toBe(0);
+    expect(ragAnswerCapability.stderr).toBe('');
+    expect(ragAnswerCapability.stdout).toBe(
+      ['1', 'true', 'grounded', 'Refunds are available within thirty days [1]', ''].join('\n'),
+    );
+
+    const fixtureDir = join(dir, `rag-ingest-promoted-${counter++}`);
+    mkdirSync(join(fixtureDir, 'docs'), { recursive: true });
+    writeFileSync(join(fixtureDir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    const ingestFile = join(fixtureDir, 'ingest.kern');
+    writeFileSync(
+      ingestFile,
+      [
+        'corpus name=Docs',
+        '  source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+        '  chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+        '',
+        'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+        'vectorStore name=DocsStore kind=local-persistent dims=64 metric=cosine path="./runtime-index"',
+        'ragIndex name=DocsIndex corpus=Docs store=DocsStore embed=DocsEmbedding',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    capability namespace=rag operation=ingest name=report',
+        '    print value="report.count"',
+        '    print value="report.action"',
+      ].join('\n'),
+    );
+    const ingest = runArgs(['run', ingestFile]);
+    expect(ingest.status).toBe(0);
+    expect(ingest.stderr).toBe('');
+    expect(ingest.stdout).toBe('1\nindexed\n');
+  });
+
+  test('PROMOTION: a promoted async capability in an IMPORTED module routes kern run through the async boundary', () => {
+    // Regression (review finding): default async-promotion routing analyzed
+    // only the ROOT source, so a promoted capability living in an imported
+    // helper was missed and the program wrongly routed through the sync
+    // executor. Requirement analysis must span the linked module graph.
+    const moduleDir = join(dir, `promoted-module-${counter++}`);
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(
+      join(moduleDir, 'helper.kern'),
+      [
+        'fn name=askModel returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"module hello\\" }"',
+        '    return value="answer"',
+      ].join('\n'),
+    );
+    const mainFile = join(moduleDir, 'main.kern');
+    writeFileSync(
+      mainFile,
+      [
+        'use path="./helper"',
+        '  from name=askModel kind=fn',
+        '',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="askModel()"',
+      ].join('\n'),
+    );
+
+    const run = runArgs(['run', '--llm-response', 'module answer', mainFile]);
+    expect(run.status).toBe(0);
+    expect(run.stderr).toBe('');
+    expect(run.stdout).toBe('module answer\n');
+
+    const report = parseCapabilityReport(
+      runArgs(['run', '--capabilities', '--llm-response', 'module answer', mainFile]),
+    );
+    expect(report.capabilityReadinessMode).toBe('async');
+    expect(report.hasCapabilityBlockers).toBe(false);
+    expect(report.requirements.map((requirement) => requirement.id)).toContain('llm.complete');
+  });
+
+  test('PROMOTION HARDENING: --capability-timeout-ms rejects out-of-range values that would disable the guard', () => {
+    // Regression (review finding): Number('9'.repeat(400)) === Infinity, and
+    // the runtime treats a non-finite timeout as DISABLED — an overlong digit
+    // string silently removed the fail-closed bound. Values must be finite
+    // safe integers within [1, 3_600_000].
+    const file = writeFile(mainProgram(['print value="\\"ok\\""']));
+
+    const overlong = runArgs(['run', '--capability-timeout-ms', '9'.repeat(400), file]);
+    expect(overlong.status).toBe(2);
+    expect(overlong.stdout).toBe('');
+    expect(overlong.stderr).toContain('Usage: kern run');
+
+    const aboveCap = runArgs(['run', '--capability-timeout-ms', '3600001', file]);
+    expect(aboveCap.status).toBe(2);
+    expect(aboveCap.stdout).toBe('');
+    expect(aboveCap.stderr).toContain('Usage: kern run');
+
+    const atCap = runArgs(['run', '--capability-timeout-ms', '3600000', file]);
+    expect(atCap.status).toBe(0);
+    expect(atCap.stdout).toBe('ok\n');
+  });
+
+  test('PROMOTION: fs.* and net.fetch still fail closed without --async-preview even though rag/llm are promoted', () => {
+    const netOnly = runProgram([
+      'capability namespace=net operation=fetch name=response input="{ url: \\"data:text/plain,hello\\" }"',
+      'print value="response.body"',
+    ]);
+    expect(netOnly.status).toBe(2);
+    expect(netOnly.stdout).toBe('');
+    expect(netOnly.stderr).toContain('net.fetch');
+
+    const fsOnly = runProgram([
+      'capability namespace=fs operation=readText name=body input="{ path: \\"input.txt\\" }"',
+      'print value="body"',
+    ]);
+    expect(fsOnly.status).toBe(2);
+    expect(fsOnly.stdout).toBe('');
+    expect(fsOnly.stderr).toContain('fs.readText');
+  });
+
   test('STORAGE CAPABILITY: kern run provides volatile storage for one program execution', () => {
     const r = runProgram([
       'capability namespace=storage operation=set name=setOk input="{ key: \\"theme\\", value: \\"dark\\" }"',
@@ -678,7 +1045,170 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
   });
 });
 
+// ── Milestone 5.1b — self-hosting blockers lifted from the reference runner:
+// recursive helper calls (explicit depth limit), dynamic array index
+// arithmetic, array append (`do` + `.push`), and List.length/Map.get/has/set
+// from the KERN-stdlib lowering table. ─────────────────────────────────────
+describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib', () => {
+  test('a self-recursive helper with a base case computes factorial(5)', () => {
+    const source = [
+      'fn name=factorial params="n:number" returns=number',
+      '  handler lang="kern"',
+      '    if cond="n <= 1"',
+      '      return value="1"',
+      '    return value="n * factorial(n - 1)"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="factorial(5)"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.stdout).toBe('120\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('unbounded mutual recursion with no base case fails closed at the depth limit (exit 2, no stdout)', () => {
+    const source = [
+      'fn name=a returns=number',
+      '  handler lang="kern"',
+      '    return value="b()"',
+      'fn name=b returns=number',
+      '  handler lang="kern"',
+      '    return value="a()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="a()"',
+    ].join('\n');
+    const r = runFile(writeFile(source));
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+    expect(r.stderr.length).toBeGreaterThan(0);
+  });
+
+  test('dynamic array index reads accept +/- arithmetic on a loop counter', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'for name=i from="0" to="2"', '  print value="xs[i + 1]"']);
+    expect(r.stdout).toBe('20\n30\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('`*` arithmetic on a counter still abstains (exit 2, no stdout)', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'for name=i from="0" to="2"', '  print value="xs[i * 1]"']);
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
+  test('array append via `do value="xs.push(...)"` builds a result list across a loop', () => {
+    const r = runProgram([
+      'let name=results value="[]"',
+      'for name=i from="0" to="3"',
+      '  do value="results.push(i * 2)"',
+      'print value="results.length"',
+      'print value="results[0]"',
+      'print value="results[2]"',
+    ]);
+    expect(r.stdout).toBe('3\n0\n4\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('List.length + new Map()/Map.set/Map.get/Map.has execute natively', () => {
+    const r = runProgram([
+      'let name=xs value="[1,2,3]"',
+      'print value="List.length(xs)"',
+      'let name=m value="new Map()"',
+      'do value="Map.set(m, \\"a\\", 1)"',
+      'print value="Map.get(m, \\"a\\")"',
+      'print value="Map.has(m, \\"a\\")"',
+      'print value="Map.has(m, \\"missing\\")"',
+    ]);
+    expect(r.stdout).toBe('3\n1\ntrue\nfalse\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  // String ops (tribunal-locked contract, Option D — code points), added
+  // AFTER the initial four slices above. Scope note: this reference-runner
+  // implementation is BMP-safe-or-fail-closed (see portable-string.ts) — a
+  // well-formed non-BMP character (emoji, rare CJK extension chars) fails
+  // closed here too, a deliberate risk-valve narrowing, NOT the tribunal's
+  // final target for non-BMP input.
+  test('Text.length/charAt/slice/indexOf/startsWith execute natively (BMP-safe, code points)', () => {
+    const r = runProgram([
+      'let name=s value="\\"hello world\\""',
+      'print value="Text.length(s)"',
+      'print value="Text.charAt(s, 0)"',
+      'print value="Text.slice(s, 6, 11)"',
+      'print value="Text.indexOf(s, \\"world\\")"',
+      'print value="Text.startsWith(s, \\"hello\\")"',
+    ]);
+    expect(r.stdout).toBe('11\nh\nworld\n6\ntrue\n');
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe('');
+  });
+
+  test('Text.length on a BMP non-ASCII string counts code points, not UTF-16 units (日本語 -> 3)', () => {
+    const r = runProgram(['print value="Text.length(\\"日本語\\")"']);
+    expect(r.stdout).toBe('3\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('a lone surrogate fails closed on Text.length (the tribunal fail-closed set)', () => {
+    const r = runProgram(['print value="Text.length(\\"\\ud800\\")"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test("a well-formed non-BMP character (emoji) also fails closed under this slice's risk-valve narrowing", () => {
+    const r = runProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('Text.charAt and Text.slice fail closed on out-of-bounds (strict bounds policy, no silent clamping)', () => {
+    expect(runProgram(['print value="Text.charAt(\\"hi\\", 2)"']).status).toBe(2);
+    expect(runProgram(['print value="Text.slice(\\"hi\\", 0, 5)"']).status).toBe(2);
+  });
+
+  test('Text.indexOf returns -1 for a missing needle (not an error)', () => {
+    const r = runProgram(['print value="Text.indexOf(\\"hello\\", \\"z\\")"']);
+    expect(r.stdout).toBe('-1\n');
+    expect(r.status).toBe(0);
+  });
+});
+
 describe('kern run --capabilities — preflights capability requirements without execution', () => {
+  test('aggregates capability requirements from imported modules', () => {
+    writeNamedFile(
+      'multi-cap/helper.kern',
+      [
+        'fn name=readConfig returns=string export=true',
+        '  handler lang="kern"',
+        '    capability namespace=fs operation=readText name=text input="{ path: \\"config.txt\\" }"',
+        '    return value="text"',
+      ].join('\n'),
+    );
+    const file = writeNamedFile(
+      'multi-cap/main.kern',
+      [
+        'use path="./helper"',
+        '  from name=readConfig kind=fn',
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        '    print value="\\"EXECUTED\\""',
+      ].join('\n'),
+    );
+
+    const result = runArgs(['run', '--capabilities', file]);
+    const report = parseCapabilityReport(result);
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).not.toContain('EXECUTED');
+    expect(report.requirements.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['fs.readText']);
+    expect(report.missingAsyncProviders).toEqual([]);
+  });
+
   test('reports CLI-provided shipped capabilities as runnable JSON', () => {
     const file = writeFile(
       mainProgram([
@@ -744,7 +1274,9 @@ describe('kern run --capabilities — preflights capability requirements without
     expect(report.capabilityReadinessMode).toBe('sync');
     expect(report.hasSyncCapabilityBlockers).toBe(true);
     expect(report.hasAsyncCapabilityBlockers).toBe(true);
-    expect(report.plannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    // llm.complete is promoted (shipped-async), so it no longer counts as
+    // `planned` even though it still needs the async boundary.
+    expect(report.plannedCapabilities).toEqual([]);
     expect(report.asyncBoundaryRequired).toBe(true);
     expect(report.asyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders.map((requirement) => requirement.id)).toEqual(['llm.complete']);
@@ -842,7 +1374,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     const requirementIds = report.requirements.map((requirement) => requirement.id);
     expect(requirementIds).toHaveLength(4);
     expect(requirementIds).toEqual(
@@ -871,7 +1403,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(
       expect.arrayContaining(['rag.retrieve', 'rag.answer']),
     );
@@ -892,7 +1424,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(
       expect.arrayContaining(['rag.retrieveAsync', 'rag.promptContext', 'llm.complete', 'rag.checkAnswer']),
     );
@@ -997,7 +1529,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.requirements.map((requirement) => requirement.id)).toEqual(['rag.ingest']);
     expect(report.providedAsyncCapabilities).toEqual(['rag.ingest']);
     expect(report.missingAsyncProviders).toEqual([]);
@@ -1051,7 +1583,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.hasAsyncCapabilityBlockers).toBe(true);
@@ -1160,7 +1692,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.requirements.map((requirement) => requirement.id)).toEqual([]);
     expect(report.providerPolicyBlockers).toEqual([{ provider: 'openai', reason: 'missing-api-key' }]);
@@ -1264,7 +1796,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1287,7 +1819,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1312,7 +1844,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1337,7 +1869,7 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([]);
@@ -1364,13 +1896,13 @@ describe('kern run --capabilities — preflights capability requirements without
 
     expect(result.status).toBe(2);
     expect(result.stderr).toBe('');
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.missingAsyncProviders).toEqual([]);
     expect(report.unsupportedAsyncExecutions).toEqual([
       expect.objectContaining({
         id: 'llm.complete',
-        reason: 'outside-main-handler',
+        reason: 'outside-main',
       }),
     ]);
     expect(report.hasAsyncCapabilityBlockers).toBe(true);
@@ -1422,7 +1954,7 @@ describe('kern run --capabilities — preflights capability requirements without
       { llmResponse: 'ok', llmProvider: { provider: 'openai', model: 'test-model' } },
     );
 
-    expect(report.capabilityReadinessMode).toBe('async-preview');
+    expect(report.capabilityReadinessMode).toBe('async');
     expect(report.providedAsyncCapabilities).toEqual(['llm.complete']);
     expect(report.llmProviderPolicy?.apiKeyPresent).toBe(false);
     expect(report.providerPolicyBlockers).toEqual([]);
@@ -1717,6 +2249,64 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     }) as { answer: (call: { input: unknown }) => Promise<unknown> };
 
     await expect(functionProvider.answer({ input })).resolves.toEqual(expect.objectContaining({ passed: true }));
+  });
+
+  test('PROVENANCE NORMALIZATION: rag.answer accepts the flat citationUri/citationLocator wire shape rag.retrieve/rag.retrieveAsync emit, identically to the nested form', async () => {
+    const llm = {
+      async complete() {
+        return 'Refunds are available within thirty days [1]';
+      },
+    };
+    const baseChunk = {
+      id: 'refunds',
+      text: 'Refunds are available within thirty days',
+      score: 0.98,
+      source: 'corpus/refunds.md',
+    };
+    const baseInput = {
+      query: 'refund policy',
+      requireCitations: true,
+      minCitedChunks: 1,
+      minGroundingCoverage: 0.85,
+    };
+    const provider = createCliAsyncRagAnswerCapability({ llm }) as {
+      answer: (call: { input: unknown }) => Promise<unknown>;
+    };
+
+    // The exact wire shape rag.retrieve/rag.retrieveAsync emit (see
+    // toRetrievedChunkCapabilityValue): flat citationUri/citationLocator.
+    const flatResult = await provider.answer({
+      input: { ...baseInput, chunks: [{ ...baseChunk, citationUri: 'corpus/refunds.md', citationLocator: null }] },
+    });
+    // The nested form a chunk authored directly in .kern source may use.
+    const nestedResult = await provider.answer({
+      input: { ...baseInput, chunks: [{ ...baseChunk, citation: { uri: 'corpus/refunds.md', locator: null } }] },
+    });
+
+    expect(flatResult).toEqual(nestedResult);
+    expect(flatResult).toEqual(expect.objectContaining({ passed: true, sources: ['corpus/refunds.md'] }));
+
+    // Both forms together, agreeing, are also accepted.
+    const bothAgreeingResult = await provider.answer({
+      input: {
+        ...baseInput,
+        chunks: [{ ...baseChunk, citation: { uri: 'corpus/refunds.md' }, citationUri: 'corpus/refunds.md' }],
+      },
+    });
+    expect(bothAgreeingResult).toEqual(flatResult);
+
+    // Both forms together, disagreeing, fail closed rather than silently
+    // preferring one encoding over the other.
+    await expect(
+      provider.answer({
+        input: {
+          ...baseInput,
+          chunks: [{ ...baseChunk, citation: { uri: 'corpus/refunds.md' }, citationUri: 'corpus/other.md' }],
+        },
+      }),
+    ).rejects.toThrow(
+      'rag.answer chunks[0] declares both citation.uri and citationUri with disagreeing values; provide exactly one citation provenance encoding.',
+    );
   });
 
   test('rag.answer rejects unsupported fields and ungrounded provider output', async () => {
@@ -2064,6 +2654,74 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     expect(netFlagWithoutPreview.stdout).toBe('');
     expect(netFlagWithoutPreview.stderr).toContain('Usage: kern run');
   });
+
+  test('PROMOTION HARDENING: --capability-timeout-ms parses in execute/async-preview modes and rejects invalid usage', () => {
+    const file = writeFile(mainProgram(['print value="\\"ok\\""']));
+
+    const execute = runArgs(['run', '--capability-timeout-ms', '5000', file]);
+    expect(execute.status).toBe(0);
+    expect(execute.stdout).toBe('ok\n');
+
+    const asyncPreview = runArgs(['run', '--async-preview', '--capability-timeout-ms', '5000', file]);
+    expect(asyncPreview.status).toBe(0);
+    expect(asyncPreview.stdout).toBe('ok\n');
+
+    const withCapabilities = runArgs(['run', '--capabilities', '--capability-timeout-ms', '5000', file]);
+    expect(withCapabilities.status).toBe(2);
+    expect(withCapabilities.stdout).toBe('');
+    expect(withCapabilities.stderr).toContain('Usage: kern run');
+
+    const zero = runArgs(['run', '--capability-timeout-ms', '0', file]);
+    expect(zero.status).toBe(2);
+    expect(zero.stdout).toBe('');
+    expect(zero.stderr).toContain('Usage: kern run');
+
+    const negative = runArgs(['run', '--capability-timeout-ms', '-5', file]);
+    expect(negative.status).toBe(2);
+    expect(negative.stdout).toBe('');
+    expect(negative.stderr).toContain('Usage: kern run');
+
+    const nonNumeric = runArgs(['run', '--capability-timeout-ms', 'soon', file]);
+    expect(nonNumeric.status).toBe(2);
+    expect(nonNumeric.stdout).toBe('');
+    expect(nonNumeric.stderr).toContain('Usage: kern run');
+
+    const duplicate = runArgs(['run', '--capability-timeout-ms', '10', '--capability-timeout-ms', '20', file]);
+    expect(duplicate.status).toBe(2);
+    expect(duplicate.stdout).toBe('');
+    expect(duplicate.stderr).toContain('Usage: kern run');
+  });
+
+  test('PROMOTION HARDENING: --capability-timeout-ms fails a real async capability call closed deterministically', async () => {
+    const source = mainProgram([
+      'capability namespace=llm operation=complete name=answer input="{ prompt: \\"hello\\" }"',
+      'print value="answer"',
+    ]);
+    // Resolves well after the 5ms capabilityTimeoutMs below, but still
+    // resolves — a promise that never settles would leak past this test and
+    // trip node:test's own "Promise resolution is still pending" detector.
+    let resolveSettled: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      resolveSettled = resolve;
+    });
+    const slowFetch = (() =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(Response.json({ choices: [{ message: { content: 'too late' } }] }));
+          resolveSettled();
+        }, 50);
+      })) as unknown as typeof fetch;
+
+    await expect(
+      executeKernSourceAsync(source, {
+        llmProvider: { apiKey: 'test-secret', model: 'test-model', fetch: slowFetch },
+        capabilityTimeoutMs: 5,
+      }),
+    ).rejects.toThrow("runner async capability 'llm.complete' timed out after 5ms");
+    await settled;
+    // Let any trailing microtasks from the swallowed background chain flush.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 });
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
@@ -2125,10 +2783,20 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('an arithmetic index abstains (only bare safe-integer literals certify)', () => {
-    // `1 + 1` is in-bounds but computed indices abstain: integer `%` diverges by
-    // sign and `+/-/*` can overflow 2^53 (JS rounds, Python is exact).
+  // Milestone 5.1b — `+`/`-` between two safe-integer literals now certifies
+  // (see isIntProvenancedExpr's exact-IEEE-754 no-divergence argument in
+  // portable-scalar.ts). This test used to assert `xs[1 + 1]` abstained; `*`
+  // stays out of the provenanced-arithmetic domain and still abstains.
+  test('ARITHMETIC (+) between two literals now certifies: `xs[1 + 1]`', () => {
     const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[1 + 1]"']);
+    expect(r.stdout).toBe('30\n');
+    expect(r.status).toBe(0);
+  });
+
+  test('MULTIPLICATION index still abstains (`*` is excluded from the arithmetic domain)', () => {
+    // integer `%` diverges by sign and `*`/`/` are excluded from
+    // isIntProvenancedExpr; only `+`/`-` are proven divergence-free.
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'print value="xs[1 * 2]"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
@@ -2207,10 +2875,13 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('ARITHMETIC on a for-counter index (`xs[i + 1]`) abstains (out of slice)', () => {
+  // Milestone 5.1b — `xs[i + 1]` (a for-counter plus a literal offset) now
+  // certifies; this was the exact restriction the task lifts. `*` on the
+  // counter is covered separately above and still abstains.
+  test('ARITHMETIC (+) on a for-counter index (`xs[i + 1]`) now certifies', () => {
     const r = runProgram(['let name=xs value="[10,20,30]"', 'for name=i from="0" to="2"', '  print value="xs[i + 1]"']);
-    expect(r.stdout).toBe('');
-    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('20\n30\n');
+    expect(r.status).toBe(0);
   });
 
   test('a NON-counter (plain let) index abstains even when in-bounds', () => {

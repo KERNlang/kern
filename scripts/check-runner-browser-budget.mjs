@@ -40,8 +40,16 @@ const FORBIDDEN_BARE_SPECIFIERS = new Set([
   'https',
 ]);
 
-const MAX_INTERNAL_RAW_BYTES = 1_100_000;
-const MAX_INTERNAL_GZIP_BYTES = 260_000;
+// Re-baselined 2026-07-02 for the KERN 5 plan (docs/kern-5-own-language-plan.md,
+// milestone 5.1): measured closure with the landed 5.1 runner work (module
+// linking, recursion, dynamic indices, do/push, Map + Text stdlib contracts)
+// is 1,162,781 raw / 271,838 gzip across 71 modules. The ceilings below keep
+// the same ~5% accidental-bloat margin policy as the 5.0 re-baseline (agon
+// review 2026-07-02: grant landed, measured growth only — never pre-grant).
+// The import-graph invariant (no `typescript`, no Node builtins) is unchanged
+// and remains the hard boundary.
+const MAX_INTERNAL_RAW_BYTES = 1_220_000;
+const MAX_INTERNAL_GZIP_BYTES = 285_000;
 const MAX_COLD_IMPORT_EXECUTE_MS = 150;
 const MAX_BROWSER_IMPORT_EXECUTE_MS = 750;
 const COLD_START_RUNS = 5;

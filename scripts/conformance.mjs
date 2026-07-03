@@ -1287,6 +1287,67 @@ fn name=probe returns=number
       do value="out.push(\`line-\${x}\`)"
     return value="out"`,
     expected: ['line-1', 'line-2', 'line-3'] },
+  // Milestone 5.1b — self-hosting blockers lifted from the reference runner
+  // (recursion, dynamic-index arithmetic, List/Map stdlib). These fixtures
+  // prove TS-leg/Python-leg parity for the SAME KERN source the reference
+  // runner now executes natively (see packages/core/tests/ir-semantics-do.test.ts,
+  // runner-stdlib-namespace-calls.test.ts, runner-dynamic-index.test.ts, and
+  // runner-source-executor.test.ts for the reference-runner-side coverage —
+  // this harness does not exercise the reference runner, only TS vs Python).
+  { kind: 'whole-file', name: 'whole-file: same-file recursive helper computes factorial(5)',
+    kern: `fn name=factorial returns=number
+  param name=n type=number
+  handler lang=kern
+    if cond="n <= 1"
+      return value="1"
+    return value="n * factorial(n - 1)"
+fn name=probe returns=number
+  handler lang=kern
+    return value="factorial(5)"`,
+    expected: 120 },
+  // NOTE: helper names are deliberately single lowercase words (`even`/`odd`),
+  // NOT camelCase (`isEven`/`isOdd`) — a camelCase top-level `fn` name hits a
+  // PRE-EXISTING, unrelated Python codegen bug where a multi-word function
+  // DEFINITION is snake_cased (`def is_even(...)`) but CROSS-FUNCTION CALL
+  // SITES are not renamed to match (`return isEven(10)` -> NameError). That
+  // bug is orthogonal to this milestone (recursion works fine at the
+  // reference-runner level with the same names — see
+  // runner-source-executor.test.ts's mutual-recursion test); it lives in the
+  // shared multi-declaration Python module compiler and is out of scope here.
+  { kind: 'whole-file', name: 'whole-file: mutually recursive helpers compute even/odd',
+    kern: `fn name=even returns=boolean
+  param name=n type=number
+  handler lang=kern
+    if cond="n == 0"
+      return value="true"
+    return value="odd(n - 1)"
+fn name=odd returns=boolean
+  param name=n type=number
+  handler lang=kern
+    if cond="n == 0"
+      return value="false"
+    return value="even(n - 1)"
+fn name=probe returns=boolean
+  handler lang=kern
+    return value="even(10)"`,
+    expected: true },
+  { kind: 'whole-file', name: 'whole-file: dynamic array index reads accept +/- arithmetic on a loop counter',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[10, 20, 30]"
+    let name=out value="[]"
+    for name=i from="0" to="2"
+      do value="out.push(xs[i + 1])"
+    return value="out"`,
+    expected: [20, 30] },
+  { kind: 'whole-file', name: 'whole-file: List.length + new Map()/Map.set/Map.get/Map.has round-trip',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[1, 2, 3]"
+    let name=m value="new Map()"
+    do value="Map.set(m, \\"a\\", 1)"
+    return value="[List.length(xs), Map.get(m, \\"a\\"), Map.has(m, \\"a\\") ? 1 : 0, Map.has(m, \\"missing\\") ? 1 : 0]"`,
+    expected: [3, 1, 1, 0] },
 
   // ──────────────────────────────────────────────────────────────────────────
   // compile-reject: sources KERN must REJECT, asserting the EXACT reason at every layer that

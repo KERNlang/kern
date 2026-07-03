@@ -1,4 +1,4 @@
-import { type RetrievedChunk, synthesizeRagAnswer } from '@kernlang/core';
+import { parseRetrievedChunkCitationProvenance, type RetrievedChunk, synthesizeRagAnswer } from '@kernlang/core';
 import type {
   AsyncRuntimeCapabilityProvider,
   KernRunnerCapabilityContext,
@@ -144,6 +144,12 @@ export interface CliAsyncOpenAICompatibleLlmCapabilityOptions {
 export interface CliAsyncRagAnswerCapabilityOptions {
   readonly llm: AsyncRuntimeCapabilityProvider;
   readonly assertRetrievedChunks?: (query: string, chunks: readonly RetrievedChunk[]) => void;
+  /**
+   * Per-call timeout for the nested llm.complete invocation, in milliseconds.
+   * Forwarded to {@link invokeRunnerCapabilityAsync}, which defaults it when
+   * omitted. See --capability-timeout-ms.
+   */
+  readonly timeoutMs?: number;
 }
 
 export function createCliAsyncOpenAICompatibleLlmCapability(
@@ -238,6 +244,7 @@ export function createCliAsyncRagAnswerCapability(
         requireCitations,
         minCitedChunks,
         minGroundingCoverage,
+        timeoutMs: options.timeoutMs,
       });
       if (!result.passed) {
         throw new Error(
@@ -271,6 +278,7 @@ async function synthesizeCliRagAnswer(options: {
   readonly requireCitations?: boolean;
   readonly minCitedChunks?: number;
   readonly minGroundingCoverage?: number;
+  readonly timeoutMs?: number;
 }) {
   try {
     return await synthesizeRagAnswer({
@@ -281,6 +289,7 @@ async function synthesizeCliRagAnswer(options: {
           { llm: options.llm },
           { namespace: 'llm', operation: 'complete', input: { prompt: llmPrompt } },
           options.context,
+          { timeoutMs: options.timeoutMs },
         );
         if (typeof text !== 'string' || text.trim() === '') {
           throw new Error('rag.answer llm.complete result must be a non-empty string.');
@@ -622,56 +631,13 @@ function ragAnswerChunk(value: RuntimeCapabilityValue, index: number): Retrieved
     text,
     score: scoreValue,
     source,
-    citation: ragAnswerCitation(value, index),
+    // Shared with rag.promptContext/rag.checkAnswer (packages/core's
+    // rag-retrieve-runner.ts) so all three chunk-accepting surfaces parse
+    // citation provenance identically and fail closed the same way on a
+    // record that disagrees with itself.
+    citation: parseRetrievedChunkCitationProvenance(value, `rag.answer chunks[${index}]`),
     ...ragAnswerMetadata(value, index),
   };
-}
-
-function ragAnswerCitation(
-  input: Readonly<Record<string, RuntimeCapabilityValue>>,
-  chunkIndex: number,
-): RetrievedChunk['citation'] {
-  const nested = input.citation;
-  if (nested !== undefined && nested !== null && !isRecordInput(nested)) {
-    throw new Error(`rag.answer input field 'chunks[${chunkIndex}].citation' must be a record.`);
-  }
-  const nestedCitation = isRecordInput(nested) ? nested : {};
-  const nestedUri = optionalNullablePortableString(
-    nestedCitation,
-    'uri',
-    `rag.answer chunks[${chunkIndex}].citation.uri`,
-  );
-  const nestedLocator = optionalNullablePortableString(
-    nestedCitation,
-    'locator',
-    `rag.answer chunks[${chunkIndex}].citation.locator`,
-  );
-  const flatUri = optionalNullablePortableString(input, 'citationUri', `rag.answer chunks[${chunkIndex}].citationUri`);
-  const flatLocator = optionalNullablePortableString(
-    input,
-    'citationLocator',
-    `rag.answer chunks[${chunkIndex}].citationLocator`,
-  );
-  const uri = nestedUri ?? flatUri;
-  const locator = nestedLocator ?? flatLocator;
-  return {
-    ...(uri !== undefined ? { uri } : {}),
-    ...(locator !== undefined ? { locator } : {}),
-  };
-}
-
-function optionalNullablePortableString(
-  input: Readonly<Record<string, RuntimeCapabilityValue>>,
-  field: string,
-  label: string,
-): string | undefined {
-  if (!Object.hasOwn(input, field)) return undefined;
-  const value = input[field];
-  if (value === null) return undefined;
-  if (typeof value !== 'string') {
-    throw new Error(`${label} must be a string or null.`);
-  }
-  return value;
 }
 
 function ragAnswerMetadata(

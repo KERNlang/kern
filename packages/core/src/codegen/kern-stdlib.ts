@@ -101,6 +101,23 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // safe-access, returns None) for parity.
     get: { arity: 2, ts: '$0.get($1)', py: '$0.get($1)' },
     size: { arity: 1, ts: '$0.size', py: 'len($0)' },
+    // Milestone 5.1b — Map.set. TS `Map.prototype.set` is a native EXPRESSION
+    // (returns the map, for chaining). Python's item-assignment (`d[k] = v`)
+    // is a STATEMENT, not usable inline as an expression template — lower to
+    // the `__setitem__` dunder call instead, which IS a valid Python
+    // expression with the same side effect (assigns the key), so the SAME
+    // `$0.method($1, $2)`-shaped template works on both legs.
+    //
+    // KNOWN divergence (documented, not corrected): the TWO legs' RETURN
+    // VALUES differ — TS yields the Map object, Python's `__setitem__`
+    // yields `None`. This is invisible when `Map.set(...)` is used the way
+    // KERN's `do` body-statement documents it (a side-effecting expression
+    // whose return value is DISCARDED — see schema.ts's `do` entry and the
+    // reference runner's do.ts, which recognizes `Map.set` ONLY inside `do`).
+    // Binding the return value directly (`let x = Map.set(m, k, v)`) is NOT
+    // validated against here and would observably diverge; users should not
+    // rely on `Map.set`'s return value on either target.
+    set: { arity: 3, ts: '$0.set($1, $2)', py: '$0.__setitem__($1, $2)' },
   },
   Number: {
     // Slice 3c — JS `Math.round` rounds half toward +∞ (so Math.round(-1.5) === -1

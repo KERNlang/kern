@@ -93,6 +93,25 @@ describe('runner array index — in-bounds literal reads certify (3-leg portable
     expect(runStdout([letArr('xs', '[true,false]'), print('xs[1]')])).toBe('false\n');
   });
 
+  // Milestone 5.1b — `+`/`-` arithmetic between provenanced operands (here: two
+  // bare safe-integer literals) is now admitted (see `isIntProvenancedExpr` in
+  // portable-scalar.ts for the exact-IEEE-754 no-divergence argument). This
+  // moves the fixture that used to assert "ARITHMETIC (+) index abstains" —
+  // literal+literal arithmetic is strictly safer than counter+literal, so it
+  // certifies too.
+  it('ARITHMETIC (+) between two literals now certifies: `xs[1 + 1]`', () => {
+    expect(runStdout([letArr('xs', '[10,20,30]'), print('xs[1 + 1]')])).toBe('30\n');
+  });
+
+  it('ARITHMETIC (-) between two literals now certifies: `xs[2 - 1]`', () => {
+    expect(runStdout([letArr('xs', '[10,20,30]'), print('xs[2 - 1]')])).toBe('20\n');
+  });
+
+  it('ARITHMETIC on a for-loop counter now certifies: `xs[i + 1]`', () => {
+    // The task headline capability — a loop counter plus a literal offset.
+    expect(runStdout([letArr('xs', '[10,20,30]'), forLoop('i', '0', '2', print('xs[i + 1]'))])).toBe('20\n30\n');
+  });
+
   it('a null element prints "null"', () => {
     expect(runStdout([letArr('xs', '[1,null,3]'), print('xs[1]')])).toBe('null\n');
   });
@@ -138,11 +157,6 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
     abstains([letArr('xs', '[10,20,30]'), print('xs[4 / 2]')]);
   });
 
-  it('ARITHMETIC (+) index abstains (deferred — computed indices are a later slice)', () => {
-    // 1 + 1 = 2 is in-bounds, but arithmetic indices are excluded (no exact-int proof).
-    abstains([letArr('xs', '[10,20,30]'), print('xs[1 + 1]')]);
-  });
-
   it('NEGATIVE-MODULO index abstains (JS `5 % -3` is 2, Python is -1 — divergent)', () => {
     // `%` over a negative operand diverges by sign; the bare-literal gate excludes it.
     abstains([letArr('xs', '[10,20,30]'), print('xs[5 % (0 - 3)]')]);
@@ -172,10 +186,20 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
     abstains([letArr('xs', '[5,6,7]'), letScalar('j', '2'), print('xs[j]')]);
   });
 
-  it('ARITHMETIC on a for-loop counter index abstains (bare counter certifies; `i+1` deferred)', () => {
-    // `xs[i]` with `i` a for-counter now CERTIFIES (runner-dynamic-index.test.ts);
-    // arithmetic on the counter stays fenced (overflow / negative-modulo proof).
-    abstains([letArr('xs', '[10,20,30]'), forLoop('i', '0', '3', print('xs[i + 1]'))]);
+  it('MULTIPLICATION index still abstains (`*` is excluded from isIntProvenancedExpr)', () => {
+    // 1 * 2 = 2 is in-bounds, but `*` stays out of the provenanced-arithmetic
+    // domain (milestone 5.1b only admits +/-; see isIntProvenancedExpr's doc).
+    abstains([letArr('xs', '[10,20,30]'), print('xs[1 * 2]')]);
+  });
+
+  it('DIVISION arithmetic index still abstains (`/` is excluded)', () => {
+    abstains([letArr('xs', '[10,20,30]'), print('xs[4 / 2]')]);
+  });
+
+  it('OUT-OF-BOUNDS arithmetic index abstains atomically: `xs[1 + 5]`', () => {
+    // Milestone 5.1b admits the arithmetic FORM; the existing safe-integer +
+    // bounds check on the evaluated result still fences an out-of-range value.
+    abstains([letArr('xs', '[10,20,30]'), print('xs[1 + 5]')]);
   });
 
   it('INDEX-POSITION nesting `xs[ys[0]]` abstains (a nested index is not a literal)', () => {

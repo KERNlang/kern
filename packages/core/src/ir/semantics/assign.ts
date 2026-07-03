@@ -38,7 +38,12 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
-import { evalPortableValue, isPortableBindingName, type PortableScalar } from './portable-scalar.js';
+import {
+  assignRunnerClassMember,
+  evalPortableValue,
+  isPortableBindingName,
+  type PortableScalar,
+} from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
 type AssignOp = '=' | '+=';
@@ -62,6 +67,7 @@ function normalizeOp(rawOp: unknown): AssignOp {
 interface ResolvedAssign {
   target: string;
   value: PortableScalar;
+  runnerMember?: boolean;
 }
 
 /**
@@ -70,9 +76,18 @@ interface ResolvedAssign {
  * into a rejection while `effects` reuses the exact same computation (no
  * read-modify-write reordering between the two).
  */
-function resolveAssign(ir: IRNode, env: SemanticEnv): ResolvedAssign {
+function resolveAssign(ir: IRNode, env: SemanticEnv, mutateRunnerMember = false): ResolvedAssign {
   const props = asAssignProps(ir);
   const target = props.target;
+  if (typeof target === 'string' && target.includes('.')) {
+    const op = normalizeOp(props.op);
+    if (op !== '=') throw new Error('assign: runner class member assignment supports only "="');
+    if (!Object.hasOwn(ir.props ?? {}, 'value') || props.value === '') {
+      throw new Error('assign: value is required');
+    }
+    const value = assignRunnerClassMember(target, parseExpression(String(props.value)), env, mutateRunnerMember);
+    if (value !== undefined) return { target, value, runnerMember: true };
+  }
   if (!isPortableBindingName(target)) throw new Error('assign: target must be a simple portable identifier');
   const op = normalizeOp(props.op);
   if (!Object.hasOwn(ir.props ?? {}, 'value') || props.value === '') {
@@ -106,7 +121,7 @@ function resolveAssign(ir: IRNode, env: SemanticEnv): ResolvedAssign {
 
 function assignPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   try {
-    resolveAssign(ir, env);
+    resolveAssign(ir, env, false);
     return true;
   } catch {
     return false;
@@ -114,8 +129,8 @@ function assignPreconditions(ir: IRNode, env: SemanticEnv): boolean {
 }
 
 function assignEffects(ir: IRNode, env: SemanticEnv): Trace {
-  const { target, value } = resolveAssign(ir, env);
-  assignBinding(env, target, value);
+  const { target, value, runnerMember } = resolveAssign(ir, env, true);
+  if (!runnerMember) assignBinding(env, target, value);
   return { events: [{ op: 'assign', target, value }], completion: { kind: 'normal' } };
 }
 

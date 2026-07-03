@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { createPreviewAppServer } from '../examples/kern-5-preview-app/server.mjs';
+import { basename } from 'node:path';
+import { createPreviewAppServer, loadPreviewAppManifest } from '../examples/kern-5-preview-app/server.mjs';
 
 class DemoSmokeFailure extends Error {}
 
@@ -35,6 +36,35 @@ try {
   const address = server.address();
   if (!address || typeof address !== 'object') throw new DemoSmokeFailure('preview app did not bind a TCP port');
   const baseUrl = `http://127.0.0.1:${address.port}`;
+  const manifest = await loadPreviewAppManifest();
+  if (manifest.app.props.name !== 'Kern5Preview') {
+    throw new DemoSmokeFailure(`app manifest declared unexpected app ${JSON.stringify(manifest.app.props.name)}`);
+  }
+  if (manifest.homeView.path !== '/' || basename(manifest.homeView.sourcePath) !== 'ui.kern') {
+    throw new DemoSmokeFailure(`app manifest declared unexpected home view ${JSON.stringify(manifest.homeView)}`);
+  }
+  if (
+    manifest.answerRoute.key !== 'GET /api/answer' ||
+    basename(manifest.answerRoute.sourcePath) !== 'answer-route.kern'
+  ) {
+    throw new DemoSmokeFailure(`app manifest declared unexpected answer route ${JSON.stringify(manifest.answerRoute)}`);
+  }
+  if (!manifest.answerRoute.policyName || manifest.answerRoute.policies[0]?.props?.name !== 'GroundedAnswerPolicy') {
+    throw new DemoSmokeFailure(`app manifest did not attach the answer grounding policy`);
+  }
+  if (Number(manifest.answerRoute.policies[0]?.props?.failureStatus) !== 422) {
+    throw new DemoSmokeFailure(`app manifest did not declare the answer grounding failure status`);
+  }
+  for (const capability of [
+    'app-http.queryParam',
+    'rag.retrieveAsync',
+    'rag.promptContext',
+    'llm.complete',
+    'rag.checkAnswer',
+  ]) {
+    const declared = manifest.answerRoute.requiredCapabilities.includes(capability);
+    if (!declared) throw new DemoSmokeFailure(`app manifest did not declare ${capability}`);
+  }
 
   const { response: uiResponse, text: html } = await fetchText(`${baseUrl}/`);
   if (!uiResponse.ok) throw new DemoSmokeFailure(`UI route returned ${uiResponse.status}`);
@@ -47,9 +77,16 @@ try {
 
   const answer = await fetchJson(`${baseUrl}/api/answer?question=refund%20policy%20receipt`);
   if (answer.status !== 'grounded') throw new DemoSmokeFailure(`answer route returned status ${answer.status}`);
+  if (answer.grounded !== true) throw new DemoSmokeFailure(`answer route returned grounded ${answer.grounded}`);
   if (answer.chunkCount !== 1) throw new DemoSmokeFailure(`answer route returned chunkCount ${answer.chunkCount}`);
   if (answer.source !== 'corpus/refunds.md') {
     throw new DemoSmokeFailure(`answer route returned source ${JSON.stringify(answer.source)}`);
+  }
+  if (!Array.isArray(answer.citations) || answer.citations[0]?.source !== 'corpus/refunds.md') {
+    throw new DemoSmokeFailure(`answer route returned citations ${JSON.stringify(answer.citations)}`);
+  }
+  if (answer.diagnostics?.chunkCount !== 1 || answer.diagnostics?.grounded === false) {
+    throw new DemoSmokeFailure(`answer route returned diagnostics ${JSON.stringify(answer.diagnostics)}`);
   }
   if (!String(answer.answer).includes('Refunds are available within thirty days')) {
     throw new DemoSmokeFailure(`answer route returned unexpected answer ${JSON.stringify(answer.answer)}`);
@@ -72,6 +109,32 @@ try {
   }
   if (unsupported.json.error !== 'no grounded answer for this question') {
     throw new DemoSmokeFailure(`unsupported query returned ${JSON.stringify(unsupported.json)}`);
+  }
+  if (unsupported.json.diagnostics?.grounded !== false) {
+    throw new DemoSmokeFailure(`unsupported query returned diagnostics ${JSON.stringify(unsupported.json)}`);
+  }
+
+  const ungrounded = await fetchJsonResponse(
+    `${baseUrl}/api/answer?question=refund%20policy%20receipt&failure=ungrounded`,
+  );
+  if (ungrounded.response.status !== 422) {
+    throw new DemoSmokeFailure(`ungrounded answer returned ${ungrounded.response.status}`);
+  }
+  if (ungrounded.json.error !== 'no grounded answer for this question') {
+    throw new DemoSmokeFailure(`ungrounded answer returned ${JSON.stringify(ungrounded.json)}`);
+  }
+
+  const missingLlm = await fetchJsonResponse(
+    `${baseUrl}/api/answer?question=refund%20policy%20receipt&failure=missing-llm`,
+  );
+  if (missingLlm.response.status !== 503) {
+    throw new DemoSmokeFailure(`missing LLM returned ${missingLlm.response.status}`);
+  }
+  if (missingLlm.json.error !== 'required host capability is unavailable') {
+    throw new DemoSmokeFailure(`missing LLM returned ${JSON.stringify(missingLlm.json)}`);
+  }
+  if (missingLlm.json.diagnostics?.capability !== 'llm.complete') {
+    throw new DemoSmokeFailure(`missing LLM returned diagnostics ${JSON.stringify(missingLlm.json)}`);
   }
 
   const unrelated = await fetchJsonResponse(`${baseUrl}/api/answer?question=banana%20unrelated`);

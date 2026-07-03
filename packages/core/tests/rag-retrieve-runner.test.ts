@@ -2,8 +2,20 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { type AsyncEmbedder, type Embedder, retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
-import { createLocalRagCapability } from '../src/rag-retrieve-runner.js';
+import {
+  type AsyncEmbedder,
+  closeRetrievalStoresFailClosed,
+  createInMemoryRagVectorStoreForConformance,
+  defineRagVectorStoreAdapterContract,
+  type Embedder,
+  parseRetrievedChunkCitationProvenance,
+  type RagVectorStoreConformanceContext,
+  registerExternalRagVectorStoreAdapter,
+  retrieveRagDocument,
+  retrieveRagDocumentAsync,
+  unregisterExternalRagVectorStoreAdapter,
+} from '../src/index.js';
+import { createAsyncLocalRagRetrieveCapability, createLocalRagCapability } from '../src/rag-retrieve-runner.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -247,6 +259,29 @@ describe('retrieveRagDocument', () => {
     expect(chunk.source).toBe('docs/refunds.md');
     expect(chunk.citationUri).toBe('docs/refunds.md');
     expect(typeof chunk.citationLocator).toBe('string');
+  });
+
+  test('PROVENANCE NORMALIZATION: rag.retrieve and rag.retrieveAsync emit byte-identical chunk provenance for the same query', async () => {
+    const syncCapability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const asyncCapability = createAsyncLocalRagRetrieveCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const syncResult = syncCapability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+    const asyncResult = await asyncCapability.retrieveAsync({
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(Array.isArray(syncResult)).toBe(true);
+    expect(asyncResult).toEqual(syncResult);
+    const [chunk] = syncResult as Array<Record<string, unknown>>;
+    // The one normalized wire shape: exactly these six fields, citation
+    // provenance as `string | null` — never `undefined` — on both paths.
+    expect(Object.keys(chunk).sort()).toEqual(['citationLocator', 'citationUri', 'id', 'score', 'source', 'text']);
   });
 
   test('creates local prompt context from rag.retrieve capability chunks', () => {
@@ -1075,5 +1110,381 @@ describe('retrieveRagDocument', () => {
         embedder: failingEmbedder,
       }),
     ).rejects.toThrow(/KERN RAG provider-backed retrieval failed for index 'DocsIndex'.*socket closed for sk-\*\*\*/u);
+  });
+});
+
+describe('PROVENANCE NORMALIZATION: parseRetrievedChunkCitationProvenance (shared by promptContext/checkAnswer/answer)', () => {
+  test('accepts the flat citationUri/citationLocator wire shape rag.retrieve/rag.retrieveAsync emit', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citationUri: 'docs/refunds.md', citationLocator: 'p1' }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md', locator: 'p1' });
+  });
+
+  test('accepts the nested citation record form for chunks authored directly in .kern source', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citation: { uri: 'docs/refunds.md', locator: 'p1' } }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md', locator: 'p1' });
+  });
+
+  test('treats null citation fields as absent, never as a literal "null" string', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citationUri: 'docs/refunds.md', citationLocator: null }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md' });
+    expect(parseRetrievedChunkCitationProvenance({}, 'chunks[0]')).toEqual({});
+  });
+
+  test('accepts both forms together when they agree', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md' }, citationUri: 'docs/refunds.md' },
+        'chunks[0]',
+      ),
+    ).toEqual({ uri: 'docs/refunds.md' });
+  });
+
+  test('fails closed when the nested and flat forms disagree, rather than silently preferring one', () => {
+    expect(() =>
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md' }, citationUri: 'docs/other.md' },
+        'chunks[0]',
+      ),
+    ).toThrow(
+      'chunks[0] declares both citation.uri and citationUri with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+    expect(() =>
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md', locator: 'p1' }, citationLocator: 'p2' },
+        'chunks[0]',
+      ),
+    ).toThrow(
+      'chunks[0] declares both citation.locator and citationLocator with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+  });
+
+  test('rejects a non-record citation field', () => {
+    expect(() => parseRetrievedChunkCitationProvenance({ citation: 'docs/refunds.md' as never }, 'chunks[0]')).toThrow(
+      'chunks[0].citation must be a record.',
+    );
+  });
+});
+
+describe('EXTERNAL VECTOR-STORE ADAPTERS: host-registered kinds gated by the conformance contract', () => {
+  const EXTERNAL_KIND = 'example-external-memory';
+  const EXTERNAL_DOC = DOC.replace(
+    'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+    `vectorStore name=DocsMemory kind=${EXTERNAL_KIND} dims=64 metric=cosine`,
+  );
+  // Manifest mirrors examples/rag-vector-store-adapter/adapter.mjs — the
+  // documented external-adapter authoring pattern this registration path is
+  // designed for.
+  const EXTERNAL_ADAPTER_MANIFEST = {
+    name: 'example-in-process-memory',
+    kind: 'vectorStore',
+    adapterKind: 'memory',
+    version: '1.0.0',
+    transport: 'in-process',
+    metrics: ['cosine'],
+    maxDimensions: 4096,
+    persistence: 'ephemeral',
+    capabilities: {
+      upsert: true,
+      upsertMany: true,
+      search: true,
+      snapshot: true,
+      clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
+    },
+  } as const;
+
+  function conformantContract() {
+    return defineRagVectorStoreAdapterContract({
+      manifest: EXTERNAL_ADAPTER_MANIFEST,
+      createStore: (context) => createInMemoryRagVectorStoreForConformance(context),
+    });
+  }
+
+  /** A subtly-broken adapter: its search ignores retrieve options (topK). */
+  function nonConformantContract() {
+    return defineRagVectorStoreAdapterContract({
+      manifest: EXTERNAL_ADAPTER_MANIFEST,
+      createStore(context: RagVectorStoreConformanceContext) {
+        const inner = createInMemoryRagVectorStoreForConformance(context);
+        return {
+          kind: inner.kind,
+          fingerprint: inner.fingerprint,
+          dims: inner.dims,
+          metric: inner.metric,
+          upsert: inner.upsert.bind(inner),
+          upsertMany: inner.upsertMany.bind(inner),
+          search(query, queryVector, _options, fingerprint) {
+            return inner.search(query, queryVector, {}, fingerprint);
+          },
+          snapshot: inner.snapshot.bind(inner),
+          clear: inner.clear.bind(inner),
+          close: inner.close.bind(inner),
+        };
+      },
+    });
+  }
+
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-rag-external-adapter-'));
+    mkdirSync(join(dir, 'docs'));
+    writeFileSync(join(dir, 'spec.kern'), EXTERNAL_DOC);
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+  });
+
+  afterEach(() => {
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('fails closed when the external kind is not registered', () => {
+    const report = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics.some((violation) => violation.message.includes(`kind '${EXTERNAL_KIND}'`))).toBe(true);
+    expect(
+      report.diagnostics.some((violation) => violation.message.includes('registerExternalRagVectorStoreAdapter')),
+    ).toBe(true);
+  });
+
+  test('rejects a non-conformant adapter at registration and stays deny-by-default', () => {
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: nonConformantContract() }),
+    ).toThrow(/failed conformance: .*topk-is-respected/u);
+
+    // The failed registration must not have registered anything.
+    const report = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('rejects builtin-shadowing, malformed, duplicate, and async-only registrations', () => {
+    expect(() => registerExternalRagVectorStoreAdapter({ kind: 'memory', contract: conformantContract() })).toThrow(
+      /shadows a built-in store kind/u,
+    );
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: 'not a token', contract: conformantContract() }),
+    ).toThrow(/runner token grammar/u);
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({
+        kind: EXTERNAL_KIND,
+        contract: {
+          manifest: EXTERNAL_ADAPTER_MANIFEST,
+          createStoreAsync: async (context) => {
+            throw new Error(`async adapter unsupported for ${context.namespace}`);
+          },
+        } as unknown as ReturnType<typeof conformantContract>,
+      }),
+    ).toThrow(/requires a synchronous createStore factory/u);
+
+    registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() });
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() }),
+    ).toThrow(/already registered/u);
+  });
+
+  test('a conformant registered adapter serves sync and async runtime retrieval', async () => {
+    const conformance = registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() });
+    expect(conformance.passed).toBe(true);
+
+    const syncReport = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(syncReport.diagnostics).toEqual([]);
+    expect(syncReport.indexes[0]).toEqual(
+      expect.objectContaining({ storeKind: EXTERNAL_KIND, status: 'indexed', chunkCount: 2 }),
+    );
+    expect(syncReport.retrievals[0]?.result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
+
+    const asyncReport = await retrieveRagDocumentAsync(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(asyncReport.diagnostics).toEqual([]);
+    expect(asyncReport.indexes[0]).toEqual(expect.objectContaining({ storeKind: EXTERNAL_KIND, status: 'indexed' }));
+    expect(asyncReport.retrievals[0]?.result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
+
+    // Unregistering restores deny-by-default for the same source.
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    const deniedReport = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(deniedReport.retrievals).toEqual([]);
+    expect(deniedReport.diagnostics.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('RETRIEVAL STORE CLEANUP: closeRetrievalStoresFailClosed closes both families unconditionally', () => {
+  test('a local-persistent close error does not skip external adapter close() calls', () => {
+    // Regression (review finding): cleanup used `closeLocal(...) ??
+    // closeExternal(...)` — a local close ERROR short-circuited the nullish
+    // coalescing and external stores were never closed on the error path.
+    const closed: string[] = [];
+    const localError = new Error('local close failed');
+    const persistent = [
+      {
+        store: {
+          close() {
+            closed.push('persistent');
+            throw localError;
+          },
+        },
+      },
+    ];
+    const external = [
+      {
+        store: {
+          close() {
+            closed.push('external');
+          },
+        },
+      },
+    ];
+
+    const firstError = closeRetrievalStoresFailClosed(persistent, external);
+
+    expect(closed).toEqual(['persistent', 'external']);
+    expect(firstError).toBe(localError);
+  });
+
+  test('an external close error surfaces when local closes succeed, and success reports no error', () => {
+    const externalError = new Error('external close failed');
+    const externalOnlyError = closeRetrievalStoresFailClosed(
+      [{ store: { close() {} } }],
+      [
+        {
+          store: {
+            close() {
+              throw externalError;
+            },
+          },
+        },
+      ],
+    );
+    expect(externalOnlyError).toBe(externalError);
+    expect(closeRetrievalStoresFailClosed([{ store: { close() {} } }], [{ store: { close() {} } }])).toBeUndefined();
+  });
+});
+
+describe('EXTERNAL VECTOR-STORE ADAPTERS: fingerprint-keyed reuse and namespace collision detection', () => {
+  const EXTERNAL_KIND = 'example-external-fingerprint';
+  const MANIFEST = {
+    name: 'example-in-process-memory',
+    kind: 'vectorStore',
+    adapterKind: 'memory',
+    version: '1.0.0',
+    transport: 'in-process',
+    metrics: ['cosine'],
+    maxDimensions: 4096,
+    persistence: 'ephemeral',
+    capabilities: {
+      upsert: true,
+      upsertMany: true,
+      search: true,
+      snapshot: true,
+      clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
+    },
+  } as const;
+
+  function twoCorpusDoc(vectorStoreLine: string): string {
+    return [
+      'corpus name=DocsA',
+      '  source name=srcA kind=local uri="./docsA/**/*.md" media=markdown',
+      '  chunking source=srcA strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      'corpus name=DocsB',
+      '  source name=srcB kind=local uri="./docsB/**/*.md" media=markdown',
+      '  chunking source=srcB strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      '',
+      'embed name=EmbedA corpus=DocsA model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=EmbedB corpus=DocsB model=local-semantic-v1 dims=64 metric=cosine',
+      vectorStoreLine,
+      'ragIndex name=IndexA corpus=DocsA store=SharedStore embed=EmbedA',
+      'ragIndex name=IndexB corpus=DocsB store=SharedStore embed=EmbedB',
+      'retriever name=SearchA corpus=DocsA embed=EmbedA',
+      'rag name=Answer retriever=SearchA citations=true',
+      '  grounding requireCitations=true',
+      '  ragRetrieve name=FindA index=IndexA queryParam=question topK=1 output="RetrievedChunk[]"',
+      '  ragRetrieve name=FindB index=IndexB queryParam=question topK=1 output="RetrievedChunk[]"',
+    ].join('\n');
+  }
+
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-rag-external-fingerprint-'));
+    mkdirSync(join(dir, 'docsA'));
+    mkdirSync(join(dir, 'docsB'));
+    writeFileSync(join(dir, 'docsA/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docsB/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    registerExternalRagVectorStoreAdapter({
+      kind: EXTERNAL_KIND,
+      contract: defineRagVectorStoreAdapterContract({
+        manifest: MANIFEST,
+        createStore: (context: RagVectorStoreConformanceContext) => createInMemoryRagVectorStoreForConformance(context),
+      }),
+    });
+  });
+
+  afterEach(() => {
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('two indexes with different chunk content sharing one external namespace fail closed on incompatible fingerprints', () => {
+    // Regression (review finding): the external store cache reused a store
+    // instance without any fingerprint participation, so two declarations
+    // resolving to the same physical namespace with DIFFERENT content could
+    // silently share one store. Mirrors the local-persistent guard.
+    const doc = twoCorpusDoc(
+      `vectorStore name=SharedStore kind=${EXTERNAL_KIND} dims=64 metric=cosine namespace=shared`,
+    );
+    writeFileSync(join(dir, 'spec.kern'), doc);
+
+    expect(() =>
+      retrieveRagDocument(doc, { sourcePath: join(dir, 'spec.kern'), query: 'refund policy money back' }),
+    ).toThrow(/external namespace 'shared' with multiple incompatible fingerprints/u);
+  });
+
+  test('two indexes with different chunk content and distinct namespaces each search their OWN store', () => {
+    // Without an explicit vectorStore namespace, each index gets its own
+    // namespace (the index name) and its own fingerprint — the second search
+    // must never return the first store's chunks.
+    const doc = twoCorpusDoc(`vectorStore name=SharedStore kind=${EXTERNAL_KIND} dims=64 metric=cosine`);
+    writeFileSync(join(dir, 'spec.kern'), doc);
+
+    const report = retrieveRagDocument(doc, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'shipping delivery courier',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    const findA = report.retrievals.find((entry) => entry.name === 'FindA');
+    const findB = report.retrievals.find((entry) => entry.name === 'FindB');
+    // IndexA only ever indexed docsA content; IndexB only docsB content.
+    expect(findA?.result.chunks.every((chunk) => chunk.source === 'docsA/refunds.md')).toBe(true);
+    expect(findB?.result.chunks.map((chunk) => chunk.source)).toEqual(['docsB/shipping.md']);
+    // Two distinct stores were created — one indexed lifecycle per index.
+    expect(report.indexes.map((entry) => [entry.indexName, entry.status])).toEqual([
+      ['IndexA', 'indexed'],
+      ['IndexB', 'indexed'],
+    ]);
   });
 });

@@ -9,7 +9,11 @@ import {
 import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES, CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
 import type { IRNode } from '../../types.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { evalPortableValueAsync } from './async-portable-scalar.js';
+import {
+  evalPortableValueAsync,
+  evalRunnerClassNewValueAsync,
+  evalRunnerFunctionValueAsync,
+} from './async-portable-scalar.js';
 import { branchPreconditions, selectBranchPath } from './branch.js';
 import { isCapabilityToken } from './capability.js';
 import { eachPreconditions, eachRuntimeSteps } from './each.js';
@@ -26,10 +30,14 @@ import {
 } from './index.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
+import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
   assertPortableScalar,
+  assertRunnerPortableValue,
+  assignRunnerClassMember,
   isPortableBindingName,
   isRecordLiteralExpression,
+  isRunnerClassInstanceValue,
   type PortableScalar,
   portableTruthy,
 } from './portable-scalar.js';
@@ -40,6 +48,13 @@ import { WHILE_MAX_ITERATIONS } from './while.js';
 
 export interface AsyncReferenceRunnerOptions {
   readonly asyncCapabilities?: KernRunnerAsyncCapabilities;
+  /**
+   * Per-call timeout for async capability provider invocations, in
+   * milliseconds. Host-configurable; forwarded to
+   * {@link invokeRunnerCapabilityAsync}, which defaults it when omitted. A
+   * provider that has not settled within this window fails closed.
+   */
+  readonly capabilityTimeoutMs?: number;
 }
 
 /**
@@ -135,13 +150,32 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   let value: unknown;
   try {
     const parsed = parseExpression(String(props.value));
-    value = isArrayLiteralExpression(parsed)
-      ? await evalArrayLiteralValueAsync(parsed, env, options)
-      : isRecordLiteralExpression(parsed)
-        ? await evalRecordLiteralValueAsync(parsed, env, options)
-        : await evalPortableValueForAsyncRunner(parsed, env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+    if (isArrayLiteralExpression(parsed)) {
+      value = await evalArrayLiteralValueAsync(parsed, env, options);
+    } else if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
+      // Milestone 5.1b review fix (codex 0.90) — mirror the sync `let`
+      // contract's `new Map()` support (empty-map construction ONLY; see
+      // portable-map.ts and let.ts). Checked BEFORE the generic class-new
+      // branch, which would otherwise reject Map as an unknown runner class.
+      // A `new Map(...)` WITH arguments falls through to the class evaluator
+      // and fails closed, matching the sync path.
+      value = new Map<string, unknown>();
+    } else if (isRecordLiteralExpression(parsed)) {
+      value = await evalRecordLiteralValueAsync(parsed, env, options);
+    } else if (parsed.kind === 'new') {
+      value = await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+      value = await evalRunnerFunctionValueAsync(parsed.callee.name, parsed.args, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+      const binding = getBinding(env, parsed.name);
+      value = isRunnerClassInstanceValue(binding)
+        ? binding
+        : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+    } else {
+      value = await evalPortableValueForAsyncRunner(parsed, env, options);
+    }
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
@@ -150,6 +184,20 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
 async function asyncAssignEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
   const props = ir.props ?? {};
   const target = props.target;
+  if (typeof target === 'string' && target.includes('.')) {
+    const op = props.op === undefined || props.op === '' ? '=' : props.op;
+    if (op !== '=' || !Object.hasOwn(props, 'value') || props.value === '') {
+      throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+    }
+    try {
+      const value = assignRunnerClassMember(target, parseExpression(String(props.value)), env, true);
+      if (value !== undefined) {
+        return { events: [{ op: 'assign', target, value }], completion: { kind: 'normal' } };
+      }
+    } catch (error) {
+      throw asyncPreconditionError(ir, error);
+    }
+  }
   if (
     !isPortableBindingName(target) ||
     !hasBinding(env, target) ||
@@ -170,8 +218,8 @@ async function asyncAssignEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
   let rhs: PortableScalar;
   try {
     rhs = await evalPortableValueForAsyncRunner(parseExpression(String(props.value)), env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
 
   let value: PortableScalar;
@@ -214,8 +262,8 @@ async function asyncFmtEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
         value += canonicalFmt(await evalPortableValueForAsyncRunner(node.expressions[i], env, options));
       }
     }
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
 
   defineBinding(env, name, value);
@@ -228,8 +276,8 @@ async function asyncPrintEffects(ir: IRNode, env: SemanticEnv, options: AsyncRef
   let text: string;
   try {
     text = printText(await evalPortableValueForAsyncRunner(parseExpression(raw), env, options));
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
   return { events: [{ op: 'stdout', text }], completion: { kind: 'normal' } };
 }
@@ -238,24 +286,47 @@ async function asyncReturnEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
   const value = ir.props?.value;
   if (typeof value !== 'string') return { events: [], completion: { kind: 'return', value } };
   try {
+    const parsed = parseExpression(value);
+    let resolved: unknown;
+    if (isArrayLiteralExpression(parsed)) {
+      resolved = await evalArrayLiteralValueAsync(parsed, env, options);
+    } else if (isRecordLiteralExpression(parsed)) {
+      resolved = await evalRecordLiteralValueAsync(parsed, env, options);
+    } else if (parsed.kind === 'new') {
+      resolved = await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+      resolved = await evalRunnerFunctionValueAsync(parsed.callee.name, parsed.args, env, asyncEvalOptions(options));
+    } else if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+      const binding = getBinding(env, parsed.name);
+      resolved = isRunnerClassInstanceValue(binding)
+        ? binding
+        : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+    } else {
+      resolved = await evalPortableValueForAsyncRunner(parsed, env, options);
+    }
     return {
       events: [],
       completion: {
         kind: 'return',
-        value: await evalPortableValueForAsyncRunner(parseExpression(value), env, options),
+        value: resolved,
       },
     };
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
+}
+
+function asyncPreconditionError(ir: IRNode, error: unknown): ReferenceRunnerError {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}": ${detail}`, ir);
 }
 
 async function asyncIfEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {
   let truthy: boolean;
   try {
     truthy = await evaluateIfConditionAsync(ir, env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
   const elseNode = ir.props?.__pairedElse;
   const selectedChildren = truthy ? (ir.children ?? []) : isElseNode(elseNode) ? (elseNode.children ?? []) : [];
@@ -421,8 +492,8 @@ async function evaluateInitialAsyncWhileCondition(
 ): Promise<boolean> {
   try {
     return await evaluateWhileConditionAsync(ir, env, options);
-  } catch {
-    throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
+  } catch (error) {
+    throw asyncPreconditionError(ir, error);
   }
 }
 
@@ -489,6 +560,7 @@ async function asyncCapabilityEffects(
     options.asyncCapabilities,
     { namespace, operation, input },
     env.capabilityContext,
+    { timeoutMs: options.capabilityTimeoutMs },
   );
   const result =
     rawResult === undefined

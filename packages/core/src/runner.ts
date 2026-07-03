@@ -3,7 +3,11 @@ import {
   CONTRACT_REGISTRY,
   makeEnv,
   ReferenceRunnerError,
+  type RunnerClassBinding,
+  type RunnerClassFieldBinding,
+  type RunnerClassMemberBinding,
   type RunnerFunctionBinding,
+  type RunnerModuleScope,
   referenceRunSequence,
   registerAllContracts,
   type SemanticEnv,
@@ -26,6 +30,7 @@ import {
   type MalformedCapabilityRequirement,
   type UnknownCapabilityRequirement,
 } from './runner-capability-plan.js';
+import { moduleLinkErrors } from './runner-module-link.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -101,6 +106,14 @@ export interface ExecuteKernSourceOptions {
   capabilities?: KernRunnerCapabilities;
   /** Opaque metadata passed to injected capability handlers. */
   capabilityContext?: KernRunnerCapabilityContext;
+  /**
+   * Browser-safe module loading hooks for `use path="..."` linking. Callers
+   * decide how paths are canonicalized and contained; the runner memoizes by
+   * the canonical id returned here and never imports Node filesystem APIs.
+   */
+  moduleLoader?: KernRunnerModuleLoader;
+  /** Canonical id for the root source when moduleLoader is enabled. */
+  sourcePath?: string;
 }
 
 export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions {
@@ -126,12 +139,57 @@ export interface ExecuteKernSourceAsyncOptions extends ExecuteKernSourceOptions 
    * control flow remains fail-closed.
    */
   asyncCapabilities?: KernRunnerAsyncCapabilities;
+  /**
+   * Per-call timeout for async capability provider invocations, in
+   * milliseconds. Host-configurable; a provider that has not settled within
+   * this window fails closed rather than hanging the run. Defaults to
+   * {@link DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS} when omitted.
+   */
+  capabilityTimeoutMs?: number;
+}
+
+export interface KernRunnerEntryDescriptor {
+  readonly handler: string;
+  readonly label?: string;
+  readonly kind?: string;
+  readonly name?: string;
+}
+
+export interface ExecuteKernEntrySourceOptions extends ExecuteKernSourceOptions {}
+
+export interface ExecuteKernEntrySourceAsyncOptions extends ExecuteKernSourceAsyncOptions {}
+
+export interface KernRunnerModuleLoader {
+  resolve(specifier: string, context: { readonly importer: string }): string | null;
+  readSource(canonicalPath: string): string;
+}
+
+interface LinkedModuleRecord {
+  readonly path: string;
+  readonly root: IRNode;
+  readonly functions: ReadonlyMap<string, RunnerFunctionBinding>;
+  readonly classes: ReadonlyMap<string, RunnerClassBinding>;
+  readonly exports: ReadonlyMap<string, RunnerLinkedExport>;
+  readonly imports: readonly RunnerLinkedImport[];
+}
+
+type RunnerLinkedExport =
+  | { readonly kind: 'fn'; readonly sourceName: string; readonly binding: RunnerFunctionBinding }
+  | { readonly kind: 'class'; readonly sourceName: string; readonly binding: RunnerClassBinding };
+
+interface RunnerLinkedImport {
+  readonly localName: string;
+  readonly importedName: string;
+  readonly kind?: string;
+  readonly targetPath: string;
+  readonly exportOnly: boolean;
 }
 
 const REQUIRED_RUNNER_CONTRACTS = [
   'assign',
   'branch',
   'capability',
+  'do',
   'each',
   'expression-v1',
   'fmt',
@@ -202,28 +260,56 @@ function isTrueProp(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
+function entryLabel(entry: KernRunnerEntryDescriptor): string {
+  if (entry.label) return entry.label;
+  if (entry.kind && entry.name) return `${entry.kind} ${entry.name}`;
+  return `entry ${entry.handler}`;
+}
+
+function assertVoidRunnerEntry(fn: IRNode, handlerName: string, label: string, mainMode: boolean): void {
+  const messagePrefix = mainMode ? 'main' : `${label} handler ${handlerName}`;
+  if (fn.props?.returns !== 'void') throw new KernRunnerError(`${messagePrefix} must declare returns=void`);
+  if (typeof fn.props?.params === 'string' && fn.props.params.trim() !== '') {
+    throw new KernRunnerError(`${messagePrefix} parameters are unsupported in native runner preview`);
+  }
+  if ((fn.children ?? []).some((node) => node.type === 'param')) {
+    throw new KernRunnerError(`${messagePrefix} parameters are unsupported in native runner preview`);
+  }
+  if (isTrueProp(fn.props?.async))
+    throw new KernRunnerError(`${messagePrefix} async is unsupported in native runner preview`);
+  if (isTrueProp(fn.props?.stream)) {
+    throw new KernRunnerError(`${messagePrefix} stream=true is unsupported in native runner preview`);
+  }
+}
+
+function resolveNamedVoidKernHandler(root: IRNode, handlerName: string, label: string, mainMode = false): IRNode {
+  const topLevel = topLevelNodes(root);
+  const matches = topLevel.filter((node) => node.type === 'fn' && node.props?.name === handlerName);
+
+  if (matches.length === 0) {
+    throw new KernRunnerError(
+      mainMode ? 'expected exactly one top-level fn name=main' : `${label} references missing handler ${handlerName}`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new KernRunnerError(
+      mainMode ? 'found multiple top-level fn name=main' : `${label} references duplicate handler ${handlerName}`,
+    );
+  }
+
+  const entry = matches[0];
+  assertVoidRunnerEntry(entry, handlerName, label, mainMode);
+  return resolveSingleKernHandler(entry, mainMode ? 'main' : `${label} handler ${handlerName}`);
+}
+
 /** Strict native-runner entry resolution: exactly one top-level `fn main` with one KERN handler. */
 export function resolveKernMainHandler(root: IRNode): IRNode {
-  const topLevel = topLevelNodes(root);
-  const mains = topLevel.filter((node) => node.type === 'fn' && node.props?.name === 'main');
+  return resolveNamedVoidKernHandler(root, 'main', 'main', true);
+}
 
-  if (mains.length === 0) throw new KernRunnerError('expected exactly one top-level fn name=main');
-  if (mains.length > 1) throw new KernRunnerError('found multiple top-level fn name=main');
-
-  const main = mains[0];
-  if (main.props?.returns !== 'void') throw new KernRunnerError('main must declare returns=void');
-  if (typeof main.props?.params === 'string' && main.props.params.trim() !== '') {
-    throw new KernRunnerError('main parameters are unsupported in native runner preview');
-  }
-  if ((main.children ?? []).some((node) => node.type === 'param')) {
-    throw new KernRunnerError('main parameters are unsupported in native runner preview');
-  }
-  if (isTrueProp(main.props?.async)) throw new KernRunnerError('main async is unsupported in native runner preview');
-  if (isTrueProp(main.props?.stream)) {
-    throw new KernRunnerError('main stream=true is unsupported in native runner preview');
-  }
-
-  return resolveSingleKernHandler(main, 'main');
+/** Descriptor-driven native-runner entry resolution: exactly one declared top-level handler. */
+export function resolveKernEntryHandler(root: IRNode, entry: KernRunnerEntryDescriptor): IRNode {
+  return resolveNamedVoidKernHandler(root, entry.handler, entryLabel(entry));
 }
 
 function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding> {
@@ -236,6 +322,390 @@ function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding
     functions.set(binding.name, binding);
   }
   return functions;
+}
+
+function collectRunnerClasses(root: IRNode): Map<string, RunnerClassBinding> {
+  const classes = new Map<string, RunnerClassBinding>();
+  for (const node of topLevelNodes(root)) {
+    if (node.type !== 'class') continue;
+    const binding = runnerClassBinding(node);
+    if (!binding) continue;
+    if (classes.has(binding.name)) throw new KernRunnerError(`duplicate runner class '${binding.name}'`);
+    classes.set(binding.name, binding);
+  }
+  for (const cls of classes.values()) {
+    if (cls.extendsName && !classes.has(cls.extendsName)) {
+      throw new KernRunnerError(`runner class '${cls.name}' extends unknown class '${cls.extendsName}'`);
+    }
+  }
+  assertRunnerClassAcyclic(classes);
+  return classes;
+}
+
+function assertRunnerClassAcyclic(classes: ReadonlyMap<string, RunnerClassBinding>): void {
+  for (const cls of classes.values()) {
+    const seen = new Set<string>();
+    for (let current: string | undefined = cls.name; current; ) {
+      if (seen.has(current)) throw new KernRunnerError(`runner class '${cls.name}' has cyclic inheritance`);
+      seen.add(current);
+      current = classes.get(current)?.extendsName;
+    }
+  }
+}
+
+function validateRunnerCallableNames(
+  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
+  runnerClasses: ReadonlyMap<string, RunnerClassBinding>,
+): void {
+  if (runnerClasses.has('main')) throw new KernRunnerError("runner class 'main' conflicts with the native entrypoint");
+  for (const name of runnerClasses.keys()) {
+    if (runnerFunctions.has(name)) {
+      throw new KernRunnerError(`runner class '${name}' conflicts with runner function '${name}'`);
+    }
+  }
+}
+
+function modulePathForRoot(options: ExecuteKernSourceOptions): string {
+  return options.sourcePath ?? '<entry>';
+}
+
+function parseRunnerModule(path: string, source: string, options: ExecuteKernSourceOptions): IRNode {
+  const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
+  const firstError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (firstError) throw new KernRunnerError(`${path}: ${firstError.message}`);
+  return root;
+}
+
+function importedMainError(path: string): KernRunnerError {
+  return new KernRunnerError(`link error: imported module '${path}' must not declare fn main`);
+}
+
+function assertNoMainInImportedModule(root: IRNode, path: string): void {
+  if (topLevelNodes(root).some((node) => node.type === 'fn' && node.props?.name === 'main')) {
+    throw importedMainError(path);
+  }
+}
+
+function collectExplicitRunnerExports(
+  functions: ReadonlyMap<string, RunnerFunctionBinding>,
+  classes: ReadonlyMap<string, RunnerClassBinding>,
+  root: IRNode,
+  path: string,
+): Map<string, RunnerLinkedExport> {
+  const exports = new Map<string, RunnerLinkedExport>();
+  for (const node of topLevelNodes(root)) {
+    if (!isTrueProp(node.props?.export)) continue;
+    const name = node.props?.name;
+    if (!isPortableBindingName(name)) continue;
+    if (node.type === 'fn') {
+      const binding = functions.get(name);
+      if (!binding) {
+        throw new KernRunnerError(
+          `link error: exported function '${name}' in '${path}' is unsupported by the native runner`,
+        );
+      }
+      exports.set(name, { kind: 'fn', sourceName: name, binding });
+    } else if (node.type === 'class') {
+      const binding = classes.get(name);
+      if (!binding) {
+        throw new KernRunnerError(
+          `link error: exported class '${name}' in '${path}' is unsupported by the native runner`,
+        );
+      }
+      exports.set(name, { kind: 'class', sourceName: name, binding });
+    }
+  }
+  return exports;
+}
+
+function collectUseImports(root: IRNode, importerPath: string, loader: KernRunnerModuleLoader): RunnerLinkedImport[] {
+  const imports: RunnerLinkedImport[] = [];
+  const localNames = new Set<string>();
+  for (const node of topLevelNodes(root)) {
+    if (node.type !== 'use') continue;
+    const rawPath = node.props?.path;
+    if (typeof rawPath !== 'string' || rawPath.trim() === '') {
+      throw new KernRunnerError(`link error: use in '${importerPath}' must declare path=`);
+    }
+    const targetPath = loader.resolve(rawPath, { importer: importerPath });
+    if (!targetPath) throw new KernRunnerError(`link error: cannot resolve import '${rawPath}' from '${importerPath}'`);
+    for (const child of node.children ?? []) {
+      if (child.type !== 'from') continue;
+      const importedName = child.props?.name;
+      if (!isPortableBindingName(importedName)) {
+        throw new KernRunnerError(`link error: import from '${rawPath}' in '${importerPath}' must declare name=`);
+      }
+      const localNameRaw = child.props?.as;
+      const localName = typeof localNameRaw === 'string' && localNameRaw !== '' ? localNameRaw : importedName;
+      if (!isPortableBindingName(localName)) {
+        throw new KernRunnerError(`link error: import alias '${localName}' in '${importerPath}' is not portable`);
+      }
+      const exportOnly = isTrueProp(child.props?.export);
+      // export=true on `from` is ADDITIVE (import locally AND re-export),
+      // matching the codegen legs, which emit both an import line and an
+      // `export … from` line. Every import therefore claims a local alias.
+      if (localNames.has(localName)) {
+        throw new KernRunnerError(`link error: duplicate imported alias '${localName}' in '${importerPath}'`);
+      }
+      localNames.add(localName);
+      imports.push({
+        localName,
+        importedName,
+        kind: typeof child.props?.kind === 'string' ? child.props.kind : undefined,
+        targetPath,
+        exportOnly,
+      });
+    }
+  }
+  return imports;
+}
+
+function linkRunnerModules(source: string, options: ExecuteKernSourceOptions): LinkedModuleRecord[] {
+  const loader = options.moduleLoader;
+  const rootPath = modulePathForRoot(options);
+  const root = parseRunnerModule(rootPath, source, options);
+  if (!loader) return [linkSingleModule(rootPath, root, [])];
+
+  const records = new Map<string, LinkedModuleRecord>();
+  const resolving = new Set<string>();
+
+  const load = (path: string, moduleSource: string | undefined, isRoot: boolean): LinkedModuleRecord => {
+    if (resolving.has(path)) throw new KernRunnerError(`link error: import cycle involving '${path}'`);
+    const existing = records.get(path);
+    if (existing) return existing;
+    resolving.add(path);
+    let moduleRoot = root;
+    if (moduleSource === undefined) {
+      // Fail closed if a misbehaving embedder loader hands back a non-string
+      // source (mirrors the guard in runner-capability-plan.ts): the parser
+      // would otherwise crash with a raw TypeError instead of a KernRunnerError.
+      const rawSource = loader.readSource(path);
+      if (typeof rawSource !== 'string') {
+        throw new KernRunnerError(moduleLinkErrors.unreadableSource(path));
+      }
+      moduleRoot = parseRunnerModule(path, rawSource, options);
+    }
+    if (!isRoot) assertNoMainInImportedModule(moduleRoot, path);
+    const imports = collectUseImports(moduleRoot, path, loader);
+    const record = linkSingleModule(path, moduleRoot, imports);
+    records.set(path, record);
+    for (const imported of imports) {
+      const target = load(imported.targetPath, undefined, false);
+      const exported = target.exports.get(imported.importedName);
+      if (!exported) {
+        throw new KernRunnerError(
+          `link error: module '${imported.targetPath}' does not export '${imported.importedName}' imported by '${path}'`,
+        );
+      }
+      if (imported.kind && imported.kind !== exported.kind) {
+        throw new KernRunnerError(
+          `link error: import '${imported.importedName}' from '${imported.targetPath}' expected kind '${imported.kind}' but found '${exported.kind}'`,
+        );
+      }
+      if (imported.exportOnly) {
+        const mutableExports = record.exports as Map<string, RunnerLinkedExport>;
+        if (mutableExports.has(imported.localName)) {
+          throw new KernRunnerError(`link error: duplicate export '${imported.localName}' in '${path}'`);
+        }
+        mutableExports.set(imported.localName, {
+          ...exported,
+          sourceName: exported.sourceName,
+          binding:
+            exported.kind === 'fn'
+              ? { ...exported.binding, name: imported.localName }
+              : aliasRunnerClassBinding(exported.binding, imported.localName),
+        } as RunnerLinkedExport);
+      }
+    }
+    resolving.delete(path);
+    return record;
+  };
+
+  load(rootPath, source, true);
+  return [...records.values()];
+}
+
+function linkSingleModule(path: string, root: IRNode, imports: readonly RunnerLinkedImport[]): LinkedModuleRecord {
+  const functions = collectRunnerFunctions(root);
+  const classes = collectRunnerClasses(root);
+  validateRunnerCallableNames(functions, classes);
+  const exports = collectExplicitRunnerExports(functions, classes, root, path);
+  return { path, root, functions, classes, exports, imports };
+}
+
+function linkedRoot(records: readonly LinkedModuleRecord[], options: ExecuteKernSourceOptions): LinkedModuleRecord {
+  const path = modulePathForRoot(options);
+  const root = records.find((record) => record.path === path);
+  if (!root) throw new KernRunnerError(`link error: root module '${path}' was not linked`);
+  return root;
+}
+
+/**
+ * Build a private {@link RunnerModuleScope} for every linked module. Modules are
+ * singletons: each scope holds the module's OWN functions/classes (each tagged
+ * with the scope so their bodies resolve against it) plus references to the
+ * bindings it imports — the SAME binding object from the defining module's
+ * scope, never a copy flattened into this scope. So an imported helper resolves
+ * its own module's private helpers/classes, transitive imports chain correctly,
+ * and a name defined here does not shadow the imported module's same-named
+ * private symbol. `linkRunnerModules` has already validated the import graph, so
+ * this pass only wires references and re-checks callable-name conflicts.
+ */
+function buildRunnerModuleScopes(records: readonly LinkedModuleRecord[]): Map<string, RunnerModuleScope> {
+  const byPath = new Map(records.map((record) => [record.path, record]));
+  const scopes = new Map<string, RunnerModuleScope>();
+
+  // Pass 1: seed each scope with its own declarations, tagged with the scope.
+  for (const record of records) {
+    const scope: RunnerModuleScope = { functions: new Map(), classes: new Map() };
+    for (const [name, binding] of record.functions) scope.functions.set(name, { ...binding, module: scope });
+    for (const [name, binding] of record.classes) scope.classes.set(name, { ...binding, module: scope });
+    scopes.set(record.path, scope);
+  }
+
+  // Resolve an export (own or re-exported) to the DEFINING module's tagged binding.
+  const resolveExport = (
+    path: string,
+    name: string,
+    seen: Set<string>,
+  ): { readonly kind: 'fn' | 'class'; readonly binding: RunnerFunctionBinding | RunnerClassBinding } | undefined => {
+    const key = `${path} ${name}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    const record = byPath.get(path);
+    const scope = scopes.get(path);
+    if (!record || !scope) return undefined;
+    const reexport = record.imports.find((imported) => imported.exportOnly && imported.localName === name);
+    if (reexport) return resolveExport(reexport.targetPath, reexport.importedName, seen);
+    const exported = record.exports.get(name);
+    if (exported?.kind === 'fn') {
+      const binding = scope.functions.get(exported.sourceName);
+      if (binding) return { kind: 'fn', binding };
+    } else if (exported?.kind === 'class') {
+      const binding = scope.classes.get(exported.sourceName);
+      if (binding) return { kind: 'class', binding };
+    }
+    return undefined;
+  };
+
+  // Pass 2: wire each module's imports as references into its scope. Imports
+  // with export=true are additive (local binding AND re-export), so they are
+  // wired locally exactly like plain imports.
+  for (const record of records) {
+    const scope = scopes.get(record.path);
+    if (!scope) continue;
+    for (const imported of record.imports) {
+      const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
+      if (!resolved) {
+        throw new KernRunnerError(
+          moduleLinkErrors.doesNotExport(imported.targetPath, imported.importedName, record.path),
+        );
+      }
+      if (scope.functions.has(imported.localName) || scope.classes.has(imported.localName)) {
+        throw new KernRunnerError(moduleLinkErrors.aliasConflicts(imported.localName, record.path));
+      }
+      if (resolved.kind === 'fn') scope.functions.set(imported.localName, resolved.binding as RunnerFunctionBinding);
+      else scope.classes.set(imported.localName, resolved.binding as RunnerClassBinding);
+    }
+    validateRunnerCallableNames(scope.functions, scope.classes);
+    assertRunnerClassAcyclic(scope.classes);
+  }
+
+  return scopes;
+}
+
+function linkedRootScope(records: readonly LinkedModuleRecord[], rootRecord: LinkedModuleRecord): RunnerModuleScope {
+  const scopes = buildRunnerModuleScopes(records);
+  const rootScope = scopes.get(rootRecord.path);
+  if (!rootScope) throw new KernRunnerError(`link error: root module '${rootRecord.path}' was not linked`);
+  return rootScope;
+}
+
+function aliasRunnerClassBinding(binding: RunnerClassBinding, name: string): RunnerClassBinding {
+  const aliasMember = (member: RunnerClassMemberBinding): RunnerClassMemberBinding => ({
+    ...member,
+    ownerClass: member.ownerClass === binding.name ? name : member.ownerClass,
+  });
+  return {
+    ...binding,
+    name,
+    extendsName: binding.extendsName,
+    constructor: binding.constructor ? aliasMember(binding.constructor) : undefined,
+    methods: new Map([...binding.methods].map(([key, member]) => [key, aliasMember(member)])),
+    getters: new Map([...binding.getters].map(([key, member]) => [key, aliasMember(member)])),
+  };
+}
+
+function runnerClassBinding(node: IRNode): RunnerClassBinding | undefined {
+  const name = node.props?.name;
+  if (!isPortableBindingName(name)) return undefined;
+  const fields: RunnerClassFieldBinding[] = [];
+  const fieldNames = new Set<string>();
+  const methods = new Map<string, RunnerClassMemberBinding>();
+  const getters = new Map<string, RunnerClassMemberBinding>();
+  let constructorBinding: RunnerClassMemberBinding | undefined;
+  for (const child of node.children ?? []) {
+    if (child.type === 'field') {
+      const fieldName = child.props?.name;
+      if (!isPortableBindingName(fieldName)) continue;
+      if (fieldNames.has(fieldName))
+        throw new KernRunnerError(`runner class '${name}' has duplicate field '${fieldName}'`);
+      fieldNames.add(fieldName);
+      fields.push({ name: fieldName, value: child.props?.value });
+      continue;
+    }
+    if (child.type === 'constructor') {
+      if (constructorBinding) throw new KernRunnerError(`runner class '${name}' has duplicate constructors`);
+      const member = runnerClassMemberBinding(child, name, 'constructor');
+      if (member) constructorBinding = member;
+      continue;
+    }
+    if (child.type === 'method') {
+      const member = runnerClassMemberBinding(child, name, 'method');
+      if (member && methods.has(member.name)) {
+        throw new KernRunnerError(`runner class '${name}' has duplicate method '${member.name}'`);
+      }
+      if (member) methods.set(member.name, member);
+      continue;
+    }
+    if (child.type === 'getter') {
+      const member = runnerClassMemberBinding(child, name, 'getter');
+      if (member && getters.has(member.name)) {
+        throw new KernRunnerError(`runner class '${name}' has duplicate getter '${member.name}'`);
+      }
+      if (member) getters.set(member.name, member);
+    }
+  }
+  const extendsName =
+    typeof node.props?.extends === 'string' && node.props.extends !== '' ? node.props.extends : undefined;
+  return { name, extendsName, fields, constructor: constructorBinding, methods, getters };
+}
+
+function runnerClassMemberBinding(
+  node: IRNode,
+  ownerClass: string,
+  fallbackName: string,
+): RunnerClassMemberBinding | undefined {
+  const name = node.type === 'constructor' ? fallbackName : node.props?.name;
+  if (!isPortableBindingName(name)) return undefined;
+  if (isTrueProp(node.props?.async) || isTrueProp(node.props?.stream) || isTrueProp(node.props?.static)) {
+    throw new KernRunnerError(
+      `runner class '${ownerClass}' member '${name}' uses unsupported async, stream, or static`,
+    );
+  }
+  const handler = singleKernHandler(node);
+  if (!handler) {
+    throw new KernRunnerError(
+      `runner class '${ownerClass}' member '${name}' must contain exactly one handler lang="kern"`,
+    );
+  }
+  return {
+    name,
+    params: runnerParamNames(node, `${ownerClass}.${name}`),
+    handler,
+    body: handler.children ?? [],
+    ownerClass,
+  };
 }
 
 function runnerFunctionBinding(fn: IRNode): RunnerFunctionBinding | undefined {
@@ -518,13 +988,25 @@ function valueChildren(
         { node: node.alternate, mode: 'scalar' },
       ];
     case 'member':
+      return [{ node: node.object, mode: 'scalar' }];
     case 'index':
       return [];
     case 'call':
-      if (node.callee.kind === 'ident' && (runnerFunctions.has(node.callee.name) || node.callee.name === 'String')) {
+      if (
+        node.callee.kind === 'ident' &&
+        (runnerFunctions.has(node.callee.name) || node.callee.name === 'String' || node.callee.name === 'super')
+      ) {
         return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
       }
+      if (node.callee.kind === 'member') {
+        return [
+          { node: node.callee.object, mode: 'scalar' },
+          ...node.args.map((arg): RunnerFunctionCallExpression => ({ node: arg, mode: 'scalar' })),
+        ];
+      }
       return [];
+    case 'new':
+      return node.argument.kind === 'call' ? node.argument.args.map((arg) => ({ node: arg, mode: 'scalar' })) : [];
     case 'typeAssert':
     case 'nonNull':
       return [{ node: node.expression, mode: 'scalar' }];
@@ -612,12 +1094,33 @@ function stdoutFromTrace(trace: ReturnType<typeof referenceRunSequence>): string
  * stdout bytes. It performs no filesystem, process, or Node-only work.
  */
 export function executeKernSource(source: string, options: ExecuteKernSourceOptions = {}): string {
-  const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
-  const firstError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-  if (firstError) throw new KernRunnerError(firstError.message);
+  const records = linkRunnerModules(source, options);
+  const rootRecord = linkedRoot(records, options);
+  const handler = resolveKernMainHandler(rootRecord.root);
+  return executeParsedKernHandler(rootRecord, records, handler, options, 'kern run');
+}
 
-  const handler = resolveKernMainHandler(root);
-  const runnerFunctions = collectRunnerFunctions(root);
+export function executeKernEntrySource(
+  source: string,
+  entry: KernRunnerEntryDescriptor,
+  options: ExecuteKernEntrySourceOptions = {},
+): string {
+  const records = linkRunnerModules(source, options);
+  const rootRecord = linkedRoot(records, options);
+  const handler = resolveKernEntryHandler(rootRecord.root, entry);
+  return executeParsedKernHandler(rootRecord, records, handler, options, `kern run ${entryLabel(entry)}`);
+}
+
+function executeParsedKernHandler(
+  rootRecord: LinkedModuleRecord,
+  records: readonly LinkedModuleRecord[],
+  handler: IRNode,
+  options: ExecuteKernSourceOptions,
+  errorPrefix: string,
+): string {
+  const rootScope = linkedRootScope(records, rootRecord);
+  const runnerFunctions = rootScope.functions;
+  const runnerClasses = rootScope.classes;
   ensureRunnerContractsRegistered();
 
   let trace: ReturnType<typeof referenceRunSequence>;
@@ -631,16 +1134,17 @@ export function executeKernSource(source: string, options: ExecuteKernSourceOpti
       },
     });
     env.runnerFunctions = runnerFunctions;
+    env.runnerClasses = runnerClasses;
     env.runnerCallStack = [];
     env.runnerCallCache = new Map();
     trace = referenceRunSequence(handler.children ?? [], env);
   } catch (err) {
     if (err instanceof ReferenceRunnerError) {
       throw new KernRunnerError(
-        `kern run: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+        `${errorPrefix}: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
       );
     }
-    throw new KernRunnerError(`kern run: ${err instanceof Error ? err.message : String(err)}`);
+    throw new KernRunnerError(`${errorPrefix}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return stdoutFromTrace(trace);
@@ -660,12 +1164,31 @@ export async function executeKernSourceAsync(
   source: string,
   options: ExecuteKernSourceAsyncOptions = {},
 ): Promise<string> {
+  return executeKernSourceAsyncWithEntry(source, undefined, options);
+}
+
+export async function executeKernEntrySourceAsync(
+  source: string,
+  entry: KernRunnerEntryDescriptor,
+  options: ExecuteKernEntrySourceAsyncOptions = {},
+): Promise<string> {
+  return executeKernSourceAsyncWithEntry(source, entry, options);
+}
+
+async function executeKernSourceAsyncWithEntry(
+  source: string,
+  entry: KernRunnerEntryDescriptor | undefined,
+  options: ExecuteKernSourceAsyncOptions = {},
+): Promise<string> {
   let analysis: ReturnType<typeof analyzeKernSourceCapabilities>;
   try {
     analysis = analyzeKernSourceCapabilities(source, {
       parseOptions: options.parseOptions,
+      entryHandlerName: entry?.handler,
       providedCapabilities: options.providedCapabilities,
       providedAsyncCapabilities: options.providedAsyncCapabilities,
+      moduleLoader: options.moduleLoader,
+      sourcePath: options.sourcePath,
     });
   } catch (error) {
     throw new KernRunnerError(`kern run async preflight: ${error instanceof Error ? error.message : String(error)}`);
@@ -711,12 +1234,15 @@ export async function executeKernSourceAsync(
       `kern run async preflight: missing async providers: ${requirementList(analysis.missingAsyncProviders)}`,
     );
   }
+  const unsupportedAsyncExecutions = entry
+    ? analysis.unsupportedAsyncExecutions.filter((requirement) => requirement.reason !== 'outside-main')
+    : analysis.unsupportedAsyncExecutions;
   if (
-    analysis.unsupportedAsyncExecutions.length > 0 &&
+    unsupportedAsyncExecutions.length > 0 &&
     (analysis.asyncBoundaryRequired || options.providedAsyncCapabilities || options.asyncCapabilities)
   ) {
     throw new KernRunnerError(
-      `kern run async preflight: unsupported async executions: ${requirementList(analysis.unsupportedAsyncExecutions)}`,
+      `kern run async preflight: unsupported async executions: ${requirementList(unsupportedAsyncExecutions)}`,
     );
   }
   if (analysis.asyncBoundaryRequired) {
@@ -744,12 +1270,13 @@ export async function executeKernSourceAsync(
       );
     }
 
-    const { root, diagnostics } = parseDocumentWithDiagnostics(source, undefined, options.parseOptions);
-    const firstAsyncParseError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    if (firstAsyncParseError) throw new KernRunnerError(firstAsyncParseError.message);
-    const handler = resolveKernMainHandler(root);
-    const runnerFunctions = collectRunnerFunctions(root);
-    const outsideMain = asyncCapabilityLabelsOutsideExecutable(root, handler, runnerFunctions);
+    const records = linkRunnerModules(source, options);
+    const rootRecord = linkedRoot(records, options);
+    const handler = entry ? resolveKernEntryHandler(rootRecord.root, entry) : resolveKernMainHandler(rootRecord.root);
+    const rootScope = linkedRootScope(records, rootRecord);
+    const runnerFunctions = rootScope.functions;
+    const runnerClasses = rootScope.classes;
+    const outsideMain = entry ? [] : asyncCapabilityLabelsOutsideExecutable(rootRecord.root, handler, runnerFunctions);
     if (outsideMain.length > 0) {
       throw new KernRunnerError(
         `kern run async: async source execution outside main handler is unsupported in this preview: ${outsideMain.join(
@@ -776,29 +1303,41 @@ export async function executeKernSourceAsync(
         },
       });
       env.runnerFunctions = runnerFunctions;
+      env.runnerClasses = runnerClasses;
       env.runnerCallStack = [];
       env.runnerCallCache = new Map();
       trace = await asyncReferenceRunSequence(handler.children ?? [], env, {
         asyncCapabilities: options.asyncCapabilities,
+        capabilityTimeoutMs: options.capabilityTimeoutMs,
       });
     } catch (err) {
       if (err instanceof ReferenceRunnerError) {
         throw new KernRunnerError(
-          `kern run async: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
+          `kern run async${
+            entry ? ` ${entryLabel(entry)}` : ''
+          }: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
         );
       }
-      throw new KernRunnerError(`kern run async: ${err instanceof Error ? err.message : String(err)}`);
+      throw new KernRunnerError(
+        `kern run async${entry ? ` ${entryLabel(entry)}` : ''}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
     return stdoutFromTrace(trace);
   }
 
   // Async host adapters are intentionally not forwarded to the sync executor.
-  return executeKernSource(source, {
+  // The module loader and source path MUST forward, though: a sync-only
+  // multi-file program that passed async preflight would otherwise fail to
+  // link when delegated here.
+  const syncOptions = {
     parseOptions: options.parseOptions,
     env: options.env,
     capabilities: options.capabilities,
     capabilityContext: options.capabilityContext,
-  });
+    moduleLoader: options.moduleLoader,
+    sourcePath: options.sourcePath,
+  };
+  return entry ? executeKernEntrySource(source, entry, syncOptions) : executeKernSource(source, syncOptions);
 }
 
 export type {
@@ -832,6 +1371,7 @@ export { parseExpression } from './parser-expression.js';
 export type {
   AsyncRuntimeCapabilityHandler,
   AsyncRuntimeCapabilityProvider,
+  InvokeRunnerCapabilityAsyncOptions,
   KernRunnerAsyncCapabilities,
   KernRunnerCapabilities,
   KernRunnerCapabilityContext,
@@ -844,6 +1384,7 @@ export type {
 } from './runner-capabilities.js';
 export {
   assertRuntimeCapabilityValue,
+  DEFAULT_ASYNC_CAPABILITY_TIMEOUT_MS,
   invokeRunnerCapability,
   invokeRunnerCapabilityAsync,
   isRuntimeCapabilityValue,

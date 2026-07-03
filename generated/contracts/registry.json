@@ -89,6 +89,28 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "do",
+      "forbiddenRewrites": [
+        "emit an {op:\"assign\"} trace event for push/Map.set (the uninstrumented emitters produce none)",
+        "mutate the underlying array/map object in place instead of rebinding a new frozen value",
+        "treat a non-push/non-Map.set discarded expression as a supported no-op",
+        "evaluate the pushed element / map key / map value more than once"
+      ],
+      "fixtureCount": 10,
+      "fixtureSamples": [
+        {
+          "description": "do: empty value is a no-op",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 0
+        },
+        {
+          "description": "do: push accepts a nested array-literal element",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        }
+      ]
+    },
+    {
       "nodeType": "each",
       "forbiddenRewrites": [
         "hoist iteration binding out of body",

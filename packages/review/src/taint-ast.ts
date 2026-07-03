@@ -574,7 +574,7 @@ const ROUTE_HANDLER_METHODS = new Set([
  */
 function isRouteHandlerCallback(node: Node): boolean {
   const parent = node.getParent();
-  if (!parent || parent.getKindName() !== 'CallExpression') return false;
+  if (parent?.getKindName() !== 'CallExpression') return false;
   const call = parent as import('ts-morph').CallExpression;
   // Make sure `node` is one of the call's arguments, not the callee itself.
   const args = call.getArguments();
