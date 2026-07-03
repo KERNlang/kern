@@ -1558,4 +1558,65 @@ describe('Express Transpiler', () => {
       );
     });
   });
+
+  describe('hmacSignature-guarded routes vs the global JSON body parser', () => {
+    async function transpile(source: string) {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      return transpileExpress(parse(source));
+    }
+
+    test('strict mode wraps the auto-inserted express.json() so it skips hmacSignature-guarded routes (oracle H10)', async () => {
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path=/webhook/:id',
+        '    policy name=Sig kind=hmacSignature slot=pre',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+
+      // The bare, unguarded global parser must be gone.
+      expect(result.code).not.toMatch(/^app\.use\(express\.json\(\{ limit: '1mb' \}\)\);$/m);
+      expect(result.code).toContain(`app.use(__kernSkipBodyParserForHmacRoutes(express.json({ limit: '1mb' })));`);
+      expect(result.code).toContain('__kernSkipBodyParserForHmacRoutes');
+      expect(result.code).toContain("{ method: 'POST', pattern: /^\\/webhook\\/[^/]+\\/?$/ },");
+      // The guard matcher/wrapper must be defined before app.use() references it.
+      expect(result.code.indexOf('function __kernSkipBodyParserForHmacRoutes')).toBeLessThan(
+        result.code.indexOf(`app.use(__kernSkipBodyParserForHmacRoutes(`),
+      );
+    });
+
+    test('a route without any hmacSignature policy still gets the plain global JSON parser', async () => {
+      const source = [
+        'server name=PlainAPI',
+        '  route method=post path=/save',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+      expect(result.code).toContain(`app.use(express.json({ limit: '1mb' }));`);
+      expect(result.code).not.toContain('__kernSkipBodyParserForHmacRoutes');
+    });
+
+    test('an explicit server-level `middleware name=json` is also guarded when an hmacSignature route is present', async () => {
+      const source = [
+        'server name=WebhookAPI',
+        '  middleware name=json',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+      expect(result.code).toContain(`app.use(__kernSkipBodyParserForHmacRoutes(express.json({ limit: '1mb' })));`);
+    });
+  });
 });

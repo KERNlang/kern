@@ -22,6 +22,20 @@ import {
 // Re-export buildPrismaArtifact for external consumers
 export { buildPrismaArtifact } from './express-prisma.js';
 
+// Builds the SOURCE TEXT of a regex literal (e.g. `/^\/webhook\/[^/]+\/?$/`)
+// matching a KERN route path template against Express's runtime `req.path`
+// (which never contains a query string). `:param` segments become a
+// single-segment wildcard; every other segment is regex-escaped. Emitted
+// directly into generated code as a literal, not a quoted string.
+function hmacJsonGuardPatternSource(path: string): string {
+  const segments = path
+    .split('/')
+    .map((segment) =>
+      segment.startsWith(':') ? '[^/]+' : segment.replace(/[.*+?^${}()|[\]\\]/g, (char) => `\\${char}`),
+    );
+  return `/^${segments.join('\\/')}\\/?$/`;
+}
+
 export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   const sourceMap: import('@kernlang/core').SourceMapEntry[] = [];
   const accounted = new Map<IRNode, AccountedEntry>();
@@ -41,6 +55,28 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   const isStrict = !_config || _config.express.security === 'strict';
   const hasJsonMiddleware = serverMiddlewares.some((m) => String(getProps(m).name || '') === 'json');
+
+  // Routes carrying an hmacSignature pre-policy must see the EXACT raw
+  // request bytes (each route's own artifact captures them via
+  // __kernCaptureRawBody before evaluating the guard). A whole-app server
+  // also installs a GLOBAL express.json() body parser ahead of route
+  // registration (either the strict-mode default below, or an explicit
+  // `middleware name=json` at the server level) — that global parser reads
+  // and consumes the request stream first, so the route-level raw capture
+  // never fires (oracle H10: guard must run BEFORE body parsing). Any global
+  // JSON parser must skip method+path pairs that carry an hmacSignature
+  // guard and let the route's own raw-capture + post-allow parse handle them.
+  const hmacGuardedRoutes = routeNodes
+    .filter((routeNode) =>
+      getChildren(routeNode, 'policy').some((policyNode) => String(getProps(policyNode).kind || '') === 'hmacSignature'),
+    )
+    .map((routeNode) => {
+      const routeProps = getProps(routeNode);
+      return {
+        method: String(routeProps.method || 'get').toUpperCase(),
+        path: String(routeProps.path || '/'),
+      };
+    });
 
   const serverImports = new Set<string>();
   const serverMiddlewareInvocations: string[] = [];
@@ -207,6 +243,32 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push(`const serverName = '${escapeSingleQuotes(serverName)}';`);
   lines.push('');
 
+  if (hmacGuardedRoutes.length > 0) {
+    lines.push(`const __kernHmacGuardedRoutes: ReadonlyArray<{ method: string; pattern: RegExp }> = [`);
+    for (const route of hmacGuardedRoutes) {
+      lines.push(
+        `  { method: '${escapeSingleQuotes(route.method)}', pattern: ${hmacJsonGuardPatternSource(route.path)} },`,
+      );
+    }
+    lines.push(`];`);
+    // Wraps a body-parsing middleware (e.g. express.json()) so it never
+    // touches the request stream for an hmacSignature-guarded route — the
+    // route's own __kernCaptureRawBody + post-allow parse owns that body.
+    lines.push(
+      `function __kernSkipBodyParserForHmacRoutes(parser: (req: Request, res: Response, next: NextFunction) => void) {`,
+    );
+    lines.push(`  return (req: Request, res: Response, next: NextFunction) => {`);
+    lines.push(
+      `    if (__kernHmacGuardedRoutes.some((route) => route.method === req.method.toUpperCase() && route.pattern.test(req.path))) {`,
+    );
+    lines.push(`      return next();`);
+    lines.push(`    }`);
+    lines.push(`    return parser(req, res, next);`);
+    lines.push(`  };`);
+    lines.push(`}`);
+    lines.push('');
+  }
+
   // Hardened defaults (strict mode)
   if (isStrict) {
     lines.push(`app.disable('x-powered-by');`);
@@ -217,13 +279,21 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push(`  next();`);
     lines.push(`});`);
     if (!hasJsonMiddleware) {
-      lines.push(`app.use(express.json({ limit: '1mb' }));`);
+      lines.push(
+        hmacGuardedRoutes.length > 0
+          ? `app.use(__kernSkipBodyParserForHmacRoutes(express.json({ limit: '1mb' })));`
+          : `app.use(express.json({ limit: '1mb' }));`,
+      );
     }
     lines.push('');
   }
 
   for (const invocation of serverMiddlewareInvocations) {
-    lines.push(`app.use(${invocation});`);
+    const guardedInvocation =
+      hmacGuardedRoutes.length > 0 && invocation.startsWith('express.json(')
+        ? `__kernSkipBodyParserForHmacRoutes(${invocation})`
+        : invocation;
+    lines.push(`app.use(${guardedInvocation});`);
   }
   if (serverMiddlewareInvocations.length > 0 && routeArtifacts.length > 0) {
     lines.push('');
