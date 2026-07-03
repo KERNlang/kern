@@ -3653,4 +3653,74 @@ describe('FastAPI policy-slot self-sufficiency (guardrails 4.5.0 item 1)', () =>
     expect(denyIdx).toBeGreaterThan(-1);
     expect(bodyIdx).toBeGreaterThan(denyIdx);
   });
+
+  test('the pre-policy gate is a dependency listed BEFORE user-level Depends (auth/middleware), so it resolves first', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'auth', props: { mode: 'required' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    expect(code).toContain('async def __kern_pre_policy_gate(request: Request):');
+    const signature = code.split('\n').find((line: string) => line.startsWith('async def post_webhook('));
+    expect(signature).toBeDefined();
+    const gateIdx = signature!.indexOf('__kern_policy_gate = Depends(__kern_pre_policy_gate)');
+    const authIdx = signature!.indexOf('user = Depends(auth_required)');
+    expect(gateIdx).toBeGreaterThan(-1);
+    expect(authIdx).toBeGreaterThan(gateIdx);
+  });
+
+  test('a policy-guarded route with a validate body schema also defers the model to post-allow — no body field pre-guard', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'validate', props: { schema: 'WebhookInput' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    // Any body field in the signature makes FastAPI read+parse the request
+    // body BEFORE dependencies run — defeating the gate ordering entirely.
+    expect(code).not.toMatch(/async def post_webhook\([^)]*body: WebhookInput/);
+    expect(code).toContain('body = WebhookInput.model_validate_json(__kern_raw_body)');
+  });
+
+  test('a route-child rag-review policy with an out-of-range minGroundingCoverage fails the BUILD (fail-closed)', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/answer' },
+      children: [
+        { type: 'policy', props: { name: 'Grounded', kind: 'rag-review', minGroundingCoverage: -1 }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    expect(() => buildRouteArtifact(routeNode as any, 0, [])).toThrow(/minGroundingCoverage must be between 0 and 1/);
+  });
+
+  test("the emitted HMAC plan canonicalizes 'sha-256' to 'sha256' — hashlib has no 'sha_256', so the old spelling denied every request", async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        {
+          type: 'policy',
+          props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', algorithm: 'sha-256' },
+          children: [],
+        },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    expect(code).toContain('"algorithm": "sha256"');
+  });
 });

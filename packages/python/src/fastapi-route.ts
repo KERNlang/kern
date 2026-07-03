@@ -8,6 +8,7 @@
 
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { normalizeKernHmacAlgorithm } from '@kernlang/core/runtime';
 import { emitNativeKernBodyPythonWithImports } from './codegen-body-python.js';
 import {
   generatePortableHandlerFastAPI,
@@ -330,13 +331,21 @@ function pyPolicyDescriptor(policyNodes: readonly IRNode[], method: string, path
     const props = getProps(node);
     const kind = String(props.kind || 'passthrough');
     const name = String(props.name || `Policy${index + 1}`);
+    // Route-child policies bypass the core manifest loader, so this emitter
+    // must enforce the same fail-closed plan validation policySlotPlan does
+    // — otherwise a negative minGroundingCoverage silently disables the
+    // grounding threshold at runtime (coverage < negative is never true).
+    const minGroundingCoverage = Number(props.minGroundingCoverage ?? 1);
+    if (kind === 'rag-review' && !(minGroundingCoverage >= 0 && minGroundingCoverage <= 1)) {
+      throw new Error(`fastapi emitter: policy ${name} minGroundingCoverage must be between 0 and 1`);
+    }
     const plan =
       kind === 'auth'
         ? `{"kind": "auth", "verifierRef": "${escapePyStr(String(props.verifierRef || props.ref || 'default'))}", "credentialHeader": "${escapePyStr(String(props.credentialHeader || 'authorization').toLowerCase())}"}`
         : kind === 'hmacSignature'
-          ? `{"kind": "hmacSignature", "keyRef": "${escapePyStr(String(props.keyRef || 'default'))}", "algorithm": "${escapePyStr(String(props.algorithm || 'sha256'))}", "signatureHeader": "${escapePyStr(String(props.signatureHeader || 'x-signature').toLowerCase())}", "encoding": "${escapePyStr(String(props.encoding || 'hex'))}"${props.prefix ? `, "prefix": "${escapePyStr(String(props.prefix))}"` : ''}}`
+          ? `{"kind": "hmacSignature", "keyRef": "${escapePyStr(String(props.keyRef || 'default'))}", "algorithm": "${escapePyStr(normalizeKernHmacAlgorithm(String(props.algorithm || 'sha256')))}", "signatureHeader": "${escapePyStr(String(props.signatureHeader || 'x-signature').toLowerCase())}", "encoding": "${escapePyStr(String(props.encoding || 'hex'))}"${props.prefix ? `, "prefix": "${escapePyStr(String(props.prefix))}"` : ''}}`
           : kind === 'rag-review'
-            ? `{"kind": "rag-review", "queryField": "query", "answerField": "answer", "citedChunkIdsField": "citedChunkIds", "groundingSpansField": "groundingSpans", "minGroundingCoverage": ${Number(props.minGroundingCoverage ?? 1)}}`
+            ? `{"kind": "rag-review", "queryField": "query", "answerField": "answer", "citedChunkIdsField": "citedChunkIds", "groundingSpansField": "groundingSpans", "minGroundingCoverage": ${minGroundingCoverage}}`
             : kind === 'passthrough'
               ? `{"kind": "passthrough"}`
               : (() => {
@@ -796,6 +805,29 @@ export function buildRouteArtifact(
       '    return [{"action": "deny", "status": 401, "body": {"error": "policy_denied", "reason": "policy runtime not installed"}}]',
     );
     bodyLines.push('');
+    // The pre-policy slot runs as a FastAPI DEPENDENCY placed first in the
+    // endpoint signature, so it executes before every user-level dependency
+    // (auth Depends, validate Depends, route middleware Depends) — FastAPI
+    // solves sub-dependencies sequentially in signature order. Running the
+    // guard inside the endpoint body — the previous shape — let user
+    // dependencies observe or reject the request ahead of a policy denial.
+    // Reading the raw bytes here is safe and cache-friendly: Starlette memoizes
+    // request.body(), so the post-allow model construction in the endpoint
+    // reuses the SAME bytes the guard verified.
+    bodyLines.push('async def __kern_pre_policy_gate(request: Request):');
+    bodyLines.push('    __kern_raw_body = await request.body()');
+    bodyLines.push(
+      '    __kern_policy_facts = getattr(request.app.state, "kern_policy_facts", lambda request, raw_body: {"headers": dict(request.headers), "rawBody": raw_body})(request, __kern_raw_body)',
+    );
+    bodyLines.push(
+      '    __kern_decision = await getattr(request.app.state, "execute_kern_policy_slot", __kern_policy_runtime_missing)(__kern_route_policy_entry, "pre", __kern_policy_facts)',
+    );
+    bodyLines.push('    __kern_denied = next((p for p in __kern_decision if p.get("action") == "deny"), None)');
+    bodyLines.push('    if __kern_denied is not None:');
+    bodyLines.push(
+      '        raise HTTPException(status_code=__kern_denied.get("status", 401), detail=__kern_denied.get("body", {"error": "policy_denied"}))',
+    );
+    bodyLines.push('');
   }
 
   // Route handler
@@ -854,18 +886,20 @@ export function buildRouteArtifact(
       paramNames.push(snake);
     }
 
-    // A policy-guarded route with a declared body schema must NOT bind
-    // `body: RequestBody` directly in the def signature — FastAPI's
-    // dependency solver parses/validates every declared parameter (Pydantic
-    // models included) BEFORE the function body runs, which would let
-    // Pydantic reject (422) or consume the raw body ahead of the pre-slot
-    // guard. `body` is instead constructed from the raw bytes AFTER an
-    // allow decision, further down. It still claims the `body` name in
-    // paramNames so a native KERN `let body` inside the handler still
+    // A policy-guarded route with a declared body schema must NOT bind a
+    // Pydantic body model directly in the def signature — the presence of ANY
+    // body field makes FastAPI read and parse the request body BEFORE
+    // dependencies run, which would let Pydantic reject (422) or consume the
+    // raw body ahead of the pre-slot guard. The model is instead constructed
+    // from the raw bytes AFTER an allow decision, further down. This applies
+    // identically to the inline `schema.body` model (RequestBody) and a
+    // `validate` schema bound as a body param. The name still claims `body`
+    // in paramNames so a native KERN `let body` inside the handler still
     // triggers the shadow-rename protection.
-    const bindsBodyAsHandlerLocal = !!schema.body && hasPolicyNodes;
+    let deferredBodyModel: string | undefined;
     if (schema.body) {
-      if (!hasPolicyNodes) paramParts.push('body: RequestBody');
+      if (hasPolicyNodes) deferredBodyModel = 'RequestBody';
+      else paramParts.push('body: RequestBody');
       paramNames.push('body');
     }
 
@@ -875,7 +909,8 @@ export function buildRouteArtifact(
       if (validateSchema) {
         const bodyMethods = new Set(['post', 'put', 'patch']);
         if (bodyMethods.has(normalizedMethod)) {
-          paramParts.push(`body: ${validateSchema}`);
+          if (hasPolicyNodes) deferredBodyModel = validateSchema;
+          else paramParts.push(`body: ${validateSchema}`);
           paramNames.push('body');
         } else {
           imports.add('from fastapi import Depends');
@@ -883,6 +918,15 @@ export function buildRouteArtifact(
           paramNames.push('validated');
         }
       }
+    }
+
+    // Pre-policy gate dependency — FIRST dependency in the signature, so it
+    // runs before validate/middleware/auth Depends (see the gate emission
+    // above for the ordering rationale).
+    if (hasPolicyNodes) {
+      imports.add('from fastapi import Depends');
+      paramParts.push('__kern_policy_gate = Depends(__kern_pre_policy_gate)');
+      paramNames.push('__kern_policy_gate');
     }
 
     // v3 route-level middleware → Depends()
@@ -908,29 +952,17 @@ export function buildRouteArtifact(
     const paramStr = paramParts.join(', ');
     bodyLines.push(`@router.${normalizedMethod}("${fastapiPath}")`);
     bodyLines.push(`async def ${toSnakeCase(normalizedMethod)}_${slugify(fastapiPath)}(${paramStr}):`);
-    if (hasPolicyNodes) {
+    if (hasPolicyNodes && deferredBodyModel) {
+      // Only reachable past the gate dependency's allow decision — the
+      // Pydantic model is constructed from the SAME raw bytes the guard
+      // verified (request.body() is memoized by Starlette), so the handler
+      // still receives the parsed model (H7) without giving Pydantic a
+      // chance to run ahead of the guard.
       bodyLines.push(`    __kern_raw_body = await request.body()`);
-      bodyLines.push(
-        `    __kern_policy_facts = getattr(request.app.state, "kern_policy_facts", lambda request, raw_body: {"headers": dict(request.headers), "rawBody": raw_body})(request, __kern_raw_body)`,
-      );
-      bodyLines.push(
-        `    __kern_decision = await getattr(request.app.state, "execute_kern_policy_slot", __kern_policy_runtime_missing)(__kern_route_policy_entry, "pre", __kern_policy_facts)`,
-      );
-      bodyLines.push(`    __kern_denied = next((p for p in __kern_decision if p.get("action") == "deny"), None)`);
-      bodyLines.push(`    if __kern_denied is not None:`);
-      bodyLines.push(
-        `        raise HTTPException(status_code=__kern_denied.get("status", 401), detail=__kern_denied.get("body", {"error": "policy_denied"}))`,
-      );
-      if (bindsBodyAsHandlerLocal) {
-        // Only reachable past an allow decision — the Pydantic model is
-        // constructed from the SAME raw bytes the guard verified, so the
-        // handler still receives the parsed model (H7) without giving
-        // Pydantic a chance to run ahead of the guard.
-        bodyLines.push('    try:');
-        bodyLines.push('        body = RequestBody.model_validate_json(__kern_raw_body)');
-        bodyLines.push('    except Exception as __kern_body_error:');
-        bodyLines.push('        raise HTTPException(status_code=422, detail=str(__kern_body_error))');
-      }
+      bodyLines.push('    try:');
+      bodyLines.push(`        body = ${deferredBodyModel}.model_validate_json(__kern_raw_body)`);
+      bodyLines.push('    except Exception as __kern_body_error:');
+      bodyLines.push('        raise HTTPException(status_code=422, detail=str(__kern_body_error))');
     }
 
     // v3 error contract as docstring

@@ -39,6 +39,7 @@ import base64
 import hashlib
 import hmac
 import inspect
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -112,8 +113,17 @@ async def _execute_hmac(policy: Dict[str, Any], facts: Dict[str, Any], entry: Di
         return _denied(policy, ["hmac key not provided"])
     key_bytes = key.encode("utf-8") if isinstance(key, str) else bytes(key)
     body_bytes = raw_body.encode("utf-8") if isinstance(raw_body, str) else bytes(raw_body)
-    algorithm = str(plan.get("algorithm", "sha256")).replace("-", "_").lower()
-    digestmod = getattr(hashlib, algorithm, None)
+    # Mirrors core's normalizeKernHmacAlgorithm (lockstep parity): lowercase,
+    # underscore==hyphen, and dashed SHA-2 aliases collapse ('sha-256' ->
+    # 'sha256'). Multi-part families keep their separator, mapped to hashlib's
+    # underscore convention ('sha3-256' -> 'sha3_256'). The old blanket
+    # replace("-", "_") produced 'sha_256', which does not exist on hashlib,
+    # so every valid 'sha-256' config denied every request.
+    algorithm = str(plan.get("algorithm", "sha256")).strip().lower().replace("_", "-")
+    sha_dashed = re.fullmatch(r"sha-(\\d+)", algorithm)
+    if sha_dashed is not None:
+        algorithm = "sha" + sha_dashed.group(1)
+    digestmod = getattr(hashlib, algorithm.replace("-", "_"), None)
     if digestmod is None:
         return _denied(policy, [f"unsupported hmac algorithm '{plan.get('algorithm')}'"])
     expected = hmac.new(key_bytes, body_bytes, digestmod).digest()
