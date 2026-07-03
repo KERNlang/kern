@@ -285,6 +285,13 @@ async function runGeneratedExpress(fixture) {
   req.body = undefined;
   if (requestFacts.ragReview !== undefined) req.kernRagReview = requestFacts.ragReview;
 
+  // The pre-policy guard now runs as its OWN middleware (deny-before-user-
+  // middleware contract), so a denial happens in a NON-last handler that
+  // responds via res.json() without ever calling next(). The middleware loop
+  // must treat "responded" as terminal — matching Express, where a middleware
+  // that writes the response and skips next() ends the chain.
+  let responded = false;
+  let notifyResponded;
   const res = {
     statusCode: 200,
     body: undefined,
@@ -294,18 +301,29 @@ async function runGeneratedExpress(fixture) {
     },
     json(body) {
       this.body = body;
+      responded = true;
+      if (notifyResponded) notifyResponded();
       return this;
     },
   };
 
-  for (let index = 0; index < route.handlers.length; index += 1) {
+  // A real request stream delivers its body exactly once; re-emitting on
+  // every middleware iteration would replay 'data'/'end' into listeners a
+  // previous middleware (raw capture) left attached, doubling the raw body.
+  let bodyDelivered = false;
+  for (let index = 0; index < route.handlers.length && !responded; index += 1) {
     const handler = route.handlers[index];
     if (index < route.handlers.length - 1) {
       await new Promise((resolve, reject) => {
+        notifyResponded = resolve;
         handler(req, res, (error) => (error ? reject(error) : resolve()));
-        if (requestFacts.body) req.emit('data', requestFacts.body);
-        req.emit('end');
+        if (!bodyDelivered) {
+          bodyDelivered = true;
+          if (requestFacts.body) req.emit('data', requestFacts.body);
+          req.emit('end');
+        }
       });
+      notifyResponded = undefined;
       continue;
     }
     await handler(req, res, (error) => {
@@ -381,6 +399,10 @@ sys.modules["fastapi.responses"] = responses
 namespace = {}
 exec(payload["source"], namespace)
 handler = namespace["post_save"]
+# The pre-policy guard is a FastAPI dependency (first in the signature). This
+# stub has no dependency solver, so it mirrors FastAPI's resolution order
+# explicitly: gate first, endpoint body second.
+gate = namespace["__kern_pre_policy_gate"]
 
 class State:
     pass
@@ -411,6 +433,7 @@ class Request:
 async def main():
     req = Request(payload["facts"])
     try:
+        await gate(req)
         value = await handler(req)
         print(json.dumps({"status": 200, "bodyCalls": req.body_calls, "slot": req.executed_slot, "returned": value}))
     except HTTPException as exc:
@@ -518,15 +541,69 @@ assert.match(ex, /executeKernAppEntryPolicySlot/, 'Express emits thin policy cal
 assert.match(ex, /__kernCaptureRawBody/, 'Express preserves raw body per HMAC route');
 assert.doesNotMatch(ex, /express\.json\(\{ verify:/, 'Express HMAC route does not parse JSON before policy');
 assert.match(ex, /timingSafeEqual/, 'Express HMAC adapter uses timingSafeEqual');
+// Registration order: raw capture, then the pre-policy middleware (which
+// itself evaluates the slot BEFORE parse-after-allow), then the handler. The
+// policy middleware precedes every user-level middleware invocation.
 assert.ok(
   ex.indexOf('app.post') < ex.indexOf('__kernCaptureRawBody,') &&
-    ex.indexOf('__kernCaptureRawBody,') < ex.indexOf('const __kernPrePolicy') &&
-    ex.indexOf('const __kernPrePolicy') < ex.indexOf('__kernParseJsonAfterPolicy(req)'),
-  'Express HMAC route captures raw bytes, evaluates policy, then parses JSON',
+    ex.indexOf('__kernCaptureRawBody,') < ex.indexOf('__kernEnforcePrePolicy,') &&
+    ex.indexOf('const __kernPrePolicy = await executeKernAppEntryPolicySlot') <
+      ex.indexOf('__kernParseJsonAfterPolicy(req)'),
+  'Express HMAC route captures raw bytes, evaluates policy in its own middleware, then parses JSON',
 );
+// Finding 3: raw capture is CAPPED (1mb, matching the strict json limit) and
+// overflows respond 413 — never unbounded pre-auth buffering.
+assert.match(ex, /__KERN_RAW_BODY_LIMIT_BYTES = 1048576/, 'Express raw capture declares the 1mb cap');
+assert.match(ex, /status\(413\)/, 'Express raw capture responds 413 on overflow');
 const py = fastapiRoute.buildRouteArtifact(routeNode, 0, []).artifact.content;
 assert.match(py, /await request\.body\(\)/, 'FastAPI preserves raw body');
 assert.match(py, /hmac\.compare_digest/, 'FastAPI structurally names compare_digest');
+// The FastAPI pre-policy gate is a dependency listed FIRST in the signature,
+// so it resolves before any user-level Depends (auth/validate/middleware).
+assert.match(py, /async def __kern_pre_policy_gate\(request: Request\):/, 'FastAPI emits the policy gate dependency');
+assert.match(py, /__kern_policy_gate = Depends\(__kern_pre_policy_gate\)/, 'FastAPI route depends on the policy gate');
+
+// Finding 1 — a route-child rag-review policy bypasses the core manifest
+// loader, so the EMITTERS must reject an out-of-range minGroundingCoverage
+// (a negative threshold silently disables the grounding check at runtime).
+const ragCoverageRouteNode = {
+  type: 'route',
+  props: { method: 'post', path: '/save' },
+  children: [
+    { type: 'policy', props: { name: 'Grounded', kind: 'rag-review', minGroundingCoverage: -1 }, children: [] },
+  ],
+};
+assert.throws(
+  () => expressRoute.buildRouteArtifact(ragCoverageRouteNode, 0, new Map(), [], 'strict'),
+  /minGroundingCoverage must be between 0 and 1/,
+  'Express build fails closed on out-of-range minGroundingCoverage',
+);
+assert.throws(
+  () => fastapiRoute.buildRouteArtifact(ragCoverageRouteNode, 0, []),
+  /minGroundingCoverage must be between 0 and 1/,
+  'FastAPI build fails closed on out-of-range minGroundingCoverage',
+);
+
+// Finding 2 — the emitted plan carries the CANONICAL algorithm name on both
+// legs ('sha-256' -> 'sha256'), so a dashed config verifies instead of
+// denying every request (hashlib has no 'sha_256'; Node throws on 'sha-256').
+const dashedAlgorithmRouteNode = {
+  type: 'route',
+  props: { method: 'post', path: '/save' },
+  children: [
+    { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', algorithm: 'sha-256' }, children: [] },
+  ],
+};
+assert.match(
+  expressRoute.buildRouteArtifact(dashedAlgorithmRouteNode, 0, new Map(), [], 'strict').artifact.content,
+  /algorithm: 'sha256'/,
+  'Express plan canonicalizes sha-256 to sha256',
+);
+assert.match(
+  fastapiRoute.buildRouteArtifact(dashedAlgorithmRouteNode, 0, []).artifact.content,
+  /"algorithm": "sha256"/,
+  'FastAPI plan canonicalizes sha-256 to sha256',
+);
 
 // P2 — a guard kind unknown to a leg must fail that leg's BUILD, never emit an
 // unguarded route (kills an emitter kind-dispatch that defaults to passthrough).
@@ -568,28 +645,68 @@ assert.throws(
 // the REAL transpilers, boots the REAL generated output with NO external
 // patching, and fires REAL HTTP requests at it.
 
-function wholeAppServerNode() {
+function wholeAppServerNode({ includeRouteLocalJsonMiddleware = false } = {}) {
+  const children = [
+    {
+      type: 'route',
+      props: { method: 'get', path: '/secure' },
+      children: [
+        { type: 'policy', props: { name: 'Guard', kind: 'auth' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    },
+    // UNGUARDED route sharing the exact URL SHAPE of the guarded ':id' route
+    // below. It must still receive JSON body parsing — the old path-shape
+    // matcher skipped the parser here too, leaving req.body silently
+    // undefined. Registered before the ':id' route so Express matches it
+    // first. The schema.body validation is the discriminator: it 400s when
+    // req.body was never parsed.
+    {
+      type: 'route',
+      props: { method: 'post', path: '/webhook/health' },
+      children: [
+        { type: 'schema', props: { body: '{a: number}' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    },
+    {
+      type: 'route',
+      props: { method: 'post', path: '/webhook/:id' },
+      children: [
+        { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    },
+    // Dashed algorithm alias — must verify identically to 'sha256' on both
+    // legs (hashlib has no 'sha_256'; a valid config must not deny-all).
+    {
+      type: 'route',
+      props: { method: 'post', path: '/webhook-dashed' },
+      children: [
+        { type: 'policy', props: { name: 'SigDashed', kind: 'hmacSignature', keyRef: 'main', algorithm: 'sha-256' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    },
+  ];
+  if (includeRouteLocalJsonMiddleware) {
+    // HMAC route that ALSO declares a route-local json middleware — the
+    // emitter must drop the parser (raw capture already consumed the stream;
+    // express.json would stall forever waiting for data). Express-only:
+    // FastAPI's route-local middleware lowering is a separate surface.
+    children.push({
+      type: 'route',
+      props: { method: 'post', path: '/webhook-mw' },
+      children: [
+        { type: 'policy', props: { name: 'SigMw', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'middleware', props: { name: 'json' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    });
+  }
   return {
     type: 'server',
     props: { name: 'WholeAppFixture' },
-    children: [
-      {
-        type: 'route',
-        props: { method: 'get', path: '/secure' },
-        children: [
-          { type: 'policy', props: { name: 'Guard', kind: 'auth' }, children: [] },
-          { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
-        ],
-      },
-      {
-        type: 'route',
-        props: { method: 'post', path: '/webhook' },
-        children: [
-          { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
-          { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
-        ],
-      },
-    ],
+    children,
   };
 }
 
@@ -638,8 +755,31 @@ function transpileTs(source) {
 
 async function runWholeAppExpress() {
   const { transpileExpress } = await import('../packages/express/dist/transpiler-express.js');
-  const result = transpileExpress(wholeAppServerNode());
-  assert.match(result.code, /__kernSkipBodyParserForHmacRoutes/, 'whole-app express: global parser is guarded');
+  const result = transpileExpress(wholeAppServerNode({ includeRouteLocalJsonMiddleware: true }));
+  // Finding 5: with an HMAC route present there is NO global JSON parser and
+  // NO path-shape matcher — body parsing decisions are exact and per-route.
+  assert.doesNotMatch(result.code, /app\.use\(express\.json/, 'whole-app express: no global JSON parser');
+  assert.doesNotMatch(result.code, /__kernSkipBodyParserForHmacRoutes/, 'whole-app express: no path-shape heuristic');
+  const healthRouteArtifact = result.artifacts.find(
+    (artifact) => artifact.type === 'route' && artifact.content.includes(`'/webhook/health'`),
+  );
+  assert.ok(healthRouteArtifact, 'whole-app express: health route artifact exists');
+  assert.match(
+    healthRouteArtifact.content,
+    /express\.json\(\{ limit: '1mb' \}\)/,
+    'whole-app express: non-HMAC route carries its own JSON parser',
+  );
+  for (const guardedPath of [`'/webhook/:id'`, `'/webhook-dashed'`, `'/webhook-mw'`]) {
+    const guardedArtifact = result.artifacts.find(
+      (artifact) => artifact.type === 'route' && artifact.content.includes(`app.post(${guardedPath}`),
+    );
+    assert.ok(guardedArtifact, `whole-app express: route artifact for ${guardedPath} exists`);
+    assert.doesNotMatch(
+      guardedArtifact.content,
+      /express\.json\(/,
+      `whole-app express: HMAC route ${guardedPath} has no JSON parser middleware (raw capture owns the stream)`,
+    );
+  }
 
   const port = await getFreePort();
   const dir = await mkdtemp(join(process.cwd(), '.tmp-kern-express-app-'));
@@ -683,14 +823,13 @@ async function runWholeAppExpress() {
     });
     assert.equal(goodCred.status, 200, 'whole-app express: valid auth credential allows on the real server');
 
-    // Valid HMAC over exact raw bytes, through the REAL express.json()
-    // global parser + __kernCaptureRawBody interaction. A timeout here
-    // (rather than a wrong status) would mean the global parser already
-    // consumed the stream, starving __kernCaptureRawBody's 'data'/'end'
-    // listeners — the needs-check hang scenario this leg exists to rule out.
+    // Valid HMAC over exact raw bytes on the real server. A timeout here
+    // (rather than a wrong status) would mean some parser already consumed
+    // the stream, starving __kernCaptureRawBody's 'data'/'end' listeners —
+    // the hang scenario this leg exists to rule out.
     const validBody = '{"amount":1}';
     const validSig = sign(validBody, 'secret');
-    const validReq = await fetch(`${baseUrl}/webhook`, {
+    const validReq = await fetch(`${baseUrl}/webhook/abc`, {
       method: 'POST',
       headers: { 'x-signature': validSig, 'content-type': 'application/json' },
       body: validBody,
@@ -698,12 +837,54 @@ async function runWholeAppExpress() {
     });
     assert.equal(validReq.status, 200, 'whole-app express: valid HMAC signature allows on the real server');
 
+    // Finding 5 — the UNGUARDED route that shares the guarded route's URL
+    // shape must still get its body parsed: schema validation 400s when
+    // req.body never materialized.
+    const sameShape = await fetch(`${baseUrl}/webhook/health`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"a":1}',
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(
+      sameShape.status,
+      200,
+      'whole-app express: unguarded same-shape route still parses JSON (no shape-heuristic skip)',
+    );
+
+    // Finding 2 — dashed algorithm alias verifies a valid signature.
+    const dashedReq = await fetch(`${baseUrl}/webhook-dashed`, {
+      method: 'POST',
+      headers: { 'x-signature': validSig, 'content-type': 'application/json' },
+      body: validBody,
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(dashedReq.status, 200, "whole-app express: algorithm 'sha-256' verifies a valid signature");
+
+    // Finding 4 — HMAC route with a route-local json middleware: the parser
+    // is dropped at transpile time, so a valid signature must complete (a
+    // surviving express.json would stall forever on the consumed stream).
+    const mwReq = await fetch(`${baseUrl}/webhook-mw`, {
+      method: 'POST',
+      headers: { 'x-signature': validSig, 'content-type': 'application/json' },
+      body: validBody,
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(mwReq.status, 200, 'whole-app express: HMAC route with route-local json middleware does not stall');
+    const mwDenied = await fetch(`${baseUrl}/webhook-mw`, {
+      method: 'POST',
+      headers: { 'x-signature': 'bad', 'content-type': 'application/json' },
+      body: validBody,
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(mwDenied.status, 401, 'whole-app express: HMAC route with route-local json middleware still denies');
+
     // H10 — large invalid-JSON payload + bad signature: must deny cleanly.
-    // If the global JSON parser ran ahead of the guard on this route, its
-    // parse failure would reach Express's error-handling middleware first
-    // (strict mode's catch-all 500), never our 401.
+    // If any JSON parser ran ahead of the guard on this route, its parse
+    // failure would reach Express's error-handling middleware first (strict
+    // mode's catch-all 500), never our 401.
     const largeInvalidBody = `{"bad json${'x'.repeat(20_000)}`;
-    const h10 = await fetch(`${baseUrl}/webhook`, {
+    const h10 = await fetch(`${baseUrl}/webhook/abc`, {
       method: 'POST',
       headers: { 'x-signature': 'not-a-real-signature', 'content-type': 'application/json' },
       body: largeInvalidBody,
@@ -712,8 +893,19 @@ async function runWholeAppExpress() {
     assert.equal(
       h10.status,
       401,
-      'whole-app express H10: bad signature + malformed large body denies cleanly (global parser never ran)',
+      'whole-app express H10: bad signature + malformed large body denies cleanly (no parser ran)',
     );
+
+    // Finding 3 — raw capture is capped at 1mb: an oversized body responds
+    // 413 promptly (no hang, no unbounded pre-auth buffering).
+    const oversizedBody = 'x'.repeat(1_500_000);
+    const oversized = await fetch(`${baseUrl}/webhook/abc`, {
+      method: 'POST',
+      headers: { 'x-signature': 'irrelevant', 'content-type': 'application/json' },
+      body: oversizedBody,
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(oversized.status, 413, 'whole-app express: oversized body on an HMAC route responds 413');
   } finally {
     if (previousPort === undefined) delete process.env.PORT;
     else process.env.PORT = previousPort;
@@ -766,15 +958,25 @@ results["auth-wrong-cred"] = r.status_code
 r = client.get("/secure", headers={"authorization": "Bearer good"})
 results["auth-good-cred"] = r.status_code
 
-r = client.post("/webhook", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
+r = client.post("/webhook/abc", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
 results["hmac-no-provider"] = r.status_code
 
 app.state.kern_hmac_key_provider = lambda key_ref, entry: b"secret"
-r = client.post("/webhook", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
+r = client.post("/webhook/abc", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
 results["hmac-valid"] = r.status_code
 
+# Finding 2: dashed algorithm alias — hashlib has no 'sha_256'; the
+# normalized plan + runtime must verify a valid signature, not deny-all.
+r = client.post("/webhook-dashed", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
+results["hmac-dashed-valid"] = r.status_code
+
+# Finding 5 parity: the unguarded same-shape route binds its Pydantic body
+# normally and allows without any signature.
+r = client.post("/webhook/health", json={"a": 1})
+results["same-shape-unguarded"] = r.status_code
+
 r = client.post(
-    "/webhook",
+    "/webhook/abc",
     content=payload["largeInvalidBody"].encode("utf8"),
     headers={"x-signature": "not-a-real-signature"},
 )
@@ -797,6 +999,16 @@ print(json.dumps(results))
       'whole-app fastapi: missing key provider denies with NO external patching',
     );
     assert.equal(results['hmac-valid'], 200, 'whole-app fastapi: valid HMAC signature allows on the real app');
+    assert.equal(
+      results['hmac-dashed-valid'],
+      200,
+      "whole-app fastapi: algorithm 'sha-256' verifies a valid signature (no hashlib 'sha_256' deny-all)",
+    );
+    assert.equal(
+      results['same-shape-unguarded'],
+      200,
+      'whole-app fastapi: unguarded same-shape route binds its body normally',
+    );
     assert.equal(
       results['hmac-h10'],
       401,
