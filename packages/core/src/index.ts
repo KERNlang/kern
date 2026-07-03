@@ -182,10 +182,24 @@ export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 export {
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesTextOps,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
 } from './codegen/stdlib-preamble.js';
+// KERN 4.5.0 item 3 — TEXT shared contract (single-sourced across the
+// ReferenceRunner + TS emitter + Python emitter — see that module's doc).
+export {
+  codePointIndexOf,
+  isWellFormedText,
+  KERN_TEXT_OPS_HELPER_PY,
+  TEXT_MALFORMED_SURROGATE_FAILCLOSE,
+  textCharAtOutOfRangeMessage,
+  textCodePoints,
+  textMalformedSurrogateFailMessage,
+  textOpsHelpersTS,
+  textSliceOutOfRangeMessage,
+} from './codegen/text-contract.js';
 export type { SemanticTypeMapping } from './codegen-core.js';
 // Codegen — public entry points
 export {
