@@ -3,6 +3,7 @@ import {
   findMissingKernAppEntryCapability,
   type KernAppPolicySlot,
   loadKernAppDescriptor,
+  normalizeKernHmacAlgorithm,
 } from '../src/runtime.js';
 
 function manifest(lines: string[]): string {
@@ -842,5 +843,28 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
     // No signature/rawBody in facts denies immediately, with no host wiring.
     const [decision] = await executeKernAppEntryPolicySlot(route, 'pre', {});
     expect(decision).toEqual(expect.objectContaining({ action: 'deny', status: 422 }));
+  });
+
+  test('HMAC algorithm names normalize to one canonical set shared by every leg', async () => {
+    // Dashed/underscored SHA-2 aliases collapse; multi-part families keep
+    // their separator in Node/OpenSSL style (the generated Python runtime
+    // maps that to hashlib's underscore convention).
+    expect(normalizeKernHmacAlgorithm('sha-256')).toBe('sha256');
+    expect(normalizeKernHmacAlgorithm('SHA_256')).toBe('sha256');
+    expect(normalizeKernHmacAlgorithm('sha256')).toBe('sha256');
+    expect(normalizeKernHmacAlgorithm(' SHA-512 ')).toBe('sha512');
+    expect(normalizeKernHmacAlgorithm('sha3-256')).toBe('sha3-256');
+    expect(normalizeKernHmacAlgorithm('sha3_256')).toBe('sha3-256');
+    expect(normalizeKernHmacAlgorithm('md5')).toBe('md5');
+
+    // The manifest loader bakes the canonical name into the plan, so a
+    // dashed config verifies instead of denying every request downstream.
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Sig';
+    const descriptor = await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Sig kind=hmacSignature slot=pre algorithm=sha-256']),
+      { '/app/answer.kern': ROUTE_SOURCE },
+    );
+    const plan = descriptor.routes[0].prePolicies[0].plan;
+    expect(plan).toEqual(expect.objectContaining({ kind: 'hmacSignature', algorithm: 'sha256' }));
   });
 });

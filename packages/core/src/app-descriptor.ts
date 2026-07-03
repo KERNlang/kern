@@ -255,6 +255,25 @@ function uniqueCapabilities(ids: readonly CapabilityId[]): CapabilityId[] {
   return [...new Set(ids)];
 }
 
+/**
+ * Canonical HMAC digest-name normalization, shared by the manifest loader and
+ * (at transpile time) both the Express and FastAPI emitters so every leg
+ * accepts the identical algorithm-name set. Rules:
+ *   - lowercase + trim
+ *   - underscore and hyphen spellings are equivalent ('sha_256' == 'sha-256')
+ *   - dashed/underscored SHA-2 aliases collapse to the canonical undecorated
+ *     form ('sha-256' -> 'sha256'), while multi-part families keep their
+ *     separator ('sha3-256' stays 'sha3-256' — Node/OpenSSL style; the
+ *     generated Python policy runtime maps that to hashlib's 'sha3_256').
+ * Without this, a valid `algorithm=sha-256` config denied every request on
+ * the Python leg (hashlib has no 'sha_256') and threw on the Node leg.
+ */
+export function normalizeKernHmacAlgorithm(raw: string): string {
+  const dashed = raw.trim().toLowerCase().replace(/_/g, '-');
+  const shaDashed = /^sha-(\d+)$/.exec(dashed);
+  return shaDashed ? `sha${shaDashed[1]}` : dashed;
+}
+
 function policySlotPlan(policy: IRNode, kind: KernAppExecutablePolicyKind, label: string): KernAppPolicySlotPlan {
   if (kind === 'passthrough') return { kind };
   if (kind === 'auth') {
@@ -272,7 +291,7 @@ function policySlotPlan(policy: IRNode, kind: KernAppExecutablePolicyKind, label
     return {
       kind,
       keyRef: optionalStringProp(policy, 'keyRef') ?? 'default',
-      algorithm: optionalStringProp(policy, 'algorithm') ?? 'sha256',
+      algorithm: normalizeKernHmacAlgorithm(optionalStringProp(policy, 'algorithm') ?? 'sha256'),
       signatureHeader: normalizeHeaderName(optionalStringProp(policy, 'signatureHeader') ?? 'x-signature', label),
       encoding,
       ...(optionalStringProp(policy, 'prefix') ? { prefix: optionalStringProp(policy, 'prefix') } : {}),

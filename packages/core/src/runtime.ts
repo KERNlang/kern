@@ -176,4 +176,5 @@ export {
   KERN_APP_POLICY_EXECUTABLE_KINDS,
   KernAppDescriptorError,
   loadKernAppDescriptor,
+  normalizeKernHmacAlgorithm,
 } from './app-descriptor.js';
