@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.1/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -56,6 +56,23 @@
     }
   },
   "overrides": [
+    {
+      "includes": [
+        "packages/core/tests/ir-semantics-do.test.ts",
+        "packages/core/tests/rag-runtime.test.ts",
+        "packages/core/tests/runner-array-index.test.ts",
+        "packages/core/tests/runner-dynamic-index.test.ts",
+        "packages/core/tests/runner-source-executor.test.ts",
+        "packages/core/tests/runner-stdlib-namespace-calls.test.ts",
+        "packages/core/tests/runner-string-ops.test.ts"
+      ],
+      "formatter": {
+        "enabled": false
+      },
+      "assist": {
+        "enabled": false
+      }
+    },
     {
       "includes": ["packages/review/tests/corpus/**"],
       "linter": {
