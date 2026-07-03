@@ -271,7 +271,7 @@ export type {
 // LLM bridge (Phase 3)
 export { buildReviewInstructions, isLLMAvailable, runLLMReview } from './llm-bridge.js';
 export type { LLMGraphContext, MinedRuleRef } from './llm-review.js';
-export { buildLLMPrompt, exportKernIR, parseLLMResponse } from './llm-review.js';
+export { buildLLMPrompt, exportKernIR, parseLLMResponse, renderKernRulesBlock } from './llm-review.js';
 export { extractTsConcepts } from './mappers/ts-concepts.js';
 export type { NormViolation } from './norm-miner.js';
 // Norm mining + obligations
@@ -307,7 +307,7 @@ export type {
   RuleCorpus,
   RuleText,
 } from './rag-grounding.js';
-export { groundFindings, isGroundingEligible } from './rag-grounding.js';
+export { countDropReasons, groundFindings, isGroundingEligible, OPERATIONAL_LLM_RULE_IDS } from './rag-grounding.js';
 export {
   assignDefaultConfidence,
   calculateStats,

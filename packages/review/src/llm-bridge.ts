@@ -13,7 +13,7 @@
  */
 
 import type { LLMGraphContext, MinedRuleRef, SerializationMode } from './llm-review.js';
-import { buildLLMPrompt, parseLLMResponse } from './llm-review.js';
+import { buildLLMPrompt, parseLLMResponse, renderKernRulesBlock } from './llm-review.js';
 import type { TaintResult } from './taint.js';
 import type { InferResult, ReviewFinding, TemplateMatch } from './types.js';
 
@@ -512,6 +512,17 @@ export async function runLLMReview(
     irCache.set(input, buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext));
   }
 
+  // The <kern-rules> block reviewBatch later attaches (to each batch's
+  // first file) is prompt content the per-input estimates don't see —
+  // without reserving room for it here, a batch the estimator accepts can
+  // exceed maxBatchTokens once the real prompt is assembled (large rule
+  // descriptions are exactly the case that overflows). Rendered via the
+  // same function buildLLMPrompt uses, so the reservation can't drift
+  // from the real bytes. Bounded by MAX_KERN_RULES, so this never
+  // hollows out the budget.
+  const rulesBlockTokens = estimateTokens(renderKernRulesBlock(config.mineRules));
+  const effectiveMaxBatchTokens = Math.max(1_000, config.maxBatchTokens - rulesBlockTokens);
+
   // Size-aware batching: group inputs by estimated token count
   const batches: LLMReviewInput[][] = [];
   let currentBatch: LLMReviewInput[] = [];
@@ -525,7 +536,10 @@ export async function runLLMReview(
   const expanded: Array<{ input: LLMReviewInput; originalIR: string }> = [];
   for (const input of inputs) {
     const ir = irCache.get(input)!;
-    const chunks = chunkLargeInput(input, ir, config.maxBatchTokens);
+    // Chunk against the rules-reserved budget too: a chunk sized to the
+    // raw maxBatchTokens could land first in a batch (where the rules
+    // block attaches) and overflow.
+    const chunks = chunkLargeInput(input, ir, effectiveMaxBatchTokens);
 
     if (chunks.length === 0) {
       // Unchunkable (IR alone too large, or minified single-line file).
@@ -555,8 +569,9 @@ export async function runLLMReview(
   for (const { input, originalIR } of expanded) {
     const inputTokens = estimateInputTokens(input, originalIR);
 
-    // Start new batch if adding this input would exceed budget
-    if (currentBatch.length > 0 && currentTokens + inputTokens > config.maxBatchTokens) {
+    // Start new batch if adding this input would exceed the rules-reserved
+    // budget (see effectiveMaxBatchTokens above).
+    if (currentBatch.length > 0 && currentTokens + inputTokens > effectiveMaxBatchTokens) {
       batches.push(currentBatch);
       currentBatch = [];
       currentTokens = 0;
