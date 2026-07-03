@@ -1,0 +1,103 @@
+use path="./sort"
+  from name=sortStrings kind=fn as=sortStrings
+
+use path="./diag"
+  from name=pathAppendKey kind=fn as=pathAppendKey
+  from name=pathAppendIndex kind=fn as=pathAppendIndex
+  from name=passResult kind=fn as=passResult
+  from name=failResult kind=fn as=failResult
+  from name=reasonTypeMismatch kind=fn as=reasonTypeMismatch
+  from name=reasonValueMismatch kind=fn as=reasonValueMismatch
+  from name=reasonLengthMismatch kind=fn as=reasonLengthMismatch
+  from name=reasonKeyMismatch kind=fn as=reasonKeyMismatch
+
+# NOTE on the nested-for-loop shape below (deviation from an earlier draft
+# that used a `let found = -1` scan variable updated via `assign` inside the
+# loop, then indexed with it afterward): the ReferenceRunner's dynamic-index
+# provenance is tracked PER DECLARING SCOPE at declaration time — a `for`
+# loop counter is provenanced, a function param seeded from a provenanced
+# CALL-SITE EXPRESSION is provenanced, but a plain `let` later mutated via
+# `assign` from a provenanced value is NOT retroactively marked provenanced
+# (confirmed empirically: `let found=-1` + `assign target=found value="i"`
+# inside a `for` loop, then `xs[found]`, ABSTAINS even though `found` holds
+# exactly `i`'s value). So every child lookup below calls `compareNode`
+# DIRECTLY inside the matching `for` loop's body, passing the loop counter
+# itself (`i`/`j`) as the call argument — never through an intermediate
+# assigned variable. `return` from inside nested `for`/`if` correctly
+# propagates out through every enclosing `for` (each loop's own completion
+# handling forwards a child `return` completion), so the first mismatch
+# found at any depth short-circuits the whole comparison.
+
+fn name=compareList params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[],idxA:number,idxB:number,path:string" returns=string
+  handler lang="kern"
+    let name=okVal value="passResult()"
+    let name=countA value="0"
+    for name=i from=0 to="pA.length"
+      if cond="pA[i] == idxA"
+        assign target=countA value="countA + 1"
+    let name=countB value="0"
+    for name=i from=0 to="pB.length"
+      if cond="pB[i] == idxB"
+        assign target=countB value="countB + 1"
+    if cond="countA != countB"
+      return value="failResult(path, reasonLengthMismatch(countA, countB))"
+    for name=k from=0 to="countA"
+      for name=i from=0 to="pA.length"
+        if cond="pA[i] == idxA"
+          if cond="xA[i] == k"
+            for name=j from=0 to="pB.length"
+              if cond="pB[j] == idxB"
+                if cond="xB[j] == k"
+                  let name=childPath value="pathAppendIndex(path, k)"
+                  let name=result value="compareNode(pA, kA, xA, tA, vA, pB, kB, xB, tB, vB, i, j, childPath)"
+                  if cond="result != okVal"
+                    return value="result"
+    return value="okVal"
+
+fn name=compareMap params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[],idxA:number,idxB:number,path:string" returns=string
+  handler lang="kern"
+    let name=okVal value="passResult()"
+    let name=keysA value="[]"
+    for name=i from=0 to="pA.length"
+      if cond="pA[i] == idxA"
+        do value="keysA.push(kA[i])"
+    let name=keysB value="[]"
+    for name=i from=0 to="pB.length"
+      if cond="pB[i] == idxB"
+        do value="keysB.push(kB[i])"
+    if cond="keysA.length != keysB.length"
+      return value="failResult(path, reasonLengthMismatch(keysA.length, keysB.length))"
+    let name=sortedKeysA value="sortStrings(keysA)"
+    let name=sortedKeysB value="sortStrings(keysB)"
+    for name=k from=0 to="sortedKeysA.length"
+      if cond="sortedKeysA[k] != sortedKeysB[k]"
+        return value="failResult(path, reasonKeyMismatch(sortedKeysA[k], sortedKeysB[k]))"
+    for name=k from=0 to="sortedKeysA.length"
+      let name=key value="sortedKeysA[k]"
+      for name=i from=0 to="pA.length"
+        if cond="pA[i] == idxA"
+          if cond="kA[i] == key"
+            for name=j from=0 to="pB.length"
+              if cond="pB[j] == idxB"
+                if cond="kB[j] == key"
+                  let name=childPath value="pathAppendKey(path, key)"
+                  let name=result value="compareNode(pA, kA, xA, tA, vA, pB, kB, xB, tB, vB, i, j, childPath)"
+                  if cond="result != okVal"
+                    return value="result"
+    return value="okVal"
+
+fn name=compareNode params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[],idxA:number,idxB:number,path:string" returns=string export=true
+  handler lang="kern"
+    if cond="tA[idxA] != tB[idxB]"
+      return value="failResult(path, reasonTypeMismatch(tA[idxA], tB[idxB]))"
+    if cond="tA[idxA] == \"list\""
+      return value="compareList(pA, kA, xA, tA, vA, pB, kB, xB, tB, vB, idxA, idxB, path)"
+    if cond="tA[idxA] == \"map\""
+      return value="compareMap(pA, kA, xA, tA, vA, pB, kB, xB, tB, vB, idxA, idxB, path)"
+    if cond="vA[idxA] != vB[idxB]"
+      return value="failResult(path, reasonValueMismatch(vA[idxA], vB[idxB]))"
+    return value="passResult()"
+
+fn name=compareTrees params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[]" returns=string export=true
+  handler lang="kern"
+    return value="compareNode(pA, kA, xA, tA, vA, pB, kB, xB, tB, vB, 0, 0, \"\")"
