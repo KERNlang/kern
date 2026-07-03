@@ -31,6 +31,7 @@
     "test:runner-smoke": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node ./scripts/check-kern-run-smoke.mjs && node ./scripts/check-kern-5-preview-app.mjs && node ./scripts/check-runner-browser-budget.mjs && pnpm test:capstone-flatten && pnpm test:capstone-assertion-engine",
     "test:capstone-flatten": "node --test scripts/capstone/flatten.test.mjs",
     "test:capstone-assertion-engine": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node ./scripts/check-capstone-assertion-engine.mjs",
+    "test:drift-showcase": "pnpm --filter @kernlang/core --filter @kernlang/express --filter @kernlang/python build && node ./scripts/check-drift-showcase.mjs",
     "test:root": "pnpm build && node ./scripts/run-node-tests.mjs \"tests/**/*.test.ts\"",
     "test:prepush": "node --test scripts/pre-push.test.mjs",
     "fitness": "pnpm test && pnpm test:kern && pnpm test:runner-smoke",
@@ -45,6 +46,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "esbuild",
       "sharp",
       "tree-sitter",
       "tree-sitter-python",
@@ -65,6 +67,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.1",
     "@types/node": "^26.0.1",
+    "express": "^5.2.1",
+    "tsx": "^4.22.5",
     "typescript": "^6.0.3"
   }
 }
