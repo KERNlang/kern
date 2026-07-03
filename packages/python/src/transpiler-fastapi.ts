@@ -25,11 +25,8 @@ import {
 import { dirname, resolve } from 'path';
 import { emitImports } from './core/emit-imports.js';
 import { emitModels } from './core/emit-models.js';
-import {
-  buildFastApiPolicyRuntimeArtifact,
-  FASTAPI_POLICY_RUNTIME_MODULE_BASENAME,
-} from './fastapi-policy-runtime.js';
 import { buildCorsMiddlewareLine, resolveMiddlewareUsage } from './fastapi-middleware.js';
+import { buildFastApiPolicyRuntimeArtifact, FASTAPI_POLICY_RUNTIME_MODULE_BASENAME } from './fastapi-policy-runtime.js';
 import { buildRouteArtifact } from './fastapi-route.js';
 import type { MiddlewareArtifactRef } from './fastapi-types.js';
 import { analyzeRouteCapabilities, findServerNode } from './fastapi-utils.js';

@@ -68,7 +68,9 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   // guard and let the route's own raw-capture + post-allow parse handle them.
   const hmacGuardedRoutes = routeNodes
     .filter((routeNode) =>
-      getChildren(routeNode, 'policy').some((policyNode) => String(getProps(policyNode).kind || '') === 'hmacSignature'),
+      getChildren(routeNode, 'policy').some(
+        (policyNode) => String(getProps(policyNode).kind || '') === 'hmacSignature',
+      ),
     )
     .map((routeNode) => {
       const routeProps = getProps(routeNode);

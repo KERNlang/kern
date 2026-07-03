@@ -714,8 +714,7 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
   });
 
   test('a guard reading the DEFAULT credential/signature header (no explicit prop override) loads — the allowlist derives from the normalized plan', async () => {
-    const routeLine =
-      '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Authz';
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Authz';
     const guardSource = (header: string) =>
       [
         'fn name=main returns=void',
@@ -747,11 +746,7 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
     // fails closed.
     await expect(
       load(
-        manifest([
-          'app name=SupportApp',
-          routeLine,
-          '  policy name=Authz kind=auth slot=pre source="./guard.kern"',
-        ]),
+        manifest(['app name=SupportApp', routeLine, '  policy name=Authz kind=auth slot=pre source="./guard.kern"']),
         { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('x-not-allowed') },
       ),
     ).rejects.toThrow(/reads undeclared HTTP header/);
@@ -760,7 +755,11 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
   test('a policy guard source with parse errors or malformed/unknown capability declarations fails the whole load, matching entry-source validation', async () => {
     const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate';
     const files = { '/app/answer.kern': ROUTE_SOURCE };
-    const appLines = ['app name=SupportApp', routeLine, '  policy name=PreGate kind=passthrough slot=pre source="./guard.kern"'];
+    const appLines = [
+      'app name=SupportApp',
+      routeLine,
+      '  policy name=PreGate kind=passthrough slot=pre source="./guard.kern"',
+    ];
 
     // Unknown capability namespace/operation.
     await expect(
@@ -793,14 +792,22 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
 
     await expect(
       load(
-        manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=-0.2']),
+        manifest([
+          'app name=SupportApp',
+          routeLine,
+          '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=-0.2',
+        ]),
         files,
       ),
     ).rejects.toThrow(/minGroundingCoverage must be between 0 and 1/);
 
     await expect(
       load(
-        manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=1.5']),
+        manifest([
+          'app name=SupportApp',
+          routeLine,
+          '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=1.5',
+        ]),
         files,
       ),
     ).rejects.toThrow(/minGroundingCoverage must be between 0 and 1/);
@@ -817,8 +824,7 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
   });
 
   test('a policy failureStatus must be a valid HTTP status code, and denied decisions honor it instead of hardcoding 401', async () => {
-    const routeLine =
-      '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Sig';
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Sig';
     const files = { '/app/answer.kern': ROUTE_SOURCE };
 
     await expect(
@@ -835,8 +841,6 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
     const route = descriptor.routes[0];
     // No signature/rawBody in facts denies immediately, with no host wiring.
     const [decision] = await executeKernAppEntryPolicySlot(route, 'pre', {});
-    expect(decision).toEqual(
-      expect.objectContaining({ action: 'deny', status: 422 }),
-    );
+    expect(decision).toEqual(expect.objectContaining({ action: 'deny', status: 422 }));
   });
 });

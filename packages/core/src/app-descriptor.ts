@@ -445,7 +445,7 @@ function policySlotDescriptor(policy: IRNode, appRoot: string): KernAppPolicySlo
   if (handler !== undefined && source === undefined) {
     throw new KernAppDescriptorError(`${label} declares handler= without source=`);
   }
-  const failureStatusRaw = policy.props?.['failureStatus'];
+  const failureStatusRaw = policy.props?.failureStatus;
   if (failureStatusRaw !== undefined) {
     const failureStatusNumber = typeof failureStatusRaw === 'number' ? failureStatusRaw : Number(failureStatusRaw);
     if (!Number.isInteger(failureStatusNumber) || failureStatusNumber < 100 || failureStatusNumber > 599) {
@@ -875,7 +875,7 @@ function denied(
  * on anything malformed instead of throwing.
  */
 function policyFailureStatus(slotPolicy: KernAppPolicySlotDescriptor): number {
-  const raw = slotPolicy.node?.props?.['failureStatus'];
+  const raw = slotPolicy.node?.props?.failureStatus;
   const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
   return Number.isInteger(value) && value >= 100 && value <= 599 ? value : 401;
 }
