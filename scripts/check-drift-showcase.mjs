@@ -157,7 +157,13 @@ try {
     execSync('python3 -c "import fastapi, uvicorn"', { stdio: 'ignore' });
   } catch {
     console.log('  fastapi/uvicorn not found — installing...');
-    execSync('python3 -m pip install --user fastapi uvicorn', { stdio: 'inherit' });
+    try {
+      execSync('python3 -m pip install --user fastapi uvicorn', { stdio: 'inherit' });
+    } catch {
+      // PEP 668 "externally managed environment" (default on recent macOS/Debian
+      // Python) rejects a plain --user install; retry explicitly opting out.
+      execSync('python3 -m pip install --user --break-system-packages fastapi uvicorn', { stdio: 'inherit' });
+    }
   }
 
   const expressPort = 43_000 + Math.floor(Math.random() * 1_000);
@@ -171,6 +177,9 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let expressLog = '';
+  expressServer.on('error', (error) => {
+    expressLog += `[spawn error] ${error.message}\n`;
+  });
   expressServer.stdout.on('data', (chunk) => {
     expressLog += chunk;
   });
@@ -184,6 +193,9 @@ try {
     { cwd: FASTAPI_DIR, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] },
   );
   let fastapiLog = '';
+  fastapiServer.on('error', (error) => {
+    fastapiLog += `[spawn error] ${error.message}\n`;
+  });
   fastapiServer.stdout.on('data', (chunk) => {
     fastapiLog += chunk;
   });

@@ -88,8 +88,14 @@ export function withMutatedResponse(descriptors, mutation) {
 function pathTemplate(descriptor) {
   if (descriptor.pathParams.length === 0) return `'${descriptor.path}'`;
   let expr = descriptor.path;
-  for (const param of descriptor.pathParams) {
-    expr = expr.replace(`:${param}`, `\${params.${param}}`);
+  // Longest-name-first + a "not followed by another identifier char" guard so
+  // a shorter param name (e.g. `:id`) can't partially match inside a longer
+  // one (e.g. `:idx`). Each interpolated value is URI-component-encoded so a
+  // param value containing '/', '?', '#', etc. can't reshape the request path.
+  const sortedParams = [...descriptor.pathParams].sort((a, b) => b.length - a.length);
+  for (const param of sortedParams) {
+    const pattern = new RegExp(`:${param}(?![A-Za-z0-9_])`, 'g');
+    expr = expr.replace(pattern, `\${encodeURIComponent(params.${param})}`);
   }
   return `\`${expr}\``;
 }
