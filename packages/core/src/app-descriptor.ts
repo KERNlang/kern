@@ -35,21 +35,53 @@ export interface LoadKernAppDescriptorOptions {
 }
 
 /**
- * Policy-slot skeleton (KERN 5.2 scaffolding for 5.3 guard execution).
+ * Policy-slot guard execution.
  *
  * A `policy` node MAY declare `slot=pre|post` to become an EXECUTABLE policy
  * that runs before (`pre`) or after (`post`) the route/view handler. In 5.2
- * only the no-op `kind=passthrough` is allowed for slot policies — the slot
- * SHAPE and plumbing exist so 5.3 can add real guard kinds (auth,
- * hmacSignature, rag-review) without redesigning routing. Slot policies may
+ * slot policies must use one of the executable guard kinds
+ * (`passthrough`, `auth`, `hmacSignature`, `rag-review`). Slot policies may
  * optionally reference their own `.kern` source (`source=` + `handler=`),
  * which is resolved inside the app root and validated fail-closed at load
  * time exactly like entry sources. Policies WITHOUT `slot=` remain the
  * declarative-only policies shipped in 5.0 (free-form `kind`, no execution).
  */
 export type KernAppPolicySlot = 'pre' | 'post';
-export const KERN_APP_POLICY_EXECUTABLE_KINDS = Object.freeze(['passthrough'] as const);
+export const KERN_APP_POLICY_EXECUTABLE_KINDS = Object.freeze([
+  'passthrough',
+  'auth',
+  'hmacSignature',
+  'rag-review',
+] as const);
 export type KernAppExecutablePolicyKind = (typeof KERN_APP_POLICY_EXECUTABLE_KINDS)[number];
+const KERN_APP_POLICY_EXECUTABLE_KIND_SET: ReadonlySet<string> = new Set(KERN_APP_POLICY_EXECUTABLE_KINDS);
+
+export interface KernAppAuthPolicyPlan {
+  readonly verifierRef: string;
+  readonly credentialHeader: string;
+}
+
+export interface KernAppHmacSignaturePolicyPlan {
+  readonly keyRef: string;
+  readonly algorithm: string;
+  readonly signatureHeader: string;
+  readonly encoding: 'hex' | 'base64';
+  readonly prefix?: string;
+}
+
+export interface KernAppRagReviewPolicyPlan {
+  readonly queryField: string;
+  readonly answerField: string;
+  readonly citedChunkIdsField: string;
+  readonly groundingSpansField: string;
+  readonly minGroundingCoverage: number;
+}
+
+export type KernAppPolicySlotPlan =
+  | { readonly kind: 'passthrough' }
+  | ({ readonly kind: 'auth' } & KernAppAuthPolicyPlan)
+  | ({ readonly kind: 'hmacSignature' } & KernAppHmacSignaturePolicyPlan)
+  | ({ readonly kind: 'rag-review' } & KernAppRagReviewPolicyPlan);
 
 export interface KernAppPolicySlotDescriptor {
   readonly node: IRNode;
@@ -61,6 +93,7 @@ export interface KernAppPolicySlotDescriptor {
   /** Handler name inside sourcePath; only meaningful when sourcePath is set. */
   readonly handler: string;
   readonly requires: readonly CapabilityId[];
+  readonly plan: KernAppPolicySlotPlan;
   readonly label: string;
 }
 
@@ -69,8 +102,60 @@ export interface KernAppPolicyExecution {
   readonly name: string;
   readonly slot: KernAppPolicySlot;
   readonly kind: KernAppExecutablePolicyKind;
-  /** 5.2 skeleton: the only implemented action is the no-op passthrough. */
-  readonly action: 'passthrough';
+  readonly action: 'passthrough' | 'allow' | 'deny';
+  readonly status?: number;
+  readonly body?: unknown;
+  readonly diagnostics?: readonly string[];
+}
+
+export interface KernAppRetrievedChunk {
+  readonly id: string;
+  readonly text: string;
+  readonly score?: number;
+  readonly source?: string;
+  readonly citation?: { readonly uri?: string; readonly locator?: string };
+  readonly metadata?: Record<string, unknown>;
+}
+
+export interface KernAppPolicyRequestFacts {
+  readonly headers?: Readonly<Record<string, string | undefined>>;
+  readonly rawBody?: string | Uint8Array;
+  readonly authVerifiers?: Readonly<
+    Record<
+      string,
+      | ((credential: string, context: { readonly entry: KernAppEntryDescriptor }) => boolean | Promise<boolean>)
+      | undefined
+    >
+  >;
+  readonly hmacVerifiers?: Readonly<
+    Record<
+      string,
+      | ((
+          input: {
+            readonly body: string | Uint8Array;
+            readonly signature: string;
+            readonly algorithm: string;
+            readonly encoding: 'hex' | 'base64';
+            readonly prefix?: string;
+          },
+          context: { readonly entry: KernAppEntryDescriptor },
+        ) => boolean | Promise<boolean>)
+      | undefined
+    >
+  >;
+  readonly hmacKeys?: Readonly<Record<string, string | Uint8Array | undefined>>;
+  readonly ragReview?: {
+    readonly query?: string;
+    readonly answer?: string;
+    readonly citedChunkIds?: readonly string[];
+    readonly groundingSpans?: readonly {
+      readonly start: number;
+      readonly end: number;
+      readonly chunkIds: readonly string[];
+    }[];
+    readonly retrievedChunks?: readonly KernAppRetrievedChunk[];
+    readonly retrievalError?: string;
+  };
 }
 
 export interface KernAppEntryDescriptor {
@@ -82,9 +167,9 @@ export interface KernAppEntryDescriptor {
   readonly handler: string;
   readonly policies: readonly IRNode[];
   readonly policyName?: string;
-  /** Executable policies to run BEFORE the entry handler (5.2: passthrough only). */
+  /** Executable policies to run BEFORE the entry handler. */
   readonly prePolicies: readonly KernAppPolicySlotDescriptor[];
-  /** Executable policies to run AFTER the entry handler (5.2: passthrough only). */
+  /** Executable policies to run AFTER the entry handler. */
   readonly postPolicies: readonly KernAppPolicySlotDescriptor[];
   readonly appCapabilities: readonly CapabilityId[];
   readonly entryCapabilities: readonly CapabilityId[];
@@ -127,6 +212,30 @@ function optionalStringProp(node: IRNode, prop: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function optionalNumberProp(node: IRNode, prop: string, fallback: number): number {
+  const value = node.props?.[prop];
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return fallback;
+}
+
+function normalizeHeaderName(name: string, label: string): string {
+  const trimmed = name.trim();
+  if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(trimmed)) {
+    throw new KernAppDescriptorError(`${label} declares invalid HTTP header '${name}'`);
+  }
+  return trimmed.toLowerCase();
+}
+
+function headerListProp(node: IRNode, prop: string, label: string): readonly string[] {
+  const raw = optionalStringProp(node, prop);
+  if (raw === undefined) return [];
+  return raw
+    .split(',')
+    .map((item) => normalizeHeaderName(item, label))
+    .filter(Boolean);
+}
+
 function capabilityList(raw: string | undefined, label: string): CapabilityId[] {
   if (raw === undefined) return [];
   const out: CapabilityId[] = [];
@@ -144,6 +253,68 @@ function capabilityList(raw: string | undefined, label: string): CapabilityId[] 
 
 function uniqueCapabilities(ids: readonly CapabilityId[]): CapabilityId[] {
   return [...new Set(ids)];
+}
+
+/**
+ * Canonical HMAC digest-name normalization, shared by the manifest loader and
+ * (at transpile time) both the Express and FastAPI emitters so every leg
+ * accepts the identical algorithm-name set. Rules:
+ *   - lowercase + trim
+ *   - underscore and hyphen spellings are equivalent ('sha_256' == 'sha-256')
+ *   - dashed/underscored SHA-2 aliases collapse to the canonical undecorated
+ *     form ('sha-256' -> 'sha256'), while multi-part families keep their
+ *     separator ('sha3-256' stays 'sha3-256' — Node/OpenSSL style; the
+ *     generated Python policy runtime maps that to hashlib's 'sha3_256').
+ * Without this, a valid `algorithm=sha-256` config denied every request on
+ * the Python leg (hashlib has no 'sha_256') and threw on the Node leg.
+ */
+export function normalizeKernHmacAlgorithm(raw: string): string {
+  const dashed = raw.trim().toLowerCase().replace(/_/g, '-');
+  const shaDashed = /^sha-(\d+)$/.exec(dashed);
+  return shaDashed ? `sha${shaDashed[1]}` : dashed;
+}
+
+function policySlotPlan(policy: IRNode, kind: KernAppExecutablePolicyKind, label: string): KernAppPolicySlotPlan {
+  if (kind === 'passthrough') return { kind };
+  if (kind === 'auth') {
+    return {
+      kind,
+      verifierRef: optionalStringProp(policy, 'verifierRef') ?? optionalStringProp(policy, 'ref') ?? 'default',
+      credentialHeader: normalizeHeaderName(optionalStringProp(policy, 'credentialHeader') ?? 'authorization', label),
+    };
+  }
+  if (kind === 'hmacSignature') {
+    const encoding = optionalStringProp(policy, 'encoding') ?? 'hex';
+    if (encoding !== 'hex' && encoding !== 'base64') {
+      throw new KernAppDescriptorError(`${label} hmacSignature encoding must be hex or base64`);
+    }
+    return {
+      kind,
+      keyRef: optionalStringProp(policy, 'keyRef') ?? 'default',
+      algorithm: normalizeKernHmacAlgorithm(optionalStringProp(policy, 'algorithm') ?? 'sha256'),
+      signatureHeader: normalizeHeaderName(optionalStringProp(policy, 'signatureHeader') ?? 'x-signature', label),
+      encoding,
+      ...(optionalStringProp(policy, 'prefix') ? { prefix: optionalStringProp(policy, 'prefix') } : {}),
+    };
+  }
+  const minGroundingCoverage = optionalNumberProp(policy, 'minGroundingCoverage', 1);
+  // A coverage threshold outside [0, 1] is either a malformed config (e.g. a
+  // stray percentage like 80) or — critically — a NEGATIVE value, which
+  // silently disables the check entirely (evaluatePolicyRagReview's
+  // `coverage < minGroundingCoverage` is never true when the RHS is
+  // negative). Fail the manifest load instead of shipping a guard that can
+  // never deny on ungrounded coverage.
+  if (!(minGroundingCoverage >= 0 && minGroundingCoverage <= 1)) {
+    throw new KernAppDescriptorError(`${label} minGroundingCoverage must be between 0 and 1`);
+  }
+  return {
+    kind,
+    queryField: optionalStringProp(policy, 'queryField') ?? 'query',
+    answerField: optionalStringProp(policy, 'answerField') ?? 'answer',
+    citedChunkIdsField: optionalStringProp(policy, 'citedChunkIdsField') ?? 'citedChunkIds',
+    groundingSpansField: optionalStringProp(policy, 'groundingSpansField') ?? 'groundingSpans',
+    minGroundingCoverage,
+  };
 }
 
 function routeKey(method: string, path: string): string {
@@ -259,9 +430,9 @@ function assertUnique(values: readonly string[], label: string): void {
 /**
  * Fail-closed parse of a policy node's OPTIONAL execution-slot declaration.
  * Returns undefined for declarative-only policies (no `slot=`). Throws for:
- * an unknown slot value, a slot policy whose kind is not an executable kind
- * (only `passthrough` in 5.2), `handler=` without `source=`, or a slot
- * policy source that escapes the app root.
+ * an unknown slot value, a slot policy whose kind is not executable,
+ * `handler=` without `source=`, or a slot policy source that escapes the app
+ * root.
  */
 function policySlotDescriptor(policy: IRNode, appRoot: string): KernAppPolicySlotDescriptor | undefined {
   const name = requiredStringProp(policy, 'name', 'policy');
@@ -281,24 +452,34 @@ function policySlotDescriptor(policy: IRNode, appRoot: string): KernAppPolicySlo
     throw new KernAppDescriptorError(`${label} declares unknown slot '${slot}' (expected pre or post)`);
   }
   const kind = optionalStringProp(policy, 'kind');
-  if (kind === undefined || !(KERN_APP_POLICY_EXECUTABLE_KINDS as readonly string[]).includes(kind)) {
+  if (kind === undefined || !KERN_APP_POLICY_EXECUTABLE_KIND_SET.has(kind)) {
     throw new KernAppDescriptorError(
-      `${label} slot=${slot} requires an executable kind (${KERN_APP_POLICY_EXECUTABLE_KINDS.join(', ')} only in KERN 5.2)${
+      `${label} slot=${slot} requires an executable kind${
         kind !== undefined ? `, got '${kind}'` : ''
-      }`,
+      }; executable kinds: ${KERN_APP_POLICY_EXECUTABLE_KINDS.join(', ')}`,
     );
   }
+  const executableKind = kind as KernAppExecutablePolicyKind;
+  const plan = policySlotPlan(policy, executableKind, label);
   if (handler !== undefined && source === undefined) {
     throw new KernAppDescriptorError(`${label} declares handler= without source=`);
+  }
+  const failureStatusRaw = policy.props?.failureStatus;
+  if (failureStatusRaw !== undefined) {
+    const failureStatusNumber = typeof failureStatusRaw === 'number' ? failureStatusRaw : Number(failureStatusRaw);
+    if (!Number.isInteger(failureStatusNumber) || failureStatusNumber < 100 || failureStatusNumber > 599) {
+      throw new KernAppDescriptorError(`${label} failureStatus must be a valid HTTP status code`);
+    }
   }
   return {
     node: policy,
     name,
     slot,
-    kind: kind as KernAppExecutablePolicyKind,
+    kind: executableKind,
     ...(source !== undefined ? { sourcePath: resolveAppSource(source, label, appRoot) } : {}),
     handler: handler ?? 'main',
     requires: capabilityList(optionalStringProp(policy, 'requires'), label),
+    plan,
     label,
   };
 }
@@ -495,8 +676,71 @@ async function validatePolicySlotSources(
       } catch (error) {
         throw new KernAppDescriptorError(error instanceof Error ? error.message : String(error));
       }
+      const analysis = analyzeKernSourceCapabilities(source, {
+        entryHandlerName: slotPolicy.handler,
+        providedCapabilities: slotPolicy.requires,
+      });
+      // Fail-closed on parse/capability-shape problems in the guard source
+      // itself — mirrors assertEntrySourceContract's entry-source gate.
+      // Without this, a policy handler with a malformed or unknown capability
+      // declaration (or unparseable source) silently passed validation here
+      // while the same defect fails a route/view entry's load.
+      const firstAnalysisError = analysis.parseDiagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (firstAnalysisError || analysis.hasParseErrors) {
+        throw new KernAppDescriptorError(firstAnalysisError?.message ?? `${slotPolicy.label} source has parse errors`);
+      }
+      if (analysis.malformedCapabilities.length > 0 || analysis.unknownCapabilities.length > 0) {
+        throw new KernAppDescriptorError(`${slotPolicy.label} source has malformed or unknown capability declarations`);
+      }
+      // The header allowlist is derived from the NORMALIZED plan (which already
+      // folds in the kind-specific default — 'authorization' for auth,
+      // 'x-signature' for hmacSignature) rather than only an explicit node prop.
+      // A guard that reads the default header via app-http.header(...) with no
+      // credentialHeader=/signatureHeader= override previously failed load-time
+      // validation as an "undeclared" header even though it is exactly the
+      // header the plan will check at runtime.
+      const allowedHeaders = new Set(headerListProp(slotPolicy.node, 'headers', slotPolicy.label));
+      if (slotPolicy.plan.kind === 'auth') {
+        allowedHeaders.add(slotPolicy.plan.credentialHeader);
+      }
+      if (slotPolicy.plan.kind === 'hmacSignature') {
+        allowedHeaders.add(slotPolicy.plan.signatureHeader);
+      }
+      const sourceLines = source.split(/\r?\n/);
+      for (const requirement of [...analysis.requirements, ...analysis.executableRequirements]) {
+        if (requirement.id !== 'app-http.header') continue;
+        const headerName =
+          headerNameFromCapabilityInput(requirement.literalInput) ??
+          headerNameFromCapabilityLine(sourceLines[requirement.sourceLine - 1]);
+        if (!headerName || !allowedHeaders.has(normalizeHeaderName(headerName, slotPolicy.label))) {
+          throw new KernAppDescriptorError(
+            `${slotPolicy.label} reads undeclared HTTP header${headerName ? ` '${headerName}'` : ''}`,
+          );
+        }
+      }
+      const forbidden = analysis.executableRequirements.find(
+        (requirement) => requirement.id === 'crypto.hmacVerify' || requirement.id === 'app-auth.verifyCredential',
+      );
+      if (forbidden) {
+        throw new KernAppDescriptorError(
+          `${slotPolicy.label} must not call ${forbidden.id} from guard source; host adapters own secret verification`,
+        );
+      }
     }
   }
+}
+
+function headerNameFromCapabilityInput(input: string | undefined): string | undefined {
+  if (!input) return undefined;
+  const named = /\bname\s*:\s*["']([^"']+)["']/.exec(input);
+  if (named) return named[1];
+  const direct = /^\s*["']([^"']+)["']\s*$/.exec(input);
+  return direct?.[1];
+}
+
+function headerNameFromCapabilityLine(line: string | undefined): string | undefined {
+  if (!line) return undefined;
+  return /\binput\s*=\s*"[^"]*\bname\s*:\s*\\?["']([^\\"']+)\\?["']/.exec(line)?.[1];
 }
 
 async function validateEntrySources(
@@ -599,19 +843,15 @@ export function findMissingKernAppEntryCapability(
 }
 
 /**
- * Policy-slot execution hook (KERN 5.2 skeleton). Hosts call this around
- * entry execution: `pre` before running the entry handler, `post` after a
- * successful run. In 5.2 the only executable policy kind is the no-op
- * `passthrough`, so this returns the executed hook records without side
- * effects — the point is that the HOOK exists with a stable shape so 5.3
- * guard kinds (auth, hmacSignature, rag-review) slot in without a routing
- * redesign. Fail-closed: an unknown slot value or a policy whose kind has no
- * executable implementation throws {@link KernAppDescriptorError} instead of
- * being silently skipped.
+ * Policy-slot execution hook. Hosts call this around entry execution: `pre`
+ * before running the entry handler, `post` after a successful run.
+ * Fail-closed: an unknown slot value or policy execution failure returns or
+ * throws explicitly instead of being silently skipped.
  */
 export async function executeKernAppEntryPolicySlot(
   entry: KernAppEntryDescriptor,
   slot: KernAppPolicySlot,
+  facts: KernAppPolicyRequestFacts = {},
 ): Promise<readonly KernAppPolicyExecution[]> {
   const slotPolicies = slot === 'pre' ? entry.prePolicies : slot === 'post' ? entry.postPolicies : undefined;
   if (slotPolicies === undefined) {
@@ -619,12 +859,219 @@ export async function executeKernAppEntryPolicySlot(
   }
   const executions: KernAppPolicyExecution[] = [];
   for (const slotPolicy of slotPolicies) {
-    if (slotPolicy.kind !== 'passthrough') {
-      throw new KernAppDescriptorError(
-        `${slotPolicy.label} kind '${slotPolicy.kind}' has no executable implementation in KERN 5.2`,
-      );
-    }
-    executions.push({ name: slotPolicy.name, slot, kind: slotPolicy.kind, action: 'passthrough' });
+    const result = await executePolicySlotPlan(entry, slotPolicy, facts);
+    executions.push(result);
+    if (result.action === 'deny') break;
   }
   return executions;
+}
+
+function denied(
+  slotPolicy: KernAppPolicySlotDescriptor,
+  slot: KernAppPolicySlot,
+  diagnostics: readonly string[] = [],
+): KernAppPolicyExecution {
+  return {
+    name: slotPolicy.name,
+    slot,
+    kind: slotPolicy.kind,
+    action: 'deny',
+    status: policyFailureStatus(slotPolicy),
+    body: { error: 'policy_denied', policy: slotPolicy.name, kind: slotPolicy.kind },
+    diagnostics,
+  };
+}
+
+/**
+ * A policy MAY declare `failureStatus=<code>` (schema-documented, e.g.
+ * `failureStatus=422`) to override the default 401 deny status. Read
+ * defensively off `node.props` rather than a dedicated descriptor field so
+ * this works uniformly across the real `KernAppPolicySlotDescriptor` built by
+ * `policySlotDescriptor` (validated at manifest-load time) AND the literal
+ * descriptor objects the Express/FastAPI emitters bake directly into
+ * generated route code (same `node.props` shape, no load-time validation
+ * pass) — the runtime honors whatever value is present and falls back to 401
+ * on anything malformed instead of throwing.
+ */
+function policyFailureStatus(slotPolicy: KernAppPolicySlotDescriptor): number {
+  const raw = slotPolicy.node?.props?.failureStatus;
+  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  return Number.isInteger(value) && value >= 100 && value <= 599 ? value : 401;
+}
+
+async function executePolicySlotPlan(
+  entry: KernAppEntryDescriptor,
+  slotPolicy: KernAppPolicySlotDescriptor,
+  facts: KernAppPolicyRequestFacts,
+): Promise<KernAppPolicyExecution> {
+  const slot = slotPolicy.slot;
+  try {
+    if (slotPolicy.plan.kind === 'passthrough') {
+      return { name: slotPolicy.name, slot, kind: slotPolicy.kind, action: 'passthrough' };
+    }
+    if (slotPolicy.plan.kind === 'auth') {
+      const credential = headerValue(facts.headers, slotPolicy.plan.credentialHeader);
+      const verifier = facts.authVerifiers?.[slotPolicy.plan.verifierRef];
+      if (!credential || typeof verifier !== 'function')
+        return denied(slotPolicy, slot, ['auth credential absent or verifier missing']);
+      const ok = await verifier(credential, { entry });
+      return ok
+        ? { name: slotPolicy.name, slot, kind: slotPolicy.kind, action: 'allow' }
+        : denied(slotPolicy, slot, ['auth verifier denied']);
+    }
+    if (slotPolicy.plan.kind === 'hmacSignature') {
+      const signature = headerValue(facts.headers, slotPolicy.plan.signatureHeader);
+      const verifier = facts.hmacVerifiers?.[slotPolicy.plan.keyRef];
+      if (!signature || typeof verifier !== 'function' || facts.rawBody === undefined) {
+        return denied(slotPolicy, slot, ['hmac signature, verifier, or raw body missing']);
+      }
+      const ok = await verifier(
+        {
+          signature,
+          body: facts.rawBody,
+          algorithm: slotPolicy.plan.algorithm,
+          encoding: slotPolicy.plan.encoding,
+          prefix: slotPolicy.plan.prefix,
+        },
+        { entry },
+      );
+      return ok
+        ? { name: slotPolicy.name, slot, kind: slotPolicy.kind, action: 'allow' }
+        : denied(slotPolicy, slot, ['hmac signature mismatch']);
+    }
+    return executeRagReview(slotPolicy, facts);
+  } catch (error) {
+    return denied(slotPolicy, slot, [error instanceof Error ? error.message : String(error)]);
+  }
+}
+
+function headerValue(headers: KernAppPolicyRequestFacts['headers'], name: string): string | undefined {
+  if (!headers) return undefined;
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted) return value;
+  }
+  return undefined;
+}
+
+function executeRagReview(
+  slotPolicy: KernAppPolicySlotDescriptor,
+  facts: KernAppPolicyRequestFacts,
+): KernAppPolicyExecution {
+  const rag = facts.ragReview;
+  if (!rag || rag.retrievalError || !Array.isArray(rag.retrievedChunks) || rag.retrievedChunks.length === 0) {
+    return denied(slotPolicy, slotPolicy.slot, ['rag retrieval missing, empty, or failed']);
+  }
+  const answer = typeof rag.answer === 'string' ? rag.answer : '';
+  const citedChunkIds = Array.isArray(rag.citedChunkIds) ? rag.citedChunkIds : [];
+  const retrievedIds = new Set(rag.retrievedChunks.map((chunk) => chunk.id));
+  const fabricated = citedChunkIds.filter((id) => !retrievedIds.has(id));
+  const spans =
+    rag.groundingSpans && rag.groundingSpans.length > 0
+      ? rag.groundingSpans
+      : citedChunkIds.length > 0
+        ? [{ start: 0, end: answer.length, chunkIds: citedChunkIds, required: true }]
+        : [];
+  const result = evaluatePolicyRagReview({
+    answer,
+    retrievedChunks: rag.retrievedChunks,
+    groundingSpans: spans,
+    minGroundingCoverage: slotPolicy.plan.kind === 'rag-review' ? slotPolicy.plan.minGroundingCoverage : 1,
+  });
+  if (fabricated.length > 0 || result.diagnostics.length > 0) {
+    return denied(slotPolicy, slotPolicy.slot, [
+      ...fabricated.map((id) => `citation '${id}' was not retrieved for this request`),
+      ...result.diagnostics,
+    ]);
+  }
+  return { name: slotPolicy.name, slot: slotPolicy.slot, kind: slotPolicy.kind, action: 'allow' };
+}
+
+function evaluatePolicyRagReview(input: {
+  readonly answer: string;
+  readonly retrievedChunks: readonly KernAppRetrievedChunk[];
+  readonly groundingSpans: readonly {
+    readonly start: number;
+    readonly end: number;
+    readonly chunkIds: readonly string[];
+  }[];
+  readonly minGroundingCoverage: number;
+}): { readonly diagnostics: readonly string[] } {
+  const diagnostics: string[] = [];
+  if (input.answer.trim().length === 0) diagnostics.push('rag answer must be non-empty');
+  if (input.groundingSpans.length === 0) diagnostics.push('rag answer must cite retrieved chunks');
+
+  const chunkById = new Map(input.retrievedChunks.map((chunk) => [chunk.id, chunk]));
+  const grounded = new Array(input.answer.length).fill(false) as boolean[];
+  for (const [spanIndex, span] of input.groundingSpans.entries()) {
+    if (
+      !Number.isInteger(span.start) ||
+      !Number.isInteger(span.end) ||
+      span.start < 0 ||
+      span.end <= span.start ||
+      span.end > input.answer.length
+    ) {
+      diagnostics.push(`rag grounding span ${spanIndex} is invalid`);
+      continue;
+    }
+    const citedChunks = span.chunkIds.map((chunkId) => chunkById.get(chunkId)).filter(isDefined);
+    if (citedChunks.length === 0) {
+      diagnostics.push(`rag grounding span ${spanIndex} has no retrieved citation`);
+      continue;
+    }
+    const spanText = normalizeRagSupportText(input.answer.slice(span.start, span.end));
+    const supported =
+      spanText.length > 0 && citedChunks.some((chunk) => normalizeRagSupportText(chunk.text).includes(spanText));
+    if (!supported) {
+      diagnostics.push(`rag grounding span ${spanIndex} is not supported by cited chunks`);
+      continue;
+    }
+    for (let index = span.start; index < span.end; index += 1) grounded[index] = true;
+  }
+
+  const answerChars = countNonWhitespace(input.answer);
+  const groundedChars = countGroundedNonWhitespace(input.answer, grounded);
+  const coverage = answerChars === 0 ? 0 : groundedChars / answerChars;
+  if (coverage < input.minGroundingCoverage) {
+    diagnostics.push(
+      `rag grounding coverage ${coverage.toFixed(3)} is below required threshold ${input.minGroundingCoverage.toFixed(3)}`,
+    );
+  }
+  return { diagnostics };
+}
+
+function normalizeRagSupportText(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function countNonWhitespace(text: string): number {
+  let count = 0;
+  for (const char of text) {
+    if (!/\s/u.test(char)) count += 1;
+  }
+  return count;
+}
+
+function countGroundedNonWhitespace(text: string, grounded: readonly boolean[]): number {
+  let count = 0;
+  for (let index = 0; index < text.length; ) {
+    const codePoint = text.codePointAt(index);
+    const charLength = codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+    if (isGroundedCodePoint(grounded, index, charLength) && !/\s/u.test(text.slice(index, index + charLength))) {
+      count += 1;
+    }
+    index += charLength;
+  }
+  return count;
+}
+
+function isGroundedCodePoint(grounded: readonly boolean[], start: number, length: number): boolean {
+  for (let index = start; index < start + length; index += 1) {
+    if (!grounded[index]) return false;
+  }
+  return true;
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
 }

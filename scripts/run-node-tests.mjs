@@ -96,9 +96,23 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+function supportsTestConcurrencyFlag() {
+  const [major = 0, minor = 0] = process.versions.node.split('.').map((part) => Number.parseInt(part, 10));
+  return major > 20 || (major === 20 && minor >= 10);
+}
+
+const nodeTestArgs = [
+  '--import',
+  pathToFileURL(GLOBALS).href,
+  '--test',
+  ...(supportsTestConcurrencyFlag() ? ['--test-concurrency=1'] : []),
+  '--test-reporter=dot',
+  ...files,
+];
+
 const result = spawnSync(
   process.execPath,
-  ['--import', pathToFileURL(GLOBALS).href, '--test', '--test-concurrency=1', '--test-reporter=dot', ...files],
+  nodeTestArgs,
   { env: { ...process.env, KERN_TEST_DIST: '1' }, stdio: 'inherit' },
 );
 

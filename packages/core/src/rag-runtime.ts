@@ -1146,18 +1146,30 @@ function isValidGroundingSpan(span: RagAnswerGroundingSpan, answerLength: number
 function countAnswerChars(answer: string): number {
   if (typeof answer !== 'string') return 0;
   let count = 0;
-  for (let index = 0; index < answer.length; index += 1) {
-    if (!/\s/u.test(answer[index] ?? '')) count += 1;
+  for (const char of answer) {
+    if (!/\s/u.test(char)) count += 1;
   }
   return count;
 }
 
 function countGroundedAnswerChars(answer: string, grounded: readonly boolean[]): number {
   let count = 0;
-  for (let index = 0; index < answer.length; index += 1) {
-    if (grounded[index] && !/\s/u.test(answer[index] ?? '')) count += 1;
+  for (let index = 0; index < answer.length; ) {
+    const codePoint = answer.codePointAt(index);
+    const charLength = codePoint !== undefined && codePoint > 0xffff ? 2 : 1;
+    if (isGroundedCodePoint(grounded, index, charLength) && !/\s/u.test(answer.slice(index, index + charLength))) {
+      count += 1;
+    }
+    index += charLength;
   }
   return count;
+}
+
+function isGroundedCodePoint(grounded: readonly boolean[], start: number, length: number): boolean {
+  for (let index = start; index < start + length; index += 1) {
+    if (!grounded[index]) return false;
+  }
+  return true;
 }
 
 function normalizeGroundingSupportText(value: string): string {

@@ -1558,4 +1558,202 @@ describe('Express Transpiler', () => {
       );
     });
   });
+
+  describe('hmacSignature-guarded routes vs the global JSON body parser', () => {
+    async function transpile(source: string) {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      return transpileExpress(parse(source));
+    }
+
+    test('with an HMAC route present, body parsing moves per-route: no global parser, no path-shape heuristic (oracle H10)', async () => {
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path="/webhook/:id"',
+        '    policy name=Sig kind=hmacSignature slot=pre',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+        '  route method=post path="/webhook/health"',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+
+      // No global JSON parser at all — and no shape-matcher wrapper either
+      // (an earlier design skipped by method+path REGEX, which also skipped
+      // unguarded routes that merely share a shape with a guarded ':param'
+      // route, leaving their req.body silently undefined).
+      expect(result.code).not.toContain('app.use(express.json');
+      expect(result.code).not.toContain('__kernSkipBodyParserForHmacRoutes');
+
+      // The unguarded route — even one shaped exactly like the guarded
+      // ':id' route — carries its OWN parser in its middleware chain.
+      const healthRoute = result.artifacts?.find(
+        (a: any) => a.type === 'route' && a.content.includes("'/webhook/health'"),
+      );
+      expect(healthRoute).toBeDefined();
+      expect(healthRoute!.content).toContain(`express.json({ limit: '1mb' })`);
+
+      // The guarded route has NO json parser anywhere — raw capture, then
+      // the pre-policy middleware, then parse-after-allow own the body.
+      const guardedRoute = result.artifacts?.find(
+        (a: any) => a.type === 'route' && a.content.includes("'/webhook/:id'"),
+      );
+      expect(guardedRoute).toBeDefined();
+      expect(guardedRoute!.content).not.toContain('express.json(');
+      expect(guardedRoute!.content).toContain('__kernCaptureRawBody, __kernEnforcePrePolicy,');
+    });
+
+    test('a route without any hmacSignature policy still gets the plain global JSON parser', async () => {
+      const source = [
+        'server name=PlainAPI',
+        '  route method=post path=/save',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+      expect(result.code).toContain(`app.use(express.json({ limit: '1mb' }));`);
+      expect(result.code).not.toContain('__kernSkipBodyParserForHmacRoutes');
+    });
+
+    test('an explicit server-level `middleware name=json` also moves per-route when an hmacSignature route is present', async () => {
+      const source = [
+        'server name=WebhookAPI',
+        '  middleware name=json',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+        '  route method=post path=/plain',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+      expect(result.code).not.toContain('app.use(express.json');
+      const plainRoute = result.artifacts?.find((a: any) => a.type === 'route' && a.content.includes("'/plain'"));
+      expect(plainRoute!.content).toContain(`express.json({ limit: '1mb' })`);
+      const guardedRoute = result.artifacts?.find((a: any) => a.type === 'route' && a.content.includes("'/webhook'"));
+      expect(guardedRoute!.content).not.toContain('express.json(');
+    });
+
+    test('a route-local `middleware name=json` on an HMAC route is dropped — raw capture owns the stream (deny-before-parse, no stall)', async () => {
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre',
+        '    middleware name=json',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = await transpile(source);
+      const guardedRoute = result.artifacts?.find((a: any) => a.type === 'route' && a.content.includes("'/webhook'"));
+      expect(guardedRoute).toBeDefined();
+      expect(guardedRoute!.content).not.toContain('express.json(');
+    });
+  });
+
+  describe('pre-policy middleware ordering and raw-capture cap', () => {
+    async function guardedRouteContent(extraRouteLines: string[] = []) {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre',
+        ...extraRouteLines,
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts?.find((a: any) => a.type === 'route' && a.content.includes("'/webhook'"));
+      if (!route) throw new Error('guarded route artifact not found');
+      return route.content as string;
+    }
+
+    test('the pre-policy slot runs as its own middleware, registered before user middleware — not inside the handler', async () => {
+      const code = await guardedRouteContent(['    auth mode=required']);
+      // Registration order: capture, policy, THEN user middleware (auth).
+      const registration = code.split('\n').find((line: string) => line.includes('app.post('));
+      expect(registration).toBeDefined();
+      const captureIdx = registration!.indexOf('__kernCaptureRawBody');
+      const enforceIdx = registration!.indexOf('__kernEnforcePrePolicy');
+      const authIdx = registration!.indexOf('authRequired');
+      expect(captureIdx).toBeGreaterThan(-1);
+      expect(enforceIdx).toBeGreaterThan(captureIdx);
+      expect(authIdx).toBeGreaterThan(enforceIdx);
+      // The policy evaluation lives in the middleware, and parse-after-allow
+      // happens there too (so downstream middleware still sees req.body).
+      expect(code).toContain('async function __kernEnforcePrePolicy(');
+      expect(code.indexOf('executeKernAppEntryPolicySlot')).toBeLessThan(
+        code.indexOf('__kernParseJsonAfterPolicy(req)'),
+      );
+    });
+
+    test('raw-body capture is capped at 1mb and overflows respond 413 — no unbounded pre-auth buffering', async () => {
+      const code = await guardedRouteContent();
+      expect(code).toContain('const __KERN_RAW_BODY_LIMIT_BYTES = 1048576;');
+      expect(code).toContain(`res.status(413).json({ error: 'Payload Too Large' });`);
+      // Overflow stops reading immediately (TCP backpressure) and tears the
+      // connection down after a short lingering close — draining the rest
+      // would let a client keep pumping bytes at full bandwidth.
+      expect(code).toContain(`res.setHeader('Connection', 'close');`);
+      expect(code).toContain('req.pause();');
+      expect(code).toContain(`res.once('finish', () => setTimeout(() => req.destroy(), 1000).unref());`);
+      // An already-consumed stream never fires 'end' — guard with an empty
+      // raw body (denied downstream) instead of hanging the request.
+      expect(code).toContain('if (req.readableEnded) {');
+    });
+
+    test('an hmacSignature encoding outside hex/base64 fails the BUILD, matching the core loader (fail-closed)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre encoding=base32',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      expect(() => transpileExpress(parse(source))).toThrow(/hmacSignature encoding must be hex or base64/);
+    });
+
+    test("the emitted HMAC plan canonicalizes 'sha-256' to 'sha256' and the runtime verifier normalizes defensively", async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=WebhookAPI',
+        '  route method=post path=/webhook',
+        '    policy name=Sig kind=hmacSignature slot=pre algorithm=sha-256',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts?.find((a: any) => a.type === 'route' && a.content.includes("'/webhook'"));
+      expect(route!.content).toContain("algorithm: 'sha256'");
+      expect(route!.content).toContain('const algorithm = input.algorithm.trim().toLowerCase()');
+    });
+
+    test('a route-child rag-review policy with an out-of-range minGroundingCoverage fails the BUILD (fail-closed)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=RagAPI',
+        '  route method=post path=/answer',
+        '    policy name=Grounded kind=rag-review slot=pre minGroundingCoverage=-1',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      expect(() => transpileExpress(parse(source))).toThrow(/minGroundingCoverage must be between 0 and 1/);
+    });
+  });
 });
