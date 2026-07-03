@@ -63,10 +63,48 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
   Text: {
     upper: { arity: 1, ts: '$0.toUpperCase()', py: '$0.upper()' },
     lower: { arity: 1, ts: '$0.toLowerCase()', py: '$0.lower()' },
-    length: { arity: 1, ts: '$0.length', py: 'len($0)' },
+    // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,
+    // Option D — Unicode CODE POINTS). `length`/`charAt`/`slice`/`indexOf`/
+    // `startsWith` used to lower to NATIVE JS/Python string ops, which are
+    // UTF-16-code-UNIT-indexed on the TS leg — a standing parity violation
+    // against the ReferenceRunner's code-point contract (`Text.length("a💩b")`
+    // must be 3, not 4). They now lower to the shared `__kern_text_*` (TS) /
+    // `_kern_text_*` (Python) helpers single-sourced in `text-contract.ts`,
+    // which both walk CODE POINTS and fail closed on a malformed (lone or
+    // reversed) UTF-16 surrogate — byte-identical fail-close set to the
+    // runner. `charAt`/`slice`/`indexOf` were previously RUNNER-ONLY (not in
+    // this table at all); this slice lowers them into both codegen legs for
+    // the first time. See `text-contract.ts`'s module doc for the full
+    // three-leg architecture and `stdlib-preamble.ts` (`usage.textOps`) /
+    // `registerStdlibRequirementPython` (`'text-ops'`) for the per-leg helper
+    // injection wiring.
+    length: { arity: 1, ts: '__kern_text_length($0)', py: '_kern_text_length($0)', requires: { py: 'text-ops' } },
+    charAt: {
+      arity: 2,
+      ts: '__kern_text_char_at($0, $1)',
+      py: '_kern_text_char_at($0, $1)',
+      requires: { py: 'text-ops' },
+    },
+    slice: {
+      arity: 3,
+      ts: '__kern_text_slice($0, $1, $2)',
+      py: '_kern_text_slice($0, $1, $2)',
+      requires: { py: 'text-ops' },
+    },
+    indexOf: {
+      arity: 2,
+      ts: '__kern_text_index_of($0, $1)',
+      py: '_kern_text_index_of($0, $1)',
+      requires: { py: 'text-ops' },
+    },
+    startsWith: {
+      arity: 2,
+      ts: '__kern_text_starts_with($0, $1)',
+      py: '_kern_text_starts_with($0, $1)',
+      requires: { py: 'text-ops' },
+    },
     trim: { arity: 1, ts: '$0.trim()', py: '$0.strip()' },
     includes: { arity: 2, ts: '$0.includes($1)', py: '$1 in $0' },
-    startsWith: { arity: 2, ts: '$0.startsWith($1)', py: '$0.startswith($1)' },
     endsWith: { arity: 2, ts: '$0.endsWith($1)', py: '$0.endswith($1)' },
     split: { arity: 2, ts: '$0.split($1)', py: '$0.split($1)' },
     // Slice-2 review fix: replace-all is the canonical KERN semantics. JS

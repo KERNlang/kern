@@ -18,8 +18,29 @@ describe('emitPyExpression — KERN-stdlib dispatch (Text module)', () => {
     expect(emitPyExpression(parseExpression('Text.lower(name)'))).toBe('name.lower()');
   });
 
-  test('Text.length(s) lowers to Python len(s) (free fn, not method)', () => {
-    expect(emitPyExpression(parseExpression('Text.length(s)'))).toBe('len(s)');
+  // KERN 4.5.0 item 3 — string parity completion. `Text.length` now lowers
+  // to the shared well-formedness-guarded helper, not native `len(...)` —
+  // Python's `str` is already code-point-native, but the helper still
+  // fail-closes on a malformed (lone/reversed) surrogate code point,
+  // matching the runner and TS legs.
+  test('Text.length(s) lowers to Python _kern_text_length(s) (well-formedness-guarded, not bare len)', () => {
+    expect(emitPyExpression(parseExpression('Text.length(s)'))).toBe('_kern_text_length(s)');
+  });
+
+  test('Text.charAt(s, i) lowers to Python _kern_text_char_at(s, i)', () => {
+    expect(emitPyExpression(parseExpression('Text.charAt(s, i)'))).toBe('_kern_text_char_at(s, i)');
+  });
+
+  test('Text.slice(s, a, b) lowers to Python _kern_text_slice(s, a, b)', () => {
+    expect(emitPyExpression(parseExpression('Text.slice(s, a, b)'))).toBe('_kern_text_slice(s, a, b)');
+  });
+
+  test('Text.indexOf(s, needle) lowers to Python _kern_text_index_of(s, needle)', () => {
+    expect(emitPyExpression(parseExpression('Text.indexOf(s, needle)'))).toBe('_kern_text_index_of(s, needle)');
+  });
+
+  test('Text.startsWith(s, prefix) lowers to Python _kern_text_starts_with(s, prefix) (not bare .startswith)', () => {
+    expect(emitPyExpression(parseExpression('Text.startsWith(s, prefix)'))).toBe('_kern_text_starts_with(s, prefix)');
   });
 
   test('Text.trim(s) lowers to Python s.strip() (NOT s.trim — that is JS)', () => {
@@ -31,8 +52,8 @@ describe('emitPyExpression — KERN-stdlib dispatch (Text module)', () => {
     expect(emitPyExpression(parseExpression('Text.upper(Text.trim(raw))'))).toBe('raw.strip().upper()');
   });
 
-  test('Text.length nested inside another call lowers to len(...)', () => {
-    expect(emitPyExpression(parseExpression('check(Text.length(s))'))).toBe('check(len(s))');
+  test('Text.length nested inside another call lowers to _kern_text_length(...)', () => {
+    expect(emitPyExpression(parseExpression('check(Text.length(s))'))).toBe('check(_kern_text_length(s))');
   });
 
   test('unknown method on Text throws with did-you-mean (Python target)', () => {
@@ -81,11 +102,11 @@ describe('Cross-target parity — same KERN source, idiomatic per target', () =>
     expect(emitPyExpression(parseExpression(src))).toBe('s.upper()');
   });
 
-  test('Text.length(s) parity — TS property vs Python free fn', async () => {
+  test('Text.length(s) parity — both legs route through the code-point-ops helper', async () => {
     const { emitExpression } = await import('@kernlang/core');
     const src = 'Text.length(s)';
-    expect(emitExpression(parseExpression(src))).toBe('s.length');
-    expect(emitPyExpression(parseExpression(src))).toBe('len(s)');
+    expect(emitExpression(parseExpression(src))).toBe('__kern_text_length(s)');
+    expect(emitPyExpression(parseExpression(src))).toBe('_kern_text_length(s)');
   });
 
   test('Text.trim(s) parity — same name in KERN, different targets', async () => {

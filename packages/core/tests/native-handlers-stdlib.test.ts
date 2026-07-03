@@ -14,8 +14,8 @@ describe('KERN_STDLIB table — Text module slice 2a', () => {
     expect(KERN_STDLIB_MODULES.has('Text')).toBe(true);
   });
 
-  test('all four slice-2a Text ops are registered with both TS and Python lowerings', () => {
-    for (const op of ['upper', 'lower', 'length', 'trim']) {
+  test('all seven Text ops (2a + KERN 4.5.0 item 3 code-point ops) are registered with both TS and Python lowerings', () => {
+    for (const op of ['upper', 'lower', 'length', 'trim', 'charAt', 'slice', 'indexOf']) {
       const entry = lookupStdlib('Text', op);
       expect(entry).not.toBeNull();
       expect(entry!.ts).toBeDefined();
@@ -51,8 +51,29 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     expect(emitExpression(parseExpression('Text.lower(name)'))).toBe('name.toLowerCase()');
   });
 
-  test('Text.length(s) lowers to TS s.length (property, not call)', () => {
-    expect(emitExpression(parseExpression('Text.length(s)'))).toBe('s.length');
+  // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,
+  // Option D — Unicode code points). `Text.length` now lowers to the shared
+  // code-point-walking helper (NOT native `.length`, which is UTF-16-code-
+  // UNIT-indexed and diverges from the runner's code-point contract for any
+  // non-BMP character — see `text-contract.ts`).
+  test('Text.length(s) lowers to TS __kern_text_length(s) (code-point-indexed, not native .length)', () => {
+    expect(emitExpression(parseExpression('Text.length(s)'))).toBe('__kern_text_length(s)');
+  });
+
+  test('Text.charAt(s, i) lowers to TS __kern_text_char_at(s, i)', () => {
+    expect(emitExpression(parseExpression('Text.charAt(s, i)'))).toBe('__kern_text_char_at(s, i)');
+  });
+
+  test('Text.slice(s, a, b) lowers to TS __kern_text_slice(s, a, b)', () => {
+    expect(emitExpression(parseExpression('Text.slice(s, a, b)'))).toBe('__kern_text_slice(s, a, b)');
+  });
+
+  test('Text.indexOf(s, needle) lowers to TS __kern_text_index_of(s, needle)', () => {
+    expect(emitExpression(parseExpression('Text.indexOf(s, needle)'))).toBe('__kern_text_index_of(s, needle)');
+  });
+
+  test('Text.startsWith(s, prefix) lowers to TS __kern_text_starts_with(s, prefix) (not native .startsWith)', () => {
+    expect(emitExpression(parseExpression('Text.startsWith(s, prefix)'))).toBe('__kern_text_starts_with(s, prefix)');
   });
 
   test('Text.trim(s) lowers to TS s.trim()', () => {
@@ -110,7 +131,10 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
   });
 
   test('stdlib template args parenthesize lambda receivers', () => {
-    expect(emitExpression(parseExpression('Text.length(x => x)'))).toBe('(x => x).length');
+    // KERN 4.5.0 item 3 — `Text.length` lowers to a free-function-shaped
+    // template now (`__kern_text_length($0)`), but `needsArgParens` still
+    // wraps a lambda arg unconditionally regardless of template shape.
+    expect(emitExpression(parseExpression('Text.length(x => x)'))).toBe('__kern_text_length((x => x))');
   });
 
   test('List.map and List.filter lower callback expressions to TS array methods', () => {
