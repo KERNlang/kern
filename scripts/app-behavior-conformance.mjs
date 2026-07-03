@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { createRequire } from 'node:module';
 import { createServer as createNetServer } from 'node:net';
 import { dirname, join } from 'node:path';
@@ -605,6 +606,28 @@ assert.match(
   'FastAPI plan canonicalizes sha-256 to sha256',
 );
 
+// Route-child hmacSignature policies must fail the BUILD on any encoding
+// other than hex/base64 — mirroring core's loader. Emitted verbatim, a
+// malformed encoding reaches generated runtime code (the Python runtime
+// treats every non-hex value as base64: silently drifted semantics).
+const badEncodingRouteNode = {
+  type: 'route',
+  props: { method: 'post', path: '/save' },
+  children: [
+    { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', encoding: 'base32' }, children: [] },
+  ],
+};
+assert.throws(
+  () => expressRoute.buildRouteArtifact(badEncodingRouteNode, 0, new Map(), [], 'strict'),
+  /hmacSignature encoding must be hex or base64/,
+  'Express build fails closed on an unsupported HMAC encoding',
+);
+assert.throws(
+  () => fastapiRoute.buildRouteArtifact(badEncodingRouteNode, 0, []),
+  /hmacSignature encoding must be hex or base64/,
+  'FastAPI build fails closed on an unsupported HMAC encoding',
+);
+
 // P2 — a guard kind unknown to a leg must fail that leg's BUILD, never emit an
 // unguarded route (kills an emitter kind-dispatch that defaults to passthrough).
 const p2RouteNode = {
@@ -896,16 +919,51 @@ async function runWholeAppExpress() {
       'whole-app express H10: bad signature + malformed large body denies cleanly (no parser ran)',
     );
 
-    // Finding 3 — raw capture is capped at 1mb: an oversized body responds
-    // 413 promptly (no hang, no unbounded pre-auth buffering).
+    // Finding 3 — raw capture is capped at 1mb: an oversized body is
+    // rejected promptly (no hang, no unbounded pre-auth buffering) AND the
+    // connection is torn down instead of drained. Because the server stops
+    // reading and closes mid-upload, the client legitimately sees EITHER the
+    // 413 response or a connection teardown (EPIPE/ECONNRESET — an RST can
+    // discard the in-flight 413 while unread upload bytes sit in the
+    // server's receive buffer). Both prove bounded rejection; the OLD
+    // unbounded behavior (buffer everything, then 401 from the guard) fails
+    // both arms. Raw node:http is used so a mid-upload write error is
+    // observable data instead of an opaque fetch rejection.
     const oversizedBody = 'x'.repeat(1_500_000);
-    const oversized = await fetch(`${baseUrl}/webhook/abc`, {
-      method: 'POST',
-      headers: { 'x-signature': 'irrelevant', 'content-type': 'application/json' },
-      body: oversizedBody,
-      signal: AbortSignal.timeout(5000),
+    const oversizedOutcome = await new Promise((resolve, reject) => {
+      const clientRequest = httpRequest(
+        {
+          host: '127.0.0.1',
+          port,
+          method: 'POST',
+          path: '/webhook/abc',
+          headers: {
+            'x-signature': 'irrelevant',
+            'content-type': 'application/json',
+            'content-length': String(oversizedBody.length),
+          },
+        },
+        (response) => {
+          response.resume();
+          resolve({ kind: 'response', status: response.statusCode });
+        },
+      );
+      clientRequest.setTimeout(5000, () => {
+        clientRequest.destroy();
+        reject(new Error('whole-app express: oversized request hung (raw capture buffered or never responded)'));
+      });
+      clientRequest.on('error', (error) => resolve({ kind: 'teardown', code: error.code }));
+      clientRequest.write(oversizedBody);
+      clientRequest.end();
     });
-    assert.equal(oversized.status, 413, 'whole-app express: oversized body on an HMAC route responds 413');
+    assert.ok(
+      (oversizedOutcome.kind === 'response' && oversizedOutcome.status === 413) || oversizedOutcome.kind === 'teardown',
+      `whole-app express: oversized body must be rejected with 413 or torn down, got ${JSON.stringify(oversizedOutcome)}`,
+    );
+    // The teardown must be scoped to that one connection — the server stays
+    // healthy for subsequent requests.
+    const afterOversized = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(afterOversized.status, 200, 'whole-app express: server healthy after oversized teardown');
   } finally {
     if (previousPort === undefined) delete process.env.PORT;
     else process.env.PORT = previousPort;
