@@ -155,8 +155,29 @@ export interface GroundResult {
    * host to log/telemetry so shadow calibration data can be inspected.
    * Empty when `policy.tierB === 'enforcing'` (would-drops there are real
    * drops, reported in `dropped` instead) or when Tier B isn't wired.
+   *
+   * Entries carry BOTH entailment reasons and the distinction is
+   * load-bearing for the shadow->enforcing decision: `'entailment-failed'`
+   * = the judge RAN and said "no violation" (the calibration signal shadow
+   * mode exists to measure), while `'entailment-error'` = the judge never
+   * produced a valid verdict (provider down, timeout, malformed output —
+   * an infrastructure rate, not a verdict rate). A host reading only the
+   * total would flip to enforcing on a would-drop rate that is mostly
+   * outage noise. Use `countDropReasons(result.shadowDrops)` for the
+   * per-reason split.
    */
   shadowDrops: DroppedFinding[];
+}
+
+/**
+ * Per-reason counts over a drop list — the cheap split hosts need before
+ * flipping Tier B from shadow to enforcing (judge VERDICTS vs judge
+ * ERRORS, see `GroundResult.shadowDrops`). Works on `dropped` too.
+ */
+export function countDropReasons(drops: readonly DroppedFinding[]): Partial<Record<GroundingDropReason, number>> {
+  const counts: Partial<Record<GroundingDropReason, number>> = {};
+  for (const d of drops) counts[d.reason] = (counts[d.reason] ?? 0) + 1;
+  return counts;
 }
 
 // ── Gate scope ───────────────────────────────────────────────────────────
@@ -176,9 +197,22 @@ export interface GroundResult {
  * `'unknown-rule-id'` since their ruleId namespace never overlaps with the
  * mined corpus.
  */
+/**
+ * Operational meta findings the LLM pipeline itself emits (llm-bridge.ts /
+ * llm-review.ts) — infrastructure signals, not code-review claims. They
+ * carry `source: 'llm'` but never a citation, so an ungated pass through
+ * Tier A would drop them all as `'no-citation'` and silently HIDE LLM
+ * failures (unparseable output, provider errors, too-large-to-review
+ * skips) from consumers. Exported so hosts and tests can reference the
+ * same set instead of re-listing the ids.
+ */
+export const OPERATIONAL_LLM_RULE_IDS: ReadonlySet<string> = new Set(['llm-error', 'llm-skipped']);
+
 export function isGroundingEligible(finding: ReviewFinding): boolean {
   if (finding.source !== 'llm') return false;
   if (finding.ruleId.startsWith('custom/')) return false;
+  // Never gate the pipeline's own health signals — see OPERATIONAL_LLM_RULE_IDS.
+  if (OPERATIONAL_LLM_RULE_IDS.has(finding.ruleId)) return false;
   return true;
 }
 
@@ -266,16 +300,31 @@ export async function groundFindings(
       continue;
     }
 
-    let judgeResult: EntailmentJudgeResult | undefined;
+    // Run the judge, then STRICTLY validate what came back. The type
+    // annotation on evaluateEntailment is a compile-time promise only —
+    // a judge that resolves undefined/null, or returns a truthy
+    // non-boolean `violates` ("yes"), must never ground a finding as
+    // 'entailment'. Exactly three runtime outcomes exist, all decided by
+    // validateJudgeResult below:
+    //   valid + violates === true  -> grounded, citation upgraded
+    //   valid + violates === false -> 'entailment-failed'
+    //   ANYTHING else (throw, undefined, null, non-object, non-boolean
+    //   violates) -> 'entailment-error' fail-closed
+    let judgeRaw: unknown;
     let judgeErrorDetail: string | undefined;
     try {
-      judgeResult = await corpus.evaluateEntailment!({
+      judgeRaw = await corpus.evaluateEntailment!({
         rule: ruleText,
         finding: { message: finding.message, category: finding.category, severity: finding.severity },
         diffHunk,
       });
     } catch (err) {
       judgeErrorDetail = err instanceof Error ? err.message : String(err);
+    }
+
+    const judgeResult = judgeErrorDetail === undefined ? validateJudgeResult(judgeRaw) : undefined;
+    if (judgeErrorDetail === undefined && judgeResult === undefined) {
+      judgeErrorDetail = describeInvalidJudgeResult(judgeRaw);
     }
 
     if (judgeErrorDetail !== undefined) {
@@ -289,8 +338,8 @@ export async function groundFindings(
       continue;
     }
 
-    if (judgeResult && !judgeResult.violates) {
-      const drop: DroppedFinding = { finding: tierAGrounded, reason: 'entailment-failed', detail: judgeResult.reason };
+    if (!judgeResult!.violates) {
+      const drop: DroppedFinding = { finding: tierAGrounded, reason: 'entailment-failed', detail: judgeResult!.reason };
       if (tierBMode === 'enforcing') {
         dropped.push(drop);
       } else {
@@ -300,7 +349,7 @@ export async function groundFindings(
       continue;
     }
 
-    // judgeResult.violates === true — entailment confirmed. Upgrade the
+    // Validated violates === true — entailment confirmed. Upgrade the
     // citation so downstream consumers can see the stronger grounding tier.
     grounded.push({
       ...tierAGrounded,
@@ -309,6 +358,36 @@ export async function groundFindings(
   }
 
   return { grounded, dropped, shadowDrops };
+}
+
+/**
+ * Runtime shape validation for what a host's `evaluateEntailment`
+ * RESOLVED to. Returns a normalized `EntailmentJudgeResult` ONLY when the
+ * value is an object with a genuine boolean `violates` — anything else
+ * (undefined, null, non-object, truthy non-boolean `violates` like the
+ * string "yes") returns undefined and the caller routes the finding to
+ * the `'entailment-error'` fail-closed path. `reason` is coerced to a
+ * placeholder when missing/non-string: it is diagnostic detail, never the
+ * decision input, so a sloppy-but-boolean judge still yields a verdict.
+ */
+function validateJudgeResult(value: unknown): EntailmentJudgeResult | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const candidate = value as { violates?: unknown; reason?: unknown };
+  if (typeof candidate.violates !== 'boolean') return undefined;
+  const reason = typeof candidate.reason === 'string' ? candidate.reason : '(judge gave no reason)';
+  return { violates: candidate.violates, reason };
+}
+
+/** Descriptive detail for an entailment-error drop caused by an invalid
+ *  (but non-throwing) judge resolution — names the shape violation so
+ *  shadow-mode telemetry can distinguish "judge broken" from "provider
+ *  down" without reproducing the call. */
+function describeInvalidJudgeResult(value: unknown): string {
+  if (value === undefined) return 'judge resolved undefined instead of a result object';
+  if (value === null) return 'judge resolved null instead of a result object';
+  if (typeof value !== 'object') return `judge resolved a ${typeof value} instead of a result object`;
+  const violates = (value as { violates?: unknown }).violates;
+  return `judge result "violates" is ${violates === undefined ? 'missing' : `a ${typeof violates}`}, expected boolean`;
 }
 
 export type { RuleCitation };
