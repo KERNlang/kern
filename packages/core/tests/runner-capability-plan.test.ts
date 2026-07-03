@@ -621,6 +621,34 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
   });
 
+  test('keeps unsupported helper-call async requirements out of executable readiness when async providers are supplied', () => {
+    const source = [
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"helper\\" }"',
+      '    return value="answer"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    branch on="helper()"',
+      '      path value="ok"',
+      '        print value="\\"ok\\""',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.asyncBoundaryRequired).toBe(false);
+    expect(analysis.executableAsyncPlannedCapabilities).toEqual([]);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({
+        id: 'llm.complete',
+        reason: 'outside-main',
+      }),
+    ]);
+  });
+
   test('does not mark helper calls from unsupported index expressions as executable readiness', () => {
     const source = [
       'fn name=helper returns=number',

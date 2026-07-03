@@ -798,6 +798,10 @@ function requirementList(requirements: readonly Pick<CapabilityRequirement, 'id'
   return requirements.map(requirementLabel).join(', ');
 }
 
+function referenceRunnerErrorMessage(error: ReferenceRunnerError): string {
+  return error.message;
+}
+
 function asyncCapabilityNodeLabel(node: IRNode): string | undefined {
   const namespace = node.props?.namespace;
   const operation = node.props?.operation;

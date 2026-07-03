@@ -395,6 +395,7 @@ returns, and non-portable provider values.
   OpenAI-compatible async preview adapter.
 - Decide whether `rag.retrieveAsync` should remain the explicit async retrieval
   capability or whether `rag.retrieve` needs a dual sync/async descriptor
-  boundary after the 5.0 demo proves the app path.
+  boundary, and promote `rag.answer` from explicit retrieved chunks to
+  async/provider-backed retrieval after the 5.0 demo proves the app path.
 - Decide when a self-hosting/bootstrap demo is strong enough to call `kern run`
   canonical rather than preview.
