@@ -47,6 +47,7 @@ const {
   generateCoreNode,
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesTextOps,
   kernStdlibPreamble,
 } = await import(join(REPO, 'packages/core/dist/index.js'));
 const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
@@ -1350,6 +1351,126 @@ fn name=probe returns=boolean
     expected: [3, 1, 1, 0] },
 
   // ──────────────────────────────────────────────────────────────────────────
+  // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,
+  // Option D — Unicode CODE POINTS, run tribunal-1782979476717-1d9547).
+  // `Text.length`/`charAt`/`slice`/`indexOf`/`startsWith` now lower into BOTH
+  // codegen legs via the shared `__kern_text_*`/`_kern_text_*` helpers
+  // (`text-contract.ts`). These `kind:'stmt'` fixtures prove TS == Python ==
+  // expected end-to-end (actual emitted code, actual subprocess execution —
+  // NOT just template-string assertions). Companion runner-leg proof (the
+  // third leg) lives in `packages/core/tests/runner-string-ops.test.ts`,
+  // using the SAME representative inputs so the three legs are provably in
+  // lockstep by inspection. Every non-BMP fixture is DISCRIMINATING: a
+  // UTF-16-code-UNIT-leaking TS implementation fails these (see the inline
+  // comment on each fixture for the specific wrong-answer it would produce).
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'stmt', name: 'stmt: Text.length counts ASCII code points',
+    params: [{ name: 's', type: 'string', value: 'hello' }],
+    body: `return value="Text.length(s)"`,
+    expected: 5 },
+  { kind: 'stmt', name: 'stmt: Text.length on a BMP non-ASCII script counts code points (日本語 -> 3)',
+    params: [{ name: 's', type: 'string', value: '日本語' }],
+    body: `return value="Text.length(s)"`,
+    expected: 3 },
+  // DISCRIMINATING — "a💩b": UTF-16 .length is 4 (a, hi-surrogate, lo-surrogate, b);
+  // the code-point length is 3 (a, 💩, b). A UTF-16-leaking impl returns 4.
+  { kind: 'stmt', name: 'stmt: Text.length("a💩b") is 3, NOT 4 — code points, not UTF-16 code units',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }],
+    body: `return value="Text.length(s)"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: Text.charAt reads a code point by index',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'i', type: 'number', value: 1 }],
+    body: `return value="Text.charAt(s, i)"`,
+    expected: 'e' },
+  // DISCRIMINATING — index 1 of "a💩b" (code points [a, 💩, b]) is the WHOLE
+  // astral character, not one half of its UTF-16 surrogate pair.
+  { kind: 'stmt', name: 'stmt: Text.charAt("a💩b", 1) is the full astral character, not a surrogate half',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'i', type: 'number', value: 1 }],
+    body: `return value="Text.charAt(s, i)"`,
+    expected: '\u{1F4A9}' },
+  // DISCRIMINATING — index 2 of "a💩b" must land on 'b' (the code point AFTER
+  // the astral character), not a trailing lone surrogate.
+  { kind: 'stmt', name: 'stmt: Text.charAt("a💩b", 2) lands on "b", past the astral character',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'i', type: 'number', value: 2 }],
+    body: `return value="Text.charAt(s, i)"`,
+    expected: 'b' },
+  { kind: 'stmt', name: 'stmt: Text.slice reads a middle substring by code-point bounds',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'a', type: 'number', value: 1 }, { name: 'b', type: 'number', value: 3 }],
+    body: `return value="Text.slice(s, a, b)"`,
+    expected: 'el' },
+  // DISCRIMINATING — a slice boundary AT an astral character must keep the
+  // surrogate pair intact ("💩"), never split it into a lone surrogate.
+  { kind: 'stmt', name: 'stmt: Text.slice("a💩b", 1, 2) keeps the astral character intact',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'a', type: 'number', value: 1 }, { name: 'b', type: 'number', value: 2 }],
+    body: `return value="Text.slice(s, a, b)"`,
+    expected: '\u{1F4A9}' },
+  { kind: 'stmt', name: 'stmt: Text.slice("a💩b", 0, 3) is the full 3-code-point string',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'a', type: 'number', value: 0 }, { name: 'b', type: 'number', value: 3 }],
+    body: `return value="Text.slice(s, a, b)"`,
+    expected: 'a\u{1F4A9}b' },
+  { kind: 'stmt', name: 'stmt: Text.indexOf finds a multi-character ASCII needle',
+    params: [{ name: 's', type: 'string', value: 'hello world' }, { name: 'needle', type: 'string', value: 'world' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: 6 },
+  // DISCRIMINATING — "💩" sits at UTF-16 code-unit index 1 but code-point index 1
+  // too (both agree here); the NEXT fixture is the one that actually discriminates.
+  { kind: 'stmt', name: 'stmt: Text.indexOf finds a non-BMP needle by code-point offset',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'needle', type: 'string', value: '\u{1F4A9}' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: 1 },
+  // DISCRIMINATING — "b" sits at UTF-16 code-unit index 3 ('a', hi, lo, 'b') but
+  // code-point index 2 ('a', 💩, 'b'). A UTF-16-leaking impl returns 3.
+  { kind: 'stmt', name: 'stmt: Text.indexOf("a💩b", "b") is 2, NOT 3 — needle is AFTER the astral character',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'needle', type: 'string', value: 'b' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: Text.indexOf returns -1 for a missing needle (not an error)',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'needle', type: 'string', value: 'z' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: -1 },
+  { kind: 'stmt', name: 'stmt: Text.startsWith true for a matching ASCII prefix',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'p', type: 'string', value: 'he' }],
+    body: `return value="Text.startsWith(s, p)"`,
+    expected: true },
+  { kind: 'stmt', name: 'stmt: Text.startsWith true for a well-formed astral prefix',
+    params: [{ name: 's', type: 'string', value: '\u{1F4A9}b' }, { name: 'p', type: 'string', value: '\u{1F4A9}' }],
+    body: `return value="Text.startsWith(s, p)"`,
+    expected: true },
+  { kind: 'stmt', name: 'stmt: Text.startsWith false for a non-matching prefix',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'p', type: 'string', value: 'wo' }],
+    body: `return value="Text.startsWith(s, p)"`,
+    expected: false },
+  { kind: 'stmt', name: 'stmt: a combining-mark sequence counts each combining mark as its own code point (5)',
+    // "cafe" + U+0301 COMBINING ACUTE ACCENT: 4 base letters + 1 combining
+    // mark = 5 code points (code points, not graphemes — the tribunal fixture).
+    params: [{ name: 's', type: 'string', value: 'café' }],
+    body: `return value="Text.length(s)"`,
+    expected: 5 },
+
+  // ── Malformed-surrogate FAIL-CLOSED parity (kind:'stmt', throws:true) — both
+  //    legs must throw on the SAME input; a leg that silently "succeeds" on a
+  //    malformed surrogate is a parity violation (the runner already fails
+  //    closed on these — see runner-string-ops.test.ts's matching fixtures).
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a LONE HIGH surrogate fails closed on Text.length on both legs',
+    params: [{ name: 's', type: 'string', value: '\uD800' }],
+    body: `return value="Text.length(s)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a LONE LOW surrogate fails closed on Text.length on both legs',
+    params: [{ name: 's', type: 'string', value: '\uDC00' }],
+    body: `return value="Text.length(s)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a REVERSED PAIR fails closed on Text.length on both legs',
+    params: [{ name: 's', type: 'string', value: '\uDC00\uD800' }],
+    body: `return value="Text.length(s)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a lone surrogate in the NEEDLE argument fails closed (indexOf) on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'needle', type: 'string', value: '\uD800' }],
+    body: `return value="Text.indexOf(s, needle)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.charAt out-of-bounds index fails closed on both legs (strict bounds)',
+    params: [{ name: 's', type: 'string', value: 'hi' }, { name: 'i', type: 'number', value: 2 }],
+    body: `return value="Text.charAt(s, i)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.slice out-of-bounds end fails closed on both legs (no silent clamping)',
+    params: [{ name: 's', type: 'string', value: 'hi' }, { name: 'a', type: 'number', value: 0 }, { name: 'b', type: 'number', value: 5 }],
+    body: `return value="Text.slice(s, a, b)"` },
+
+  // ──────────────────────────────────────────────────────────────────────────
   // compile-reject: sources KERN must REJECT, asserting the EXACT reason at every layer that
   // rejects (kind:'compile-reject', 2026-06-10). The runner tries parse / TS codegen / Python
   // codegen; for each layer that throws, the message MUST contain `expectReason`. ≥1 layer must
@@ -1753,6 +1874,11 @@ for (const fx of FIXTURES) {
       // feeds the other flags).
       const usage = detectKernStdlibUsage(handler);
       if (emittedCodeUsesLooseEq(ts.code)) usage.looseEq = true;
+      // KERN 4.5.0 item 3 — same detection == emission pattern: a `Text.length`/
+      // `charAt`/`slice`/`indexOf`/`startsWith` lowering emits an `__kern_text_*(`
+      // call that needs the code-point-ops helper block resolved in this
+      // isolated subprocess.
+      if (emittedCodeUsesTextOps(ts.code)) usage.textOps = true;
       const tsPreamble = kernStdlibPreamble(usage).join('\n');
       const tsSource = `${[...(ts.imports ?? [])].join('\n')}\n${tsPreamble}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
       writeFileSync(
@@ -1764,6 +1890,28 @@ for (const fx of FIXTURES) {
       const pyHelpers = [...(pyEmit.helpers ?? [])].join('\n\n');
       writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\n${pyHelpers}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
       const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
+      // KERN 4.5.0 item 3 — `throws: true` fixtures assert RUNTIME-THROW PARITY
+      // (both legs must fail closed on the same input, e.g. a malformed
+      // surrogate) rather than a matching return value. Neither leg has a
+      // "did I throw" JSON signal, so a non-zero exit / execFileSync throw IS
+      // the observation.
+      if (fx.throws) {
+        let tsThrew = false;
+        let pyThrew = false;
+        try {
+          execFileSync('node', [tsFile], stmtOpts);
+        } catch {
+          tsThrew = true;
+        }
+        try {
+          execFileSync('python3', [pyFile], stmtOpts);
+        } catch {
+          pyThrew = true;
+        }
+        if (tsThrew && pyThrew) pass++;
+        else failures.push({ name: fx.name, why: `expected BOTH legs to throw (ts threw=${tsThrew}, py threw=${pyThrew})` });
+        continue;
+      }
       const tsOut = execFileSync('node', [tsFile], stmtOpts).trim();
       const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
       const cTs = canon(JSON.parse(tsOut), 'value');
@@ -1899,6 +2047,8 @@ for (const fx of FIXTURES) {
         const tsBody = topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n');
         const usage = detectKernStdlibUsage(root);
         if (emittedCodeUsesLooseEq(tsBody)) usage.looseEq = true;
+        // KERN 4.5.0 item 3 — see the stmt-branch comment above; same pattern.
+        if (emittedCodeUsesTextOps(tsBody)) usage.textOps = true;
         const tsPreamble = kernStdlibPreamble(usage).join('\n');
         const tsSource = `${tsPreamble ? `${tsPreamble}\n` : ''}${tsBody}${probeLogTs}`;
         const tsFile = join(dir, 'whole-file.mjs');
