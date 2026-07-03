@@ -325,6 +325,30 @@ function replaceJsLiteralsOutsideStrings(expr: string): string {
   return output;
 }
 
+function pyPolicyDescriptor(policyNodes: readonly IRNode[], method: string, path: string): string {
+  const policies = policyNodes.map((node, index) => {
+    const props = getProps(node);
+    const kind = String(props.kind || 'passthrough');
+    const name = String(props.name || `Policy${index + 1}`);
+    const plan =
+      kind === 'auth'
+        ? `{"kind": "auth", "verifierRef": "${escapePyStr(String(props.verifierRef || props.ref || 'default'))}", "credentialHeader": "${escapePyStr(String(props.credentialHeader || 'authorization').toLowerCase())}"}`
+        : kind === 'hmacSignature'
+          ? `{"kind": "hmacSignature", "keyRef": "${escapePyStr(String(props.keyRef || 'default'))}", "algorithm": "${escapePyStr(String(props.algorithm || 'sha256'))}", "signatureHeader": "${escapePyStr(String(props.signatureHeader || 'x-signature').toLowerCase())}", "encoding": "${escapePyStr(String(props.encoding || 'hex'))}"${props.prefix ? `, "prefix": "${escapePyStr(String(props.prefix))}"` : ''}}`
+          : kind === 'rag-review'
+            ? `{"kind": "rag-review", "queryField": "query", "answerField": "answer", "citedChunkIdsField": "citedChunkIds", "groundingSpansField": "groundingSpans", "minGroundingCoverage": ${Number(props.minGroundingCoverage ?? 1)}}`
+            : kind === 'passthrough'
+              ? `{"kind": "passthrough"}`
+              : (() => {
+                  // A kind this leg cannot execute must fail the build — emitting
+                  // a passthrough here would ship an unguarded route.
+                  throw new Error(`fastapi emitter: unsupported pre-slot policy kind '${kind}' for policy ${name}`);
+                })();
+    return `{"node": {"type": "policy", "props": ${JSON.stringify(props)}, "children": []}, "name": "${escapePyStr(name)}", "slot": "pre", "kind": "${escapePyStr(kind)}", "handler": "main", "requires": [], "plan": ${plan}, "label": "policy ${escapePyStr(name)}"}`;
+  });
+  return `{"node": {"type": "route", "props": {}, "children": []}, "kind": "route", "name": "GeneratedRoute", "path": "${escapePyStr(path)}", "sourcePath": "./generated.kern", "handler": "main", "policies": [], "prePolicies": [${policies.join(', ')}], "postPolicies": [], "appCapabilities": [], "entryCapabilities": [], "policyCapabilities": [], "declaredCapabilities": [], "requiredCapabilities": [], "requiredSyncCapabilities": [], "requiredAsyncCapabilities": [], "label": "route GeneratedRoute", "method": "${escapePyStr(method)}", "key": "${escapePyStr(method.toUpperCase())} ${escapePyStr(path)}"}`;
+}
+
 function lowerJsValueExpressionForPython(expr: string): string {
   return quoteObjectKeysOutsideStrings(replaceJsLiteralsOutsideStrings(expr.trim().replace(/;$/, '')));
 }
@@ -650,6 +674,15 @@ export function buildRouteArtifact(
   }
 
   // v3 route children: params, auth, validate, error, middleware
+  const policyNodes = getChildren(routeNode, 'policy');
+  const hasPolicyNodes = policyNodes.length > 0;
+  const hmacPolicyNodes = policyNodes.filter((node) => String(getProps(node).kind || '') === 'hmacSignature');
+  if (hasPolicyNodes) {
+    imports.add('from fastapi import Request, HTTPException');
+  }
+  if (hmacPolicyNodes.length > 0) {
+    imports.add('import hmac');
+  }
   const paramsNodes = getChildren(routeNode, 'params');
   const queryParams: Array<{ name: string; type: string; default?: string }> = [];
   for (const paramNode of paramsNodes) {
@@ -739,6 +772,14 @@ export function buildRouteArtifact(
 
   // Generate handler body lines first (may add to imports)
   const bodyLines: string[] = [];
+  if (hasPolicyNodes) {
+    bodyLines.push(`__kern_route_policy_entry = ${pyPolicyDescriptor(policyNodes, normalizedMethod, fastapiPath)}`);
+    if (hmacPolicyNodes.length > 0) {
+      bodyLines.push(`# HMAC compare must use hmac.compare_digest; core policy runtime owns guard meaning.`);
+      bodyLines.push(`__kern_hmac_compare = hmac.compare_digest`);
+    }
+    bodyLines.push('');
+  }
 
   // Route handler
   if (caps.hasStream) {
@@ -775,6 +816,10 @@ export function buildRouteArtifact(
     // the block-scope rename (post-agon-review #f1afb9b3; production-caller
     // fix for nero Challenge 2). Order matches paramParts pushes 1:1.
     const paramNames: string[] = [];
+    if (hasPolicyNodes) {
+      paramParts.push('request: Request');
+      paramNames.push('request');
+    }
     for (const param of pathParams) {
       paramParts.push(`${param}: str`);
       paramNames.push(param);
@@ -836,6 +881,20 @@ export function buildRouteArtifact(
     const paramStr = paramParts.join(', ');
     bodyLines.push(`@router.${normalizedMethod}("${fastapiPath}")`);
     bodyLines.push(`async def ${toSnakeCase(normalizedMethod)}_${slugify(fastapiPath)}(${paramStr}):`);
+    if (hasPolicyNodes) {
+      bodyLines.push(`    __kern_raw_body = await request.body()`);
+      bodyLines.push(
+        `    __kern_policy_facts = getattr(request.app.state, "kern_policy_facts", lambda request, raw_body: {"headers": dict(request.headers), "rawBody": raw_body})(request, __kern_raw_body)`,
+      );
+      bodyLines.push(
+        `    __kern_decision = await getattr(request.app.state, "execute_kern_policy_slot")(__kern_route_policy_entry, "pre", __kern_policy_facts)`,
+      );
+      bodyLines.push(`    __kern_denied = next((p for p in __kern_decision if p.get("action") == "deny"), None)`);
+      bodyLines.push(`    if __kern_denied is not None:`);
+      bodyLines.push(
+        `        raise HTTPException(status_code=__kern_denied.get("status", 401), detail=__kern_denied.get("body", {"error": "policy_denied"}))`,
+      );
+    }
 
     // v3 error contract as docstring
     if (errorNodes.length > 0) {

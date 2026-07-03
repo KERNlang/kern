@@ -19,6 +19,30 @@ import {
   routeRegisterName,
 } from './express-utils.js';
 
+function expressPolicyDescriptor(policyNodes: readonly IRNode[], method: string, path: string): string {
+  const policies = policyNodes.map((node, index) => {
+    const props = getProps(node);
+    const kind = String(props.kind || 'passthrough');
+    const name = String(props.name || `Policy${index + 1}`);
+    const plan =
+      kind === 'auth'
+        ? `{ kind: 'auth', verifierRef: '${escapeSingleQuotes(String(props.verifierRef || props.ref || 'default'))}', credentialHeader: '${escapeSingleQuotes(String(props.credentialHeader || 'authorization').toLowerCase())}' }`
+        : kind === 'hmacSignature'
+          ? `{ kind: 'hmacSignature', keyRef: '${escapeSingleQuotes(String(props.keyRef || 'default'))}', algorithm: '${escapeSingleQuotes(String(props.algorithm || 'sha256'))}', signatureHeader: '${escapeSingleQuotes(String(props.signatureHeader || 'x-signature').toLowerCase())}', encoding: '${escapeSingleQuotes(String(props.encoding || 'hex'))}'${props.prefix ? `, prefix: '${escapeSingleQuotes(String(props.prefix))}'` : ''} }`
+          : kind === 'rag-review'
+            ? `{ kind: 'rag-review', queryField: 'query', answerField: 'answer', citedChunkIdsField: 'citedChunkIds', groundingSpansField: 'groundingSpans', minGroundingCoverage: ${Number(props.minGroundingCoverage ?? 1)} }`
+            : kind === 'passthrough'
+              ? `{ kind: 'passthrough' }`
+              : (() => {
+                  // A kind this leg cannot execute must fail the build — emitting
+                  // a passthrough here would ship an unguarded route.
+                  throw new Error(`express emitter: unsupported pre-slot policy kind '${kind}' for policy ${name}`);
+                })();
+    return `{ node: { type: 'policy', props: ${JSON.stringify(props)}, children: [] }, name: '${escapeSingleQuotes(name)}', slot: 'pre', kind: '${escapeSingleQuotes(kind)}', handler: 'main', requires: [], plan: ${plan}, label: 'policy ${escapeSingleQuotes(name)}' }`;
+  });
+  return `{ node: { type: 'route', props: {}, children: [] }, kind: 'route', name: 'GeneratedRoute', path: '${escapeSingleQuotes(path)}', sourcePath: './generated.kern', handler: 'main', policies: [], prePolicies: [${policies.join(', ')}], postPolicies: [], appCapabilities: [], entryCapabilities: [], policyCapabilities: [], declaredCapabilities: [], requiredCapabilities: [], requiredSyncCapabilities: [], requiredAsyncCapabilities: [], label: 'route GeneratedRoute', method: '${escapeSingleQuotes(method)}', key: '${escapeSingleQuotes(method.toUpperCase())} ${escapeSingleQuotes(path)}' }`;
+}
+
 export function buildRouteArtifact(
   routeNode: IRNode,
   routeIndex: number,
@@ -138,6 +162,9 @@ export function buildRouteArtifact(
         : `res.status(501).json({ error: 'Route handler not implemented' });`;
 
   const routeMiddleware = getChildren(routeNode, 'middleware');
+  const policyNodes = getChildren(routeNode, 'policy');
+  const hmacPolicyNodes = policyNodes.filter((node) => String(getProps(node).kind || '') === 'hmacSignature');
+  const hasPolicyNodes = policyNodes.length > 0;
   const routeImports = new Set<string>();
   const middlewareInvocations: string[] = [];
 
@@ -234,6 +261,12 @@ export function buildRouteArtifact(
   } else {
     lines.push(`import { type Express, type NextFunction, type Request, type Response } from 'express';`);
   }
+  if (hasPolicyNodes) {
+    lines.push(`import { executeKernAppEntryPolicySlot, type KernAppRouteDescriptor } from '@kernlang/core/runtime';`);
+  }
+  if (hmacPolicyNodes.length > 0) {
+    lines.push(`import { createHmac, timingSafeEqual } from 'node:crypto';`);
+  }
   if (caps.needsChildProcess) {
     lines.push(`import { spawn } from 'node:child_process';`);
   }
@@ -267,11 +300,95 @@ export function buildRouteArtifact(
     lines.push('  }');
     lines.push('}');
   }
+  if (hmacPolicyNodes.length > 0) {
+    lines.push('');
+    lines.push(`function __kernCaptureRawBody(req: Request, _res: Response, next: NextFunction): void {`);
+    lines.push(`  const chunks: Buffer[] = [];`);
+    lines.push(`  req.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));`);
+    lines.push(`  req.on('end', () => {`);
+    lines.push(`    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.concat(chunks);`);
+    lines.push(`    next();`);
+    lines.push(`  });`);
+    lines.push(`  req.on('error', next);`);
+    lines.push('}');
+    lines.push('');
+    lines.push(
+      `function __kernParseJsonAfterPolicy(req: Request): { readonly ok: true } | { readonly ok: false; readonly error: string } {`,
+    );
+    lines.push(`  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;`);
+    lines.push(`  const contentType = String(req.headers['content-type'] ?? '').toLowerCase();`);
+    lines.push(
+      `  if (!rawBody || rawBody.length === 0 || !contentType.includes('application/json')) return { ok: true };`,
+    );
+    lines.push(`  try {`);
+    lines.push(`    (req as Request & { body?: unknown }).body = JSON.parse(rawBody.toString('utf8'));`);
+    lines.push(`    return { ok: true };`);
+    lines.push(`  } catch (error) {`);
+    lines.push(`    return { ok: false, error: error instanceof Error ? error.message : String(error) };`);
+    lines.push(`  }`);
+    lines.push('}');
+    lines.push('');
+    lines.push(
+      `function __kernVerifyHmac(key: string | Uint8Array, input: { body: string | Uint8Array; signature: string; algorithm: string; encoding: 'hex' | 'base64'; prefix?: string }): boolean {`,
+    );
+    lines.push(`  const expected = createHmac(input.algorithm, Buffer.from(key))`);
+    lines.push(`    .update(Buffer.from(input.body))`);
+    lines.push(`    .digest(input.encoding);`);
+    lines.push(
+      `  const received = input.prefix && input.signature.startsWith(input.prefix) ? input.signature.slice(input.prefix.length) : input.signature;`,
+    );
+    lines.push(`  const expectedBuffer = Buffer.from(expected, input.encoding);`);
+    lines.push(`  const receivedBuffer = Buffer.from(received, input.encoding);`);
+    lines.push(
+      `  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);`,
+    );
+    lines.push('}');
+  }
   lines.push('');
+  if (hasPolicyNodes) {
+    const descriptor = expressPolicyDescriptor(policyNodes, normalizedMethod, path);
+    lines.push(`const __kernRoutePolicyEntry = ${descriptor} as unknown as KernAppRouteDescriptor;`);
+    lines.push(`const __kernPolicyFacts = (req: Request) => ({`);
+    lines.push(
+      `  headers: Object.fromEntries(Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(',') : value])),`,
+    );
+    lines.push(`  rawBody: (req as Request & { rawBody?: Buffer }).rawBody,`);
+    lines.push(`  authVerifiers: (req.app.locals.kernAuthVerifiers ?? {}) as any,`);
+    if (hmacPolicyNodes.length > 0) {
+      lines.push(
+        `  hmacVerifiers: Object.fromEntries(Object.entries((req.app.locals.kernHmacKeys ?? {}) as Record<string, string | Uint8Array | undefined>).filter((entry): entry is [string, string | Uint8Array] => entry[1] !== undefined).map(([keyRef, key]) => [keyRef, (input: { body: string | Uint8Array; signature: string; algorithm: string; encoding: 'hex' | 'base64'; prefix?: string }) => __kernVerifyHmac(key, input)])) as any,`,
+      );
+    } else {
+      lines.push(`  hmacVerifiers: {},`);
+    }
+    lines.push(`  ragReview: (req as Request & { kernRagReview?: unknown }).kernRagReview as any,`);
+    lines.push(`});`);
+    lines.push('');
+  }
   lines.push(`export function ${registerName}(app: Express): void {`);
   lines.push(
-    `  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`,
+    `  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${hmacPolicyNodes.length > 0 ? '__kernCaptureRawBody, ' : ''}${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`,
   );
+
+  if (hasPolicyNodes) {
+    lines.push(
+      "    const __kernPrePolicy = await executeKernAppEntryPolicySlot(__kernRoutePolicyEntry, 'pre', __kernPolicyFacts(req));",
+    );
+    lines.push("    const __kernDenied = __kernPrePolicy.find((policy) => policy.action === 'deny');");
+    lines.push('    if (__kernDenied) {');
+    lines.push(
+      "      return res.status(__kernDenied.status ?? 401).json(__kernDenied.body ?? { error: 'policy_denied' });",
+    );
+    lines.push('    }');
+    lines.push('');
+    if (hmacPolicyNodes.length > 0) {
+      lines.push('    const __kernParsedBody = __kernParseJsonAfterPolicy(req);');
+      lines.push('    if (!__kernParsedBody.ok) {');
+      lines.push('      return res.status(400).json({ error: `Invalid body: ${__kernParsedBody.error}` } as any);');
+      lines.push('    }');
+      lines.push('');
+    }
+  }
 
   // Schema validation — always runs first, before stream/timer
   if (validationLines.length > 0) {
