@@ -2,8 +2,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { createServer as createNetServer } from 'node:net';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import ts from 'typescript';
 
@@ -445,18 +448,55 @@ async function expectManifestFailure(id, appSource, files) {
 
 const guardSource = (header) =>
   ['fn name=main returns=void', '  handler lang="kern"', `    capability namespace=app-http operation=header name=h input="{ name: \\"${header}\\" }"`].join('\n');
+const okHandlerSource = ['fn name=main returns=void', '  handler lang="kern"', '    print value="\\"ok\\""'].join('\n');
+// A5 — a guard reading a header that is NEITHER declared via headers= NOR
+// the auth kind's DEFAULT credential header ('authorization') still fails
+// closed. (Reading the default itself is covered separately below, now that
+// the header allowlist derives from the normalized plan.)
 await expectManifestFailure(
   'A5',
   ['app name=Guarded', '  policy name=Authz kind=auth slot=pre source="./guard.kern" headers="x-safe"', '  route name=Save method=post path="/save" source="./handler.kern" policy=Authz'].join('\n'),
-  { '/app/guard.kern': guardSource('Authorization'), '/app/handler.kern': ['fn name=main returns=void', '  handler lang="kern"', '    print value="\\"ok\\""'].join('\n') },
+  { '/app/guard.kern': guardSource('X-Trace-Id'), '/app/handler.kern': okHandlerSource },
 );
-for (const header of ['authorization', 'AUTHORIZATION', 'AuthOrIzAtIoN']) {
+// A9 — the undeclared-header check is case-INSENSITIVE: a genuinely
+// undeclared header fails closed under any case spelling, not just its
+// canonical form.
+for (const header of ['x-trace-id', 'X-TRACE-ID', 'X-tRaCe-Id']) {
   await expectManifestFailure(
     `A9-${header}`,
     ['app name=Guarded', '  policy name=Authz kind=auth slot=pre source="./guard.kern" headers="x-safe"', '  route name=Save method=post path="/save" source="./handler.kern" policy=Authz'].join('\n'),
-    { '/app/guard.kern': guardSource(header), '/app/handler.kern': ['fn name=main returns=void', '  handler lang="kern"', '    print value="\\"ok\\""'].join('\n') },
+    { '/app/guard.kern': guardSource(header), '/app/handler.kern': okHandlerSource },
   );
 }
+// Fix #1 regression lock: reading the auth/hmacSignature kind's DEFAULT
+// header — 'authorization' / 'x-signature' — with NO explicit
+// credentialHeader=/signatureHeader= override and NO headers= allowlist now
+// LOADS (the allowlist derives from the normalized plan, not only an
+// explicit node prop), case-insensitively.
+for (const header of ['authorization', 'AUTHORIZATION', 'Authorization']) {
+  await loadKernAppDescriptor(
+    ['app name=Guarded', '  policy name=Authz kind=auth slot=pre source="./guard.kern"', '  route name=Save method=post path="/save" source="./handler.kern" policy=Authz'].join('\n'),
+    {
+      appRoot: '/app',
+      canonicalizePath: (path) => path,
+      readSource: (path) =>
+        ({ '/app/guard.kern': guardSource(header), '/app/handler.kern': okHandlerSource })[path],
+    },
+  );
+}
+await loadKernAppDescriptor(
+  [
+    'app name=Guarded',
+    '  policy name=Sig kind=hmacSignature slot=pre source="./guard.kern"',
+    '  route name=Save method=post path="/save" source="./handler.kern" policy=Sig',
+  ].join('\n'),
+  {
+    appRoot: '/app',
+    canonicalizePath: (path) => path,
+    readSource: (path) =>
+      ({ '/app/guard.kern': guardSource('x-signature'), '/app/handler.kern': okHandlerSource })[path],
+  },
+);
 await expectManifestFailure(
   'H8/V1',
   ['app name=Guarded', '  policy name=Sig kind=hmacSignature slot=pre source="./guard.kern"', '  route name=Save method=post path="/save" source="./handler.kern" policy=Sig'].join('\n'),
@@ -506,4 +546,276 @@ assert.throws(
   'P2: FastAPI build fails closed on an unknown guard kind',
 );
 
-console.log(`app-behavior-conformance: ${fixtures.length} fixtures passed on 3 legs`);
+// ── Whole-app leg ──────────────────────────────────────────────────────────
+//
+// Every fixture above mounts a single ROUTE ARTIFACT in isolation (Express:
+// a hand-rolled req/res pair; FastAPI: a Python stub that self-installs
+// `execute_kern_policy_slot` and skips the global middleware stack
+// entirely). That isolation is exactly what let two real bugs ship green:
+//   - FastAPI: a route calling `getattr(request.app.state,
+//     "execute_kern_policy_slot")` with NO default — a REAL generated app
+//     never installs that hook, so every guarded route hit an
+//     AttributeError. The per-route leg above never notices because IT
+//     installs the hook itself as a test convenience.
+//   - Express: strict-mode whole-app generation installs a GLOBAL
+//     `app.use(express.json(...))` before route registration, which
+//     consumes the request stream before an HMAC route's own raw-capture
+//     middleware ever runs. The per-route leg above never notices because
+//     it mounts the route's handlers directly, without the server's global
+//     middleware stack in front of them.
+//
+// This leg transpiles a full `server` (Express) / full app (FastAPI) via
+// the REAL transpilers, boots the REAL generated output with NO external
+// patching, and fires REAL HTTP requests at it.
+
+function wholeAppServerNode() {
+  return {
+    type: 'server',
+    props: { name: 'WholeAppFixture' },
+    children: [
+      {
+        type: 'route',
+        props: { method: 'get', path: '/secure' },
+        children: [
+          { type: 'policy', props: { name: 'Guard', kind: 'auth' }, children: [] },
+          { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+        ],
+      },
+      {
+        type: 'route',
+        props: { method: 'post', path: '/webhook' },
+        children: [
+          { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+          { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+        ],
+      },
+    ],
+  };
+}
+
+async function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer();
+    probe.unref();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+async function waitForServerReady(baseUrl, attempts = 40) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(500) });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  throw new Error(`whole-app express server never became ready at ${baseUrl}`);
+}
+
+// The @kernlang/express TRANSPILER package doesn't itself depend on the real
+// `express` npm package — it generates code for a DOWNSTREAM app that would
+// declare that dependency itself. pnpm's strict node_modules means `express`
+// isn't resolvable from an arbitrary repo-root-adjacent temp dir. A workspace
+// package that already depends on it (packages/mcp-server) does — resolve
+// through that and symlink the real package into our temp app's own
+// node_modules, so the generated `import express from 'express'` resolves
+// without depending on pnpm's internal store layout.
+async function resolveExpressPackageDir() {
+  const requireFromDependent = createRequire(join(process.cwd(), 'packages/mcp-server/package.json'));
+  return dirname(requireFromDependent.resolve('express/package.json'));
+}
+
+function transpileTs(source) {
+  return ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022, verbatimModuleSyntax: false },
+  }).outputText;
+}
+
+async function runWholeAppExpress() {
+  const { transpileExpress } = await import('../packages/express/dist/transpiler-express.js');
+  const result = transpileExpress(wholeAppServerNode());
+  assert.match(result.code, /__kernSkipBodyParserForHmacRoutes/, 'whole-app express: global parser is guarded');
+
+  const port = await getFreePort();
+  const dir = await mkdtemp(join(process.cwd(), '.tmp-kern-express-app-'));
+  const previousPort = process.env.PORT;
+  try {
+    await mkdir(join(dir, 'routes'), { recursive: true });
+    await mkdir(join(dir, 'node_modules'), { recursive: true });
+    await symlink(await resolveExpressPackageDir(), join(dir, 'node_modules', 'express'), 'dir');
+    const mainJs = transpileTs(result.code).replaceAll(
+      /from '\.\/routes\/([\w-]+)\.js'/g,
+      "from './routes/$1.mjs'",
+    );
+    await writeFile(join(dir, 'index.mjs'), mainJs, 'utf8');
+    for (const artifact of result.artifacts) {
+      if (artifact.type !== 'route') continue;
+      const routeJs = transpileTs(artifact.content).replaceAll(
+        "'@kernlang/core/runtime'",
+        "'../../packages/core/dist/runtime.js'",
+      );
+      const fileBase = artifact.path.replace(/^routes\//, '').replace(/\.ts$/, '');
+      await writeFile(join(dir, 'routes', `${fileBase}.mjs`), routeJs, 'utf8');
+    }
+
+    process.env.PORT = String(port);
+    const mod = await import(`${pathToFileURL(join(dir, 'index.mjs')).href}?t=${Date.now()}`);
+    const app = mod.default;
+    assert.ok(app, 'whole-app express: main module exports the Express app');
+    // Host-supplied provider wiring — the ONLY thing a real deployment adds.
+    app.locals.kernAuthVerifiers = { default: (credential) => credential === 'Bearer good' };
+    app.locals.kernHmacKeys = { main: 'secret' };
+
+    const baseUrl = `http://127.0.0.1:${port}`;
+    await waitForServerReady(baseUrl);
+
+    const missingCred = await fetch(`${baseUrl}/secure`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(missingCred.status, 401, 'whole-app express: missing auth credential denies on the real server');
+
+    const goodCred = await fetch(`${baseUrl}/secure`, {
+      headers: { authorization: 'Bearer good' },
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(goodCred.status, 200, 'whole-app express: valid auth credential allows on the real server');
+
+    // Valid HMAC over exact raw bytes, through the REAL express.json()
+    // global parser + __kernCaptureRawBody interaction. A timeout here
+    // (rather than a wrong status) would mean the global parser already
+    // consumed the stream, starving __kernCaptureRawBody's 'data'/'end'
+    // listeners — the needs-check hang scenario this leg exists to rule out.
+    const validBody = '{"amount":1}';
+    const validSig = sign(validBody, 'secret');
+    const validReq = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: { 'x-signature': validSig, 'content-type': 'application/json' },
+      body: validBody,
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(validReq.status, 200, 'whole-app express: valid HMAC signature allows on the real server');
+
+    // H10 — large invalid-JSON payload + bad signature: must deny cleanly.
+    // If the global JSON parser ran ahead of the guard on this route, its
+    // parse failure would reach Express's error-handling middleware first
+    // (strict mode's catch-all 500), never our 401.
+    const largeInvalidBody = `{"bad json${'x'.repeat(20_000)}`;
+    const h10 = await fetch(`${baseUrl}/webhook`, {
+      method: 'POST',
+      headers: { 'x-signature': 'not-a-real-signature', 'content-type': 'application/json' },
+      body: largeInvalidBody,
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(
+      h10.status,
+      401,
+      'whole-app express H10: bad signature + malformed large body denies cleanly (global parser never ran)',
+    );
+  } finally {
+    if (previousPort === undefined) delete process.env.PORT;
+    else process.env.PORT = previousPort;
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function runWholeAppFastApi() {
+  const { transpileFastAPI } = await import('../packages/python/dist/transpiler-fastapi.js');
+  const result = transpileFastAPI(wholeAppServerNode());
+  assert.match(result.code, /app\.state\.execute_kern_policy_slot = create_execute_kern_policy_slot\(app\)/, 'whole-app fastapi: default executor installed at construction');
+  assert.ok(
+    result.artifacts.some((artifact) => artifact.path === 'policy_runtime.py'),
+    'whole-app fastapi: policy_runtime.py artifact emitted',
+  );
+
+  const dir = await mkdtemp(join(process.cwd(), '.tmp-kern-fastapi-app-'));
+  try {
+    await writeFile(join(dir, 'main.py'), result.code, 'utf8');
+    for (const artifact of result.artifacts) {
+      const target = join(dir, artifact.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, artifact.content, 'utf8');
+    }
+
+    const validBody = '{"amount":1}';
+    const validSig = sign(validBody, 'secret');
+    const largeInvalidBody = `{"bad json${'x'.repeat(20_000)}`;
+    const payload = JSON.stringify({ dir, validBody, validSig, largeInvalidBody });
+    const python = String.raw`
+import json, sys
+
+payload = json.loads(sys.stdin.read())
+sys.path.insert(0, payload["dir"])
+
+from main import app
+from fastapi.testclient import TestClient
+
+client = TestClient(app)
+results = {}
+
+# Self-sufficiency: NO external patching. A missing provider must deny —
+# never an AttributeError, never an implicit allow.
+r = client.get("/secure", headers={"authorization": "Bearer x"})
+results["auth-no-provider"] = r.status_code
+
+app.state.kern_auth_verifier = lambda ref, credential, entry: credential == "Bearer good"
+r = client.get("/secure", headers={"authorization": "Bearer bad"})
+results["auth-wrong-cred"] = r.status_code
+r = client.get("/secure", headers={"authorization": "Bearer good"})
+results["auth-good-cred"] = r.status_code
+
+r = client.post("/webhook", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
+results["hmac-no-provider"] = r.status_code
+
+app.state.kern_hmac_key_provider = lambda key_ref, entry: b"secret"
+r = client.post("/webhook", content=payload["validBody"].encode("utf8"), headers={"x-signature": payload["validSig"]})
+results["hmac-valid"] = r.status_code
+
+r = client.post(
+    "/webhook",
+    content=payload["largeInvalidBody"].encode("utf8"),
+    headers={"x-signature": "not-a-real-signature"},
+)
+results["hmac-h10"] = r.status_code
+
+print(json.dumps(results))
+`;
+    const output = execFileSync('python3', ['-c', python], { input: payload, encoding: 'utf8' });
+    const results = JSON.parse(output);
+    assert.equal(
+      results['auth-no-provider'],
+      401,
+      'whole-app fastapi: missing verifier provider denies with NO external patching (kills the AttributeError bug)',
+    );
+    assert.equal(results['auth-wrong-cred'], 401, 'whole-app fastapi: wrong credential denies on the real app');
+    assert.equal(results['auth-good-cred'], 200, 'whole-app fastapi: valid credential allows on the real app');
+    assert.equal(
+      results['hmac-no-provider'],
+      401,
+      'whole-app fastapi: missing key provider denies with NO external patching',
+    );
+    assert.equal(results['hmac-valid'], 200, 'whole-app fastapi: valid HMAC signature allows on the real app');
+    assert.equal(
+      results['hmac-h10'],
+      401,
+      'whole-app fastapi H10: bad signature + malformed large body denies cleanly on the real app',
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+await runWholeAppExpress();
+await runWholeAppFastApi();
+
+console.log(
+  `app-behavior-conformance: ${fixtures.length} fixtures passed on 3 legs + whole-app Express/FastAPI boot`,
+);
+
+// The whole-app Express leg boots a real `app.listen(...)` whose http.Server
+// handle is never exported back to us to close explicitly (the generated
+// module only exports the Express `app`, matching real deployments). Exit
+// explicitly so that open listening socket doesn't keep the process alive.
+process.exit(0);
