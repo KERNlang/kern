@@ -36,10 +36,12 @@
  * dispatch / fmt interpolation bindings / explicit `throw new Error("...")`
  * inside try/catch/finally with caught `.message` reads / explicit runner
  * capability calls / `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`,
- * `Text.indexOf(needle)`, and `Text.startsWith(prefix)` for BMP-SAFE strings
- * under the tribunal-locked code-point contract (a well-formed non-BMP
- * character fails closed too — a deliberate risk-valve narrowing, see
- * portable-string.ts). The CLI path provides local RAG retrieval, volatile
+ * `Text.indexOf(needle)`, and `Text.startsWith(prefix)` under the
+ * tribunal-locked Unicode CODE-POINT contract — including well-formed
+ * non-BMP characters (emoji, astral CJK-extension characters), computed
+ * correctly since KERN 4.5.0 item 3 lifted the milestone-5.1b BMP-only risk
+ * valve; only a MALFORMED (lone/reversed) surrogate still fails closed, see
+ * portable-string.ts. The CLI path provides local RAG retrieval, volatile
  * in-run storage, and browser-safe crypto today; other host capabilities
  * still fail closed.
  * Constructs the runner does not yet execute over PRODUCTION IR (whole-array /
@@ -1126,12 +1128,11 @@ describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib'
   });
 
   // String ops (tribunal-locked contract, Option D — code points), added
-  // AFTER the initial four slices above. Scope note: this reference-runner
-  // implementation is BMP-safe-or-fail-closed (see portable-string.ts) — a
-  // well-formed non-BMP character (emoji, rare CJK extension chars) fails
-  // closed here too, a deliberate risk-valve narrowing, NOT the tribunal's
-  // final target for non-BMP input.
-  test('Text.length/charAt/slice/indexOf/startsWith execute natively (BMP-safe, code points)', () => {
+  // AFTER the initial four slices above. KERN 4.5.0 item 3 lifted the
+  // milestone-5.1b BMP-only risk valve (see portable-string.ts) — a
+  // well-formed non-BMP character (emoji, astral CJK-extension chars) is now
+  // computed correctly; only a MALFORMED surrogate fails closed.
+  test('Text.length/charAt/slice/indexOf/startsWith execute natively (code points)', () => {
     const r = runProgram([
       'let name=s value="\\"hello world\\""',
       'print value="Text.length(s)"',
@@ -1157,10 +1158,10 @@ describe('kern run — milestone 5.1b: recursion, dynamic index, append, stdlib'
     expect(r.status).toBe(2);
   });
 
-  test("a well-formed non-BMP character (emoji) also fails closed under this slice's risk-valve narrowing", () => {
+  test('a well-formed non-BMP character (emoji) computes correctly (KERN 4.5.0 item 3 — risk valve lifted)', () => {
     const r = runProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']);
-    expect(r.stdout).toBe('');
-    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('1\n');
+    expect(r.status).toBe(0);
   });
 
   test('Text.charAt and Text.slice fail closed on out-of-bounds (strict bounds policy, no silent clamping)', () => {

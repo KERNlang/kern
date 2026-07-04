@@ -1,22 +1,20 @@
 /**
- * ReferenceRunner — KERN string ops, milestone 5.1b, under the tribunal-locked
- * contract (Option D — Unicode scalar values / code points, decided
- * 2026-07-02): `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`,
- * `Text.indexOf(needle)`, `Text.startsWith(prefix)`, all CODE-POINT indexed.
+ * ReferenceRunner — KERN string ops, milestone 5.1b + KERN 4.5.0 item 3
+ * (string parity completion), under the tribunal-locked contract (Option D —
+ * Unicode scalar values / code points, decided 2026-07-02): `Text.length`,
+ * `Text.charAt(i)`, `Text.slice(a, b)`, `Text.indexOf(needle)`,
+ * `Text.startsWith(prefix)`, all CODE-POINT indexed.
  *
- * SCOPE (the risk valve, exercised deliberately — see portable-string.ts's
- * module doc and the milestone report): this reference-runner
- * implementation supports the FULL contract for BMP-SAFE strings (no
- * character outside U+0000..U+FFFF, no surrogate-range code unit) and FAILS
- * CLOSED on every other input, including WELL-FORMED non-BMP characters
- * (emoji, rare CJK extension characters). The tribunal's non-BMP fixtures
- * ("😀".length==1, "a😀b".indexOf("😀")==1, "𠀀".length==1, …) are therefore
- * NOT exercised here as passing cases — they are captured below as
- * documented, explicit fail-closed cases instead, per the risk valve's
- * explicit permission to narrow rather than ship something wrong. The
- * fail-closed malformed-surrogate fixtures (lone/reversed surrogates) DO
- * fully match the tribunal's locked fail-closed set, since a superset check
- * (reject ANY surrogate-range code unit) provably covers it.
+ * FULL CONTRACT: the milestone 5.1b BMP-only risk valve (documented in git
+ * history — this reference-runner used to fail closed on EVERY non-BMP
+ * character, malformed or not, as a deliberate narrowing) is LIFTED here. A
+ * WELL-FORMED non-BMP character (an emoji, an astral CJK-extension
+ * character, a rare mathematical symbol — a real surrogate PAIR) is now IN
+ * SCOPE and computed correctly on every op, exactly matching the tribunal's
+ * fixtures ("😀".length==1, "a😀b".indexOf("😀")==1, "𠀀".length==1, …). The
+ * ONLY input that still fails closed is a MALFORMED UTF-16 sequence: a lone
+ * high surrogate, a lone low surrogate, a reversed pair, or a high-high /
+ * low-low run — see `portable-string.ts` / `codegen/text-contract.ts`.
  */
 
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
@@ -89,6 +87,19 @@ describe('runner string ops — Text.charAt (code-point indexed, strict bounds)'
 
   it('fails closed on a negative index (does not inherit JS empty-string behavior)', () => {
     expect(() => runStdout([print('Text.charAt("hi", -1)')])).toThrow(ReferenceRunnerError);
+  });
+
+  // INT/FLOAT index parity (agon review) — the runner leg is JS, where
+  // `4 / 2` is the plain number 2 (JS collapses int/float), so an
+  // integer-VALUED computed index certifies; a NON-integer one (3 / 2 = 1.5)
+  // fails closed. Same "integer-valued number" contract the two codegen legs'
+  // helpers enforce (Python coerces the int-valued float 2.0 to 2).
+  it('accepts a COMPUTED integer-valued index (4 / 2)', () => {
+    expect(runStdout([print('Text.charAt("hello", 4 / 2)')])).toBe('l\n');
+  });
+
+  it('fails closed on a NON-integer computed index (3 / 2 = 1.5)', () => {
+    expect(() => runStdout([print('Text.charAt("hello", 3 / 2)')])).toThrow(ReferenceRunnerError);
   });
 });
 
@@ -186,28 +197,64 @@ describe('runner string ops — fail-closed set (malformed surrogates, the tribu
   });
 });
 
-describe('runner string ops — non-BMP characters are OUT OF SCOPE for this slice (risk valve)', () => {
-  // These document the DELIBERATE narrowing, not the locked contract's final
-  // target — a well-formed surrogate PAIR (a real emoji/CJK-extension
-  // character) is indistinguishable, under the superset "reject any
-  // surrogate-range code unit" check, from a malformed one. See
-  // portable-string.ts's module doc for the full reasoning.
-  const abstains = (expr: string) => expect(() => runStdout([print(expr)])).toThrow(ReferenceRunnerError);
+describe('runner string ops — non-BMP characters are IN SCOPE (KERN 4.5.0 item 3 — risk valve lifted)', () => {
+  // The milestone 5.1b narrowing is lifted: a WELL-FORMED non-BMP character
+  // (a real surrogate PAIR — emoji, astral CJK-extension, math symbol) is a
+  // single Unicode code point on every op, exactly like a BMP character.
+  // These are the tribunal's own fixtures, now passing instead of abstaining.
 
-  it('"😀".length (the tribunal fixture expects 1) fails closed here, not silently wrong', () => {
-    abstains('Text.length("😀")');
+  it('"😀".length is 1 — a surrogate PAIR is ONE code point, not two', () => {
+    expect(runStdout([print('Text.length("😀")')])).toBe('1\n');
   });
 
-  it('"a😀b".indexOf("😀") (the tribunal fixture expects 1) fails closed here', () => {
-    abstains('Text.indexOf("a😀b", "😀")');
+  it('"𠀀".length is 1 (astral CJK-extension character)', () => {
+    expect(runStdout([print('Text.length("𠀀")')])).toBe('1\n');
   });
 
-  it('"a😀b".charAt(1) (the tribunal fixture expects "😀") fails closed here', () => {
-    abstains('Text.charAt("a😀b", 1)');
+  // The DISCRIMINATING fixture: UTF-16 `.length` (4: 'a', hi, lo, 'b') diverges
+  // from the code-point length (3: 'a', 💩, 'b'). A UTF-16-leaking
+  // implementation returns 4 here; the correct code-point contract returns 3.
+  it('"a💩b".length is 3, NOT 4 — proves code-point counting, not UTF-16 code-unit counting', () => {
+    expect(runStdout([print('Text.length("a💩b")')])).toBe('3\n');
   });
 
-  it('"𠀀".length (the tribunal fixture expects 1) fails closed here', () => {
-    abstains('Text.length("𠀀")');
+  it('"a😀b".indexOf("😀") is 1 (the tribunal fixture) — code-point offset, not UTF-16 offset', () => {
+    expect(runStdout([print('Text.indexOf("a😀b", "😀")')])).toBe('1\n');
+  });
+
+  // DISCRIMINATING: "b" sits at UTF-16 code-unit index 3 ('a', hi, lo, 'b') but
+  // code-point index 2 ('a', 💩, 'b'). A UTF-16-leaking impl returns 3.
+  it('"a💩b".indexOf("b") is 2, NOT 3 — the needle is AFTER the astral character', () => {
+    expect(runStdout([print('Text.indexOf("a💩b", "b")')])).toBe('2\n');
+  });
+
+  it('"a😀b".charAt(1) is "😀" (the tribunal fixture) — one code-point index returns the whole astral character', () => {
+    expect(runStdout([print('Text.charAt("a😀b", 1)')])).toBe('😀\n');
+  });
+
+  // DISCRIMINATING: charAt(2) must land on 'b' (the code point AFTER the
+  // astral character), not on a lone trailing surrogate half.
+  it('"a💩b".charAt(2) is "b" — landing correctly past a surrogate pair', () => {
+    expect(runStdout([print('Text.charAt("a💩b", 2)')])).toBe('b\n');
+  });
+
+  // DISCRIMINATING: slicing across an astral-character boundary must keep the
+  // whole surrogate pair intact, not split it.
+  it('"a💩b".slice(1, 2) is "💩" — a slice boundary at an astral character keeps the pair intact', () => {
+    expect(runStdout([print('Text.slice("a💩b", 1, 2)')])).toBe('💩\n');
+  });
+
+  it('"a💩b".slice(0, 3) is the full string ("a💩b") — code-point length is 3', () => {
+    expect(runStdout([print('Text.slice("a💩b", 0, 3)')])).toBe('a💩b\n');
+  });
+
+  it('a combining sequence stays multiple code points even alongside an astral character', () => {
+    // "cafe" + U+0301 COMBINING ACUTE ACCENT + 💩: 4 + 1 + 1 = 6 code points.
+    expect(runStdout([print('Text.length("cafe\\u0301💩")')])).toBe('6\n');
+  });
+
+  it('Text.startsWith is true for a well-formed astral prefix', () => {
+    expect(runStdout([print('Text.startsWith("💩b", "💩")')])).toBe('true\n');
   });
 });
 
@@ -242,9 +289,12 @@ describe('runner string ops — executeKernSource + kern run acceptance', () => 
     expect(stdout).toBe('11\nh\nworld\n6\ntrue\n');
   });
 
-  it('fails closed on a non-BMP string via the CLI-facing entry (exit-mapped KernRunnerError)', () => {
-    expect(() => executeKernSource(mainProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']))).toThrow(
-      KernRunnerError,
-    );
+  it('computes a well-formed non-BMP string correctly via the CLI-facing entry (KERN 4.5.0 item 3)', () => {
+    const stdout = executeKernSource(mainProgram(['print value="Text.length(\\"\\ud83d\\ude00\\")"']));
+    expect(stdout).toBe('1\n');
+  });
+
+  it('still fails closed on a MALFORMED (lone) surrogate via the CLI-facing entry (exit-mapped KernRunnerError)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="Text.length(\\"\\ud800\\")"']))).toThrow(KernRunnerError);
   });
 });

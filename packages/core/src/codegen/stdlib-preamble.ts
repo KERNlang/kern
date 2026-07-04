@@ -31,6 +31,7 @@
 import type { IRNode } from '../types.js';
 import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
+import { textOpsHelpersTS } from './text-contract.js';
 
 export interface KernStdlibUsage {
   /** Module references `Result<…>` somewhere in a type annotation. */
@@ -62,6 +63,18 @@ export interface KernStdlibUsage {
    *  ReferenceError). Optional for back-compat with callers that only build the
    *  result/option flags. */
   looseEq?: boolean;
+  /** KERN 4.5.0 item 3 — the EMITTED output of this module contains an
+   *  `__kern_text_*(` call (the TS emitter lowers `Text.length`/`charAt`/
+   *  `slice`/`indexOf`/`startsWith` through these code-point-walking
+   *  helpers), so the one-time top-level helper block
+   *  ({@link textOpsHelpersTS}) must be injected. Like `looseEq`, this is
+   *  NOT set by the IR-walk `detectKernStdlibUsage` — it is set by each
+   *  injection site from the EMITTED code via {@link emittedCodeUsesTextOps},
+   *  so detection equals emission exactly (no risk of an IR-text-scan
+   *  missing a `${…}` interpolation or a differential-harness fixture, the
+   *  same reasoning `emittedCodeUsesLooseEq` documents). Optional for
+   *  back-compat with callers that only build the result/option flags. */
+  textOps?: boolean;
 }
 
 /** Regex anchored on word boundary + opening angle so a user identifier
@@ -108,6 +121,27 @@ const DECIMAL_PRODUCER_REGEX = /\bDecimal\.(?:of|add|sub|mul|neg|abs|div|mod|pow
  *  `__kern_`-reserved prefix makes it astronomically unlikely. */
 export function emittedCodeUsesLooseEq(code: string): boolean {
   return code.includes('__kern_loose_eq(');
+}
+
+/** KERN 4.5.0 item 3 — matches {@link emittedCodeUsesLooseEq}'s "detection ==
+ *  emission" pattern for the Text code-point-ops helper block: any of the
+ *  five reserved-prefix `__kern_text_*(` CALL tokens in the emitted TS output
+ *  means `kernStdlibPreamble` must render {@link textOpsHelpersTS}'s
+ *  definitions. Scanning for the call sites (not just the shared
+ *  `__kern_text_well_formed(` sub-helper) keeps this independent of the
+ *  helper block's own internal shape. The `__kern_`-reserved prefix makes a
+ *  false-positive (a user STRING literal containing this exact token) harmless
+ *  and astronomically unlikely, mirroring the loose-eq precedent. */
+const TEXT_OPS_CALL_TOKENS = [
+  '__kern_text_length(',
+  '__kern_text_char_at(',
+  '__kern_text_slice(',
+  '__kern_text_index_of(',
+  '__kern_text_starts_with(',
+];
+
+export function emittedCodeUsesTextOps(code: string): boolean {
+  return TEXT_OPS_CALL_TOKENS.some((token) => code.includes(token));
 }
 
 /** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and
@@ -389,7 +423,7 @@ const KERN_LOOSE_EQ_HELPER = ['function __kern_loose_eq(a: unknown, b: unknown):
 export const KERN_LOOSE_EQ_HELPER_JS = ['function __kern_loose_eq(a, b) {', ...KERN_LOOSE_EQ_BODY].join('\n');
 
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
-  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal && !usage.looseEq) return [];
+  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal && !usage.looseEq && !usage.textOps) return [];
 
   const lines: string[] = [];
   // DECIMAL Slice 2 (Finding 1) — the `decimal.js` import + canonical-context
@@ -412,11 +446,22 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
     // only module carries three unused helper functions — dead but harmless, the
     // same trade-off the Result/Option companion objects already make.)
     lines.push(...decimalOpsHelpersTS().split('\n'));
-    // Separator blank ONLY when a Result/Option/unwrap stdlib block follows — the
-    // shared trailing `push('')` below already supplies the single blank line that
-    // separates a decimal-ONLY preamble from user code. Pushing it here too produced
-    // a stray DOUBLE blank line in the decimal-only path (Slice 2 nit fix).
-    if (usage.result || usage.option || usage.unwrap) lines.push('');
+    // Separator blank ONLY when a further block follows — the shared trailing
+    // `push('')` below already supplies the single blank line that separates a
+    // decimal-ONLY preamble from user code. Pushing it here too produced a stray
+    // DOUBLE blank line in the decimal-only path (Slice 2 nit fix).
+    if (usage.textOps || usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
+  }
+
+  // KERN 4.5.0 item 3 — the Text code-point-ops helper block. No ESM import
+  // constraint (unlike Decimal's `decimal.js` import), so order vs the other
+  // blocks is free; placed right after Decimal since both are "runtime
+  // helper" blocks, ahead of the Result/Option/unwrap type-alias block. Own
+  // header so a textOps-ONLY module still gets a clean label.
+  if (usage.textOps) {
+    lines.push('// ── KERN Text code-point ops (auto-emitted) ─────────────────────────');
+    lines.push(...textOpsHelpersTS().split('\n'));
+    if (usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
   }
 
   if (usage.result || usage.option || usage.unwrap) {

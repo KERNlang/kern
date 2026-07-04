@@ -5,39 +5,26 @@
  *
  * LOCKED CONTRACT: a KERN string is a sequence of Unicode CODE POINTS.
  * `Text.length`, `Text.charAt(i)`, `Text.slice(a, b)`, `Text.indexOf(needle)`,
- * and `Text.startsWith(prefix)` all operate on CODE-POINT indices — NOT JS's
- * native UTF-16 code-UNIT indices, which diverge from Python's code-point
- * indices for any character outside the Basic Multilingual Plane (BMP): a
- * surrogate PAIR is two UTF-16 code units but ONE Unicode code point.
+ * and `Text.startsWith(prefix)` all operate on CODE-POINT indices — NOT
+ * JS's native UTF-16 code-UNIT indices, which diverge from Python's
+ * code-point indices for any character outside the Basic Multilingual Plane
+ * (BMP): a surrogate PAIR is two UTF-16 code units but ONE Unicode code
+ * point.
  *
- * SCOPE NARROWING — the RISK VALVE, exercised DELIBERATELY (see the
- * milestone report for full reasoning): this reference-runner
- * implementation supports the FULL contract for BMP-SAFE strings (every
- * character in U+0000..U+FFFF outside the surrogate range) — the
- * overwhelming majority of real text — and FAILS CLOSED (throws, never
- * guesses) on ANY string, receiver OR needle/prefix argument, that contains
- * a UTF-16 code unit in the surrogate range [0xD800, 0xDFFF]. That single
- * check covers BOTH genuinely malformed input (a lone high/low surrogate, a
- * reversed pair, high-high, low-low — the tribunal's explicit fail-closed
- * set) AND well-formed non-BMP characters (emoji, rare CJK extension
- * characters, mathematical symbols) — a valid surrogate PAIR is, after all,
- * still two code units in that same range. The fixture list's non-BMP cases
- * (😀, 𠀀, …) are consequently OUT OF SCOPE for this reference-runner
- * implementation and are documented as an explicit exclusion in
- * docs/runtime-roadmap.md. Full code-point-index emulation for non-BMP
- * strings (an offset table, or a `Array.from`-based code-point walk) is
- * deferred to a follow-up slice.
- *
- * WHY narrowing this way still delivers the CORRECT contract for BMP-safe
- * input with ZERO custom code-point arithmetic: every BMP character is
- * EXACTLY one UTF-16 code unit, so a BMP-safe JS string's UTF-16 code-unit
- * index IS its Unicode code-point index, identically. Python's native code
- * points agree trivially (Python never uses UTF-16 surrogate pairs
- * internally). So once the BMP-safety guard passes, this module reuses
- * NATIVE JS string operations (`.length`, `.charAt`, `.slice`, `.indexOf`,
- * `.startsWith`) directly — there is no off-by-one or emulation bug to
- * introduce, because the native operation already computes the exact
- * code-point-indexed answer for every string this slice admits.
+ * FULL CONTRACT (KERN 4.5.0 item 3 — the milestone 5.1b BMP-only risk valve
+ * is LIFTED here; see git history / the milestone report for the prior,
+ * deliberately narrower behavior): every op is computed via a full
+ * code-point walk (`Array.from`, which the JS string iterator already pairs
+ * into correct code points for a well-formed surrogate pair), so a
+ * WELL-FORMED non-BMP character — an emoji, an astral CJK-extension
+ * character, a rare mathematical symbol — is IN SCOPE and computed
+ * correctly, exactly like every other code point. The ONLY input this module
+ * still fails closed on is a MALFORMED UTF-16 sequence: a lone high
+ * surrogate, a lone low surrogate, a reversed pair, or any high-high /
+ * low-low run — see {@link isWellFormedText} in `../../codegen/text-contract.js`,
+ * the single-sourced kernel this module shares with both codegen legs
+ * (`textOpsHelpersTS` for TS, `KERN_TEXT_OPS_HELPER_PY` for Python — see that
+ * module's doc comment for the full three-leg architecture).
  *
  * BOUNDS POLICY (this slice's pick, applied identically to every op, per the
  * tribunal's "pick ONE bounds policy" instruction): out-of-range
@@ -52,30 +39,20 @@
  *   - `startsWith(prefix)` returns a boolean; there is no out-of-range case.
  */
 
+import {
+  codePointIndexOf,
+  isWellFormedText,
+  textCodePoints,
+  textMalformedSurrogateFailMessage,
+} from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import { hasBinding, type SemanticEnv } from './index.js';
 import { evalPortableValue, type PortableScalar } from './portable-scalar.js';
 
-/**
- * True iff `s` contains NO UTF-16 code unit in the surrogate range
- * [0xD800, 0xDFFF]. A BMP-safe string's `.length` (and every native
- * character-indexed operation) is exactly its Unicode code-point count/index
- * — see this module's doc comment for why that equivalence holds.
- */
-export function isBmpSafeString(s: string): boolean {
-  for (let i = 0; i < s.length; i += 1) {
-    const code = s.charCodeAt(i);
-    if (code >= 0xd800 && code <= 0xdfff) return false;
-  }
-  return true;
-}
-
-function requireBmpSafeString(value: PortableScalar, label: string): string {
+function requireWellFormedString(value: PortableScalar, label: string): string {
   if (typeof value !== 'string') throw new Error(`portable: ${label} requires a string`);
-  if (!isBmpSafeString(value)) {
-    throw new Error(
-      `portable: ${label} contains a character outside the Basic Multilingual Plane (BMP) or a malformed surrogate — unsupported in this native runner preview`,
-    );
+  if (!isWellFormedText(value)) {
+    throw new Error(textMalformedSurrogateFailMessage(label));
   }
   return value;
 }
@@ -100,8 +77,8 @@ const STRING_OP_ARITY: Readonly<Record<string, number>> = Object.freeze({
  * `Text.indexOf(s, needle)` / `Text.startsWith(s, prefix)`. Returns
  * `undefined` when `node` is not one of these five shapes (so the caller
  * falls through to the generic call path); throws on a recognized-but-
- * invalid shape (wrong arity, non-BMP-safe operand, out-of-range index) so
- * the runner abstains atomically rather than guess.
+ * invalid shape (wrong arity, malformed-surrogate operand, out-of-range
+ * index) so the runner abstains atomically rather than guess.
  */
 export function evalStringOpCall(
   node: Extract<ValueIR, { kind: 'call' }>,
@@ -120,34 +97,36 @@ export function evalStringOpCall(
 
   const receiverArg = node.args[0];
   if (!isValueIR(receiverArg)) throw new Error(`portable: ${label} requires a string receiver`);
-  const receiver = requireBmpSafeString(evalPortableValue(receiverArg, env), label);
+  const receiver = requireWellFormedString(evalPortableValue(receiverArg, env), label);
 
   switch (method) {
     case 'length':
-      return receiver.length;
+      return textCodePoints(receiver).length;
     case 'charAt': {
       const index = requireSafeIntegerArg(node.args[1], env, label);
-      if (index < 0 || index >= receiver.length) {
-        throw new Error(`portable: ${label} index ${index} is out of bounds for a string of length ${receiver.length}`);
+      const cps = textCodePoints(receiver);
+      if (index < 0 || index >= cps.length) {
+        throw new Error(`portable: ${label} index ${index} is out of bounds for a string of length ${cps.length}`);
       }
-      return receiver.charAt(index);
+      return cps[index];
     }
     case 'slice': {
       const start = requireSafeIntegerArg(node.args[1], env, label);
       const end = requireSafeIntegerArg(node.args[2], env, label);
-      if (start < 0 || end < 0 || start > receiver.length || end > receiver.length || start > end) {
+      const cps = textCodePoints(receiver);
+      if (start < 0 || end < 0 || start > cps.length || end > cps.length || start > end) {
         throw new Error(
-          `portable: ${label}(${start}, ${end}) is out of bounds for a string of length ${receiver.length} (0 <= start <= end <= length required)`,
+          `portable: ${label}(${start}, ${end}) is out of bounds for a string of length ${cps.length} (0 <= start <= end <= length required)`,
         );
       }
-      return receiver.slice(start, end);
+      return cps.slice(start, end).join('');
     }
     case 'indexOf': {
-      const needle = requireBmpSafeString(evalPortableValue(node.args[1], env), label);
-      return receiver.indexOf(needle);
+      const needle = requireWellFormedString(evalPortableValue(node.args[1], env), label);
+      return codePointIndexOf(textCodePoints(receiver), textCodePoints(needle));
     }
     case 'startsWith': {
-      const prefix = requireBmpSafeString(evalPortableValue(node.args[1], env), label);
+      const prefix = requireWellFormedString(evalPortableValue(node.args[1], env), label);
       return receiver.startsWith(prefix);
     }
     default:

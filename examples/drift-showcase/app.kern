@@ -1,0 +1,16 @@
+server name=DriftShowcaseAPI port=4310
+  middleware name=json
+
+  route method=get path=/api/status
+    schema response="{ ok: boolean, service: string, version: number }"
+    respond 200 json={{ {ok: true, service: 'drift-showcase', version: 1} }}
+
+  route method=get path=/api/items/:id
+    schema response="{ id: string, title: string, price: number }"
+    derive item expr={{ {id: params.id, title: 'Widget', price: 9.99} }}
+    respond 200 json=item
+
+  route method=post path=/api/items
+    schema body="{title: string, price: number}" response="{ id: string, title: string, price: number, createdAt: string }"
+    derive item expr={{ {id: 'itm_1', title: body.title, price: body.price, createdAt: '2026-07-03T00:00:00Z'} }}
+    respond 201 json=item

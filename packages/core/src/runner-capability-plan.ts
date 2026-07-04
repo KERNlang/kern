@@ -16,7 +16,10 @@ export type CapabilitySyncBoundary = 'sync' | 'async-planned';
 export type CapabilityInputShape = 'portable-literal' | 'host-bound';
 
 export type CapabilityId =
+  | 'app-auth.verifyCredential'
+  | 'app-http.header'
   | 'app-http.queryParam'
+  | 'crypto.hmacVerify'
   | 'crypto.randomBytes'
   | 'crypto.randomHex'
   | 'crypto.randomUUID'
@@ -124,7 +127,10 @@ export interface CapabilityAnalysis {
 }
 
 export const CAPABILITY_DESCRIPTORS = Object.freeze({
+  'app-auth.verifyCredential': capabilityDescriptor('app-auth.verifyCredential', 'shipped', 'sync', 'host-bound'),
+  'app-http.header': capabilityDescriptor('app-http.header', 'shipped', 'sync', 'host-bound'),
   'app-http.queryParam': capabilityDescriptor('app-http.queryParam', 'shipped', 'sync', 'host-bound'),
+  'crypto.hmacVerify': capabilityDescriptor('crypto.hmacVerify', 'shipped', 'sync', 'host-bound'),
   'crypto.randomBytes': capabilityDescriptor('crypto.randomBytes', 'shipped', 'sync', 'portable-literal'),
   'crypto.randomHex': capabilityDescriptor('crypto.randomHex', 'shipped', 'sync', 'portable-literal'),
   'crypto.randomUUID': capabilityDescriptor('crypto.randomUUID', 'shipped', 'sync', 'portable-literal'),

@@ -20,6 +20,7 @@ import {
   detectReactHookDeps,
   detectTarget,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesTextOps,
   expandTemplateNode,
   generateCoreNode,
   injectKernStdlibPreamble,
@@ -1120,6 +1121,37 @@ function applyKernStdlibPreamble(
     (result.artifacts?.some((art) => isTsArtifactPath(art.path) && emittedCodeUsesLooseEq(art.content)) ?? false)
   ) {
     usage.looseEq = true;
+  }
+  // KERN 4.5.0 item 3 — same "detection == emission" pattern as `looseEq` above:
+  // an emitted `__kern_text_*(` call means a `Text.length`/`charAt`/`slice`/
+  // `indexOf`/`startsWith` lowering fired somewhere in this module, so the
+  // code-point-ops helper block must be injected.
+  //
+  // Unlike the `looseEq` scan above, this one ALSO scans `.vue` SFC artifacts
+  // (agon review, verified): empirically, today's vue/nuxt transpilers never
+  // route a `lang="kern"` handler through the KERN-stdlib lowering (they emit
+  // RAW handler text via `handlerCode` — zero `emitNativeKernBody*` imports in
+  // packages/vue), and the only `.vue` artifacts the CLI dispatch produces
+  // (nuxt page/layout) are byte-identical copies of `result.code`, which IS
+  // scanned — so a Text.* lowering that ONLY lives in a `.vue` artifact is
+  // UNREACHABLE via `transpileForTarget` today. The `.vue` scan is a cheap
+  // defensive closure of that latent hole for when structured-vue output
+  // (`buildVueStructuredArtifacts`, whose non-entry `.vue` artifacts are NOT
+  // copies of `result.code`) gets wired into the dispatch. Injection is
+  // already SFC-safe: `.vue` artifacts route through
+  // `injectKernStdlibPreambleIntoSFC`, which inserts INSIDE the
+  // `<script lang="ts">` block (or safely drops the preamble when no TS
+  // script block exists — never before the SFC, which broke .vue parse
+  // historically). The `looseEq` scan above shares this latent shape but is
+  // pre-existing behavior, left unchanged deliberately (follow-up finding).
+  if (
+    emittedCodeUsesTextOps(result.code) ||
+    (result.artifacts?.some(
+      (art) => (isTsArtifactPath(art.path) || isSfcArtifactPath(art.path)) && emittedCodeUsesTextOps(art.content),
+    ) ??
+      false)
+  ) {
+    usage.textOps = true;
   }
   const preamble = kernStdlibPreamble(usage);
   if (preamble.length === 0) return result;

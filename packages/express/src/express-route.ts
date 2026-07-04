@@ -1,5 +1,6 @@
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { emitNativeKernBodyTS, getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { normalizeKernHmacAlgorithm } from '@kernlang/core/runtime';
 import { buildSchema, resolveMiddlewareUsage } from './express-middleware.js';
 import {
   generatePortableHandlerExpress,
@@ -19,6 +20,47 @@ import {
   routeRegisterName,
 } from './express-utils.js';
 
+function expressPolicyDescriptor(policyNodes: readonly IRNode[], method: string, path: string): string {
+  const policies = policyNodes.map((node, index) => {
+    const props = getProps(node);
+    const kind = String(props.kind || 'passthrough');
+    const name = String(props.name || `Policy${index + 1}`);
+    // Route-child policies bypass the core manifest loader, so this emitter
+    // must enforce the same fail-closed plan validation policySlotPlan does
+    // — otherwise a negative minGroundingCoverage silently disables the
+    // grounding threshold at runtime (coverage < negative is never true).
+    const minGroundingCoverage = Number(props.minGroundingCoverage ?? 1);
+    if (kind === 'rag-review' && !(minGroundingCoverage >= 0 && minGroundingCoverage <= 1)) {
+      throw new Error(`express emitter: policy ${name} minGroundingCoverage must be between 0 and 1`);
+    }
+    // Same fail-closed rule as core's loader for the HMAC signature encoding:
+    // anything other than the two supported encodings must fail the BUILD.
+    // Emitted verbatim it reaches generated runtime code, where the Python
+    // runtime treats every non-hex value as base64 — silently drifted
+    // semantics instead of a build error.
+    const encoding = String(props.encoding || 'hex');
+    if (kind === 'hmacSignature' && encoding !== 'hex' && encoding !== 'base64') {
+      throw new Error(`express emitter: policy ${name} hmacSignature encoding must be hex or base64`);
+    }
+    const plan =
+      kind === 'auth'
+        ? `{ kind: 'auth', verifierRef: '${escapeSingleQuotes(String(props.verifierRef || props.ref || 'default'))}', credentialHeader: '${escapeSingleQuotes(String(props.credentialHeader || 'authorization').toLowerCase())}' }`
+        : kind === 'hmacSignature'
+          ? `{ kind: 'hmacSignature', keyRef: '${escapeSingleQuotes(String(props.keyRef || 'default'))}', algorithm: '${escapeSingleQuotes(normalizeKernHmacAlgorithm(String(props.algorithm || 'sha256')))}', signatureHeader: '${escapeSingleQuotes(String(props.signatureHeader || 'x-signature').toLowerCase())}', encoding: '${escapeSingleQuotes(encoding)}'${props.prefix ? `, prefix: '${escapeSingleQuotes(String(props.prefix))}'` : ''} }`
+          : kind === 'rag-review'
+            ? `{ kind: 'rag-review', queryField: 'query', answerField: 'answer', citedChunkIdsField: 'citedChunkIds', groundingSpansField: 'groundingSpans', minGroundingCoverage: ${minGroundingCoverage} }`
+            : kind === 'passthrough'
+              ? `{ kind: 'passthrough' }`
+              : (() => {
+                  // A kind this leg cannot execute must fail the build — emitting
+                  // a passthrough here would ship an unguarded route.
+                  throw new Error(`express emitter: unsupported pre-slot policy kind '${kind}' for policy ${name}`);
+                })();
+    return `{ node: { type: 'policy', props: ${JSON.stringify(props)}, children: [] }, name: '${escapeSingleQuotes(name)}', slot: 'pre', kind: '${escapeSingleQuotes(kind)}', handler: 'main', requires: [], plan: ${plan}, label: 'policy ${escapeSingleQuotes(name)}' }`;
+  });
+  return `{ node: { type: 'route', props: {}, children: [] }, kind: 'route', name: 'GeneratedRoute', path: '${escapeSingleQuotes(path)}', sourcePath: './generated.kern', handler: 'main', policies: [], prePolicies: [${policies.join(', ')}], postPolicies: [], appCapabilities: [], entryCapabilities: [], policyCapabilities: [], declaredCapabilities: [], requiredCapabilities: [], requiredSyncCapabilities: [], requiredAsyncCapabilities: [], label: 'route GeneratedRoute', method: '${escapeSingleQuotes(method)}', key: '${escapeSingleQuotes(method.toUpperCase())} ${escapeSingleQuotes(path)}' }`;
+}
+
 export function buildRouteArtifact(
   routeNode: IRNode,
   routeIndex: number,
@@ -27,6 +69,14 @@ export function buildRouteArtifact(
   securityLevel: 'strict' | 'relaxed',
   /** Rendered `import ... from '...'` lines propagated from the enclosing `server` block. */
   propagatedImports: readonly string[] = [],
+  /**
+   * Body-parser invocation (e.g. `express.json({ limit: '1mb' })`) the server
+   * moved from the global middleware stack to per-route registration because
+   * at least one route in the app carries an hmacSignature pre-policy. Applied
+   * to every route EXCEPT hmacSignature-guarded ones, whose body lifecycle is
+   * raw-capture -> policy -> parse-after-allow.
+   */
+  injectedJsonParserInvocation?: string,
 ): RouteArtifactRef {
   const props = getProps(routeNode);
   const method = String(props.method || 'get').toLowerCase();
@@ -138,6 +188,9 @@ export function buildRouteArtifact(
         : `res.status(501).json({ error: 'Route handler not implemented' });`;
 
   const routeMiddleware = getChildren(routeNode, 'middleware');
+  const policyNodes = getChildren(routeNode, 'policy');
+  const hmacPolicyNodes = policyNodes.filter((node) => String(getProps(node).kind || '') === 'hmacSignature');
+  const hasPolicyNodes = policyNodes.length > 0;
   const routeImports = new Set<string>();
   const middlewareInvocations: string[] = [];
 
@@ -176,6 +229,27 @@ export function buildRouteArtifact(
     if (validateSchema) {
       middlewareInvocations.push(`validate(${validateSchema})`);
     }
+  }
+
+  if (hmacPolicyNodes.length > 0) {
+    // An hmacSignature-guarded route owns its body lifecycle end to end:
+    // __kernCaptureRawBody preserves the exact raw bytes, the pre-policy
+    // middleware verifies them, and __kernParseJsonAfterPolicy parses only
+    // after an allow decision. A route-local `middleware name=json` here
+    // would (a) never see the stream (already consumed by the raw capture,
+    // so express.json stalls waiting for data that never comes) and (b) be
+    // redundant with the post-allow parse. Drop it, fail-safe.
+    for (let index = middlewareInvocations.length - 1; index >= 0; index -= 1) {
+      if (middlewareInvocations[index].startsWith('express.json(')) middlewareInvocations.splice(index, 1);
+    }
+  } else if (injectedJsonParserInvocation) {
+    // Whole-app generation moved the global JSON parser per-route (a global
+    // parser cannot know which routes are HMAC-guarded without path-shape
+    // heuristics — see transpiler-express). Non-HMAC routes receive it at the
+    // FRONT of their chain, mirroring the old global ordering (parser before
+    // auth/validate/user middleware).
+    middlewareInvocations.unshift(injectedJsonParserInvocation);
+    if (injectedJsonParserInvocation.startsWith('express.json(')) needsExpressDefaultImport = true;
   }
 
   // v3 route children: params (query params with types and defaults)
@@ -234,6 +308,12 @@ export function buildRouteArtifact(
   } else {
     lines.push(`import { type Express, type NextFunction, type Request, type Response } from 'express';`);
   }
+  if (hasPolicyNodes) {
+    lines.push(`import { executeKernAppEntryPolicySlot, type KernAppRouteDescriptor } from '@kernlang/core/runtime';`);
+  }
+  if (hmacPolicyNodes.length > 0) {
+    lines.push(`import { createHmac, timingSafeEqual } from 'node:crypto';`);
+  }
   if (caps.needsChildProcess) {
     lines.push(`import { spawn } from 'node:child_process';`);
   }
@@ -267,10 +347,160 @@ export function buildRouteArtifact(
     lines.push('  }');
     lines.push('}');
   }
+  if (hmacPolicyNodes.length > 0) {
+    lines.push('');
+    // Cap matches the strict-mode express.json({ limit: '1mb' }) the HMAC
+    // route opted out of — otherwise raw capture would buffer an arbitrarily
+    // large body in memory BEFORE any signature check. Overflow responds 413
+    // and drains the remaining stream unbuffered (no hang, no growth).
+    lines.push(`const __KERN_RAW_BODY_LIMIT_BYTES = 1048576;`);
+    lines.push('');
+    lines.push(`function __kernCaptureRawBody(req: Request, res: Response, next: NextFunction): void {`);
+    // Defensive: a stream something upstream already consumed never fires
+    // 'end', so waiting on it would hang the request forever. Capture is
+    // registered first so generated code cannot currently reach this state —
+    // but if a host composes extra middleware ahead of it, fail safe with an
+    // empty raw body (which the guard then denies) instead of hanging.
+    lines.push(`  if (req.readableEnded) {`);
+    lines.push(`    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.alloc(0);`);
+    lines.push(`    next();`);
+    lines.push(`    return;`);
+    lines.push(`  }`);
+    lines.push(`  const chunks: Buffer[] = [];`);
+    lines.push(`  let receivedBytes = 0;`);
+    lines.push(`  let overflowed = false;`);
+    lines.push(`  req.on('data', (chunk: Buffer | string) => {`);
+    lines.push(`    if (overflowed) return;`);
+    lines.push(`    const buffer = Buffer.from(chunk);`);
+    lines.push(`    receivedBytes += buffer.length;`);
+    lines.push(`    if (receivedBytes > __KERN_RAW_BODY_LIMIT_BYTES) {`);
+    lines.push(`      overflowed = true;`);
+    lines.push(`      chunks.length = 0;`);
+    // Overflow: respond 413, STOP READING immediately (req.pause() lets TCP
+    // backpressure stall the sender instead of draining an arbitrarily large
+    // upload at full bandwidth), and tear the connection down after a short
+    // lingering close. Destroying the instant the response flushes can RST
+    // the connection while unread upload bytes sit in the receive buffer,
+    // discarding the in-flight 413 before the client reads it — the linger
+    // (unref'd, so it never holds the process) lets a well-behaved client
+    // observe the status first; a misbehaving one is cut off regardless.
+    lines.push(`      res.setHeader('Connection', 'close');`);
+    lines.push(`      res.status(413).json({ error: 'Payload Too Large' });`);
+    lines.push(`      req.pause();`);
+    lines.push(`      res.once('finish', () => setTimeout(() => req.destroy(), 1000).unref());`);
+    lines.push(`      return;`);
+    lines.push(`    }`);
+    lines.push(`    chunks.push(buffer);`);
+    lines.push(`  });`);
+    lines.push(`  req.on('end', () => {`);
+    lines.push(`    if (overflowed) return;`);
+    lines.push(`    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.concat(chunks);`);
+    lines.push(`    next();`);
+    lines.push(`  });`);
+    // After an overflow teardown the destroyed request may emit an error;
+    // the 413 response is already finished, so routing it into the error
+    // middleware would only produce a headers-already-sent crash.
+    lines.push(`  req.on('error', (error) => {`);
+    lines.push(`    if (!overflowed) next(error);`);
+    lines.push(`  });`);
+    lines.push('}');
+    lines.push('');
+    lines.push(
+      `function __kernParseJsonAfterPolicy(req: Request): { readonly ok: true } | { readonly ok: false; readonly error: string } {`,
+    );
+    lines.push(`  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;`);
+    lines.push(`  const contentType = String(req.headers['content-type'] ?? '').toLowerCase();`);
+    lines.push(
+      `  if (!rawBody || rawBody.length === 0 || !contentType.includes('application/json')) return { ok: true };`,
+    );
+    lines.push(`  try {`);
+    lines.push(`    (req as Request & { body?: unknown }).body = JSON.parse(rawBody.toString('utf8'));`);
+    lines.push(`    return { ok: true };`);
+    lines.push(`  } catch (error) {`);
+    lines.push(`    return { ok: false, error: error instanceof Error ? error.message : String(error) };`);
+    lines.push(`  }`);
+    lines.push('}');
+    lines.push('');
+    lines.push(
+      `function __kernVerifyHmac(key: string | Uint8Array, input: { body: string | Uint8Array; signature: string; algorithm: string; encoding: 'hex' | 'base64'; prefix?: string }): boolean {`,
+    );
+    // Same normalization as core's normalizeKernHmacAlgorithm (the emitter
+    // already canonicalizes the plan; this is runtime defense for plans that
+    // reach the verifier from other sources): 'sha-256'/'sha_256' -> 'sha256',
+    // 'sha3_256' -> 'sha3-256' (Node/OpenSSL digest names).
+    lines.push(
+      `  const algorithm = input.algorithm.trim().toLowerCase().replace(/_/g, '-').replace(/^sha-(\\d+)$/, 'sha$1');`,
+    );
+    lines.push(`  const expected = createHmac(algorithm, Buffer.from(key))`);
+    lines.push(`    .update(Buffer.from(input.body))`);
+    lines.push(`    .digest(input.encoding);`);
+    lines.push(
+      `  const received = input.prefix && input.signature.startsWith(input.prefix) ? input.signature.slice(input.prefix.length) : input.signature;`,
+    );
+    lines.push(`  const expectedBuffer = Buffer.from(expected, input.encoding);`);
+    lines.push(`  const receivedBuffer = Buffer.from(received, input.encoding);`);
+    lines.push(
+      `  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer);`,
+    );
+    lines.push('}');
+  }
   lines.push('');
+  if (hasPolicyNodes) {
+    const descriptor = expressPolicyDescriptor(policyNodes, normalizedMethod, path);
+    lines.push(`const __kernRoutePolicyEntry = ${descriptor} as unknown as KernAppRouteDescriptor;`);
+    lines.push(`const __kernPolicyFacts = (req: Request) => ({`);
+    lines.push(
+      `  headers: Object.fromEntries(Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(',') : value])),`,
+    );
+    lines.push(`  rawBody: (req as Request & { rawBody?: Buffer }).rawBody,`);
+    lines.push(`  authVerifiers: (req.app.locals.kernAuthVerifiers ?? {}) as any,`);
+    if (hmacPolicyNodes.length > 0) {
+      lines.push(
+        `  hmacVerifiers: Object.fromEntries(Object.entries((req.app.locals.kernHmacKeys ?? {}) as Record<string, string | Uint8Array | undefined>).filter((entry): entry is [string, string | Uint8Array] => entry[1] !== undefined).map(([keyRef, key]) => [keyRef, (input: { body: string | Uint8Array; signature: string; algorithm: string; encoding: 'hex' | 'base64'; prefix?: string }) => __kernVerifyHmac(key, input)])) as any,`,
+      );
+    } else {
+      lines.push(`  hmacVerifiers: {},`);
+    }
+    lines.push(`  ragReview: (req as Request & { kernRagReview?: unknown }).kernRagReview as any,`);
+    lines.push(`});`);
+    lines.push('');
+    // The pre-policy slot runs as its OWN middleware, registered immediately
+    // after the raw-body capture and BEFORE every user-level middleware
+    // (auth, validate, route-local parsers). Running it inside the handler —
+    // the previous shape — let user middleware observe, parse, or reject the
+    // request ahead of a policy denial, violating the deny-before-parse
+    // contract (oracle H10). For HMAC routes the post-allow JSON parse also
+    // lives here, so downstream middleware (e.g. validate) still sees
+    // req.body.
+    lines.push(
+      `async function __kernEnforcePrePolicy(req: Request, res: Response, next: NextFunction): Promise<void> {`,
+    );
+    lines.push(`  try {`);
+    lines.push(
+      `    const __kernPrePolicy = await executeKernAppEntryPolicySlot(__kernRoutePolicyEntry, 'pre', __kernPolicyFacts(req));`,
+    );
+    lines.push(`    const __kernDenied = __kernPrePolicy.find((policy) => policy.action === 'deny');`);
+    lines.push(`    if (__kernDenied) {`);
+    lines.push(`      res.status(__kernDenied.status ?? 401).json(__kernDenied.body ?? { error: 'policy_denied' });`);
+    lines.push(`      return;`);
+    lines.push(`    }`);
+    if (hmacPolicyNodes.length > 0) {
+      lines.push(`    const __kernParsedBody = __kernParseJsonAfterPolicy(req);`);
+      lines.push(`    if (!__kernParsedBody.ok) {`);
+      lines.push('      res.status(400).json({ error: `Invalid body: ${__kernParsedBody.error}` });');
+      lines.push(`      return;`);
+      lines.push(`    }`);
+    }
+    lines.push(`    next();`);
+    lines.push(`  } catch (error) {`);
+    lines.push(`    next(error);`);
+    lines.push(`  }`);
+    lines.push(`}`);
+    lines.push('');
+  }
   lines.push(`export function ${registerName}(app: Express): void {`);
   lines.push(
-    `  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`,
+    `  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${hmacPolicyNodes.length > 0 ? '__kernCaptureRawBody, ' : ''}${hasPolicyNodes ? '__kernEnforcePrePolicy, ' : ''}${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`,
   );
 
   // Schema validation — always runs first, before stream/timer

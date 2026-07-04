@@ -12,8 +12,8 @@
  * Supports: OpenAI, Anthropic (via proxy), Ollama, any OpenAI-compatible API.
  */
 
-import type { LLMGraphContext, SerializationMode } from './llm-review.js';
-import { buildLLMPrompt, parseLLMResponse } from './llm-review.js';
+import type { LLMGraphContext, MinedRuleRef, SerializationMode } from './llm-review.js';
+import { buildLLMPrompt, parseLLMResponse, renderKernRulesBlock } from './llm-review.js';
 import type { TaintResult } from './taint.js';
 import type { InferResult, ReviewFinding, TemplateMatch } from './types.js';
 
@@ -76,6 +76,17 @@ export interface LLMBridgeConfig {
    *  here would either skip files on small-context models or waste
    *  capacity on big-context ones. */
   maxBatchTokens?: number;
+  /**
+   * RAG grounding emission: the repo's mined rules, trustScore-ranked and
+   * pre-truncated by the host, rendered into a bounded `<kern-rules>`
+   * block so the reviewer can cite one when it finds a violation. Omitted
+   * (or empty) -> no `<kern-rules>` block, no citation instruction —
+   * existing hosts see zero behavior change. Attached to the FIRST file in
+   * each batch only (rules are repo-wide, not per-file; repeating the
+   * block once per file in a multi-file batch would waste tokens for no
+   * benefit).
+   */
+  mineRules?: MinedRuleRef[];
 }
 
 export interface ReviewInstructionOptions {
@@ -95,6 +106,7 @@ function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & 
     timeout: override?.timeout || 60_000,
     maxTokens,
     maxBatchTokens: override?.maxBatchTokens || defaultMaxBatchTokens(maxTokens),
+    mineRules: override?.mineRules ?? [],
     available: apiKey.length > 0,
   };
 }
@@ -500,6 +512,17 @@ export async function runLLMReview(
     irCache.set(input, buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext));
   }
 
+  // The <kern-rules> block reviewBatch later attaches (to each batch's
+  // first file) is prompt content the per-input estimates don't see —
+  // without reserving room for it here, a batch the estimator accepts can
+  // exceed maxBatchTokens once the real prompt is assembled (large rule
+  // descriptions are exactly the case that overflows). Rendered via the
+  // same function buildLLMPrompt uses, so the reservation can't drift
+  // from the real bytes. Bounded by MAX_KERN_RULES, so this never
+  // hollows out the budget.
+  const rulesBlockTokens = estimateTokens(renderKernRulesBlock(config.mineRules));
+  const effectiveMaxBatchTokens = Math.max(1_000, config.maxBatchTokens - rulesBlockTokens);
+
   // Size-aware batching: group inputs by estimated token count
   const batches: LLMReviewInput[][] = [];
   let currentBatch: LLMReviewInput[] = [];
@@ -513,7 +536,10 @@ export async function runLLMReview(
   const expanded: Array<{ input: LLMReviewInput; originalIR: string }> = [];
   for (const input of inputs) {
     const ir = irCache.get(input)!;
-    const chunks = chunkLargeInput(input, ir, config.maxBatchTokens);
+    // Chunk against the rules-reserved budget too: a chunk sized to the
+    // raw maxBatchTokens could land first in a batch (where the rules
+    // block attaches) and overflow.
+    const chunks = chunkLargeInput(input, ir, effectiveMaxBatchTokens);
 
     if (chunks.length === 0) {
       // Unchunkable (IR alone too large, or minified single-line file).
@@ -543,8 +569,9 @@ export async function runLLMReview(
   for (const { input, originalIR } of expanded) {
     const inputTokens = estimateInputTokens(input, originalIR);
 
-    // Start new batch if adding this input would exceed budget
-    if (currentBatch.length > 0 && currentTokens + inputTokens > config.maxBatchTokens) {
+    // Start new batch if adding this input would exceed the rules-reserved
+    // budget (see effectiveMaxBatchTokens above).
+    if (currentBatch.length > 0 && currentTokens + inputTokens > effectiveMaxBatchTokens) {
       batches.push(currentBatch);
       currentBatch = [];
       currentTokens = 0;
@@ -606,18 +633,22 @@ async function reviewBatch(
   const allInferred: InferResult[] = [];
   let anySourceIncluded = false;
 
-  for (const input of inputs) {
+  for (const [index, input] of inputs.entries()) {
     // Graph-aware source budgeting: include source only for CHANGED files
     const includeSource = !!input.source && isChangedFile(input);
     const fileMode: SerializationMode = includeSource ? 'deep' : 'ir-only';
 
     // Build IR prompt with correct mode (don't use irCache — it was built with ir-only for estimation)
+    // mineRules is repo-wide, not per-file — attach it once, to the first
+    // file in the batch, rather than repeating the <kern-rules> block
+    // per file (see LLMBridgeConfig.mineRules doc).
     const prompt = buildLLMPrompt(
       input.inferred,
       input.templateMatches,
       input.graphContext,
       fileMode,
       input.obligations,
+      index === 0 ? config.mineRules : undefined,
     );
     parts.push(`<kern-file path="${sanitizeFilePath(input.filePath)}">\n${prompt}\n</kern-file>`);
     allInferred.push(...input.inferred);
@@ -802,13 +833,18 @@ Categories: bug, type, pattern, style, structure
 Severities: error (definitely a bug), warning (likely a bug or serious concern), info (suggestion)
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75,"citation":{"ruleId":"..."}}]
 
 The optional integer "confidence" field is your evidence-grounded self-assessment:
 - 80-89: defect provable from the shown code alone — cite the line evidence
 - 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
 - below 60: do NOT report the finding at all — speculative pattern-concerns and might-be-intentional designs fall here
 - NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+The optional "citation" field: when a <kern-rules> block is present and this finding violates one
+of the listed rules, cite the ONE rule id you violated as {"ruleId":"<id-from-kern-rules>"}. Never
+invent a ruleId that isn't listed. Omit "citation" entirely when no listed rule applies — do not
+force a citation onto a finding that doesn't have one.
 
 Examples:
 [{"nodeAlias":"N3","severity":"error","category":"bug","message":"Off-by-one: loop uses <= items.length, indexing items[i] reads one past the end.","evidence":"for (let i = 0; i <= items.length; i++) items[i]","confidence":85},
@@ -821,6 +857,7 @@ Rules:
 - Do NOT report style/formatting issues — only things that affect correctness or security
 - Do NOT repeat findings already listed in <kern-findings>
 - Use aliases from the Valid aliases list ONLY
+- Cite a rule from <kern-rules> only when the finding genuinely violates it — never to add weight to an unrelated finding
 - Prioritize: bugs > security > error handling > data flow > concurrency > API contracts`;
   }
 
@@ -859,13 +896,17 @@ Categories: bug, type, pattern, style, structure
 Severities: error, warning, info
 
 Return ONLY a JSON array of findings. Schema:
-[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75}]
+[{"nodeAlias":"N3","severity":"warning","category":"bug","message":"...","evidence":"...","confidence":75,"citation":{"ruleId":"..."}}]
 
 The optional integer "confidence" field is your evidence-grounded self-assessment:
 - 80-89: defect provable from the shown code alone — cite the line evidence
 - 60-79: likely defect but depends on unseen code (call sites, module boundaries, domain assumptions)
 - below 60: do NOT report the finding at all — speculative pattern-concerns and might-be-intentional designs fall here
 - NEVER emit 90 or higher (reserved for deterministic tooling); never emit fractional values
+
+The optional "citation" field: when a <kern-rules> block is present and this finding violates one
+of the listed rules, cite the ONE rule id you violated as {"ruleId":"<id-from-kern-rules>"}. Never
+invent a ruleId that isn't listed. Omit "citation" entirely when no listed rule applies.
 
 Examples:
 [{"nodeAlias":"N3","severity":"error","category":"bug","message":"Command injection: userInput is concatenated into an exec() argument with no escaping.","evidence":"exec('git log ' + userInput)","confidence":85},
@@ -876,7 +917,8 @@ Rules:
 - Include specific evidence from the code
 - Explain HOW an attacker could exploit each issue
 - Do NOT report style issues — only security-relevant findings
-- Use aliases from the Valid aliases list ONLY`;
+- Use aliases from the Valid aliases list ONLY
+- Cite a rule from <kern-rules> only when the finding genuinely violates it — never to add weight to an unrelated finding`;
 }
 
 function buildSystemPrompt(hasSource: boolean): string {

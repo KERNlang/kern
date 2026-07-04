@@ -22,7 +22,8 @@ describe('KERN-stdlib expansion — Text+, List, Map, Number', () => {
   test.each([
     // Text additions
     ['Text.includes(s, "x")', 's.includes("x")'],
-    ['Text.startsWith(s, "p")', 's.startsWith("p")'],
+    // KERN 4.5.0 item 3 — code-point-indexed helper, not native .startsWith.
+    ['Text.startsWith(s, "p")', '__kern_text_starts_with(s, "p")'],
     ['Text.endsWith(s, "p")', 's.endsWith("p")'],
     ['Text.split(s, ",")', 's.split(",")'],
     // Review fix: KERN normalizes to replace-all semantics; TS uses replaceAll.
@@ -106,8 +107,8 @@ describe('parseExpression — arithmetic + comparison ops', () => {
   });
 
   test('stdlib-call inside an arithmetic expression preserves dispatch', () => {
-    // Text.length(s) > 0 → s.length > 0
-    expect(emitExpression(parseExpression('Text.length(s) > 0'))).toBe('s.length > 0');
+    // Text.length(s) > 0 → __kern_text_length(s) > 0 (KERN 4.5.0 item 3 — code-point op)
+    expect(emitExpression(parseExpression('Text.length(s) > 0'))).toBe('__kern_text_length(s) > 0');
   });
 });
 
@@ -402,7 +403,7 @@ describe('end-to-end fn lang=kern with slice-2 features', () => {
     if (!fnNode) return;
     const out = generateCoreNode(fnNode).join('\n');
     expect(out).toContain('const trimmed = raw.trim();');
-    expect(out).toContain('if (trimmed.length === 0) {');
+    expect(out).toContain('if (__kern_text_length(trimmed) === 0) {');
     expect(out).toContain('return Result.err({ kind: "empty" });');
     expect(out).toContain('return Result.ok(trimmed.toUpperCase());');
   });

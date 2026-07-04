@@ -3,6 +3,7 @@ import {
   findMissingKernAppEntryCapability,
   type KernAppPolicySlot,
   loadKernAppDescriptor,
+  normalizeKernHmacAlgorithm,
 } from '../src/runtime.js';
 
 function manifest(lines: string[]): string {
@@ -657,7 +658,7 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
     ).rejects.toThrow(/must stay inside the app directory/);
   });
 
-  test('fails closed on unknown slots, non-passthrough slot kinds, and orphaned slot props — even when unreferenced', async () => {
+  test('fails closed on unknown slots, non-executable slot kinds, and orphaned slot props — even when unreferenced', async () => {
     const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern"';
     const files = { '/app/answer.kern': ROUTE_SOURCE };
 
@@ -665,10 +666,16 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
       load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=passthrough slot=around']), files),
     ).rejects.toThrow(/policy Bad declares unknown slot 'around' \(expected pre or post\)/);
 
+    // The three guardrail kinds are executable pre-slot policies since 4.5.0 —
+    // a bare declaration loads; enforcement wiring is validated at its own layer.
+    for (const kind of ['auth', 'hmacSignature', 'rag-review']) {
+      await load(manifest(['app name=SupportApp', routeLine, `  policy name=Guard kind=${kind} slot=pre`]), files);
+    }
+
     await expect(
       load(manifest(['app name=SupportApp', routeLine, '  policy name=Bad kind=rag-grounding slot=pre']), files),
     ).rejects.toThrow(
-      /policy Bad slot=pre requires an executable kind \(passthrough only in KERN 5\.2\), got 'rag-grounding'/,
+      /policy Bad slot=pre requires an executable kind, got 'rag-grounding'; executable kinds: passthrough, auth, hmacSignature, rag-review/,
     );
 
     await expect(
@@ -705,5 +712,159 @@ describe('@kernlang/core/runtime policy-slot skeleton (5.2 scaffolding for 5.3 g
     await expect(executeKernAppEntryPolicySlot(route, 'around' as KernAppPolicySlot)).rejects.toThrow(
       /unknown policy slot 'around' \(expected pre or post\)/,
     );
+  });
+
+  test('a guard reading the DEFAULT credential/signature header (no explicit prop override) loads — the allowlist derives from the normalized plan', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Authz';
+    const guardSource = (header: string) =>
+      [
+        'fn name=main returns=void',
+        '  handler lang="kern"',
+        `    capability namespace=app-http operation=header name=h input="{ name: \\"${header}\\" }"`,
+      ].join('\n');
+    const files = { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('authorization') };
+
+    // auth's default credentialHeader is 'authorization' — reading it with NO
+    // credentialHeader= override and NO headers= allowlist previously failed
+    // load-time validation as "undeclared", even though it is exactly the
+    // header the auth plan checks at runtime.
+    await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Authz kind=auth slot=pre source="./guard.kern"']),
+      files,
+    );
+
+    // hmacSignature's default signatureHeader is 'x-signature'.
+    await load(
+      manifest([
+        'app name=SupportApp',
+        routeLine,
+        '  policy name=Authz kind=hmacSignature slot=pre source="./guard.kern"',
+      ]),
+      { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('x-signature') },
+    );
+
+    // A header that is neither the default nor explicitly allowlisted still
+    // fails closed.
+    await expect(
+      load(
+        manifest(['app name=SupportApp', routeLine, '  policy name=Authz kind=auth slot=pre source="./guard.kern"']),
+        { '/app/answer.kern': ROUTE_SOURCE, '/app/guard.kern': guardSource('x-not-allowed') },
+      ),
+    ).rejects.toThrow(/reads undeclared HTTP header/);
+  });
+
+  test('a policy guard source with parse errors or malformed/unknown capability declarations fails the whole load, matching entry-source validation', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=PreGate';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+    const appLines = [
+      'app name=SupportApp',
+      routeLine,
+      '  policy name=PreGate kind=passthrough slot=pre source="./guard.kern"',
+    ];
+
+    // Unknown capability namespace/operation.
+    await expect(
+      load(manifest(appLines), {
+        ...files,
+        '/app/guard.kern': [
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    capability namespace=totally-unknown operation=nope name=h',
+        ].join('\n'),
+      }),
+    ).rejects.toThrow(/malformed or unknown capability declarations/);
+
+    // Malformed capability node (missing required namespace).
+    await expect(
+      load(manifest(appLines), {
+        ...files,
+        '/app/guard.kern': [
+          'fn name=main returns=void',
+          '  handler lang="kern"',
+          '    capability operation=header name=h',
+        ].join('\n'),
+      }),
+    ).rejects.toThrow(/malformed or unknown capability declarations/);
+  });
+
+  test('rag-review minGroundingCoverage must stay within [0, 1] — a negative value would silently disable the threshold', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern"';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          routeLine,
+          '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=-0.2',
+        ]),
+        files,
+      ),
+    ).rejects.toThrow(/minGroundingCoverage must be between 0 and 1/);
+
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          routeLine,
+          '  policy name=Bad kind=rag-review slot=pre minGroundingCoverage=1.5',
+        ]),
+        files,
+      ),
+    ).rejects.toThrow(/minGroundingCoverage must be between 0 and 1/);
+
+    // Boundary values are accepted.
+    await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Ok kind=rag-review slot=pre minGroundingCoverage=0']),
+      files,
+    );
+    await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Ok kind=rag-review slot=pre minGroundingCoverage=1']),
+      files,
+    );
+  });
+
+  test('a policy failureStatus must be a valid HTTP status code, and denied decisions honor it instead of hardcoding 401', async () => {
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Sig';
+    const files = { '/app/answer.kern': ROUTE_SOURCE };
+
+    await expect(
+      load(
+        manifest(['app name=SupportApp', routeLine, '  policy name=Sig kind=hmacSignature slot=pre failureStatus=12']),
+        files,
+      ),
+    ).rejects.toThrow(/failureStatus must be a valid HTTP status code/);
+
+    const descriptor = await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Sig kind=hmacSignature slot=pre failureStatus=422']),
+      files,
+    );
+    const route = descriptor.routes[0];
+    // No signature/rawBody in facts denies immediately, with no host wiring.
+    const [decision] = await executeKernAppEntryPolicySlot(route, 'pre', {});
+    expect(decision).toEqual(expect.objectContaining({ action: 'deny', status: 422 }));
+  });
+
+  test('HMAC algorithm names normalize to one canonical set shared by every leg', async () => {
+    // Dashed/underscored SHA-2 aliases collapse; multi-part families keep
+    // their separator in Node/OpenSSL style (the generated Python runtime
+    // maps that to hashlib's underscore convention).
+    expect(normalizeKernHmacAlgorithm('sha-256')).toBe('sha256');
+    expect(normalizeKernHmacAlgorithm('SHA_256')).toBe('sha256');
+    expect(normalizeKernHmacAlgorithm('sha256')).toBe('sha256');
+    expect(normalizeKernHmacAlgorithm(' SHA-512 ')).toBe('sha512');
+    expect(normalizeKernHmacAlgorithm('sha3-256')).toBe('sha3-256');
+    expect(normalizeKernHmacAlgorithm('sha3_256')).toBe('sha3-256');
+    expect(normalizeKernHmacAlgorithm('md5')).toBe('md5');
+
+    // The manifest loader bakes the canonical name into the plan, so a
+    // dashed config verifies instead of denying every request downstream.
+    const routeLine = '  route name=Answer method=get path="/api/answer" source="./answer.kern" policy=Sig';
+    const descriptor = await load(
+      manifest(['app name=SupportApp', routeLine, '  policy name=Sig kind=hmacSignature slot=pre algorithm=sha-256']),
+      { '/app/answer.kern': ROUTE_SOURCE },
+    );
+    const plan = descriptor.routes[0].prePolicies[0].plan;
+    expect(plan).toEqual(expect.objectContaining({ kind: 'hmacSignature', algorithm: 'sha256' }));
   });
 });

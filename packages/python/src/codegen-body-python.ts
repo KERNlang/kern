@@ -58,6 +58,7 @@ import {
   isZeroWidthCapableRegex,
   KERN_DECIMAL_OPS_HELPER_PY,
   KERN_STDLIB_MODULES,
+  KERN_TEXT_OPS_HELPER_PY,
   lookupStdlibCall,
   lookupStdlibProperty,
   lowerRegexAnchorsPython,
@@ -4383,6 +4384,15 @@ function registerStdlibRequirementPython(requirement: string | undefined, ctx: B
   if (requirement === 'decimal-ops') {
     ctx.helpers.add(KERN_DECIMAL_OPS_HELPER_PY);
     ctx.imports.add('decimal');
+    return;
+  }
+  // KERN 4.5.0 item 3 — `Text.length/charAt/slice/indexOf/startsWith` register the
+  // shared code-point-ops helper block (single-sourced in `text-contract.ts`,
+  // mirroring the Decimal `decimal-ops` requirement above). No import needed —
+  // Python's `str` is already code-point-native, so the helpers are pure
+  // bounds/well-formedness guards around native operators.
+  if (requirement === 'text-ops') {
+    ctx.helpers.add(KERN_TEXT_OPS_HELPER_PY);
     return;
   }
   ctx.imports.add(requirement);
