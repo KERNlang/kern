@@ -594,6 +594,9 @@ function newExpressionRootIdentifier(node: ValueIR): string | null {
 function nestedRecordFieldReceiver(node: ValueIR): { record: string; field: string } | null {
   if (node.kind !== 'member' || node.optional) return null;
   if (node.object.kind !== 'ident') return null;
+  // `this`/`super` are never record bindings — hijacking them broke
+  // class-field chains like `this.data.filter(...)`; keep base emission.
+  if (node.object.name === 'this' || node.object.name === 'super') return null;
   if ((node.object as { parenthesized?: unknown }).parenthesized === true) return null;
   return { record: node.object.name, field: node.property };
 }

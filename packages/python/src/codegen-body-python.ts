@@ -3135,6 +3135,10 @@ type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 function nestedRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
   if (node.kind !== 'member' || node.optional) return null;
   if (node.object.kind !== 'ident') return null;
+  // Lockstep with the TS twin (`nestedRecordFieldReceiver`): `this`/`super`
+  // can never be a KERN record binding — keep class-field chains like
+  // `this.data.filter(...)` on their base lowering.
+  if (node.object.name === 'this' || node.object.name === 'super') return null;
   if ((node.object as { parenthesized?: unknown }).parenthesized === true) return null;
   return { record: ctx.symbolMap[node.object.name] ?? node.object.name, field: node.property };
 }
