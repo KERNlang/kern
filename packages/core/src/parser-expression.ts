@@ -1473,9 +1473,8 @@ class Parser {
         this.advance();
         const inner = this.parseLambda();
         this.expect('rparen');
-        // Mark explicit grouping (for a parenthesized-receiver check in
-        // codegen). EXCLUDE `lambda`: its own `parenthesized` field already
-        // means "params had parens" — reusing it here breaks `(x => x)(5)`.
+        // Mark explicit grouping for codegen's parenthesized-receiver check.
+        // Skip lambda: its own `parenthesized` means "params had parens".
         if (inner.kind !== 'lambda') {
           (inner as ValueIR & { parenthesized?: true }).parenthesized = true;
         }
