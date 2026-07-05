@@ -344,6 +344,65 @@ describe('@kernlang/core/runner source executor', () => {
     ).resolves.toBe('before\nanswer:\nok refund\nafter\n');
   });
 
+  // Nested-values slice-1 async-leg parity — the async runner's record
+  // evaluator shares the sync evaluator's admission rules, so a record with
+  // an array-literal field loads (and reads back) identically on the async
+  // capability leg. Before the consolidation this ABSTAINED async-only.
+  test('async descriptor handlers admit record array-literal fields like the sync runner', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=r value="{a: 1, b: [10,20,30]}"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="r.b[1]"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('20\ngrounded\n');
+  });
+
+  test('async descriptor handlers reject integer-valued float array-field elements like the sync runner', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=r value="{b: [4.0]}"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+  });
+
   test('async descriptor preflight ignores sync capability requirements unreachable from the selected entry', async () => {
     const source = [
       'fn name=unused returns=void',

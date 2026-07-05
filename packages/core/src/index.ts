@@ -1060,7 +1060,7 @@ export {
   serializeIR,
 } from './utils.js';
 export type { BinaryOp, UnaryOp, ValueIR, ValueIRKind } from './value-ir.js';
-export { isValueIR } from './value-ir.js';
+export { isParenthesized, isValueIR, markParenthesized } from './value-ir.js';
 export type {
   NextjsOutputRules,
   NextjsVersionProfile,

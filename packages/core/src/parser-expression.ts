@@ -19,7 +19,7 @@ import {
   type ClosureClassifier,
   unavailableClosureClassifier,
 } from './closure-classifier.js';
-import type { ValueIR } from './value-ir.js';
+import { markParenthesized, type ValueIR } from './value-ir.js';
 
 // ── Tokenizer ────────────────────────────────────────────────────────────
 
@@ -1473,11 +1473,7 @@ class Parser {
         this.advance();
         const inner = this.parseLambda();
         this.expect('rparen');
-        // Mark explicit grouping for codegen's parenthesized-receiver check.
-        // Skip lambda: its own `parenthesized` means "params had parens".
-        if (inner.kind !== 'lambda') {
-          (inner as ValueIR & { parenthesized?: true }).parenthesized = true;
-        }
+        markParenthesized(inner);
         return inner;
       }
       case 'lbrace':

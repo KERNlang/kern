@@ -32,14 +32,18 @@ import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
+  assertPortableRecordEntry,
   assertPortableScalar,
   assertRunnerPortableValue,
   assignRunnerClassMember,
+  evalRecordArrayFieldValue,
   isPortableBindingName,
   isRecordLiteralExpression,
   isRunnerClassInstanceValue,
+  type PortableRecord,
   type PortableScalar,
   portableTruthy,
+  type RunnerPortableArrayValue,
 } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
@@ -651,27 +655,22 @@ async function evalArrayLiteralValueAsync(
   return Object.freeze(out);
 }
 
+/** Thin async record evaluator over the SHARED sync admission rules
+ *  (`assertPortableRecordEntry`/`evalRecordArrayFieldValue`) — the async leg
+ *  admits the same shapes as the sync runner; only scalar fields await. */
 async function evalRecordLiteralValueAsync(
   node: Extract<ValueIR, { kind: 'objectLit' }>,
   env: SemanticEnv,
   options: AsyncReferenceRunnerOptions,
-): Promise<Readonly<Record<string, PortableScalar>>> {
-  const out: Record<string, PortableScalar> = Object.create(null);
-  for (const entry of node.entries) {
-    if ('kind' in entry) throw new Error('portable-record: object spreads are outside the portable record domain');
-    if ('rawKey' in entry && entry.rawKey !== undefined) {
-      throw new Error('portable-record: numeric record keys are outside the portable record domain');
-    }
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
-      throw new Error('portable-record: record keys must be identifier-like strings');
-    }
-    if (['__proto__', 'prototype', 'constructor'].includes(entry.key)) {
-      throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
-    }
-    if (Object.hasOwn(out, entry.key)) {
-      throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
-    }
-    out[entry.key] = await evalPortableValueForAsyncRunner(entry.value, env, options);
+): Promise<PortableRecord> {
+  const out: Record<string, PortableScalar | RunnerPortableArrayValue> = Object.create(null) as Record<
+    string,
+    PortableScalar | RunnerPortableArrayValue
+  >;
+  for (const rawEntry of node.entries) {
+    const entry = assertPortableRecordEntry(rawEntry, out);
+    out[entry.key] =
+      evalRecordArrayFieldValue(entry.value, env) ?? (await evalPortableValueForAsyncRunner(entry.value, env, options));
   }
   return Object.freeze(out);
 }

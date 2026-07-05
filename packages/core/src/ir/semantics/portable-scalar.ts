@@ -22,7 +22,7 @@ import {
 } from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { isValueIR, type ValueIR } from '../../value-ir.js';
+import { isParenthesized, isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
@@ -272,6 +272,41 @@ export function isRecordLiteralExpression(node: ValueIR): node is Extract<ValueI
   return node.kind === 'objectLit';
 }
 
+export type PortableRecordEntry = { key: string; rawKey?: string; value: ValueIR };
+
+/** Shared record-literal entry guard (spread/numeric-key/key-shape/reserved/
+ *  duplicate rules) — single source for the sync AND async evaluators. */
+export function assertPortableRecordEntry(
+  entry: PortableRecordEntry | { kind: 'spread'; argument: ValueIR },
+  out: Record<string, unknown>,
+): PortableRecordEntry {
+  if ('kind' in entry) {
+    throw new Error('portable-record: object spreads are outside the portable record domain');
+  }
+  if ('rawKey' in entry && entry.rawKey !== undefined) {
+    throw new Error('portable-record: numeric record keys are outside the portable record domain');
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
+    throw new Error('portable-record: record keys must be identifier-like strings');
+  }
+  if (RESERVED_RECORD_KEYS.has(entry.key)) {
+    throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
+  }
+  if (Object.hasOwn(out, entry.key)) {
+    throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
+  }
+  return entry;
+}
+
+/** Array-literal record FIELD admission (shared sync/async; elements are
+ *  literals only, so the sync array evaluator is exact for the async leg).
+ *  `undefined` = not an array literal, use the caller's scalar path. */
+export function evalRecordArrayFieldValue(value: ValueIR, env: SemanticEnv): RunnerPortableArrayValue | undefined {
+  return value.kind === 'arrayLit'
+    ? evalArrayLiteralValue(value, env, { allowFiniteNumericLiterals: true })
+    : undefined;
+}
+
 /** Evaluate a flat record literal whose values are portable scalars plus this
  * slice's syntactic array-literal fields. Spreads, numeric keys, computed keys,
  * and nested records are deferred so record reads cannot accidentally widen
@@ -284,26 +319,9 @@ export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): Portabl
     string,
     PortableScalar | RunnerPortableArrayValue
   >;
-  for (const entry of node.entries) {
-    if ('kind' in entry) {
-      throw new Error('portable-record: object spreads are outside the portable record domain');
-    }
-    if ('rawKey' in entry && entry.rawKey !== undefined) {
-      throw new Error('portable-record: numeric record keys are outside the portable record domain');
-    }
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
-      throw new Error('portable-record: record keys must be identifier-like strings');
-    }
-    if (RESERVED_RECORD_KEYS.has(entry.key)) {
-      throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
-    }
-    if (Object.hasOwn(out, entry.key)) {
-      throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
-    }
-    out[entry.key] =
-      entry.value.kind === 'arrayLit'
-        ? evalArrayLiteralValue(entry.value, env, { allowFiniteNumericLiterals: true })
-        : evalPortableValue(entry.value, env);
+  for (const rawEntry of node.entries) {
+    const entry = assertPortableRecordEntry(rawEntry, out);
+    out[entry.key] = evalRecordArrayFieldValue(entry.value, env) ?? evalPortableValue(entry.value, env);
   }
   return Object.freeze(out);
 }
@@ -520,40 +538,17 @@ function evalMemberScalar(node: Extract<ValueIR, { kind: 'member' }>, env: Seman
 }
 
 /** `index` case of {@link evalPortableValue}, extracted whole — same
- *  stack-frame rationale as {@link evalMemberScalar}. */
+ *  stack-frame rationale as {@link evalMemberScalar}.
+ *
+ *  Array INDEX read: certify an in-bounds, non-negative, safe-integer index
+ *  into an ident-bound array, returning a portable scalar element. The index
+ *  SOURCE must be integer-provenanced — see `isIntProvenancedExpr`'s doc for
+ *  the full admitted set (safe-int literal / provenanced ident / `+`-`-`
+ *  arithmetic) and why `*`/`/`/`%`/plain idents abstain (Python list indices
+ *  must be exact ints; `%` sign-diverges on negatives). Provenance proves
+ *  integer-ness, not in-bounds-ness — OOB/negative die at runtime below.
+ *  Object-position nesting (`xs[0][1]`) and string indexing abstain. */
 function evalIndexScalar(node: Extract<ValueIR, { kind: 'index' }>, env: SemanticEnv): PortableScalar {
-  // Array INDEX read. Certify an in-bounds, non-negative, safe-integer index
-  // into an ident-bound array, returning a PORTABLE SCALAR element. The index
-  // SOURCE must be INTEGER-PROVENANCED (`isIntProvenancedExpr`, milestone
-  // 5.1b): a bare safe-integer LITERAL, a bare ident that is
-  // INTEGER-PROVENANCED (currently: the live counter of an enclosing `for`,
-  // or a helper param whose caller argument was itself provenanced), or
-  // `+`/`-` arithmetic recursively combining such operands (`xs[i + 1]`,
-  // `xs[i - 1]`, `xs[1 + 1]`). Everything else throws -> the runner ABSTAINS.
-  //
-  // Why not any ident, and why `*`/`/`/`%`/unary still abstain — TS<->Python
-  // divergences verified on real node+python3:
-  //   - INT vs FLOAT: Python list indices MUST be int — `xs[1.0]`, `xs[4/2]`
-  //     (Python `/` is float), and any PLAIN-let ident bound to a float raise
-  //     TypeError in Python while JS + the reference collapse `1.0 === 1`. A
-  //     for-counter is exempt because its provenance proves it is an int; a
-  //     plain `let` is NOT provenanced (and `let j = i` is not transitive).
-  //   - integer `%` diverges on a negative operand (`5 % -3` is 2 in JS, -1 in
-  //     Python) — a SIGN divergence, not a precision one, so `%` stays
-  //     excluded from `isIntProvenancedExpr` regardless of operand safety.
-  //   - `+`/`-` ARE admitted (see `isIntProvenancedExpr`'s doc comment for the
-  //     exact-IEEE-754 argument for why this cannot silently diverge): the
-  //     safe-integer + bounds check below still applies to the FINAL
-  //     evaluated index, so an overflowing computation still abstains.
-  //   - JS has no int/float distinction and the emitters preserve the source
-  //     numeric form, so the reference cannot tell a Python int from a float by
-  //     VALUE — hence the syntactic literal / provenance gate, not a value check.
-  // Provenance proves INTEGER-NESS, not IN-BOUNDS-ness: OOB / NEGATIVE indices
-  // are caught at runtime below (TS undefined vs Py IndexError / wraparound),
-  // and the throw propagates atomically. Object restricted to an array-binding
-  // ident, so OBJECT-position nesting (`xs[0][1]`) and string index (`s[0]`)
-  // abstain; a nested-array element is not a portable scalar, so
-  // `assertPortableScalar` abstains on it.
   if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
   const nestedArrayField = portableNestedIndexArrayField(node, env);
   if (nestedArrayField !== PORTABLE_RECORD_FIELD_MISSING) {
@@ -1284,7 +1279,7 @@ function portableNestedArrayField(
   }
   const inner = node.object;
   if (!isValueIR(inner.object) || inner.object.kind !== 'ident') return PORTABLE_RECORD_FIELD_MISSING;
-  if ((inner.object as { parenthesized?: unknown }).parenthesized === true) return PORTABLE_RECORD_FIELD_MISSING;
+  if (isParenthesized(inner.object)) return PORTABLE_RECORD_FIELD_MISSING;
   const recordName = inner.object.name;
   if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
   return portableRecordArrayField(getBinding(env, recordName), recordName, inner.property);
@@ -1299,7 +1294,7 @@ function portableNestedIndexArrayField(
   }
   const inner = node.object;
   if (!isValueIR(inner.object) || inner.object.kind !== 'ident') return PORTABLE_RECORD_FIELD_MISSING;
-  if ((inner.object as { parenthesized?: unknown }).parenthesized === true) return PORTABLE_RECORD_FIELD_MISSING;
+  if (isParenthesized(inner.object)) return PORTABLE_RECORD_FIELD_MISSING;
   const recordName = inner.object.name;
   if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
   return portableRecordArrayField(getBinding(env, recordName), recordName, inner.property);
