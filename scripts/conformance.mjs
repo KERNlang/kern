@@ -637,6 +637,13 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NV-R18 missing nested field fails closed on both codegen legs',
     params: [],
     body: `let name=r value="{a: 1}"\nreturn value="r.b.length"` },
+  // Receiver gating (agon review): the nested rewrite fires ONLY for PROVEN
+  // record bindings; on those, a non-length property on the array field fails
+  // closed on BOTH legs (the decided lockstep contract — the runner abstains
+  // on the same program).
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so

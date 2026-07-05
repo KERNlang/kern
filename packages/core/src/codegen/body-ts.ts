@@ -121,6 +121,14 @@ interface BodyEmitContext {
    *  the let-bound regex — a cross-target divergence. A non-regex `let` (or a
    *  reassignment to a non-regex) records `null`, masking any outer binding. */
   regexScopes: Array<Map<string, RegexLitIR | null>>;
+  /** Nested-values slice-1 — per-scope RECORD-LITERAL binding table, index-
+   *  aligned with `localScopes` (same lifecycle as `regexScopes`). `true` when
+   *  a `let`/`expression-v1` bound a DIRECT object literal (`let r = {...}`).
+   *  The nested-record-field rewrite in `emitExpression` applies ONLY to
+   *  idents this table proves are records — any other two-level chain
+   *  (`this.data.filter(...)`, object params) keeps its base verbatim
+   *  emission. Reassignment re-derives the flag (`rebindRecordOnReassign`). */
+  recordScopes: Array<Map<string, boolean>>;
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks the emitter is currently inside. Propagation `?` lowers
    *  to a `return` that exits the function — that bypasses the enclosing
@@ -173,6 +181,7 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     gensymCounter: 0,
     localScopes: [],
     regexScopes: [],
+    recordScopes: [],
     tryDepth: 0,
     finallyDepth: 0,
     traceHooks: options?.traceHooks,
@@ -190,6 +199,8 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
     const outerRegex = new Map<string, RegexLitIR | null>();
     for (const name of options.stateBindings) outerRegex.set(name, null);
     ctx.regexScopes.push(outerRegex);
+    // Index-align `recordScopes` too: state bindings are never record literals.
+    ctx.recordScopes.push(new Map(options.stateBindings.map((name) => [name, false])));
   }
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports };
@@ -227,8 +238,9 @@ function emitChildrenTS(
 ): string[] {
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
-  // Index-aligned regex-binding scope (initial bindings are never regex literals).
+  // Index-aligned regex/record binding scopes (initial bindings are neither).
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.recordScopes.push(new Map(initialBindings.map(([name]) => [name, false])));
   try {
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
@@ -568,6 +580,7 @@ function emitChildrenTS(
   } finally {
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
+    ctx.recordScopes.pop();
   }
   return lines;
 }
@@ -764,6 +777,7 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   // `s.match(re)` resolves the ident to its literal and lowers canonically
   // (matches Python's `setRegexBinding(ctx, userName, regexLit|null)`).
   setRegexBinding(ctx, name, valueIR.kind === 'regexLit' ? valueIR : null);
+  setRecordBinding(ctx, name, valueIR.kind === 'objectLit');
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1097,6 +1111,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
   // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
   if (targetIR.kind === 'ident') {
     rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+    rebindRecordOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
   }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
@@ -1168,11 +1183,40 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
   // `declareLocalBinding` → `setRegexBinding(ctx, name, null)`); `emitLetTS`
   // overwrites it with the regex literal when the initializer is a `regexLit`.
   setRegexBinding(ctx, name, null);
+  setRecordBinding(ctx, name, false);
 }
 
 /** Record (or clear) the regex-literal bound to `name` in the current scope. */
 function setRegexBinding(ctx: BodyEmitContext, name: string, regex: RegexLitIR | null): void {
   ctx.regexScopes.at(-1)?.set(name, regex);
+}
+
+/** Record whether `name` is bound to a DIRECT record literal in the current scope. */
+function setRecordBinding(ctx: BodyEmitContext, name: string, isRecord: boolean): void {
+  ctx.recordScopes.at(-1)?.set(name, isRecord);
+}
+
+/** True iff `name` resolves to a record-literal binding, walking enclosing scopes. */
+function lookupRecordBinding(ctx: BodyEmitContext, name: string): boolean {
+  for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScopes[i];
+    if (scope.has(name)) return scope.get(name) === true;
+  }
+  return false;
+}
+
+/** Reassign-invalidation for the record table — same owning-scope walk as
+ *  `rebindRegexOnReassign`: reassigned to a record literal → stays marked;
+ *  reassigned to anything else → unmarked (no stale record classification). */
+function rebindRecordOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'objectLit';
+  for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
 }
 
 /** Resolve an ident to its bound regex literal, walking enclosing scopes. */
@@ -1249,6 +1293,10 @@ function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
     // `__kern_loose_eq`. This is the ONLY site that opts in; every other ExprEmitContext
     // (Ground/data/machines/top-level) leaves it absent → raw `==`, the safe default.
     coerceJsValues: true,
+    // Nested-values slice-1 — the nested-record-field rewrite fires ONLY for
+    // idents this body's binding table proves are record literals; every
+    // other two-level chain keeps its base verbatim emission.
+    isRecordBinding: (name: string) => lookupRecordBinding(ctx, name),
   };
 }
 
@@ -1629,6 +1677,7 @@ function emitExpressionV1TS(node: IRNode, ctx: BodyEmitContext): string[] {
   // Slice-3b parity: record a direct regex-literal binding (mirrors Python's
   // `expression-v1` `setRegexBinding(ctx, userName, regexLit|null)`).
   setRegexBinding(ctx, name, exprIR.kind === 'regexLit' ? exprIR : null);
+  setRecordBinding(ctx, name, exprIR.kind === 'objectLit');
   const lines = [`const ${name}${typeAnn} = ${emitValueTS(exprIR, ctx)};`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;

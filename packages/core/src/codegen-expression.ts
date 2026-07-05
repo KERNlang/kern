@@ -46,7 +46,7 @@ import {
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 import { isSafeIntegerLiteralIndex } from './ir/semantics/portable-scalar.js';
-import type { ValueIR } from './value-ir.js';
+import { isParenthesized, type ValueIR } from './value-ir.js';
 
 export interface ExprEmitContext {
   isUserBinding(name: string): boolean;
@@ -70,6 +70,13 @@ export interface ExprEmitContext {
    *  `exprCtxFor` (body-ts.ts), the single native-body→ExprEmitContext bridge. STRICT
    *  `===`/`!==` are unaffected — TS `===` already IS JS strict, no helper needed. */
   coerceJsValues?: boolean;
+  /** Nested-values slice-1 — true iff `name` is a binding the BODY emitter
+   *  proved is a DIRECT record literal (`let r = {...}`; see body-ts.ts
+   *  `recordScopes`). The nested-record-field rewrite (member/index cases)
+   *  fires ONLY when this returns true; absent/false ⇒ two-level chains keep
+   *  their base verbatim emission (never an eager throw for shapes the base
+   *  emitted verbatim — `this.data.filter(...)`, object params, etc.). */
+  isRecordBinding?(name: string): boolean;
 }
 
 /** DECIMAL Slice 1 — public return shape for the TS expression emitter, parity
@@ -163,6 +170,11 @@ function withAdditionalUserBindings(ctx: ExprEmitContext | undefined, names: str
     ...ctx,
     isUserBinding(name: string): boolean {
       return local.has(name) || ctx?.isUserBinding(name) === true;
+    },
+    // A closure param SHADOWS any outer record binding of the same name — the
+    // param's value is caller-supplied, not the proven record literal.
+    isRecordBinding(name: string): boolean {
+      return !local.has(name) && ctx?.isRecordBinding?.(name) === true;
     },
   };
 }
@@ -288,7 +300,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return node.name;
     case 'member': {
       if (ctx?.coerceJsValues === true) {
-        const nested = nestedRecordFieldReceiver(node.object);
+        const nested = nestedRecordFieldReceiver(node.object, ctx);
         if (nested !== null) {
           if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
           if (node.property !== 'length') {
@@ -324,7 +336,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
     }
     case 'index': {
       if (ctx?.coerceJsValues === true) {
-        const nested = nestedRecordFieldReceiver(node.object);
+        const nested = nestedRecordFieldReceiver(node.object, ctx);
         if (nested !== null) {
           if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
           if (!isSafeIntegerLiteralIndex(node.index)) {
@@ -368,6 +380,19 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${wrapped}${node.optional ? '?.' : ''}[${emitExpression(node.index, ctx)}]`;
     }
     case 'call': {
+      // Nested-values slice-1 CHOKE POINT (lockstep with the Python call
+      // case's identical guard): ANY method call on a PROVEN record binding's
+      // array field (`r.b.filter(...)`, `r.b.match(...)`) fails closed BEFORE
+      // any per-method lowering can admit it — the runner abstains on every
+      // such program, so neither leg may produce a value for it.
+      if (node.callee.kind === 'member' && !node.callee.optional) {
+        const nestedRecv = nestedRecordFieldReceiver(node.callee.object, ctx);
+        if (nestedRecv !== null) {
+          return `${nestedArrayMemberThrowTS(
+            `portable: nested array field "${nestedRecv.record}.${nestedRecv.field}" has no portable property "${node.callee.property}"`,
+          )}(${node.args.map((arg) => emitExpression(arg, ctx)).join(', ')})`;
+        }
+      }
       // Slice 2a — KERN-stdlib dispatch. When the callee is `Module.method`
       // and `Module` is a known stdlib module, route through the per-target
       // lowering table instead of the default emit path.
@@ -591,13 +616,22 @@ function newExpressionRootIdentifier(node: ValueIR): string | null {
   return null;
 }
 
-function nestedRecordFieldReceiver(node: ValueIR): { record: string; field: string } | null {
+/** Nested-record-field receiver: matches `<recordIdent>.<field>` ONLY when the
+ *  body emitter's binding table proves the ident is a record literal
+ *  (`ctx.isRecordBinding`); everything else — `this`/`super` (never let-bound
+ *  records), object params, unproven idents, parenthesized receivers — returns
+ *  null so the chain keeps its base verbatim emission. INVARIANT (lockstep
+ *  with `nestedRecordFieldReceiverPy`): the TS leg never renames bindings
+ *  (real block scoping), so the SOURCE name is also the EMITTED name here;
+ *  the Python twin must remap through `ctx.symbolMap` for emission. */
+function nestedRecordFieldReceiver(
+  node: ValueIR,
+  ctx: ExprEmitContext | undefined,
+): { record: string; field: string } | null {
   if (node.kind !== 'member' || node.optional) return null;
   if (node.object.kind !== 'ident') return null;
-  // `this`/`super` are never record bindings — hijacking them broke
-  // class-field chains like `this.data.filter(...)`; keep base emission.
-  if (node.object.name === 'this' || node.object.name === 'super') return null;
-  if ((node.object as { parenthesized?: unknown }).parenthesized === true) return null;
+  if (ctx?.isRecordBinding?.(node.object.name) !== true) return null;
+  if (isParenthesized(node.object)) return null;
   return { record: node.object.name, field: node.property };
 }
 
@@ -605,12 +639,25 @@ function nestedArrayMemberThrowTS(message: string): string {
   return `(() => { throw new Error(${JSON.stringify(message)}); })()`;
 }
 
+/** Runtime receiver guard, STRUCTURALLY LOCKSTEP with the Python helper
+ *  `_kern_nested_array_value` (codegen-body-python.ts):
+ *   - record-ness: plain-proto object here ↔ `isinstance(record, dict)` there
+ *     (KERN records emit as object literals / __DotDict; class instances are
+ *     rejected by BOTH — own-proto here, non-dict there);
+ *   - field presence: own-property ↔ `field in record`;
+ *   - array-ness: `Array.isArray` ↔ `isinstance(value, list)`;
+ *   - element scalar-ness (index form): object-or-function composite reject ↔
+ *     `isinstance(out, (dict, list)) or callable(out)`. */
+function nestedRecordGuardTS(field: string): string {
+  return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
+}
+
 function nestedArrayLengthTS(record: string, field: string): string {
-  return `(() => { const __kern_record = ${record}; if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array"); return __kern_array.length; })()`;
+  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} return __kern_array.length; })()`;
 }
 
 function nestedArrayIndexTS(record: string, field: string, rawIndex: string): string {
-  return `(() => { const __kern_record = ${record}; if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; const __kern_index = ${rawIndex}; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array"); if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (__kern_value !== null && (typeof __kern_value === "object" || typeof __kern_value === "function")) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
+  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} const __kern_index = ${rawIndex}; if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (__kern_value !== null && (typeof __kern_value === "object" || typeof __kern_value === "function")) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
 }
 
 function isSimpleErrorConstructor(node: ValueIR): boolean {

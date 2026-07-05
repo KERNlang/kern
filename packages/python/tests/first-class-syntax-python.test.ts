@@ -31,14 +31,15 @@ describe('first-class KERN syntax — Python target', () => {
     const fn = root.children?.find((child) => child.type === 'fn');
     if (!fn) throw new Error('expected fn node');
 
-    expect(generatePythonCoreNode(fn).join('\n')).toBe(
-      [
-        '@router.get("/users/{id}")',
-        'def get_user(id: str) -> User:',
-        '    payload = {"id": id}',
-        '    return payload',
-      ].join('\n'),
-    );
+    // Nested-values slice-1 — a let-bound record literal wraps in __DotDict
+    // (the shim helper rides along inside the def), so later member reads on
+    // the binding resolve at runtime. Pin the discriminating lines rather
+    // than the full inlined shim text.
+    const body = generatePythonCoreNode(fn).join('\n');
+    expect(body).toContain('@router.get("/users/{id}")');
+    expect(body).toContain('def get_user(id: str) -> User:');
+    expect(body).toContain('    payload = __DotDict({"id": id})');
+    expect(body.trimEnd().endsWith('    return payload')).toBe(true);
   });
 
   test('http decorators rewrite named path args without touching other strings', () => {
