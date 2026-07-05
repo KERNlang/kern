@@ -1532,14 +1532,52 @@ describe('@kernlang/core/runner source executor', () => {
     ).toThrow(KernRunnerError);
   });
 
+  // Nested-values slice-1 float/int fence — `print` was widened to admit
+  // non-integer floats (both legs shortest-roundtrip identically), so `3 / 2`
+  // is no longer a non-portable operation on its own. The atomicity intent
+  // of this test is preserved with a LATER statement (`4 / 2`, an
+  // integer-valued division result — rule 2) that must still abstain.
   test('abstains atomically on non-portable operations', () => {
     try {
-      executeKernSource(mainProgram(['print value="1"', 'print value="3 / 2"']));
+      executeKernSource(mainProgram(['print value="3 / 2"', 'print value="4 / 2"']));
       throw new Error('expected executeKernSource to fail');
     } catch (error) {
       expect(error).toBeInstanceOf(KernRunnerError);
       expect((error as Error).message).toContain('non-portable operation');
     }
+  });
+
+  test('division with a non-integer result prints the shortest round-trip float', () => {
+    expect(executeKernSource(mainProgram(['print value="7 / 2"']))).toBe('3.5\n');
+  });
+
+  test('division with an integer-valued result abstains regardless of operands (rule 2)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="4 / 2"']))).toThrow(KernRunnerError);
+  });
+
+  // Rule 2 fences the COMPUTED RESULT at evaluation, not the AST literal
+  // shape — variable indirection through plain `let` bindings must abstain
+  // identically to the literal form above.
+  test('division indirection through plain-let bindings still abstains on an integer-valued result', () => {
+    expect(() =>
+      executeKernSource(mainProgram(['let name=a value="10"', 'let name=b value="2"', 'print value="a / b"'])),
+    ).toThrow(KernRunnerError);
+  });
+
+  test('arithmetic with a non-integer operand abstains when the result collapses to an integer (rule 3)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="2.5 + 1.5"']))).toThrow(KernRunnerError);
+  });
+
+  test('a floaty-lexeme literal with an integer value abstains (rule 1)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="4.0"']))).toThrow(KernRunnerError);
+  });
+
+  test('a non-integer float literal prints normally', () => {
+    expect(executeKernSource(mainProgram(['print value="2.5"']))).toBe('2.5\n');
+  });
+
+  test('division by zero still abstains on the pre-existing finiteness fence', () => {
+    expect(() => executeKernSource(mainProgram(['print value="1 / 0"']))).toThrow(KernRunnerError);
   });
 
   test('fails closed on uncaught explicit throws without replaying partial stdout', () => {

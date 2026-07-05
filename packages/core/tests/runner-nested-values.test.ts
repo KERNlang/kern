@@ -66,6 +66,14 @@ describe('runner nested values — admitted record array-literal fields', () => 
     expect(runStdout([letBind('r', '{b: [1.5, 2.5]}'), print('r.b[1]')])).toBe('2.5\n');
   });
 
+  // Float/int fence (rule 1) — a floaty-lexeme literal with an INTEGER value
+  // inside an array-field element must abstain at `let`, the same as it
+  // would as a bare scalar literal: JS collapses `4.0` to `4` while the
+  // Python leg keeps it a float and would print `"4.0"`.
+  it('rejects an integer-valued float literal as an array-field element', () => {
+    abstains([letBind('r', '{b: [4.0]}')]);
+  });
+
   it('NV-7 reads a string element from an array-literal record field', () => {
     expect(runStdout([letBind('r', '{tags: ["x","y"]}'), print('r.tags[1]')])).toBe('y\n');
   });
