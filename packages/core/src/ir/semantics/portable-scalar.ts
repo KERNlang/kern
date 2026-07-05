@@ -324,6 +324,21 @@ export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): Portabl
  *  index-reads are excluded too (they can resolve to a Python float). So a computed
  *  or variable index ABSTAINS; dynamic indexing is deferred to a slice that proves
  *  exact integer arithmetic (e.g. BigInt-checked) or carries integer provenance. */
+/** Float/int fence rules 2+3: `/` always fences an integer-valued result;
+ *  other ops fence only when a non-integer operand produced one. */
+export function assertArithmeticResultNotFloatCollapsed(
+  left: number,
+  right: number,
+  result: PortableScalar,
+  op: string,
+): PortableScalar {
+  if (typeof result !== 'number' || !Number.isInteger(result)) return result;
+  if (op === '/' || !Number.isInteger(left) || !Number.isInteger(right)) {
+    throw new Error(`portable: ${op} result is integer-valued (float/int divergence)`);
+  }
+  return result;
+}
+
 export function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
   if (node.kind !== 'numLit' || node.bigint) return false;
   if (!/^[0-9]+$/.test(node.raw)) return false;
@@ -378,9 +393,13 @@ export function isIntProvenancedExpr(node: ValueIR, env: SemanticEnv): boolean {
 
 export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScalar {
   switch (node.kind) {
-    case 'numLit':
+    case 'numLit': {
       if (node.bigint || !Number.isFinite(node.value)) throw new Error('portable: number literal must be finite');
+      if (!env.intIndexCtx && (node.raw.includes('.') || /[eE]/.test(node.raw)) && Number.isInteger(node.value)) {
+        throw new Error('portable: float literal has an integer value (float/int divergence)');
+      }
       return node.value;
+    }
     case 'strLit':
       return node.value;
     case 'boolLit':
@@ -1355,14 +1374,12 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
   const right = evalPortableValue(node.right, env);
   switch (node.op) {
     case '+':
-      if (typeof left === 'number' && typeof right === 'number') return assertPortableScalar(left + right, '+');
-      if (typeof left === 'string' && typeof right === 'string') return left + right;
-      throw new Error('portable: + requires two numbers or two strings');
+      return evalPlusOperator(left, right, env);
     case '-':
     case '*':
     case '/':
     case '%':
-      return evalNumberBinary(node.op, left, right);
+      return evalNumberBinary(node.op, left, right, env);
     case '===':
       return sameType(left, right) ? left === right : false;
     case '!==':
@@ -1390,12 +1407,31 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
   }
 }
 
-export function evalNumberBinary(op: string, left: PortableScalar, right: PortableScalar): PortableScalar {
+/** Shared `+` evaluation for the sync and async binary evaluators. */
+export function evalPlusOperator(left: PortableScalar, right: PortableScalar, env: SemanticEnv): PortableScalar {
+  if (typeof left === 'number' && typeof right === 'number') {
+    const result = assertPortableScalar(left + right, '+');
+    return env.intIndexCtx ? result : assertArithmeticResultNotFloatCollapsed(left, right, result, '+');
+  }
+  if (typeof left === 'string' && typeof right === 'string') return left + right;
+  throw new Error('portable: + requires two numbers or two strings');
+}
+
+/** `-`/`*`/`/`/`%` over two numbers, plus the float/int fence unless
+ *  `env.intIndexCtx` opts out (see `SemanticEnv`). */
+export function evalNumberBinary(
+  op: string,
+  left: PortableScalar,
+  right: PortableScalar,
+  env: SemanticEnv,
+): PortableScalar {
   if (typeof left !== 'number' || typeof right !== 'number') throw new Error(`portable: ${op} requires numbers`);
-  if (op === '-') return assertPortableScalar(left - right, op);
-  if (op === '*') return assertPortableScalar(left * right, op);
-  if (op === '/') return assertPortableScalar(left / right, op);
-  return assertPortableScalar(left % right, op);
+  let result: PortableScalar;
+  if (op === '-') result = assertPortableScalar(left - right, op);
+  else if (op === '*') result = assertPortableScalar(left * right, op);
+  else if (op === '/') result = assertPortableScalar(left / right, op);
+  else result = assertPortableScalar(left % right, op);
+  return env.intIndexCtx ? result : assertArithmeticResultNotFloatCollapsed(left, right, result, op);
 }
 
 export function evalOrderedComparison(op: string, left: string | number, right: string | number): boolean {
