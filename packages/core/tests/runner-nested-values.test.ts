@@ -177,6 +177,13 @@ describe('runner nested values — rejected surface stays abstaining', () => {
     abstains([letBind('r', '{b: [10,20,30]}', 'let'), assign('r.b[0]', '99')]);
   });
 
+  // Delta review (record reassignment): `assign` requires a SCALAR current
+  // binding, so reassigning a record binding to a new record literal abstains
+  // in the runner — the codegen legs stay lockstep for it (stmt NV-A1).
+  it('rejects whole-record reassignment', () => {
+    abstains([letBind('r', '{a: 1}', 'let'), assign('r', '{a: 2}')]);
+  });
+
   it('NV-R16 rejects non-bare receiver shapes and computed field access', () => {
     abstains([letBind('r', '{b: [10,20,30]}'), print('(r).b[0]')]);
     abstains([letBind('r', '{b: [10,20,30]}'), print('r["b"][0]')]);

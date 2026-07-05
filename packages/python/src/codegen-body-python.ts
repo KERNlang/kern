@@ -141,6 +141,13 @@ function parseExpr(input: string): ReturnType<typeof parseExpression> {
   return parseExpression(input, TS_PARSE_OPTS);
 }
 
+/** Property-specific fail-close for a non-length read/call on a nested record
+ *  array field — message LOCKSTEP with the TS twin (`nestedArrayMemberThrowTS`
+ *  in codegen-expression.ts): 'has no portable property "<name>"'. */
+const KERN_NESTED_NO_PROPERTY_HELPER_PY = `def _kern_nested_no_property(path, prop):
+    raise Exception('portable: nested array field "' + path + '" has no portable property "' + prop + '"')
+`;
+
 const KERN_NESTED_ARRAY_HELPER_PY = `def _kern_nested_array_value(record, field, index=None):
     if not isinstance(record, dict) or field not in record:
         raise Exception("portable: nested array receiver must be a record field")
@@ -1686,7 +1693,14 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   // Emit FIRST (its `emitPyExprCtx` lowering fail-closes a regex method on a
   // bound regex ident) so the RHS is checked against the PRE-reassignment table
   // (`re = s.match(re)` must still see `re` as a regex). Mirrors the TS leg.
-  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // A plain-`=` ident reassignment to a DIRECT object literal takes the SAME
+  // __DotDict wrap as a record `let` initializer — `rebindRecordOnReassign`
+  // below re-marks the binding as a record, so the VALUE must be record-
+  // shaped too or later emitted field reads (attribute access) would hit a
+  // plain dict. Lockstep with `emitLetInitializerPy`.
+  const rhs =
+    rawOp === '=' && targetIR.kind === 'ident' ? emitLetInitializerPy(valueIR, ctx) : emitPyExprCtx(valueIR, ctx);
+  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${rhs}`;
   // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
   // plain `=` to a direct regex literal stays a regex binding (still
   // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
@@ -3207,13 +3221,14 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     const nested = nestedRecordFieldReceiverPy(obj, ctx);
     if (nested !== null) {
       if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
-      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
       if (node.property !== 'length') {
+        ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
         return {
           guard: null,
-          expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, "__kern_invalid_property__")`,
+          expr: `_kern_nested_no_property(${JSON.stringify(`${nested.record}.${nested.field}`)}, ${JSON.stringify(node.property)})`,
         };
       }
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
       return { guard: null, expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)})` };
     }
     // Error-substrate Slice 1 — a `<caughtBinding>.message` read lowers to
@@ -3373,10 +3388,10 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.callee.kind === 'member' && !node.callee.optional) {
     const nestedRecv = nestedRecordFieldReceiverPy(node.callee.object, ctx);
     if (nestedRecv !== null) {
-      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
       return {
         guard: null,
-        expr: `_kern_nested_array_value(${nestedRecv.record}, ${JSON.stringify(nestedRecv.field)}, "__kern_invalid_property__")`,
+        expr: `_kern_nested_no_property(${JSON.stringify(`${nestedRecv.record}.${nestedRecv.field}`)}, ${JSON.stringify(node.callee.property)})`,
       };
     }
   }

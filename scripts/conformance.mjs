@@ -644,6 +644,16 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
     params: [],
     body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
+  // Record REASSIGNMENT (delta review, blocking): a mutable record binding
+  // reassigned to a NEW object literal must stay record-shaped on BOTH legs
+  // (Python re-wraps in __DotDict, lockstep with the let initializer), so
+  // subsequent field/nested reads agree. The RUNNER abstains on record
+  // reassignment (assign requires a scalar current binding) — this is a
+  // codegen-leg-parity pin, mirroring the fence pattern.
+  { kind: 'stmt', name: 'stmt: NV-A1 record reassignment keeps field and nested reads working on both codegen legs',
+    params: [],
+    body: `let kind=let name=r value="{a: 1}"\nassign target=r value="{a: 2, b: [7, 8]}"\nreturn value="{ a: r.a, len: r.b.length }"`,
+    expected: { a: 2, len: 2 } },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
