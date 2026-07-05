@@ -35,6 +35,7 @@ import {
   type RunnerModuleScope,
   type SemanticEnv,
 } from './index.js';
+import { evalArrayLiteralValue } from './portable-array.js';
 import { evalMapReadCall } from './portable-map.js';
 import { evalStringOpCall } from './portable-string.js';
 import { referenceRunSequence } from './reference-runner.js';
@@ -176,7 +177,7 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
   return typeof a === typeof b;
 }
 
-export type PortableRecord = Readonly<Record<string, PortableScalar>>;
+export type PortableRecord = Readonly<Record<string, PortableScalar | RunnerPortableArrayValue>>;
 export type RunnerPortableArrayValue = ReadonlyArray<PortableScalar | RunnerPortableArrayValue>;
 export type RunnerPortableValue = PortableScalar | PortableRecord | RunnerPortableArrayValue;
 export type RunnerFunctionValue = RunnerPortableValue | RunnerClassInstanceValue;
@@ -199,7 +200,9 @@ export function isPortableRecordValue(value: unknown): value is PortableRecord {
   if (isDecimalValue(value) || isCaughtErrorValue(value)) return false;
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return false;
-  return Object.values(value as Record<string, unknown>).every(isPortableScalar);
+  return Object.values(value as Record<string, unknown>).every(
+    (field) => isPortableScalar(field) || isRunnerPortableArrayValue(field),
+  );
 }
 
 export function isRunnerPortableArrayValue(
@@ -269,14 +272,18 @@ export function isRecordLiteralExpression(node: ValueIR): node is Extract<ValueI
   return node.kind === 'objectLit';
 }
 
-/** Evaluate a flat record literal whose values are portable scalars.
- * Spreads, numeric keys, computed keys, and nested records/arrays are deferred so
- * record reads cannot accidentally widen into host-object semantics. */
+/** Evaluate a flat record literal whose values are portable scalars plus this
+ * slice's syntactic array-literal fields. Spreads, numeric keys, computed keys,
+ * and nested records are deferred so record reads cannot accidentally widen
+ * into host-object semantics. */
 export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): PortableRecord {
   if (node.kind !== 'objectLit') {
     throw new Error('portable-record: expected an object literal expression');
   }
-  const out: Record<string, PortableScalar> = Object.create(null) as Record<string, PortableScalar>;
+  const out: Record<string, PortableScalar | RunnerPortableArrayValue> = Object.create(null) as Record<
+    string,
+    PortableScalar | RunnerPortableArrayValue
+  >;
   for (const entry of node.entries) {
     if ('kind' in entry) {
       throw new Error('portable-record: object spreads are outside the portable record domain');
@@ -293,7 +300,10 @@ export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): Portabl
     if (Object.hasOwn(out, entry.key)) {
       throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
     }
-    out[entry.key] = evalPortableValue(entry.value, env);
+    out[entry.key] =
+      entry.value.kind === 'arrayLit'
+        ? evalArrayLiteralValue(entry.value, env, { allowFiniteNumericLiterals: true })
+        : evalPortableValue(entry.value, env);
   }
   return Object.freeze(out);
 }
@@ -406,6 +416,15 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       // non-optional reads on a bare identifier. Everything else throws -> the
       // runner ABSTAINS rather than producing a one-leg value.
       if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
+      const nestedArrayField = portableNestedArrayField(node, env);
+      if (nestedArrayField !== PORTABLE_RECORD_FIELD_MISSING) {
+        if (node.property !== 'length') {
+          throw new Error(
+            `portable: nested array field "${nestedArrayField.recordName}.${nestedArrayField.fieldName}" has no portable property "${node.property}" (only .length is admitted)`,
+          );
+        }
+        return nestedArrayField.value.length;
+      }
       if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: member access is only admitted on an array, record, or caught-error binding');
       }
@@ -472,6 +491,23 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       // abstain; a nested-array element is not a portable scalar, so
       // `assertPortableScalar` abstains on it.
       if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
+      const nestedArrayField = portableNestedIndexArrayField(node, env);
+      if (nestedArrayField !== PORTABLE_RECORD_FIELD_MISSING) {
+        if (!isValueIR(node.index) || !isSafeIntegerLiteralIndex(node.index)) {
+          throw new Error('portable: nested array index must be a bare non-negative safe-integer literal');
+        }
+        const idx = evalPortableValue(node.index, env);
+        if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= nestedArrayField.value.length) {
+          throw new Error('portable: nested array index must be an in-bounds non-negative safe integer');
+        }
+        if (!(idx in nestedArrayField.value)) {
+          throw new Error('portable: nested array index must point at an existing element');
+        }
+        return assertPortableScalar(
+          nestedArrayField.value[idx],
+          `element "${nestedArrayField.recordName}.${nestedArrayField.fieldName}[${idx}]"`,
+        );
+      }
       if (!isValueIR(node.object) || node.object.kind !== 'ident') {
         throw new Error('portable: index access is only admitted on an array-binding identifier');
       }
@@ -1209,6 +1245,42 @@ function evalRunnerFunctionCall(fnName: string, args: readonly ValueIR[], env: S
 
 const PORTABLE_RECORD_FIELD_MISSING = Symbol('portableRecordFieldMissing');
 
+interface PortableNestedArrayField {
+  readonly recordName: string;
+  readonly fieldName: string;
+  readonly value: RunnerPortableArrayValue;
+}
+
+function portableNestedArrayField(
+  node: Extract<ValueIR, { kind: 'member' }>,
+  env: SemanticEnv,
+): PortableNestedArrayField | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (!isValueIR(node.object) || node.object.kind !== 'member' || node.object.optional) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
+  const inner = node.object;
+  if (!isValueIR(inner.object) || inner.object.kind !== 'ident') return PORTABLE_RECORD_FIELD_MISSING;
+  if ((inner.object as { parenthesized?: unknown }).parenthesized === true) return PORTABLE_RECORD_FIELD_MISSING;
+  const recordName = inner.object.name;
+  if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
+  return portableRecordArrayField(getBinding(env, recordName), recordName, inner.property);
+}
+
+function portableNestedIndexArrayField(
+  node: Extract<ValueIR, { kind: 'index' }>,
+  env: SemanticEnv,
+): PortableNestedArrayField | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (!isValueIR(node.object) || node.object.kind !== 'member' || node.object.optional) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
+  const inner = node.object;
+  if (!isValueIR(inner.object) || inner.object.kind !== 'ident') return PORTABLE_RECORD_FIELD_MISSING;
+  if ((inner.object as { parenthesized?: unknown }).parenthesized === true) return PORTABLE_RECORD_FIELD_MISSING;
+  const recordName = inner.object.name;
+  if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
+  return portableRecordArrayField(getBinding(env, recordName), recordName, inner.property);
+}
+
 function portableRecordScalarField(
   obj: unknown,
   recordName: string,
@@ -1231,6 +1303,33 @@ function portableRecordScalarField(
     throw new Error(`portable: record "${recordName}" field "${property}" is outside the portable scalar domain`);
   }
   return assertPortableScalar(descriptor.value, `field "${recordName}.${property}"`);
+}
+
+function portableRecordArrayField(
+  obj: unknown,
+  recordName: string,
+  property: string,
+): PortableNestedArrayField | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return PORTABLE_RECORD_FIELD_MISSING;
+  if (isDecimalValue(obj) || isCaughtErrorValue(obj) || isRunnerClassInstanceValue(obj)) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
+  const proto = Object.getPrototypeOf(obj);
+  if (proto !== Object.prototype && proto !== null) return PORTABLE_RECORD_FIELD_MISSING;
+  if (Object.getOwnPropertySymbols(obj).length > 0) {
+    throw new Error(`portable: record "${recordName}" is outside the portable scalar domain`);
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(obj, property);
+  if (!descriptor) {
+    throw new Error(`portable: record "${recordName}" has no field "${property}"`);
+  }
+  if (!descriptor.enumerable || descriptor.get || descriptor.set || !('value' in descriptor)) {
+    throw new Error(`portable: record "${recordName}" field "${property}" is outside the portable scalar domain`);
+  }
+  if (!isRunnerPortableArrayValue(descriptor.value)) {
+    throw new Error(`portable: record "${recordName}" field "${property}" must be an array for nested access`);
+  }
+  return { recordName, fieldName: property, value: descriptor.value };
 }
 
 export function coerceToString(val: PortableScalar): string {

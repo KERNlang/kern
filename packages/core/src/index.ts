@@ -502,7 +502,11 @@ export {
 // mul` natively as a third "leg" of the decimal differential oracle, computing on a
 // local pinned decimal.js constructor and rendering through the canonical
 // stringifier so it is byte-identical to both emitted legs.
-export { evalDecimalExpression, isDecimalExpression } from './ir/semantics/portable-scalar.js';
+export {
+  evalDecimalExpression,
+  isDecimalExpression,
+  isSafeIntegerLiteralIndex,
+} from './ir/semantics/portable-scalar.js';
 // Harness symbols stay on `.` for backward compatibility, but are now sourced
 // from the test-only `./ir/semantics/testing.js` barrel (NOT the runtime
 // `./ir/semantics/index.js`), so the runtime barrel no longer re-exports the

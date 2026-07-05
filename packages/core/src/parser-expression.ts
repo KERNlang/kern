@@ -1473,6 +1473,7 @@ class Parser {
         this.advance();
         const inner = this.parseLambda();
         this.expect('rparen');
+        (inner as ValueIR & { parenthesized?: true }).parenthesized = true;
         return inner;
       }
       case 'lbrace':

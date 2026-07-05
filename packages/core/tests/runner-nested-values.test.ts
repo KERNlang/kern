@@ -1,6 +1,6 @@
-import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
-import { evalPortableValueAsync } from '../src/ir/semantics/async-portable-scalar.js';
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
+import { evalPortableValueAsync } from '../src/ir/semantics/async-portable-scalar.js';
+import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
 
@@ -50,9 +50,7 @@ describe('runner nested values — admitted record array-literal fields', () => 
   });
 
   it('NV-3 reads distinct literal indices on an array-literal record field', () => {
-    expect(runStdout([letBind('r', '{a: 1, b: [10,20,30]}'), print('r.b[0]'), print('r.b[2]')])).toBe(
-      '10\n30\n',
-    );
+    expect(runStdout([letBind('r', '{a: 1, b: [10,20,30]}'), print('r.b[0]'), print('r.b[2]')])).toBe('10\n30\n');
   });
 
   it('NV-4 admits a nested-array-literal field for .length but not composite element reads', () => {
@@ -197,13 +195,25 @@ describe('runner nested values — async portable scalar delegates the same memb
         ['idx', 0],
       ]),
     });
-    await expect(evalPortableValueAsync(parseExpression('r.b[idx]'), env, { runFunctionBody: async () => ({ events: [] }) })).rejects.toThrow(
-      /literal/,
-    );
+    await expect(
+      evalPortableValueAsync(parseExpression('r.b[idx]'), env, { runFunctionBody: async () => ({ events: [] }) }),
+    ).rejects.toThrow(/literal/);
   });
 
   it('direct eval keeps two-level receiver exact', () => {
-    const env = makeEnv({ bindings: new Map<string, unknown>([['r', { b: [[1, 2], [3, 4]] }]]) });
+    const env = makeEnv({
+      bindings: new Map<string, unknown>([
+        [
+          'r',
+          {
+            b: [
+              [1, 2],
+              [3, 4],
+            ],
+          },
+        ],
+      ]),
+    });
     expect(evalPortableValue(parseExpression('r.b.length'), env)).toBe(2);
     expect(() => evalPortableValue(parseExpression('r.b[0].length'), env)).toThrow(/portable/);
   });

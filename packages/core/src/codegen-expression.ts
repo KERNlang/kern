@@ -45,6 +45,7 @@ import {
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
+import { isSafeIntegerLiteralIndex } from './ir/semantics/portable-scalar.js';
 import type { ValueIR } from './value-ir.js';
 
 export interface ExprEmitContext {
@@ -286,6 +287,18 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       rejectHostRegExpValueTS(node.name, ctx);
       return node.name;
     case 'member': {
+      if (ctx?.coerceJsValues === true) {
+        const nested = nestedRecordFieldReceiver(node.object);
+        if (nested !== null) {
+          if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
+          if (node.property !== 'length') {
+            return nestedArrayMemberThrowTS(
+              `portable: nested array field "${nested.record}.${nested.field}" has no portable property "${node.property}"`,
+            );
+          }
+          return nestedArrayLengthTS(nested.record, nested.field);
+        }
+      }
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
       // Slice 2 — a bare property READ on a regex LITERAL (`/x/.source`,
@@ -310,6 +323,22 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
     }
     case 'index': {
+      if (ctx?.coerceJsValues === true) {
+        const nested = nestedRecordFieldReceiver(node.object);
+        if (nested !== null) {
+          if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
+          if (!isSafeIntegerLiteralIndex(node.index)) {
+            return nestedArrayMemberThrowTS(
+              'portable: nested array index must be a bare non-negative safe-integer literal',
+            );
+          }
+          return nestedArrayIndexTS(
+            nested.record,
+            nested.field,
+            (node.index as Extract<ValueIR, { kind: 'numLit' }>).raw,
+          );
+        }
+      }
       rejectKnownStdlibIndexTS(node);
       // Slice 2 review fix — the bracket (`index`) form of a regex-literal
       // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
@@ -560,6 +589,25 @@ function newExpressionRootIdentifier(node: ValueIR): string | null {
   if (node.kind === 'member' || node.kind === 'index') return hostNamespaceReceiverRoot(node);
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') return newExpressionRootIdentifier(node.expression);
   return null;
+}
+
+function nestedRecordFieldReceiver(node: ValueIR): { record: string; field: string } | null {
+  if (node.kind !== 'member' || node.optional) return null;
+  if (node.object.kind !== 'ident') return null;
+  if ((node.object as { parenthesized?: unknown }).parenthesized === true) return null;
+  return { record: node.object.name, field: node.property };
+}
+
+function nestedArrayMemberThrowTS(message: string): string {
+  return `(() => { throw new Error(${JSON.stringify(message)}); })()`;
+}
+
+function nestedArrayLengthTS(record: string, field: string): string {
+  return `(() => { const __kern_record = ${record}; if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array"); return __kern_array.length; })()`;
+}
+
+function nestedArrayIndexTS(record: string, field: string, rawIndex: string): string {
+  return `(() => { const __kern_record = ${record}; if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; const __kern_index = ${rawIndex}; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array"); if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (__kern_value !== null && (typeof __kern_value === "object" || typeof __kern_value === "function")) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
 }
 
 function isSimpleErrorConstructor(node: ValueIR): boolean {

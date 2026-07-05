@@ -54,6 +54,7 @@ import {
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
   isPostfixMutationOperator,
+  isSafeIntegerLiteralIndex,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
   KERN_DECIMAL_OPS_HELPER_PY,
@@ -120,11 +121,10 @@ import {
 } from './core/expr/index.js';
 import {
   isSharedPortableArrayMethod,
-  isSharedPortableArrayProperty,
   lowerPortableArrayMethodPy,
-  lowerPortableArrayPropertyPy,
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
+import { DOT_DICT_SHIM_PY } from './targets/python.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Parse options for Python codegen — always inject the TypeScript-backed
@@ -137,6 +137,28 @@ const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
 function parseExpr(input: string): ReturnType<typeof parseExpression> {
   return parseExpression(input, TS_PARSE_OPTS);
 }
+
+const KERN_NESTED_ARRAY_HELPER_PY = `def _kern_nested_array_value(record, field, index=None):
+    if not isinstance(record, dict) or field not in record:
+        raise Exception("portable: nested array receiver must be a record field")
+    value = record[field]
+    if not isinstance(value, list):
+        raise Exception("portable: nested record field must be an array")
+    if index is None:
+        return len(value)
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(value):
+        raise Exception("portable: nested array index must be an in-bounds non-negative safe integer")
+    out = value[index]
+    if isinstance(out, (dict, list)):
+        raise Exception("portable: nested array element must be a portable scalar")
+    return out
+`;
+
+const KERN_LENGTH_OR_ATTR_HELPER_PY = `def _kern_length_or_attr(receiver):
+    if isinstance(receiver, (list, str)):
+        return len(receiver)
+    return getattr(receiver, "length")
+`;
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -2521,6 +2543,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'objectLit': {
       // Slice 2d — Python dict literal. Keys are ALWAYS double-quoted (no
       // shorthand-key syntax in Python).
+      ctx.helpers.add(DOT_DICT_SHIM_PY);
       const entries = node.entries.map((e) => {
         if ('kind' in e && (e as any).kind === 'spread') {
           return `**${emitPyExprCtx((e as any).argument, ctx)}`;
@@ -2528,7 +2551,7 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
         const prop = e as { key: string; value: ValueIR };
         return `${JSON.stringify(prop.key)}: ${emitPyExprCtx(prop.value, ctx)}`;
       });
-      return `{${entries.join(', ')}}`;
+      return `__DotDict({${entries.join(', ')}})`;
     }
     case 'arrayLit':
       return `[${node.items.map((i) => emitPyExprCtx(i, ctx)).join(', ')}]`;
@@ -3109,9 +3132,33 @@ function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmi
 
 type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 
+function nestedRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
+  if (node.kind !== 'member' || node.optional) return null;
+  if (node.object.kind !== 'ident') return null;
+  if ((node.object as { parenthesized?: unknown }).parenthesized === true) return null;
+  return { record: ctx.symbolMap[node.object.name] ?? node.object.name, field: node.property };
+}
+
+function lowerLengthOrAttrPy(receiver: string, ctx: BodyEmitContext): string {
+  ctx.helpers.add(KERN_LENGTH_OR_ATTR_HELPER_PY);
+  return `_kern_length_or_attr(${receiver})`;
+}
+
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    const nested = nestedRecordFieldReceiverPy(obj, ctx);
+    if (nested !== null) {
+      if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      if (node.property !== 'length') {
+        return {
+          guard: null,
+          expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, "__kern_invalid_property__")`,
+        };
+      }
+      return { guard: null, expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)})` };
+    }
     // Error-substrate Slice 1 — a `<caughtBinding>.message` read lowers to
     // `str(<caughtBinding>)`. Python exceptions have NO `.message` attribute
     // (a bare `e.message` raises AttributeError), but `str(Exception("x"))`
@@ -3177,18 +3224,32 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       // receiver is not itself an optional chain ⇒ `inner.guard === null`); a
       // non-pure receiver UNDER an existing optional chain still throws below.
       const opt = lowerOptionalLink(inner, node.object, ctx);
-      const linkExpr = isSharedPortableArrayProperty(node.property)
-        ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
-        : `${opt.branchRef}.${node.property}`;
+      const linkExpr =
+        node.property === 'length' ? lowerLengthOrAttrPy(opt.branchRef, ctx) : `${opt.branchRef}.${node.property}`;
       return { guard: opt.guard, expr: linkExpr, lambdaBind: opt.lambdaBind };
     }
-    const linkExpr = isSharedPortableArrayProperty(node.property)
-      ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
-      : `${inner.expr}.${node.property}`;
+    const linkExpr =
+      node.property === 'length' ? lowerLengthOrAttrPy(inner.expr, ctx) : `${inner.expr}.${node.property}`;
     return { guard: inner.guard, expr: linkExpr, lambdaBind: inner.lambdaBind };
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    const nested = nestedRecordFieldReceiverPy(obj, ctx);
+    if (nested !== null) {
+      if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      if (!isSafeIntegerLiteralIndex(node.index)) {
+        return {
+          guard: null,
+          expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, "__kern_invalid_index__")`,
+        };
+      }
+      const literalIndex = node.index as Extract<ValueIR, { kind: 'numLit' }>;
+      return {
+        guard: null,
+        expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, ${literalIndex.raw})`,
+      };
+    }
     // Slice 2 review fix — the bracket (`index`) form of a regex-literal
     // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
     // launders the pattern/flags back to a string exactly like the dotted
