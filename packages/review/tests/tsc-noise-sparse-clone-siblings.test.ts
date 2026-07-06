@@ -105,4 +105,18 @@ describe('runTSCDiagnostics — sparse-clone sibling/jsx noise (fitvt PR #19)', 
     );
     expect(findings.find((f) => f.ruleId === 'ts2304')).toBeDefined();
   });
+
+  // ---- Boundary: the new relative-sibling gate must not disturb bare/package
+  // miss handling. A bare miss (`lodash`) was, and stays, suppressed in review
+  // mode via the pre-existing isReviewModeModuleResolutionNoise path — NOT via
+  // the new isAbsentRelativeSibling gate, which is relative-only. This regression
+  // guard proves the collector change (adding `|| isAbsentRelativeSibling`) left
+  // bare-miss behavior untouched, and that lint mode still reports it. ----
+  it('keeps a bare/package module miss suppressed in review mode (unchanged path) but reports it in lint mode', () => {
+    const files = { '/consumer.ts': `import { foo } from 'lodash'; export const x = foo;` };
+    const review = runTSCDiagnostics(projectWith(files), { downgradeProjectLoadingErrors: true });
+    expect(review.find((f) => f.ruleId === 'ts2307')).toBeUndefined();
+    const lint = runTSCDiagnostics(projectWith(files), { downgradeProjectLoadingErrors: false });
+    expect(lint.find((f) => f.ruleId === 'ts2307')).toBeDefined();
+  });
 });
