@@ -394,7 +394,7 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     ['positive integer base-10', ['print value="42"'], '42\n'],
     ['zero', ['print value="0"'], '0\n'],
     ['negative integer keeps sign', ['print value="0 - 7"'], '-7\n'],
-    ['integer-valued arithmetic collapses to integer', ['print value="6 / 2"'], '3\n'],
+    ['non-integer division prints shortest float', ['print value="3 / 2"'], '1.5\n'],
     ['string passthrough', ['print value="\\"hello\\""'], 'hello\n'],
     ['empty string still emits its newline', ['print value="\\"\\""'], '\n'],
     ['unicode preserved', ['print value="\\"café→😀\\""'], 'café→😀\n'],
@@ -2736,8 +2736,8 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
 describe('kern run — abstains atomically on non-portable ops (exit 2, no stdout)', () => {
-  test('a non-integer float print abstains with no output', () => {
-    const r = runProgram(['print value="3 / 2"']);
+  test('integer-valued division abstains with no output', () => {
+    const r = runProgram(['print value="6 / 2"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
     expect(r.stderr).not.toBe('');
@@ -2745,7 +2745,7 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
 
   test('ATOMICITY: a later abstaining print suppresses ALL prior stdout', () => {
     // The "1" must NOT leak: render only happens after the whole body succeeds.
-    const r = runProgram(['print value="1"', 'print value="3 / 2"']);
+    const r = runProgram(['print value="1"', 'print value="6 / 2"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
