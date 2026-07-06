@@ -2903,8 +2903,8 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(2);
   });
 
-  test('integer-valued division setup abstains before a float index can diverge', () => {
-    const r = runProgram(['let name=xs value="[10,20,30]"', 'let name=j value="4 / 2"', 'print value="xs[j]"']);
+  test('integer-valued division setup abstains before later stdout can render', () => {
+    const r = runProgram(['let name=j value="4 / 2"', 'print value="1"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
