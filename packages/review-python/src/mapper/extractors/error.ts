@@ -1,5 +1,6 @@
 import type { ConceptNode, ErrorHandlePayload } from '@kernlang/core';
 import { conceptId } from '@kernlang/core';
+import { PYTHON_BUILTIN_EXCEPTIONS } from '@kernlang/review';
 import type Parser from 'tree-sitter';
 import { getContainerId, nodeSpan, nodeText, walkNodes } from '../helpers/ast.js';
 import { PY_API_ERROR_STATUS_CODES } from '../signatures.js';
@@ -154,26 +155,6 @@ function isNarrowNonBuiltinExcept(
 function hasExplanatoryComment(exceptNode: Parser.SyntaxNode, block: Parser.SyntaxNode, source: string): boolean {
   return source.substring(exceptNode.startIndex, block.endIndex).includes('#');
 }
-
-// Python builtin exception class names — broad enough that swallowing one can
-// hide an unrelated failure, so they remain flaggable; a non-builtin
-// (library/domain) exception is treated as an intentional expected condition.
-const PYTHON_BUILTIN_EXCEPTIONS = new Set<string>([
-  'BaseException', 'Exception', 'GeneratorExit', 'KeyboardInterrupt', 'SystemExit',
-  'ArithmeticError', 'FloatingPointError', 'OverflowError', 'ZeroDivisionError',
-  'AssertionError', 'AttributeError', 'BufferError', 'EOFError', 'ImportError',
-  'ModuleNotFoundError', 'LookupError', 'IndexError', 'KeyError', 'MemoryError',
-  'NameError', 'UnboundLocalError', 'ReferenceError', 'RuntimeError',
-  'NotImplementedError', 'RecursionError', 'StopIteration', 'StopAsyncIteration',
-  'SyntaxError', 'IndentationError', 'TabError', 'SystemError', 'TypeError',
-  'ValueError', 'UnicodeError', 'UnicodeDecodeError', 'UnicodeEncodeError',
-  'UnicodeTranslateError', 'Warning',
-  'OSError', 'IOError', 'EnvironmentError', 'BlockingIOError', 'ChildProcessError',
-  'ConnectionError', 'BrokenPipeError', 'ConnectionAbortedError',
-  'ConnectionRefusedError', 'ConnectionResetError', 'FileExistsError',
-  'FileNotFoundError', 'InterruptedError', 'IsADirectoryError',
-  'NotADirectoryError', 'PermissionError', 'ProcessLookupError', 'TimeoutError',
-]);
 
 function isIntentionalNoopExcept(exceptNode: Parser.SyntaxNode, source: string): boolean {
   const block = exceptNode.children.find((child) => child.type === 'block');

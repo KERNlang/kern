@@ -1,5 +1,6 @@
 import type { ConceptNode } from '@kernlang/core';
 import { indentation, type LineInfo } from '../helpers/lines.js';
+import { PYTHON_BUILTIN_EXCEPTIONS } from '../../python-builtin-exceptions.js';
 import { API_ERROR_STATUS_CODES } from '../signatures.js';
 
 export function errorStatusCodesFromBody(body: string): readonly number[] | undefined {
@@ -42,7 +43,7 @@ export function classifyExceptDisposition(lines: LineInfo[], exceptIndex: number
     // kern-guard on fitvt PR #16 flagged 4 correct swallows of these two shapes.
     const intentional =
       isIntentionalNoopExcept(lines, exceptIndex) ||
-      isNarrowNonBuiltinExcept(lines[exceptIndex].text) ||
+      isNarrowNonBuiltinExcept(lines, exceptIndex) ||
       hasExplanatoryComment(lines, exceptIndex);
     disposition = intentional ? 'wrapped' : 'ignored';
   } else if (body.some((line) => /^raise\b/.test(line))) {
@@ -95,37 +96,34 @@ function isIntentionalNoopExcept(lines: LineInfo[], exceptIndex: number): boolea
   return false;
 }
 
-// Python builtin exception class names. A swallow of one of these is broad
-// enough to hide an unrelated failure, so it stays flaggable; a swallow of a
-// NON-builtin (library/domain) exception is treated as an intentional
-// expected-condition pattern. `Exception`/`BaseException` are included so a
-// broad catch is never mistaken for "narrow".
-const PYTHON_BUILTIN_EXCEPTIONS = new Set<string>([
-  'BaseException', 'Exception', 'GeneratorExit', 'KeyboardInterrupt', 'SystemExit',
-  'ArithmeticError', 'FloatingPointError', 'OverflowError', 'ZeroDivisionError',
-  'AssertionError', 'AttributeError', 'BufferError', 'EOFError', 'ImportError',
-  'ModuleNotFoundError', 'LookupError', 'IndexError', 'KeyError', 'MemoryError',
-  'NameError', 'UnboundLocalError', 'ReferenceError', 'RuntimeError',
-  'NotImplementedError', 'RecursionError', 'StopIteration', 'StopAsyncIteration',
-  'SyntaxError', 'IndentationError', 'TabError', 'SystemError', 'TypeError',
-  'ValueError', 'UnicodeError', 'UnicodeDecodeError', 'UnicodeEncodeError',
-  'UnicodeTranslateError', 'Warning',
-  // OSError and its aliases / subclasses
-  'OSError', 'IOError', 'EnvironmentError', 'BlockingIOError', 'ChildProcessError',
-  'ConnectionError', 'BrokenPipeError', 'ConnectionAbortedError',
-  'ConnectionRefusedError', 'ConnectionResetError', 'FileExistsError',
-  'FileNotFoundError', 'InterruptedError', 'IsADirectoryError',
-  'NotADirectoryError', 'PermissionError', 'ProcessLookupError', 'TimeoutError',
-]);
-
 // True when EVERY caught type is a narrow, non-builtin exception (bare `except:`
-// and any builtin/`Exception`/`BaseException` in the list disqualify it). A
-// mixed `except (IntegrityError, Exception):` is therefore NOT narrow, so it
-// stays flaggable.
-function isNarrowNonBuiltinExcept(exceptLine: string): boolean {
-  const types = parseExceptTypes(exceptLine);
+// and any builtin/`Exception`/`BaseException` in the shared set disqualify it).
+// A mixed `except (IntegrityError, Exception):` is therefore NOT narrow, so it
+// stays flaggable. Reads the FULL except header (joined across lines) so a
+// multi-line tuple header `except (\n  IntegrityError,\n):` is not truncated to
+// `except (` and mis-parsed as bare.
+function isNarrowNonBuiltinExcept(lines: LineInfo[], exceptIndex: number): boolean {
+  const types = parseExceptTypes(exceptHeaderText(lines, exceptIndex));
   if (types.length === 0) return false; // bare `except:` is broad
   return types.every((t) => !PYTHON_BUILTIN_EXCEPTIONS.has(t));
+}
+
+// Join the except header across physical lines up to the header-terminating
+// colon, tracking paren depth so a parenthesized multi-type tuple that spans
+// lines is captured whole. Falls back to the single line if no colon is found.
+function exceptHeaderText(lines: LineInfo[], exceptIndex: number): string {
+  const parts: string[] = [];
+  let depth = 0;
+  for (let i = exceptIndex; i < lines.length; i++) {
+    const text = lines[i].text;
+    parts.push(text.trim());
+    for (const ch of text) {
+      if (ch === '(' || ch === '[') depth++;
+      else if (ch === ')' || ch === ']') depth--;
+      else if (ch === ':' && depth <= 0) return parts.join(' ');
+    }
+  }
+  return parts.join(' ');
 }
 
 // True when the except header line or any line in its block carries a `#`

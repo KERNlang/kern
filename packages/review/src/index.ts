@@ -255,6 +255,7 @@ export {
 export { linkToNodes, runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths } from './external-tools.js';
 export { buildFileContextMap, clearFileContextCache } from './file-context.js';
 export { classifyFileRole, classifyFileRoleByPath } from './file-role.js';
+export { PYTHON_BUILTIN_EXCEPTIONS } from './python-builtin-exceptions.js';
 export { resolveImportGraph } from './graph.js';
 export { findTsConfig, inferFromFile, inferFromSource } from './inferrer.js';
 export type { KernLintRule } from './kern-lint.js';

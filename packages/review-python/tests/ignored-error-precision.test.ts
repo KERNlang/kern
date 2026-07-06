@@ -110,4 +110,28 @@ except (IntegrityError, Exception):
 `),
     ).toBe(true);
   });
+
+  it('STILL fires on the 3.11 broad builtins ExceptionGroup / BaseExceptionGroup', () => {
+    expect(fires(`\ntry:\n    do_work()\nexcept ExceptionGroup:\n    pass\n`)).toBe(true);
+    expect(fires(`\ntry:\n    do_work()\nexcept BaseExceptionGroup:\n    pass\n`)).toBe(true);
+  });
+
+  it('STILL fires on builtin Warning subclasses (e.g. DeprecationWarning)', () => {
+    expect(fires(`\ntry:\n    do_work()\nexcept DeprecationWarning:\n    pass\n`)).toBe(true);
+    expect(fires(`\ntry:\n    do_work()\nexcept ResourceWarning:\n    pass\n`)).toBe(true);
+  });
+
+  it('does NOT fire on a narrow non-builtin in a MULTI-LINE tuple header', () => {
+    // The tree-sitter header span covers all lines; the fallback joins them.
+    expect(
+      fires(`
+try:
+    db.add(row)
+except (
+    IntegrityError,
+):
+    pass
+`),
+    ).toBe(false);
+  });
 });
