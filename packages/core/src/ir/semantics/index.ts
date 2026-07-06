@@ -30,6 +30,8 @@ import type { CompletionRecord, Trace } from './trace.js';
 export interface SemanticEnv {
   bindings: Map<string, unknown>;
   intProvenance?: Set<string>;
+  freshArrayBindings?: Set<string>;
+  capturedArrayBindings?: Set<string>;
   runnerFunctions?: Map<string, RunnerFunctionBinding>;
   runnerClasses?: Map<string, RunnerClassBinding>;
   runnerCallStack?: string[];
@@ -53,6 +55,7 @@ export interface SemanticEnv {
    * helpers, never `env.bindings.get/set/has` directly, or chain semantics break.
    */
   parent?: SemanticEnv;
+  repeatableLoopBody?: boolean;
   seed: number;
   now: number;
 }
@@ -125,6 +128,8 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
   return {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
     intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
+    freshArrayBindings: overrides.freshArrayBindings ? new Set(overrides.freshArrayBindings) : new Set(),
+    capturedArrayBindings: overrides.capturedArrayBindings ? new Set(overrides.capturedArrayBindings) : new Set(),
     runnerFunctions: overrides.runnerFunctions,
     runnerClasses: overrides.runnerClasses,
     runnerCallStack: overrides.runnerCallStack ? [...overrides.runnerCallStack] : [],
@@ -165,6 +170,8 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
   return {
     bindings: new Map(),
     intProvenance: new Set(),
+    freshArrayBindings: new Set(),
+    capturedArrayBindings: new Set(),
     runnerFunctions: parent.runnerFunctions,
     runnerClasses: parent.runnerClasses,
     runnerCallStack: parent.runnerCallStack,
@@ -175,6 +182,7 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     capabilities: parent.capabilities,
     capabilityContext: parent.capabilityContext,
     parent,
+    repeatableLoopBody: false,
     seed: parent.seed,
     now: parent.now,
   };
@@ -207,12 +215,45 @@ export function getBinding(env: SemanticEnv, name: string): unknown {
 export function defineBinding(env: SemanticEnv, name: string, value: unknown): void {
   env.bindings.set(name, value);
   env.intProvenance?.delete(name);
+  env.freshArrayBindings?.delete(name);
+  env.capturedArrayBindings?.delete(name);
+}
+
+export function defineFreshArrayBinding(env: SemanticEnv, name: string, value: readonly unknown[]): void {
+  env.bindings.set(name, value);
+  env.intProvenance?.delete(name);
+  (env.freshArrayBindings ??= new Set()).add(name);
+  env.capturedArrayBindings?.delete(name);
+}
+
+export function defineCapturedArrayBinding(env: SemanticEnv, name: string, value: readonly unknown[]): void {
+  env.bindings.set(name, value);
+  env.intProvenance?.delete(name);
+  env.freshArrayBindings?.delete(name);
+  (env.capturedArrayBindings ??= new Set()).add(name);
+}
+
+export function defineArrayAliasBinding(
+  env: SemanticEnv,
+  targetName: string,
+  sourceName: string,
+  value: unknown,
+): boolean {
+  if (!Array.isArray(value)) return false;
+  const sourceScope = declaringScope(env, sourceName);
+  const aliasesCapturedArray = sourceScope?.capturedArrayBindings?.has(sourceName) ?? false;
+  sourceScope?.freshArrayBindings?.delete(sourceName);
+  if (aliasesCapturedArray) defineCapturedArrayBinding(env, targetName, value);
+  else defineBinding(env, targetName, value);
+  return true;
 }
 
 /** Declare `name` in the INNERMOST scope and mark it as a guaranteed safe integer. */
 export function defineIntBinding(env: SemanticEnv, name: string, value: unknown): void {
   env.bindings.set(name, value);
   (env.intProvenance ??= new Set()).add(name);
+  env.freshArrayBindings?.delete(name);
+  env.capturedArrayBindings?.delete(name);
 }
 
 /**
@@ -225,6 +266,8 @@ export function assignBinding(env: SemanticEnv, name: string, value: unknown): v
   const scope = declaringScope(env, name) ?? env;
   scope.bindings.set(name, value);
   scope.intProvenance?.delete(name);
+  scope.freshArrayBindings?.delete(name);
+  scope.capturedArrayBindings?.delete(name);
 }
 
 /** True iff `name` is declared in a scope that marks it as a guaranteed safe integer. */
@@ -233,9 +276,46 @@ export function isIntProvenanced(env: SemanticEnv, name: string): boolean {
   return scope?.intProvenance?.has(name) ?? false;
 }
 
+export function isFreshArrayBinding(env: SemanticEnv, name: string): boolean {
+  const scope = declaringScope(env, name);
+  return scope?.freshArrayBindings?.has(name) ?? false;
+}
+
+export function isCapturedArrayBinding(env: SemanticEnv, name: string): boolean {
+  const scope = declaringScope(env, name);
+  return scope?.capturedArrayBindings?.has(name) ?? false;
+}
+
+export function captureFreshArrayBinding(env: SemanticEnv, name: string): void {
+  const scope = declaringScope(env, name);
+  if (!scope?.freshArrayBindings?.has(name)) return;
+  scope.freshArrayBindings.delete(name);
+  (scope.capturedArrayBindings ??= new Set()).add(name);
+}
+
+export function invalidateFreshArrayBinding(env: SemanticEnv, name: string): void {
+  const scope = declaringScope(env, name);
+  scope?.freshArrayBindings?.delete(name);
+}
+
+export function markRepeatableLoopBody(env: SemanticEnv): void {
+  env.repeatableLoopBody = true;
+}
+
+export function capturesFreshArrayAcrossRepeatableLoop(env: SemanticEnv, name: string): boolean {
+  let crossedRepeatableLoop = false;
+  for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
+    if (cur.bindings.has(name)) return crossedRepeatableLoop;
+    if (cur.repeatableLoopBody === true) crossedRepeatableLoop = true;
+  }
+  return false;
+}
+
 /** Delete `name` from the INNERMOST scope only (scope teardown). */
 export function deleteOwnBinding(env: SemanticEnv, name: string): void {
   env.bindings.delete(name);
+  env.freshArrayBindings?.delete(name);
+  env.capturedArrayBindings?.delete(name);
 }
 
 function cloneSemanticValue(value: unknown): unknown {

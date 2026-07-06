@@ -47,6 +47,7 @@ import {
   defineBinding,
   getBinding,
   hasBinding,
+  markRepeatableLoopBody,
   type NodeContract,
   type NodeFixture,
   registerContract,
@@ -260,6 +261,7 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
     // accumulator persists across elements, byte-identical to the emitted loops.
     // (Previously this forked `new Map(env.bindings)`, discarding outer mutations.)
     const iterEnv = childEnv(env);
+    markRepeatableLoopBody(iterEnv);
     for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
     const childTrace = referenceRunSequence(children, iterEnv);

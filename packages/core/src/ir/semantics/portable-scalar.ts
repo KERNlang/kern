@@ -24,8 +24,12 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { isParenthesized, isValueIR, type ValueIR } from '../../value-ir.js';
 import {
+  captureFreshArrayBinding,
+  capturesFreshArrayAcrossRepeatableLoop,
   getBinding,
   hasBinding,
+  isCapturedArrayBinding,
+  isFreshArrayBinding,
   isIntProvenanced,
   makeEnv,
   type RunnerClassBinding,
@@ -180,6 +184,10 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
 export type PortableRecord = Readonly<Record<string, PortableScalar | RunnerPortableArrayValue>>;
 export type RunnerPortableArrayValue = ReadonlyArray<PortableScalar | RunnerPortableArrayValue>;
 export type RunnerPortableValue = PortableScalar | PortableRecord | RunnerPortableArrayValue;
+
+export interface EvalRecordLiteralOptions {
+  readonly captureFreshArrayBindings?: boolean;
+}
 export type RunnerFunctionValue = RunnerPortableValue | RunnerClassInstanceValue;
 const RESERVED_RECORD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 // Milestone 5.1b — same-file recursive helper calls are now SUPPORTED (previously
@@ -301,27 +309,112 @@ export function assertPortableRecordEntry(
 /** Array-literal record FIELD admission (shared sync/async; elements are
  *  literals only, so the sync array evaluator is exact for the async leg).
  *  `undefined` = not an array literal, use the caller's scalar path. */
-export function evalRecordArrayFieldValue(value: ValueIR, env: SemanticEnv): RunnerPortableArrayValue | undefined {
-  return value.kind === 'arrayLit'
-    ? evalArrayLiteralValue(value, env, { allowFiniteNumericLiterals: true })
-    : undefined;
+export function evalRecordArrayFieldValue(
+  value: ValueIR,
+  env: SemanticEnv,
+  options: EvalRecordLiteralOptions = {},
+): RunnerPortableArrayValue | undefined {
+  if (value.kind === 'arrayLit') return evalArrayLiteralValue(value, env, { allowFiniteNumericLiterals: true });
+  if (
+    value.kind === 'member' &&
+    !value.optional &&
+    value.object.kind === 'ident' &&
+    hasBinding(env, value.object.name)
+  ) {
+    const record = getBinding(env, value.object.name);
+    if (isPortableRecordValue(record) && isRunnerPortableArrayValue(record[value.property])) {
+      throw new Error(
+        `portable-record: record array field "${value.object.name}.${value.property}" cannot be captured by another record field`,
+      );
+    }
+  }
+  if (value.kind !== 'ident') return undefined;
+  if (isCapturedArrayBinding(env, value.name)) {
+    throw new Error(`fresh array binding "${value.name}" was already captured by a record field`);
+  }
+  if (!isFreshArrayBinding(env, value.name)) {
+    const binding = hasBinding(env, value.name) ? getBinding(env, value.name) : undefined;
+    if (isRunnerPortableArrayValue(binding)) {
+      throw new Error(`stale array binding "${value.name}" cannot be captured by a record field`);
+    }
+    return undefined;
+  }
+  if (capturesFreshArrayAcrossRepeatableLoop(env, value.name)) {
+    throw new Error(`fresh array binding "${value.name}" cannot be captured inside a repeatable loop body`);
+  }
+  const binding = getBinding(env, value.name);
+  if (!isRunnerPortableArrayValue(binding)) {
+    throw new Error(`portable-record: fresh binding "${value.name}" must be an array`);
+  }
+  if (options.captureFreshArrayBindings === true) captureFreshArrayBinding(env, value.name);
+  return binding;
+}
+
+export function evalRecordArrayFieldReferenceValue(
+  value: ValueIR,
+  env: SemanticEnv,
+): RunnerPortableArrayValue | undefined {
+  if (
+    value.kind !== 'member' ||
+    value.optional ||
+    !isValueIR(value.object) ||
+    value.object.kind !== 'ident' ||
+    isParenthesized(value.object)
+  ) {
+    return undefined;
+  }
+  const recordName = value.object.name;
+  if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
+  const record = getBinding(env, recordName);
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) return undefined;
+  if (isDecimalValue(record) || isCaughtErrorValue(record) || isRunnerClassInstanceValue(record)) return undefined;
+  const proto = Object.getPrototypeOf(record);
+  if (proto !== Object.prototype && proto !== null) return undefined;
+  if (Object.getOwnPropertySymbols(record).length > 0) {
+    throw new Error(`portable: record "${recordName}" is outside the portable scalar domain`);
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(record, value.property);
+  if (!descriptor) {
+    throw new Error(`portable: record "${recordName}" has no field "${value.property}"`);
+  }
+  if (!descriptor.enumerable || descriptor.get || descriptor.set || !('value' in descriptor)) {
+    throw new Error(`portable: record "${recordName}" field "${value.property}" is outside the portable scalar domain`);
+  }
+  return isRunnerPortableArrayValue(descriptor.value) ? descriptor.value : undefined;
+}
+
+export function assertSingleUseFreshArrayRecordSources(node: ValueIR, env: SemanticEnv): void {
+  if (node.kind !== 'objectLit') return;
+  const sources = new Set<string>();
+  for (const rawEntry of node.entries) {
+    if ('kind' in rawEntry) continue;
+    const value = rawEntry.value;
+    if (value.kind !== 'ident' || !isFreshArrayBinding(env, value.name)) continue;
+    if (sources.has(value.name)) throw new Error(`fresh array binding "${value.name}" can be captured only once`);
+    sources.add(value.name);
+  }
 }
 
 /** Evaluate a flat record literal whose values are portable scalars plus this
  * slice's syntactic array-literal fields. Spreads, numeric keys, computed keys,
  * and nested records are deferred so record reads cannot accidentally widen
  * into host-object semantics. */
-export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): PortableRecord {
+export function evalRecordLiteralValue(
+  node: ValueIR,
+  env: SemanticEnv,
+  options: EvalRecordLiteralOptions = {},
+): PortableRecord {
   if (node.kind !== 'objectLit') {
     throw new Error('portable-record: expected an object literal expression');
   }
+  assertSingleUseFreshArrayRecordSources(node, env);
   const out: Record<string, PortableScalar | RunnerPortableArrayValue> = Object.create(null) as Record<
     string,
     PortableScalar | RunnerPortableArrayValue
   >;
   for (const rawEntry of node.entries) {
     const entry = assertPortableRecordEntry(rawEntry, out);
-    out[entry.key] = evalRecordArrayFieldValue(entry.value, env) ?? evalPortableValue(entry.value, env);
+    out[entry.key] = evalRecordArrayFieldValue(entry.value, env, options) ?? evalPortableValue(entry.value, env);
   }
   return Object.freeze(out);
 }

@@ -28,7 +28,14 @@
 
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { childEnv, type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  childEnv,
+  markRepeatableLoopBody,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
@@ -81,7 +88,9 @@ function whileEffects(ir: IRNode, env: SemanticEnv): Trace {
     // flips and the loop terminates; meanwhile any inner `let` in the body lives
     // only in the child scope and is fresh per iteration (no cross-iteration
     // redeclaration abstain, no post-loop leak) — matching TS/Python block scoping.
-    const childTrace = referenceRunSequence(children, childEnv(env));
+    const iterEnv = childEnv(env);
+    markRepeatableLoopBody(iterEnv);
+    const childTrace = referenceRunSequence(children, iterEnv);
     out.events.push(...childTrace.events);
 
     const c = childTrace.completion;

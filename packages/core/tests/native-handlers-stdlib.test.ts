@@ -132,9 +132,9 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
 
   // Nested-values slice-1 receiver gating (agon review): the nested-record-
   // field rewrite fires ONLY for idents the body emitter PROVED are record
-  // literals (`ctx.isRecordBinding`). Without that proof — object params,
-  // unproven idents — a two-level chain keeps its base verbatim emission
-  // (byte-identical to the pre-slice emitter), NEVER an eager throw.
+  // literals with a PROVEN array-valued field (`ctx.isRecordBinding` plus
+  // `ctx.isRecordArrayField`). Unproven idents keep their base verbatim
+  // emission; proven record fields that are not proven arrays stay fenced.
   test('two-level chains without a proven record binding keep base verbatim emission', () => {
     const ctx = { isUserBinding: () => false, coerceJsValues: true };
     expect(emitExpression(parseExpression('item.tags.filter((x) => x)'), ctx)).toBe('item.tags.filter((x) => x)');
@@ -144,12 +144,19 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     );
   });
 
-  test('two-level chains on a proven record binding lower through the guarded nested helpers', () => {
-    const ctx = { isUserBinding: () => false, coerceJsValues: true, isRecordBinding: (name: string) => name === 'r' };
+  test('two-level chains on a proven record array field lower through the guarded nested helpers', () => {
+    const ctx = {
+      isUserBinding: () => false,
+      coerceJsValues: true,
+      isRecordBinding: (name: string) => name === 'r',
+      isRecordArrayField: (name: string, field: string) => name === 'r' && field === 'b',
+    };
     expect(emitExpression(parseExpression('r.b.length'), ctx)).toContain('__kern_record = r');
     expect(emitExpression(parseExpression('r.b[1]'), ctx)).toContain('__kern_index = 1');
-    // Non-length property on a proven record binding stays fail-closed.
+    // Non-length property on a proven record array field stays fail-closed.
     expect(emitExpression(parseExpression('r.b.filter((x) => x)'), ctx)).toContain('has no portable property');
+    // A scalar field on the same proven record has no array-field proof and stays fail-closed.
+    expect(emitExpression(parseExpression('r.a.length'), ctx)).toContain('nested record field must be an array');
     // A DIFFERENT ident without the proof falls through verbatim.
     expect(emitExpression(parseExpression('other.b.length'), ctx)).toBe('other.b.length');
   });

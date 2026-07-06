@@ -654,6 +654,55 @@ const FIXTURES = [
     params: [],
     body: `let kind=let name=r value="{a: 1}"\nassign target=r value="{a: 2, b: [7, 8]}"\nreturn value="{ a: r.a, len: r.b.length }"`,
     expected: { a: 2, len: 2 } },
+  // ── FV: Stage-1 Slice-2 fresh array fields, codegen leg parity. ───────────
+  // A fresh array binding may be captured exactly once by a record field. The
+  // generated TS/Python legs must then keep the nested read rewrite scoped to
+  // the proven receiver+field pair and reject later mutation/capture attempts
+  // via the compile-reject fixtures below.
+  { kind: 'stmt', name: 'stmt: FV-1 fresh array binding record field length',
+    params: [],
+    body: `let name=xs value="[10,20,30]"\nlet name=r value="{items: xs}"\nreturn value="r.items.length"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: FV-2 fresh array binding record field literal indices',
+    params: [],
+    body: `let name=xs value="[10,20,30]"\nlet name=r value="{items: xs}"\nreturn value="{ first: r.items[0], last: r.items[2] }"`,
+    expected: { first: 10, last: 30 } },
+  { kind: 'stmt', name: 'stmt: FV-3 independent fresh arrays captured by one record',
+    params: [],
+    body: `let name=xs value="[1,2]"\nlet name=ys value="[3,4,5]"\nlet name=r value="{left: xs, right: ys}"\nreturn value="{ leftLen: r.left.length, rightLast: r.right[2] }"`,
+    expected: { leftLen: 2, rightLast: 5 } },
+  { kind: 'stmt', name: 'stmt: FV-4 expression-v1 array can be captured by a record field',
+    params: [],
+    body: `expression-v1 name=xs expr="[7,8,9]"\nlet name=r value="{items: xs}"\nreturn value="r.items[1]"`,
+    expected: 8 },
+  { kind: 'stmt', name: 'stmt: FV-5 selected branch can capture and return a fresh array field',
+    params: [{ name: 'flag', type: 'boolean', value: true }],
+    body: `if cond="flag"\n  let name=xs value="[1,2]"\n  let name=r value="{items: xs}"\n  return value="r.items.length"\nelse\n  let name=ys value="[3,4,5]"\n  let name=s value="{items: ys}"\n  return value="s.items.length"\nreturn value="0"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: FV-6 loop-local fresh arrays can be captured per iteration',
+    params: [],
+    body: `let kind=let name=total value="0"\nfor name=i from=0 to=2\n  let name=xs value="[1,2]"\n  let name=r value="{items: xs}"\n  assign target=total value="total + r.items.length"\nreturn value="total"`,
+    expected: 4 },
+  { kind: 'stmt', name: 'stmt: FV-7 static-false branch capture does not consume freshness',
+    params: [],
+    body: `let name=xs value="[1,2]"\nif cond="false"\n  let name=dead value="{items: xs}"\nlet name=r value="{items: xs}"\nreturn value="r.items.length"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: FV-8 captured record-array field can be aliased for reads',
+    params: [],
+    body: `let name=xs value="[10,20,30]"\nlet name=r value="{items: xs}"\nlet name=ys value="r.items"\nreturn value="{ len: ys.length, second: ys[1] }"`,
+    expected: { len: 3, second: 20 } },
+  { kind: 'stmt', name: 'stmt: FV-9 expression-v1 can alias a captured record-array field for reads',
+    params: [],
+    body: `let name=xs value="[7,8,9]"\nlet name=r value="{items: xs}"\nexpression-v1 name=ys expr="r.items"\nreturn value="ys[2]"`,
+    expected: 9 },
+  { kind: 'stmt', name: 'stmt: FV-10 return record can capture a fresh array field',
+    params: [],
+    body: `let name=xs value="[1,2]"\nreturn value="{items: xs}"`,
+    expected: { items: [1, 2] } },
+  { kind: 'stmt', name: 'stmt: FV-11 returned branch capture does not consume fallthrough freshness',
+    params: [{ name: 'flag', type: 'boolean', value: false }],
+    body: `let name=xs value="[1,2]"\nif cond="flag"\n  let name=early value="{items: xs}"\n  return value="early.items.length"\nlet name=late value="{items: xs}"\nreturn value="late.items.length"`,
+    expected: 2 },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
@@ -1637,6 +1686,188 @@ fn name=probe returns=boolean
     let name=x value="\\"a\\""
     return value="x instanceof String"`,
     expectReason: 'instanceof-rhs-wrapper-rejected', rejectLayers: ['python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: nested optional record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [10,20,30]}"
+    return value="r?.b.length"`,
+    expectReason: 'record array field "r.b" must use a bare non-optional receiver',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: nested parenthesized record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [10,20,30]}"
+    return value="(r).b.length"`,
+    expectReason: 'record array field "r.b" must use a bare non-optional receiver',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array stale after push cannot be captured',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    do value="xs.push(3)"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array alias before capture cannot be captured',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=ys value="xs"
+    let name=r value="{items: ys}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "ys" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array expression-v1 alias before capture cannot be captured',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    expression-v1 name=ys expr="xs"
+    let name=r value="{items: ys}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "ys" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array mutation after capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="xs.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array non-push mutator after capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="xs.pop()"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured binding reassign is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]" kind=let
+    let name=r value="{items: xs}"
+    assign target=xs value="[3,4]"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array duplicate fields capture the same source',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{a: xs, b: xs}"
+    return value="r.a.length"`,
+    expectReason: 'fresh array binding "xs" can be captured only once',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array second record capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{a: xs}"
+    let name=s value="{b: xs}"
+    return value="r.a.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field recapture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=s value="{copy: r.items}"
+    return value="s.copy.length"`,
+    expectReason: 'record field "r.items" cannot be captured by another record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field push is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="r.items.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'record array field "r.items" cannot be mutated after capture',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field non-push mutator is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="r.items.sort()"
+    return value="r.items.length"`,
+    expectReason: 'record array field "r.items" cannot be mutated after capture',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field index assign is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    assign target="r.items[0]" value="9"
+    return value="r.items[0]"`,
+    expectReason: 'record array field "r.items" cannot be mutated after capture',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured direct alias mutation is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=ys value="xs"
+    do value="ys.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "ys" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured record-field alias mutation is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=ys value="r.items"
+    do value="ys.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "ys" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured record-field alias reassign is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=ys value="r.items" kind=let
+    assign target=ys value="[3,4]"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "ys" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array maybe-field alias after branch is rejected',
+    kern: `fn name=probe params="flag:boolean" returns=number
+  handler lang=kern
+    let name=r value="{items: [0]}" kind=let
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{items: xs}"
+    else
+      assign target=r value="{items: 1}"
+    let name=ys value="r.items"
+    return value="0"`,
+    expectReason: 'record array field "r.items" is not proven on every branch',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array index assignment before capture makes source stale',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]" kind=let
+    assign target="xs[0]" value="9"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array outer capture inside repeatable loop is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    for name=i from=0 to=2
+      let name=r value="{items: xs}"
+    return value="0"`,
+    expectReason: 'fresh array binding "xs" cannot be captured inside a repeatable loop body',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────

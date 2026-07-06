@@ -376,6 +376,65 @@ describe('@kernlang/core/runner source executor', () => {
     ).resolves.toBe('20\ngrounded\n');
   });
 
+  test('async descriptor handlers capture fresh array bindings as record array fields', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=xs value="[10,20,30]"',
+      '    let name=r value="{ items: xs }"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="r.items[1]"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('20\ngrounded\n');
+  });
+
+  test('async descriptor handlers reject mutation through captured array-field aliases', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=xs value="[1,2]"',
+      '    let name=r value="{ items: xs }"',
+      '    let name=ys value="r.items"',
+      '    do value="ys.push(3)"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+  });
+
   test('async descriptor handlers reject integer-valued float array-field elements like the sync runner', async () => {
     const source = [
       'fn name=answerRoute returns=void',
@@ -1443,6 +1502,32 @@ describe('@kernlang/core/runner source executor', () => {
     );
 
     expect(stdout).toBe('0\n2\n4\n3\n');
+  });
+
+  test('captures a fresh array binding as a record array field', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=xs value="[10,20,30]"',
+        'let name=r value="{ items: xs }"',
+        'print value="r.items.length"',
+        'print value="r.items[1]"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n20\n');
+  });
+
+  test('fails closed when a captured fresh array is mutated after record capture', () => {
+    expect(() =>
+      executeKernSource(
+        mainProgram([
+          'let name=xs value="[1,2]"',
+          'let name=r value="{ items: xs }"',
+          'do value="xs.push(3)"',
+          'print value="r.items.length"',
+        ]),
+      ),
+    ).toThrow(KernRunnerError);
   });
 
   test('fails closed pushing onto a non-array binding', () => {

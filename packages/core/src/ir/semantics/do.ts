@@ -45,6 +45,7 @@ import {
   assignBinding,
   getBinding,
   hasBinding,
+  isCapturedArrayBinding,
   type NodeContract,
   type NodeFixture,
   registerContract,
@@ -97,6 +98,9 @@ function resolveDo(ir: IRNode, env: SemanticEnv): ResolvedDo {
       if (!hasBinding(env, targetName)) throw new Error(`do: binding "${targetName}" not found`);
       const current = getBinding(env, targetName);
       if (!Array.isArray(current)) throw new Error(`do: "${targetName}.push(...)" requires an array binding`);
+      if (isCapturedArrayBinding(env, targetName)) {
+        throw new Error(`fresh array binding "${targetName}" was already captured by a record field`);
+      }
       const element = evalPortableArrayElement(elementExpr, env);
       return { kind: 'push', targetName, newArray: Object.freeze([...current, element]) };
     }

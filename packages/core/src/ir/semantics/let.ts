@@ -36,7 +36,10 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import {
+  defineArrayAliasBinding,
   defineBinding,
+  defineCapturedArrayBinding,
+  defineFreshArrayBinding,
   getBinding,
   hasBinding,
   hasOwnBinding,
@@ -50,6 +53,7 @@ import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
   assertRunnerPortableValue,
   evalPortableValue,
+  evalRecordArrayFieldReferenceValue,
   evalRecordLiteralValue,
   evalRunnerClassNewValue,
   evalRunnerFunctionValue,
@@ -82,9 +86,10 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
       return true;
     }
     if (isRecordLiteralExpression(parsed)) {
-      evalRecordLiteralValue(parsed, env);
+      evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: false });
       return true;
     }
+    if (evalRecordArrayFieldReferenceValue(parsed, env) !== undefined) return true;
     // Milestone 5.1b — `new Map()` (empty-map construction only; see
     // portable-map.ts) must be checked BEFORE the generic class-new branch,
     // which would otherwise reject Map as an unknown runner class.
@@ -115,25 +120,33 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   const props = asLetProps(ir);
   const name = props.name as string;
   const parsed = parseExpression(String(props.value));
+  const recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env);
   const value = isArrayLiteralExpression(parsed)
     ? evalArrayLiteralValue(parsed, env)
     : isRecordLiteralExpression(parsed)
-      ? evalRecordLiteralValue(parsed, env)
-      : parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)
-        ? new Map<string, unknown>()
-        : parsed.kind === 'new'
-          ? evalRunnerClassNewValue(parsed, env)
-          : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
-            ? evalRunnerFunctionValue(parsed.callee.name, parsed.args, env)
-            : parsed.kind === 'ident' && hasBinding(env, parsed.name)
-              ? (() => {
-                  const binding = getBinding(env, parsed.name);
-                  return isRunnerClassInstanceValue(binding)
-                    ? binding
-                    : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
-                })()
-              : evalPortableValue(parsed, env);
-  defineBinding(env, name, value);
+      ? evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: true })
+      : recordArrayFieldValue !== undefined
+        ? recordArrayFieldValue
+        : parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)
+          ? new Map<string, unknown>()
+          : parsed.kind === 'new'
+            ? evalRunnerClassNewValue(parsed, env)
+            : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
+              ? evalRunnerFunctionValue(parsed.callee.name, parsed.args, env)
+              : parsed.kind === 'ident' && hasBinding(env, parsed.name)
+                ? (() => {
+                    const binding = getBinding(env, parsed.name);
+                    return isRunnerClassInstanceValue(binding)
+                      ? binding
+                      : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+                  })()
+                : evalPortableValue(parsed, env);
+  if (isArrayLiteralExpression(parsed)) defineFreshArrayBinding(env, name, value as readonly unknown[]);
+  else if (recordArrayFieldValue !== undefined)
+    defineCapturedArrayBinding(env, name, recordArrayFieldValue as readonly unknown[]);
+  else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
+    // Source freshness/captured metadata handled by defineArrayAliasBinding.
+  } else defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 

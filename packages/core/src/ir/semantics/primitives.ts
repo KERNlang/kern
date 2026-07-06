@@ -31,6 +31,7 @@ import { evalExplicitThrowError } from './portable-error.js';
 import {
   assertRunnerPortableValue,
   evalPortableValue,
+  evalRecordArrayFieldReferenceValue,
   evalRecordLiteralValue,
   evalRunnerClassNewValue,
   evalRunnerFunctionValue,
@@ -91,12 +92,27 @@ export const continueContract: NodeContract = {
  * `import`s are deferred-resolved (parser/portable evaluator) at call time, so
  * this stays a tiny primitive.
  */
-function resolveReturnValue(ir: { props?: Record<string, unknown> }, env: SemanticEnv): unknown {
+interface ResolveReturnValueOptions {
+  readonly captureFreshArrayBindings?: boolean;
+}
+
+function resolveReturnValue(
+  ir: { props?: Record<string, unknown> },
+  env: SemanticEnv,
+  options: ResolveReturnValueOptions = {},
+): unknown {
   const value = ir.props?.value;
   if (typeof value !== 'string') return value;
   const parsed = parseExpression(value);
   if (isArrayLiteralExpression(parsed)) return evalArrayLiteralValue(parsed, env);
-  if (isRecordLiteralExpression(parsed)) return evalRecordLiteralValue(parsed, env);
+  if (isRecordLiteralExpression(parsed))
+    return evalRecordLiteralValue(parsed, env, {
+      captureFreshArrayBindings: options.captureFreshArrayBindings ?? true,
+    });
+  {
+    const recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env);
+    if (recordArrayFieldValue !== undefined) return recordArrayFieldValue;
+  }
   if (parsed.kind === 'new') return evalRunnerClassNewValue(parsed, env);
   if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
     return evalRunnerFunctionValue(parsed.callee.name, parsed.args, env);
@@ -118,7 +134,7 @@ export const returnContract: NodeContract = {
     // abstains cleanly here instead of throwing from effects.
     if (typeof ir.props?.value !== 'string') return true;
     try {
-      resolveReturnValue(ir, env);
+      resolveReturnValue(ir, env, { captureFreshArrayBindings: false });
       return true;
     } catch {
       return false;
