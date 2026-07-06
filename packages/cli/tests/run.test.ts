@@ -387,6 +387,9 @@ function parseCapabilityReport(result: RunResult): CapabilityReport {
 // ── HAPPY PATH: exact stdout, exit 0, clean stderr ───────────────────────────
 describe('kern run — executes a void main and replays stdout (exit 0)', () => {
   // Portable scalars (values + expected bytes proven by print-stdout-differential).
+  // `/` is only print-portable when both legs render the same shortest value:
+  // `3 / 2` prints `1.5`, while `6 / 2` abstains because Python would render
+  // an integer-valued float as `3.0` where JS renders `3`.
   const PORTABLE_PRINTS: Array<[string, string[], string]> = [
     ['bool true -> lowercase', ['print value="true"'], 'true\n'],
     ['bool false -> lowercase', ['print value="false"'], 'false\n'],
@@ -2895,7 +2898,7 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
   });
 
   test('a NON-counter (plain let) index abstains even when in-bounds', () => {
-    const r = runProgram(['let name=xs value="[10,20,30]"', 'let name=j value="4 / 2"', 'print value="xs[j]"']);
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'let name=j value="2"', 'print value="xs[j]"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
