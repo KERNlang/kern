@@ -410,6 +410,7 @@ describe('RAG prompt context assembly', () => {
 
   test('preserves retrieved chunk body text when it fits', () => {
     const body = '  indented\ntrailing  ';
+    const metadata = { section: 'policy', nested: { owner: 'support' } };
     const context = assembleRagPromptContext([
       {
         id: 'body',
@@ -417,13 +418,23 @@ describe('RAG prompt context assembly', () => {
         score: 0.5,
         source: 'docs/body.md',
         citation: { uri: 'docs/body.md' },
+        metadata,
       },
     ]);
 
     expect(context.text).toBe(
       `[1] id="body" source="docs/body.md" score=0.5 citation={"uri":"docs/body.md"}\ntext="  indented\\ntrailing  "`,
     );
-    expect(context.chunks[0]).toEqual(expect.objectContaining({ text: body, renderedText: body, truncated: false }));
+    expect(context.chunks[0]).toEqual(
+      expect.objectContaining({
+        text: body,
+        renderedText: body,
+        truncated: false,
+        metadata: { section: 'policy', nested: { owner: 'support' } },
+      }),
+    );
+    (context.chunks[0]?.metadata as Record<string, unknown>).section = 'mutated';
+    expect(metadata).toEqual({ section: 'policy', nested: { owner: 'support' } });
   });
 
   test('escapes line and paragraph separators in rendered prompt fields', () => {

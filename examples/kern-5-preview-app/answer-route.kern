@@ -52,7 +52,7 @@ fn name=answerQuestion returns=void
     let name=markers value="answerMarkers()"
     capability namespace=rag operation=retrieveAsync name=chunks input="{ question: query.question, retrieval: query.retrieval }"
     capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: query.maxChars }"
-    capability namespace=llm operation=complete name=answer input="{ prompt: context.text, question: query.question }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText, question: query.question }"
     capability namespace=rag operation=checkAnswer name=check input="{ query: query.question, answer: answer, chunks: chunks, requireCitations: true, minCitedChunks: 1, minGroundingCoverage: 0.85 }"
     let name=result value="new GroundedAnswer(answer, check.status)"
     print value="markers[0]"

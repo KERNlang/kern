@@ -61,7 +61,7 @@ ui.kern
   -> server.mjs exposes request input through app-http.queryParam
   -> answer-route.kern runs through executeKernSourceAsync
   -> rag.retrieveAsync finds local corpus chunks
-  -> rag.promptContext builds prompt context
+  -> rag.promptContext builds prompt context with safeText instruction boundaries
   -> llm.complete host adapter returns deterministic preview text
   -> rag.checkAnswer enforces citation and grounding policy
   -> server.mjs returns structured JSON
@@ -71,7 +71,7 @@ ui.kern
 
 | Area | Demo status |
 | --- | --- |
-| KERN-authored | App manifest in `app.kern`; browser markup in `ui.kern`; backend route flow in `answer-route.kern`; RAG declaration, retrieval selection, answer check, and printed route result sections. |
+| KERN-authored | App manifest in `app.kern`; browser markup in `ui.kern`; backend route flow in `answer-route.kern`; RAG declaration, retrieval selection, safe prompt-context handoff, answer check, and printed route result sections. |
 | Runtime capability | `app.kern` declares `app-http.queryParam`, `rag.retrieveAsync`, `rag.promptContext`, `llm.complete`, and `rag.checkAnswer`; `answer-route.kern` calls those explicit named operations. Missing, undeclared, or failed capabilities fail closed. |
 | Thin host adapter | `server.mjs` owns HTTP, filesystem reads for `.kern` sources, request query parameter injection, local corpus/vector adapter wiring, deterministic LLM preview output, and JSON shaping. It must honor the route, view, policy, response, and capability contract declared in `app.kern`. |
 | Outside the 5.0 matrix | The browser script is still host bootstrap JavaScript, the LLM is deterministic unless a host swaps in a provider, broad async KERN semantics remain outside the supported matrix, and linked multi-file KERN app packages are minimal manifest wiring rather than a full package system. |

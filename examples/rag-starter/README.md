@@ -36,7 +36,7 @@ kern run --llm-response "Refunds are available within thirty days [1]" examples/
 ```
 
 The answer preview retrieves local support chunks, assembles them with
-`rag.promptContext`, passes the resulting `context.text` to `llm.complete`, and
+`rag.promptContext`, passes the resulting `context.safeText` to `llm.complete`, and
 checks the deterministic cited answer with `rag.checkAnswer` before printing it.
 
 Run the same retrieval with the dedicated answer-synthesis capability:
@@ -47,8 +47,8 @@ kern run --llm-response "Refunds are available within thirty days [1]" examples/
 
 The answer-capability preview keeps `rag.retrieve` explicit, then calls
 `rag.answer` to assemble prompt context, invoke the configured `llm.complete`
-provider, infer inline citation spans, and fail closed unless the grounding
-contract passes.
+provider, infer inline citation spans, and return a grounded report with
+coverage and span evidence. It fails closed unless the grounding contract passes.
 
 Use an OpenAI-compatible chat-completions provider instead of the deterministic
 response by supplying a provider, model, and API key:

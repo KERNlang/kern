@@ -1323,6 +1323,18 @@ const REGISTRY: RuleInfo[] = [
     description: 'No confidence annotations found on external or uncertain logic',
   },
   {
+    id: 'rag-prompt-context-unsafe-text',
+    layer: 'kern-source',
+    severity: 'warning',
+    description: 'rag.promptContext text passed to llm.complete instead of safeText instruction boundary',
+  },
+  {
+    id: 'rag-llm-missing-grounding-check',
+    layer: 'kern-source',
+    severity: 'warning',
+    description: 'RAG prompt-context llm.complete result is not checked by rag.checkAnswer',
+  },
+  {
     id: 'kern-duplicate-symbol',
     layer: 'kern-source',
     severity: 'error',
