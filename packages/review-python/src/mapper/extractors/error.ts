@@ -138,11 +138,7 @@ function noopDisposition(
 // True when EVERY caught type is a narrow, non-builtin exception. Bare `except:`
 // (no types) and any builtin / `Exception` / `BaseException` disqualify it, so a
 // mixed `except (IntegrityError, Exception):` stays flaggable.
-function isNarrowNonBuiltinExcept(
-  exceptNode: Parser.SyntaxNode,
-  block: Parser.SyntaxNode,
-  source: string,
-): boolean {
+function isNarrowNonBuiltinExcept(exceptNode: Parser.SyntaxNode, block: Parser.SyntaxNode, source: string): boolean {
   const types = parseExceptTypes(source.substring(exceptNode.startIndex, block.startIndex));
   if (types.length === 0) return false;
   return types.every((t) => !PYTHON_BUILTIN_EXCEPTIONS.has(t));

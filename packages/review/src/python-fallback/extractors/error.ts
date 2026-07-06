@@ -1,6 +1,6 @@
 import type { ConceptNode } from '@kernlang/core';
-import { indentation, type LineInfo } from '../helpers/lines.js';
 import { PYTHON_BUILTIN_EXCEPTIONS } from '../../python-builtin-exceptions.js';
+import { indentation, type LineInfo } from '../helpers/lines.js';
 import { API_ERROR_STATUS_CODES } from '../signatures.js';
 
 export function errorStatusCodesFromBody(body: string): readonly number[] | undefined {
