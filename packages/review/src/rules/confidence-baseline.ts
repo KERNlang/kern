@@ -59,6 +59,8 @@ const RULE_CONFIDENCE_BASELINE: Record<string, number> = {
   'postmessage-missing-target-origin': 90,
   'postmessage-wildcard-target': 90,
   'props-array-mutated-in-render': 90,
+  'rag-llm-missing-grounding-check': 88,
+  'rag-prompt-context-unsafe-text': 92,
   'react-legacy-unsafe-lifecycle': 90,
   'redux-dispatch-in-render': 90,
   'redux-selector-unstable-return': 90,

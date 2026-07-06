@@ -811,7 +811,9 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
 
     expect(r.status).toBe(0);
     expect(r.stderr).toBe('');
-    expect(r.stdout).toBe(['1', 'true', 'grounded', 'Refunds are available within thirty days [1]', ''].join('\n'));
+    expect(r.stdout).toBe(
+      ['1', 'true', 'grounded', '35', '38', 'Refunds are available within thirty days [1]', ''].join('\n'),
+    );
   });
 
   test('RAG CAPABILITY: rag.answer preview fails closed when generated output is ungrounded', () => {
@@ -878,7 +880,7 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     expect(ragAnswerCapability.status).toBe(0);
     expect(ragAnswerCapability.stderr).toBe('');
     expect(ragAnswerCapability.stdout).toBe(
-      ['1', 'true', 'grounded', 'Refunds are available within thirty days [1]', ''].join('\n'),
+      ['1', 'true', 'grounded', '35', '38', 'Refunds are available within thirty days [1]', ''].join('\n'),
     );
 
     const fixtureDir = join(dir, `rag-ingest-promoted-${counter++}`);
@@ -2236,8 +2238,15 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
         answer: 'Refunds are available within thirty days [1]',
         passed: true,
         status: 'grounded',
+        groundingCoverage: 0.9210526315789473,
+        groundedChars: 35,
+        answerChars: 38,
+        evidenceSufficient: true,
+        abstained: false,
         citedChunkIds: ['refunds'],
         sources: ['corpus/refunds.md'],
+        groundingSpans: [{ start: 0, end: 40, chunkIds: ['refunds'], required: true }],
+        diagnostics: [],
       }),
     );
     expect(Object.hasOwn(result as Record<string, unknown>, 'prompt')).toBe(false);

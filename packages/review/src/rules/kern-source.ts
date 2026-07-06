@@ -1256,6 +1256,229 @@ export const missingConfidence: KernSourceRule = (nodes: IRNode[], filePath: str
   ];
 };
 
+function capabilityScope(node: IRNode, parentMap: Map<IRNode, IRNode | undefined>): IRNode | undefined {
+  let current = parentMap.get(node);
+  while (current) {
+    if (current.type === 'handler' || isScopeNode(current)) return current;
+    current = parentMap.get(current);
+  }
+  return undefined;
+}
+
+function inputUsesPromptContextText(input: string, contextName: string): boolean {
+  const escapedName = escapeRegexLiteral(contextName);
+  const promptKey = String.raw`(?:^|[,{]\s*)["']?prompt["']?\s*:\s*`;
+  const unsafeAccess = String.raw`${escapedName}\s*(?:\.\s*text|\[\s*["']text["']\s*\])\b`;
+  return new RegExp(`${promptKey}${unsafeAccess}`).test(input);
+}
+
+function inputUsesPromptContextPrompt(input: string, contextName: string): boolean {
+  const escapedName = escapeRegexLiteral(contextName);
+  const promptKey = String.raw`(?:^|[,{]\s*)["']?prompt["']?\s*:\s*`;
+  const promptAccess = String.raw`${escapedName}\s*(?:\.\s*(?:safeText|text)|\[\s*["'](?:safeText|text)["']\s*\])\b`;
+  return new RegExp(`${promptKey}${promptAccess}`).test(input);
+}
+
+function inputUsesIdentifierField(input: string, fieldName: string, identifier: string): boolean {
+  const escapedField = escapeRegexLiteral(fieldName);
+  const escapedIdentifier = escapeRegexLiteral(identifier);
+  const fieldKey = String.raw`(?:^|[,{]\s*)["']?${escapedField}["']?\s*:\s*`;
+  return new RegExp(`${fieldKey}${escapedIdentifier}${String.raw`\b`}`).test(input);
+}
+
+function exactIdentifierInput(input: string): string | undefined {
+  const trimmed = input.trim();
+  if (/^[A-Za-z_$][\w$]*$/.test(trimmed)) return trimmed;
+  return undefined;
+}
+
+function ragPromptUnsafeTextFinding(
+  filePath: string,
+  node: IRNode,
+  contextName: string,
+  payloadName?: string,
+): ReviewFinding {
+  const subject = payloadName
+    ? `RAG prompt payload '${payloadName}' uses '${contextName}.text' and is passed to llm.complete`
+    : `rag.promptContext result '${contextName}.text' is passed to llm.complete as the prompt`;
+  return finding(
+    'rag-prompt-context-unsafe-text',
+    'warning',
+    'bug',
+    `${subject}; use '${contextName}.safeText' so retrieved content stays inside KERN's instruction-boundary wrapper.`,
+    filePath,
+    node,
+    {
+      suggestion: `Change the llm.complete input to use prompt: ${contextName}.safeText.`,
+    },
+  );
+}
+
+export const ragPromptContextUnsafeText: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
+  const parentMap = buildParentMap(nodes);
+  const promptContextNamesByScope = new Map<IRNode | undefined, Set<string>>();
+
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'capability') continue;
+    const p = props(node);
+    if (p.namespace !== 'rag' || p.operation !== 'promptContext') continue;
+    if (typeof p.name !== 'string' || !p.name) continue;
+    const scope = capabilityScope(node, parentMap);
+    const names = promptContextNamesByScope.get(scope) ?? new Set<string>();
+    names.add(p.name);
+    promptContextNamesByScope.set(scope, names);
+  }
+
+  if (promptContextNamesByScope.size === 0) return [];
+
+  const unsafePayloadsByScope = new Map<IRNode | undefined, Map<string, string>>();
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'let' && node.type !== 'const') continue;
+    const name = readStringPropFlat(node, 'name');
+    if (!name) continue;
+    const value = readStringPropFlat(node, 'value') ?? readStringPropFlat(node, 'expr');
+    if (!value) continue;
+    const scope = capabilityScope(node, parentMap);
+    const promptContextNames = promptContextNamesByScope.get(scope);
+    if (!promptContextNames) continue;
+
+    for (const contextName of promptContextNames) {
+      if (!inputUsesPromptContextText(value, contextName)) continue;
+      const payloads = unsafePayloadsByScope.get(scope) ?? new Map<string, string>();
+      payloads.set(name, contextName);
+      unsafePayloadsByScope.set(scope, payloads);
+      break;
+    }
+  }
+
+  const findings: ReviewFinding[] = [];
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'capability') continue;
+    const p = props(node);
+    if (p.namespace !== 'llm' || p.operation !== 'complete') continue;
+    const input = readStringPropFlat(node, 'input');
+    if (!input) continue;
+    const promptContextNames = promptContextNamesByScope.get(capabilityScope(node, parentMap));
+    if (!promptContextNames) continue;
+
+    let directUnsafePrompt = false;
+    for (const contextName of promptContextNames) {
+      if (!inputUsesPromptContextText(input, contextName)) continue;
+      findings.push(ragPromptUnsafeTextFinding(filePath, node, contextName));
+      directUnsafePrompt = true;
+      break;
+    }
+    if (directUnsafePrompt) continue;
+
+    const payloadName = exactIdentifierInput(input);
+    if (!payloadName) continue;
+    const indirectContextName = unsafePayloadsByScope.get(capabilityScope(node, parentMap))?.get(payloadName);
+    if (!indirectContextName) continue;
+    findings.push(ragPromptUnsafeTextFinding(filePath, node, indirectContextName, payloadName));
+  }
+
+  return findings;
+};
+
+export const ragLlmMissingGroundingCheck: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
+  const parentMap = buildParentMap(nodes);
+  const promptContextNamesByScope = new Map<IRNode | undefined, Set<string>>();
+
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'capability') continue;
+    const p = props(node);
+    if (p.namespace !== 'rag' || p.operation !== 'promptContext') continue;
+    if (typeof p.name !== 'string' || !p.name) continue;
+    const scope = capabilityScope(node, parentMap);
+    const names = promptContextNamesByScope.get(scope) ?? new Set<string>();
+    names.add(p.name);
+    promptContextNamesByScope.set(scope, names);
+  }
+
+  if (promptContextNamesByScope.size === 0) return [];
+
+  const promptPayloadsByScope = new Map<IRNode | undefined, Set<string>>();
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'let' && node.type !== 'const') continue;
+    const scope = capabilityScope(node, parentMap);
+    const promptContextNames = promptContextNamesByScope.get(scope);
+    if (!promptContextNames) continue;
+    const name = readStringPropFlat(node, 'name');
+    const value = readStringPropFlat(node, 'value') ?? readStringPropFlat(node, 'expr');
+    if (!name || !value) continue;
+    if (![...promptContextNames].some((contextName) => inputUsesPromptContextPrompt(value, contextName))) continue;
+    const payloads = promptPayloadsByScope.get(scope) ?? new Set<string>();
+    payloads.add(name);
+    promptPayloadsByScope.set(scope, payloads);
+  }
+
+  const ragPromptCompletions: Array<{ node: IRNode; scope: IRNode | undefined; name: string }> = [];
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'capability') continue;
+    const p = props(node);
+    if (p.namespace !== 'llm' || p.operation !== 'complete') continue;
+    if (typeof p.name !== 'string' || !p.name) continue;
+    const input = readStringPropFlat(node, 'input');
+    if (!input) continue;
+    const scope = capabilityScope(node, parentMap);
+    const promptContextNames = promptContextNamesByScope.get(scope);
+    if (!promptContextNames) continue;
+    const directPrompt = [...promptContextNames].some((contextName) =>
+      inputUsesPromptContextPrompt(input, contextName),
+    );
+    const payloadName = exactIdentifierInput(input);
+    const indirectPrompt = payloadName ? promptPayloadsByScope.get(scope)?.has(payloadName) === true : false;
+    if (!directPrompt && !indirectPrompt) continue;
+    ragPromptCompletions.push({ node, scope, name: p.name });
+  }
+
+  if (ragPromptCompletions.length === 0) return [];
+
+  const completionsByScope = new Map<IRNode | undefined, string[]>();
+  for (const completion of ragPromptCompletions) {
+    const names = completionsByScope.get(completion.scope) ?? [];
+    names.push(completion.name);
+    completionsByScope.set(completion.scope, names);
+  }
+
+  const checkedAnswerNamesByScope = new Map<IRNode | undefined, Set<string>>();
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'capability') continue;
+    const p = props(node);
+    if (p.namespace !== 'rag' || p.operation !== 'checkAnswer') continue;
+    const input = readStringPropFlat(node, 'input');
+    if (!input) continue;
+    const scope = capabilityScope(node, parentMap);
+    const completionNames = completionsByScope.get(scope);
+    if (!completionNames) continue;
+    for (const answerName of completionNames) {
+      if (!inputUsesIdentifierField(input, 'answer', answerName)) continue;
+      const checked = checkedAnswerNamesByScope.get(scope) ?? new Set<string>();
+      checked.add(answerName);
+      checkedAnswerNamesByScope.set(scope, checked);
+    }
+  }
+
+  const findings: ReviewFinding[] = [];
+  for (const completion of ragPromptCompletions) {
+    if (checkedAnswerNamesByScope.get(completion.scope)?.has(completion.name)) continue;
+    findings.push(
+      finding(
+        'rag-llm-missing-grounding-check',
+        'warning',
+        'bug',
+        `llm.complete result '${completion.name}' is generated from retrieved RAG prompt context but is not checked by rag.checkAnswer in the same scope.`,
+        filePath,
+        completion.node,
+        {
+          suggestion: `Add a rag.checkAnswer capability for answer: ${completion.name}, or replace the manual prompt/complete/check sequence with rag.answer.`,
+        },
+      ),
+    );
+  }
+  return findings;
+};
+
 function readBooleanProp(node: IRNode, key: string): boolean {
   const v = props(node)[key];
   if (typeof v === 'boolean') return v;
@@ -1273,6 +1496,10 @@ function readStringPropFlat(node: IRNode, key: string): string | undefined {
     if (typeof code === 'string') return code;
   }
   return undefined;
+}
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 const PREDICATE_METHODS = ['filter', 'find', 'some', 'every', 'findIndex', 'findLast', 'findLastIndex'];
@@ -1469,6 +1696,8 @@ export const KERN_SOURCE_RULES: KernSourceRule[] = [
   unusedState,
   handlerHeavy,
   missingConfidence,
+  ragPromptContextUnsafeText,
+  ragLlmMissingGroundingCheck,
   setSetterCollision,
   asyncPredicateReturn,
   thisIsOutsideClass,

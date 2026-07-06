@@ -17,4 +17,6 @@ fn name=main returns=void
     print value="chunks.length"
     print value="result.passed"
     print value="result.status"
+    print value="result.groundedChars"
+    print value="result.answerChars"
     print value="result.answer"

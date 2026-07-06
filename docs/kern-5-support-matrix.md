@@ -81,7 +81,8 @@ provider call is bounded by a host-configurable per-call timeout
 provider fails closed), retrieved-chunk citation provenance uses one
 normalized wire shape across `rag.retrieve`/`rag.retrieveAsync` emission and
 `rag.promptContext`/`rag.checkAnswer`/`rag.answer` parsing (disagreeing
-duplicate encodings fail closed), and `rag.promptContext` returns `safeText` —
+duplicate encodings fail closed), retrieved-chunk metadata is preserved across
+that wire shape when present, and `rag.promptContext` returns `safeText` —
 the assembled context wrapped in instruction-boundary markers with
 boundary-marker lookalikes in retrieved data neutralized — which `rag.answer`
 uses for its default prompt.

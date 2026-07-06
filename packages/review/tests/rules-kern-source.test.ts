@@ -613,6 +613,142 @@ screen name=External
     expect(requiredReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(true);
   });
 
+  describe('rag-prompt-context-unsafe-text', () => {
+    it('flags rag.promptContext text passed as an llm.complete prompt', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.text }"
+`;
+      const report = reviewKernSource(source, 'rag-answer.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'rag-prompt-context-unsafe-text');
+
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('warning');
+      expect(finding?.message).toContain('context.safeText');
+      expect(finding?.suggestion).toContain('prompt: context.safeText');
+    });
+
+    it('does not flag llm.complete prompts that use safeText', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText }"
+`;
+      const report = reviewKernSource(source, 'rag-answer-safe.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-prompt-context-unsafe-text')).toBe(false);
+    });
+
+    it('flags prompt payload bindings that pass prompt-context text to llm.complete', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    let name=payload value="{ prompt: context.text, question: query.question }"
+    capability namespace=llm operation=complete name=answer input="payload"
+`;
+      const report = reviewKernSource(source, 'rag-answer-payload.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'rag-prompt-context-unsafe-text');
+
+      expect(finding).toBeDefined();
+      expect(finding?.message).toContain('payload');
+      expect(finding?.message).toContain('context.safeText');
+    });
+
+    it('does not flag prompt payload bindings that use safeText', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    let name=payload value="{ prompt: context.safeText, question: query.question }"
+    capability namespace=llm operation=complete name=answer input="payload"
+`;
+      const report = reviewKernSource(source, 'rag-answer-safe-payload.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-prompt-context-unsafe-text')).toBe(false);
+    });
+
+    it('does not flag prompt payload bindings from another handler scope', () => {
+      const source = `
+fn name=buildPayload returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    let name=payload value="{ prompt: context.text }"
+
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=llm operation=complete name=answer input="payload"
+`;
+      const report = reviewKernSource(source, 'rag-answer-other-scope.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-prompt-context-unsafe-text')).toBe(false);
+    });
+
+    it('does not flag printing prompt-context text for diagnostics', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    print value="context.text"
+`;
+      const report = reviewKernSource(source, 'rag-answer-debug.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-prompt-context-unsafe-text')).toBe(false);
+    });
+  });
+
+  describe('rag-llm-missing-grounding-check', () => {
+    it('flags RAG prompt-context completions that are not checked', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText }"
+    print value="answer"
+`;
+      const report = reviewKernSource(source, 'rag-answer-unchecked.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'rag-llm-missing-grounding-check');
+
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('warning');
+      expect(finding?.message).toContain('rag.checkAnswer');
+      expect(finding?.suggestion).toContain('rag.answer');
+    });
+
+    it('does not flag RAG prompt-context completions checked by rag.checkAnswer', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText }"
+    capability namespace=rag operation=checkAnswer name=check input="{ query: query.question, answer: answer, chunks: chunks }"
+`;
+      const report = reviewKernSource(source, 'rag-answer-checked.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-llm-missing-grounding-check')).toBe(false);
+    });
+
+    it('detects unchecked RAG prompt payload bindings passed to llm.complete', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
+    let name=payload value="{ prompt: context.safeText, question: query.question }"
+    capability namespace=llm operation=complete name=answer input="payload"
+`;
+      const report = reviewKernSource(source, 'rag-answer-unchecked-payload.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-llm-missing-grounding-check')).toBe(true);
+    });
+
+    it('does not flag non-RAG LLM completions', () => {
+      const source = `
+fn name=answer returns=void
+  handler lang="kern"
+    capability namespace=llm operation=complete name=answer input="{ prompt: question }"
+`;
+      const report = reviewKernSource(source, 'plain-llm.kern');
+      expect(report.findings.some((f) => f.ruleId === 'rag-llm-missing-grounding-check')).toBe(false);
+    });
+  });
+
   describe('async-predicate-return', () => {
     it('flags async fn passed directly to .filter()', () => {
       const source = `

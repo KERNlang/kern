@@ -17,6 +17,6 @@ fn name=main returns=void
     capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: 6000 }"
     print value="context.includedCount"
     print value="context.text"
-    capability namespace=llm operation=complete name=answer input="{ prompt: context.text }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText }"
     capability namespace=rag operation=checkAnswer name=check input="{ query: \"refund policy receipt\", answer: answer, chunks: chunks, requireCitations: true, minCitedChunks: 1, minGroundingCoverage: 0.85 }"
     print value="answer"

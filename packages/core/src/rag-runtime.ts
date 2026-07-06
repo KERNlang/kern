@@ -78,6 +78,7 @@ export interface RagPromptContextChunk {
   readonly source: string;
   readonly score: number;
   readonly citation: RagCitation;
+  readonly metadata?: Record<string, unknown>;
   readonly text: string;
   readonly renderedText: string;
   readonly truncated: boolean;
@@ -905,6 +906,7 @@ function ragPromptContextChunk(
     source: chunk.source,
     score: chunk.score,
     citation: ragPromptContextCitation(chunk.citation) ?? {},
+    ...(chunk.metadata ? { metadata: cloneMetadata(chunk.metadata) } : {}),
     text: chunk.text,
     renderedText,
     truncated,
