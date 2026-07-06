@@ -10,7 +10,7 @@
 
   <br>
 
-  **One backend spec. Real TypeScript and Python output.** 240 review rules.<br>
+  **One backend spec. Real TypeScript and Python output.** 242 review rules.<br>
   <sub>A .kern spec is ~70% fewer tokens than the TypeScript it generates — ~81% fewer than maintaining both backends (measured, GPT-class tokenizer, example corpus).</sub>
 
   <br>
@@ -32,7 +32,7 @@ npm install -g @kernlang/cli
 kern compile api.kern --target=express                        # Generate an Express backend
 kern compile api.kern --target=fastapi                        # Generate a FastAPI backend
 kern check                                                    # Nominal type checker (zero false positives)
-kern review src/ --recursive                                  # Static analysis (240 rules, taint tracking)
+kern review src/ --recursive                                  # Static analysis (242 rules, taint tracking)
 kern context src/ --stdout                                    # Whole-project context map for an LLM/agent
 kern rag eval examples/rag-starter/eval-ci.kern --json         # CI-safe RAG retrieval contract eval
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
@@ -49,7 +49,7 @@ kern schema --json                                            # Full schema for 
 
 Define routes, schemas, handlers, API shape, validation, and small portable logic once, then emit real TypeScript/Express and Python/FastAPI code. Keep complex business logic in TypeScript or Python; move shared structure and parity-safe operations into KERN.
 
-KERN also includes four supporting capabilities: **Review**, **Infer**, **MCP Security**, and **Evolve**. You can skip `.kern` entirely and run `kern review` against existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 240 AST-based rules that catch what ESLint misses.
+KERN also includes four supporting capabilities: **Review**, **Infer**, **MCP Security**, and **Evolve**. You can skip `.kern` entirely and run `kern review` against existing TypeScript and Python for security bugs, unguarded effects, flaky tests, and prompt injection — 242 AST-based rules that catch what ESLint misses.
 
 ### Backend Parity First
 
@@ -210,7 +210,7 @@ kern review src/ --lint                 # KERN + ESLint + tsc unified
 kern review src/ --llm                  # AI review (see below)
 ```
 
-**240 rules** across base, security, framework, performance, test-quality, null-safety, dead-logic, concept, and taint-aware analysis layers.
+**242 rules** across base, security, framework, performance, test-quality, null-safety, dead-logic, concept, and taint-aware analysis layers.
 
 Recent coverage includes broadly reusable Next.js, React, Storybook, and Playwright checks: App Router body parsing, cache and header hazards, client-boundary env exposure, cookie hardening, SWR invalidation drift, browser storage parsing, client-side redirect sinks, wildcard `postMessage`, legacy React lifecycles, effect cleanup mistakes, timer cleanup drift, stale `.length`/`.size` hook deps, props-array mutation in render, focused tests, fixed Playwright sleeps, brittle `networkidle` waits, non-deterministic stories, and unmocked Storybook network calls.
 
@@ -530,7 +530,7 @@ Contributor architecture guide: [docs/architecture.md](docs/architecture.md)
 | **[@kernlang/cli](https://www.npmjs.com/package/@kernlang/cli)** | CLI — compile, review, context, evolve, dev |
 | **[@kernlang/core](https://www.npmjs.com/package/@kernlang/core)** | Parser, codegen, types — the compiler engine |
 | **[@kernlang/test](https://www.npmjs.com/package/@kernlang/test)** | Native KERN structural test runner |
-| **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 240 rules, taint tracking, OWASP LLM01, concept model |
+| **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 242 rules, taint tracking, OWASP LLM01, concept model |
 | **[@kernlang/review-mcp](https://www.npmjs.com/package/@kernlang/review-mcp)** | MCP security scanner (12 rules, OWASP MCP Top 10) |
 | @kernlang/react | Next.js, Tailwind, Web transpilers |
 | @kernlang/vue | Vue 3 SFC, Nuxt 3 transpilers |

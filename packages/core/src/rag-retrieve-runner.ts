@@ -44,7 +44,11 @@ import {
   registeredExternalRagVectorStoreAdapter,
   unsafeSetRegisteredExternalRagVectorStoreAdapter,
 } from './rag-vector-store-registry.js';
-import type { RuntimeCapabilityProvider, RuntimeCapabilityValue } from './runner-capabilities.js';
+import {
+  assertRuntimeCapabilityValue,
+  type RuntimeCapabilityProvider,
+  type RuntimeCapabilityValue,
+} from './runner-capabilities.js';
 import {
   collectRagSemanticFacts,
   type RagSemanticFacts,
@@ -163,7 +167,8 @@ interface LocalRagCapabilityInput {
  * for the citation fields specifically, which also accept the nested
  * `citation: { uri, locator }` form for chunks authored directly in `.kern`
  * source). `citationUri`/`citationLocator` are `string | null` — never
- * `undefined` — so every surface can round-trip a chunk without reshaping it.
+ * `undefined` — and `metadata` is a portable record or `null`, so every surface
+ * can round-trip a retrieved chunk without silently shedding provenance.
  */
 export interface RetrievedChunkCapabilityValue {
   readonly [key: string]: RuntimeCapabilityValue;
@@ -173,6 +178,7 @@ export interface RetrievedChunkCapabilityValue {
   readonly source: string;
   readonly citationUri: string | null;
   readonly citationLocator: string | null;
+  readonly metadata: Readonly<Record<string, RuntimeCapabilityValue>> | null;
 }
 
 type RagCapabilityChunkValue = RetrievedChunkCapabilityValue;
@@ -698,6 +704,56 @@ function isPlainRecordInput(
   return value !== undefined && isPlainRecord(value);
 }
 
+function isPlainRecordLike(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function ragMetadataCapabilityField(
+  value: unknown,
+  label: string,
+): { readonly metadata: Readonly<Record<string, RuntimeCapabilityValue>> | null } {
+  return { metadata: ragMetadataCapabilityValue(value, label) };
+}
+
+function ragMetadataRetrievedChunkField(
+  value: unknown,
+  label: string,
+): { readonly metadata?: Record<string, RuntimeCapabilityValue> } {
+  const metadata = ragMetadataCapabilityValue(value, label);
+  return metadata === null ? {} : { metadata: cloneRuntimeCapabilityRecord(metadata) };
+}
+
+function ragMetadataCapabilityValue(
+  value: unknown,
+  label: string,
+): Readonly<Record<string, RuntimeCapabilityValue>> | null {
+  if (value === undefined || value === null) return null;
+  if (!isPlainRecordLike(value)) {
+    throw new Error(`${label} must be a record.`);
+  }
+  const portable = assertRuntimeCapabilityValue(value, label);
+  if (!isPlainRecord(portable) || Array.isArray(portable)) {
+    throw new Error(`${label} must be a record.`);
+  }
+  return cloneRuntimeCapabilityRecord(portable);
+}
+
+function cloneRuntimeCapabilityRecord(
+  value: Readonly<Record<string, RuntimeCapabilityValue>>,
+): Record<string, RuntimeCapabilityValue> {
+  const out: Record<string, RuntimeCapabilityValue> = {};
+  for (const [key, item] of Object.entries(value)) out[key] = cloneRuntimeCapabilityValue(item);
+  return out;
+}
+
+function cloneRuntimeCapabilityValue(value: RuntimeCapabilityValue): RuntimeCapabilityValue {
+  if (Array.isArray(value)) return value.map((item) => cloneRuntimeCapabilityValue(item));
+  if (isPlainRecord(value)) return cloneRuntimeCapabilityRecord(value);
+  return value;
+}
+
 export function toRetrievedChunkCapabilityValue(
   chunk: RetrieveResult['chunks'][number],
 ): RetrievedChunkCapabilityValue {
@@ -708,6 +764,7 @@ export function toRetrievedChunkCapabilityValue(
     source: chunk.source,
     citationUri: chunk.citation?.uri ?? null,
     citationLocator: chunk.citation?.locator ?? null,
+    ...ragMetadataCapabilityField(chunk.metadata, 'RAG retrieved chunk metadata'),
   };
 }
 
@@ -721,6 +778,10 @@ function ragCapabilityValueChunk(value: RuntimeCapabilityValue, index: number): 
     score: requiredScoreField(value, index),
     source: requiredStringField(value, 'source', index),
     citation: ragCapabilityValueCitation(value, index),
+    ...ragMetadataRetrievedChunkField(
+      value.metadata,
+      `RAG capability promptContext input field 'chunks[${index}].metadata'`,
+    ),
   };
 }
 
@@ -835,6 +896,7 @@ function ragPromptContextCapabilityValue(context: RagPromptContext): RagPromptCo
       score: chunk.score,
       citationUri: chunk.citation.uri ?? null,
       citationLocator: chunk.citation.locator ?? null,
+      ...ragMetadataCapabilityField(chunk.metadata, `RAG prompt context chunk '${chunk.id}' metadata`),
       text: chunk.text,
       renderedText: chunk.renderedText,
       truncated: chunk.truncated,
@@ -909,11 +971,15 @@ function retrievedChunkFingerprint(chunk: RetrievedChunk): string {
     source: chunk.source,
     citationUri: chunk.citation?.uri ?? null,
     citationLocator: chunk.citation?.locator ?? null,
+    metadata: ragMetadataCapabilityValue(chunk.metadata, `RAG retrieved chunk '${chunk.id}' metadata`),
   });
 }
 
 function cloneRagCapabilityChunks(chunks: readonly RagCapabilityChunkValue[]): RagCapabilityChunkValue[] {
-  return chunks.map((chunk) => ({ ...chunk }));
+  return chunks.map((chunk) => ({
+    ...chunk,
+    ...ragMetadataCapabilityField(chunk.metadata, `RAG cached chunk '${chunk.id}' metadata`),
+  }));
 }
 
 function stableCapabilityJson(value: unknown): string {

@@ -122,5 +122,6 @@ function contextChunksToRetrievedChunks(context: RagPromptContext): readonly Ret
     score: chunk.score,
     source: chunk.source,
     citation: chunk.citation,
+    ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
   }));
 }

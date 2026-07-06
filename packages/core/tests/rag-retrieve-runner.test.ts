@@ -259,6 +259,13 @@ describe('retrieveRagDocument', () => {
     expect(chunk.source).toBe('docs/refunds.md');
     expect(chunk.citationUri).toBe('docs/refunds.md');
     expect(typeof chunk.citationLocator).toBe('string');
+    expect(chunk.metadata).toEqual(
+      expect.objectContaining({
+        corpusName: 'Docs',
+        sourceName: 'manuals',
+        relativePath: 'docs/refunds.md',
+      }),
+    );
   });
 
   test('PROVENANCE NORMALIZATION: rag.retrieve and rag.retrieveAsync emit byte-identical chunk provenance for the same query', async () => {
@@ -279,9 +286,18 @@ describe('retrieveRagDocument', () => {
     expect(Array.isArray(syncResult)).toBe(true);
     expect(asyncResult).toEqual(syncResult);
     const [chunk] = syncResult as Array<Record<string, unknown>>;
-    // The one normalized wire shape: exactly these six fields, citation
-    // provenance as `string | null` — never `undefined` — on both paths.
-    expect(Object.keys(chunk).sort()).toEqual(['citationLocator', 'citationUri', 'id', 'score', 'source', 'text']);
+    // The one normalized wire shape: citation provenance as `string | null`
+    // and metadata preserved on both sync and async paths.
+    expect(Object.keys(chunk).sort()).toEqual([
+      'citationLocator',
+      'citationUri',
+      'id',
+      'metadata',
+      'score',
+      'source',
+      'text',
+    ]);
+    expect(chunk.metadata).toEqual(expect.objectContaining({ relativePath: 'docs/refunds.md' }));
   });
 
   test('creates local prompt context from rag.retrieve capability chunks', () => {
@@ -316,6 +332,7 @@ describe('retrieveRagDocument', () => {
       expect.objectContaining({
         index: 0,
         source: 'docs/refunds.md',
+        metadata: expect.objectContaining({ relativePath: 'docs/refunds.md', sourceName: 'manuals' }),
         renderedText: 'refund policy money back within thirty days',
       }),
     ]);
@@ -561,6 +578,22 @@ describe('retrieveRagDocument', () => {
           query: 'refund policy money back',
           answer: 'refund policy money back',
           chunks: tamperedScoreChunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/previously returned by rag\.retrieve/u);
+
+    const droppedMetadataChunks = (chunks as Array<Record<string, unknown>>).map(
+      ({ metadata: _metadata, ...chunk }) => chunk,
+    );
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks: droppedMetadataChunks,
           groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
         },
       }),

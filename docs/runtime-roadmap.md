@@ -142,7 +142,7 @@ The preview surface is the documented, tested subset used by the smoke gate:
   OpenAI-compatible `llm.complete` provider (prompting through the
   instruction-boundary-marked `safeText` context), then fails closed through
   the same inline-citation-derived grounding contract before returning an
-  answer result
+  answer result with grounding coverage, cited chunks, and span evidence
 - in the Node CLI default async path, `rag.ingest` indexes declared
   local-persistent RAG stores through the existing async indexing workflow and
   returns a portable index lifecycle report without changing the shipped sync
@@ -330,9 +330,9 @@ providers remain explicit host-adapter work.
 | `crypto.randomUUID` / `crypto.randomBytes` / `crypto.randomHex` | Shipped | Sync | Browser-safe provider with explicit host crypto source |
 | `rag.retrieve` | Shipped | Sync | Node CLI local RAG adapter over declared local sources |
 | `rag.retrieveAsync` | Shipped (async) | Async | Runs by default without `--async-preview`; Node CLI async RAG adapter over declared local sources through `retrieveRagDocumentAsync`; explicit host/provider boundary that preserves the normalized retrieval provenance shape |
-| `rag.promptContext` | Shipped | Sync | Node CLI local prompt-context assembly over retrieved RAG chunks |
-| `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved RAG chunks |
-| `rag.answer` | Shipped (async) | Async | Runs by default without `--async-preview`; answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, prompt assembled with instruction-boundary marking, fail-closed by grounding/citation checks |
+| `rag.promptContext` | Shipped | Sync | Node CLI local prompt-context assembly over retrieved RAG chunks; preserves chunk metadata in the returned chunk records |
+| `rag.checkAnswer` | Shipped | Sync | Node CLI local deterministic answer grounding/citation check over retrieved chunks; fails closed if chunks do not match a prior retrieval for the same query |
+| `rag.answer` | Shipped (async) | Async | Runs by default without `--async-preview`; answer synthesis over already-retrieved chunks through deterministic or OpenAI-compatible `llm.complete`, prompt assembled with instruction-boundary marking, fail-closed by grounding/citation checks, returns grounding coverage and span evidence |
 | `rag.ingest` | Shipped (async) | Async | Runs by default without `--async-preview`; indexes declared local-persistent stores through `indexRagDocumentAsync` and returns a portable lifecycle report; provider-backed embedders can be supplied by Node hosts |
 | `fs.readText` / `fs.writeText` / `fs.list` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview provides root-scoped `fs.list` / `fs.readText` and opt-in `fs.writeText` |
 | `net.fetch` | Planned | Async planned | Must be host-injected; preview-runnable in `executeKernSourceAsync` straight-line / matched `if` arm / selected `branch` path / structured `try` / `catch` / `finally` / sequential `while`, `for`, and `each` loop bodies / same-file portable-scalar helper calls; Node CLI preview requires explicit `--allow-net <origin>` or `--allow-net data:` and denies redirects |
