@@ -91,18 +91,16 @@ describe('runTSCDiagnostics — sparse-clone sibling/jsx noise (fitvt PR #19)', 
 
   // ---- D: TS2304 on RN/Expo/DOM-lib globals (e.g. __DEV__) ----
   it('suppresses TS2304 "Cannot find name \'__DEV__\'" (RN/Expo global) in review mode', () => {
-    const findings = runTSCDiagnostics(
-      projectWith({ '/d.ts': `export const flag = __DEV__ ? 1 : 0;` }),
-      { downgradeProjectLoadingErrors: true },
-    );
+    const findings = runTSCDiagnostics(projectWith({ '/d.ts': `export const flag = __DEV__ ? 1 : 0;` }), {
+      downgradeProjectLoadingErrors: true,
+    });
     expect(findings.find((f) => f.ruleId === 'ts2304')).toBeUndefined();
   });
 
   it('STILL surfaces TS2304 for a genuinely-undefined name (not a known global)', () => {
-    const findings = runTSCDiagnostics(
-      projectWith({ '/g.ts': `export const q = someTrulyUndefinedThing + 1;` }),
-      { downgradeProjectLoadingErrors: true },
-    );
+    const findings = runTSCDiagnostics(projectWith({ '/g.ts': `export const q = someTrulyUndefinedThing + 1;` }), {
+      downgradeProjectLoadingErrors: true,
+    });
     expect(findings.find((f) => f.ruleId === 'ts2304')).toBeDefined();
   });
 

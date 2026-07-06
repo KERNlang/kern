@@ -321,7 +321,8 @@ export function runTSCDiagnostics(
       // reproduced, and blanket-suppressing the highest-value real-bug codes on
       // an unproven cause was rejected.
       const isCollectedModuleMiss =
-        code === 2307 && suppressedModuleMisses.has(moduleMissKey(filePath, extractMissingModuleSpecifier(messageStr) ?? ''));
+        code === 2307 &&
+        suppressedModuleMisses.has(moduleMissKey(filePath, extractMissingModuleSpecifier(messageStr) ?? ''));
       if (
         options.downgradeProjectLoadingErrors &&
         (isLoadingNoise ||
