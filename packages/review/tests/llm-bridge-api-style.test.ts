@@ -9,6 +9,7 @@ const cfg = (apiStyle: 'openai' | 'anthropic'): Required<LLMBridgeConfig> => ({
   timeout: 60_000,
   maxTokens: 1024,
   maxBatchTokens: 100_000,
+  mineRules: [],
 });
 
 const MESSAGES = [

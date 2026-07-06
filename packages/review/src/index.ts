@@ -270,8 +270,8 @@ export type {
 } from './llm-bridge.js';
 // LLM bridge (Phase 3)
 export { buildReviewInstructions, isLLMAvailable, runLLMReview } from './llm-bridge.js';
-export type { LLMGraphContext } from './llm-review.js';
-export { buildLLMPrompt, exportKernIR, parseLLMResponse } from './llm-review.js';
+export type { LLMGraphContext, MinedRuleRef } from './llm-review.js';
+export { buildLLMPrompt, exportKernIR, parseLLMResponse, renderKernRulesBlock } from './llm-review.js';
 export { extractTsConcepts } from './mappers/ts-concepts.js';
 export type { NormViolation } from './norm-miner.js';
 // Norm mining + obligations
@@ -295,6 +295,19 @@ export {
   resolveSpecifierToSrc,
 } from './public-api.js';
 export { runQualityRules } from './quality-rules.js';
+// RAG grounding gate (cite-or-drop enforcement for LLM findings against a
+// mined-rule corpus) — see rag-grounding.ts module doc for Tier A/B design.
+export type {
+  DroppedFinding,
+  EntailmentJudgeInput,
+  EntailmentJudgeResult,
+  GroundingDropReason,
+  GroundingPolicy,
+  GroundResult,
+  RuleCorpus,
+  RuleText,
+} from './rag-grounding.js';
+export { countDropReasons, groundFindings, isGroundingEligible, OPERATIONAL_LLM_RULE_IDS } from './rag-grounding.js';
 export {
   assignDefaultConfidence,
   calculateStats,
@@ -441,6 +454,7 @@ export type {
   ReviewStats,
   ReviewTelemetryConfig,
   RootCause,
+  RuleCitation,
   RuleContext,
   RuntimeBoundary,
   SourceSpan,
@@ -952,7 +966,7 @@ function reviewSourceInternal(
         n.primarySpan.startCol === f.primarySpan.startCol &&
         n.payload.kind === 'effect',
     );
-    if (!effectNode || effectNode.payload.kind !== 'effect') continue;
+    if (effectNode?.payload.kind !== 'effect') continue;
     const target = effectNode.payload.target;
     if (target && isAuthEndpointTarget(target)) allFindings.splice(i, 1);
   }
@@ -1462,7 +1476,7 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     }
   }
 
-  const crossFileKernFindings = lintKernSourceCrossFile(reports);
+  const crossFileKernFindings = lintKernSourceCrossFile(reports, graph);
   for (const finding of crossFileKernFindings) {
     const targetReport = reports.find((r) => r.filePath === finding.primarySpan.file);
     if (targetReport) {

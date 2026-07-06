@@ -1,16 +1,17 @@
 /**
  * External Tools — ESLint Node API + ts-morph diagnostics integration.
  *
- * Uses Node APIs (not child processes). Batched per tsconfig.
+ * Uses TypeScript/ESLint Node APIs. Batched per tsconfig.
  * ESLint is an optional peer dependency — gracefully degrades if not available.
  *
  * Phase 3 of the review pipeline.
  */
 
+import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import type { Project } from 'ts-morph';
-import { createProject } from './inferrer.js';
+import { createProject, findTsConfig } from './inferrer.js';
 import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
@@ -595,6 +596,9 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[], health?: ReviewH
   if (filePaths.length === 0) return [];
 
   try {
+    const canonical = collectCanonicalBuildDiagnosticKeys(filePaths, health);
+    if (canonical.attempted && canonical.keys.size === 0) return [];
+
     const project = createProject(filePaths[0]);
     for (const fp of filePaths) {
       try {
@@ -603,12 +607,127 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[], health?: ReviewH
         void _e; // intentional: skip unreadable/unparseable files
       }
     }
-    return runTSCDiagnostics(project);
+    const findings = runTSCDiagnostics(project);
+    if (!canonical.attempted) return findings;
+    return findings.filter((finding) => canonical.keys.has(tscFindingKey(finding)));
   } catch (err) {
     health?.noteKind('tsc', 'error', 'tsc diagnostics could not build a ts-morph Project', debugDetail(err));
     if (process.env.KERN_DEBUG) console.error('tsc project build error:', (err as Error).message);
     return [];
   }
+}
+
+interface CanonicalBuildDiagnosticKeys {
+  attempted: boolean;
+  keys: Set<string>;
+}
+
+const canonicalBuildDiagnosticsCache = new Map<string, Set<string> | undefined>();
+
+function collectCanonicalBuildDiagnosticKeys(
+  filePaths: string[],
+  health?: ReviewHealthBuilder,
+): CanonicalBuildDiagnosticKeys {
+  const tsconfigPaths = new Set<string>();
+  for (const filePath of filePaths) {
+    if (!/\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(filePath) || filePath.endsWith('.d.ts')) continue;
+    const tsconfigPath = findTsConfig(dirname(resolve(filePath)));
+    if (tsconfigPath) tsconfigPaths.add(resolve(tsconfigPath));
+  }
+
+  if (tsconfigPaths.size === 0) return { attempted: false, keys: new Set() };
+
+  const keys = new Set<string>();
+  for (const tsconfigPath of tsconfigPaths) {
+    let configKeys = canonicalBuildDiagnosticsCache.get(tsconfigPath);
+    if (configKeys === undefined && !canonicalBuildDiagnosticsCache.has(tsconfigPath)) {
+      configKeys = collectCanonicalBuildDiagnosticsForConfig(tsconfigPath, health);
+      canonicalBuildDiagnosticsCache.set(tsconfigPath, configKeys);
+    }
+    if (!configKeys) return { attempted: false, keys: new Set() };
+    for (const key of configKeys) keys.add(key);
+  }
+
+  return { attempted: true, keys };
+}
+
+function collectCanonicalBuildDiagnosticsForConfig(
+  tsconfigPath: string,
+  health?: ReviewHealthBuilder,
+): Set<string> | undefined {
+  const tscBin = findTscBin(dirname(tsconfigPath));
+  if (!tscBin) {
+    health?.noteKind('tsc', 'fallback', 'canonical tsc -b comparison skipped because TypeScript was not found');
+    return undefined;
+  }
+
+  let output = '';
+  try {
+    execFileSync(process.execPath, [tscBin, '-b', tsconfigPath, '--pretty', 'false'], {
+      encoding: 'utf-8',
+      cwd: dirname(tsconfigPath),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    const execErr = err as { stdout?: unknown; stderr?: unknown };
+    output = `${typeof execErr.stdout === 'string' ? execErr.stdout : ''}\n${
+      typeof execErr.stderr === 'string' ? execErr.stderr : ''
+    }`;
+  }
+
+  return parseTscBuildDiagnosticKeys(output, dirname(tsconfigPath), health);
+}
+
+function tscFindingKey(finding: ReviewFinding): string {
+  const code = Number(finding.ruleId.replace(/^ts/, ''));
+  return `${normalizeDiagnosticPath(finding.primarySpan.file)}:${code}`;
+}
+
+function normalizeDiagnosticPath(filePath: string): string {
+  return resolve(filePath).replace(/\\/g, '/');
+}
+
+function findTscBin(startDir: string): string | undefined {
+  const fromStart = findTscBinFrom(startDir);
+  if (fromStart) return fromStart;
+  return findTscBinFrom(process.cwd());
+}
+
+function findTscBinFrom(startDir: string): string | undefined {
+  let dir = resolve(startDir);
+  for (let i = 0; i < 20; i++) {
+    const candidate = resolve(dir, 'node_modules/typescript/bin/tsc');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+function parseTscBuildDiagnosticKeys(
+  output: string,
+  cwd: string,
+  health?: ReviewHealthBuilder,
+): Set<string> | undefined {
+  const keys = new Set<string>();
+  const diagnosticRe = /^(.+?)\(\d+,\d+\):\s+error\s+TS(\d+):/;
+  const altDiagnosticRe = /^(.+?):\d+:\d+\s+-\s+error\s+TS(\d+):/;
+
+  for (const line of output.split(/\r?\n/u)) {
+    const match = line.match(diagnosticRe) ?? line.match(altDiagnosticRe);
+    if (!match) continue;
+    const filePath = resolve(cwd, match[1]);
+    keys.add(`${normalizeDiagnosticPath(filePath)}:${Number(match[2])}`);
+  }
+
+  if (output.trim().length > 0 && keys.size === 0) {
+    health?.noteKind('tsc', 'fallback', 'canonical tsc -b output could not be mapped; using ts-morph diagnostics');
+    if (process.env.KERN_DEBUG) console.error('unmapped canonical tsc output:', output);
+    return undefined;
+  }
+
+  return keys;
 }
 
 // ── Link External Findings to KERN NodeIds ───────────────────────────────

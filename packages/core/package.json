@@ -26,6 +26,10 @@
       "types": "./dist/runner.d.ts",
       "default": "./dist/runner.js"
     },
+    "./runner/browser": {
+      "types": "./dist/runner-browser.d.ts",
+      "default": "./dist/runner-browser.js"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"

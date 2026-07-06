@@ -204,6 +204,11 @@ function shouldTraceLetAssign(ir: IRNode): boolean {
   // `{op:"assign"}` trace hook.
   // `while` fixtures opt in too: their counter setup/advance (let + assign in
   // body) must emit the same assign events the reference produces.
+  // `do` fixtures (milestone 5.1b — array push / Map.set) opt in too, so the
+  // `let` SETUP inside a `do` fixture's wrapping `__block` gets traced; `do`
+  // itself is DELIBERATELY never instrumented (see do.ts's module doc — a bare
+  // `.push()`/`Map.set(...)` statement produces no trace event on either
+  // uninstrumented emitter, only the reference's binding rebind is silent too).
   const contract = ir.props?.__semanticContract;
   const t = ir.type;
   return (
@@ -215,7 +220,8 @@ function shouldTraceLetAssign(ir: IRNode): boolean {
     contract === 'expression-v1' ||
     contract === 'assign' ||
     contract === 'fmt' ||
-    contract === 'while'
+    contract === 'while' ||
+    contract === 'do'
   );
 }
 

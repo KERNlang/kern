@@ -259,3 +259,103 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(code).toContain('type Result<T, E>');
   });
 });
+
+// ── KERN 4.5.0 item 3 — Text code-point-ops helper block via the production
+//    pipeline (`applyKernStdlibPreamble`'s textOps detection == emission). ──
+describe('transpileForTarget — Text code-point-ops helper preamble', () => {
+  const NATIVE_TEXT = [
+    'fn name=labelLen params="label:string" returns=number export=true',
+    '  handler lang="kern"',
+    '    return value="Text.length(label)"',
+  ].join('\n');
+
+  test('a native `lang="kern"` body using Text.length injects the __kern_text_* helper block on lib (TS)', () => {
+    const code = compile(NATIVE_TEXT, 'lib');
+    expect(code).toContain('__kern_text_length(label)');
+    expect(code).toContain('function __kern_text_length(');
+    // The def is injected ABOVE the call site.
+    expect(code.indexOf('function __kern_text_length(')).toBeLessThan(code.lastIndexOf('__kern_text_length(label)'));
+  });
+
+  test('the FastAPI (Python) target does NOT get the TS text helper block', () => {
+    // Python emits its own inline `_kern_text_*` defs via the `'text-ops'`
+    // stdlib requirement; the TS `function __kern_text_…` block would be a
+    // syntax error in a .py file. The dispatcher guard (TS-family only) must skip it.
+    const code = compile(NATIVE_TEXT, 'fastapi');
+    expect(code).not.toContain('function __kern_text_');
+  });
+
+  test('a module with no Text.* usage does NOT inject the text helper block', () => {
+    const code = compile(
+      [
+        'fn name=check params="a:number,b:number" returns=boolean export=true',
+        '  handler lang="kern"',
+        '    let name=r value="a === b"',
+        '    return value=r',
+      ].join('\n'),
+      'lib',
+    );
+    expect(code).not.toContain('__kern_text_');
+  });
+
+  // THE .vue VERDICT (agon review, verified empirically): today's vue/nuxt
+  // transpilers never route a `lang="kern"` handler through the KERN-stdlib
+  // lowering — they emit RAW handler text via `handlerCode` (zero
+  // `emitNativeKernBody*` imports in packages/vue), so a `__kern_text_*(`
+  // call CANNOT land in vue/nuxt output via `transpileForTarget` today, and
+  // the missed-helper runtime crash the review hypothesized is unreachable.
+  // This test PINS that finding: if the vue transpiler ever starts lowering
+  // KERN bodies (making the scenario real), this fails and forces the
+  // detection/injection story to be re-verified end-to-end.
+  test('.vue verdict pin — the vue target does not lower Text.* through the KERN stdlib today', () => {
+    const src = [
+      'screen name=Page',
+      '  text value="hello"',
+      'fn name=labelLen params="label:string" returns=number',
+      '  handler lang="kern"',
+      '    return value="Text.length(label)"',
+    ].join('\n');
+    const code = compile(src, 'vue');
+    // No lowered call anywhere in the SFC — the fn body is not KERN-lowered
+    // on this target, so no helper block is needed (and none is injected).
+    expect(code).not.toContain('__kern_text_length(');
+  });
+
+  // Defensive-closure halves (the shared.ts scan now includes .vue artifacts;
+  // this proves both halves of that wiring at the unit level, since the
+  // structured-vue output that would exercise it end-to-end is not reachable
+  // from `transpileForTarget` yet — see the shared.ts comment):
+  //   1. detection — `emittedCodeUsesTextOps` fires on SFC-shaped content;
+  //   2. injection — the SFC injector places the helper INSIDE the
+  //      `<script lang="ts">` block (and safely DROPS it for a template-only
+  //      SFC rather than corrupting the parse).
+  test('defensive .vue closure — detection fires on SFC content and SFC injection stays inside the script block', async () => {
+    const { emittedCodeUsesTextOps, kernStdlibPreamble, injectKernStdlibPreambleIntoSFC } = await import(
+      '@kernlang/core'
+    );
+    const sfc = [
+      '<script setup lang="ts">',
+      'function labelLen(label: string): number {',
+      '  return __kern_text_length(label);',
+      '}',
+      '</script>',
+      '',
+      '<template>',
+      '  <div>hello</div>',
+      '</template>',
+    ].join('\n');
+    expect(emittedCodeUsesTextOps(sfc)).toBe(true);
+    const preamble = kernStdlibPreamble({ result: false, option: false, textOps: true });
+    const injected = injectKernStdlibPreambleIntoSFC(sfc, preamble);
+    const scriptOpen = injected.indexOf('<script setup lang="ts">');
+    const helperDef = injected.indexOf('function __kern_text_length(');
+    const scriptClose = injected.indexOf('</script>');
+    expect(scriptOpen).toBeGreaterThanOrEqual(0);
+    expect(helperDef).toBeGreaterThan(scriptOpen);
+    expect(helperDef).toBeLessThan(scriptClose);
+    // Template-only SFC: preamble is DROPPED (documented safe behavior), the
+    // file is returned unchanged rather than corrupted.
+    const templateOnly = '<template>\n  <div>hello</div>\n</template>\n';
+    expect(injectKernStdlibPreambleIntoSFC(templateOnly, preamble)).toBe(templateOnly);
+  });
+});

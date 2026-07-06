@@ -3546,3 +3546,201 @@ describe('FastAPI Transpiler', () => {
     });
   });
 });
+
+describe('FastAPI policy-slot self-sufficiency (guardrails 4.5.0 item 1)', () => {
+  test('a route with a policy child installs the default executor on app.state at construction, and imports it', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+    const source = [
+      'server name=WebhookAPI',
+      '  route method=post path=/webhook',
+      '    policy name=Sig kind=hmacSignature slot=pre',
+      '    handler <<<',
+      '      res.json({ ok: true });',
+      '    >>>',
+    ].join('\n');
+    const result = transpileFastAPI(parse(source));
+
+    expect(result.code).toContain('from policy_runtime import create_execute_kern_policy_slot');
+    expect(result.code).toContain('app.state.execute_kern_policy_slot = create_execute_kern_policy_slot(app)');
+    // Installed AFTER `app = FastAPI(...)` — it needs the app object to close over.
+    expect(result.code.indexOf('app = FastAPI(')).toBeLessThan(
+      result.code.indexOf('app.state.execute_kern_policy_slot ='),
+    );
+    const runtimeArtifact = result.artifacts?.find((a: any) => a.path === 'policy_runtime.py');
+    expect(runtimeArtifact).toBeDefined();
+    expect(runtimeArtifact!.content).toContain('def create_execute_kern_policy_slot(app');
+    expect(runtimeArtifact!.content).toContain('hmac.compare_digest');
+    expect(runtimeArtifact!.content).toContain('kern_auth_verifier');
+    expect(runtimeArtifact!.content).toContain('kern_hmac_key_provider');
+    expect(runtimeArtifact!.content).toContain('kern_rag_grounding_adapter');
+    // Every executable kind's missing-provider path denies — never an implicit allow.
+    expect(runtimeArtifact!.content).toMatch(/verifier is None:\s*\n\s*return _denied/);
+    expect(runtimeArtifact!.content).toMatch(/key_provider is None or raw_body is None:\s*\n\s*return _denied/);
+    expect(runtimeArtifact!.content).toMatch(/adapter is None:\s*\n\s*return _denied/);
+  });
+
+  test('a policy-free app never imports or references the policy runtime', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+    const source = [
+      'server name=PlainAPI',
+      '  route method=get path=/health',
+      '    handler <<<',
+      '      res.json({ ok: true });',
+      '    >>>',
+    ].join('\n');
+    const result = transpileFastAPI(parse(source));
+    expect(result.code).not.toContain('policy_runtime');
+    expect(result.code).not.toContain('execute_kern_policy_slot');
+    expect(result.artifacts?.some((a: any) => a.path === 'policy_runtime.py')).toBe(false);
+  });
+
+  test('the generated route calls execute_kern_policy_slot with a fail-closed default, never a bare getattr AttributeError', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [{ type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] }],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    expect(code).toContain('async def __kern_policy_runtime_missing(entry, slot, facts):');
+    expect(code).toContain(
+      'await getattr(request.app.state, "execute_kern_policy_slot", __kern_policy_runtime_missing)(',
+    );
+    expect(code).not.toContain('await getattr(request.app.state, "execute_kern_policy_slot")(');
+  });
+
+  test('a policy node.props blob round-trips through json.loads so non-string prop values never become Python NameErrors', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        {
+          type: 'policy',
+          props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', failureStatus: 422 },
+          children: [],
+        },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    expect(code).toContain('import json');
+    expect(code).toMatch(/"props": json\.loads\("/);
+    expect(code).not.toMatch(/"props": \{"name"/);
+  });
+
+  test('a policy-guarded route with schema.body constructs the Pydantic model AFTER the guard allows, not as a bound def parameter', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'schema', props: { body: '{ amount: number }' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ amount: body.amount });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    // The def signature must NOT bind `body: RequestBody` directly — that
+    // would let FastAPI's Pydantic dependency solver parse/validate the
+    // body (and potentially 422) before the guard ever runs.
+    expect(code).not.toMatch(/async def post_webhook\([^)]*body: RequestBody/);
+    // The guard's deny-check must precede the model construction, and the
+    // model must still be built from the SAME raw bytes the guard verified.
+    const denyIdx = code.indexOf('if __kern_denied is not None:');
+    const bodyIdx = code.indexOf('body = RequestBody.model_validate_json(__kern_raw_body)');
+    expect(denyIdx).toBeGreaterThan(-1);
+    expect(bodyIdx).toBeGreaterThan(denyIdx);
+  });
+
+  test('the pre-policy gate is a dependency listed BEFORE user-level Depends (auth/middleware), so it resolves first', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'auth', props: { mode: 'required' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    expect(code).toContain('async def __kern_pre_policy_gate(request: Request):');
+    const signature = code.split('\n').find((line: string) => line.startsWith('async def post_webhook('));
+    expect(signature).toBeDefined();
+    const gateIdx = signature!.indexOf('__kern_policy_gate = Depends(__kern_pre_policy_gate)');
+    const authIdx = signature!.indexOf('user = Depends(auth_required)');
+    expect(gateIdx).toBeGreaterThan(-1);
+    expect(authIdx).toBeGreaterThan(gateIdx);
+  });
+
+  test('a policy-guarded route with a validate body schema also defers the model to post-allow — no body field pre-guard', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        { type: 'policy', props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main' }, children: [] },
+        { type: 'validate', props: { schema: 'WebhookInput' }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    // Any body field in the signature makes FastAPI read+parse the request
+    // body BEFORE dependencies run — defeating the gate ordering entirely.
+    expect(code).not.toMatch(/async def post_webhook\([^)]*body: WebhookInput/);
+    expect(code).toContain('body = WebhookInput.model_validate_json(__kern_raw_body)');
+  });
+
+  test('a route-child rag-review policy with an out-of-range minGroundingCoverage fails the BUILD (fail-closed)', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/answer' },
+      children: [
+        { type: 'policy', props: { name: 'Grounded', kind: 'rag-review', minGroundingCoverage: -1 }, children: [] },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    expect(() => buildRouteArtifact(routeNode as any, 0, [])).toThrow(/minGroundingCoverage must be between 0 and 1/);
+  });
+
+  test("the emitted HMAC plan canonicalizes 'sha-256' to 'sha256' — hashlib has no 'sha_256', so the old spelling denied every request", async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        {
+          type: 'policy',
+          props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', algorithm: 'sha-256' },
+          children: [],
+        },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    const code = buildRouteArtifact(routeNode as any, 0, []).artifact.content;
+    expect(code).toContain('"algorithm": "sha256"');
+  });
+
+  test('an hmacSignature encoding outside hex/base64 fails the BUILD, matching the core loader (fail-closed)', async () => {
+    const { buildRouteArtifact } = await import('../src/fastapi-route.js');
+    const routeNode = {
+      type: 'route',
+      props: { method: 'post', path: '/webhook' },
+      children: [
+        {
+          type: 'policy',
+          props: { name: 'Sig', kind: 'hmacSignature', keyRef: 'main', encoding: 'base32' },
+          children: [],
+        },
+        { type: 'handler', props: { code: 'res.json({ ok: true });' }, children: [] },
+      ],
+    };
+    // Emitted verbatim, a malformed encoding reaches the generated runtime,
+    // where every non-hex value is treated as base64 — silently drifted
+    // semantics instead of a build error.
+    expect(() => buildRouteArtifact(routeNode as any, 0, [])).toThrow(/hmacSignature encoding must be hex or base64/);
+  });
+});

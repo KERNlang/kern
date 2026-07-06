@@ -19,6 +19,7 @@ import {
   OpenAIEmbeddingAdapter,
   type OpenAIEmbeddingAdapterOptions,
   type RagChunkInput,
+  RagEmbeddingProviderUnavailableError,
   type RagVectorStoreAdapter,
 } from '../src/index.js';
 import { LocalPersistentRagVectorStoreAdapter } from '../src/rag-embedding-node.js';
@@ -169,6 +170,29 @@ describe('OpenAIEmbeddingAdapter', () => {
     });
 
     await expect(embedder.embed('refund policy')).rejects.toThrow(/returned 2 dimensions/u);
+  });
+
+  test('normalizes malformed provider JSON responses', async () => {
+    const embedder = new OpenAIEmbeddingAdapter({
+      model: 'text-embedding-3-small',
+      dims: 3,
+      apiKey: 'test-key',
+      fetch: async (): Promise<Response> => new Response('not-json', { status: 200 }),
+    });
+
+    await expect(embedder.embed('refund policy')).rejects.toThrow(RagEmbeddingProviderUnavailableError);
+  });
+
+  test('normalizes malformed provider embedding payloads', async () => {
+    const embedder = new OpenAIEmbeddingAdapter({
+      model: 'text-embedding-3-small',
+      dims: 3,
+      apiKey: 'test-key',
+      fetch: async (): Promise<Response> =>
+        new Response(JSON.stringify({ data: [{ embedding: ['bad'] }] }), { status: 200 }),
+    });
+
+    await expect(embedder.embed('refund policy')).rejects.toThrow(RagEmbeddingProviderUnavailableError);
   });
 });
 

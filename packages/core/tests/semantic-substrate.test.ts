@@ -61,12 +61,31 @@ describe('KERN semantic substrate', () => {
       'stdlibOperations',
       'irContracts',
     ]);
+    expect(Object.hasOwn(substrate, 'ragEmittedBoundary')).toBe(false);
     expect(Object.hasOwn(substrate, 'classFacts')).toBe(false);
     expect(Object.hasOwn(substrate, 'classValidationSummary')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragFacts')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragValidationSummary')).toBe(false);
     expect(Object.hasOwn(substrate, 'ragAnswerReviewFacts')).toBe(false);
     expect(Object.hasOwn(substrate, 'coreShapeFacts')).toBe(false);
+  });
+
+  test('exports the RAG emitted-target boundary when requested', () => {
+    const substrate = buildKernSemanticSubstrate({ includeRagEmittedBoundary: true });
+
+    expect(substrate.ragEmittedBoundary).toEqual(
+      expect.objectContaining({
+        version: 'kern-rag-emitted-boundary-v1',
+        mode: 'runner-only',
+        runnerOps: ['rag.index', 'rag.retrieve', 'rag.eval'],
+        targetNativeCodegen: { ts: false, python: false, go: false },
+        adapterExtension: expect.objectContaining({
+          namespace: 'rag.adapter',
+          status: 'reserved',
+          configSchemaVersion: 'kern-rag-adapter-config-v0',
+        }),
+      }),
+    );
   });
 
   test('exports document class member inheritance and override facts when requested', () => {
@@ -668,9 +687,13 @@ describe('KERN semantic substrate', () => {
     const substrate = buildKernSemanticSubstrate({
       documentRag: root,
       includeRagValidationSummary: true,
+      includeRagEmittedBoundary: true,
     });
 
     expect(substrate.ragValidationSummary).toEqual({ total: 0, byRule: {} });
+    expect(substrate.ragEmittedBoundary?.runnerOnlyNodeTypes).toEqual(
+      expect.arrayContaining(['corpus', 'ragIndex', 'ragRetrieve']),
+    );
     expect(substrate.ragFacts?.corpora).toEqual([
       expect.objectContaining({
         name: 'Docs',

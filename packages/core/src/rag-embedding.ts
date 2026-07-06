@@ -24,6 +24,13 @@
  * and integerised fixed-point score rounding with signed-zero normalisation.
  */
 
+import { cloneRagMetadataFilter, matchesRagMetadataFilter, type RagMetadataFilter } from './rag-metadata-filter.js';
+import {
+  RagEmbeddingProviderAuthError,
+  RagEmbeddingProviderDimensionMismatchError,
+  RagEmbeddingProviderRateLimitError,
+  RagEmbeddingProviderUnavailableError,
+} from './rag-provider-errors.js';
 import {
   type AsyncRagContractRetriever,
   MAX_IN_MEMORY_RAG_TOP_K,
@@ -197,15 +204,15 @@ export class OpenAIEmbeddingAdapter implements AsyncEmbedder {
     this.id = `openai:${this.model}:dims=${this.dims}`;
     this.apiKey = options.apiKey?.trim();
     if (!this.apiKey) {
-      throw new Error('KERN OpenAI embedder requires an apiKey.');
+      throw new RagEmbeddingProviderAuthError('openai', 'KERN OpenAI embedder requires an apiKey.');
     }
     if (/[\r\n]/u.test(this.apiKey)) {
-      throw new Error('KERN OpenAI embedder apiKey must not contain newlines.');
+      throw new RagEmbeddingProviderAuthError('openai', 'KERN OpenAI embedder apiKey must not contain newlines.');
     }
     this.endpoint = options.endpoint ?? 'https://api.openai.com/v1/embeddings';
     const fetchImpl = options.fetch ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
-      throw new Error('KERN OpenAI embedder requires a fetch implementation.');
+      throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder requires a fetch implementation.');
     }
     this.fetchImpl = fetchImpl;
   }
@@ -231,30 +238,58 @@ export class OpenAIEmbeddingAdapter implements AsyncEmbedder {
         }),
       });
     } catch (error) {
-      throw new Error(`KERN OpenAI embedder request failed: ${(error as Error).message}`);
+      throw new RagEmbeddingProviderUnavailableError(
+        'openai',
+        `KERN OpenAI embedder request failed: ${(error as Error).message}`,
+        error,
+      );
     }
     if (!response.ok) {
-      throw new Error(`KERN OpenAI embedder request failed with HTTP ${response.status}.`);
+      const message = `KERN OpenAI embedder request failed with HTTP ${response.status}.`;
+      if (response.status === 401 || response.status === 403)
+        throw new RagEmbeddingProviderAuthError('openai', message);
+      if (response.status === 429) throw new RagEmbeddingProviderRateLimitError('openai', message);
+      throw new RagEmbeddingProviderUnavailableError('openai', message);
     }
-    const body = (await response.json()) as unknown;
+    let body: unknown;
+    try {
+      body = (await response.json()) as unknown;
+    } catch (error) {
+      throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder returned invalid JSON.', error);
+    }
     return openAIEmbeddingVectors(body, texts.length, this.model, this.dims).map((vector) => new Float64Array(vector));
   }
 }
 
 function openAIEmbeddingVectors(body: unknown, expectedCount: number, model: string, dims: number): number[][] {
-  if (!body || typeof body !== 'object') throw new Error('KERN OpenAI embedder returned invalid JSON.');
+  if (!body || typeof body !== 'object') {
+    throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder returned invalid JSON.');
+  }
   const data = (body as { data?: unknown }).data;
-  if (!Array.isArray(data) || data.length === 0) throw new Error('KERN OpenAI embedder returned no embeddings.');
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new RagEmbeddingProviderUnavailableError('openai', 'KERN OpenAI embedder returned no embeddings.');
+  }
   if (data.length !== expectedCount) {
-    throw new Error(`KERN OpenAI embedder returned ${data.length} embeddings, expected ${expectedCount}.`);
+    throw new RagEmbeddingProviderUnavailableError(
+      'openai',
+      `KERN OpenAI embedder returned ${data.length} embeddings, expected ${expectedCount}.`,
+    );
   }
   return data.map((entry) => {
     const embedding = (entry as { embedding?: unknown } | undefined)?.embedding;
     if (!Array.isArray(embedding) || embedding.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
-      throw new Error('KERN OpenAI embedder returned a malformed embedding vector.');
+      throw new RagEmbeddingProviderUnavailableError(
+        'openai',
+        'KERN OpenAI embedder returned a malformed embedding vector.',
+      );
     }
     if (embedding.length !== dims) {
-      throw new Error(`KERN OpenAI embedder returned ${embedding.length} dimensions for '${model}', expected ${dims}.`);
+      throw new RagEmbeddingProviderDimensionMismatchError(
+        'openai',
+        `KERN OpenAI embedder returned ${embedding.length} dimensions for '${model}', expected ${dims}.`,
+        dims,
+        embedding.length,
+      );
     }
     return embedding as number[];
   });
@@ -374,9 +409,10 @@ export class EmbeddingRagIndex {
 
   retrieve(query: string, options: RetrieveOptions = {}): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
-    const { topK, minScore } = normalizeEmbeddingRetrieveOptions(options);
+    const { topK, minScore, metadataFilter } = normalizeEmbeddingRetrieveOptions(options);
     const queryVector = this.embedder.embed(query);
     const chunks = Array.from(this.entries.values())
+      .filter((entry) => matchesRagMetadataFilter(entry.chunk, metadataFilter))
       .map((entry) => ({ chunk: entry.chunk, score: embeddingCosine(queryVector, entry.vector) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
       .sort((a, b) => b.score - a.score || compareChunkIds(a.chunk.id, b.chunk.id))
@@ -428,6 +464,24 @@ export interface RagVectorStoreAdapter {
   close(): void;
 }
 
+export interface AsyncRagVectorStoreAdapter {
+  readonly kind: RagVectorStoreKind;
+  readonly fingerprint: string;
+  readonly dims: number;
+  readonly metric: RagVectorStoreMetric;
+  upsert(chunk: RagChunkInput, vector: Float64Array, fingerprint?: string): Promise<void>;
+  upsertMany(entries: Iterable<RagVectorStoreUpsert>): Promise<void>;
+  search(
+    query: string,
+    queryVector: Float64Array,
+    options?: RetrieveOptions,
+    fingerprint?: string,
+  ): Promise<RetrieveResult>;
+  snapshot(): Promise<RagVectorStoreSnapshot>;
+  clear(): Promise<void>;
+  close(): void | Promise<void>;
+}
+
 export class InMemoryPgVectorRagStore implements RagVectorStoreAdapter {
   readonly kind: RagVectorStoreKind = 'memory';
   readonly metric: RagVectorStoreMetric = 'cosine';
@@ -463,8 +517,9 @@ export class InMemoryPgVectorRagStore implements RagVectorStoreAdapter {
   ): RetrieveResult {
     if (typeof query !== 'string') throw new Error('KERN RAG runtime query must be a string.');
     this.assertCompatible(queryVector, fingerprint);
-    const { topK, minScore } = normalizeEmbeddingRetrieveOptions(options);
+    const { topK, minScore, metadataFilter } = normalizeEmbeddingRetrieveOptions(options);
     const chunks = Array.from(this.entries.values())
+      .filter((entry) => matchesRagMetadataFilter(entry.chunk, metadataFilter))
       .map((entry) => ({ chunk: entry.chunk, score: embeddingCosine(queryVector, entry.vector) }))
       .filter((candidate) => candidate.score > 0 && candidate.score >= minScore)
       .sort((a, b) => b.score - a.score || compareChunkIds(a.chunk.id, b.chunk.id))
@@ -621,14 +676,25 @@ function assertChunkInput(chunk: RagChunkInput): void {
   }
 }
 
-function normalizeEmbeddingRetrieveOptions(options: RetrieveOptions): Required<RetrieveOptions> {
+interface NormalizedEmbeddingRetrieveOptions {
+  readonly topK: number;
+  readonly minScore: number;
+  readonly metadataFilter?: RagMetadataFilter;
+}
+
+function normalizeEmbeddingRetrieveOptions(options: RetrieveOptions): NormalizedEmbeddingRetrieveOptions {
   const topK = options.topK ?? 5;
   const minScore = options.minScore ?? 0;
+  const metadataFilter = cloneRagMetadataFilter(options.metadataFilter);
   if (!Number.isInteger(topK) || topK <= 0 || topK > MAX_IN_MEMORY_RAG_TOP_K) {
     throw new Error(`KERN RAG runtime topK must be a positive integer up to ${MAX_IN_MEMORY_RAG_TOP_K}.`);
   }
   if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1) {
     throw new Error('KERN RAG runtime minScore must be between 0 and 1.');
   }
-  return { topK, minScore };
+  return {
+    topK,
+    minScore,
+    ...(metadataFilter ? { metadataFilter } : {}),
+  };
 }

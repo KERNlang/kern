@@ -58,9 +58,9 @@ export function extractGuards(root: Parser.SyntaxNode, source: string, filePath:
   //    Feeds the `auth-drift` cross-stack rule.
   walkNodes(root, 'default_parameter', (node) => {
     const val = node.childForFieldName('value');
-    if (!val || val.type !== 'call') return;
+    if (val?.type !== 'call') return;
     const func = val.childForFieldName('function');
-    if (!func || func.text !== 'Depends') return;
+    if (func?.text !== 'Depends') return;
     const args = val.childForFieldName('arguments');
     if (!args) return;
     const posArg = args.namedChildren.find((c) => c.type === 'identifier' || c.type === 'attribute');

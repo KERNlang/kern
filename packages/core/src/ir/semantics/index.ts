@@ -11,6 +11,7 @@
  * flow such as `if` / sibling `else`.
  */
 
+import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import type { CompletionRecord, Trace } from './trace.js';
 
@@ -28,6 +29,16 @@ import type { CompletionRecord, Trace } from './trace.js';
  */
 export interface SemanticEnv {
   bindings: Map<string, unknown>;
+  intProvenance?: Set<string>;
+  runnerFunctions?: Map<string, RunnerFunctionBinding>;
+  runnerClasses?: Map<string, RunnerClassBinding>;
+  runnerCallStack?: string[];
+  runnerCallCache?: Map<string, unknown>;
+  runnerThis?: RunnerClassInstanceValue;
+  runnerSuperClass?: string;
+  runnerProtectedClassInstances?: WeakSet<RunnerClassInstanceValue>;
+  capabilities?: KernRunnerCapabilities;
+  capabilityContext?: KernRunnerCapabilityContext;
   /**
    * Enclosing lexical scope, if any. A `let` binds in THIS scope's `bindings`;
    * reads and `assign` walk up `parent` to the declaring scope (write-through).
@@ -44,6 +55,61 @@ export interface SemanticEnv {
 }
 
 /**
+ * A module's private callable environment: the functions and classes visible
+ * for resolution WITHIN that module (its own declarations plus the symbols it
+ * imports). Each callable binding carries the scope of the module that DEFINED
+ * it, so an imported helper resolves its own module's private helpers/classes
+ * rather than the importer's — modules are singletons with their own scope, not
+ * flattened into the root namespace.
+ */
+export interface RunnerModuleScope {
+  readonly functions: Map<string, RunnerFunctionBinding>;
+  readonly classes: Map<string, RunnerClassBinding>;
+}
+
+export interface RunnerFunctionBinding {
+  readonly name: string;
+  readonly params: readonly string[];
+  readonly returns?: unknown;
+  readonly handler?: IRNode;
+  readonly body: readonly IRNode[];
+  /** Defining module's scope; the body resolves calls here, not in the caller's scope. */
+  readonly module?: RunnerModuleScope;
+}
+
+export interface RunnerClassFieldBinding {
+  readonly name: string;
+  readonly value?: unknown;
+}
+
+export interface RunnerClassMemberBinding {
+  readonly name: string;
+  readonly params: readonly string[];
+  readonly handler?: IRNode;
+  readonly body: readonly IRNode[];
+  readonly ownerClass: string;
+}
+
+export interface RunnerClassBinding {
+  readonly name: string;
+  readonly extendsName?: string;
+  readonly fields: readonly RunnerClassFieldBinding[];
+  readonly constructor?: RunnerClassMemberBinding;
+  readonly methods: ReadonlyMap<string, RunnerClassMemberBinding>;
+  readonly getters: ReadonlyMap<string, RunnerClassMemberBinding>;
+  /** Defining module's scope; construction and members resolve calls here. */
+  readonly module?: RunnerModuleScope;
+}
+
+export interface RunnerClassInstanceValue {
+  readonly __kernRunnerClassInstance: true;
+  readonly className: string;
+  readonly fields: Record<string, unknown>;
+  /** Defining module's scope, so member resolution follows the class's module across boundaries. */
+  readonly module?: RunnerModuleScope;
+}
+
+/**
  * Build a fresh environment with deterministic defaults.
  *
  * **Always clones `overrides.bindings` and their JSON-shaped values** —
@@ -55,6 +121,16 @@ export interface SemanticEnv {
 export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
   return {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
+    intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
+    runnerFunctions: overrides.runnerFunctions,
+    runnerClasses: overrides.runnerClasses,
+    runnerCallStack: overrides.runnerCallStack ? [...overrides.runnerCallStack] : [],
+    runnerCallCache: overrides.runnerCallCache,
+    runnerThis: overrides.runnerThis,
+    runnerSuperClass: overrides.runnerSuperClass,
+    runnerProtectedClassInstances: overrides.runnerProtectedClassInstances,
+    capabilities: overrides.capabilities,
+    capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   };
@@ -79,7 +155,26 @@ function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
  * mutations to outer bindings write through to where they were declared.
  */
 export function childEnv(parent: SemanticEnv): SemanticEnv {
-  return { bindings: new Map(), parent, seed: parent.seed, now: parent.now };
+  // `intProvenance` is PER-SCOPE binding metadata (which names declared in THIS
+  // scope are guaranteed safe integers). A child starts EMPTY — it does not clone
+  // the parent's set; `isIntProvenanced` walks `declaringScope` first, so a
+  // counter declared in an outer scope is still found from a nested scope.
+  return {
+    bindings: new Map(),
+    intProvenance: new Set(),
+    runnerFunctions: parent.runnerFunctions,
+    runnerClasses: parent.runnerClasses,
+    runnerCallStack: parent.runnerCallStack,
+    runnerCallCache: parent.runnerCallCache,
+    runnerThis: parent.runnerThis,
+    runnerSuperClass: parent.runnerSuperClass,
+    runnerProtectedClassInstances: parent.runnerProtectedClassInstances,
+    capabilities: parent.capabilities,
+    capabilityContext: parent.capabilityContext,
+    parent,
+    seed: parent.seed,
+    now: parent.now,
+  };
 }
 
 /** The nearest scope in the chain that declares `name`, or undefined if unbound. */
@@ -108,6 +203,13 @@ export function getBinding(env: SemanticEnv, name: string): unknown {
 /** Declare `name` in the INNERMOST scope (`let`). Overwrites a same-scope binding. */
 export function defineBinding(env: SemanticEnv, name: string, value: unknown): void {
   env.bindings.set(name, value);
+  env.intProvenance?.delete(name);
+}
+
+/** Declare `name` in the INNERMOST scope and mark it as a guaranteed safe integer. */
+export function defineIntBinding(env: SemanticEnv, name: string, value: unknown): void {
+  env.bindings.set(name, value);
+  (env.intProvenance ??= new Set()).add(name);
 }
 
 /**
@@ -119,6 +221,13 @@ export function defineBinding(env: SemanticEnv, name: string, value: unknown): v
 export function assignBinding(env: SemanticEnv, name: string, value: unknown): void {
   const scope = declaringScope(env, name) ?? env;
   scope.bindings.set(name, value);
+  scope.intProvenance?.delete(name);
+}
+
+/** True iff `name` is declared in a scope that marks it as a guaranteed safe integer. */
+export function isIntProvenanced(env: SemanticEnv, name: string): boolean {
+  const scope = declaringScope(env, name);
+  return scope?.intProvenance?.has(name) ?? false;
 }
 
 /** Delete `name` from the INNERMOST scope only (scope teardown). */
@@ -127,6 +236,23 @@ export function deleteOwnBinding(env: SemanticEnv, name: string): void {
 }
 
 function cloneSemanticValue(value: unknown): unknown {
+  if (
+    value &&
+    typeof value === 'object' &&
+    (value as Partial<RunnerClassInstanceValue>).__kernRunnerClassInstance === true
+  ) {
+    const instance = value as RunnerClassInstanceValue;
+    return {
+      __kernRunnerClassInstance: true,
+      className: instance.className,
+      fields: Object.fromEntries(
+        Object.entries(instance.fields).map(([key, fieldValue]) => [key, cloneSemanticValue(fieldValue)]),
+      ),
+      // Preserve the defining-module scope by reference so a cloned instance
+      // (e.g. passed as a function argument) still resolves its own module's members.
+      ...(instance.module ? { module: instance.module } : {}),
+    } satisfies RunnerClassInstanceValue;
+  }
   if (Array.isArray(value)) return value.map(cloneSemanticValue);
   if (value instanceof Map) {
     return new Map(Array.from(value.entries(), ([k, v]) => [cloneSemanticValue(k), cloneSemanticValue(v)]));

@@ -58,6 +58,7 @@ import {
   isZeroWidthCapableRegex,
   KERN_DECIMAL_OPS_HELPER_PY,
   KERN_STDLIB_MODULES,
+  KERN_TEXT_OPS_HELPER_PY,
   lookupStdlibCall,
   lookupStdlibProperty,
   lowerRegexAnchorsPython,
@@ -2185,6 +2186,24 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // NameError (agon review, claude/zai convergence).
       if (arg.kind === 'ident' && arg.name === 'Error') {
         return 'Exception()';
+      }
+      // Milestone 5.1b — `new Map()` (EMPTY constructor only) → Python `dict()`.
+      // Without this, `new Map()` fell through to the generic `arg` emit path
+      // below and produced a bare, undefined `Map()` call (Python has no
+      // global `Map`) — a real pre-existing gap, closed here because the new
+      // Map.get/has/set stdlib slice needs a working Python-side constructor
+      // to be reachable at all. A non-empty form (`new Map([[k,v],...])`)
+      // still falls through unmapped (unsupported, not this slice's scope).
+      // Honors user shadowing via `isProvenUserBinding`, same as the RegExp
+      // guard just below.
+      if (
+        arg.kind === 'call' &&
+        arg.callee.kind === 'ident' &&
+        arg.callee.name === 'Map' &&
+        arg.args.length === 0 &&
+        !isProvenUserBinding(ctx, 'Map')
+      ) {
+        return 'dict()';
       }
       // Slice 2 — `new RegExp(p)` (with or without parens) fails-close BEFORE the
       // fall-through, with the shared regex message (the TS emitter + IR-validate
@@ -4365,6 +4384,15 @@ function registerStdlibRequirementPython(requirement: string | undefined, ctx: B
   if (requirement === 'decimal-ops') {
     ctx.helpers.add(KERN_DECIMAL_OPS_HELPER_PY);
     ctx.imports.add('decimal');
+    return;
+  }
+  // KERN 4.5.0 item 3 — `Text.length/charAt/slice/indexOf/startsWith` register the
+  // shared code-point-ops helper block (single-sourced in `text-contract.ts`,
+  // mirroring the Decimal `decimal-ops` requirement above). No import needed —
+  // Python's `str` is already code-point-native, so the helpers are pure
+  // bounds/well-formedness guards around native operators.
+  if (requirement === 'text-ops') {
+    ctx.helpers.add(KERN_TEXT_OPS_HELPER_PY);
     return;
   }
   ctx.imports.add(requirement);

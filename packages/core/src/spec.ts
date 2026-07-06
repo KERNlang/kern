@@ -72,6 +72,9 @@ export const NODE_TYPES = [
   'theme',
   'doc',
   'decorator',
+  'app',
+  'view',
+  'policy',
   // Backend
   'server',
   'route',
@@ -98,6 +101,7 @@ export const NODE_TYPES = [
   'import',
   'extern',
   'island',
+  'capability',
   // Terminal
   'separator',
   'table',
@@ -355,6 +359,7 @@ export const NODE_TYPES = [
   'vectorStore',
   'ragIndex',
   'retriever',
+  'retrievalProfile',
   'rag',
   'ragRetrieve',
   'grounding',

@@ -73,10 +73,42 @@
       "fixtureSamples": []
     },
     {
+      "nodeType": "capability",
+      "forbiddenRewrites": [
+        "read capability implementations from globalThis, process, or other implicit host globals",
+        "fall back to a host implementation when a capability is not explicitly registered",
+        "invoke Node-only RAG, filesystem, network, crypto, or storage modules from the browser runner entry"
+      ],
+      "fixtureCount": 0,
+      "fixtureSamples": []
+    },
+    {
       "nodeType": "continue",
       "forbiddenRewrites": [],
       "fixtureCount": 0,
       "fixtureSamples": []
+    },
+    {
+      "nodeType": "do",
+      "forbiddenRewrites": [
+        "emit an {op:\"assign\"} trace event for push/Map.set (the uninstrumented emitters produce none)",
+        "mutate the underlying array/map object in place instead of rebinding a new frozen value",
+        "treat a non-push/non-Map.set discarded expression as a supported no-op",
+        "evaluate the pushed element / map key / map value more than once"
+      ],
+      "fixtureCount": 10,
+      "fixtureSamples": [
+        {
+          "description": "do: empty value is a no-op",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 0
+        },
+        {
+          "description": "do: push accepts a nested array-literal element",
+          "expectedCompletionKind": "normal",
+          "expectedEventCount": 2
+        }
+      ]
     },
     {
       "nodeType": "each",

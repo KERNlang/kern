@@ -18,9 +18,25 @@
  */
 
 import { parseExpression } from '../../parser-expression.js';
-import { getBinding, type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  getBinding,
+  hasBinding,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
+import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalExplicitThrowError } from './portable-error.js';
-import { evalPortableValue } from './portable-scalar.js';
+import {
+  assertRunnerPortableValue,
+  evalPortableValue,
+  evalRecordLiteralValue,
+  evalRunnerClassNewValue,
+  evalRunnerFunctionValue,
+  isRecordLiteralExpression,
+  isRunnerClassInstanceValue,
+} from './portable-scalar.js';
 import type { CanonicalError, TraceEvent } from './trace.js';
 
 const NO_FIXTURES: readonly NodeFixture[] = [];
@@ -78,7 +94,20 @@ export const continueContract: NodeContract = {
 function resolveReturnValue(ir: { props?: Record<string, unknown> }, env: SemanticEnv): unknown {
   const value = ir.props?.value;
   if (typeof value !== 'string') return value;
-  return evalPortableValue(parseExpression(value), env);
+  const parsed = parseExpression(value);
+  if (isArrayLiteralExpression(parsed)) return evalArrayLiteralValue(parsed, env);
+  if (isRecordLiteralExpression(parsed)) return evalRecordLiteralValue(parsed, env);
+  if (parsed.kind === 'new') return evalRunnerClassNewValue(parsed, env);
+  if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+    return evalRunnerFunctionValue(parsed.callee.name, parsed.args, env);
+  }
+  if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+    const binding = getBinding(env, parsed.name);
+    return isRunnerClassInstanceValue(binding)
+      ? binding
+      : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+  }
+  return evalPortableValue(parsed, env);
 }
 
 export const returnContract: NodeContract = {

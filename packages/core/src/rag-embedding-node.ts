@@ -26,6 +26,15 @@ const MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES = 100 * 1024 * 1024;
 const OPEN_LOCAL_PERSISTENT_VECTOR_STORE_FILES = new Set<string>();
 const LOCAL_VECTOR_STORE_LOCK_VERSION = 'kern-rag-vector-store-lock-v1';
 
+class LocalVectorStoreSnapshotLoadError extends Error {
+  constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message);
+    if (options && 'cause' in options) {
+      (this as Error & { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
 export interface LocalPersistentRagVectorStoreOptions {
   readonly directory: string;
   readonly fingerprint: string;
@@ -36,6 +45,12 @@ export interface LocalPersistentRagVectorStoreOptions {
    * rebuild it. The stale disk snapshot is preserved until the rebuild flushes.
    */
   readonly rebuildOnFingerprintMismatch?: boolean;
+  /**
+   * Open an unreadable or incompatible snapshot as an empty in-memory store so
+   * lifecycle callers can repair corrupt local indexes. The existing disk file
+   * is preserved until the rebuild flushes successfully.
+   */
+  readonly rebuildOnSnapshotLoadFailure?: boolean;
 }
 
 /**
@@ -68,7 +83,10 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
     try {
       this.loadFromDisk();
     } catch (error) {
-      if (options.rebuildOnFingerprintMismatch && isLocalVectorStoreFingerprintMismatch(error)) {
+      if (
+        (options.rebuildOnSnapshotLoadFailure && isLocalVectorStoreRebuildableSnapshotLoadFailure(error)) ||
+        (options.rebuildOnFingerprintMismatch && isLocalVectorStoreFingerprintMismatch(error))
+      ) {
         return;
       }
       OPEN_LOCAL_PERSISTENT_VECTOR_STORE_FILES.delete(this.filePath);
@@ -187,16 +205,28 @@ export class LocalPersistentRagVectorStoreAdapter extends InMemoryPgVectorRagSto
   private readSnapshotFile(filePath: string): RagVectorStoreSnapshot {
     const { size } = statSync(filePath);
     if (size > MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES) {
-      throw new Error(`KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`);
+      throw new LocalVectorStoreSnapshotLoadError(
+        `KERN local vector store snapshot exceeds ${MAX_LOCAL_PERSISTENT_VECTOR_STORE_BYTES} bytes.`,
+      );
     }
     const raw = readFileSync(filePath, 'utf-8');
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch (error) {
-      throw new Error(`KERN local vector store snapshot is not valid JSON: ${(error as Error).message}`);
+      throw new LocalVectorStoreSnapshotLoadError(
+        `KERN local vector store snapshot is not valid JSON: ${(error as Error).message}`,
+        { cause: error },
+      );
     }
-    return parseVectorStoreSnapshot(parsed, this.fingerprint, this.dims);
+    try {
+      return parseVectorStoreSnapshot(parsed, this.fingerprint, this.dims);
+    } catch (error) {
+      if (isLocalVectorStoreFingerprintMismatch(error)) throw error;
+      throw new LocalVectorStoreSnapshotLoadError(error instanceof Error ? error.message : String(error), {
+        cause: error,
+      });
+    }
   }
 
   private flushToDisk(): void {
@@ -334,6 +364,10 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 
 function isLocalVectorStoreFingerprintMismatch(error: unknown): boolean {
   return error instanceof Error && /embedding fingerprint mismatch/u.test(error.message);
+}
+
+function isLocalVectorStoreRebuildableSnapshotLoadFailure(error: unknown): boolean {
+  return error instanceof LocalVectorStoreSnapshotLoadError;
 }
 
 function parseVectorStoreSnapshot(raw: unknown, fingerprint: string, dims: number): RagVectorStoreSnapshot {

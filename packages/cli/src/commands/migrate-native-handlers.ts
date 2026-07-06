@@ -172,7 +172,7 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
  *  with the `hasOnlyMigratableComments` trailing predicate in core. */
 function trailingCommentRaw(stmt: ts.Statement, source: ts.SourceFile): string | null {
   const ranges = ts.getTrailingCommentRanges(source.text, stmt.getEnd());
-  if (!ranges || ranges.length !== 1) return null;
+  if (ranges?.length !== 1) return null;
   const raw = source.text.slice(ranges[0].pos, ranges[0].end);
   if (raw.includes('\n')) return null;
   return raw;

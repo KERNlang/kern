@@ -2,7 +2,20 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { retrieveRagDocument, retrieveRagDocumentAsync } from '../src/index.js';
+import {
+  type AsyncEmbedder,
+  closeRetrievalStoresFailClosed,
+  createInMemoryRagVectorStoreForConformance,
+  defineRagVectorStoreAdapterContract,
+  type Embedder,
+  parseRetrievedChunkCitationProvenance,
+  type RagVectorStoreConformanceContext,
+  registerExternalRagVectorStoreAdapter,
+  retrieveRagDocument,
+  retrieveRagDocumentAsync,
+  unregisterExternalRagVectorStoreAdapter,
+} from '../src/index.js';
+import { createAsyncLocalRagRetrieveCapability, createLocalRagCapability } from '../src/rag-retrieve-runner.js';
 
 const DOC = `corpus name=Docs
   source name=manuals kind=local uri="./docs/**/*.md" media=markdown
@@ -27,22 +40,82 @@ const DYNAMIC_QUERY_DOC = DOC.replace(
   'ragRetrieve name=FindDocs index=DocsIndex query={{ "refund policy money back" }} topK=1 output="RetrievedChunk[]"',
 );
 
+const TEMPLATE_QUERY_DOC = DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  'ragRetrieve name=FindDocs index=DocsIndex queryTemplate="{{topic:string}} policy {{year:number}}" topK=1 output="RetrievedChunk[]"',
+);
+
+const PROTOTYPE_QUERY_PARAM_DOC = DOC.replace('queryParam=question', 'queryParam=toString');
+
+const PROFILE_DOC = DOC.replace(
+  'rag name=AnswerDocs retriever=DocsSearch citations=true',
+  [
+    'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0.1 output="RetrievedChunk[]"',
+    'rag name=AnswerDocs retriever=DocsSearch citations=true',
+  ].join('\n'),
+).replace(
+  '  ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"',
+  '  ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+);
+
+const PROFILE_OVERRIDE_DOC = PROFILE_DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault query="refund policy money back" topK=1 minScore=0',
+);
+
+const PROFILE_TEMPLATE_DOC = PROFILE_DOC.replace(
+  'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0.1 output="RetrievedChunk[]"',
+  'retrievalProfile name=SupportDefault queryTemplate="{{topic:string}} policy {{year:number}}" topK=2 minScore=0 output="RetrievedChunk[]"',
+);
+
+const PROFILE_FILTER_DOC = PROFILE_DOC.replace(
+  'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0.1 output="RetrievedChunk[]"',
+  'retrievalProfile name=SupportDefault queryParam=question topK=2 minScore=0 filterPath="docs/shipping.md" output="RetrievedChunk[]"',
+);
+
+const PROFILE_FILTER_OVERRIDE_DOC = PROFILE_FILTER_DOC.replace(
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault',
+  'ragRetrieve name=FindDocs index=DocsIndex profile=SupportDefault filterPath="docs/refunds.md"',
+);
+
 const INDEX_CHUNKING_DOC = DOC.replace(
   'chunking source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
-  'chunking name=Large source=manuals strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+  'chunking name=Large source=manuals strategy=window maxTokens=2 overlap=0 unit=tokens',
 ).replace(
   'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding',
   'ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding chunking=Large',
+);
+
+const INDEX_CHUNKING_SOURCE_MISMATCH_DOC = INDEX_CHUNKING_DOC.replace(
+  'source name=manuals kind=local uri="./docs/**/*.md" media=markdown',
+  [
+    'source name=manuals kind=local uri="./docs/refunds.md" media=markdown',
+    '  source name=shipping kind=local uri="./docs/shipping.md" media=markdown',
+  ].join('\n  '),
+);
+
+const ASYNC_PROVIDER_MEMORY_DOC = DOC.replace(
+  'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
+  'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=3 metric=cosine',
+).replace(
+  'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+  'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine',
+);
+
+const FAKE_PROVIDER_MEMORY_DOC = ASYNC_PROVIDER_MEMORY_DOC.replace(
+  'model="openai:text-embedding-3-small"',
+  'model="fake:deterministic"',
+);
+
+const ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC = ASYNC_PROVIDER_MEMORY_DOC.replace(
+  'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine',
+  'vectorStore name=DocsMemory kind=local-persistent dims=3 metric=cosine path="./index"',
 );
 
 const LOCAL_PERSISTENT_STORE_DOC = DOC.replace(
   'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
   'vectorStore name=DocsMemory kind=local-persistent dims=64 metric=cosine path="./index"',
 );
-
-const PROVIDER_RETRIEVE_DOC = RETRIEVE_DOC_PROVIDER(DOC, 'memory');
-
-const PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC = RETRIEVE_DOC_PROVIDER(DOC, 'local-persistent');
 
 const LOCAL_PERSISTENT_ESCAPE_DOC = LOCAL_PERSISTENT_STORE_DOC.replace('path="./index"', 'path="../outside"');
 
@@ -68,40 +141,61 @@ ragIndex name=DocsIndexMirror corpus=Docs store=DocsMemory embed=DocsEmbedding
   ragRetrieve name=FindDocsAgain index=DocsIndexMirror queryParam=question topK=1 output="RetrievedChunk[]"`,
 );
 
-function RETRIEVE_DOC_PROVIDER(source: string, storeKind: 'local-persistent' | 'memory'): string {
-  return source
-    .replace(
-      'embed name=DocsEmbedding corpus=Docs model=local-semantic-v1 dims=64 metric=cosine',
-      'embed name=DocsEmbedding corpus=Docs model="openai:text-embedding-3-small" dims=3 metric=cosine',
-    )
-    .replace(
-      'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
-      storeKind === 'memory'
-        ? 'vectorStore name=DocsMemory kind=memory dims=3 metric=cosine'
-        : 'vectorStore name=DocsMemory kind=local-persistent dims=3 metric=cosine path="./index"',
-    );
+const MULTI_INDEX_DOC = `corpus name=Docs
+  source name=manuals kind=local uri="./docs/**/*.md" media=markdown
+
+corpus name=Faq
+  source name=faq kind=local uri="./faq/**/*.md" media=markdown
+
+embed name=DocsEmbedding corpus=Docs model="fake:deterministic" dims=3 metric=cosine
+embed name=FaqEmbedding corpus=Faq model="fake:deterministic" dims=3 metric=cosine
+vectorStore name=DocsMemory kind=memory dims=3 metric=cosine
+vectorStore name=FaqMemory kind=memory dims=3 metric=cosine
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding
+ragIndex name=FaqIndex corpus=Faq store=FaqMemory embed=FaqEmbedding
+ragRetrieve name=FindAll indexes="DocsIndex,FaqIndex" queryParam=question topK=2 output="RetrievedChunk[]"
+`;
+
+const OVERLAPPING_MULTI_INDEX_DOC = `corpus name=Docs
+  source name=manuals kind=local uri="./docs/refunds.md" media=markdown
+
+embed name=DocsEmbedding corpus=Docs model="fake:deterministic" dims=3 metric=cosine
+vectorStore name=DocsMemory kind=memory dims=3 metric=cosine
+ragIndex name=DocsIndex corpus=Docs store=DocsMemory embed=DocsEmbedding
+ragIndex name=DocsIndexMirror corpus=Docs store=DocsMemory embed=DocsEmbedding
+ragRetrieve name=FindDocs indexes="DocsIndex,DocsIndexMirror" queryParam=question topK=2 output="RetrievedChunk[]"
+`;
+
+function fakeProviderVector(text: string): Float64Array {
+  const lower = text.toLowerCase();
+  if (lower.includes('refund') || lower.includes('money')) return new Float64Array([1, 0, 0]);
+  if (lower.includes('shipping') || lower.includes('delivery')) return new Float64Array([0, 1, 0]);
+  return new Float64Array([0, 0, 1]);
 }
 
-function fakeOpenAiFetch(counter?: { count: number }): typeof fetch {
-  return (async (_input: RequestInfo | URL, init?: RequestInit) => {
-    counter && (counter.count += 1);
-    const body = JSON.parse(String(init?.body ?? '{}')) as { readonly input?: string | readonly string[] };
-    const inputs = Array.isArray(body.input) ? body.input : [body.input ?? ''];
-    return new Response(
-      JSON.stringify({
-        data: inputs.map((text) => ({ embedding: providerVector(text) })),
-      }),
-      { headers: { 'content-type': 'application/json' }, status: 200 },
-    );
-  }) as typeof fetch;
-}
+const fakeAsyncEmbedder: AsyncEmbedder = {
+  id: 'provider:fake-rag-test:dims=3',
+  dims: 3,
+  async embed(text: string): Promise<Float64Array> {
+    return fakeProviderVector(text);
+  },
+  async embedMany(texts: readonly string[]): Promise<readonly Float64Array[]> {
+    return texts.map(fakeProviderVector);
+  },
+};
 
-function providerVector(text: string): number[] {
-  const normalized = text.toLowerCase();
-  if (normalized.includes('refund') || normalized.includes('money')) return [1, 0, 0];
-  if (normalized.includes('shipping') || normalized.includes('delivery')) return [0, 1, 0];
-  return [0, 0, 1];
-}
+const fakeMultiIndexEmbedder: Embedder = {
+  id: 'local:fake-multi-index:dims=3',
+  dims: 3,
+  embed(text: string): Float64Array {
+    const lower = text.toLowerCase();
+    return new Float64Array([
+      lower.includes('refund') || lower.includes('money') ? 1 : 0,
+      lower.includes('password') || lower.includes('login') ? 1 : 0,
+      lower.includes('shipping') || lower.includes('delivery') ? 1 : 0,
+    ]);
+  },
+};
 
 describe('retrieveRagDocument', () => {
   let dir: string;
@@ -111,9 +205,11 @@ describe('retrieveRagDocument', () => {
     dir = mkdtempSync(join(tmpdir(), 'kern-rag-retrieve-'));
     outsideDir = undefined;
     mkdirSync(join(dir, 'docs'));
+    mkdirSync(join(dir, 'faq'));
     writeFileSync(join(dir, 'spec.kern'), DOC);
     writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
     writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    writeFileSync(join(dir, 'faq/passwords.md'), 'password login security reset recovery\n');
   });
 
   afterEach(() => {
@@ -144,6 +240,455 @@ describe('retrieveRagDocument', () => {
     );
   });
 
+  test('creates a local rag.retrieve capability over declared local sources', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const result = (
+      capability as { retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+    ).retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(Array.isArray(result)).toBe(true);
+    const [chunk] = result as Array<Record<string, unknown>>;
+    expect(typeof chunk.id).toBe('string');
+    expect(String(chunk.text)).toContain('refund policy money back');
+    expect(typeof chunk.score).toBe('number');
+    expect(chunk.source).toBe('docs/refunds.md');
+    expect(chunk.citationUri).toBe('docs/refunds.md');
+    expect(typeof chunk.citationLocator).toBe('string');
+  });
+
+  test('PROVENANCE NORMALIZATION: rag.retrieve and rag.retrieveAsync emit byte-identical chunk provenance for the same query', async () => {
+    const syncCapability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const asyncCapability = createAsyncLocalRagRetrieveCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const syncResult = syncCapability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+    const asyncResult = await asyncCapability.retrieveAsync({
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(Array.isArray(syncResult)).toBe(true);
+    expect(asyncResult).toEqual(syncResult);
+    const [chunk] = syncResult as Array<Record<string, unknown>>;
+    // The one normalized wire shape: exactly these six fields, citation
+    // provenance as `string | null` — never `undefined` — on both paths.
+    expect(Object.keys(chunk).sort()).toEqual(['citationLocator', 'citationUri', 'id', 'score', 'source', 'text']);
+  });
+
+  test('creates local prompt context from rag.retrieve capability chunks', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      promptContext: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+    const context = capability.promptContext({
+      namespace: 'rag',
+      operation: 'promptContext',
+      input: { chunks, maxChars: 6000 },
+    });
+
+    expect(context).toEqual(
+      expect.objectContaining({
+        includedCount: 1,
+        omittedCount: 0,
+        truncated: false,
+        maxChars: 6000,
+        text: expect.stringContaining('refund policy money back within thirty days'),
+      }),
+    );
+    expect((context as Record<string, unknown>).text).toContain('[1] id=');
+    expect((context as Record<string, unknown>).text).toContain('source="docs/refunds.md"');
+    expect((context as Record<string, unknown>).chunks).toEqual([
+      expect.objectContaining({
+        index: 0,
+        source: 'docs/refunds.md',
+        renderedText: 'refund policy money back within thirty days',
+      }),
+    ]);
+  });
+
+  test('checks a grounded answer over local rag.retrieve capability chunks', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      checkAnswer: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    const result = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back',
+        chunks,
+        groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 1,
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        passed: true,
+        status: 'grounded',
+        groundingCoverage: 1,
+        sources: ['docs/refunds.md'],
+      }),
+    );
+    expect((result as { citedChunkIds?: unknown }).citedChunkIds).toEqual(
+      expect.arrayContaining([(chunks as Array<Record<string, unknown>>)[0]?.id]),
+    );
+  });
+
+  test('infers local rag.checkAnswer grounding spans from inline citation markers', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      checkAnswer: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    const result = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1]',
+        chunks,
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.85,
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        passed: true,
+        status: 'grounded',
+        sources: ['docs/refunds.md'],
+      }),
+    );
+    expect((result as { groundingCoverage?: number }).groundingCoverage).toBeGreaterThan(0.85);
+
+    const adjacent = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1] [1]',
+        chunks,
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.75,
+      },
+    });
+
+    expect(adjacent).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+
+    const punctuatedAdjacent = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1], [1]',
+        chunks,
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.75,
+      },
+    });
+
+    expect(punctuatedAdjacent).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+
+    const coverageOnly = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [1]',
+        chunks,
+        minGroundingCoverage: 0.85,
+      },
+    });
+
+    expect(coverageOnly).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: '[1] refund policy money back',
+          chunks,
+          requireCitations: true,
+        },
+      }),
+    ).toThrow(/must follow non-empty answer text/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back [99]',
+          chunks,
+          requireCitations: true,
+        },
+      }),
+    ).toThrow(/between 1 and 1/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks,
+          requireCitations: true,
+          minCitedChunks: 1,
+        },
+      }),
+    ).toThrow(/CITATION_REQUIRED|CITED_CHUNKS_BELOW_MINIMUM/u);
+
+    const explicit = capability.checkAnswer({
+      namespace: 'rag',
+      operation: 'checkAnswer',
+      input: {
+        query: 'refund policy money back',
+        answer: 'refund policy money back [99]',
+        chunks,
+        groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        requireCitations: true,
+        minCitedChunks: 1,
+        minGroundingCoverage: 0.8,
+      },
+    });
+
+    expect(explicit).toEqual(expect.objectContaining({ passed: true, status: 'grounded' }));
+  });
+
+  test('local rag.checkAnswer fails closed for ungrounded answers and invalid chunk indexes', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') }) as {
+      checkAnswer: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+      retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown;
+    };
+    const chunks = capability.retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: { question: 'refund policy money back', retrieval: 'FindDocs' },
+    });
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks,
+          groundingSpans: [{ start: 0, end: 7, chunkIndexes: [0], required: true }],
+          minGroundingCoverage: 1,
+        },
+      }),
+    ).toThrow(/GROUNDING_BELOW_THRESHOLD/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'unsupported refund timing detail',
+          chunks,
+          groundingSpans: [{ start: 0, end: 32, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/SPAN_TEXT_UNSUPPORTED/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'fabricated supporting answer',
+          chunks: [
+            {
+              id: 'fake',
+              text: 'fabricated supporting answer',
+              score: 1,
+              source: 'docs/fake.md',
+              citationUri: 'docs/fake.md',
+              citationLocator: null,
+            },
+          ],
+          groundingSpans: [{ start: 0, end: 28, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/previously returned by rag\.retrieve/u);
+
+    const tamperedScoreChunks = (chunks as Array<Record<string, unknown>>).map((chunk) => ({ ...chunk, score: 0.01 }));
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks: tamperedScoreChunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/previously returned by rag\.retrieve/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'shipping courier tracking',
+          answer: 'refund policy money back',
+          chunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [0], required: true }],
+        },
+      }),
+    ).toThrow(/same query/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: '',
+          chunks,
+          groundingSpans: [],
+        },
+      }),
+    ).toThrow(/ANSWER_EMPTY/u);
+
+    expect(() =>
+      capability.checkAnswer({
+        namespace: 'rag',
+        operation: 'checkAnswer',
+        input: {
+          query: 'refund policy money back',
+          answer: 'refund policy money back',
+          chunks,
+          groundingSpans: [{ start: 0, end: 24, chunkIndexes: [100], required: true }],
+        },
+      }),
+    ).toThrow(/in-bounds chunk index/u);
+  });
+
+  test('local rag.retrieve gives explicit nested queryParams precedence over top-level input fields', () => {
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    const result = (
+      capability as { retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+    ).retrieve({
+      namespace: 'rag',
+      operation: 'retrieve',
+      input: {
+        question: 'shipping courier tracking',
+        queryParams: { question: 'refund policy money back' },
+        retrieval: 'FindDocs',
+      },
+    });
+
+    const [chunk] = result as Array<Record<string, unknown>>;
+    expect(chunk.source).toBe('docs/refunds.md');
+  });
+
+  test('local rag.retrieve validates setup and input shapes before retrieval', () => {
+    expect(() => createLocalRagCapability(DOC, { sourcePath: '  ' })).toThrow(/sourcePath/u);
+
+    const capability = createLocalRagCapability(DOC, { sourcePath: join(dir, 'spec.kern') });
+    expect(() =>
+      (
+        capability as { retrieve: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+      ).retrieve({
+        namespace: 'rag',
+        operation: 'retrieve',
+        input: { queryParams: 'refund policy money back' },
+      }),
+    ).toThrow(/queryParams/u);
+
+    expect(() =>
+      (
+        capability as { promptContext: (call: { namespace: string; operation: string; input: unknown }) => unknown }
+      ).promptContext({
+        namespace: 'rag',
+        operation: 'promptContext',
+        input: { chunks: [{ id: 'chunk', text: '', score: 1, source: 'docs/refunds.md' }] },
+      }),
+    ).toThrow(/text must be a non-empty/u);
+  });
+
+  test('merges one ragRetrieve across multiple target indexes', () => {
+    const report = retrieveRagDocument(MULTI_INDEX_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      queryParams: { question: 'refund password' },
+      embedder: fakeMultiIndexEmbedder,
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes.map((index) => index.indexName).sort()).toEqual(['DocsIndex', 'FaqIndex']);
+    expect(report.retrievals).toHaveLength(1);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        name: 'FindAll',
+        indexName: 'DocsIndex',
+        indexNames: ['DocsIndex', 'FaqIndex'],
+        query: 'refund password',
+        retrieveOptions: { topK: 2 },
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks.map((chunk) => chunk.source).sort()).toEqual([
+      'docs/refunds.md',
+      'faq/passwords.md',
+    ]);
+    expect(report.ingestion?.chunks.map((chunk) => chunk.metadata?.corpusName).sort()).toEqual(['Docs', 'Docs', 'Faq']);
+  });
+
+  test('deduplicates chunks returned by overlapping multi-index targets', () => {
+    const report = retrieveRagDocument(OVERLAPPING_MULTI_INDEX_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      queryParams: { question: 'refund money' },
+      embedder: fakeMultiIndexEmbedder,
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes.map((index) => index.indexName).sort()).toEqual(['DocsIndex', 'DocsIndexMirror']);
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
   test('fails closed when a runtime query parameter is not supplied', () => {
     expect(() => retrieveRagDocument(DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /requires queryParam 'question'/u,
@@ -155,6 +700,28 @@ describe('retrieveRagDocument', () => {
 
     expect(() => retrieveRagDocument(DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /requires queryParam 'question'/u,
+    );
+  });
+
+  test('does not resolve queryParam from inherited object properties', () => {
+    const queryParams = Object.create({ toString: 'refund policy money back' }) as Record<string, string>;
+
+    expect(() =>
+      retrieveRagDocument(PROTOTYPE_QUERY_PARAM_DOC, { sourcePath: join(dir, 'spec.kern'), queryParams }),
+    ).toThrow(/requires queryParam 'toString'/u);
+  });
+
+  test('falls back to global query when a named queryParam value is undefined', () => {
+    const report = retrieveRagDocument(DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      queryParams: { question: undefined },
+    });
+
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy money back',
+      }),
     );
   });
 
@@ -170,60 +737,152 @@ describe('retrieveRagDocument', () => {
     expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
   });
 
+  test('renders typed runtime query templates from named params', () => {
+    const report = retrieveRagDocument(TEMPLATE_QUERY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      templateParams: { topic: 'refund', year: 2026 },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(expect.objectContaining({ query: 'refund policy 2026' }));
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('validates runtime query template params before ingesting declared sources', () => {
+    rmSync(join(dir, 'docs'), { recursive: true, force: true });
+
+    expect(() =>
+      retrieveRagDocument(TEMPLATE_QUERY_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        templateParams: { topic: 'refund', year: 'twenty' },
+      }),
+    ).toThrow(/param 'year' must be a finite number/u);
+  });
+
+  test('inherits runtime retrieval options from a named retrieval profile', () => {
+    const report = retrieveRagDocument(PROFILE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy money back',
+        retrieveOptions: { topK: 2, minScore: 0.1 },
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks.length).toBeLessThanOrEqual(2);
+  });
+
+  test('inherits runtime query templates from a named retrieval profile', () => {
+    const report = retrieveRagDocument(PROFILE_TEMPLATE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      templateParams: { topic: 'refund', year: 2026 },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy 2026',
+        retrieveOptions: { topK: 2, minScore: 0 },
+      }),
+    );
+  });
+
+  test('lets partial templateParams fall back to queryParams by name', () => {
+    const report = retrieveRagDocument(TEMPLATE_QUERY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      queryParams: { topic: 'refund', year: '2026' },
+      templateParams: { topic: 'refund' },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(expect.objectContaining({ query: 'refund policy 2026' }));
+  });
+
+  test('lets ragRetrieve override named retrieval profile defaults', () => {
+    const report = retrieveRagDocument(PROFILE_OVERRIDE_DOC, { sourcePath: join(dir, 'spec.kern') });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]).toEqual(
+      expect.objectContaining({
+        query: 'refund policy money back',
+        retrieveOptions: { topK: 1, minScore: 0 },
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+  });
+
+  test('applies named retrieval profile metadata filters before ranking', () => {
+    const report = retrieveRagDocument(PROFILE_FILTER_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund shipping delivery',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]?.retrieveOptions).toEqual({
+      topK: 2,
+      minScore: 0,
+      metadataFilter: { relativePath: 'docs/shipping.md' },
+    });
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+    expect(report.retrievals[0]?.result.chunks[0]).toEqual(
+      expect.objectContaining({
+        source: 'docs/shipping.md',
+        metadata: expect.objectContaining({ relativePath: 'docs/shipping.md' }),
+      }),
+    );
+  });
+
+  test('lets ragRetrieve override named retrieval profile metadata filters', () => {
+    const report = retrieveRagDocument(PROFILE_FILTER_OVERRIDE_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.retrievals[0]?.retrieveOptions).toEqual({
+      topK: 2,
+      minScore: 0,
+      metadataFilter: { relativePath: 'docs/refunds.md' },
+    });
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
   test('fails closed for dynamic fixed-query expressions in the synchronous runner', () => {
     expect(() => retrieveRagDocument(DYNAMIC_QUERY_DOC, { sourcePath: join(dir, 'spec.kern') })).toThrow(
       /uses dynamic query=<expr>/u,
     );
   });
 
-  test('async retrieval executes provider-backed memory vector stores', async () => {
-    const report = await retrieveRagDocumentAsync(PROVIDER_RETRIEVE_DOC, {
+  test('executes index-level chunking overrides during retrieval', () => {
+    const report = retrieveRagDocument(INDEX_CHUNKING_DOC, {
       sourcePath: join(dir, 'spec.kern'),
       query: 'refund policy money back',
-      providers: { openai: { apiKey: 'test-key', fetch: fakeOpenAiFetch() } },
     });
 
     expect(report.diagnostics).toEqual([]);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({
+        indexName: 'DocsIndex',
+        chunkingName: 'Large',
+        status: 'indexed',
+      }),
+    );
+    expect(report.ingestion?.chunks.length).toBeGreaterThan(2);
+    expect(report.ingestion?.chunks.every((chunk) => chunk.metadata?.chunkingName === 'Large')).toBe(true);
     expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
   });
 
-  test('async retrieval fails closed when provider options are missing', async () => {
-    await expect(
-      retrieveRagDocumentAsync(PROVIDER_RETRIEVE_DOC, {
-        sourcePath: join(dir, 'spec.kern'),
-        query: 'refund policy money back',
-      }),
-    ).rejects.toThrow(/requires OpenAI provider options/u);
-  });
-
-  test('async retrieval reuses provider-backed local-persistent snapshots', async () => {
-    const calls = { count: 0 };
-    const options = {
-      sourcePath: join(dir, 'spec.kern'),
-      query: 'refund policy money back',
-      providers: { openai: { apiKey: 'test-key', fetch: fakeOpenAiFetch(calls) } },
-    };
-
-    const first = await retrieveRagDocumentAsync(PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC, options);
-    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
-    const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
-    const firstCallCount = calls.count;
-    const second = await retrieveRagDocumentAsync(PROVIDER_LOCAL_PERSISTENT_RETRIEVE_DOC, options);
-
-    expect(first.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
-    expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
-    expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
-    expect(firstCallCount).toBe(2);
-    expect(calls.count).toBe(3);
-  });
-
-  test('fails closed instead of ignoring index-level chunking overrides', () => {
+  test('fails closed when index-level chunking does not apply to a corpus source', () => {
     expect(() =>
-      retrieveRagDocument(INDEX_CHUNKING_DOC, {
+      retrieveRagDocument(INDEX_CHUNKING_SOURCE_MISMATCH_DOC, {
         sourcePath: join(dir, 'spec.kern'),
         query: 'refund policy money back',
       }),
-    ).toThrow(/index 'DocsIndex' with chunking='Large'/u);
+    ).toThrow(/chunking 'Large' does not apply to source 'shipping'/u);
   });
 
   test('executes local-persistent vector stores and reuses matching snapshots', () => {
@@ -233,6 +892,8 @@ describe('retrieveRagDocument', () => {
     });
 
     expect(first.diagnostics).toEqual([]);
+    expect(first.indexes[0]?.status).toBe('indexed');
+    expect(first.indexes[0]?.snapshotPath).toBe('index/DocsIndex.json');
     expect(first.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
     const snapshotPath = join(dir, 'index', 'DocsIndex.json');
     const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
@@ -249,6 +910,7 @@ describe('retrieveRagDocument', () => {
     });
 
     expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(second.indexes[0]?.status).toBe('reused');
     expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
   });
 
@@ -323,6 +985,7 @@ describe('retrieveRagDocument', () => {
     const after = JSON.parse(readFileSync(snapshotPath, 'utf-8')) as { readonly fingerprint: string };
 
     expect(report.retrievals[0]?.result.chunks[0]?.text).toContain('receipt approval');
+    expect(report.indexes[0]?.status).toBe('rebuilt');
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
 
@@ -344,6 +1007,7 @@ describe('retrieveRagDocument', () => {
     };
 
     expect(report.retrievals[0]?.result.chunks[0]?.metadata?.sourceUri).toBe('docs/**/*.md');
+    expect(report.indexes[0]?.status).toBe('rebuilt');
     expect(after.entries[0]?.chunk.metadata?.sourceUri).toBe('docs/**/*.md');
     expect(after.fingerprint).not.toBe(before.fingerprint);
   });
@@ -369,6 +1033,458 @@ describe('retrieveRagDocument', () => {
     };
 
     expect(report.retrievals[0]?.result.chunks[0]?.text).toContain('refund policy money back');
+    expect(report.indexes[0]?.status).toBe('rebuilt');
     expect(after.entries.some((entry) => entry.chunk.text === 'stale tampered text')).toBe(false);
+  });
+
+  test('async provider-backed memory retrieval executes runtime ragRetrieve declarations', async () => {
+    const report = await retrieveRagDocumentAsync(ASYNC_PROVIDER_MEMORY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      embedder: fakeAsyncEmbedder,
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({
+        indexName: 'DocsIndex',
+        storeKind: 'memory',
+        status: 'indexed',
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+  });
+
+  test('async retrieval resolves a declared deterministic fake provider without OpenAI options', async () => {
+    const report = await retrieveRagDocumentAsync(FAKE_PROVIDER_MEMORY_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      providers: { fake: { seed: 'runtime-test' } },
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    expect(report.indexes[0]).toEqual(
+      expect.objectContaining({
+        indexName: 'DocsIndex',
+        storeKind: 'memory',
+        status: 'indexed',
+      }),
+    );
+    expect(report.retrievals[0]?.result.chunks).toHaveLength(1);
+  });
+
+  test('async provider-backed local-persistent retrieval reuses matching snapshots', async () => {
+    const first = await retrieveRagDocumentAsync(ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      embedder: fakeAsyncEmbedder,
+    });
+    const snapshotPath = join(dir, 'index', 'DocsIndex.json');
+    const firstSnapshot = readFileSync(snapshotPath, 'utf-8');
+
+    const second = await retrieveRagDocumentAsync(ASYNC_PROVIDER_LOCAL_PERSISTENT_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+      embedder: fakeAsyncEmbedder,
+    });
+
+    expect(first.indexes[0]?.status).toBe('indexed');
+    expect(second.indexes[0]?.status).toBe('reused');
+    expect(second.retrievals[0]?.result.chunks[0]?.source).toBe('docs/refunds.md');
+    expect(readFileSync(snapshotPath, 'utf-8')).toBe(firstSnapshot);
+  });
+
+  test('async provider-backed retrieval wraps provider failures with KERN context', async () => {
+    const failingEmbedder: AsyncEmbedder = {
+      id: 'provider:fake-broken',
+      dims: 3,
+      async embed(): Promise<Float64Array> {
+        throw new Error('socket closed for sk-test-secret');
+      },
+    };
+
+    await expect(
+      retrieveRagDocumentAsync(ASYNC_PROVIDER_MEMORY_DOC, {
+        sourcePath: join(dir, 'spec.kern'),
+        query: 'refund policy money back',
+        embedder: failingEmbedder,
+      }),
+    ).rejects.toThrow(/KERN RAG provider-backed retrieval failed for index 'DocsIndex'.*socket closed for sk-\*\*\*/u);
+  });
+});
+
+describe('PROVENANCE NORMALIZATION: parseRetrievedChunkCitationProvenance (shared by promptContext/checkAnswer/answer)', () => {
+  test('accepts the flat citationUri/citationLocator wire shape rag.retrieve/rag.retrieveAsync emit', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citationUri: 'docs/refunds.md', citationLocator: 'p1' }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md', locator: 'p1' });
+  });
+
+  test('accepts the nested citation record form for chunks authored directly in .kern source', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citation: { uri: 'docs/refunds.md', locator: 'p1' } }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md', locator: 'p1' });
+  });
+
+  test('treats null citation fields as absent, never as a literal "null" string', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance({ citationUri: 'docs/refunds.md', citationLocator: null }, 'chunks[0]'),
+    ).toEqual({ uri: 'docs/refunds.md' });
+    expect(parseRetrievedChunkCitationProvenance({}, 'chunks[0]')).toEqual({});
+  });
+
+  test('accepts both forms together when they agree', () => {
+    expect(
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md' }, citationUri: 'docs/refunds.md' },
+        'chunks[0]',
+      ),
+    ).toEqual({ uri: 'docs/refunds.md' });
+  });
+
+  test('fails closed when the nested and flat forms disagree, rather than silently preferring one', () => {
+    expect(() =>
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md' }, citationUri: 'docs/other.md' },
+        'chunks[0]',
+      ),
+    ).toThrow(
+      'chunks[0] declares both citation.uri and citationUri with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+    expect(() =>
+      parseRetrievedChunkCitationProvenance(
+        { citation: { uri: 'docs/refunds.md', locator: 'p1' }, citationLocator: 'p2' },
+        'chunks[0]',
+      ),
+    ).toThrow(
+      'chunks[0] declares both citation.locator and citationLocator with disagreeing values; provide exactly one citation provenance encoding.',
+    );
+  });
+
+  test('rejects a non-record citation field', () => {
+    expect(() => parseRetrievedChunkCitationProvenance({ citation: 'docs/refunds.md' as never }, 'chunks[0]')).toThrow(
+      'chunks[0].citation must be a record.',
+    );
+  });
+});
+
+describe('EXTERNAL VECTOR-STORE ADAPTERS: host-registered kinds gated by the conformance contract', () => {
+  const EXTERNAL_KIND = 'example-external-memory';
+  const EXTERNAL_DOC = DOC.replace(
+    'vectorStore name=DocsMemory kind=memory dims=64 metric=cosine',
+    `vectorStore name=DocsMemory kind=${EXTERNAL_KIND} dims=64 metric=cosine`,
+  );
+  // Manifest mirrors examples/rag-vector-store-adapter/adapter.mjs — the
+  // documented external-adapter authoring pattern this registration path is
+  // designed for.
+  const EXTERNAL_ADAPTER_MANIFEST = {
+    name: 'example-in-process-memory',
+    kind: 'vectorStore',
+    adapterKind: 'memory',
+    version: '1.0.0',
+    transport: 'in-process',
+    metrics: ['cosine'],
+    maxDimensions: 4096,
+    persistence: 'ephemeral',
+    capabilities: {
+      upsert: true,
+      upsertMany: true,
+      search: true,
+      snapshot: true,
+      clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
+    },
+  } as const;
+
+  function conformantContract() {
+    return defineRagVectorStoreAdapterContract({
+      manifest: EXTERNAL_ADAPTER_MANIFEST,
+      createStore: (context) => createInMemoryRagVectorStoreForConformance(context),
+    });
+  }
+
+  /** A subtly-broken adapter: its search ignores retrieve options (topK). */
+  function nonConformantContract() {
+    return defineRagVectorStoreAdapterContract({
+      manifest: EXTERNAL_ADAPTER_MANIFEST,
+      createStore(context: RagVectorStoreConformanceContext) {
+        const inner = createInMemoryRagVectorStoreForConformance(context);
+        return {
+          kind: inner.kind,
+          fingerprint: inner.fingerprint,
+          dims: inner.dims,
+          metric: inner.metric,
+          upsert: inner.upsert.bind(inner),
+          upsertMany: inner.upsertMany.bind(inner),
+          search(query, queryVector, _options, fingerprint) {
+            return inner.search(query, queryVector, {}, fingerprint);
+          },
+          snapshot: inner.snapshot.bind(inner),
+          clear: inner.clear.bind(inner),
+          close: inner.close.bind(inner),
+        };
+      },
+    });
+  }
+
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-rag-external-adapter-'));
+    mkdirSync(join(dir, 'docs'));
+    writeFileSync(join(dir, 'spec.kern'), EXTERNAL_DOC);
+    writeFileSync(join(dir, 'docs/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docs/shipping.md'), 'shipping delivery courier tracking parcel\n');
+  });
+
+  afterEach(() => {
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('fails closed when the external kind is not registered', () => {
+    const report = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics.some((violation) => violation.message.includes(`kind '${EXTERNAL_KIND}'`))).toBe(true);
+    expect(
+      report.diagnostics.some((violation) => violation.message.includes('registerExternalRagVectorStoreAdapter')),
+    ).toBe(true);
+  });
+
+  test('rejects a non-conformant adapter at registration and stays deny-by-default', () => {
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: nonConformantContract() }),
+    ).toThrow(/failed conformance: .*topk-is-respected/u);
+
+    // The failed registration must not have registered anything.
+    const report = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(report.retrievals).toEqual([]);
+    expect(report.diagnostics.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('rejects builtin-shadowing, malformed, duplicate, and async-only registrations', () => {
+    expect(() => registerExternalRagVectorStoreAdapter({ kind: 'memory', contract: conformantContract() })).toThrow(
+      /shadows a built-in store kind/u,
+    );
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: 'not a token', contract: conformantContract() }),
+    ).toThrow(/runner token grammar/u);
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({
+        kind: EXTERNAL_KIND,
+        contract: {
+          manifest: EXTERNAL_ADAPTER_MANIFEST,
+          createStoreAsync: async (context) => {
+            throw new Error(`async adapter unsupported for ${context.namespace}`);
+          },
+        } as unknown as ReturnType<typeof conformantContract>,
+      }),
+    ).toThrow(/requires a synchronous createStore factory/u);
+
+    registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() });
+    expect(() =>
+      registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() }),
+    ).toThrow(/already registered/u);
+  });
+
+  test('a conformant registered adapter serves sync and async runtime retrieval', async () => {
+    const conformance = registerExternalRagVectorStoreAdapter({ kind: EXTERNAL_KIND, contract: conformantContract() });
+    expect(conformance.passed).toBe(true);
+
+    const syncReport = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(syncReport.diagnostics).toEqual([]);
+    expect(syncReport.indexes[0]).toEqual(
+      expect.objectContaining({ storeKind: EXTERNAL_KIND, status: 'indexed', chunkCount: 2 }),
+    );
+    expect(syncReport.retrievals[0]?.result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
+
+    const asyncReport = await retrieveRagDocumentAsync(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(asyncReport.diagnostics).toEqual([]);
+    expect(asyncReport.indexes[0]).toEqual(expect.objectContaining({ storeKind: EXTERNAL_KIND, status: 'indexed' }));
+    expect(asyncReport.retrievals[0]?.result.chunks[0]).toEqual(expect.objectContaining({ source: 'docs/refunds.md' }));
+
+    // Unregistering restores deny-by-default for the same source.
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    const deniedReport = retrieveRagDocument(EXTERNAL_DOC, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'refund policy money back',
+    });
+    expect(deniedReport.retrievals).toEqual([]);
+    expect(deniedReport.diagnostics.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('RETRIEVAL STORE CLEANUP: closeRetrievalStoresFailClosed closes both families unconditionally', () => {
+  test('a local-persistent close error does not skip external adapter close() calls', () => {
+    // Regression (review finding): cleanup used `closeLocal(...) ??
+    // closeExternal(...)` — a local close ERROR short-circuited the nullish
+    // coalescing and external stores were never closed on the error path.
+    const closed: string[] = [];
+    const localError = new Error('local close failed');
+    const persistent = [
+      {
+        store: {
+          close() {
+            closed.push('persistent');
+            throw localError;
+          },
+        },
+      },
+    ];
+    const external = [
+      {
+        store: {
+          close() {
+            closed.push('external');
+          },
+        },
+      },
+    ];
+
+    const firstError = closeRetrievalStoresFailClosed(persistent, external);
+
+    expect(closed).toEqual(['persistent', 'external']);
+    expect(firstError).toBe(localError);
+  });
+
+  test('an external close error surfaces when local closes succeed, and success reports no error', () => {
+    const externalError = new Error('external close failed');
+    const externalOnlyError = closeRetrievalStoresFailClosed(
+      [{ store: { close() {} } }],
+      [
+        {
+          store: {
+            close() {
+              throw externalError;
+            },
+          },
+        },
+      ],
+    );
+    expect(externalOnlyError).toBe(externalError);
+    expect(closeRetrievalStoresFailClosed([{ store: { close() {} } }], [{ store: { close() {} } }])).toBeUndefined();
+  });
+});
+
+describe('EXTERNAL VECTOR-STORE ADAPTERS: fingerprint-keyed reuse and namespace collision detection', () => {
+  const EXTERNAL_KIND = 'example-external-fingerprint';
+  const MANIFEST = {
+    name: 'example-in-process-memory',
+    kind: 'vectorStore',
+    adapterKind: 'memory',
+    version: '1.0.0',
+    transport: 'in-process',
+    metrics: ['cosine'],
+    maxDimensions: 4096,
+    persistence: 'ephemeral',
+    capabilities: {
+      upsert: true,
+      upsertMany: true,
+      search: true,
+      snapshot: true,
+      clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
+    },
+  } as const;
+
+  function twoCorpusDoc(vectorStoreLine: string): string {
+    return [
+      'corpus name=DocsA',
+      '  source name=srcA kind=local uri="./docsA/**/*.md" media=markdown',
+      '  chunking source=srcA strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      'corpus name=DocsB',
+      '  source name=srcB kind=local uri="./docsB/**/*.md" media=markdown',
+      '  chunking source=srcB strategy=semantic maxTokens=80 overlap=0 unit=tokens',
+      '',
+      'embed name=EmbedA corpus=DocsA model=local-semantic-v1 dims=64 metric=cosine',
+      'embed name=EmbedB corpus=DocsB model=local-semantic-v1 dims=64 metric=cosine',
+      vectorStoreLine,
+      'ragIndex name=IndexA corpus=DocsA store=SharedStore embed=EmbedA',
+      'ragIndex name=IndexB corpus=DocsB store=SharedStore embed=EmbedB',
+      'retriever name=SearchA corpus=DocsA embed=EmbedA',
+      'rag name=Answer retriever=SearchA citations=true',
+      '  grounding requireCitations=true',
+      '  ragRetrieve name=FindA index=IndexA queryParam=question topK=1 output="RetrievedChunk[]"',
+      '  ragRetrieve name=FindB index=IndexB queryParam=question topK=1 output="RetrievedChunk[]"',
+    ].join('\n');
+  }
+
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'kern-rag-external-fingerprint-'));
+    mkdirSync(join(dir, 'docsA'));
+    mkdirSync(join(dir, 'docsB'));
+    writeFileSync(join(dir, 'docsA/refunds.md'), 'refund policy money back within thirty days\n');
+    writeFileSync(join(dir, 'docsB/shipping.md'), 'shipping delivery courier tracking parcel\n');
+    registerExternalRagVectorStoreAdapter({
+      kind: EXTERNAL_KIND,
+      contract: defineRagVectorStoreAdapterContract({
+        manifest: MANIFEST,
+        createStore: (context: RagVectorStoreConformanceContext) => createInMemoryRagVectorStoreForConformance(context),
+      }),
+    });
+  });
+
+  afterEach(() => {
+    unregisterExternalRagVectorStoreAdapter(EXTERNAL_KIND);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('two indexes with different chunk content sharing one external namespace fail closed on incompatible fingerprints', () => {
+    // Regression (review finding): the external store cache reused a store
+    // instance without any fingerprint participation, so two declarations
+    // resolving to the same physical namespace with DIFFERENT content could
+    // silently share one store. Mirrors the local-persistent guard.
+    const doc = twoCorpusDoc(
+      `vectorStore name=SharedStore kind=${EXTERNAL_KIND} dims=64 metric=cosine namespace=shared`,
+    );
+    writeFileSync(join(dir, 'spec.kern'), doc);
+
+    expect(() =>
+      retrieveRagDocument(doc, { sourcePath: join(dir, 'spec.kern'), query: 'refund policy money back' }),
+    ).toThrow(/external namespace 'shared' with multiple incompatible fingerprints/u);
+  });
+
+  test('two indexes with different chunk content and distinct namespaces each search their OWN store', () => {
+    // Without an explicit vectorStore namespace, each index gets its own
+    // namespace (the index name) and its own fingerprint — the second search
+    // must never return the first store's chunks.
+    const doc = twoCorpusDoc(`vectorStore name=SharedStore kind=${EXTERNAL_KIND} dims=64 metric=cosine`);
+    writeFileSync(join(dir, 'spec.kern'), doc);
+
+    const report = retrieveRagDocument(doc, {
+      sourcePath: join(dir, 'spec.kern'),
+      query: 'shipping delivery courier',
+    });
+
+    expect(report.diagnostics).toEqual([]);
+    const findA = report.retrievals.find((entry) => entry.name === 'FindA');
+    const findB = report.retrievals.find((entry) => entry.name === 'FindB');
+    // IndexA only ever indexed docsA content; IndexB only docsB content.
+    expect(findA?.result.chunks.every((chunk) => chunk.source === 'docsA/refunds.md')).toBe(true);
+    expect(findB?.result.chunks.map((chunk) => chunk.source)).toEqual(['docsB/shipping.md']);
+    // Two distinct stores were created — one indexed lifecycle per index.
+    expect(report.indexes.map((entry) => [entry.indexName, entry.status])).toEqual([
+      ['IndexA', 'indexed'],
+      ['IndexB', 'indexed'],
+    ]);
   });
 });

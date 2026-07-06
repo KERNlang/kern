@@ -114,8 +114,15 @@ describe('let contract — preconditions reject out-of-domain IR', () => {
     mustReject({ type: 'let', props: { name: 'print', value: '"x"' } }, 'builtin');
   });
 
-  it('rejects non-portable object initializers', () => {
-    mustReject({ type: 'let', props: { name: 'obj', value: '{a: 1}' } }, 'object');
+  it('accepts flat record initializers with scalar values', () => {
+    const result = referenceRun({ type: 'let', props: { name: 'obj', value: '{a: 1, b: "x"}' } }, makeEnv());
+    expect(result.events).toEqual([{ op: 'assign', target: 'obj', value: { a: 1, b: 'x' } }]);
+  });
+
+  it('rejects non-portable record initializers', () => {
+    mustReject({ type: 'let', props: { name: 'obj', value: '{...base}' } }, 'object spread');
+    mustReject({ type: 'let', props: { name: 'obj', value: '{a: {b: 1}}' } }, 'nested object');
+    mustReject({ type: 'let', props: { name: 'obj', value: '{__proto__: 1}' } }, 'reserved record key');
   });
 
   it('rejects names already bound in the current semantic environment', () => {

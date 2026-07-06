@@ -14,14 +14,16 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   childEnv,
-  defineBinding,
+  defineIntBinding,
   getBinding,
   hasBinding,
+  isIntProvenanced,
   type NodeContract,
   type NodeFixture,
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { isSafeIntegerLiteralIndex } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -36,7 +38,7 @@ function asForProps(ir: IRNode): ForProps {
   return (ir.props ?? {}) as ForProps;
 }
 
-function forPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
+export function forPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
   const p = asForProps(ir);
   if (typeof p.name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(p.name)) return false;
   if (p.from === undefined || p.from === '') return false;
@@ -61,7 +63,30 @@ function evalValue(expr: ValueIR, env: SemanticEnv): unknown {
       if (!hasBinding(env, expr.name)) throw new Error(`for: binding "${expr.name}" not found in env`);
       return getBinding(env, expr.name);
     }
+    case 'member': {
+      if (expr.optional || expr.object.kind !== 'ident' || expr.property !== 'length') {
+        throw new Error('for: unsupported member expression in range bound');
+      }
+      if (!hasBinding(env, expr.object.name)) throw new Error(`for: binding "${expr.object.name}" not found in env`);
+      const array = getBinding(env, expr.object.name);
+      if (!Array.isArray(array)) throw new Error('for: range bound .length requires an array binding');
+      return array.length;
+    }
     case 'index': {
+      // A range-bound array index must be PORTABLE for 3-leg parity, the SAME gate
+      // as the body index reader (portable-scalar): a bare safe-integer LITERAL or
+      // a bare integer-provenanced ident (a for-counter). A plain `let` ident can
+      // be a Python float (`let j = 4/2` is 2.0), so `for to=xs[j]` would read
+      // xs[2] in JS/ref but raise TypeError in Python (`range(0, xs[2.0])`) — it
+      // must abstain. (`bounds[0]` literal indices still pass.)
+      if (
+        !isSafeIntegerLiteralIndex(expr.index) &&
+        !(expr.index.kind === 'ident' && isIntProvenanced(env, expr.index.name))
+      ) {
+        throw new Error(
+          'for: range-bound array index must be a safe-integer literal or an integer-provenanced loop counter',
+        );
+      }
       const target = evalValue(expr.object, env);
       const index = evalValue(expr.index, env);
       if (Array.isArray(target) && typeof index === 'number') return target[index];
@@ -82,16 +107,27 @@ function evalValue(expr: ValueIR, env: SemanticEnv): unknown {
   }
 }
 
-function forEffects(ir: IRNode, env: SemanticEnv): Trace {
+export interface ForRuntimeRange {
+  readonly name: string;
+  readonly from: number;
+  readonly to: number;
+  readonly step: number;
+  readonly children: readonly IRNode[];
+}
+
+export function forRuntimeRange(ir: IRNode, env: SemanticEnv): ForRuntimeRange {
   const p = asForProps(ir);
   const name = p.name as string;
   const from = evalIntExpression(p.from as string | number, env, 'from');
   const to = evalIntExpression(p.to as string | number, env, 'to');
   const step = evalIntExpression(p.step === undefined || p.step === '' ? 1 : (p.step as string | number), env, 'step');
   if (step === 0) throw new Error('for step: step must not be zero');
+  return { name, from, to, step, children: ir.children ?? [] };
+}
 
+function forEffects(ir: IRNode, env: SemanticEnv): Trace {
+  const { name, from, to, step, children } = forRuntimeRange(ir, env);
   const out: Trace = emptyTrace();
-  const children = ir.children ?? [];
 
   for (let i = from; step > 0 ? i < to : i > to; i += step) {
     out.events.push({ op: 'iter-next', binding: name, value: i });
@@ -105,7 +141,7 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
     // emitted TS/Python loops. (Previously this forked `new Map(env.bindings)`,
     // discarding outer mutations: a `sum += i` accumulator returned 0, not 15.)
     const iterEnv = childEnv(env);
-    defineBinding(iterEnv, name, i);
+    defineIntBinding(iterEnv, name, i);
 
     const childTrace = referenceRunSequence(children, iterEnv);
     out.events.push(...childTrace.events);

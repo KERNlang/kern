@@ -22,6 +22,26 @@ behind `upsert`, `upsertMany`, `search`, `snapshot`, `clear`, and `close`.
 KERN owns the contract and conformance profile; the adapter owns networking,
 credentials, indexing, and database-specific tuning.
 
+## Registering the adapter with the runtime ragRetrieve runner (KERN 5.2)
+
+A conformant contract can be registered as a first-class `vectorStore kind=`
+for the in-process runtime retrieval path. Registration RUNS the conformance
+suite and fails closed unless every case passes; unregistered or
+non-conformant kinds are rejected at semantic validation and retrieval
+preparation:
+
+```js
+import { registerExternalRagVectorStoreAdapter, retrieveRagDocument } from '@kernlang/core';
+import { exampleRagVectorStoreContract } from './adapter.mjs';
+
+registerExternalRagVectorStoreAdapter({
+  kind: 'example-external-memory',
+  contract: exampleRagVectorStoreContract,
+});
+// .kern sources may now declare: vectorStore name=Docs kind=example-external-memory dims=64 metric=cosine
+const report = retrieveRagDocument(source, { sourcePath, query: 'refund policy' });
+```
+
 ## Grounded Answer Contract
 
 Provider/app code should still generate the answer outside KERN. KERN validates

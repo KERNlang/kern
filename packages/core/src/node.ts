@@ -73,6 +73,15 @@ export {
 } from './native-eligibility-ast.js';
 export type { LocalPersistentRagVectorStoreOptions } from './rag-embedding-node.js';
 export { LocalPersistentRagVectorStoreAdapter } from './rag-embedding-node.js';
+export type { LocalRagIngestCapabilityOptions } from './rag-index-runner.js';
+export { createAsyncLocalRagIngestCapability } from './rag-index-runner.js';
+export type { LocalRagCapabilityOptions, LocalRagCapabilitySession } from './rag-retrieve-runner.js';
+export {
+  assertLocalRagCapabilityChunksWereRetrieved,
+  createAsyncLocalRagRetrieveCapability,
+  createLocalRagCapability,
+  createLocalRagCapabilitySession,
+} from './rag-retrieve-runner.js';
 export { typescriptClosureClassifier } from './typescript-closure-classifier.js';
 
 /** Convenience binding of `classifyHandlerBody` to the TypeScript-AST walker —

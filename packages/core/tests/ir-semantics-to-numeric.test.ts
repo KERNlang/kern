@@ -95,6 +95,7 @@ describe('ToNumericPrimitive kernel — tsExpr column is live (review fix: decla
   // a drifted/wrong tsExpr cannot silently coexist with a correct `value`.
   it.each(TO_NUMBER_FIXTURES.map((f) => [f.probe, f] as const))('%s', (_p, fixture: ToNumberFixture) => {
     // biome-ignore lint/security/noGlobalEval: test-only — fixtures are first-party source strings; evaluating tsExpr IS the differential column under test
+    // biome-ignore lint/complexity/noCommaOperator: indirect eval is intentional for this differential test
     const evaluated: unknown = (0, eval)(`(${fixture.tsExpr})`);
     if (fixture.value === UNDEFINED_INPUT) {
       expect(evaluated).toBeUndefined();

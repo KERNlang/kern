@@ -1,0 +1,9 @@
+fn name=double params="x:number" returns=number export=true
+  handler lang="kern"
+    return value="x * 2"
+
+class name=Box export=true
+  field name=value value="7"
+  method name=read returns=number
+    handler lang="kern"
+      return value="this.value"

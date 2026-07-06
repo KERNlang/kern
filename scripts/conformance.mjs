@@ -47,6 +47,7 @@ const {
   generateCoreNode,
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesTextOps,
   kernStdlibPreamble,
 } = await import(join(REPO, 'packages/core/dist/index.js'));
 const { emitNativeKernBodyPythonWithImports } = await import(join(REPO, 'packages/python/dist/codegen-body-python.js'));
@@ -1287,6 +1288,217 @@ fn name=probe returns=number
       do value="out.push(\`line-\${x}\`)"
     return value="out"`,
     expected: ['line-1', 'line-2', 'line-3'] },
+  // Milestone 5.1b — self-hosting blockers lifted from the reference runner
+  // (recursion, dynamic-index arithmetic, List/Map stdlib). These fixtures
+  // prove TS-leg/Python-leg parity for the SAME KERN source the reference
+  // runner now executes natively (see packages/core/tests/ir-semantics-do.test.ts,
+  // runner-stdlib-namespace-calls.test.ts, runner-dynamic-index.test.ts, and
+  // runner-source-executor.test.ts for the reference-runner-side coverage —
+  // this harness does not exercise the reference runner, only TS vs Python).
+  { kind: 'whole-file', name: 'whole-file: same-file recursive helper computes factorial(5)',
+    kern: `fn name=factorial returns=number
+  param name=n type=number
+  handler lang=kern
+    if cond="n <= 1"
+      return value="1"
+    return value="n * factorial(n - 1)"
+fn name=probe returns=number
+  handler lang=kern
+    return value="factorial(5)"`,
+    expected: 120 },
+  // NOTE: helper names are deliberately single lowercase words (`even`/`odd`),
+  // NOT camelCase (`isEven`/`isOdd`) — a camelCase top-level `fn` name hits a
+  // PRE-EXISTING, unrelated Python codegen bug where a multi-word function
+  // DEFINITION is snake_cased (`def is_even(...)`) but CROSS-FUNCTION CALL
+  // SITES are not renamed to match (`return isEven(10)` -> NameError). That
+  // bug is orthogonal to this milestone (recursion works fine at the
+  // reference-runner level with the same names — see
+  // runner-source-executor.test.ts's mutual-recursion test); it lives in the
+  // shared multi-declaration Python module compiler and is out of scope here.
+  { kind: 'whole-file', name: 'whole-file: mutually recursive helpers compute even/odd',
+    kern: `fn name=even returns=boolean
+  param name=n type=number
+  handler lang=kern
+    if cond="n == 0"
+      return value="true"
+    return value="odd(n - 1)"
+fn name=odd returns=boolean
+  param name=n type=number
+  handler lang=kern
+    if cond="n == 0"
+      return value="false"
+    return value="even(n - 1)"
+fn name=probe returns=boolean
+  handler lang=kern
+    return value="even(10)"`,
+    expected: true },
+  { kind: 'whole-file', name: 'whole-file: dynamic array index reads accept +/- arithmetic on a loop counter',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[10, 20, 30]"
+    let name=out value="[]"
+    for name=i from="0" to="2"
+      do value="out.push(xs[i + 1])"
+    return value="out"`,
+    expected: [20, 30] },
+  { kind: 'whole-file', name: 'whole-file: List.length + new Map()/Map.set/Map.get/Map.has round-trip',
+    kern: `fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[1, 2, 3]"
+    let name=m value="new Map()"
+    do value="Map.set(m, \\"a\\", 1)"
+    return value="[List.length(xs), Map.get(m, \\"a\\"), Map.has(m, \\"a\\") ? 1 : 0, Map.has(m, \\"missing\\") ? 1 : 0]"`,
+    expected: [3, 1, 1, 0] },
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,
+  // Option D — Unicode CODE POINTS, run tribunal-1782979476717-1d9547).
+  // `Text.length`/`charAt`/`slice`/`indexOf`/`startsWith` now lower into BOTH
+  // codegen legs via the shared `__kern_text_*`/`_kern_text_*` helpers
+  // (`text-contract.ts`). These `kind:'stmt'` fixtures prove TS == Python ==
+  // expected end-to-end (actual emitted code, actual subprocess execution —
+  // NOT just template-string assertions). Companion runner-leg proof (the
+  // third leg) lives in `packages/core/tests/runner-string-ops.test.ts`,
+  // using the SAME representative inputs so the three legs are provably in
+  // lockstep by inspection. Every non-BMP fixture is DISCRIMINATING: a
+  // UTF-16-code-UNIT-leaking TS implementation fails these (see the inline
+  // comment on each fixture for the specific wrong-answer it would produce).
+  // ──────────────────────────────────────────────────────────────────────────
+  { kind: 'stmt', name: 'stmt: Text.length counts ASCII code points',
+    params: [{ name: 's', type: 'string', value: 'hello' }],
+    body: `return value="Text.length(s)"`,
+    expected: 5 },
+  { kind: 'stmt', name: 'stmt: Text.length on a BMP non-ASCII script counts code points (日本語 -> 3)',
+    params: [{ name: 's', type: 'string', value: '日本語' }],
+    body: `return value="Text.length(s)"`,
+    expected: 3 },
+  // DISCRIMINATING — "a💩b": UTF-16 .length is 4 (a, hi-surrogate, lo-surrogate, b);
+  // the code-point length is 3 (a, 💩, b). A UTF-16-leaking impl returns 4.
+  { kind: 'stmt', name: 'stmt: Text.length("a💩b") is 3, NOT 4 — code points, not UTF-16 code units',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }],
+    body: `return value="Text.length(s)"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: Text.charAt reads a code point by index',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'i', type: 'number', value: 1 }],
+    body: `return value="Text.charAt(s, i)"`,
+    expected: 'e' },
+  // DISCRIMINATING — index 1 of "a💩b" (code points [a, 💩, b]) is the WHOLE
+  // astral character, not one half of its UTF-16 surrogate pair.
+  { kind: 'stmt', name: 'stmt: Text.charAt("a💩b", 1) is the full astral character, not a surrogate half',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'i', type: 'number', value: 1 }],
+    body: `return value="Text.charAt(s, i)"`,
+    expected: '\u{1F4A9}' },
+  // DISCRIMINATING — index 2 of "a💩b" must land on 'b' (the code point AFTER
+  // the astral character), not a trailing lone surrogate.
+  { kind: 'stmt', name: 'stmt: Text.charAt("a💩b", 2) lands on "b", past the astral character',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'i', type: 'number', value: 2 }],
+    body: `return value="Text.charAt(s, i)"`,
+    expected: 'b' },
+  { kind: 'stmt', name: 'stmt: Text.slice reads a middle substring by code-point bounds',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'a', type: 'number', value: 1 }, { name: 'b', type: 'number', value: 3 }],
+    body: `return value="Text.slice(s, a, b)"`,
+    expected: 'el' },
+  // DISCRIMINATING — a slice boundary AT an astral character must keep the
+  // surrogate pair intact ("💩"), never split it into a lone surrogate.
+  { kind: 'stmt', name: 'stmt: Text.slice("a💩b", 1, 2) keeps the astral character intact',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'a', type: 'number', value: 1 }, { name: 'b', type: 'number', value: 2 }],
+    body: `return value="Text.slice(s, a, b)"`,
+    expected: '\u{1F4A9}' },
+  { kind: 'stmt', name: 'stmt: Text.slice("a💩b", 0, 3) is the full 3-code-point string',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'a', type: 'number', value: 0 }, { name: 'b', type: 'number', value: 3 }],
+    body: `return value="Text.slice(s, a, b)"`,
+    expected: 'a\u{1F4A9}b' },
+  { kind: 'stmt', name: 'stmt: Text.indexOf finds a multi-character ASCII needle',
+    params: [{ name: 's', type: 'string', value: 'hello world' }, { name: 'needle', type: 'string', value: 'world' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: 6 },
+  // DISCRIMINATING — "💩" sits at UTF-16 code-unit index 1 but code-point index 1
+  // too (both agree here); the NEXT fixture is the one that actually discriminates.
+  { kind: 'stmt', name: 'stmt: Text.indexOf finds a non-BMP needle by code-point offset',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'needle', type: 'string', value: '\u{1F4A9}' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: 1 },
+  // DISCRIMINATING — "b" sits at UTF-16 code-unit index 3 ('a', hi, lo, 'b') but
+  // code-point index 2 ('a', 💩, 'b'). A UTF-16-leaking impl returns 3.
+  { kind: 'stmt', name: 'stmt: Text.indexOf("a💩b", "b") is 2, NOT 3 — needle is AFTER the astral character',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'needle', type: 'string', value: 'b' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: Text.indexOf returns -1 for a missing needle (not an error)',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'needle', type: 'string', value: 'z' }],
+    body: `return value="Text.indexOf(s, needle)"`,
+    expected: -1 },
+  { kind: 'stmt', name: 'stmt: Text.startsWith true for a matching ASCII prefix',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'p', type: 'string', value: 'he' }],
+    body: `return value="Text.startsWith(s, p)"`,
+    expected: true },
+  { kind: 'stmt', name: 'stmt: Text.startsWith true for a well-formed astral prefix',
+    params: [{ name: 's', type: 'string', value: '\u{1F4A9}b' }, { name: 'p', type: 'string', value: '\u{1F4A9}' }],
+    body: `return value="Text.startsWith(s, p)"`,
+    expected: true },
+  { kind: 'stmt', name: 'stmt: Text.startsWith false for a non-matching prefix',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'p', type: 'string', value: 'wo' }],
+    body: `return value="Text.startsWith(s, p)"`,
+    expected: false },
+  { kind: 'stmt', name: 'stmt: a combining-mark sequence counts each combining mark as its own code point (5)',
+    // "cafe" + U+0301 COMBINING ACUTE ACCENT: 4 base letters + 1 combining
+    // mark = 5 code points (code points, not graphemes — the tribunal fixture).
+    params: [{ name: 's', type: 'string', value: 'café' }],
+    body: `return value="Text.length(s)"`,
+    expected: 5 },
+
+  // ── INT/FLOAT index parity (agon review, confirmed finding) — KERN `/` is
+  //    TRUE division on both legs, but the RESULT TYPE diverges: `4 / 2` is the
+  //    plain number 2 on JS and the int-valued FLOAT 2.0 on Python (both legs
+  //    emit the division verbatim). The Text helpers accept any
+  //    integer-VALUED number as an index (Python coerces an `.is_integer()`
+  //    float to int; JS's Number.isInteger accepts the same value set by
+  //    construction since 2.0 === 2) and reject a NON-integer value (1.5)
+  //    with the same bounds error on both legs. DISCRIMINATING: a strict
+  //    `isinstance(i, int)` Python impl fails the computed-index cases (2.0
+  //    raises → ts ≠ py), and an unchecked JS impl fails the 3/2 throws-case
+  //    (cps[1.5] silently yields undefined instead of throwing).
+  { kind: 'stmt', name: 'stmt: Text.charAt with a COMPUTED index (i/2 -> 2.0 on Python, 2 on JS) works on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'i', type: 'number', value: 4 }],
+    body: `return value="Text.charAt(s, i / 2)"`,
+    expected: 'l' },
+  { kind: 'stmt', name: 'stmt: Text.slice with COMPUTED bounds (a/2, b/2) works on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'a', type: 'number', value: 2 }, { name: 'b', type: 'number', value: 6 }],
+    body: `return value="Text.slice(s, a / 2, b / 2)"`,
+    expected: 'el' },
+  { kind: 'stmt', name: 'stmt: Text.charAt COMPUTED index at an astral boundary returns the whole astral character',
+    params: [{ name: 's', type: 'string', value: 'a\u{1F4A9}b' }, { name: 'i', type: 'number', value: 2 }],
+    body: `return value="Text.charAt(s, i / 2)"`,
+    expected: '\u{1F4A9}' },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.charAt with a NON-integer index (i/2 = 1.5) fails closed on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'i', type: 'number', value: 3 }],
+    body: `return value="Text.charAt(s, i / 2)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.slice with a NON-integer bound (b/2 = 1.5) fails closed on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'a', type: 'number', value: 0 }, { name: 'b', type: 'number', value: 3 }],
+    body: `return value="Text.slice(s, a, b / 2)"` },
+
+  // ── Malformed-surrogate FAIL-CLOSED parity (kind:'stmt', throws:true) — both
+  //    legs must throw on the SAME input; a leg that silently "succeeds" on a
+  //    malformed surrogate is a parity violation (the runner already fails
+  //    closed on these — see runner-string-ops.test.ts's matching fixtures).
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a LONE HIGH surrogate fails closed on Text.length on both legs',
+    params: [{ name: 's', type: 'string', value: '\uD800' }],
+    body: `return value="Text.length(s)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a LONE LOW surrogate fails closed on Text.length on both legs',
+    params: [{ name: 's', type: 'string', value: '\uDC00' }],
+    body: `return value="Text.length(s)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a REVERSED PAIR fails closed on Text.length on both legs',
+    params: [{ name: 's', type: 'string', value: '\uDC00\uD800' }],
+    body: `return value="Text.length(s)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: a lone surrogate in the NEEDLE argument fails closed (indexOf) on both legs',
+    params: [{ name: 's', type: 'string', value: 'hello' }, { name: 'needle', type: 'string', value: '\uD800' }],
+    body: `return value="Text.indexOf(s, needle)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.charAt out-of-bounds index fails closed on both legs (strict bounds)',
+    params: [{ name: 's', type: 'string', value: 'hi' }, { name: 'i', type: 'number', value: 2 }],
+    body: `return value="Text.charAt(s, i)"` },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: Text.slice out-of-bounds end fails closed on both legs (no silent clamping)',
+    params: [{ name: 's', type: 'string', value: 'hi' }, { name: 'a', type: 'number', value: 0 }, { name: 'b', type: 'number', value: 5 }],
+    body: `return value="Text.slice(s, a, b)"` },
 
   // ──────────────────────────────────────────────────────────────────────────
   // compile-reject: sources KERN must REJECT, asserting the EXACT reason at every layer that
@@ -1692,6 +1904,11 @@ for (const fx of FIXTURES) {
       // feeds the other flags).
       const usage = detectKernStdlibUsage(handler);
       if (emittedCodeUsesLooseEq(ts.code)) usage.looseEq = true;
+      // KERN 4.5.0 item 3 — same detection == emission pattern: a `Text.length`/
+      // `charAt`/`slice`/`indexOf`/`startsWith` lowering emits an `__kern_text_*(`
+      // call that needs the code-point-ops helper block resolved in this
+      // isolated subprocess.
+      if (emittedCodeUsesTextOps(ts.code)) usage.textOps = true;
       const tsPreamble = kernStdlibPreamble(usage).join('\n');
       const tsSource = `${[...(ts.imports ?? [])].join('\n')}\n${tsPreamble}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
       writeFileSync(
@@ -1703,6 +1920,28 @@ for (const fx of FIXTURES) {
       const pyHelpers = [...(pyEmit.helpers ?? [])].join('\n\n');
       writeFileSync(pyFile, `import json\n${[...(pyEmit.imports ?? [])].join('\n')}\n${pyHelpers}\ndef __h(${names.join(', ')}):\n${pyEmit.code.split('\n').map((l) => `    ${l}`).join('\n')}\nprint(json.dumps(__h(${fx.params.map((p) => pyVal(p.value)).join(', ')}), default=str, allow_nan=False))`);
       const stmtOpts = { encoding: 'utf8', timeout: 10_000 };
+      // KERN 4.5.0 item 3 — `throws: true` fixtures assert RUNTIME-THROW PARITY
+      // (both legs must fail closed on the same input, e.g. a malformed
+      // surrogate) rather than a matching return value. Neither leg has a
+      // "did I throw" JSON signal, so a non-zero exit / execFileSync throw IS
+      // the observation.
+      if (fx.throws) {
+        let tsThrew = false;
+        let pyThrew = false;
+        try {
+          execFileSync('node', [tsFile], stmtOpts);
+        } catch {
+          tsThrew = true;
+        }
+        try {
+          execFileSync('python3', [pyFile], stmtOpts);
+        } catch {
+          pyThrew = true;
+        }
+        if (tsThrew && pyThrew) pass++;
+        else failures.push({ name: fx.name, why: `expected BOTH legs to throw (ts threw=${tsThrew}, py threw=${pyThrew})` });
+        continue;
+      }
       const tsOut = execFileSync('node', [tsFile], stmtOpts).trim();
       const pyOut = execFileSync('python3', [pyFile], stmtOpts).trim();
       const cTs = canon(JSON.parse(tsOut), 'value');
@@ -1838,6 +2077,8 @@ for (const fx of FIXTURES) {
         const tsBody = topNodes.map((n) => generateCoreNode(n).join('\n')).join('\n\n');
         const usage = detectKernStdlibUsage(root);
         if (emittedCodeUsesLooseEq(tsBody)) usage.looseEq = true;
+        // KERN 4.5.0 item 3 — see the stmt-branch comment above; same pattern.
+        if (emittedCodeUsesTextOps(tsBody)) usage.textOps = true;
         const tsPreamble = kernStdlibPreamble(usage).join('\n');
         const tsSource = `${tsPreamble ? `${tsPreamble}\n` : ''}${tsBody}${probeLogTs}`;
         const tsFile = join(dir, 'whole-file.mjs');

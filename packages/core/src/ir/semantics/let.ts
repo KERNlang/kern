@@ -13,12 +13,19 @@
  * Portability domain:
  *   - `name` is a cross-target identifier, not already bound in the current
  *     semantic environment, and not a known JS/Python/KERN builtin name.
- *   - `value` is required and evaluates to a portable scalar: string, finite
- *     number, boolean, or null.
- *   - Expressions are the shared portable-scalar subset (see
+ *   - `value` is required and evaluates to a portable scalar (string, finite
+ *     number, boolean, null), an ARRAY LITERAL `[...]` (slice-2a), or a flat
+ *     RECORD LITERAL `{ key: scalar }` (native runner preview).
+ *   - Scalar expressions are the shared portable-scalar subset (see
  *     `./portable-scalar.ts`): literals, identifiers resolving to portable
  *     scalars, arithmetic over numbers, comparisons over same-typed scalars,
  *     boolean/nullish operators over portable truthiness, and conditionals.
+ *   - An ARRAY LITERAL binds a plain frozen JS array of recursively-evaluated
+ *     portable elements (scalars + nested array literals), mirroring the product
+ *     runtime's `arrayLit` (see `./portable-array.ts`). It exists to be iterated
+ *     by `each`; a non-portable element (Decimal/regex/object) abstains, and a
+ *     SCALAR-context read of a bound array (`print xs`, `xs + 1`, index `xs[0]`)
+ *     still fails closed via `assertPortableScalar` (those surfaces are deferred).
  *
  * Exclusions:
  *   Bare declarations, destructuring, same-block redeclaration, builtin
@@ -30,13 +37,26 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import {
   defineBinding,
+  getBinding,
+  hasBinding,
   hasOwnBinding,
   type NodeContract,
   type NodeFixture,
   registerContract,
   type SemanticEnv,
 } from './index.js';
-import { evalPortableValue, isPortableBindingName } from './portable-scalar.js';
+import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
+import { isEmptyMapConstructorCall } from './portable-map.js';
+import {
+  assertRunnerPortableValue,
+  evalPortableValue,
+  evalRecordLiteralValue,
+  evalRunnerClassNewValue,
+  evalRunnerFunctionValue,
+  isPortableBindingName,
+  isRecordLiteralExpression,
+  isRunnerClassInstanceValue,
+} from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
 interface LetProps {
@@ -56,7 +76,35 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   if (!Object.hasOwn(ir.props ?? {}, 'value') || props.value === '') return false;
   if (props.kind !== undefined && props.kind !== '' && props.kind !== 'let' && props.kind !== 'const') return false;
   try {
-    evalPortableValue(parseExpression(String(props.value)), env);
+    const parsed = parseExpression(String(props.value));
+    if (isArrayLiteralExpression(parsed)) {
+      evalArrayLiteralValue(parsed, env);
+      return true;
+    }
+    if (isRecordLiteralExpression(parsed)) {
+      evalRecordLiteralValue(parsed, env);
+      return true;
+    }
+    // Milestone 5.1b — `new Map()` (empty-map construction only; see
+    // portable-map.ts) must be checked BEFORE the generic class-new branch,
+    // which would otherwise reject Map as an unknown runner class.
+    if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
+      return true;
+    }
+    if (parsed.kind === 'new') {
+      evalRunnerClassNewValue(parsed, env);
+      return true;
+    }
+    if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
+      evalRunnerFunctionValue(parsed.callee.name, parsed.args, env);
+      return true;
+    }
+    if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+      const binding = getBinding(env, parsed.name);
+      if (!isRunnerClassInstanceValue(binding)) assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+      return true;
+    }
+    evalPortableValue(parsed, env);
     return true;
   } catch {
     return false;
@@ -66,7 +114,25 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
 function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   const props = asLetProps(ir);
   const name = props.name as string;
-  const value = evalPortableValue(parseExpression(String(props.value)), env);
+  const parsed = parseExpression(String(props.value));
+  const value = isArrayLiteralExpression(parsed)
+    ? evalArrayLiteralValue(parsed, env)
+    : isRecordLiteralExpression(parsed)
+      ? evalRecordLiteralValue(parsed, env)
+      : parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)
+        ? new Map<string, unknown>()
+        : parsed.kind === 'new'
+          ? evalRunnerClassNewValue(parsed, env)
+          : parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String'
+            ? evalRunnerFunctionValue(parsed.callee.name, parsed.args, env)
+            : parsed.kind === 'ident' && hasBinding(env, parsed.name)
+              ? (() => {
+                  const binding = getBinding(env, parsed.name);
+                  return isRunnerClassInstanceValue(binding)
+                    ? binding
+                    : assertRunnerPortableValue(binding, `binding "${parsed.name}"`);
+                })()
+              : evalPortableValue(parsed, env);
   defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }

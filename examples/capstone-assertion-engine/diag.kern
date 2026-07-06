@@ -1,0 +1,35 @@
+fn name=pathAppendKey params="path:string,key:string" returns=string export=true
+  handler lang="kern"
+    if cond="path == \"\""
+      return value="key"
+    return value="path + \".\" + key"
+
+fn name=pathAppendIndex params="path:string,idx:number" returns=string export=true
+  handler lang="kern"
+    return value="path + \"[\" + String(idx) + \"]\""
+
+fn name=passResult returns=string export=true
+  handler lang="kern"
+    return value="\"PASS|-|-\""
+
+fn name=failResult params="path:string,reason:string" returns=string export=true
+  handler lang="kern"
+    if cond="path == \"\""
+      return value="\"FAIL|$|\" + reason"
+    return value="\"FAIL|\" + path + \"|\" + reason"
+
+fn name=reasonTypeMismatch params="typeA:string,typeB:string" returns=string export=true
+  handler lang="kern"
+    return value="\"type mismatch: \" + typeA + \" vs \" + typeB"
+
+fn name=reasonValueMismatch params="valueA:string,valueB:string" returns=string export=true
+  handler lang="kern"
+    return value="\"value mismatch: \" + valueA + \" vs \" + valueB"
+
+fn name=reasonLengthMismatch params="countA:number,countB:number" returns=string export=true
+  handler lang="kern"
+    return value="\"length mismatch: \" + String(countA) + \" vs \" + String(countB)"
+
+fn name=reasonKeyMismatch params="keyA:string,keyB:string" returns=string export=true
+  handler lang="kern"
+    return value="\"key mismatch: \" + keyA + \" vs \" + keyB"

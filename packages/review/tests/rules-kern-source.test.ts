@@ -564,6 +564,40 @@ fn name=loadUser returns=string
     expect(bFinding?.relatedSpans?.some((span) => span.file === aFile)).toBe(true);
   });
 
+  it('does not report duplicate main functions across standalone example .kern entries', () => {
+    const dir = join(TMP, 'examples', 'standalone-main');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const aFile = join(dir, 'native-runtime-smoke.kern');
+    const bFile = join(dir, 'native-runtime-async-host-preview.kern');
+    writeFileSync(
+      aFile,
+      `
+fn name=main returns=void
+  handler <<<
+    return;
+  >>>
+`,
+    );
+    writeFileSync(
+      bFile,
+      `
+fn name=main returns=void
+  handler <<<
+    return;
+  >>>
+`,
+    );
+
+    const reports = reviewGraph([aFile, bFile], { noCache: true });
+    const duplicateFindings = reports.flatMap((report) =>
+      report.findings.filter((finding) => finding.ruleId === 'kern-duplicate-symbol'),
+    );
+
+    expect(duplicateFindings).toEqual([]);
+  });
+
   it('missing-confidence is opt-in: silent by default, fires with requireConfidenceAnnotations', () => {
     const source = `
 screen name=External

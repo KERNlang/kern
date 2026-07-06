@@ -13,32 +13,54 @@
  * the per-contract `_resetXForTest()` helpers first.
  */
 
-import { registerAssignContract } from './assign.js';
-import { registerBranchContract } from './branch.js';
-import { registerEachContract } from './each.js';
-import { registerExpressionV1Contract } from './expression-v1.js';
-import { registerFmtContract } from './fmt.js';
-import { registerForContract } from './for.js';
-import { registerIfContract } from './if.js';
-import { registerLambdaContract } from './lambda.js';
-import { registerLetContract } from './let.js';
-import { registerPrimitives } from './primitives.js';
-import { registerPrintContract } from './print.js';
-import { registerTryContract } from './try.js';
-import { registerWhileContract } from './while.js';
+import { _resetAssignContractForTest, registerAssignContract } from './assign.js';
+import { _resetBranchContractForTest, registerBranchContract } from './branch.js';
+import { _resetCapabilityContractForTest, registerCapabilityContract } from './capability.js';
+import { _resetDoContractForTest, registerDoContract } from './do.js';
+import { _resetEachContractForTest, registerEachContract } from './each.js';
+import { _resetExpressionV1ContractForTest, registerExpressionV1Contract } from './expression-v1.js';
+import { _resetFmtContractForTest, registerFmtContract } from './fmt.js';
+import { _resetForContractForTest, registerForContract } from './for.js';
+import { _resetIfContractForTest, registerIfContract } from './if.js';
+import { _resetLambdaContractForTest, registerLambdaContract } from './lambda.js';
+import { _resetLetContractForTest, registerLetContract } from './let.js';
+import { _resetPrimitivesForTest, registerPrimitives } from './primitives.js';
+import { _resetPrintContractForTest, registerPrintContract } from './print.js';
+import { _resetTryContractForTest, registerTryContract } from './try.js';
+import { _resetWhileContractForTest, registerWhileContract } from './while.js';
 
 export function registerAllContracts(): void {
   registerPrimitives();
   registerEachContract();
   registerBranchContract();
+  registerCapabilityContract();
   registerIfContract();
   registerForContract();
   registerLambdaContract();
   registerLetContract();
   registerAssignContract();
+  registerDoContract();
   registerFmtContract();
   registerWhileContract();
   registerTryContract();
   registerExpressionV1Contract();
   registerPrintContract();
+}
+
+export function resetAllContractRegistration(): void {
+  _resetPrimitivesForTest();
+  _resetEachContractForTest();
+  _resetBranchContractForTest();
+  _resetCapabilityContractForTest();
+  _resetIfContractForTest();
+  _resetForContractForTest();
+  _resetLambdaContractForTest();
+  _resetLetContractForTest();
+  _resetAssignContractForTest();
+  _resetDoContractForTest();
+  _resetFmtContractForTest();
+  _resetWhileContractForTest();
+  _resetTryContractForTest();
+  _resetExpressionV1ContractForTest();
+  _resetPrintContractForTest();
 }

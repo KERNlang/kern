@@ -182,10 +182,24 @@ export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 export {
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesTextOps,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
 } from './codegen/stdlib-preamble.js';
+// KERN 4.5.0 item 3 — TEXT shared contract (single-sourced across the
+// ReferenceRunner + TS emitter + Python emitter — see that module's doc).
+export {
+  codePointIndexOf,
+  isWellFormedText,
+  KERN_TEXT_OPS_HELPER_PY,
+  TEXT_MALFORMED_SURROGATE_FAILCLOSE,
+  textCharAtOutOfRangeMessage,
+  textCodePoints,
+  textMalformedSurrogateFailMessage,
+  textOpsHelpersTS,
+  textSliceOutOfRangeMessage,
+} from './codegen/text-contract.js';
 export type { SemanticTypeMapping } from './codegen-core.js';
 // Codegen — public entry points
 export {
@@ -657,6 +671,8 @@ export type {
   RagVectorStoreAdapterCapabilities,
   RagVectorStoreAdapterContract,
   RagVectorStoreAdapterManifest,
+  RagVectorStoreAdapterTransport,
+  RagVectorStoreAsyncConformanceOptions,
   RagVectorStoreConformanceCaseResult,
   RagVectorStoreConformanceContext,
   RagVectorStoreConformanceOptions,
@@ -664,6 +680,7 @@ export type {
   RagVectorStoreConformanceProfileVersion,
   RagVectorStoreConformanceReport,
   RagVectorStoreConformanceStatus,
+  RagVectorStoreFilterCapability,
   RagVectorStoreManifestValidationResult,
 } from './rag-adapter-conformance.js';
 export {
@@ -673,26 +690,53 @@ export {
   defineRagVectorStoreAdapterContract,
   RAG_VECTOR_STORE_CONFORMANCE_PROFILE,
   runRagVectorStoreConformance,
+  runRagVectorStoreConformanceAsync,
   validateRagVectorStoreAdapterManifest,
 } from './rag-adapter-conformance.js';
+export type { RagInlineCitationChunk, RagInlineCitationGroundingOptions } from './rag-answer-citations.js';
+export { inferRagAnswerGroundingSpansFromInlineCitations } from './rag-answer-citations.js';
+export type {
+  RagAnswerSynthesisOptions,
+  RagAnswerSynthesisResult,
+  RagAnswerTextGenerator,
+} from './rag-answer-synthesis.js';
+export { DEFAULT_RAG_ANSWER_SYNTHESIS_MIN_GROUNDING_COVERAGE, synthesizeRagAnswer } from './rag-answer-synthesis.js';
 export type { RagAssertionKind } from './rag-assertions.js';
 export { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
-export type { RagProviderEmbeddingOptions, RagSupportedEmbedModel } from './rag-embed-resolver.js';
+export type {
+  RagCanonicalEmbedModel,
+  RagEmbeddingProviderAdapter,
+  RagEmbeddingProviderManifest,
+  RagEmbeddingProviderModelManifest,
+  RagProviderEmbeddingOptions,
+  RagProviderFakeEmbeddingOptions,
+  RagSupportedEmbedModel,
+} from './rag-embed-resolver.js';
 export {
   canonicalRagEmbedModel,
   defaultDimsForRagEmbedModel,
+  defaultRagEmbeddingProviderRegistry,
   embedFactForPipeline,
   isSupportedRagEmbedModel,
+  RAG_EMBED_MODEL_FAKE_DETERMINISTIC,
   RAG_EMBED_MODEL_LOCAL_HASH,
   RAG_EMBED_MODEL_LOCAL_SEMANTIC,
   RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_LARGE,
   RAG_EMBED_MODEL_OPENAI_TEXT_EMBEDDING_3_SMALL,
+  RAG_EMBEDDING_PROVIDER_MANIFEST_VERSION,
+  RAG_EMBEDDING_PROVIDER_MANIFESTS,
   RAG_SUPPORTED_EMBED_MODELS,
+  RagEmbeddingProviderRegistry,
+  ragEmbedderIdentityForModel,
+  ragEmbedModelAllowsCustomDims,
+  resolveAsyncRagEmbedderForModel,
   resolveAsyncRagEmbedderForPipeline,
+  resolveSyncRagEmbedderForModel,
   resolveSyncRagEmbedderForPipeline,
 } from './rag-embed-resolver.js';
 export type {
   AsyncEmbedder,
+  AsyncRagVectorStoreAdapter,
   Embedder,
   EmbeddingFingerprintInput,
   OpenAIEmbeddingAdapterOptions,
@@ -723,6 +767,15 @@ export {
   OpenAIEmbeddingAdapter,
   RAG_VECTOR_STORE_SNAPSHOT_VERSION,
 } from './rag-embedding.js';
+export type { RagEmittedBoundary, RagEmittedBoundaryMode, RagRunnerOnlyNodeType } from './rag-emitted-boundary.js';
+export {
+  isRagRunnerOnlyNodeInContext,
+  isRagRunnerOnlyNodeType,
+  RAG_EMITTED_BOUNDARY,
+  RAG_EMITTED_BOUNDARY_VERSION,
+  RAG_RUNNER_ONLY_DIAGNOSTIC_REASON,
+  RAG_RUNNER_ONLY_NODE_TYPES,
+} from './rag-emitted-boundary.js';
 export type {
   RagEvalAsyncDocumentOptions,
   RagEvalDeclaredAsyncDocumentOptions,
@@ -730,8 +783,13 @@ export type {
   RagEvalDocumentCorpusSource,
   RagEvalDocumentCorpusSourceMode,
   RagEvalDocumentEntry,
+  RagEvalDocumentEntryTarget,
+  RagEvalDocumentEntryTargetMode,
   RagEvalDocumentOptions,
   RagEvalDocumentReport,
+  RagEvalDocumentTargetMode,
+  RagEvalDocumentTargetOptions,
+  RagEvalDocumentTargetReport,
 } from './rag-eval-runner.js';
 export {
   evaluateRagEvalDocument,
@@ -739,6 +797,15 @@ export {
   evaluateRagEvalDocumentFromDeclaredSources,
   evaluateRagEvalDocumentFromDeclaredSourcesAsync,
 } from './rag-eval-runner.js';
+export type {
+  RagIndexDocumentOptions,
+  RagIndexDocumentReport,
+  RagIndexEntryReport,
+  RagIndexLifecycleAction,
+  RagIndexProvenance,
+  RagIndexSnapshotStatus,
+} from './rag-index-runner.js';
+export { indexRagDocumentAsync, stableRagChunkDigest } from './rag-index-runner.js';
 export type { RagIngestedSource, RagIngestOptions, RagIngestResult } from './rag-ingest.js';
 export {
   ingestRagDeclaredLocalSources,
@@ -748,16 +815,41 @@ export {
   RAG_SEMANTIC_CHUNKER_VERSION,
   RAG_TOKEN_WINDOW_CHUNKER_VERSION,
 } from './rag-ingest.js';
+export type { RagEmbeddingProviderErrorCode, RagEmbeddingProviderErrorOptions } from './rag-provider-errors.js';
+export {
+  RagEmbeddingProviderAuthError,
+  RagEmbeddingProviderConfigurationError,
+  RagEmbeddingProviderDimensionMismatchError,
+  RagEmbeddingProviderError,
+  RagEmbeddingProviderModelNotFoundError,
+  RagEmbeddingProviderRateLimitError,
+  RagEmbeddingProviderUnavailableError,
+} from './rag-provider-errors.js';
+export type {
+  ParsedRagQueryTemplate,
+  RagQueryTemplateParamValue,
+  RagQueryTemplateSlot,
+  RagQueryTemplateType,
+} from './rag-query-template.js';
+export { parseRagQueryTemplate, renderRagQueryTemplate } from './rag-query-template.js';
 export type {
   RagRetrieveAsyncDocumentOptions,
   RagRetrieveDocumentEntry,
   RagRetrieveDocumentOptions,
   RagRetrieveDocumentReport,
+  RagRetrieveIndexLifecycle,
+  RagRetrieveIndexLifecycleStatus,
+  RegisterExternalRagVectorStoreAdapterOptions,
+  RetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export {
+  closeRetrievalStoresFailClosed,
+  parseRetrievedChunkCitationProvenance,
   ragRetrieveCorpusSourceSummary,
+  registerExternalRagVectorStoreAdapter,
   retrieveRagDocument,
   retrieveRagDocumentAsync,
+  toRetrievedChunkCapabilityValue,
 } from './rag-retrieve-runner.js';
 export type {
   InMemoryRagRetriever,
@@ -778,6 +870,9 @@ export type {
   RagEvalContractOptions,
   RagEvalContractResult,
   RagMcpRetrieveProvenanceMapping,
+  RagPromptContext,
+  RagPromptContextChunk,
+  RagPromptContextOptions,
   RagRuntimeProvenance,
   RagRuntimeProvenanceOptions,
   RagRuntimeProvenanceStatus,
@@ -787,20 +882,31 @@ export type {
   RetrieveResult,
 } from './rag-runtime.js';
 export {
+  assembleRagPromptContext,
   createInMemoryRetriever,
   createRagRuntimeProvenance,
+  DEFAULT_RAG_PROMPT_CONTEXT_MAX_CHARS,
   evaluateRagAnswerContract,
   evaluateRagEvalContract,
   evaluateRagSemanticAnswerContract,
   hashRetrievedChunkText,
   InMemoryRagCorpus,
   MAX_IN_MEMORY_RAG_TOP_K,
+  RAG_PROMPT_CONTEXT_BOUNDARY_BEGIN,
+  RAG_PROMPT_CONTEXT_BOUNDARY_END,
+  RAG_PROMPT_CONTEXT_BOUNDARY_INSTRUCTION,
   ragAnswerContractFromSemanticFact,
   ragMcpRetrieveProvenanceMapping,
   retrieveFromInMemoryCorpus,
   tokenizeForRetrieval,
   withRagRuntimeProvenance,
 } from './rag-runtime.js';
+export type { RegisteredExternalRagVectorStoreAdapter } from './rag-vector-store-registry.js';
+export {
+  isRegisteredExternalRagVectorStoreKind,
+  registeredExternalRagVectorStoreKinds,
+  unregisterExternalRagVectorStoreAdapter,
+} from './rag-vector-store-registry.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

@@ -120,7 +120,7 @@ function pathShapeIsValid(path: IRNode): boolean {
   return true;
 }
 
-function branchPreconditions(ir: IRNode, env: SemanticEnv): boolean {
+export function branchPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   const p = asBranchProps(ir);
   if (typeof p.on !== 'string' || p.on.trim() === '') return false;
   const paths = ir.children ?? [];
@@ -147,7 +147,7 @@ function branchPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   return true;
 }
 
-function selectPath(ir: IRNode, env: SemanticEnv): IRNode | undefined {
+export function selectBranchPath(ir: IRNode, env: SemanticEnv): IRNode | undefined {
   const subject = evalExpressionInContractDomain(asBranchProps(ir).on, env, 'on');
   let defaultPath: IRNode | undefined;
   for (const path of ir.children ?? []) {
@@ -161,7 +161,7 @@ function selectPath(ir: IRNode, env: SemanticEnv): IRNode | undefined {
 }
 
 function branchEffects(ir: IRNode, env: SemanticEnv): Trace {
-  const selected = selectPath(ir, env);
+  const selected = selectBranchPath(ir, env);
   if (!selected) return emptyTrace();
   // Run the selected path body in a CHILD scope: path-local `let`s stay scoped to
   // the case block (the "hoist path-local bindings out of their case block"

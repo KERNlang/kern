@@ -115,10 +115,11 @@ class ExampleExternalMemoryVectorStore {
 
 export const exampleRagVectorStoreContract = defineRagVectorStoreAdapterContract({
   manifest: {
-    name: 'example-external-memory',
+    name: 'example-in-process-memory',
     kind: 'vectorStore',
     adapterKind: 'memory',
     version: '1.0.0',
+    transport: 'in-process',
     metrics: ['cosine'],
     maxDimensions: 4096,
     persistence: 'ephemeral',
@@ -128,6 +129,9 @@ export const exampleRagVectorStoreContract = defineRagVectorStoreAdapterContract
       search: true,
       snapshot: true,
       clear: true,
+      namespaces: false,
+      filters: [],
+      maxDimensions: 4096,
     },
   },
   createStore: (context) => new ExampleExternalMemoryVectorStore(context),
@@ -136,7 +140,7 @@ export const exampleRagVectorStoreContract = defineRagVectorStoreAdapterContract
 export function runExampleConformance() {
   return runRagVectorStoreConformance({
     ...exampleRagVectorStoreContract,
-    runId: 'example-external-memory',
+    runId: 'example-in-process-memory',
   });
 }
 

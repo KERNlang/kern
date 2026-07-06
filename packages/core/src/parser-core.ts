@@ -882,6 +882,7 @@ function isNativeBodyStatementChild(node: IRNode): boolean {
     case 'continue':
     case 'break':
     case 'branch':
+    case 'capability':
       return true;
     default:
       return false;
@@ -918,6 +919,7 @@ function isKernHandlerBodySignal(node: IRNode): boolean {
     case 'continue':
     case 'break':
     case 'branch':
+    case 'capability':
     case 'catch':
     case 'finally':
       return true;

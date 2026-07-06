@@ -33,7 +33,7 @@ import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
-const MAX_ITERATIONS = 100_000;
+export const WHILE_MAX_ITERATIONS = 100_000;
 
 interface WhileProps {
   cond?: unknown;
@@ -47,12 +47,18 @@ function evalStrictBoolean(cond: string, env: SemanticEnv): boolean {
   return value;
 }
 
-function whilePreconditions(ir: IRNode, env: SemanticEnv): boolean {
+export function evaluateWhileCondition(ir: IRNode, env: SemanticEnv): boolean {
   const cond = (ir.props as WhileProps)?.cond;
-  if (typeof cond !== 'string' || cond === '') return false;
+  if (typeof cond !== 'string' || cond === '') {
+    throw new Error('while: cond= must be a non-empty string expression');
+  }
+  return evalStrictBoolean(cond, env);
+}
+
+export function whilePreconditions(ir: IRNode, env: SemanticEnv): boolean {
   if (!Array.isArray(ir.children)) return false;
   try {
-    evalStrictBoolean(cond, env);
+    evaluateWhileCondition(ir, env);
     return true;
   } catch {
     return false;
@@ -60,14 +66,13 @@ function whilePreconditions(ir: IRNode, env: SemanticEnv): boolean {
 }
 
 function whileEffects(ir: IRNode, env: SemanticEnv): Trace {
-  const cond = String((ir.props as WhileProps).cond);
   const children = ir.children ?? [];
   const out: Trace = emptyTrace();
 
   let iterations = 0;
-  while (evalStrictBoolean(cond, env)) {
-    if (iterations >= MAX_ITERATIONS) {
-      throw new Error(`while: exceeded ${MAX_ITERATIONS} iterations — non-terminating fixture`);
+  while (evaluateWhileCondition(ir, env)) {
+    if (iterations >= WHILE_MAX_ITERATIONS) {
+      throw new Error(`while: exceeded ${WHILE_MAX_ITERATIONS} iterations — non-terminating fixture`);
     }
     iterations += 1;
 

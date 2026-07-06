@@ -34,10 +34,10 @@ const PY_PRELUDE = `${KERN_FMT_HELPER_PY}\n\n`;
 const PY_PRELUDE_NULLISH = `${KERN_NULLISH_HELPER_PY}\n\n`;
 // Slice S4 — a body whose `if cond=`/ternary/`!`/`firstTruthy` touches the
 // truthiness helper surfaces `KERN_JS_HELPER_PY`. `JS_PRELUDE` is that helper
-// alone (bodies with no value coercion); `PY_PRELUDE_WITH_TRUTHY` is the JS
+// alone (bodies with no value coercion); `_PY_PRELUDE_WITH_TRUTHY` is the JS
 // helper followed by the fmt prelude (the JS helper is added to the Set first).
 const JS_PRELUDE = `${KERN_JS_HELPER_PY}\n\n`;
-const PY_PRELUDE_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\n`;
+const _PY_PRELUDE_WITH_TRUTHY = `${KERN_JS_HELPER_PY}\n\n${KERN_FMT_HELPER_PY}\n\n`;
 
 describe('emitPyExpression — slice 1 lowering rules', () => {
   test('booleans lower to Python True/False', () => {
