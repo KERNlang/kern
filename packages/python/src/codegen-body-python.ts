@@ -3864,6 +3864,7 @@ function nestedRecordFieldNonArrayReceiverPy(
 
 function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
   if (node.kind === 'member' && node.object.kind === 'ident') {
+    if (!lookupRecordBinding(ctx, node.object.name)) return emitPyExprCtx(node, ctx);
     if (node.optional || isParenthesized(node.object)) {
       throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
     }
@@ -3873,21 +3874,10 @@ function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
     ) {
       throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
     }
-    if (!lookupRecordBinding(ctx, node.object.name)) {
-      throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
-    }
-    if (lookupRecordBinding(ctx, node.object.name)) {
-      if (!lookupRecordArrayField(ctx, node.object.name, node.property)) {
-        throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
-      }
-      if (!lookupRecordScalarArrayField(ctx, node.object.name, node.property)) {
-        throw new Error(`record array field "${node.object.name}.${node.property}" elements must be portable scalars`);
-      }
-      ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
-      ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
-      const record = ctx.symbolMap[node.object.name] ?? node.object.name;
-      return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
-    }
+    ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
+    ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
+    const record = ctx.symbolMap[node.object.name] ?? node.object.name;
+    return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
   }
   return emitPyExprCtx(node, ctx);
 }

@@ -1871,6 +1871,7 @@ function emitValueTS(node: ValueIR, ctx: BodyEmitContext, options: { preserveFre
 
 function emitEachIterableTS(node: ValueIR, ctx: BodyEmitContext): string {
   if (node.kind === 'member' && node.object.kind === 'ident') {
+    if (!lookupRecordBinding(ctx, node.object.name)) return emitValueTS(node, ctx);
     if (node.optional || isParenthesized(node.object)) {
       throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
     }
@@ -1880,18 +1881,7 @@ function emitEachIterableTS(node: ValueIR, ctx: BodyEmitContext): string {
     ) {
       throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
     }
-    if (!lookupRecordBinding(ctx, node.object.name)) {
-      throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
-    }
-    if (lookupRecordBinding(ctx, node.object.name)) {
-      if (!lookupRecordArrayField(ctx, node.object.name, node.property)) {
-        throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
-      }
-      if (!lookupRecordScalarArrayField(ctx, node.object.name, node.property)) {
-        throw new Error(`record array field "${node.object.name}.${node.property}" elements must be portable scalars`);
-      }
-      return nestedArrayIterableTS(node.object.name, node.property);
-    }
+    return nestedArrayIterableTS(node.object.name, node.property);
   }
   return emitValueTS(node, ctx);
 }
