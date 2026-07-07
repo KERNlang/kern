@@ -1487,6 +1487,46 @@ fn name=probe returns=boolean
     do value="Map.set(m, \\"a\\", 1)"
     return value="[List.length(xs), Map.get(m, \\"a\\"), Map.has(m, \\"a\\") ? 1 : 0, Map.has(m, \\"missing\\") ? 1 : 0]"`,
     expected: [3, 1, 1, 0] },
+  // T3 traversal helper pins are GREEN-at-add regression coverage by lead verdict:
+  // they lock the current flattened-tree traversal surface rather than proving a new capability.
+  // Matching runner pins live in runner-source-executor.test.ts.
+  { kind: 'stmt', name: 'stmt: TRAV-1 pin parallel-array scan by for-counter index',
+    params: [],
+    body: `let name=parentIdx value="[9,0,0,1]"\nlet name=typeIdx value="[0,4,5,6]"\nlet name=target value="0"\nlet kind=let name=found value="-1"\nfor name=i from="0" to="parentIdx.length"\n  if cond="parentIdx[i] == target"\n    assign target=found value="typeIdx[i]"\nreturn value="found"`,
+    expected: 5 },
+  { kind: 'stmt', name: 'stmt: TRAV-2 pin conditional child-count accumulation',
+    params: [],
+    body: `let name=parentIdx value="[9,0,0,1]"\nlet name=target value="0"\nlet kind=let name=count value="0"\nfor name=i from="0" to="parentIdx.length"\n  if cond="parentIdx[i] == target"\n    assign target=count value="count + 1"\nreturn value="count"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: TRAV-3 pin select nth child by keyIdx',
+    params: [],
+    body: `let name=parentIdx value="[9,0,0,0,2]"\nlet name=keyIdx value="[0,4,7,4,4]"\nlet name=targetParent value="0"\nlet name=wantedKey value="4"\nlet name=nth value="1"\nlet kind=let name=seen value="0"\nlet kind=let name=selected value="-1"\nfor name=i from="0" to="parentIdx.length"\n  if cond="parentIdx[i] == targetParent"\n    if cond="keyIdx[i] == wantedKey"\n      if cond="seen == nth"\n        assign target=selected value="i"\n      assign target=seen value="seen + 1"\nreturn value="selected"`,
+    expected: 3 },
+  { kind: 'whole-file', name: 'whole-file: TRAV-4 pin helper-param for-counter index provenance',
+    kern: `fn name=get params="children:number[],i:number" returns=number
+  handler lang=kern
+    return value="children[i]"
+fn name=probe returns=number
+  handler lang=kern
+    let name=children value="[10,20,30]"
+    let kind=let name=out value="-1"
+    for name=i from="0" to="children.length"
+      if cond="i == 1"
+        assign target=out value="get(children, i)"
+    return value="out"`,
+    expected: 20 },
+  { kind: 'stmt', name: 'stmt: TRAV-5 pin Map.has-before-Map.get traversal law',
+    params: [],
+    body: `let name=m value="new Map()"\nlet name=key value="\\"child\\""\nlet name=missing value="\\"missing\\""\nlet kind=let name=out value="0"\ndo value="Map.set(m, key, 7)"\nif cond="Map.has(m, key)"\n  assign target=out value="Map.get(m, key)"\nif cond="Map.has(m, missing)"\n  assign target=out value="Map.get(m, missing)"\nreturn value="out"`,
+    expected: 7 },
+  // NEG-LIT fence: the runner currently abstains on negative integer elements inside
+  // array literals (pinned in runner-source-executor.test.ts), while TS/Python execute.
+  // T3 intentionally documents this fence instead of changing semantics.
+  // Exit criterion: revisit only if a future capstone slice requires negative parent sentinels.
+  { kind: 'stmt', name: 'stmt: NEG-LIT fence codegen legs execute negative array literal element',
+    params: [],
+    body: `let name=parentIdx value="[-1,0,0]"\nreturn value="parentIdx[0]"`,
+    expected: -1 },
 
   // ──────────────────────────────────────────────────────────────────────────
   // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,

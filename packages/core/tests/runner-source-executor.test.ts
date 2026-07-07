@@ -1552,6 +1552,117 @@ describe('@kernlang/core/runner source executor', () => {
     expect(stdout).toBe('3\n1\ntrue\nfalse\n');
   });
 
+  // T3 traversal helper pins are GREEN-at-add regression coverage by lead verdict:
+  // they lock the current flattened-tree traversal surface rather than proving a new capability.
+  test('TRAV-1 pin: scans parallel top-level arrays with a for-counter index and bound comparison', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=parentIdx value="[9,0,0,1]"',
+        'let name=typeIdx value="[0,4,5,6]"',
+        'let name=target value="0"',
+        'let kind=let name=found value="-1"',
+        'for name=i from="0" to="parentIdx.length"',
+        '  if cond="parentIdx[i] == target"',
+        '    assign target=found value="typeIdx[i]"',
+        'print value="found"',
+      ]),
+    );
+
+    expect(stdout).toBe('5\n');
+  });
+
+  test('TRAV-2 pin: conditionally accumulates children of a parent from parallel arrays', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=parentIdx value="[9,0,0,1]"',
+        'let name=target value="0"',
+        'let kind=let name=count value="0"',
+        'for name=i from="0" to="parentIdx.length"',
+        '  if cond="parentIdx[i] == target"',
+        '    assign target=count value="count + 1"',
+        'print value="count"',
+      ]),
+    );
+
+    expect(stdout).toBe('2\n');
+  });
+
+  test('TRAV-3 pin: selects the nth child by keyIdx under a parent', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=parentIdx value="[9,0,0,0,2]"',
+        'let name=keyIdx value="[0,4,7,4,4]"',
+        'let name=targetParent value="0"',
+        'let name=wantedKey value="4"',
+        'let name=nth value="1"',
+        'let kind=let name=seen value="0"',
+        'let kind=let name=selected value="-1"',
+        'for name=i from="0" to="parentIdx.length"',
+        '  if cond="parentIdx[i] == targetParent"',
+        '    if cond="keyIdx[i] == wantedKey"',
+        '      if cond="seen == nth"',
+        '        assign target=selected value="i"',
+        '      assign target=seen value="seen + 1"',
+        'print value="selected"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n');
+  });
+
+  test('TRAV-4 pin: helper parameter preserves for-counter index provenance', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=get params="children:number[],i:number" returns=number',
+            '  handler lang="kern"',
+            '    return value="children[i]"',
+          ],
+          [
+            'fn name=probe returns=number',
+            '  handler lang="kern"',
+            '    let name=children value="[10,20,30]"',
+            '    let kind=let name=out value="-1"',
+            '    for name=i from="0" to="children.length"',
+            '      if cond="i == 1"',
+            '        assign target=out value="get(children, i)"',
+            '    return value="out"',
+          ],
+        ],
+        ['print value="probe()"'],
+      ),
+    );
+
+    expect(stdout).toBe('20\n');
+  });
+
+  test('TRAV-5 pin: Map.has safely guards Map.get including a false missing branch', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=m value="new Map()"',
+        'let name=key value="\\"child\\""',
+        'let name=missing value="\\"missing\\""',
+        'let kind=let name=out value="0"',
+        'do value="Map.set(m, key, 7)"',
+        'if cond="Map.has(m, key)"',
+        '  assign target=out value="Map.get(m, key)"',
+        'if cond="Map.has(m, missing)"',
+        '  assign target=out value="Map.get(m, missing)"',
+        'print value="out"',
+      ]),
+    );
+
+    expect(stdout).toBe('7\n');
+  });
+
+  // NEG-LIT exit criterion: revisit only if a future capstone slice requires negative parent sentinels.
+  test('NEG-LIT fence: runner abstains on negative integer elements in array literals', () => {
+    expect(() =>
+      executeKernSource(mainProgram(['let name=parentIdx value="[-1,0,0]"', 'print value="parentIdx[0]"'])),
+    ).toThrow(KernRunnerError);
+  });
+
   test('rejects runner functions that produce side effects', () => {
     expect(() =>
       executeKernSource(
