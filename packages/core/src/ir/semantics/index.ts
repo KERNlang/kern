@@ -284,6 +284,7 @@ export function defineRecordBinding(env: SemanticEnv, name: string, value: unkno
   env.bindings.set(name, value);
   env.intProvenance?.delete(name);
   env.freshArrayBindings?.delete(name);
+  env.pushBuiltFreshArrayBindings?.delete(name);
   env.capturedArrayBindings?.delete(name);
   (env.recordArrayFields ??= new Map()).set(name, new Set(arrayFields));
 }

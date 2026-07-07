@@ -161,7 +161,7 @@ const KERN_NESTED_ARRAY_HELPER_PY = `def _kern_nested_array_value(record, field,
     if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(value):
         raise Exception("portable: nested array index must be an in-bounds non-negative safe integer")
     out = value[index]
-    if isinstance(out, (dict, list)) or callable(out):
+    if not (out is None or isinstance(out, str) or isinstance(out, bool) or (isinstance(out, (int, float)) and not isinstance(out, bool) and out == out and out != float("inf") and out != float("-inf"))):
         raise Exception("portable: nested array element must be a portable scalar")
     return out
 `;
@@ -178,7 +178,7 @@ const KERN_NESTED_ARRAY_REF_HELPER_PY = `def _kern_nested_array_ref(record, fiel
 const KERN_NESTED_ARRAY_ITER_HELPER_PY = `def _kern_nested_array_iter(record, field):
     value = _kern_nested_array_ref(record, field)
     for out in value:
-        if isinstance(out, (dict, list)) or callable(out):
+        if not (out is None or isinstance(out, str) or isinstance(out, bool) or (isinstance(out, (int, float)) and not isinstance(out, bool) and out == out and out != float("inf") and out != float("-inf"))):
             raise Exception("portable: nested array element must be a portable scalar")
     return value
 `;
@@ -934,6 +934,7 @@ function emitChildrenPy(
           }
           const k = String(pairKey);
           const v = String(pairValue);
+          assertNoKeyedNestedRecordReceiverPy(listIR, ctx);
           const sourceExpr = emitEachIterablePy(listIR, ctx);
           ctx.helpers.add(KERN_PAIR_HELPERS_PY);
           const iterableExpr = isAwait ? `_kern_async_pairs(${sourceExpr})` : `_kern_pairs(${sourceExpr})`;
@@ -970,6 +971,7 @@ function emitChildrenPy(
           if (entryKey && entryValue) {
             throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
           }
+          assertNoKeyedNestedRecordReceiverPy(listIR, ctx);
           const sourceExpr = emitEachIterablePy(listIR, ctx);
           if (entryKey) {
             const k = String(entryKey);
@@ -3880,6 +3882,21 @@ function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
     return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
   }
   return emitPyExprCtx(node, ctx);
+}
+
+function assertNoKeyedNestedRecordReceiverPy(node: ValueIR, ctx: BodyEmitContext): void {
+  if (node.kind !== 'member' || node.object.kind !== 'ident') return;
+  if (!lookupRecordBinding(ctx, node.object.name)) return;
+  if (node.optional || isParenthesized(node.object)) return;
+  if (
+    lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
+    !lookupRecordArrayField(ctx, node.object.name, node.property)
+  ) {
+    return;
+  }
+  throw new Error(
+    `keyed iteration over nested record field "${node.object.name}.${node.property}" is outside the portable domain`,
+  );
 }
 
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {

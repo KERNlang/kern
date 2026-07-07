@@ -724,6 +724,9 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NI-R3 each over composite nested elements fails closed',
     params: [],
     body: `let name=r value="{children: [[1],[2]]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R4 each over undefined nested elements fails closed',
+    params: [],
+    body: `let name=r value="{children: [undefined]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
@@ -1761,7 +1764,7 @@ fn name=probe returns=number
     return value="(r).b.length"`,
     expectReason: 'record array field "r.b" must use a bare non-optional receiver',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
-  { kind: 'compile-reject', name: 'compile-reject: NI-R4 each over branch-unproven nested record-array receiver is rejected',
+  { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
     kern: `fn name=probe returns=number
   param name=flag type=boolean
   handler lang=kern
@@ -1773,6 +1776,26 @@ fn name=probe returns=number
       return value="child"
     return value="0"`,
     expectReason: 'record array field "r.children" is not proven on every branch',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6 entryKey over nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    each entryKey=k in="r.children" entries=true
+      return value="k"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R7 pair iteration over nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    each pairKey=k pairValue=v in="r.children"
+      return value="v"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: fresh-array stale after push cannot be captured',
     kern: `fn name=probe returns=number
