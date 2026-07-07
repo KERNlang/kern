@@ -23,7 +23,9 @@
  *     completion; 1 = unexpected host failure.
  *
  * Executable surface is exactly what the runner certifies today: print / let /
- * assign / for / if / while / each / return / portable arithmetic / portable
+ * assign / for / if / while / each / return / portable arithmetic (including
+ * non-integer division; integer-valued division still abstains at the print
+ * fence) / portable
  * array-literal binding / literal in-bounds array index reads / array `.length`
  * (value AND as a for-range bound) / dynamic index reads by a for-counter OR
  * `+`/`-` arithmetic between provenanced operands (`xs[i]`, `xs[i + 1]`) /

@@ -77,6 +77,7 @@ export interface ExprEmitContext {
    *  their base verbatim emission (never an eager throw for shapes the base
    *  emitted verbatim — `this.data.filter(...)`, object params, etc.). */
   isRecordBinding?(name: string): boolean;
+  isRecordArrayField?(name: string, field: string): boolean;
 }
 
 /** DECIMAL Slice 1 — public return shape for the TS expression emitter, parity
@@ -310,6 +311,16 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
           }
           return nestedArrayLengthTS(nested.record, nested.field);
         }
+        const nonArrayNested = nestedRecordFieldNonArrayReceiver(node.object, ctx);
+        if (nonArrayNested !== null) {
+          if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
+          if (node.property !== 'length') {
+            return nestedArrayMemberThrowTS(
+              `portable: nested array field "${nonArrayNested.record}.${nonArrayNested.field}" has no portable property "${node.property}"`,
+            );
+          }
+          return nestedArrayLengthTS(nonArrayNested.record, nonArrayNested.field);
+        }
       }
       const stdlib = applyStdlibPropertyLoweringTS(node);
       if (stdlib !== null) return stdlib;
@@ -347,6 +358,20 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
           return nestedArrayIndexTS(
             nested.record,
             nested.field,
+            (node.index as Extract<ValueIR, { kind: 'numLit' }>).raw,
+          );
+        }
+        const nonArrayNested = nestedRecordFieldNonArrayReceiver(node.object, ctx);
+        if (nonArrayNested !== null) {
+          if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
+          if (!isSafeIntegerLiteralIndex(node.index)) {
+            return nestedArrayMemberThrowTS(
+              'portable: nested array index must be a bare non-negative safe-integer literal',
+            );
+          }
+          return nestedArrayIndexTS(
+            nonArrayNested.record,
+            nonArrayNested.field,
             (node.index as Extract<ValueIR, { kind: 'numLit' }>).raw,
           );
         }
@@ -390,6 +415,12 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         if (nestedRecv !== null) {
           return `${nestedArrayMemberThrowTS(
             `portable: nested array field "${nestedRecv.record}.${nestedRecv.field}" has no portable property "${node.callee.property}"`,
+          )}(${node.args.map((arg) => emitExpression(arg, ctx)).join(', ')})`;
+        }
+        const nonArrayNested = nestedRecordFieldNonArrayReceiver(node.callee.object, ctx);
+        if (nonArrayNested !== null) {
+          return `${nestedArrayMemberThrowTS(
+            `portable: nested array field "${nonArrayNested.record}.${nonArrayNested.field}" has no portable property "${node.callee.property}"`,
           )}(${node.args.map((arg) => emitExpression(arg, ctx)).join(', ')})`;
         }
       }
@@ -624,7 +655,7 @@ function newExpressionRootIdentifier(node: ValueIR): string | null {
  *  with `nestedRecordFieldReceiverPy`): the TS leg never renames bindings
  *  (real block scoping), so the SOURCE name is also the EMITTED name here;
  *  the Python twin must remap through `ctx.symbolMap` for emission. */
-function nestedRecordFieldReceiver(
+function provenRecordFieldReceiver(
   node: ValueIR,
   ctx: ExprEmitContext | undefined,
 ): { record: string; field: string } | null {
@@ -633,6 +664,26 @@ function nestedRecordFieldReceiver(
   if (ctx?.isRecordBinding?.(node.object.name) !== true) return null;
   if (isParenthesized(node.object)) return null;
   return { record: node.object.name, field: node.property };
+}
+
+function nestedRecordFieldReceiver(
+  node: ValueIR,
+  ctx: ExprEmitContext | undefined,
+): { record: string; field: string } | null {
+  const proven = provenRecordFieldReceiver(node, ctx);
+  if (proven === null) return null;
+  if (ctx?.isRecordArrayField?.(proven.record, proven.field) !== true) return null;
+  return proven;
+}
+
+function nestedRecordFieldNonArrayReceiver(
+  node: ValueIR,
+  ctx: ExprEmitContext | undefined,
+): { record: string; field: string } | null {
+  const proven = provenRecordFieldReceiver(node, ctx);
+  if (proven === null) return null;
+  if (ctx?.isRecordArrayField?.(proven.record, proven.field) === true) return null;
+  return proven;
 }
 
 function nestedArrayMemberThrowTS(message: string): string {

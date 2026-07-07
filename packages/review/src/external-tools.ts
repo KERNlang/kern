@@ -10,7 +10,7 @@
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
-import type { Project } from 'ts-morph';
+import { Node, type Project, type SourceFile, SyntaxKind, type Node as TsMorphNode, type Type } from 'ts-morph';
 import { createProject, findTsConfig } from './inferrer.js';
 import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
@@ -323,6 +323,21 @@ export function runTSCDiagnostics(
       const isCollectedModuleMiss =
         code === 2307 &&
         suppressedModuleMisses.has(moduleMissKey(filePath, extractMissingModuleSpecifier(messageStr) ?? ''));
+      // TS2339 "Property 'kind' does not exist on type 'never'" can be a
+      // review-mode control-flow cascade around KERN's parseExpression value
+      // guards. The canonical compiler accepts these files, but ts-morph's
+      // sparse/ad-hoc Project can over-narrow the `parsed` variable after
+      // the array/record literal guards plus the record-array-field probe, then
+      // reports later `parsed.kind`/`parsed.callee` accesses as `never`.
+      // Suppress only that AST shape, and only when the parseExpression return
+      // type still has non-array/non-record variants; truly exhaustive branches
+      // remain real TS2339 findings even in review mode.
+      const isParserExpressionNeverCascade = isReviewModeParserExpressionNeverCascade(
+        sourceFile,
+        code,
+        messageStr,
+        start,
+      );
       if (
         options.downgradeProjectLoadingErrors &&
         (isLoadingNoise ||
@@ -332,6 +347,7 @@ export function runTSCDiagnostics(
           isBrokenJsxRuntimeNoise ||
           isUnresolvedImportErosionCascade ||
           isCollectedModuleMiss ||
+          isParserExpressionNeverCascade ||
           isReviewModeModuleResolutionNoise(code, messageStr, filePath) ||
           isReviewModeGeneratedFacadeExportCascade(sourceFile, code, messageStr, suppressedModuleMisses))
       ) {
@@ -478,6 +494,226 @@ function isMissingChildrenDiagnostic(message: string): boolean {
 const BROKEN_JSX_RUNTIME_RE = /['"][^'"]*\/jsx-(?:dev-)?runtime['"]/;
 function isBrokenJsxRuntimeDiagnostic(message: string): boolean {
   return BROKEN_JSX_RUNTIME_RE.test(message);
+}
+
+function isReviewModeParserExpressionNeverCascade(
+  sourceFile: SourceFile,
+  code: number,
+  message: string,
+  start: number | undefined,
+): boolean {
+  if (code !== 2339 || start === undefined) return false;
+  if (!/^Property ['"][^'"]+['"] does not exist on type ['"]never['"]\./.test(message)) return false;
+
+  const receiver = parserExpressionReceiverAt(sourceFile, start);
+  if (!receiver) return false;
+
+  return (
+    receiverHasPrecedingCall(receiver, 'isArrayLiteralExpression', start) &&
+    receiverHasPrecedingCall(receiver, 'isRecordLiteralExpression', start) &&
+    receiverHasPrecedingCall(receiver, 'evalRecordArrayFieldReferenceValue', start) &&
+    parseExpressionTypeHasRuntimeBranches(receiver.declaration) &&
+    siteHasRuntimeKindGuard(receiver, start)
+  );
+}
+
+function parserExpressionReceiverAt(
+  sourceFile: SourceFile,
+  propertyStart: number,
+):
+  | {
+      declaration: import('ts-morph').VariableDeclaration;
+      propertyAccess: import('ts-morph').PropertyAccessExpression;
+    }
+  | undefined {
+  const nodeAtDiagnostic = sourceFile.getDescendantAtPos(propertyStart);
+  const propertyAccess = Node.isPropertyAccessExpression(nodeAtDiagnostic)
+    ? nodeAtDiagnostic
+    : nodeAtDiagnostic?.getFirstAncestorByKind(SyntaxKind.PropertyAccessExpression);
+  if (!propertyAccess) return undefined;
+
+  const receiver = propertyAccessRootIdentifier(propertyAccess);
+  if (!receiver) return undefined;
+
+  const declaration = receiver
+    .getSymbol()
+    ?.getDeclarations()
+    .find((decl): decl is import('ts-morph').VariableDeclaration => Node.isVariableDeclaration(decl));
+  if (!declaration) return undefined;
+
+  const initializer = unwrapExpression(declaration.getInitializer());
+  if (!initializer || !Node.isCallExpression(initializer)) return undefined;
+  if (!isCallNamed(initializer, 'parseExpression')) return undefined;
+
+  return { declaration, propertyAccess };
+}
+
+function propertyAccessRootIdentifier(
+  propertyAccess: import('ts-morph').PropertyAccessExpression,
+): import('ts-morph').Identifier | undefined {
+  let expression = unwrapExpression(propertyAccess.getExpression());
+  while (expression && Node.isPropertyAccessExpression(expression)) {
+    expression = unwrapExpression(expression.getExpression());
+  }
+  return expression && Node.isIdentifier(expression) ? expression : undefined;
+}
+
+function receiverHasPrecedingCall(
+  receiver: {
+    declaration: import('ts-morph').VariableDeclaration;
+    propertyAccess: import('ts-morph').PropertyAccessExpression;
+  },
+  calleeName: string,
+  propertyStart: number,
+): boolean {
+  const owner = nearestFunctionBoundary(receiver.propertyAccess);
+  const searchRoot = owner ?? receiver.propertyAccess.getSourceFile();
+  for (const call of searchRoot.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (call.getStart() <= receiver.declaration.getEnd() || call.getStart() >= propertyStart) continue;
+    if (!sameOptionalNode(nearestFunctionBoundary(call), owner)) continue;
+    if (!isCallNamed(call, calleeName)) continue;
+    const firstArg = unwrapExpression(call.getArguments()[0]);
+    if (firstArg && Node.isIdentifier(firstArg) && identifierDeclares(firstArg, receiver.declaration)) return true;
+  }
+  return false;
+}
+
+function siteHasRuntimeKindGuard(
+  receiver: {
+    declaration: import('ts-morph').VariableDeclaration;
+    propertyAccess: import('ts-morph').PropertyAccessExpression;
+  },
+  propertyStart: number,
+): boolean {
+  const owner = nearestFunctionBoundary(receiver.propertyAccess);
+  for (const ancestor of receiver.propertyAccess.getAncestors()) {
+    if (owner && sameNode(ancestor, owner)) break;
+    if (Node.isIfStatement(ancestor)) {
+      const condition = ancestor.getExpression();
+      if (containsPosition(condition, propertyStart) || containsPosition(ancestor.getThenStatement(), propertyStart)) {
+        return conditionHasRuntimeKindGuard(condition, receiver.declaration);
+      }
+    }
+    if (Node.isConditionalExpression(ancestor)) {
+      const condition = ancestor.getCondition();
+      if (containsPosition(condition, propertyStart) || containsPosition(ancestor.getWhenTrue(), propertyStart)) {
+        return conditionHasRuntimeKindGuard(condition, receiver.declaration);
+      }
+    }
+  }
+  return false;
+}
+
+function conditionHasRuntimeKindGuard(
+  condition: TsMorphNode,
+  declaration: import('ts-morph').VariableDeclaration,
+): boolean {
+  const candidates = Node.isBinaryExpression(condition)
+    ? [condition, ...condition.getDescendantsOfKind(SyntaxKind.BinaryExpression)]
+    : condition.getDescendantsOfKind(SyntaxKind.BinaryExpression);
+  return candidates.some((binary) => binaryIsRuntimeKindGuard(binary, declaration));
+}
+
+function binaryIsRuntimeKindGuard(
+  binary: import('ts-morph').BinaryExpression,
+  declaration: import('ts-morph').VariableDeclaration,
+): boolean {
+  const operator = binary.getOperatorToken().getKind();
+  if (operator !== SyntaxKind.EqualsEqualsEqualsToken && operator !== SyntaxKind.EqualsEqualsToken) return false;
+  const left = unwrapExpression(binary.getLeft());
+  const right = unwrapExpression(binary.getRight());
+  return (
+    (isReceiverKindAccess(left, declaration) && isRuntimeKindLiteral(right)) ||
+    (isRuntimeKindLiteral(left) && isReceiverKindAccess(right, declaration))
+  );
+}
+
+const PARSER_RUNTIME_KIND_GUARDS = new Set(['call', 'ident', 'new']);
+
+function isReceiverKindAccess(
+  expression: TsMorphNode | undefined,
+  declaration: import('ts-morph').VariableDeclaration,
+): boolean {
+  if (!expression || !Node.isPropertyAccessExpression(expression)) return false;
+  if (expression.getName() !== 'kind') return false;
+  const receiver = propertyAccessRootIdentifier(expression);
+  return receiver !== undefined && identifierDeclares(receiver, declaration);
+}
+
+function isRuntimeKindLiteral(expression: TsMorphNode | undefined): boolean {
+  return (
+    expression !== undefined &&
+    Node.isStringLiteral(expression) &&
+    PARSER_RUNTIME_KIND_GUARDS.has(expression.getLiteralText())
+  );
+}
+
+function containsPosition(node: TsMorphNode, position: number): boolean {
+  return node.getStart() <= position && position < node.getEnd();
+}
+
+function parseExpressionTypeHasRuntimeBranches(declaration: import('ts-morph').VariableDeclaration): boolean {
+  const kinds = discriminantKindValues(declaration.getType(), declaration);
+  if (kinds.size === 0) return false;
+  return [...kinds].some((kind) => kind !== 'arrayLit' && kind !== 'objectLit');
+}
+
+function discriminantKindValues(type: Type, location: TsMorphNode): Set<string> {
+  const values = new Set<string>();
+  const members = type.isUnion() ? type.getUnionTypes() : [type];
+  for (const member of members) {
+    const kind = member.getProperty('kind');
+    if (!kind) continue;
+    const kindType = kind.getTypeAtLocation(location);
+    const kindMembers = kindType.isUnion() ? kindType.getUnionTypes() : [kindType];
+    for (const kindMember of kindMembers) {
+      if (kindMember.isStringLiteral()) values.add(String(kindMember.getLiteralValue()));
+    }
+  }
+  return values;
+}
+
+function identifierDeclares(identifier: import('ts-morph').Identifier, declaration: TsMorphNode): boolean {
+  return (identifier.getSymbol()?.getDeclarations() ?? []).some((candidate) => sameNode(candidate, declaration));
+}
+
+function sameNode(a: TsMorphNode, b: TsMorphNode): boolean {
+  return a.getSourceFile().getFilePath() === b.getSourceFile().getFilePath() && a.getStart() === b.getStart();
+}
+
+function sameOptionalNode(a: TsMorphNode | undefined, b: TsMorphNode | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return sameNode(a, b);
+}
+
+const FUNCTION_BOUNDARY_KINDS = new Set<SyntaxKind>([
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.Constructor,
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.GetAccessor,
+  SyntaxKind.MethodDeclaration,
+  SyntaxKind.SetAccessor,
+]);
+
+function nearestFunctionBoundary(node: TsMorphNode): TsMorphNode | undefined {
+  return node.getAncestors().find((ancestor) => FUNCTION_BOUNDARY_KINDS.has(ancestor.getKind()));
+}
+
+function isCallNamed(call: import('ts-morph').CallExpression, name: string): boolean {
+  const expression = unwrapExpression(call.getExpression());
+  return expression !== undefined && Node.isIdentifier(expression) && expression.getText() === name;
+}
+
+function unwrapExpression<T extends TsMorphNode | undefined>(expression: T): T | TsMorphNode | undefined {
+  let current: TsMorphNode | undefined = expression;
+  while (
+    current &&
+    (Node.isParenthesizedExpression(current) || Node.isAsExpression(current) || Node.isTypeAssertion(current))
+  ) {
+    current = current.getExpression();
+  }
+  return current;
 }
 
 function isReviewModeGeneratedFacadeExportCascade(

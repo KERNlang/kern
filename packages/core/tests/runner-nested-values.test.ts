@@ -24,8 +24,12 @@ function print(value: string): IRNode {
   return { type: 'print', props: { value } };
 }
 
-function forLoop(name: string, from: string, to: string, child: IRNode): IRNode {
-  return { type: 'for', props: { name, from, to }, children: [child] };
+function forLoop(name: string, from: string, to: string, child: IRNode | IRNode[]): IRNode {
+  return { type: 'for', props: { name, from, to }, children: Array.isArray(child) ? child : [child] };
+}
+
+function exprBind(name: string, expr: string): IRNode {
+  return { type: 'expression-v1', props: { name, expr } };
 }
 
 function assign(target: string, value: string): IRNode {
@@ -112,9 +116,126 @@ describe('runner nested values — admitted record array-literal fields', () => 
   });
 });
 
+describe('runner nested values — admitted single-use fresh array fields', () => {
+  it('FV-1 captures a fresh array binding and reads .length', () => {
+    expect(runStdout([letBind('xs', '[10,20,30]'), letBind('r', '{items: xs}'), print('r.items.length')])).toBe('3\n');
+  });
+
+  it('FV-2 captures a fresh array binding and reads literal indices', () => {
+    expect(
+      runStdout([letBind('xs', '[10,20,30]'), letBind('r', '{items: xs}'), print('r.items[0]'), print('r.items[2]')]),
+    ).toBe('10\n30\n');
+  });
+
+  it('FV-3 captures two independent fresh arrays in one record', () => {
+    expect(
+      runStdout([
+        letBind('xs', '[1,2]'),
+        letBind('ys', '[3,4,5]'),
+        letBind('r', '{left: xs, right: ys}'),
+        print('r.left.length'),
+        print('r.right[2]'),
+      ]),
+    ).toBe('2\n5\n');
+  });
+
+  it('FV-4 keeps scalar fields beside fresh array fields readable', () => {
+    expect(
+      runStdout([
+        letBind('xs', '["a","b"]'),
+        letBind('r', '{count: 2, tags: xs}'),
+        print('r.count'),
+        print('r.tags[1]'),
+      ]),
+    ).toBe('2\nb\n');
+  });
+
+  it('FV-5 admits nested fresh arrays for .length but not composite element reads', () => {
+    expect(runStdout([letBind('xs', '[[1,2],[3,4]]'), letBind('r', '{items: xs}'), print('r.items.length')])).toBe(
+      '2\n',
+    );
+    abstains([letBind('xs', '[[1,2],[3,4]]'), letBind('r', '{items: xs}'), print('r.items[1]')]);
+  });
+
+  it('FV-6 captures arrays created by expression-v1', () => {
+    expect(runStdout([exprBind('xs', '[7,8,9]'), letBind('r', '{items: xs}'), print('r.items[1]')])).toBe('8\n');
+  });
+
+  it('FV-7 permits fresh arrays declared inside a repeatable loop body', () => {
+    expect(
+      runStdout([
+        forLoop('i', '0', '2', [letBind('xs', '[1,2]'), letBind('r', '{items: xs}'), print('r.items.length')]),
+      ]),
+    ).toBe('2\n2\n');
+  });
+
+  it('FV-8 aliases a captured record-array field for reads', () => {
+    expect(
+      runStdout([
+        letBind('xs', '[10,20,30]'),
+        letBind('r', '{items: xs}'),
+        letBind('ys', 'r.items'),
+        print('ys.length'),
+        print('ys[1]'),
+      ]),
+    ).toBe('3\n20\n');
+  });
+
+  it('FV-9 expression-v1 aliases a captured record-array field for reads', () => {
+    expect(
+      runStdout([letBind('xs', '[7,8,9]'), letBind('r', '{items: xs}'), exprBind('ys', 'r.items'), print('ys[2]')]),
+    ).toBe('9\n');
+  });
+
+  it('FV-10 returns a record that captures a fresh array without precondition side effects', () => {
+    const trace = referenceRunSequence(
+      [letBind('xs', '[1,2]'), { type: 'return', props: { value: '{items: xs}' } }],
+      makeEnv(),
+    );
+    expect(trace.completion.kind).toBe('return');
+    expect((trace.completion as { value: { items: readonly unknown[] } }).value.items).toEqual([1, 2]);
+  });
+});
+
 describe('runner nested values — rejected surface stays abstaining', () => {
-  it('NV-R1 rejects variable-sourced array fields', () => {
-    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs}')]);
+  it('FV-R1 rejects stale variable-sourced array fields', () => {
+    abstains([letBind('xs', '[1,2]'), doValue('xs.push(3)'), letBind('r', '{a: xs}')]);
+  });
+
+  it('FV-R2 rejects aliases created before capture because freshness is single-owner', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('ys', 'xs'), letBind('r', '{a: ys}')]);
+  });
+
+  it('FV-R3 rejects expression-v1 aliases created before capture because freshness is single-owner', () => {
+    abstains([letBind('xs', '[1,2]'), exprBind('ys', 'xs'), letBind('r', '{a: ys}')]);
+  });
+
+  it('FV-R4 rejects mutation through the original binding after capture', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs}'), doValue('xs.push(3)')]);
+  });
+
+  it('FV-R5 rejects mutation through an alias of a captured record-array field', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs}'), letBind('ys', 'r.a'), doValue('ys.push(3)')]);
+  });
+
+  it('FV-R6 rejects mutation through a direct alias of a captured array binding', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs}'), letBind('ys', 'xs'), doValue('ys.push(3)')]);
+  });
+
+  it('FV-R7 rejects capturing the same fresh array twice', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs}'), letBind('s', '{b: xs}')]);
+  });
+
+  it('FV-R8 rejects duplicate fresh-array fields inside one record literal', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs, b: xs}')]);
+  });
+
+  it('FV-R9 rejects recapturing an existing record array field', () => {
+    abstains([letBind('xs', '[1,2]'), letBind('r', '{a: xs}'), letBind('s', '{b: r.a}')]);
+  });
+
+  it('FV-R10 rejects capturing an outer fresh array inside a repeatable loop body', () => {
+    abstains([letBind('xs', '[1,2]'), forLoop('i', '0', '2', letBind('r', '{a: xs}'))]);
   });
 
   it('NV-R2 rejects record-in-record fields', () => {
@@ -186,6 +307,8 @@ describe('runner nested values — rejected surface stays abstaining', () => {
 
   it('NV-R16 rejects non-bare receiver shapes and computed field access', () => {
     abstains([letBind('r', '{b: [10,20,30]}'), print('(r).b[0]')]);
+    abstains([letBind('r', '{b: [10,20,30]}'), print('(r).b.length')]);
+    abstains([letBind('r', '{b: [10,20,30]}'), print('r?.b.length')]);
     abstains([letBind('r', '{b: [10,20,30]}'), print('r["b"][0]')]);
   });
 
