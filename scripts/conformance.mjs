@@ -725,13 +725,6 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NI-R2 each over non-array nested field fails closed',
     params: [],
     body: `let name=r value="{children: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R3 each over composite nested elements fails closed',
-    params: [],
-    body: `let name=r value="{children: [[1],[2]]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R4 each over undefined nested elements fails closed',
-    params: [],
-    body: `let name=r value="{children: [undefined]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
   // the stmt harness proves TS == Python on a let-position block arrow that (a) reads a
@@ -1862,6 +1855,24 @@ fn name=probe returns=string
     let name=r value="{b: [10,20,30]}"
     return value="(r).b.length"`,
     expectReason: 'record array field "r.b" must use a bare non-optional receiver',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R3 each over composite nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [[1],[2]]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" elements are not proven portable scalars',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4 each over undefined nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [undefined]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" elements are not proven portable scalars',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
     kern: `fn name=probe returns=number

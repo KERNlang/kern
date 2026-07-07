@@ -3887,6 +3887,14 @@ function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
     ) {
       throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
     }
+    if (
+      lookupRecordArrayField(ctx, node.object.name, node.property) &&
+      !lookupRecordScalarArrayField(ctx, node.object.name, node.property)
+    ) {
+      throw new Error(
+        `record array field "${node.object.name}.${node.property}" elements are not proven portable scalars`,
+      );
+    }
     ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
     ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
     const record = emitScopedIdentPy(ctx, node.object.name);

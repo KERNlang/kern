@@ -1887,6 +1887,14 @@ function emitEachIterableTS(node: ValueIR, ctx: BodyEmitContext): string {
     ) {
       throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
     }
+    if (
+      lookupRecordArrayField(ctx, node.object.name, node.property) &&
+      !lookupRecordScalarArrayField(ctx, node.object.name, node.property)
+    ) {
+      throw new Error(
+        `record array field "${node.object.name}.${node.property}" elements are not proven portable scalars`,
+      );
+    }
     return nestedArrayIterableTS(node.object.name, node.property);
   }
   return emitValueTS(node, ctx);
