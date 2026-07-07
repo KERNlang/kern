@@ -55,7 +55,7 @@ import { isParenthesized, type ValueIR } from '../value-ir.js';
 
 /** A regex-literal IR node — the value recorded in the TS regex-binding table. */
 type RegexLitIR = Extract<ValueIR, { kind: 'regexLit' }>;
-type ArrayBindingStatus = 'fresh' | 'stale' | 'captured';
+type ArrayBindingStatus = 'fresh' | 'fresh-push' | 'stale' | 'captured';
 
 // Slice 0.9 — TS codegen is Node-only; it re-parses raw block-bodied arrow prop
 // values, so it injects the TypeScript-backed closure classifier. `parseExpr` is
@@ -1275,7 +1275,7 @@ function recordArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<
     if (entry.value.kind === 'arrayLit') fields.add(entry.key);
     else if (entry.value.kind === 'ident') {
       const status = lookupArrayBindingStatus(ctx, entry.value.name);
-      if (status === 'fresh' || status === 'captured') fields.add(entry.key);
+      if (status === 'fresh' || status === 'fresh-push' || status === 'captured') fields.add(entry.key);
     }
   }
   return fields;
@@ -1359,6 +1359,7 @@ function strongestArrayBindingStatus(statuses: Array<ArrayBindingStatus | null>)
   if (statuses.includes('captured')) return 'captured';
   if (statuses.includes('stale')) return 'stale';
   if (statuses.includes('fresh')) return 'fresh';
+  if (statuses.includes('fresh-push')) return 'fresh-push';
   return null;
 }
 
@@ -1472,12 +1473,12 @@ function lookupMaybeRecordArrayField(ctx: BodyEmitContext, name: string, field: 
 
 function bindArrayStatusFromLet(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
   if (valueIR.kind === 'arrayLit') {
-    setArrayBindingStatus(ctx, name, 'fresh');
+    setArrayBindingStatus(ctx, name, valueIR.items.length === 0 ? 'fresh-push' : 'fresh');
     return;
   }
   if (valueIR.kind === 'ident') {
     const sourceStatus = lookupArrayBindingStatus(ctx, valueIR.name);
-    if (sourceStatus === 'fresh') {
+    if (sourceStatus === 'fresh' || sourceStatus === 'fresh-push') {
       setDeclaringArrayBindingStatus(ctx, valueIR.name, 'stale');
       setArrayBindingStatus(ctx, name, 'stale');
       return;
@@ -1596,7 +1597,7 @@ function captureFreshArrayRecordSourcesTS(node: Extract<ValueIR, { kind: 'object
     }
     if (entry.value.kind !== 'ident') continue;
     const status = lookupArrayBindingStatus(ctx, entry.value.name);
-    if (status === 'fresh') {
+    if (status === 'fresh' || status === 'fresh-push') {
       if (freshSources.has(entry.value.name)) {
         throw new Error(`fresh array binding "${entry.value.name}" can be captured only once`);
       }
@@ -1639,7 +1640,27 @@ function recordArrayFieldMutationTarget(
   return null;
 }
 
-function applyArrayMutationTargetTS(target: ValueIR, ctx: BodyEmitContext): void {
+function isIntegerValuedFloatLiteralTS(node: Extract<ValueIR, { kind: 'numLit' }>): boolean {
+  return (node.raw.includes('.') || /[eE]/.test(node.raw)) && Number.isInteger(node.value);
+}
+
+function isFreshnessPreservingPushElementTS(node: ValueIR): boolean {
+  if (node.kind === 'strLit' || node.kind === 'boolLit' || node.kind === 'nullLit') return true;
+  if (node.kind !== 'numLit') return false;
+  if (node.bigint || !Number.isFinite(node.value)) return false;
+  if (isIntegerValuedFloatLiteralTS(node))
+    throw new Error('portable: float literal has an integer value (float/int divergence)');
+  return true;
+}
+
+function pushMutationTargetTS(node: ValueIR): { target: ValueIR; element: ValueIR } | null {
+  if (node.kind !== 'call' || node.optional || node.args.length !== 1) return null;
+  const callee = node.callee;
+  if (callee.kind !== 'member' || callee.optional || callee.property !== 'push') return null;
+  return { target: callee.object, element: node.args[0] };
+}
+
+function applyArrayMutationTargetTS(target: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
   const recordField = recordArrayFieldMutationTarget(target, ctx);
   if (recordField !== null) {
     throw new Error(
@@ -1652,7 +1673,8 @@ function applyArrayMutationTargetTS(target: ValueIR, ctx: BodyEmitContext): void
   if (status === 'captured') {
     throw new Error(`fresh array binding "${targetName}" was already captured by a record field`);
   }
-  if (status === 'fresh') setDeclaringArrayBindingStatus(ctx, targetName, 'stale');
+  if (status === 'fresh-push' && preserveFreshPush) return;
+  if (status === 'fresh' || status === 'fresh-push') setDeclaringArrayBindingStatus(ctx, targetName, 'stale');
 }
 
 function applyArrayMutationAssignTS(target: ValueIR, ctx: BodyEmitContext): void {
@@ -1661,7 +1683,7 @@ function applyArrayMutationAssignTS(target: ValueIR, ctx: BodyEmitContext): void
     if (status === 'captured') {
       throw new Error(`fresh array binding "${target.name}" was already captured by a record field`);
     }
-    if (status === 'fresh' || status === 'stale') {
+    if (status === 'fresh' || status === 'fresh-push' || status === 'stale') {
       throw new Error(`array binding "${target.name}" cannot be reassigned by portable assign`);
     }
     return;
@@ -1669,13 +1691,21 @@ function applyArrayMutationAssignTS(target: ValueIR, ctx: BodyEmitContext): void
   applyArrayMutationTargetTS(target, ctx);
 }
 
-function applyArrayMutationDoTS(node: ValueIR, ctx: BodyEmitContext): void {
+function applyArrayMutationDoTS(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  const pushTarget = pushMutationTargetTS(node);
+  if (pushTarget !== null) {
+    const keepFresh = preserveFreshPush && isFreshnessPreservingPushElementTS(pushTarget.element);
+    applyArrayMutationTargetTS(pushTarget.target, ctx, keepFresh);
+    return;
+  }
   const receiver = arrayMutationCallReceiver(node);
   if (receiver !== null) applyArrayMutationTargetTS(receiver, ctx);
 }
 
-function applyArrayMutationsInExpressionTS(node: ValueIR, ctx: BodyEmitContext): void {
-  applyArrayMutationDoTS(node, ctx);
+function applyArrayMutationsInExpressionTS(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  applyArrayMutationDoTS(node, ctx, preserveFreshPush);
+  // Only a direct `do xs.push(<scalar>)` statement certifies the push-built freshness chain.
+  // Nested pushes inside a larger expression are still mutation expressions and must stale.
   forEachValueIRChild(node, (child) => applyArrayMutationsInExpressionTS(child, ctx));
 }
 
@@ -1699,7 +1729,7 @@ function assertRecordArrayFieldReadsProvenTS(node: ValueIR, ctx: BodyEmitContext
   forEachValueIRChild(node, (child) => assertRecordArrayFieldReadsProvenTS(child, ctx));
 }
 
-function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
+function emitValueTS(node: ValueIR, ctx: BodyEmitContext, options: { preserveFreshPush?: boolean } = {}): string {
   // Slice-3c: DETECT-and-fail-close a regex method called on a let-bound regex
   // IDENT (`let re = /…/; s.match(re)`). The pure-expression TS emitter
   // (`emitExpression`) only lowers a DIRECT regex literal in the regex
@@ -1711,7 +1741,7 @@ function emitValueTS(node: ValueIR, ctx: BodyEmitContext): string {
   // flagged — it stays a plain host method (e.g. `s.match(stringVar)`), the
   // common case the old resolve-to-literal substitution must never have broken.
   assertNoBoundRegexMethodTS(node, ctx);
-  applyArrayMutationsInExpressionTS(node, ctx);
+  applyArrayMutationsInExpressionTS(node, ctx, options.preserveFreshPush === true);
   assertRecordArrayFieldReadsProvenTS(node, ctx);
   if (node.kind === 'objectLit') captureFreshArrayRecordSourcesTS(node, ctx);
   return emitExpression(node, exprCtxFor(ctx));
@@ -2068,7 +2098,7 @@ function emitDoTS(node: IRNode, ctx: BodyEmitContext): string[] {
     const inner = emitValueTS(valueIR.argument, ctx);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`];
   }
-  return [`${emitValueTS(valueIR, ctx)};`];
+  return [`${emitValueTS(valueIR, ctx, { preserveFreshPush: true })};`];
 }
 
 function emitFmtTS(node: IRNode, ctx: BodyEmitContext): string[] {

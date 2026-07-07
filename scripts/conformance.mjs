@@ -1741,6 +1741,15 @@ fn name=probe returns=boolean
     return value="r.items.length"`,
     expectReason: 'float literal has an integer value',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array push-built binding reassign before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]" kind=let
+    assign target=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'array binding "xs" cannot be reassigned by portable assign',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: fresh-array alias before capture cannot be captured',
     kern: `fn name=probe returns=number
   handler lang=kern

@@ -141,7 +141,7 @@ function parseExpr(input: string): ReturnType<typeof parseExpression> {
   return parseExpression(input, TS_PARSE_OPTS);
 }
 
-type ArrayBindingStatus = 'fresh' | 'stale' | 'captured';
+type ArrayBindingStatus = 'fresh' | 'fresh-push' | 'stale' | 'captured';
 
 /** Property-specific fail-close for a non-length read/call on a nested record
  *  array field — message LOCKSTEP with the TS twin (`nestedArrayMemberThrowTS`
@@ -1848,7 +1848,7 @@ function recordArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<
     if (entry.value.kind === 'arrayLit') fields.add(entry.key);
     else if (entry.value.kind === 'ident') {
       const status = lookupArrayBindingStatus(ctx, entry.value.name);
-      if (status === 'fresh' || status === 'captured') fields.add(entry.key);
+      if (status === 'fresh' || status === 'fresh-push' || status === 'captured') fields.add(entry.key);
     }
   }
   return fields;
@@ -1925,6 +1925,7 @@ function strongestArrayBindingStatus(statuses: Array<ArrayBindingStatus | null>)
   if (statuses.includes('captured')) return 'captured';
   if (statuses.includes('stale')) return 'stale';
   if (statuses.includes('fresh')) return 'fresh';
+  if (statuses.includes('fresh-push')) return 'fresh-push';
   return null;
 }
 
@@ -2038,12 +2039,12 @@ function lookupMaybeRecordArrayField(ctx: BodyEmitContext, name: string, field: 
 
 function bindArrayStatusFromLet(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
   if (valueIR.kind === 'arrayLit') {
-    setArrayBindingStatus(ctx, name, 'fresh');
+    setArrayBindingStatus(ctx, name, valueIR.items.length === 0 ? 'fresh-push' : 'fresh');
     return;
   }
   if (valueIR.kind === 'ident') {
     const sourceStatus = lookupArrayBindingStatus(ctx, valueIR.name);
-    if (sourceStatus === 'fresh') {
+    if (sourceStatus === 'fresh' || sourceStatus === 'fresh-push') {
       setDeclaringArrayBindingStatus(ctx, valueIR.name, 'stale');
       setArrayBindingStatus(ctx, name, 'stale');
       return;
@@ -2422,7 +2423,7 @@ function emitDoPy(node: IRNode, ctx: BodyEmitContext): string[] {
     ctx.usedPropagation = true;
     return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx)];
   }
-  return [`${emitPyExprCtx(valueIR, ctx)}`];
+  return [`${emitPyExprCtx(valueIR, ctx, { preserveFreshPush: true })}`];
 }
 
 /** ValueIR `kind`s that lower to Python literals/values and would trigger
@@ -2507,7 +2508,7 @@ function captureFreshArrayRecordSourcesPy(node: Extract<ValueIR, { kind: 'object
     }
     if (entry.value.kind !== 'ident') continue;
     const status = lookupArrayBindingStatus(ctx, entry.value.name);
-    if (status === 'fresh') {
+    if (status === 'fresh' || status === 'fresh-push') {
       if (freshSources.has(entry.value.name)) {
         throw new Error(`fresh array binding "${entry.value.name}" can be captured only once`);
       }
@@ -2543,7 +2544,27 @@ function recordArrayFieldMutationTarget(
   return null;
 }
 
-function applyArrayMutationTargetPy(target: ValueIR, ctx: BodyEmitContext): void {
+function isIntegerValuedFloatLiteralPy(node: Extract<ValueIR, { kind: 'numLit' }>): boolean {
+  return (node.raw.includes('.') || /[eE]/.test(node.raw)) && Number.isInteger(node.value);
+}
+
+function isFreshnessPreservingPushElementPy(node: ValueIR): boolean {
+  if (node.kind === 'strLit' || node.kind === 'boolLit' || node.kind === 'nullLit') return true;
+  if (node.kind !== 'numLit') return false;
+  if (node.bigint || !Number.isFinite(node.value)) return false;
+  if (isIntegerValuedFloatLiteralPy(node))
+    throw new Error('portable: float literal has an integer value (float/int divergence)');
+  return true;
+}
+
+function pushMutationTargetPy(node: ValueIR): { target: ValueIR; element: ValueIR } | null {
+  if (node.kind !== 'call' || node.optional || node.args.length !== 1) return null;
+  const callee = node.callee;
+  if (callee.kind !== 'member' || callee.optional || callee.property !== 'push') return null;
+  return { target: callee.object, element: node.args[0] };
+}
+
+function applyArrayMutationTargetPy(target: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
   const recordField = recordArrayFieldMutationTarget(target, ctx);
   if (recordField !== null) {
     throw new Error(
@@ -2556,10 +2577,17 @@ function applyArrayMutationTargetPy(target: ValueIR, ctx: BodyEmitContext): void
   if (status === 'captured') {
     throw new Error(`fresh array binding "${targetName}" was already captured by a record field`);
   }
-  if (status === 'fresh') setDeclaringArrayBindingStatus(ctx, targetName, 'stale');
+  if (status === 'fresh-push' && preserveFreshPush) return;
+  if (status === 'fresh' || status === 'fresh-push') setDeclaringArrayBindingStatus(ctx, targetName, 'stale');
 }
 
-function applyArrayMutationDoPy(node: ValueIR, ctx: BodyEmitContext): void {
+function applyArrayMutationDoPy(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  const pushTarget = pushMutationTargetPy(node);
+  if (pushTarget !== null) {
+    const keepFresh = preserveFreshPush && isFreshnessPreservingPushElementPy(pushTarget.element);
+    applyArrayMutationTargetPy(pushTarget.target, ctx, keepFresh);
+    return;
+  }
   if (node.kind !== 'call') return;
   const callee = node.callee;
   if (callee.kind === 'member' && MUTATING_ARRAY_METHODS.has(callee.property))
@@ -2572,7 +2600,7 @@ function applyArrayMutationAssignPy(target: ValueIR, ctx: BodyEmitContext): void
     if (status === 'captured') {
       throw new Error(`fresh array binding "${target.name}" was already captured by a record field`);
     }
-    if (status === 'fresh' || status === 'stale') {
+    if (status === 'fresh' || status === 'fresh-push' || status === 'stale') {
       throw new Error(`array binding "${target.name}" cannot be reassigned by portable assign`);
     }
     return;
@@ -2614,8 +2642,10 @@ function forEachValueIRChildPy(node: ValueIR, visit: (child: ValueIR) => void): 
   else if (node.kind === 'lambda' && node.body) visit(node.body as ValueIR);
 }
 
-function applyArrayMutationsInExpressionPy(node: ValueIR, ctx: BodyEmitContext): void {
-  applyArrayMutationDoPy(node, ctx);
+function applyArrayMutationsInExpressionPy(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  applyArrayMutationDoPy(node, ctx, preserveFreshPush);
+  // Only a direct `do xs.push(<scalar>)` statement certifies the push-built freshness chain.
+  // Nested pushes inside a larger expression are still mutation expressions and must stale.
   forEachValueIRChildPy(node, (child) => applyArrayMutationsInExpressionPy(child, ctx));
 }
 
@@ -2639,8 +2669,8 @@ function assertRecordArrayFieldReadsProvenPy(node: ValueIR, ctx: BodyEmitContext
   forEachValueIRChildPy(node, (child) => assertRecordArrayFieldReadsProvenPy(child, ctx));
 }
 
-function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
-  applyArrayMutationsInExpressionPy(node, ctx);
+function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext, options: { preserveFreshPush?: boolean } = {}): string {
+  applyArrayMutationsInExpressionPy(node, ctx, options.preserveFreshPush === true);
   assertRecordArrayFieldReadsProvenPy(node, ctx);
   if (node.kind === 'objectLit') captureFreshArrayRecordSourcesPy(node, ctx);
   switch (node.kind) {

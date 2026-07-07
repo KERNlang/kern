@@ -43,9 +43,11 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   assignBinding,
+  assignPushBuiltFreshArrayBinding,
   getBinding,
   hasBinding,
   isCapturedArrayBinding,
+  isPushBuiltFreshArrayBinding,
   type NodeContract,
   type NodeFixture,
   registerContract,
@@ -72,6 +74,7 @@ interface ResolvedPush {
   readonly kind: 'push';
   readonly targetName: string;
   readonly newArray: readonly PortableArrayElement[];
+  readonly preservesFreshness: boolean;
 }
 
 interface ResolvedMapSet {
@@ -102,7 +105,13 @@ function resolveDo(ir: IRNode, env: SemanticEnv): ResolvedDo {
         throw new Error(`fresh array binding "${targetName}" was already captured by a record field`);
       }
       const element = evalPortableArrayElement(elementExpr, env);
-      return { kind: 'push', targetName, newArray: Object.freeze([...current, element]) };
+      return {
+        kind: 'push',
+        targetName,
+        newArray: Object.freeze([...current, element]),
+        preservesFreshness:
+          isPushBuiltFreshArrayBinding(env, targetName) && isFreshnessPreservingPushElement(elementExpr),
+      };
     }
     const mapSet = resolveMapSetCall(parsed, env);
     if (mapSet) return { kind: 'map-set', targetName: mapSet.targetName, newMap: mapSet.newMap };
@@ -129,6 +138,20 @@ function evalPortableArrayElement(node: ValueIR, env: SemanticEnv): PortableArra
   return evalPortableValue(node, env);
 }
 
+function isIntegerValuedFloatLiteral(node: Extract<ValueIR, { kind: 'numLit' }>): boolean {
+  return (node.raw.includes('.') || /[eE]/.test(node.raw)) && Number.isInteger(node.value);
+}
+
+function isFreshnessPreservingPushElement(node: ValueIR): boolean {
+  if (node.kind === 'strLit' || node.kind === 'boolLit' || node.kind === 'nullLit') return true;
+  if (node.kind !== 'numLit') return false;
+  if (node.bigint || !Number.isFinite(node.value)) return false;
+  if (isIntegerValuedFloatLiteral(node)) {
+    throw new Error('portable: float literal has an integer value (float/int divergence)');
+  }
+  return true;
+}
+
 function doPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   try {
     resolveDo(ir, env);
@@ -142,7 +165,8 @@ function doEffects(ir: IRNode, env: SemanticEnv): Trace {
   const resolved = resolveDo(ir, env);
   if (resolved.kind === 'noop') return emptyTrace();
   if (resolved.kind === 'push') {
-    assignBinding(env, resolved.targetName, resolved.newArray);
+    if (resolved.preservesFreshness) assignPushBuiltFreshArrayBinding(env, resolved.targetName, resolved.newArray);
+    else assignBinding(env, resolved.targetName, resolved.newArray);
     return emptyTrace();
   }
   assignBinding(env, resolved.targetName, resolved.newMap);
