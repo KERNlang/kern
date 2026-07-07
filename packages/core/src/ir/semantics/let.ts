@@ -46,7 +46,6 @@ import {
   hasOwnBinding,
   type NodeContract,
   type NodeFixture,
-  recordArrayFieldsForBinding,
   registerContract,
   type SemanticEnv,
 } from './index.js';
@@ -60,6 +59,7 @@ import {
   evalRunnerClassNewValue,
   evalRunnerFunctionValue,
   isPortableBindingName,
+  isPortableScalar,
   isRecordLiteralExpression,
   isRunnerClassInstanceValue,
   isRunnerPortableArrayValue,
@@ -151,11 +151,7 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
     // Source freshness/captured metadata handled by defineArrayAliasBinding.
   } else if (isRecordLiteralExpression(parsed))
     defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
-  else if (parsed.kind === 'ident') {
-    const sourceFields = recordArrayFieldsForBinding(env, parsed.name);
-    if (sourceFields !== undefined) defineRecordBinding(env, name, value, new Set(sourceFields));
-    else defineBinding(env, name, value);
-  } else defineBinding(env, name, value);
+  else defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 
@@ -165,9 +161,13 @@ function recordArrayFieldsFromValue(value: unknown): Set<string> {
     return fields;
   }
   for (const [key, fieldValue] of Object.entries(value as Record<string, unknown>)) {
-    if (isRunnerPortableArrayValue(fieldValue)) fields.add(key);
+    if (isScalarElementArrayValue(fieldValue)) fields.add(key);
   }
   return fields;
+}
+
+function isScalarElementArrayValue(value: unknown): value is readonly unknown[] {
+  return isRunnerPortableArrayValue(value) && value.every((item) => isPortableScalar(item));
 }
 
 function letCompletion(ir: IRNode, env: SemanticEnv) {

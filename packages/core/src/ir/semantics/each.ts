@@ -171,6 +171,9 @@ function resolveEachCollection(inRaw: string, env: SemanticEnv): unknown {
   }
 
   const expr = parseExpression(inRaw);
+  if (expr.kind === 'ident') {
+    throw new Error(`each: binding "${expr.name}" not found in env`);
+  }
   if (
     expr.kind === 'member' &&
     !expr.optional &&
@@ -179,7 +182,7 @@ function resolveEachCollection(inRaw: string, env: SemanticEnv): unknown {
     !isParenthesized(expr.object)
   ) {
     const fields = recordArrayFieldsForBinding(env, expr.object.name);
-    if (fields === undefined) {
+    if (fields === undefined || !fields.has(expr.property)) {
       throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" is not proven`);
     }
     const collection = evalRecordArrayFieldReferenceValue(expr, env);

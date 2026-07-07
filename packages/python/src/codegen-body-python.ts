@@ -293,8 +293,10 @@ interface BodyEmitContext {
    *  every other two-level chain keeps its base lowering. */
   recordScopes: Array<Map<string, boolean>>;
   recordArrayFieldScopes: Array<Map<string, Set<string> | null>>;
+  recordScalarArrayFieldScopes: Array<Map<string, Set<string> | null>>;
   maybeRecordArrayFieldScopes: Array<Map<string, Set<string> | null>>;
   arrayBindingScopes: Array<Map<string, ArrayBindingStatus>>;
+  scalarArrayBindingScopes: Array<Map<string, boolean>>;
   /** Per-scope `userName -> emittedName` map. Populated when an inner-block
    * `let` shadows an outer binding so TS block-scope (`let x=1; if(c){let x=2}
    * return x` → 1) survives Python's flat function-scope (would otherwise
@@ -412,8 +414,10 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     regexScopes: [],
     recordScopes: [],
     recordArrayFieldScopes: [],
+    recordScalarArrayFieldScopes: [],
     maybeRecordArrayFieldScopes: [],
     arrayBindingScopes: [],
+    scalarArrayBindingScopes: [],
     renameStack: [],
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
@@ -521,8 +525,10 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.recordScopes.push(new Map(outerBindings.map((n) => [n, false])));
     ctx.recordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScalarArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.maybeRecordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.arrayBindingScopes.push(new Map());
+    ctx.scalarArrayBindingScopes.push(new Map());
     ctx.renameStack.push(new Map());
   }
   try {
@@ -543,8 +549,10 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
       ctx.regexScopes.pop();
       ctx.recordScopes.pop();
       ctx.recordArrayFieldScopes.pop();
+      ctx.recordScalarArrayFieldScopes.pop();
       ctx.maybeRecordArrayFieldScopes.pop();
       ctx.arrayBindingScopes.pop();
+      ctx.scalarArrayBindingScopes.pop();
       ctx.renameStack.pop();
     }
   }
@@ -636,8 +644,10 @@ function emitChildrenPy(
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.recordScopes.push(new Map(initialBindings.map(([name]) => [name, false])));
   ctx.recordArrayFieldScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.recordScalarArrayFieldScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.maybeRecordArrayFieldScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.arrayBindingScopes.push(new Map());
+  ctx.scalarArrayBindingScopes.push(new Map());
   ctx.renameStack.push(new Map());
   // Slice-2 loop-variable pinning. When this recursion is a loop BODY, record
   // the just-pushed scope's index so `emitBlockClosurePy` can decide whether a
@@ -1088,8 +1098,10 @@ function emitChildrenPy(
     ctx.regexScopes.pop();
     ctx.recordScopes.pop();
     ctx.recordArrayFieldScopes.pop();
+    ctx.recordScalarArrayFieldScopes.pop();
     ctx.maybeRecordArrayFieldScopes.pop();
     ctx.arrayBindingScopes.pop();
+    ctx.scalarArrayBindingScopes.pop();
     ctx.renameStack.pop();
     // Restore the parent level's hoist buffer (see the isolation comment at
     // entry). Any defs THIS level's last child left behind are appended so the
@@ -1426,7 +1438,13 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpr(String(rawValue));
   setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
-  setRecordBinding(ctx, userName, valueIR.kind === 'objectLit', recordArrayFieldsForValue(valueIR, ctx));
+  setRecordBinding(
+    ctx,
+    userName,
+    valueIR.kind === 'objectLit',
+    recordArrayFieldsForValue(valueIR, ctx),
+    recordScalarArrayFieldsForValue(valueIR, ctx),
+  );
   bindArrayStatusFromLet(ctx, userName, valueIR);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
@@ -1842,9 +1860,11 @@ function setRecordBinding(
   name: string,
   isRecord: boolean,
   arrayFields: Set<string> | null = null,
+  scalarArrayFields: Set<string> | null = null,
 ): void {
   ctx.recordScopes.at(-1)?.set(name, isRecord);
   ctx.recordArrayFieldScopes.at(-1)?.set(name, isRecord ? arrayFields : null);
+  ctx.recordScalarArrayFieldScopes.at(-1)?.set(name, isRecord ? scalarArrayFields : null);
   ctx.maybeRecordArrayFieldScopes.at(-1)?.set(name, isRecord ? arrayFields : null);
 }
 
@@ -1862,11 +1882,43 @@ function recordArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<
   return fields;
 }
 
+function recordScalarArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<string> | null {
+  if (valueIR.kind !== 'objectLit') return null;
+  const fields = new Set<string>();
+  for (const entry of valueIR.entries) {
+    if ('kind' in entry) continue;
+    if (entry.value.kind === 'arrayLit' && arrayLiteralHasOnlyScalarElements(entry.value)) fields.add(entry.key);
+    else if (entry.value.kind === 'ident') {
+      const status = lookupArrayBindingStatus(ctx, entry.value.name);
+      if (
+        (status === 'fresh' || status === 'fresh-push' || status === 'captured') &&
+        lookupScalarArrayBinding(ctx, entry.value.name)
+      ) {
+        fields.add(entry.key);
+      }
+    }
+  }
+  return fields;
+}
+
+function arrayLiteralHasOnlyScalarElements(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): boolean {
+  return valueIR.items.every(
+    (item) => item.kind === 'numLit' || item.kind === 'strLit' || item.kind === 'boolLit' || item.kind === 'nullLit',
+  );
+}
+
 function setArrayBindingStatus(ctx: BodyEmitContext, name: string, status: ArrayBindingStatus | null): void {
   const scope = ctx.arrayBindingScopes.at(-1);
   if (!scope) return;
   if (status === null) scope.delete(name);
   else scope.set(name, status);
+}
+
+function setScalarArrayBinding(ctx: BodyEmitContext, name: string, scalar: boolean): void {
+  const scope = ctx.scalarArrayBindingScopes.at(-1);
+  if (!scope) return;
+  if (scalar) scope.set(name, true);
+  else scope.delete(name);
 }
 
 function lookupArrayBindingStatus(ctx: BodyEmitContext, name: string): ArrayBindingStatus | null {
@@ -1877,12 +1929,30 @@ function lookupArrayBindingStatus(ctx: BodyEmitContext, name: string): ArrayBind
   return null;
 }
 
+function lookupScalarArrayBinding(ctx: BodyEmitContext, name: string): boolean {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (!ctx.localScopes[i].has(name)) continue;
+    return ctx.scalarArrayBindingScopes[i]?.get(name) === true;
+  }
+  return false;
+}
+
 function setDeclaringArrayBindingStatus(ctx: BodyEmitContext, name: string, status: ArrayBindingStatus | null): void {
   for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
     if (!ctx.localScopes[i].has(name)) continue;
     const scope = ctx.arrayBindingScopes[i];
     if (status === null) scope?.delete(name);
     else scope?.set(name, status);
+    return;
+  }
+}
+
+function setDeclaringScalarArrayBinding(ctx: BodyEmitContext, name: string, scalar: boolean): void {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (!ctx.localScopes[i].has(name)) continue;
+    const scope = ctx.scalarArrayBindingScopes[i];
+    if (scalar) scope?.set(name, true);
+    else scope?.delete(name);
     return;
   }
 }
@@ -1902,8 +1972,10 @@ function isStaticBooleanLiteral(node: ValueIR, value: boolean): boolean {
 
 type BranchBindingSnapshot = {
   readonly array: Array<Map<string, ArrayBindingStatus>>;
+  readonly scalarArray: Array<Map<string, boolean>>;
   readonly record: Array<Map<string, boolean>>;
   readonly recordArrayField: Array<Map<string, Set<string> | null>>;
+  readonly recordScalarArrayField: Array<Map<string, Set<string> | null>>;
   readonly maybeRecordArrayField: Array<Map<string, Set<string> | null>>;
 };
 
@@ -1916,16 +1988,20 @@ function cloneFieldScopes(scopes: Array<Map<string, Set<string> | null>>): Array
 function cloneBranchBindingScopes(ctx: BodyEmitContext): BranchBindingSnapshot {
   return {
     array: ctx.arrayBindingScopes.map((scope) => new Map(scope)),
+    scalarArray: ctx.scalarArrayBindingScopes.map((scope) => new Map(scope)),
     record: ctx.recordScopes.map((scope) => new Map(scope)),
     recordArrayField: cloneFieldScopes(ctx.recordArrayFieldScopes),
+    recordScalarArrayField: cloneFieldScopes(ctx.recordScalarArrayFieldScopes),
     maybeRecordArrayField: cloneFieldScopes(ctx.maybeRecordArrayFieldScopes),
   };
 }
 
 function restoreBranchBindingScopes(ctx: BodyEmitContext, snapshot: BranchBindingSnapshot): void {
   ctx.arrayBindingScopes = snapshot.array.map((scope) => new Map(scope));
+  ctx.scalarArrayBindingScopes = snapshot.scalarArray.map((scope) => new Map(scope));
   ctx.recordScopes = snapshot.record.map((scope) => new Map(scope));
   ctx.recordArrayFieldScopes = cloneFieldScopes(snapshot.recordArrayField);
+  ctx.recordScalarArrayFieldScopes = cloneFieldScopes(snapshot.recordScalarArrayField);
   ctx.maybeRecordArrayFieldScopes = cloneFieldScopes(snapshot.maybeRecordArrayField);
 }
 
@@ -1949,6 +2025,20 @@ function mergeArrayScopes(
       const status = strongestArrayBindingStatus(outcomes.map((outcome) => outcome[scopeIndex]?.get(name) ?? null));
       if (status === null) merged[scopeIndex].delete(name);
       else merged[scopeIndex].set(name, status);
+    }
+  }
+  return merged;
+}
+
+function mergeScalarArrayScopes(base: Array<Map<string, boolean>>, outcomes: Array<Array<Map<string, boolean>>>) {
+  const merged = base.map((scope) => new Map(scope));
+  for (let scopeIndex = 0; scopeIndex < merged.length; scopeIndex++) {
+    const names = new Set<string>(merged[scopeIndex].keys());
+    for (const outcome of outcomes) for (const name of outcome[scopeIndex]?.keys() ?? []) names.add(name);
+    for (const name of names) {
+      const scalar = outcomes.length > 0 && outcomes.every((outcome) => outcome[scopeIndex]?.get(name) === true);
+      if (scalar) merged[scopeIndex].set(name, true);
+      else merged[scopeIndex].delete(name);
     }
   }
   return merged;
@@ -2003,6 +2093,10 @@ function mergeBranchBindingSnapshots(
     base.array,
     outcomes.map((outcome) => outcome.array),
   );
+  ctx.scalarArrayBindingScopes = mergeScalarArrayScopes(
+    base.scalarArray,
+    outcomes.map((outcome) => outcome.scalarArray),
+  );
   ctx.recordScopes = mergeRecordScopes(
     base.record,
     outcomes.map((outcome) => outcome.record),
@@ -2010,6 +2104,11 @@ function mergeBranchBindingSnapshots(
   ctx.recordArrayFieldScopes = mergeFieldScopes(
     base.recordArrayField,
     outcomes.map((outcome) => outcome.recordArrayField),
+    'intersection',
+  );
+  ctx.recordScalarArrayFieldScopes = mergeFieldScopes(
+    base.recordScalarArrayField,
+    outcomes.map((outcome) => outcome.recordScalarArrayField),
     'intersection',
   );
   ctx.maybeRecordArrayFieldScopes = mergeFieldScopes(
@@ -2036,6 +2135,15 @@ function lookupRecordArrayField(ctx: BodyEmitContext, name: string, field: strin
   return false;
 }
 
+function lookupRecordScalarArrayField(ctx: BodyEmitContext, name: string, field: string): boolean {
+  for (let i = ctx.recordScalarArrayFieldScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScalarArrayFieldScopes[i];
+    if (!scope.has(name)) continue;
+    return scope.get(name)?.has(field) === true;
+  }
+  return false;
+}
+
 function lookupMaybeRecordArrayField(ctx: BodyEmitContext, name: string, field: string): boolean {
   for (let i = ctx.maybeRecordArrayFieldScopes.length - 1; i >= 0; i--) {
     const scope = ctx.maybeRecordArrayFieldScopes[i];
@@ -2048,21 +2156,27 @@ function lookupMaybeRecordArrayField(ctx: BodyEmitContext, name: string, field: 
 function bindArrayStatusFromLet(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
   if (valueIR.kind === 'arrayLit') {
     setArrayBindingStatus(ctx, name, valueIR.items.length === 0 ? 'fresh-push' : 'fresh');
+    setScalarArrayBinding(ctx, name, arrayLiteralHasOnlyScalarElements(valueIR));
     return;
   }
   if (valueIR.kind === 'ident') {
     const sourceStatus = lookupArrayBindingStatus(ctx, valueIR.name);
+    const sourceScalar = lookupScalarArrayBinding(ctx, valueIR.name);
     if (sourceStatus === 'fresh' || sourceStatus === 'fresh-push') {
       setDeclaringArrayBindingStatus(ctx, valueIR.name, 'stale');
+      setDeclaringScalarArrayBinding(ctx, valueIR.name, false);
       setArrayBindingStatus(ctx, name, 'stale');
+      setScalarArrayBinding(ctx, name, false);
       return;
     }
     if (sourceStatus === 'captured') {
       setArrayBindingStatus(ctx, name, 'captured');
+      setScalarArrayBinding(ctx, name, sourceScalar);
       return;
     }
     if (sourceStatus === 'stale') {
       setArrayBindingStatus(ctx, name, 'stale');
+      setScalarArrayBinding(ctx, name, false);
       return;
     }
   }
@@ -2072,14 +2186,21 @@ function bindArrayStatusFromLet(ctx: BodyEmitContext, name: string, valueIR: Val
     lookupRecordArrayField(ctx, valueIR.object.name, valueIR.property)
   ) {
     setArrayBindingStatus(ctx, name, 'captured');
+    setScalarArrayBinding(ctx, name, lookupRecordScalarArrayField(ctx, valueIR.object.name, valueIR.property));
     return;
   }
   setArrayBindingStatus(ctx, name, null);
+  setScalarArrayBinding(ctx, name, false);
 }
 
 function rebindArrayOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
-  if (valueIR.kind === 'arrayLit') setDeclaringArrayBindingStatus(ctx, name, 'stale');
-  else setDeclaringArrayBindingStatus(ctx, name, null);
+  if (valueIR.kind === 'arrayLit') {
+    setDeclaringArrayBindingStatus(ctx, name, 'stale');
+    setDeclaringScalarArrayBinding(ctx, name, false);
+  } else {
+    setDeclaringArrayBindingStatus(ctx, name, null);
+    setDeclaringScalarArrayBinding(ctx, name, false);
+  }
 }
 
 /** Reassign-invalidation for the record table — mirrors `rebindRegexOnReassign`
@@ -2088,11 +2209,13 @@ function rebindArrayOnReassign(ctx: BodyEmitContext, name: string, valueIR: Valu
 function rebindRecordOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
   const next = valueIR.kind === 'objectLit';
   const arrayFields = recordArrayFieldsForValue(valueIR, ctx);
+  const scalarArrayFields = recordScalarArrayFieldsForValue(valueIR, ctx);
   for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
     const scope = ctx.recordScopes[i];
     if (scope.has(name)) {
       scope.set(name, next);
       ctx.recordArrayFieldScopes[i]?.set(name, next ? arrayFields : null);
+      ctx.recordScalarArrayFieldScopes[i]?.set(name, next ? scalarArrayFields : null);
       ctx.maybeRecordArrayFieldScopes[i]?.set(name, next ? arrayFields : null);
       return;
     }
@@ -2481,8 +2604,10 @@ export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOpt
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.recordScopes.push(new Map(outerBindings.map((n) => [n, false])));
     ctx.recordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScalarArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.maybeRecordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
     ctx.arrayBindingScopes.push(new Map());
+    ctx.scalarArrayBindingScopes.push(new Map());
     ctx.renameStack.push(new Map());
   }
   const code = emitPyExprCtx(node, ctx);
@@ -3739,13 +3864,30 @@ function nestedRecordFieldNonArrayReceiverPy(
 
 function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
   if (node.kind === 'member' && node.object.kind === 'ident') {
-    if (node.optional || isParenthesized(node.object) || !lookupRecordBinding(ctx, node.object.name)) {
+    if (node.optional || isParenthesized(node.object)) {
       throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
     }
-    ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
-    ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
-    const record = ctx.symbolMap[node.object.name] ?? node.object.name;
-    return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
+    if (
+      lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
+      !lookupRecordArrayField(ctx, node.object.name, node.property)
+    ) {
+      throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
+    }
+    if (!lookupRecordBinding(ctx, node.object.name)) {
+      throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
+    }
+    if (lookupRecordBinding(ctx, node.object.name)) {
+      if (!lookupRecordArrayField(ctx, node.object.name, node.property)) {
+        throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
+      }
+      if (!lookupRecordScalarArrayField(ctx, node.object.name, node.property)) {
+        throw new Error(`record array field "${node.object.name}.${node.property}" elements must be portable scalars`);
+      }
+      ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
+      ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
+      const record = ctx.symbolMap[node.object.name] ?? node.object.name;
+      return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
+    }
   }
   return emitPyExprCtx(node, ctx);
 }
@@ -5500,7 +5642,13 @@ function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
   declareLocalBinding(ctx, userName, 'const');
   const name = maybeRenameOnShadow(ctx, userName);
   setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);
-  setRecordBinding(ctx, userName, exprIR.kind === 'objectLit', recordArrayFieldsForValue(exprIR, ctx));
+  setRecordBinding(
+    ctx,
+    userName,
+    exprIR.kind === 'objectLit',
+    recordArrayFieldsForValue(exprIR, ctx),
+    recordScalarArrayFieldsForValue(exprIR, ctx),
+  );
   bindArrayStatusFromLet(ctx, userName, exprIR);
   const lines = [`${name} = ${emitLetInitializerPy(exprIR, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));

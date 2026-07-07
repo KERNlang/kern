@@ -67,7 +67,7 @@ describe('continue / break body-statements — TS target', () => {
         children: [
           {
             type: 'each',
-            props: { name: 'item', in: 'group.items' },
+            props: { name: 'item', in: 'items' },
             children: [
               {
                 type: 'if',

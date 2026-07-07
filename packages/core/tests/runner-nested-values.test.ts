@@ -249,6 +249,12 @@ describe('runner nested values — first-class iteration over record array field
   it('NI-R1 rejects missing, non-array, and unproven nested iteration receivers', () => {
     abstains([letBind('r', '{a: 1}'), eachLoop('child', 'r.children', print('child'))]);
     abstains([letBind('r', '{children: 1}'), eachLoop('child', 'r.children', print('child'))]);
+    abstains([
+      letBind('xs', '[1,2]'),
+      letBind('r', '{children: xs}'),
+      letBind('s', 'r'),
+      eachLoop('child', 's.children', print('child')),
+    ]);
     expect(() =>
       referenceRunSequence(
         [eachLoop('child', 'r.children', print('child'))],

@@ -715,15 +715,33 @@ const FIXTURES = [
     params: [],
     body: `let name=xs value="[1,2]"\nlet name=ys value="[7,8]"\nlet name=r value="{children: xs}"\nlet name=s value="{children: ys}"\nlet kind=let name=acc value="0"\neach name=child in="s.children"\n  assign target=acc value="acc * 10 + child"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
     expected: 7812 },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R1 each over missing nested array field fails closed',
-    params: [],
-    body: `let name=r value="{a: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R2 each over non-array nested field fails closed',
-    params: [],
-    body: `let name=r value="{children: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R3 each over composite nested elements fails closed',
-    params: [],
-    body: `let name=r value="{children: [[1],[2]]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R1 each over missing nested array field fails closed',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{a: 1}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'each nested record-array receiver "r.children" is not proven',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R2 each over non-array nested field fails closed',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: 1}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'each nested record-array receiver "r.children" is not proven',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R3 each over composite nested elements fails closed',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [[1],[2]]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" elements must be portable scalars',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
@@ -1761,7 +1779,7 @@ fn name=probe returns=number
     return value="(r).b.length"`,
     expectReason: 'record array field "r.b" must use a bare non-optional receiver',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
-  { kind: 'compile-reject', name: 'compile-reject: each over unproven nested record-array receiver is rejected',
+  { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over unproven nested record-array receiver is rejected',
     kern: `fn name=probe returns=number
   param name=r type=object
   handler lang=kern
@@ -1769,6 +1787,30 @@ fn name=probe returns=number
       return value="child"
     return value="0"`,
     expectReason: 'each nested record-array receiver "r.children" is not proven',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6 each over aliased nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    let name=s value="r"
+    each name=child in="s.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'each nested record-array receiver "s.children" is not proven',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4 each over branch-unproven nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  param name=flag type=boolean
+  handler lang=kern
+    let kind=let name=r value="{children: 1}"
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{children: xs}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" is not proven on every branch',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: fresh-array stale after push cannot be captured',
     kern: `fn name=probe returns=number
