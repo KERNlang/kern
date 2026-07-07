@@ -1757,40 +1757,21 @@ describe('@kernlang/core/runner source executor', () => {
     expect(stdout).toBe('31\n');
   });
 
-  // MERGE-PTR fence: mutable plain-let array indexes remain outside runner provenance;
+  // MERGE-PTR fence: mutable plain-let indexes into helper array params remain outside runner provenance;
   // TS/Python codegen execution is pinned in conformance.mjs.
   test('MERGE-PTR fence: runner abstains on mutable pointer indexes into helper array params', () => {
     expect(() =>
       executeKernSource(
         [
-          'fn name=merge params="left:string[],right:string[]" returns=string[]',
+          'fn name=pick params="xs:string[]" returns=string',
           '  handler lang="kern"',
-          '    let name=out value="[]"',
           '    let kind=let name=i value="0"',
-          '    let kind=let name=j value="0"',
-          '    while cond="i < left.length && j < right.length"',
-          '      if cond="left[i] <= right[j]"',
-          '        do value="out.push(left[i])"',
-          '        assign target=i value="i + 1"',
-          '      else',
-          '        do value="out.push(right[j])"',
-          '        assign target=j value="j + 1"',
-          '    while cond="i < left.length"',
-          '      do value="out.push(left[i])"',
-          '      assign target=i value="i + 1"',
-          '    while cond="j < right.length"',
-          '      do value="out.push(right[j])"',
-          '      assign target=j value="j + 1"',
-          '    return value="out"',
-          mainProgram([
-            'let name=left value="[\'a\']"',
-            'let name=right value="[\'b\',\'c\']"',
-            'let name=merged value="merge(left, right)"',
-            'print value="merged[0] + \\",\\" + merged[1] + \\",\\" + merged[2]"',
-          ]),
+          '    assign target=i value="i + 0"',
+          '    return value="xs[i]"',
+          mainProgram(['let name=xs value="[\'a\']"', 'print value="pick(xs)"']),
         ].join('\n'),
       ),
-    ).toThrow(KernRunnerError);
+    ).toThrow(/Preconditions failed for node type "print"/);
   });
 
   test('SORT-1 pin: selection-sort into a fresh array sorts hostile string keys without pointer indexes', () => {
