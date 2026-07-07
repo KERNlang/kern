@@ -1133,6 +1133,9 @@ function resolveLocalRename(ctx: BodyEmitContext, name: string): string {
 }
 
 function emitScopedIdentPy(ctx: BodyEmitContext, name: string): string {
+  // Only custom nested-record rewrites need this helper; ordinary expression
+  // emission descends through the ident case, which already resolves block
+  // renames before applying symbol-map names.
   const blockRename = resolveLocalRename(ctx, name);
   if (blockRename !== name) return blockRename;
   if (ctx.shadowedSymbols.has(name)) return name;

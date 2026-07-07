@@ -644,6 +644,12 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
     params: [],
     body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R20 nested undefined element index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [undefined]}"\nreturn value="r.b[0]"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R21 nested non-finite element index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [Infinity]}"\nreturn value="r.b[0]"` },
   // Record REASSIGNMENT (delta review, blocking): a mutable record binding
   // reassigned to a NEW object literal must stay record-shaped on BOTH legs
   // (Python re-wraps in __DotDict, lockstep with the let initializer), so
