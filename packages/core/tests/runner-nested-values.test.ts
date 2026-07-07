@@ -54,6 +54,13 @@ function doValue(value: string): IRNode {
   return { type: 'do', props: { value } };
 }
 
+function expectFailClosedError(thrown: unknown): void {
+  expect(thrown).toBeInstanceOf(Error);
+  expect(String((thrown as Error).message)).toMatch(
+    /Preconditions failed|array|assign|binding|each|field|fresh|index|length|literal|nested|portable|record|scalar|stale|unsupported/u,
+  );
+}
+
 function expectThrows(action: () => unknown): void {
   let thrown: unknown;
   try {
@@ -61,7 +68,7 @@ function expectThrows(action: () => unknown): void {
   } catch (error) {
     thrown = error;
   }
-  expect(thrown).toBeDefined();
+  expectFailClosedError(thrown);
 }
 
 async function expectAsyncThrows(action: () => Promise<unknown>): Promise<void> {
@@ -71,7 +78,7 @@ async function expectAsyncThrows(action: () => Promise<unknown>): Promise<void> 
   } catch (error) {
     thrown = error;
   }
-  expect(thrown).toBeDefined();
+  expectFailClosedError(thrown);
 }
 
 function abstains(nodes: IRNode[]): void {
