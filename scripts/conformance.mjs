@@ -1528,6 +1528,94 @@ fn name=probe returns=number
     body: `let name=parentIdx value="[-1,0,0]"\nreturn value="parentIdx[0]"`,
     expected: -1 },
 
+  // T4 string/sorting pins are GREEN-at-add regression coverage for tool-facing .kern programs.
+  // Runner companions live in runner-source-executor.test.ts; no source semantics change in this slice.
+  { kind: 'stmt', name: 'stmt: STR-1 pin string equality and ordering in if conditions',
+    params: [],
+    body: `let name=a value="\\"x\\""\nlet name=b value="\\"x0\\""\nlet kind=let name=score value="0"\nif cond="a == \\"x\\""\n  assign target=score value="score + 1"\nif cond="a < b"\n  assign target=score value="score + 2"\nreturn value="score"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: STR-2 pin string concatenation for tool keys',
+    params: [],
+    body: `let name=a value="\\"x\\""\nlet name=b value="\\"0\\""\nlet name=c value="\\".\\""\nreturn value="a + b + c"`,
+    expected: 'x0.' },
+  { kind: 'stmt', name: 'stmt: STR-3 pin Text operations in if conditions',
+    params: [],
+    body: `let name=s value="\\"hello\\""\nlet kind=let name=score value="0"\nif cond="Text.length(s) == 5"\n  assign target=score value="score + 1"\nif cond="Text.charAt(s, 1) == \\"e\\""\n  assign target=score value="score + 2"\nif cond="Text.slice(s, 1, 4) == \\"ell\\""\n  assign target=score value="score + 4"\nif cond="Text.indexOf(s, \\"ll\\") == 2"\n  assign target=score value="score + 8"\nif cond="Text.startsWith(s, \\"he\\")"\n  assign target=score value="score + 16"\nreturn value="score"`,
+    expected: 31 },
+  { kind: 'stmt', name: 'stmt: STR-4 pin hostile key matching treats punctuation as data',
+    params: [],
+    body: `let name=keys value="['x','x0','x.']"\nlet kind=let name=score value="0"\nfor name=i from="0" to="keys.length"\n  if cond="keys[i] == \\"x\\""\n    assign target=score value="score + 1"\n  if cond="keys[i] == \\"x0\\""\n    assign target=score value="score + 10"\n  if cond="keys[i] == \\"x.\\""\n    assign target=score value="score + 100"\nreturn value="score"`,
+    expected: 111 },
+  { kind: 'stmt', name: 'stmt: STR-5 pin well-formed non-BMP Text code-point behavior',
+    params: [],
+    body: `let name=s value="\\"a😀b\\""\nlet kind=let name=score value="0"\nif cond="s == \\"a😀b\\""\n  assign target=score value="score + 1"\nif cond="Text.length(s) == 3"\n  assign target=score value="score + 2"\nif cond="Text.charAt(s, 1) == \\"😀\\""\n  assign target=score value="score + 4"\nif cond="Text.slice(s, 1, 2) == \\"😀\\""\n  assign target=score value="score + 8"\nif cond="Text.length(s) != 4"\n  assign target=score value="score + 16"\nreturn value="score"`,
+    expected: 31 },
+  // MERGE-PTR fence: this is an intentional runner-vs-codegen boundary, not a
+  // source semantics change. The runner abstains because mutable plain-let
+  // pointer indexes into helper array params are outside index provenance;
+  // TS/Python codegen currently execute the direct merge pattern below.
+  { kind: 'stmt', name: 'stmt: MERGE-PTR fence codegen executes mutable pointer merge body',
+    params: [],
+    body: `let name=left value="['a']"\nlet name=right value="['b','c']"\nlet name=out value="[]"\nlet kind=let name=i value="0"\nlet kind=let name=j value="0"\nwhile cond="i < left.length && j < right.length"\n  if cond="left[i] <= right[j]"\n    do value="out.push(left[i])"\n    assign target=i value="i + 1"\n  else\n    do value="out.push(right[j])"\n    assign target=j value="j + 1"\nwhile cond="i < left.length"\n  do value="out.push(left[i])"\n  assign target=i value="i + 1"\nwhile cond="j < right.length"\n  do value="out.push(right[j])"\n  assign target=j value="j + 1"\nreturn value="out[0] + ',' + out[1] + ',' + out[2]"`,
+    expected: 'a,b,c' },
+  { kind: 'whole-file', name: 'whole-file: MERGE-PTR fence codegen executes mutable pointer merge',
+    kern: `fn name=merge params="left:string[],right:string[]" returns=string[]
+  handler lang=kern
+    let name=out value="[]"
+    let kind=let name=i value="0"
+    let kind=let name=j value="0"
+    while cond="i < left.length && j < right.length"
+      if cond="left[i] <= right[j]"
+        do value="out.push(left[i])"
+        assign target=i value="i + 1"
+      else
+        do value="out.push(right[j])"
+        assign target=j value="j + 1"
+    while cond="i < left.length"
+      do value="out.push(left[i])"
+      assign target=i value="i + 1"
+    while cond="j < right.length"
+      do value="out.push(right[j])"
+      assign target=j value="j + 1"
+    return value="out"
+fn name=probe returns=string
+  handler lang=kern
+    let name=left value="['a']"
+    let name=right value="['b','c']"
+    let name=ys value="merge(left, right)"
+    return value="ys[0] + ',' + ys[1] + ',' + ys[2]"`,
+    expected: 'a,b,c' },
+  { kind: 'whole-file', name: 'whole-file: SORT-1 pin selection-sort into fresh array for hostile keys',
+    kern: `fn name=sortstrings params="xs:string[]" returns=string
+  handler lang=kern
+    let name=out value="[]"
+    let kind=let name=emitted value="0"
+    let kind=let name=last value="\\"\\""
+    let kind=let name=found value="false"
+    let kind=let name=min value="\\"\\""
+    while cond="emitted < xs.length"
+      assign target=found value="false"
+      assign target=min value="\\"\\""
+      for name=i from="0" to="xs.length"
+        if cond="emitted == 0 || last < xs[i]"
+          if cond="!found"
+            assign target=min value="xs[i]"
+            assign target=found value="true"
+          else
+            if cond="xs[i] < min"
+              assign target=min value="xs[i]"
+      for name=j from="0" to="xs.length"
+        if cond="xs[j] == min"
+          do value="out.push(min)"
+          assign target=emitted value="emitted + 1"
+      assign target=last value="min"
+    return value="out[0] + ',' + out[1] + ',' + out[2] + ',' + out[3]"
+fn name=probe returns=string
+  handler lang=kern
+    let name=xs value="['x0','x','x.','x']"
+    return value="sortstrings(xs)"`,
+    expected: 'x,x,x.,x0' },
+
   // ──────────────────────────────────────────────────────────────────────────
   // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,
   // Option D — Unicode CODE POINTS, run tribunal-1782979476717-1d9547).
