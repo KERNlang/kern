@@ -30,7 +30,7 @@ const EXPECTED_RAG_ANSWER_MARKERS = [
 ];
 const RAG_ANSWER_ORDER =
   /1\n1\n\[1\] id=[\s\S]*Refunds are available within thirty days[\s\S]*\nRefunds are available within thirty days \[1\]\n/u;
-const EXPECTED_RAG_ANSWER_CAPABILITY_STDOUT = '1\ntrue\ngrounded\nRefunds are available within thirty days [1]\n';
+const EXPECTED_RAG_ANSWER_CAPABILITY_STDOUT = '1\ntrue\ngrounded\n35\n38\nRefunds are available within thirty days [1]\n';
 
 class SmokeFailure extends Error {
   constructor(message, exitCode = 1) {
