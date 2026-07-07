@@ -274,6 +274,13 @@ describe('runner nested values — first-class iteration over record array field
     ).toBe('7\n8\n1\n2\n');
   });
 
+  it('NI-3 keeps expression-v1 record literals iterable in sync and async runners', async () => {
+    const nodes = [exprBind('r', '{children: [4,5]}'), eachLoop('child', 'r.children', print('child'))];
+
+    expect(runStdout(nodes)).toBe('4\n5\n');
+    await expect(runStdoutAsync(nodes)).resolves.toBe('4\n5\n');
+  });
+
   it('NI-R1 rejects missing, non-array, and unproven nested iteration receivers', () => {
     abstains([letBind('r', '{a: 1}'), eachLoop('child', 'r.children', print('child'))]);
     abstains([letBind('r', '{children: 1}'), eachLoop('child', 'r.children', print('child'))]);

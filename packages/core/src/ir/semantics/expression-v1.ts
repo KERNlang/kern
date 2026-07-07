@@ -9,6 +9,7 @@ import {
   defineBinding,
   defineCapturedArrayBinding,
   defineFreshArrayBinding,
+  defineRecordBinding,
   getBinding,
   hasBinding,
   hasOwnBinding,
@@ -17,6 +18,7 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { recordArrayFieldsFromValue } from './let.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import {
   evalRegexGlobalMatchExpression,
@@ -39,8 +41,10 @@ import {
   evalDecimalExpression,
   evalPortableValue,
   evalRecordArrayFieldReferenceValue,
+  evalRecordLiteralValue,
   isDecimalValueExpression,
   isPortableBindingName,
+  isRecordLiteralExpression,
   isRunnerNativeDecimalFailClose,
   makeDecimalValue,
 } from './portable-scalar.js';
@@ -205,6 +209,10 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
       evalArrayLiteralValue(parsed, env);
       return true;
     }
+    if (isRecordLiteralExpression(parsed)) {
+      evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: false });
+      return true;
+    }
     if (evalRecordArrayFieldReferenceValue(parsed, env) !== undefined) return true;
     if (parsed.kind === 'ident' && hasBinding(env, parsed.name) && Array.isArray(getBinding(env, parsed.name))) {
       return true;
@@ -293,6 +301,11 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
   if (isArrayLiteralExpression(parsed)) {
     const value = evalArrayLiteralValue(parsed, env);
     defineFreshArrayBinding(env, name, value);
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  if (isRecordLiteralExpression(parsed)) {
+    const value = evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: true });
+    defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   const recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env);
