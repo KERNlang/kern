@@ -425,7 +425,7 @@ fn name=main returns=void
         'broken.kern',
         `fn name=helper returns=string export=true
   handler lang="kern"
-    return value=
+    return value="unterminated
 `,
       ),
     ],
