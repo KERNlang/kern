@@ -1,6 +1,7 @@
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
 import { evalPortableValueAsync } from '../src/ir/semantics/async-portable-scalar.js';
 import { asyncReferenceRunSequence } from '../src/ir/semantics/async-reference-runner.js';
+import { assignBinding, defineRecordBinding, recordArrayFieldsForBinding } from '../src/ir/semantics/index.js';
 import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
@@ -261,6 +262,19 @@ describe('runner nested values — first-class iteration over record array field
         makeEnv({ bindings: new Map<string, unknown>([['r', { children: [1, 2, 3] }]]) }),
       ),
     ).toThrow(ReferenceRunnerError);
+  });
+
+  it('NI-R1b clears nested iteration proof when assignBinding overwrites a record binding', () => {
+    const env = makeEnv();
+    defineRecordBinding(env, 'r', { children: [1, 2, 3] }, new Set(['children']));
+    expect(recordArrayFieldsForBinding(env, 'r')?.has('children')).toBe(true);
+
+    assignBinding(env, 'r', 1);
+
+    expect(recordArrayFieldsForBinding(env, 'r')).toBeUndefined();
+    expect(() => referenceRunSequence([eachLoop('child', 'r.children', print('child'))], env)).toThrow(
+      ReferenceRunnerError,
+    );
   });
 
   it('NI-R2 rejects composite elements and mutation during nested iteration', () => {

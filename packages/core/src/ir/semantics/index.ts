@@ -302,6 +302,7 @@ export function assignBinding(env: SemanticEnv, name: string, value: unknown): v
   scope.freshArrayBindings?.delete(name);
   scope.pushBuiltFreshArrayBindings?.delete(name);
   scope.capturedArrayBindings?.delete(name);
+  scope.recordArrayFields?.set(name, null);
 }
 
 export function assignPushBuiltFreshArrayBinding(env: SemanticEnv, name: string, value: readonly unknown[]): void {
