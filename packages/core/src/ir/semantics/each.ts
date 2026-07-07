@@ -41,7 +41,9 @@
  *   - lazy / infinite iterables (the runner materializes through `for...of`)
  */
 
+import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
+import { isParenthesized, isValueIR } from '../../value-ir.js';
 import {
   childEnv,
   defineBinding,
@@ -50,9 +52,11 @@ import {
   markRepeatableLoopBody,
   type NodeContract,
   type NodeFixture,
+  recordArrayFieldsForBinding,
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { evalRecordArrayFieldReferenceValue, isPortableScalar } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -149,6 +153,49 @@ function assertPlainObject(collection: unknown, shape: string): void {
   }
 }
 
+function assertNestedIterationScalarElements(collection: readonly unknown[], label: string): void {
+  for (const item of collection) {
+    if (!isPortableScalar(item)) {
+      throw new Error(`each: ${label} elements must be portable scalars`);
+    }
+  }
+}
+
+function resolveEachCollection(inRaw: string, env: SemanticEnv): unknown {
+  if (hasBinding(env, inRaw)) {
+    const collection = getBinding(env, inRaw);
+    if (collection === null || collection === undefined) {
+      throw new Error(`each: binding "${inRaw}" is nullish`);
+    }
+    return collection;
+  }
+
+  const expr = parseExpression(inRaw);
+  if (expr.kind === 'ident') {
+    throw new Error(`each: binding "${expr.name}" not found in env`);
+  }
+  if (
+    expr.kind === 'member' &&
+    !expr.optional &&
+    isValueIR(expr.object) &&
+    expr.object.kind === 'ident' &&
+    !isParenthesized(expr.object)
+  ) {
+    const fields = recordArrayFieldsForBinding(env, expr.object.name);
+    if (fields === undefined || !fields.has(expr.property)) {
+      throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" is not proven`);
+    }
+    const collection = evalRecordArrayFieldReferenceValue(expr, env);
+    if (collection === undefined) {
+      throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" must be an array`);
+    }
+    assertNestedIterationScalarElements(collection, `${expr.object.name}.${expr.property}`);
+    return collection;
+  }
+
+  throw new Error('each: `in=` must resolve to an array binding or proven record array field');
+}
+
 /** Yields one IterationStep per loop iteration, in observable order. */
 function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps): Generator<EachIterationStep> {
   switch (shape) {
@@ -238,13 +285,7 @@ export function eachRuntimeSteps(ir: IRNode, env: SemanticEnv): readonly EachIte
     throw new Error('each: invariant violated — preconditions passed but shape is null');
   }
   const inName = p.in as string;
-  if (!hasBinding(env, inName)) {
-    throw new Error(`each: binding "${inName}" not found in env`);
-  }
-  const collection = getBinding(env, inName);
-  if (collection === null || collection === undefined) {
-    throw new Error(`each: binding "${inName}" is nullish`);
-  }
+  const collection = resolveEachCollection(inName, env);
   return Array.from(iterateCollection(shape, collection, p));
 }
 

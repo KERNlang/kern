@@ -26,12 +26,14 @@ import {
   defineCapturedArrayBinding,
   defineFreshArrayBinding,
   defineIntBinding,
+  defineRecordBinding,
   getBinding,
   hasBinding,
   hasOwnBinding,
   markRepeatableLoopBody,
   type SemanticEnv,
 } from './index.js';
+import { recordArrayFieldsFromValue } from './let.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { isEmptyMapConstructorCall } from './portable-map.js';
@@ -157,10 +159,17 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
 
+  const parsed = (() => {
+    try {
+      return parseExpression(String(props.value));
+    } catch (error) {
+      throw asyncPreconditionError(ir, error);
+    }
+  })();
+
   let value: unknown;
+  let recordArrayFieldValue: RunnerPortableArrayValue | undefined;
   try {
-    const parsed = parseExpression(String(props.value));
-    let recordArrayFieldValue: RunnerPortableArrayValue | undefined;
     if (isArrayLiteralExpression(parsed)) {
       value = await evalArrayLiteralValueAsync(parsed, env, options);
     } else if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
@@ -190,17 +199,13 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   } catch (error) {
     throw asyncPreconditionError(ir, error);
   }
-  if (isArrayLiteralExpression(parseExpression(String(props.value))))
-    defineFreshArrayBinding(env, name, value as readonly unknown[]);
-  else {
-    const parsed = parseExpression(String(props.value));
-    const recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env);
-    if (recordArrayFieldValue !== undefined) {
-      defineCapturedArrayBinding(env, name, recordArrayFieldValue);
-    } else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
-      // Source freshness/captured metadata handled by defineArrayAliasBinding.
-    } else defineBinding(env, name, value);
-  }
+  if (isArrayLiteralExpression(parsed)) defineFreshArrayBinding(env, name, value as readonly unknown[]);
+  else if (recordArrayFieldValue !== undefined) defineCapturedArrayBinding(env, name, recordArrayFieldValue);
+  else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
+    // Source freshness/captured metadata handled by defineArrayAliasBinding.
+  } else if (isRecordLiteralExpression(parsed))
+    defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
+  else defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 

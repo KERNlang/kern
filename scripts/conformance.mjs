@@ -707,6 +707,30 @@ const FIXTURES = [
     params: [],
     body: `let name=xs value="[]"\ndo value="xs.push(1)"\ndo value="xs.push(2)"\nlet name=r value="{children: xs}"\nreturn value="r.children.length"`,
     expected: 2 },
+  { kind: 'stmt', name: 'stmt: NI-1 each iterates captured record-array field in order',
+    params: [],
+    body: `let name=xs value="[1,2,3]"\nlet name=r value="{children: xs}"\nlet kind=let name=acc value="0"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
+    expected: 123 },
+  { kind: 'stmt', name: 'stmt: NI-2 each nested receiver identity is exact',
+    params: [],
+    body: `let name=xs value="[1,2]"\nlet name=ys value="[7,8]"\nlet name=r value="{children: xs}"\nlet name=s value="{children: ys}"\nlet kind=let name=acc value="0"\neach name=child in="s.children"\n  assign target=acc value="acc * 10 + child"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
+    expected: 7812 },
+  { kind: 'stmt', name: 'stmt: NI-3 each nested receiver honors block shadow rename',
+    params: [{ name: 'flag', type: 'boolean', value: true }],
+    body: `let name=xs value="[1]"\nlet name=r value="{children: xs}"\nif cond="flag"\n  let name=ys value="[2]"\n  let name=r value="{children: ys}"\n  each name=child in="r.children"\n    return value="child"\nreturn value="0"`,
+    expected: 2 },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R1 each over missing nested array field fails closed',
+    params: [],
+    body: `let name=r value="{a: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R2 each over non-array nested field fails closed',
+    params: [],
+    body: `let name=r value="{children: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R3 each over composite nested elements fails closed',
+    params: [],
+    body: `let name=r value="{children: [[1],[2]]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R4 each over undefined nested elements fails closed',
+    params: [],
+    body: `let name=r value="{children: [undefined]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
@@ -1838,6 +1862,39 @@ fn name=probe returns=string
     let name=r value="{b: [10,20,30]}"
     return value="(r).b.length"`,
     expectReason: 'record array field "r.b" must use a bare non-optional receiver',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  param name=flag type=boolean
+  handler lang=kern
+    let kind=let name=r value="{children: 1}"
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{children: xs}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" is not proven on every branch',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6 entryKey over nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    each entryKey=k in="r.children" entries=true
+      return value="k"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R7 pair iteration over nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    each pairKey=k pairValue=v in="r.children"
+      return value="v"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: fresh-array stale after push cannot be captured',
     kern: `fn name=probe returns=number
