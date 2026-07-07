@@ -170,7 +170,7 @@ export function recordArrayFieldsFromValue(value: unknown): Set<string> {
 }
 
 function isScalarElementArrayValue(value: unknown): value is readonly unknown[] {
-  return isRunnerPortableArrayValue(value) && value.every((item) => isPortableScalar(item));
+  return Array.isArray(value) && isRunnerPortableArrayValue(value) && value.every((item) => isPortableScalar(item));
 }
 
 function letCompletion(ir: IRNode, env: SemanticEnv) {
