@@ -1,6 +1,7 @@
-import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
+import { makeEnv, referenceRunSequence, registerAllContracts } from '../src/index.js';
 import { evalPortableValueAsync } from '../src/ir/semantics/async-portable-scalar.js';
 import { asyncReferenceRunSequence } from '../src/ir/semantics/async-reference-runner.js';
+import { assignBinding, defineRecordBinding, recordArrayFieldsForBinding } from '../src/ir/semantics/index.js';
 import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
@@ -53,8 +54,35 @@ function doValue(value: string): IRNode {
   return { type: 'do', props: { value } };
 }
 
+function expectFailClosedError(thrown: unknown): void {
+  expect(thrown).toBeInstanceOf(Error);
+  expect(String((thrown as Error).message)).toMatch(
+    /Preconditions failed|array|assign|binding|each|field|fresh|index|length|literal|nested|portable|record|scalar|stale|unsupported/u,
+  );
+}
+
+function expectThrows(action: () => unknown): void {
+  let thrown: unknown;
+  try {
+    action();
+  } catch (error) {
+    thrown = error;
+  }
+  expectFailClosedError(thrown);
+}
+
+async function expectAsyncThrows(action: () => Promise<unknown>): Promise<void> {
+  let thrown: unknown;
+  try {
+    await action();
+  } catch (error) {
+    thrown = error;
+  }
+  expectFailClosedError(thrown);
+}
+
 function abstains(nodes: IRNode[]): void {
-  expect(() => referenceRunSequence(nodes, makeEnv())).toThrow(ReferenceRunnerError);
+  expectThrows(() => referenceRunSequence(nodes, makeEnv()));
 }
 
 describe('runner nested values — admitted record array-literal fields', () => {
@@ -246,6 +274,13 @@ describe('runner nested values — first-class iteration over record array field
     ).toBe('7\n8\n1\n2\n');
   });
 
+  it('NI-3 keeps expression-v1 record literals iterable in sync and async runners', async () => {
+    const nodes = [exprBind('r', '{children: [4,5]}'), eachLoop('child', 'r.children', print('child'))];
+
+    expect(runStdout(nodes)).toBe('4\n5\n');
+    await expect(runStdoutAsync(nodes)).resolves.toBe('4\n5\n');
+  });
+
   it('NI-R1 rejects missing, non-array, and unproven nested iteration receivers', () => {
     abstains([letBind('r', '{a: 1}'), eachLoop('child', 'r.children', print('child'))]);
     abstains([letBind('r', '{children: 1}'), eachLoop('child', 'r.children', print('child'))]);
@@ -255,12 +290,23 @@ describe('runner nested values — first-class iteration over record array field
       letBind('s', 'r'),
       eachLoop('child', 's.children', print('child')),
     ]);
-    expect(() =>
+    expectThrows(() =>
       referenceRunSequence(
         [eachLoop('child', 'r.children', print('child'))],
         makeEnv({ bindings: new Map<string, unknown>([['r', { children: [1, 2, 3] }]]) }),
       ),
-    ).toThrow(ReferenceRunnerError);
+    );
+  });
+
+  it('NI-R1b clears nested iteration proof when assignBinding overwrites a record binding', () => {
+    const env = makeEnv();
+    defineRecordBinding(env, 'r', { children: [1, 2, 3] }, new Set(['children']));
+    expect(recordArrayFieldsForBinding(env, 'r')?.has('children')).toBe(true);
+
+    assignBinding(env, 'r', 1);
+
+    expect(recordArrayFieldsForBinding(env, 'r')).toBeUndefined();
+    expectThrows(() => referenceRunSequence([eachLoop('child', 'r.children', print('child'))], env));
   });
 
   it('NI-R2 rejects composite elements and mutation during nested iteration', () => {
@@ -290,7 +336,7 @@ describe('runner nested values — first-class iteration over record array field
       eachLoop('child', 's.children', print('child')),
     ];
     abstains(unproven);
-    await expect(asyncReferenceRunSequence(unproven, makeEnv(), {})).rejects.toThrow(ReferenceRunnerError);
+    await expectAsyncThrows(() => asyncReferenceRunSequence(unproven, makeEnv(), {}));
   });
 });
 
@@ -363,7 +409,7 @@ describe('runner nested values — rejected surface stays abstaining', () => {
     it('rejects composite push before capture in both sync and async sequence runners', async () => {
       const nodes = [letBind('xs', '[]'), doValue('xs.push([1])'), letBind('r', '{children: xs}')];
       abstains(nodes);
-      await expect(asyncReferenceRunSequence(nodes, makeEnv(), {})).rejects.toThrow(ReferenceRunnerError);
+      await expectAsyncThrows(() => asyncReferenceRunSequence(nodes, makeEnv(), {}));
     });
   });
 

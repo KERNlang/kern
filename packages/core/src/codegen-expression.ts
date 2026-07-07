@@ -697,8 +697,8 @@ function nestedArrayMemberThrowTS(message: string): string {
  *     rejected by BOTH — own-proto here, non-dict there);
  *   - field presence: own-property ↔ `field in record`;
  *   - array-ness: `Array.isArray` ↔ `isinstance(value, list)`;
- *   - element scalar-ness (index form): object-or-function composite reject ↔
- *     `isinstance(out, (dict, list)) or callable(out)`. */
+ *   - element scalar-ness (index form): null/string/boolean/finite-number only,
+ *     lockstep with `_kern_nested_array_value` and nested `each` lowering. */
 function nestedRecordGuardTS(field: string): string {
   return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
 }
@@ -708,7 +708,7 @@ function nestedArrayLengthTS(record: string, field: string): string {
 }
 
 function nestedArrayIndexTS(record: string, field: string, rawIndex: string): string {
-  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} const __kern_index = ${rawIndex}; if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (__kern_value !== null && (typeof __kern_value === "object" || typeof __kern_value === "function")) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
+  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} const __kern_index = ${rawIndex}; if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (!(__kern_value === null || typeof __kern_value === "string" || typeof __kern_value === "boolean" || (typeof __kern_value === "number" && Number.isFinite(__kern_value)))) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
 }
 
 function isSimpleErrorConstructor(node: ValueIR): boolean {

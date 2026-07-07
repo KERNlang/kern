@@ -1133,6 +1133,9 @@ function resolveLocalRename(ctx: BodyEmitContext, name: string): string {
 }
 
 function emitScopedIdentPy(ctx: BodyEmitContext, name: string): string {
+  // Only custom nested-record rewrites need this helper; ordinary expression
+  // emission descends through the ident case, which already resolves block
+  // renames before applying symbol-map names.
   const blockRename = resolveLocalRename(ctx, name);
   if (blockRename !== name) return blockRename;
   if (ctx.shadowedSymbols.has(name)) return name;
@@ -1886,8 +1889,10 @@ function recordArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<
   const fields = new Set<string>();
   for (const entry of valueIR.entries) {
     if ('kind' in entry) continue;
-    if (entry.value.kind === 'arrayLit') fields.add(entry.key);
-    else if (entry.value.kind === 'ident') {
+    if (entry.value.kind === 'arrayLit') {
+      assertPortableArrayLiteralElementsPy(entry.value);
+      fields.add(entry.key);
+    } else if (entry.value.kind === 'ident') {
       const status = lookupArrayBindingStatus(ctx, entry.value.name);
       if (status === 'fresh' || status === 'fresh-push' || status === 'captured') fields.add(entry.key);
     }
@@ -1914,9 +1919,32 @@ function recordScalarArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext)
   return fields;
 }
 
+function assertPortableArrayLiteralElementsPy(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): void {
+  for (const item of valueIR.items) {
+    if (item.kind === 'arrayLit') {
+      assertPortableArrayLiteralElementsPy(item);
+      continue;
+    }
+    if (item.kind === 'strLit' || item.kind === 'boolLit' || item.kind === 'nullLit') continue;
+    if (item.kind === 'numLit' && item.bigint !== true && Number.isFinite(item.value)) {
+      if (isIntegerValuedFloatLiteralPy(item))
+        throw new Error('portable: float literal has an integer value (float/int divergence)');
+      continue;
+    }
+    throw new Error('portable-array: array literal fields must contain only portable scalar or array elements');
+  }
+}
+
 function arrayLiteralHasOnlyScalarElements(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): boolean {
   return valueIR.items.every(
-    (item) => item.kind === 'numLit' || item.kind === 'strLit' || item.kind === 'boolLit' || item.kind === 'nullLit',
+    (item) =>
+      (item.kind === 'numLit' &&
+        item.bigint !== true &&
+        Number.isFinite(item.value) &&
+        !isIntegerValuedFloatLiteralPy(item)) ||
+      item.kind === 'strLit' ||
+      item.kind === 'boolLit' ||
+      item.kind === 'nullLit',
   );
 }
 
@@ -3887,6 +3915,14 @@ function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
     ) {
       throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
     }
+    if (
+      lookupRecordArrayField(ctx, node.object.name, node.property) &&
+      !lookupRecordScalarArrayField(ctx, node.object.name, node.property)
+    ) {
+      throw new Error(
+        `record array field "${node.object.name}.${node.property}" elements are not proven portable scalars`,
+      );
+    }
     ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
     ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
     const record = emitScopedIdentPy(ctx, node.object.name);
@@ -3899,12 +3935,6 @@ function assertNoKeyedNestedRecordReceiverPy(node: ValueIR, ctx: BodyEmitContext
   if (node.kind !== 'member' || node.object.kind !== 'ident') return;
   if (!lookupRecordBinding(ctx, node.object.name)) return;
   if (node.optional || isParenthesized(node.object)) return;
-  if (
-    lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
-    !lookupRecordArrayField(ctx, node.object.name, node.property)
-  ) {
-    return;
-  }
   throw new Error(
     `keyed iteration over nested record field "${node.object.name}.${node.property}" is outside the portable domain`,
   );

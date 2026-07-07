@@ -644,6 +644,20 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
     params: [],
     body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
+  { kind: 'compile-reject', name: 'compile-reject: NV-R20 nested undefined array-field element is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [undefined]}"
+    return value="r.b[0]"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NV-R21 nested non-finite array-field element is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [Infinity]}"
+    return value="r.b[0]"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   // Record REASSIGNMENT (delta review, blocking): a mutable record binding
   // reassigned to a NEW object literal must stay record-shaped on BOTH legs
   // (Python re-wraps in __DotDict, lockstep with the let initializer), so
@@ -719,19 +733,16 @@ const FIXTURES = [
     params: [{ name: 'flag', type: 'boolean', value: true }],
     body: `let name=xs value="[1]"\nlet name=r value="{children: xs}"\nif cond="flag"\n  let name=ys value="[2]"\n  let name=r value="{children: ys}"\n  each name=child in="r.children"\n    return value="child"\nreturn value="0"`,
     expected: 2 },
+  { kind: 'stmt', name: 'stmt: NI-4 each iterates expression-v1 record-array field',
+    params: [],
+    body: `expression-v1 name=r expr="{children: [4,5]}"\nlet kind=let name=acc value="0"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
+    expected: 45 },
   { kind: 'stmt', throws: true, name: 'stmt: NI-R1 each over missing nested array field fails closed',
     params: [],
     body: `let name=r value="{a: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
   { kind: 'stmt', throws: true, name: 'stmt: NI-R2 each over non-array nested field fails closed',
     params: [],
     body: `let name=r value="{children: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R3 each over composite nested elements fails closed',
-    params: [],
-    body: `let name=r value="{children: [[1],[2]]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NI-R4 each over undefined nested elements fails closed',
-    params: [],
-    body: `let name=r value="{children: [undefined]}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
-
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
   // the stmt harness proves TS == Python on a let-position block arrow that (a) reads a
@@ -1863,6 +1874,40 @@ fn name=probe returns=string
     return value="(r).b.length"`,
     expectReason: 'record array field "r.b" must use a bare non-optional receiver',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R3 each over composite nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [[1],[2]]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" elements are not proven portable scalars',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4 each over undefined nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [undefined]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4a nested integer-valued float array field is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [4.0]}"
+    return value="r.children.length"`,
+    expectReason: 'float literal has an integer value',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4b each over bigint nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [123n]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
     kern: `fn name=probe returns=number
   param name=flag type=boolean
@@ -1881,6 +1926,19 @@ fn name=probe returns=string
   handler lang=kern
     let name=xs value="[1,2]"
     let name=r value="{children: xs}"
+    each entryKey=k in="r.children" entries=true
+      return value="k"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6b entryKey over branch-unproven nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  param name=flag type=boolean
+  handler lang=kern
+    let kind=let name=r value="{children: 1}"
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{children: xs}"
     each entryKey=k in="r.children" entries=true
       return value="k"
     return value="0"`,
