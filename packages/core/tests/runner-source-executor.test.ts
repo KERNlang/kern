@@ -1663,6 +1663,155 @@ describe('@kernlang/core/runner source executor', () => {
     ).toThrow(KernRunnerError);
   });
 
+  // T4 pins are GREEN-at-add regression coverage for the string/sorting surface used by tools.
+  test('STR-1 pin: string equality and ordering comparisons are usable in if conditions', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=a value="\\"x\\""',
+        'let name=b value="\\"x0\\""',
+        'let kind=let name=score value="0"',
+        'if cond="a == \\"x\\""',
+        '  assign target=score value="score + 1"',
+        'if cond="a < b"',
+        '  assign target=score value="score + 2"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n');
+  });
+
+  test('STR-2 pin: string concatenation composes tool keys', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=a value="\\"x\\""',
+        'let name=b value="\\"0\\""',
+        'let name=c value="\\".\\""',
+        'print value="a + b + c"',
+      ]),
+    );
+
+    expect(stdout).toBe('x0.\n');
+  });
+
+  test('STR-3 pin: Text namespace operations compose in if conditions', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=s value="\\"hello\\""',
+        'let kind=let name=score value="0"',
+        'if cond="Text.length(s) == 5"',
+        '  assign target=score value="score + 1"',
+        'if cond="Text.charAt(s, 1) == \\"e\\""',
+        '  assign target=score value="score + 2"',
+        'if cond="Text.slice(s, 1, 4) == \\"ell\\""',
+        '  assign target=score value="score + 4"',
+        'if cond="Text.indexOf(s, \\"ll\\") == 2"',
+        '  assign target=score value="score + 8"',
+        'if cond="Text.startsWith(s, \\"he\\")"',
+        '  assign target=score value="score + 16"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('31\n');
+  });
+
+  test('STR-4 pin: hostile corpus keys are matched as data, not parsed paths', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=keys value="[\'x\',\'x0\',\'x.\']"',
+        'let kind=let name=score value="0"',
+        'for name=i from="0" to="keys.length"',
+        '  if cond="keys[i] == \\"x\\""',
+        '    assign target=score value="score + 1"',
+        '  if cond="keys[i] == \\"x0\\""',
+        '    assign target=score value="score + 10"',
+        '  if cond="keys[i] == \\"x.\\""',
+        '    assign target=score value="score + 100"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('111\n');
+  });
+
+  test('STR-5 pin: well-formed non-BMP strings follow the code-point Text contract', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=s value="\\"a😀b\\""',
+        'let kind=let name=score value="0"',
+        'if cond="s == \\"a😀b\\""',
+        '  assign target=score value="score + 1"',
+        'if cond="Text.length(s) == 3"',
+        '  assign target=score value="score + 2"',
+        'if cond="Text.charAt(s, 1) == \\"😀\\""',
+        '  assign target=score value="score + 4"',
+        'if cond="Text.slice(s, 1, 2) == \\"😀\\""',
+        '  assign target=score value="score + 8"',
+        'if cond="Text.length(s) != 4"',
+        '  assign target=score value="score + 16"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('31\n');
+  });
+
+  // MERGE-PTR fence: mutable plain-let indexes into helper array params remain outside runner provenance;
+  // TS/Python codegen execution is pinned in conformance.mjs.
+  test('MERGE-PTR fence: runner abstains on mutable pointer indexes into helper array params', () => {
+    expect(() =>
+      executeKernSource(
+        [
+          'fn name=pick params="xs:string[]" returns=string',
+          '  handler lang="kern"',
+          '    let kind=let name=i value="0"',
+          '    assign target=i value="i + 0"',
+          '    return value="xs[i]"',
+          mainProgram(['let name=xs value="[\'a\']"', 'print value="pick(xs)"']),
+        ].join('\n'),
+      ),
+    ).toThrow(/Preconditions failed for node type "print"/);
+  });
+
+  test('SORT-1 pin: selection-sort into a fresh array sorts hostile string keys without pointer indexes', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=sortstrings params="xs:string[]" returns=string',
+            '  handler lang="kern"',
+            '    let name=out value="[]"',
+            '    let kind=let name=emitted value="0"',
+            '    let kind=let name=last value="\\"\\""',
+            '    let kind=let name=found value="false"',
+            '    let kind=let name=min value="\\"\\""',
+            '    while cond="emitted < xs.length"',
+            '      assign target=found value="false"',
+            '      assign target=min value="\\"\\""',
+            '      for name=i from="0" to="xs.length"',
+            '        if cond="emitted == 0 || last < xs[i]"',
+            '          if cond="!found"',
+            '            assign target=min value="xs[i]"',
+            '            assign target=found value="true"',
+            '          else',
+            '            if cond="xs[i] < min"',
+            '              assign target=min value="xs[i]"',
+            '      for name=j from="0" to="xs.length"',
+            '        if cond="xs[j] == min"',
+            '          do value="out.push(min)"',
+            '          assign target=emitted value="emitted + 1"',
+            '      assign target=last value="min"',
+            '    return value="out[0] + \\",\\" + out[1] + \\",\\" + out[2] + \\",\\" + out[3]"',
+          ],
+        ],
+        ['let name=xs value="[\'x0\',\'x\',\'x.\',\'x\']"', 'print value="sortstrings(xs)"'],
+      ),
+    );
+
+    expect(stdout).toBe('x,x,x.,x0\n');
+  });
+
   test('rejects runner functions that produce side effects', () => {
     expect(() =>
       executeKernSource(
