@@ -1884,6 +1884,15 @@ fn name=probe returns=string
     return value="0"`,
     expectReason: 'record array field "r.children" elements are not proven portable scalars',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4b each over bigint nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [123n]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" elements are not proven portable scalars',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
     kern: `fn name=probe returns=number
   param name=flag type=boolean
@@ -1902,6 +1911,19 @@ fn name=probe returns=string
   handler lang=kern
     let name=xs value="[1,2]"
     let name=r value="{children: xs}"
+    each entryKey=k in="r.children" entries=true
+      return value="k"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6b entryKey over branch-unproven nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  param name=flag type=boolean
+  handler lang=kern
+    let kind=let name=r value="{children: 1}"
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{children: xs}"
     each entryKey=k in="r.children" entries=true
       return value="k"
     return value="0"`,

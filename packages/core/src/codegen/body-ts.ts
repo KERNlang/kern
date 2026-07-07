@@ -1327,7 +1327,11 @@ function recordScalarArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext)
 
 function arrayLiteralHasOnlyScalarElements(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): boolean {
   return valueIR.items.every(
-    (item) => item.kind === 'numLit' || item.kind === 'strLit' || item.kind === 'boolLit' || item.kind === 'nullLit',
+    (item) =>
+      (item.kind === 'numLit' && item.bigint !== true && Number.isFinite(item.value)) ||
+      item.kind === 'strLit' ||
+      item.kind === 'boolLit' ||
+      item.kind === 'nullLit',
   );
 }
 
@@ -1904,12 +1908,6 @@ function assertNoKeyedNestedRecordReceiverTS(node: ValueIR, ctx: BodyEmitContext
   if (node.kind !== 'member' || node.object.kind !== 'ident') return;
   if (!lookupRecordBinding(ctx, node.object.name)) return;
   if (node.optional || isParenthesized(node.object)) return;
-  if (
-    lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
-    !lookupRecordArrayField(ctx, node.object.name, node.property)
-  ) {
-    return;
-  }
   throw new Error(
     `keyed iteration over nested record field "${node.object.name}.${node.property}" is outside the portable domain`,
   );
