@@ -31,6 +31,7 @@ export interface SemanticEnv {
   bindings: Map<string, unknown>;
   intProvenance?: Set<string>;
   freshArrayBindings?: Set<string>;
+  pushBuiltFreshArrayBindings?: Set<string>;
   capturedArrayBindings?: Set<string>;
   runnerFunctions?: Map<string, RunnerFunctionBinding>;
   runnerClasses?: Map<string, RunnerClassBinding>;
@@ -129,6 +130,9 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : new Map(),
     intProvenance: overrides.intProvenance ? new Set(overrides.intProvenance) : new Set(),
     freshArrayBindings: overrides.freshArrayBindings ? new Set(overrides.freshArrayBindings) : new Set(),
+    pushBuiltFreshArrayBindings: overrides.pushBuiltFreshArrayBindings
+      ? new Set(overrides.pushBuiltFreshArrayBindings)
+      : new Set(),
     capturedArrayBindings: overrides.capturedArrayBindings ? new Set(overrides.capturedArrayBindings) : new Set(),
     runnerFunctions: overrides.runnerFunctions,
     runnerClasses: overrides.runnerClasses,
@@ -171,6 +175,7 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     bindings: new Map(),
     intProvenance: new Set(),
     freshArrayBindings: new Set(),
+    pushBuiltFreshArrayBindings: new Set(),
     capturedArrayBindings: new Set(),
     runnerFunctions: parent.runnerFunctions,
     runnerClasses: parent.runnerClasses,
@@ -216,6 +221,7 @@ export function defineBinding(env: SemanticEnv, name: string, value: unknown): v
   env.bindings.set(name, value);
   env.intProvenance?.delete(name);
   env.freshArrayBindings?.delete(name);
+  env.pushBuiltFreshArrayBindings?.delete(name);
   env.capturedArrayBindings?.delete(name);
 }
 
@@ -223,6 +229,8 @@ export function defineFreshArrayBinding(env: SemanticEnv, name: string, value: r
   env.bindings.set(name, value);
   env.intProvenance?.delete(name);
   (env.freshArrayBindings ??= new Set()).add(name);
+  if (value.length === 0) (env.pushBuiltFreshArrayBindings ??= new Set()).add(name);
+  else env.pushBuiltFreshArrayBindings?.delete(name);
   env.capturedArrayBindings?.delete(name);
 }
 
@@ -230,6 +238,7 @@ export function defineCapturedArrayBinding(env: SemanticEnv, name: string, value
   env.bindings.set(name, value);
   env.intProvenance?.delete(name);
   env.freshArrayBindings?.delete(name);
+  env.pushBuiltFreshArrayBindings?.delete(name);
   (env.capturedArrayBindings ??= new Set()).add(name);
 }
 
@@ -243,6 +252,7 @@ export function defineArrayAliasBinding(
   const sourceScope = declaringScope(env, sourceName);
   const aliasesCapturedArray = sourceScope?.capturedArrayBindings?.has(sourceName) ?? false;
   sourceScope?.freshArrayBindings?.delete(sourceName);
+  sourceScope?.pushBuiltFreshArrayBindings?.delete(sourceName);
   if (aliasesCapturedArray) defineCapturedArrayBinding(env, targetName, value);
   else defineBinding(env, targetName, value);
   return true;
@@ -253,6 +263,7 @@ export function defineIntBinding(env: SemanticEnv, name: string, value: unknown)
   env.bindings.set(name, value);
   (env.intProvenance ??= new Set()).add(name);
   env.freshArrayBindings?.delete(name);
+  env.pushBuiltFreshArrayBindings?.delete(name);
   env.capturedArrayBindings?.delete(name);
 }
 
@@ -267,6 +278,16 @@ export function assignBinding(env: SemanticEnv, name: string, value: unknown): v
   scope.bindings.set(name, value);
   scope.intProvenance?.delete(name);
   scope.freshArrayBindings?.delete(name);
+  scope.pushBuiltFreshArrayBindings?.delete(name);
+  scope.capturedArrayBindings?.delete(name);
+}
+
+export function assignPushBuiltFreshArrayBinding(env: SemanticEnv, name: string, value: readonly unknown[]): void {
+  const scope = declaringScope(env, name) ?? env;
+  scope.bindings.set(name, value);
+  scope.intProvenance?.delete(name);
+  (scope.freshArrayBindings ??= new Set()).add(name);
+  (scope.pushBuiltFreshArrayBindings ??= new Set()).add(name);
   scope.capturedArrayBindings?.delete(name);
 }
 
@@ -281,6 +302,11 @@ export function isFreshArrayBinding(env: SemanticEnv, name: string): boolean {
   return scope?.freshArrayBindings?.has(name) ?? false;
 }
 
+export function isPushBuiltFreshArrayBinding(env: SemanticEnv, name: string): boolean {
+  const scope = declaringScope(env, name);
+  return scope?.pushBuiltFreshArrayBindings?.has(name) ?? false;
+}
+
 export function isCapturedArrayBinding(env: SemanticEnv, name: string): boolean {
   const scope = declaringScope(env, name);
   return scope?.capturedArrayBindings?.has(name) ?? false;
@@ -290,12 +316,14 @@ export function captureFreshArrayBinding(env: SemanticEnv, name: string): void {
   const scope = declaringScope(env, name);
   if (!scope?.freshArrayBindings?.has(name)) return;
   scope.freshArrayBindings.delete(name);
+  scope.pushBuiltFreshArrayBindings?.delete(name);
   (scope.capturedArrayBindings ??= new Set()).add(name);
 }
 
 export function invalidateFreshArrayBinding(env: SemanticEnv, name: string): void {
   const scope = declaringScope(env, name);
   scope?.freshArrayBindings?.delete(name);
+  scope?.pushBuiltFreshArrayBindings?.delete(name);
 }
 
 export function markRepeatableLoopBody(env: SemanticEnv): void {
@@ -315,6 +343,7 @@ export function capturesFreshArrayAcrossRepeatableLoop(env: SemanticEnv, name: s
 export function deleteOwnBinding(env: SemanticEnv, name: string): void {
   env.bindings.delete(name);
   env.freshArrayBindings?.delete(name);
+  env.pushBuiltFreshArrayBindings?.delete(name);
   env.capturedArrayBindings?.delete(name);
 }
 

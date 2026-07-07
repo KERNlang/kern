@@ -703,6 +703,10 @@ const FIXTURES = [
     params: [{ name: 'flag', type: 'boolean', value: false }],
     body: `let name=xs value="[1,2]"\nif cond="flag"\n  let name=early value="{items: xs}"\n  return value="early.items.length"\nlet name=late value="{items: xs}"\nreturn value="late.items.length"`,
     expected: 2 },
+  { kind: 'stmt', name: 'stmt: FV-PUSH-1 scalar pushes preserve freshness before capture',
+    params: [],
+    body: `let name=xs value="[]"\ndo value="xs.push(1)"\ndo value="xs.push(2)"\nlet name=r value="{children: xs}"\nreturn value="r.children.length"`,
+    expected: 2 },
 
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
@@ -1708,6 +1712,43 @@ fn name=probe returns=boolean
     let name=r value="{items: xs}"
     return value="r.items.length"`,
     expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array composite push before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]"
+    do value="xs.push([1])"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array alias push before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]"
+    let name=ys value="xs"
+    do value="ys.push(1)"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array integer-valued float push before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]"
+    do value="xs.push(4.0)"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'float literal has an integer value',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array push-built binding reassign before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]" kind=let
+    assign target=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'array binding "xs" cannot be reassigned by portable assign',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: fresh-array alias before capture cannot be captured',
     kern: `fn name=probe returns=number
