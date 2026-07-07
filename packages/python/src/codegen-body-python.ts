@@ -1128,6 +1128,13 @@ function resolveLocalRename(ctx: BodyEmitContext, name: string): string {
   return name;
 }
 
+function emitScopedIdentPy(ctx: BodyEmitContext, name: string): string {
+  const blockRename = resolveLocalRename(ctx, name);
+  if (blockRename !== name) return blockRename;
+  if (ctx.shadowedSymbols.has(name)) return name;
+  return ctx.symbolMap[name] ?? name;
+}
+
 /** Returns the renamed name if `let name=` here would shadow a binding in
  * any OUTER scope; otherwise returns `name` unchanged. Used by `emitLetPy`
  * to give an inner-block shadow a unique Python name + record the rename
@@ -3842,7 +3849,7 @@ function provenRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { rec
   if (node.object.kind !== 'ident') return null;
   if (!lookupRecordBinding(ctx, node.object.name)) return null;
   if (isParenthesized(node.object)) return null;
-  return { record: ctx.symbolMap[node.object.name] ?? node.object.name, field: node.property };
+  return { record: emitScopedIdentPy(ctx, node.object.name), field: node.property };
 }
 
 function nestedRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
@@ -3878,7 +3885,7 @@ function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
     }
     ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
     ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
-    const record = ctx.symbolMap[node.object.name] ?? node.object.name;
+    const record = emitScopedIdentPy(ctx, node.object.name);
     return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
   }
   return emitPyExprCtx(node, ctx);
