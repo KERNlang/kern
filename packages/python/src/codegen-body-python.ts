@@ -1889,8 +1889,10 @@ function recordArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<
   const fields = new Set<string>();
   for (const entry of valueIR.entries) {
     if ('kind' in entry) continue;
-    if (entry.value.kind === 'arrayLit') fields.add(entry.key);
-    else if (entry.value.kind === 'ident') {
+    if (entry.value.kind === 'arrayLit') {
+      assertPortableArrayLiteralElementsPy(entry.value);
+      fields.add(entry.key);
+    } else if (entry.value.kind === 'ident') {
       const status = lookupArrayBindingStatus(ctx, entry.value.name);
       if (status === 'fresh' || status === 'fresh-push' || status === 'captured') fields.add(entry.key);
     }
@@ -1917,10 +1919,29 @@ function recordScalarArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext)
   return fields;
 }
 
+function assertPortableArrayLiteralElementsPy(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): void {
+  for (const item of valueIR.items) {
+    if (item.kind === 'arrayLit') {
+      assertPortableArrayLiteralElementsPy(item);
+      continue;
+    }
+    if (item.kind === 'strLit' || item.kind === 'boolLit' || item.kind === 'nullLit') continue;
+    if (item.kind === 'numLit' && item.bigint !== true && Number.isFinite(item.value)) {
+      if (isIntegerValuedFloatLiteralPy(item))
+        throw new Error('portable: float literal has an integer value (float/int divergence)');
+      continue;
+    }
+    throw new Error('portable-array: array literal fields must contain only portable scalar or array elements');
+  }
+}
+
 function arrayLiteralHasOnlyScalarElements(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): boolean {
   return valueIR.items.every(
     (item) =>
-      (item.kind === 'numLit' && item.bigint !== true && Number.isFinite(item.value)) ||
+      (item.kind === 'numLit' &&
+        item.bigint !== true &&
+        Number.isFinite(item.value) &&
+        !isIntegerValuedFloatLiteralPy(item)) ||
       item.kind === 'strLit' ||
       item.kind === 'boolLit' ||
       item.kind === 'nullLit',

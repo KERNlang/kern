@@ -644,12 +644,20 @@ const FIXTURES = [
   { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
     params: [],
     body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NV-R20 nested undefined element index fails closed on both codegen legs',
-    params: [],
-    body: `let name=r value="{b: [undefined]}"\nreturn value="r.b[0]"` },
-  { kind: 'stmt', throws: true, name: 'stmt: NV-R21 nested non-finite element index fails closed on both codegen legs',
-    params: [],
-    body: `let name=r value="{b: [Infinity]}"\nreturn value="r.b[0]"` },
+  { kind: 'compile-reject', name: 'compile-reject: NV-R20 nested undefined array-field element is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [undefined]}"
+    return value="r.b[0]"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NV-R21 nested non-finite array-field element is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [Infinity]}"
+    return value="r.b[0]"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   // Record REASSIGNMENT (delta review, blocking): a mutable record binding
   // reassigned to a NEW object literal must stay record-shaped on BOTH legs
   // (Python re-wraps in __DotDict, lockstep with the let initializer), so
@@ -1882,7 +1890,14 @@ fn name=probe returns=string
     each name=child in="r.children"
       return value="child"
     return value="0"`,
-    expectReason: 'record array field "r.children" elements are not proven portable scalars',
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4a nested integer-valued float array field is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [4.0]}"
+    return value="r.children.length"`,
+    expectReason: 'float literal has an integer value',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: NI-R4b each over bigint nested elements is rejected',
     kern: `fn name=probe returns=number
@@ -1891,7 +1906,7 @@ fn name=probe returns=string
     each name=child in="r.children"
       return value="child"
     return value="0"`,
-    expectReason: 'record array field "r.children" elements are not proven portable scalars',
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
     rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
     kern: `fn name=probe returns=number
