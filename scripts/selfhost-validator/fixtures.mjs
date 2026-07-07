@@ -209,6 +209,28 @@ fn name=main returns=void
     { why: 'import expects a function but the target exports a class' },
   ),
   fixture(
+    'unsupported-exported-fn',
+    [
+      mod(
+        'main.kern',
+        `use path="./lib.kern"
+  from name=helper kind=fn as=helper
+
+fn name=main returns=void
+  handler lang="kern"
+`,
+      ),
+      mod(
+        'lib.kern',
+        `fn name=helper returns=void export=true
+  handler lang="kern"
+`,
+      ),
+    ],
+    [edge('main.kern', './lib.kern', 'lib.kern')],
+    { why: 'export=true fn must still be bindable by the native runner before it can satisfy imports' },
+  ),
+  fixture(
     're-export-success',
     [
       mod(

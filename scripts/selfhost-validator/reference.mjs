@@ -42,9 +42,21 @@ function paramCount(rows, fnRow) {
   return count;
 }
 
+function fnOkAt(rows, index) {
+  if (rows.fnName[index] === 'main') return false;
+  if (!isPortableBindingName(rows.fnName[index])) return false;
+  if (rows.fnAsync[index] === 1) return false;
+  if (rows.fnStream[index] === 1) return false;
+  if (rows.fnReturns[index] === '') return false;
+  if (rows.fnReturns[index] === 'void') return false;
+  if (rows.fnHandlers[index] !== 1) return false;
+  if (rows.fnParams[index] !== '' && paramCount(rows, index + 1) !== 0) return false;
+  return true;
+}
+
 function ownCallable(rows, module, name) {
   for (let i = 0; i < rows.fnModule.length; i += 1) {
-    if (rows.fnModule[i] === module && rows.fnName[i] === name) return true;
+    if (rows.fnModule[i] === module && fnOkAt(rows, i) && rows.fnName[i] === name) return true;
   }
   for (let i = 0; i < rows.classModule.length; i += 1) {
     if (rows.classModule[i] === module && rows.className[i] === name) return true;
@@ -54,7 +66,9 @@ function ownCallable(rows, module, name) {
 
 function ownExportKind(rows, module, name) {
   for (let i = 0; i < rows.fnModule.length; i += 1) {
-    if (rows.fnModule[i] === module && rows.fnExport[i] === 1 && rows.fnName[i] === name) return 'fn';
+    if (rows.fnModule[i] === module && rows.fnExport[i] === 1 && fnOkAt(rows, i) && rows.fnName[i] === name) {
+      return 'fn';
+    }
   }
   for (let i = 0; i < rows.classModule.length; i += 1) {
     if (rows.classModule[i] === module && rows.classExport[i] === 1 && rows.className[i] === name) return 'class';
@@ -145,6 +159,9 @@ export function validateRows(rows) {
     }
     if (rows.fnName[i] !== 'main' && rows.fnParams[i] !== '' && paramCount(rows, row) !== 0) {
       failures.push(fail('PARAM_MIX', rows.fnName[i], row));
+    }
+    if (rows.fnName[i] !== 'main' && rows.fnExport[i] === 1 && !fnOkAt(rows, i)) {
+      failures.push(fail('EXPORT_UNSUPPORTED', rows.fnName[i], row));
     }
   }
 
