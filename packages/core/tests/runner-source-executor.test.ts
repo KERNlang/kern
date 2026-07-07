@@ -2152,6 +2152,31 @@ describe('@kernlang/core/runner source executor', () => {
     expect(calls).toEqual(['fs:README.md', 'net:https://example.test', 'llm:file-body']);
   });
 
+  test('FS-1 pin: async fs.readText returns portable text usable by Text.length', async () => {
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      fs: {
+        async readText(call) {
+          expect(call.input).toEqual({ path: 'fixture.txt' });
+          return 'hello fixture';
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"',
+        'print value="body"',
+        'print value="Text.length(body)"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['fs.readText'],
+      },
+    );
+
+    expect(stdout).toBe('hello fixture\n13\n');
+  });
+
   // Milestone 5.1b review fix (codex 0.90) — the async preview lane's own
   // `let` implementation (asyncLetEffects) must mirror the sync runner's
   // `new Map()` support, and the `do`-based mutations (array push, Map.set)

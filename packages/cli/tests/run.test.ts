@@ -2069,6 +2069,40 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     expect(readFileSync(join(fsRoot, 'out.txt'), 'utf-8')).toBe('hello async');
   });
 
+  test('FS-2 pin: fs.readText returns exact UTF-8 text and composes with Text.length', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    writeFileSync(join(fsRoot, 'fixture.txt'), 'hello fixture');
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"',
+        'print value="body"',
+        'print value="Text.length(body)"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('hello fixture\n13\n');
+  });
+
+  test('FS-3 pin: plain kern run fails closed on fs.readText without an async fs provider', () => {
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"',
+        'print value="body"',
+      ]),
+    );
+
+    const result = runArgs(['run', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('missing async providers: fs.readText');
+  });
+
   test('denies fs.writeText during preflight unless a write root is explicit', () => {
     const fsRoot = join(dir, `fs-root-${counter++}`);
     mkdirSync(fsRoot);
@@ -2141,6 +2175,49 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     expect(result.status).toBe(2);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('escapes fs root');
+  });
+
+  test('FS-4 pin: denies absolute and symlink read escapes without replaying partial stdout', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const outside = join(dir, `outside-read-${counter++}.txt`);
+    writeFileSync(outside, 'outside');
+    symlinkSync(outside, join(fsRoot, 'linked-out.txt'));
+
+    for (const path of [outside, 'linked-out.txt']) {
+      const targetPath = path.replace(/\\/g, '/');
+      const file = writeFile(
+        mainProgram([
+          'print value="\\"before\\""',
+          `capability namespace=fs operation=readText name=body input="{ path: \\"${targetPath}\\" }"`,
+          'print value="body"',
+        ]),
+      );
+
+      const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('escapes fs root');
+    }
+  });
+
+  test('FS-5 pin: fs.readText rejects non-string path input without replaying partial stdout', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const file = writeFile(
+      mainProgram([
+        'print value="\\"before\\""',
+        'capability namespace=fs operation=readText name=body input="{ path: 42 }"',
+        'print value="body"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('fs.readText path must be a string');
   });
 
   test('runs straight-line net.fetch and llm.complete without fs roots when explicitly enabled', () => {

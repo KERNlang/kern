@@ -681,6 +681,10 @@ function emitChildrenPy(
         for (const line of emitExpressionV1Py(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fn') {
         for (const line of emitFnPy(child, ctx, indent)) lines.push(line);
+      } else if (child.type === 'capability') {
+        throw new Error(
+          'capability nodes are not supported in emitted TypeScript/Python until an emitted capability ABI exists',
+        );
       } else if (child.type === 'assign') {
         // Same shadowing guard for a bare-identifier assignment target: after
         // `assign target="e" …`, `e` is no longer the caught error.
