@@ -1,5 +1,6 @@
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
 import { evalPortableValueAsync } from '../src/ir/semantics/async-portable-scalar.js';
+import { asyncReferenceRunSequence } from '../src/ir/semantics/async-reference-runner.js';
 import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
@@ -10,6 +11,14 @@ beforeAll(() => {
 
 function runStdout(nodes: IRNode[]): string {
   const trace = referenceRunSequence(nodes, makeEnv());
+  return trace.events
+    .filter((e): e is { op: 'stdout'; text: string } => e.op === 'stdout')
+    .map((e) => `${e.text}\n`)
+    .join('');
+}
+
+async function runStdoutAsync(nodes: IRNode[]): Promise<string> {
+  const trace = await asyncReferenceRunSequence(nodes, makeEnv(), {});
   return trace.events
     .filter((e): e is { op: 'stdout'; text: string } => e.op === 'stdout')
     .map((e) => `${e.text}\n`)
@@ -260,6 +269,26 @@ describe('runner nested values — rejected surface stays abstaining', () => {
 
   it('FV-PUSH-R3 rejects integer-valued float elements like array literals do', () => {
     abstains([letBind('xs', '[]'), doValue('xs.push(4.0)'), letBind('r', '{children: xs}')]);
+  });
+
+  describe('FV-PUSH-A1 async runner lockstep', () => {
+    it('admits push-built capture identically in sync and async sequence runners', async () => {
+      const nodes = [
+        letBind('xs', '[]'),
+        doValue('xs.push(1)'),
+        doValue('xs.push(2)'),
+        letBind('r', '{children: xs}'),
+        print('r.children.length'),
+      ];
+      expect(runStdout(nodes)).toBe('2\n');
+      await expect(runStdoutAsync(nodes)).resolves.toBe('2\n');
+    });
+
+    it('rejects composite push before capture in both sync and async sequence runners', async () => {
+      const nodes = [letBind('xs', '[]'), doValue('xs.push([1])'), letBind('r', '{children: xs}')];
+      abstains(nodes);
+      await expect(asyncReferenceRunSequence(nodes, makeEnv(), {})).rejects.toThrow(ReferenceRunnerError);
+    });
   });
 
   it('NV-R2 rejects record-in-record fields', () => {
