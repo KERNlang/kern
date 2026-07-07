@@ -410,6 +410,22 @@ fn name=main returns=void
     { why: 'root main has params, non-void returns, async, and stream flags' },
   ),
   fixture(
+    'duplicate-main',
+    [
+      mod(
+        'main.kern',
+        `fn name=main returns=void
+  handler lang="kern"
+
+fn name=main returns=void
+  handler lang="kern"
+`,
+      ),
+    ],
+    [],
+    { why: 'duplicate root entrypoint reports the duplicate function row' },
+  ),
+  fixture(
     'broken-imported-module',
     [
       mod(

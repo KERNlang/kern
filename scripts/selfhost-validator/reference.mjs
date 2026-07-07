@@ -138,9 +138,9 @@ export function validateRows(rows) {
     const fnRow = i + 1;
     if (rows.fnModule[i] === 1 && rows.fnName[i] === 'main') {
       mainCount += 1;
+      if (mainCount > 1) failures.push(fail('MAIN_DUPLICATE', 'main', fnRow));
       if (rows.fnReturns[i] !== 'void') failures.push(fail('MAIN_RETURNS', 'main', fnRow));
-      if (rows.fnParams[i] !== '') failures.push(fail('MAIN_PARAMS', 'main', fnRow));
-      if (paramCount(rows, fnRow) !== 0) failures.push(fail('MAIN_PARAMS', 'main', fnRow));
+      if (rows.fnParams[i] !== '' || paramCount(rows, fnRow) !== 0) failures.push(fail('MAIN_PARAMS', 'main', fnRow));
       if (rows.fnAsync[i] === 1) failures.push(fail('MAIN_ASYNC', 'main', fnRow));
       if (rows.fnStream[i] === 1) failures.push(fail('MAIN_STREAM', 'main', fnRow));
       if (rows.fnHandlers[i] !== 1) failures.push(fail('MAIN_HANDLER', 'main', fnRow));
@@ -148,7 +148,6 @@ export function validateRows(rows) {
     if (rows.fnModule[i] !== 1 && rows.fnName[i] === 'main') failures.push(fail('IMPORTED_MAIN', 'main', fnRow));
   }
   if (mainCount === 0) failures.push(fail('MAIN_MISSING', 'root', 0));
-  if (mainCount > 1) failures.push(fail('MAIN_DUPLICATE', 'main', mainCount));
 
   for (let i = 0; i < rows.fnModule.length; i += 1) {
     const row = i + 1;
