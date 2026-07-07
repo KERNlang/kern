@@ -526,7 +526,7 @@ function emitChildrenTS(
             throw new Error('body-statement `each type=` cannot be combined with pair-mode `pairKey=`/`pairValue=`.');
           }
           loopBindings.push([String(pairKey), 'const'], [String(pairValue), 'const']);
-          const sourceExpr = emitValueTS(listIR, ctx);
+          const sourceExpr = emitEachIterableTS(listIR, ctx);
           const iterableExpr = entriesMode ? `Object.entries(${sourceExpr})` : sourceExpr;
           lines.push(
             `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${iterableExpr}) {`,
@@ -545,7 +545,7 @@ function emitChildrenTS(
           if (rawItemType !== undefined && rawItemType !== '') {
             throw new Error('body-statement `each type=` cannot be combined with keyed-entry modes.');
           }
-          const sourceExpr = emitValueTS(listIR, ctx);
+          const sourceExpr = emitEachIterableTS(listIR, ctx);
           const iterableExpr = `Object.entries(${sourceExpr})`;
           if (entryKey && entryValue) {
             throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
@@ -571,7 +571,7 @@ function emitChildrenTS(
           const typeAnn = itemType ? `: [number, ${itemType}]` : '';
           loopBindings.push([idxName, 'const'], [asName, 'const']);
           lines.push(
-            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitValueTS(listIR, ctx)}).entries()) {`,
+            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitEachIterableTS(listIR, ctx)}).entries()) {`,
           );
           primaryBinding = asName;
         } else {
@@ -579,7 +579,7 @@ function emitChildrenTS(
           const asName = String(child.props?.name ?? child.props?.as ?? 'item');
           const typeAnn = itemType ? `: ${itemType}` : '';
           loopBindings.push([asName, 'const']);
-          lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitValueTS(listIR, ctx)}) {`);
+          lines.push(`${indent}for${awaitPrefix} (const ${asName}${typeAnn} of ${emitEachIterableTS(listIR, ctx)}) {`);
           primaryBinding = asName;
         }
         if (ctx.traceHooks?.eachIterNext) {
@@ -1745,6 +1745,24 @@ function emitValueTS(node: ValueIR, ctx: BodyEmitContext, options: { preserveFre
   assertRecordArrayFieldReadsProvenTS(node, ctx);
   if (node.kind === 'objectLit') captureFreshArrayRecordSourcesTS(node, ctx);
   return emitExpression(node, exprCtxFor(ctx));
+}
+
+function emitEachIterableTS(node: ValueIR, ctx: BodyEmitContext): string {
+  if (node.kind === 'member' && node.object.kind === 'ident') {
+    if (node.optional || isParenthesized(node.object) || !lookupRecordBinding(ctx, node.object.name)) {
+      throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
+    }
+    return nestedArrayIterableTS(node.object.name, node.property);
+  }
+  return emitValueTS(node, ctx);
+}
+
+function nestedRecordGuardTS(field: string): string {
+  return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
+}
+
+function nestedArrayIterableTS(record: string, field: string): string {
+  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} for (const __kern_value of __kern_array) { if (__kern_value !== null && (typeof __kern_value === "object" || typeof __kern_value === "function")) throw new Error("portable: nested array element must be a portable scalar"); } return __kern_array; })()`;
 }
 
 function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {

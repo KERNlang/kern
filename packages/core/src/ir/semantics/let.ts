@@ -40,11 +40,13 @@ import {
   defineBinding,
   defineCapturedArrayBinding,
   defineFreshArrayBinding,
+  defineRecordBinding,
   getBinding,
   hasBinding,
   hasOwnBinding,
   type NodeContract,
   type NodeFixture,
+  recordArrayFieldsForBinding,
   registerContract,
   type SemanticEnv,
 } from './index.js';
@@ -60,6 +62,7 @@ import {
   isPortableBindingName,
   isRecordLiteralExpression,
   isRunnerClassInstanceValue,
+  isRunnerPortableArrayValue,
 } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
@@ -146,8 +149,25 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
     defineCapturedArrayBinding(env, name, recordArrayFieldValue as readonly unknown[]);
   else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
     // Source freshness/captured metadata handled by defineArrayAliasBinding.
+  } else if (isRecordLiteralExpression(parsed))
+    defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
+  else if (parsed.kind === 'ident') {
+    const sourceFields = recordArrayFieldsForBinding(env, parsed.name);
+    if (sourceFields !== undefined) defineRecordBinding(env, name, value, new Set(sourceFields));
+    else defineBinding(env, name, value);
   } else defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+}
+
+function recordArrayFieldsFromValue(value: unknown): Set<string> {
+  const fields = new Set<string>();
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || isRunnerClassInstanceValue(value)) {
+    return fields;
+  }
+  for (const [key, fieldValue] of Object.entries(value as Record<string, unknown>)) {
+    if (isRunnerPortableArrayValue(fieldValue)) fields.add(key);
+  }
+  return fields;
 }
 
 function letCompletion(ir: IRNode, env: SemanticEnv) {

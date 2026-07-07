@@ -175,6 +175,14 @@ const KERN_NESTED_ARRAY_REF_HELPER_PY = `def _kern_nested_array_ref(record, fiel
     return value
 `;
 
+const KERN_NESTED_ARRAY_ITER_HELPER_PY = `def _kern_nested_array_iter(record, field):
+    value = _kern_nested_array_ref(record, field)
+    for out in value:
+        if isinstance(out, (dict, list)) or callable(out):
+            raise Exception("portable: nested array element must be a portable scalar")
+    return value
+`;
+
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
  *  hooks, or per-handler config. Keep this open-ended so 3a/3b/3d/future
@@ -916,7 +924,7 @@ function emitChildrenPy(
           }
           const k = String(pairKey);
           const v = String(pairValue);
-          const sourceExpr = emitPyExprCtx(listIR, ctx);
+          const sourceExpr = emitEachIterablePy(listIR, ctx);
           ctx.helpers.add(KERN_PAIR_HELPERS_PY);
           const iterableExpr = isAwait ? `_kern_async_pairs(${sourceExpr})` : `_kern_pairs(${sourceExpr})`;
           lines.push(`${indent}${isAwait ? 'async ' : ''}for ${k}, ${v} in ${iterableExpr}:`);
@@ -952,7 +960,7 @@ function emitChildrenPy(
           if (entryKey && entryValue) {
             throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
           }
-          const sourceExpr = emitPyExprCtx(listIR, ctx);
+          const sourceExpr = emitEachIterablePy(listIR, ctx);
           if (entryKey) {
             const k = String(entryKey);
             const iterableExpr = `${sourceExpr}.keys()`;
@@ -997,7 +1005,7 @@ function emitChildrenPy(
         // the IR-semantics differential audit (PR-3b).
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
         const idxName = child.props?.index !== undefined ? String(child.props.index) : null;
-        const iterableExpr = emitPyExprCtx(listIR, ctx);
+        const iterableExpr = emitEachIterablePy(listIR, ctx);
         let primaryBindingPy: string;
         let initialBindings: Array<[string, 'const' | 'let']>;
         if (idxName !== null) {
@@ -3727,6 +3735,19 @@ function nestedRecordFieldNonArrayReceiverPy(
   if (proven === null) return null;
   if (lookupRecordArrayField(ctx, node.object.name, node.property)) return null;
   return proven;
+}
+
+function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
+  if (node.kind === 'member' && node.object.kind === 'ident') {
+    if (node.optional || isParenthesized(node.object) || !lookupRecordBinding(ctx, node.object.name)) {
+      throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
+    }
+    ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
+    ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
+    const record = ctx.symbolMap[node.object.name] ?? node.object.name;
+    return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
+  }
+  return emitPyExprCtx(node, ctx);
 }
 
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
