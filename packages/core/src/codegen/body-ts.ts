@@ -285,6 +285,10 @@ function emitChildrenTS(
         for (const line of emitExpressionV1TS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fn') {
         for (const line of emitFnTS(child, ctx, indent)) lines.push(line);
+      } else if (child.type === 'capability') {
+        throw new Error(
+          'capability nodes are not supported in emitted TypeScript/Python until an emitted capability ABI exists',
+        );
       } else if (child.type === 'assign') {
         for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'destructure') {

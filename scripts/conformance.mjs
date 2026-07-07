@@ -1700,6 +1700,13 @@ fn name=probe returns=number
   //   • instanceof-rhs-wrapper-rejected — REAL substring of the Python throw
   //                                      `instanceof RHS 'String' has no Python lowering
   //                                      (instanceof-rhs-wrapper-rejected). …` (Python-side only).
+  { kind: 'compile-reject', name: 'compile-reject: capability nodes fail closed in emitted TS/Python',
+    kern: `fn name=probe returns=string
+  handler lang=kern
+    capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"
+    return value="body"`,
+    expectReason: 'capability nodes are not supported in emitted TypeScript/Python',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: closure writes this.x (closure-this)',
     kern: `fn name=probe returns=number
   handler lang=kern
