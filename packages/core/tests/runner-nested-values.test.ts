@@ -37,6 +37,10 @@ function forLoop(name: string, from: string, to: string, child: IRNode | IRNode[
   return { type: 'for', props: { name, from, to }, children: Array.isArray(child) ? child : [child] };
 }
 
+function eachLoop(name: string, inExpr: string, child: IRNode | IRNode[]): IRNode {
+  return { type: 'each', props: { name, in: inExpr }, children: Array.isArray(child) ? child : [child] };
+}
+
 function exprBind(name: string, expr: string): IRNode {
   return { type: 'expression-v1', props: { name, expr } };
 }
@@ -215,6 +219,51 @@ describe('runner nested values — admitted single-use fresh array fields', () =
         print('r.children.length'),
       ]),
     ).toBe('2\n');
+  });
+});
+
+describe('runner nested values — first-class iteration over record array fields', () => {
+  it('NI-1 iterates scalar elements from a captured fresh array field in order', () => {
+    expect(
+      runStdout([
+        letBind('xs', '[1,2,3]'),
+        letBind('r', '{children: xs}'),
+        eachLoop('child', 'r.children', print('child')),
+      ]),
+    ).toBe('1\n2\n3\n');
+  });
+
+  it('NI-2 resolves the exact receiver record when iterating two record array fields', () => {
+    expect(
+      runStdout([
+        letBind('xs', '[1,2]'),
+        letBind('ys', '[7,8]'),
+        letBind('r', '{children: xs}'),
+        letBind('s', '{children: ys}'),
+        eachLoop('child', 's.children', print('child')),
+        eachLoop('child', 'r.children', print('child')),
+      ]),
+    ).toBe('7\n8\n1\n2\n');
+  });
+
+  it('NI-R1 rejects missing, non-array, and unproven nested iteration receivers', () => {
+    abstains([letBind('r', '{a: 1}'), eachLoop('child', 'r.children', print('child'))]);
+    abstains([letBind('r', '{children: 1}'), eachLoop('child', 'r.children', print('child'))]);
+    expect(() =>
+      referenceRunSequence(
+        [eachLoop('child', 'r.children', print('child'))],
+        makeEnv({ bindings: new Map<string, unknown>([['r', { children: [1, 2, 3] }]]) }),
+      ),
+    ).toThrow(ReferenceRunnerError);
+  });
+
+  it('NI-R2 rejects composite elements and mutation during nested iteration', () => {
+    abstains([letBind('r', '{children: [[1],[2]]}'), eachLoop('child', 'r.children', print('child'))]);
+    abstains([
+      letBind('xs', '[1,2]'),
+      letBind('r', '{children: xs}'),
+      eachLoop('child', 'r.children', doValue('r.children.push(3)')),
+    ]);
   });
 });
 
