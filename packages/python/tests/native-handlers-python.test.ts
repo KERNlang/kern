@@ -15,6 +15,7 @@ import {
 } from '../src/codegen-body-python.js';
 import { KERN_FMT_HELPER_PY, KERN_JS_HELPER_PY, KERN_NULLISH_HELPER_PY } from '../src/core/expr/helpers.js';
 import { generateFunction } from '../src/generators/core.js';
+import { DOT_DICT_SHIM_PY } from '../src/targets/python.js';
 
 function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
   return {
@@ -323,12 +324,17 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
   });
 
   // Opencode impl-review P3 polish: Python member/index access were untested.
+  // Nested-values slice-1 — a let-bound record literal wraps in __DotDict (the
+  // shim rides along as a helper), so the member-access mutation actually
+  // works at runtime (a plain dict has no `.foo` attribute).
   test('assign op="++" with member-access target lowers to `obj.foo += 1` on Python', () => {
     const h = makeHandler([
       { type: 'let', props: { name: 'obj', kind: 'let', value: '{ "foo": 0 }' } },
       { type: 'assign', props: { target: 'obj.foo', op: '++' } },
     ]);
-    expect(emitNativeKernBodyPython(h)).toBe(['obj = {"foo": 0}', 'obj.foo += 1'].join('\n'));
+    expect(emitNativeKernBodyPython(h)).toBe(
+      [DOT_DICT_SHIM_PY, ['obj = __DotDict({"foo": 0})', 'obj.foo += 1'].join('\n')].join('\n\n'),
+    );
   });
 
   test('assign op="++" with index-access target lowers to `arr[i] += 1` on Python', () => {

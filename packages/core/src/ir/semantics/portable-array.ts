@@ -33,20 +33,28 @@ function isCanonicalSafeIntegerLiteral(node: Extract<ValueIR, { kind: 'numLit' }
   return Number.isSafeInteger(value) && String(value) === node.raw && node.value === value;
 }
 
-function evalArrayLiteralItem(item: unknown, env: SemanticEnv): PortableArrayElement {
+interface EvalArrayLiteralOptions {
+  readonly allowFiniteNumericLiterals?: boolean;
+}
+
+function evalArrayLiteralItem(item: unknown, env: SemanticEnv, options: EvalArrayLiteralOptions): PortableArrayElement {
   if (!isValueIR(item)) {
     throw new Error('portable-array: array literal items must be value IR nodes');
   }
   const node: ValueIR = item;
-  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env);
-  if (node.kind === 'numLit' && !isCanonicalSafeIntegerLiteral(node)) {
+  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env, options);
+  if (
+    node.kind === 'numLit' &&
+    !isCanonicalSafeIntegerLiteral(node) &&
+    !(options.allowFiniteNumericLiterals === true && !node.bigint && Number.isFinite(node.value))
+  ) {
     throw new Error('portable-array: numeric elements must be canonical safe integers');
   }
   if (node.kind !== 'numLit' && node.kind !== 'strLit' && node.kind !== 'boolLit' && node.kind !== 'nullLit') {
     throw new Error('portable-array: elements must be literal scalars or nested array literals');
   }
   const value = evalPortableValue(node, env);
-  if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value) && options.allowFiniteNumericLiterals !== true) {
     throw new Error('portable-array: numeric elements must evaluate to safe integers');
   }
   return value;
@@ -55,7 +63,11 @@ function evalArrayLiteralItem(item: unknown, env: SemanticEnv): PortableArrayEle
 /** Eagerly, recursively evaluate an array literal into a frozen array value.
  *  Scalar elements go through `evalPortableValue` (an out-of-domain element
  *  THROWS); nested array literals recurse. Throws on a non-arrayLit root. */
-export function evalArrayLiteralValue(node: ValueIR, env: SemanticEnv): ReadonlyArray<PortableArrayElement> {
+export function evalArrayLiteralValue(
+  node: ValueIR,
+  env: SemanticEnv,
+  options: EvalArrayLiteralOptions = {},
+): ReadonlyArray<PortableArrayElement> {
   if (node.kind !== 'arrayLit') {
     throw new Error('portable-array: expected an array literal expression');
   }
@@ -67,7 +79,7 @@ export function evalArrayLiteralValue(node: ValueIR, env: SemanticEnv): Readonly
     if (!(index in node.items)) {
       throw new Error('portable-array: array literal items must not contain sparse holes');
     }
-    items.push(evalArrayLiteralItem(node.items[index], env));
+    items.push(evalArrayLiteralItem(node.items[index], env, options));
   }
   return Object.freeze(items);
 }

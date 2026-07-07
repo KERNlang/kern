@@ -143,7 +143,11 @@ const CERT: Array<[string, string[], string]> = [
   ['bool + null', ['print value="true"', 'print value="null"'], 'true\nnull\n'],
   ['string passthrough', ['print value="\\"hello\\""'], 'hello\n'],
   ['binding value', ['let name=x value="5"', 'print value="x"'], '5\n'],
-  ['integer-valued division', ['print value="6 / 2"'], '3\n'],
+  // Float/int fence (nested-values slice-1): division with a NON-integer
+  // result is admitted (both legs shortest-roundtrip "3.5"); an INTEGER-valued
+  // result (`6 / 2`) now ABSTAINS in the runner (Python's `/` is float-typed,
+  // so the value's TYPE is unprovable portably outside _kern_fmt contexts).
+  ['non-integer division', ['print value="7 / 2"'], '3.5\n'],
   ['for-loop ordered lines', ['for name=i from="1" to="4"', '  print value="i"'], '1\n2\n3\n'],
   [
     // `kind=let` = MUTABLE; a plain `let` is immutable and the emitters reject the

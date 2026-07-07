@@ -344,6 +344,65 @@ describe('@kernlang/core/runner source executor', () => {
     ).resolves.toBe('before\nanswer:\nok refund\nafter\n');
   });
 
+  // Nested-values slice-1 async-leg parity — the async runner's record
+  // evaluator shares the sync evaluator's admission rules, so a record with
+  // an array-literal field loads (and reads back) identically on the async
+  // capability leg. Before the consolidation this ABSTAINED async-only.
+  test('async descriptor handlers admit record array-literal fields like the sync runner', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=r value="{a: 1, b: [10,20,30]}"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="r.b[1]"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('20\ngrounded\n');
+  });
+
+  test('async descriptor handlers reject integer-valued float array-field elements like the sync runner', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=r value="{b: [4.0]}"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+  });
+
   test('async descriptor preflight ignores sync capability requirements unreachable from the selected entry', async () => {
     const source = [
       'fn name=unused returns=void',
@@ -1532,14 +1591,52 @@ describe('@kernlang/core/runner source executor', () => {
     ).toThrow(KernRunnerError);
   });
 
+  // Nested-values slice-1 float/int fence — `print` was widened to admit
+  // non-integer floats (both legs shortest-roundtrip identically), so `3 / 2`
+  // is no longer a non-portable operation on its own. The atomicity intent
+  // of this test is preserved with a LATER statement (`4 / 2`, an
+  // integer-valued division result — rule 2) that must still abstain.
   test('abstains atomically on non-portable operations', () => {
     try {
-      executeKernSource(mainProgram(['print value="1"', 'print value="3 / 2"']));
+      executeKernSource(mainProgram(['print value="3 / 2"', 'print value="4 / 2"']));
       throw new Error('expected executeKernSource to fail');
     } catch (error) {
       expect(error).toBeInstanceOf(KernRunnerError);
       expect((error as Error).message).toContain('non-portable operation');
     }
+  });
+
+  test('division with a non-integer result prints the shortest round-trip float', () => {
+    expect(executeKernSource(mainProgram(['print value="7 / 2"']))).toBe('3.5\n');
+  });
+
+  test('division with an integer-valued result abstains regardless of operands (rule 2)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="4 / 2"']))).toThrow(KernRunnerError);
+  });
+
+  // Rule 2 fences the COMPUTED RESULT at evaluation, not the AST literal
+  // shape — variable indirection through plain `let` bindings must abstain
+  // identically to the literal form above.
+  test('division indirection through plain-let bindings still abstains on an integer-valued result', () => {
+    expect(() =>
+      executeKernSource(mainProgram(['let name=a value="10"', 'let name=b value="2"', 'print value="a / b"'])),
+    ).toThrow(KernRunnerError);
+  });
+
+  test('arithmetic with a non-integer operand abstains when the result collapses to an integer (rule 3)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="2.5 + 1.5"']))).toThrow(KernRunnerError);
+  });
+
+  test('a floaty-lexeme literal with an integer value abstains (rule 1)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="4.0"']))).toThrow(KernRunnerError);
+  });
+
+  test('a non-integer float literal prints normally', () => {
+    expect(executeKernSource(mainProgram(['print value="2.5"']))).toBe('2.5\n');
+  });
+
+  test('division by zero still abstains on the pre-existing finiteness fence', () => {
+    expect(() => executeKernSource(mainProgram(['print value="1 / 0"']))).toThrow(KernRunnerError);
   });
 
   test('fails closed on uncaught explicit throws without replaying partial stdout', () => {

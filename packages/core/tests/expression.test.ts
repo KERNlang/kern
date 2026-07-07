@@ -228,6 +228,7 @@ describe('Expression parser → ValueIR', () => {
         op: '??',
         left: { kind: 'ident', name: 'a' },
         right: { kind: 'ident', name: 'b' },
+        parenthesized: true,
       },
       property: 'c',
       optional: false,

@@ -53,7 +53,9 @@ import {
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
+  isParenthesized,
   isPostfixMutationOperator,
+  isSafeIntegerLiteralIndex,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
   KERN_DECIMAL_OPS_HELPER_PY,
@@ -125,6 +127,7 @@ import {
   lowerPortableArrayPropertyPy,
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
+import { DOT_DICT_SHIM_PY } from './targets/python.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Parse options for Python codegen — always inject the TypeScript-backed
@@ -137,6 +140,29 @@ const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
 function parseExpr(input: string): ReturnType<typeof parseExpression> {
   return parseExpression(input, TS_PARSE_OPTS);
 }
+
+/** Property-specific fail-close for a non-length read/call on a nested record
+ *  array field — message LOCKSTEP with the TS twin (`nestedArrayMemberThrowTS`
+ *  in codegen-expression.ts): 'has no portable property "<name>"'. */
+const KERN_NESTED_NO_PROPERTY_HELPER_PY = `def _kern_nested_no_property(path, prop):
+    raise Exception('portable: nested array field "' + path + '" has no portable property "' + prop + '"')
+`;
+
+const KERN_NESTED_ARRAY_HELPER_PY = `def _kern_nested_array_value(record, field, index=None):
+    if not isinstance(record, dict) or field not in record:
+        raise Exception("portable: nested array receiver must be a record field")
+    value = record[field]
+    if not isinstance(value, list):
+        raise Exception("portable: nested record field must be an array")
+    if index is None:
+        return len(value)
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(value):
+        raise Exception("portable: nested array index must be an in-bounds non-negative safe integer")
+    out = value[index]
+    if isinstance(out, (dict, list)) or callable(out):
+        raise Exception("portable: nested array element must be a portable scalar")
+    return out
+`;
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -241,6 +267,12 @@ interface BodyEmitContext {
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
+  /** Nested-values slice-1 — per-scope RECORD-LITERAL binding table, index-
+   *  aligned with `localScopes` (mirrors the TS emitter's `recordScopes`).
+   *  `true` when a `let`/`expression-v1` bound a DIRECT object literal; the
+   *  nested-record-field lowering fires ONLY for proven record idents —
+   *  every other two-level chain keeps its base lowering. */
+  recordScopes: Array<Map<string, boolean>>;
   /** Per-scope `userName -> emittedName` map. Populated when an inner-block
    * `let` shadows an outer binding so TS block-scope (`let x=1; if(c){let x=2}
    * return x` → 1) survives Python's flat function-scope (would otherwise
@@ -356,6 +388,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     shadowedSymbols: new Set<string>(),
     localScopes: [],
     regexScopes: [],
+    recordScopes: [],
     renameStack: [],
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
@@ -461,6 +494,7 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
     // no regex literal was assigned to it). Mirroring it here keeps regex
     // and local-binding scope stacks index-aligned.
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScopes.push(new Map(outerBindings.map((n) => [n, false])));
     ctx.renameStack.push(new Map());
   }
   try {
@@ -479,6 +513,7 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
     if (outerBindings.length > 0) {
       ctx.localScopes.pop();
       ctx.regexScopes.pop();
+      ctx.recordScopes.pop();
       ctx.renameStack.pop();
     }
   }
@@ -559,6 +594,7 @@ function emitChildrenPy(
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.recordScopes.push(new Map(initialBindings.map(([name]) => [name, false])));
   ctx.renameStack.push(new Map());
   // Slice-2 loop-variable pinning. When this recursion is a loop BODY, record
   // the just-pushed scope's index so `emitBlockClosurePy` can decide whether a
@@ -983,6 +1019,7 @@ function emitChildrenPy(
     if (loopFrame) ctx.loopLaterAssignFrames.pop();
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
+    ctx.recordScopes.pop();
     ctx.renameStack.pop();
     // Restore the parent level's hoist buffer (see the isolation comment at
     // entry). Any defs THIS level's last child left behind are appended so the
@@ -1319,6 +1356,7 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpr(String(rawValue));
   setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
+  setRecordBinding(ctx, userName, valueIR.kind === 'objectLit');
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1333,9 +1371,20 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
     return lines;
   }
-  const lines = [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  const lines = [`${name} = ${emitLetInitializerPy(valueIR, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
+}
+
+/** RECORD-binding initializer wrap (nested-values slice-1): a `let` bound to a
+ *  DIRECT object literal becomes a `__DotDict` so certified field reads
+ *  (`r.a`, `r.length`) resolve on the Python leg. ONLY this position wraps —
+ *  inline/argument/return object literals keep base plain-dict emission. */
+function emitLetInitializerPy(valueIR: ValueIR, ctx: BodyEmitContext): string {
+  const rhs = emitPyExprCtx(valueIR, ctx);
+  if (valueIR.kind !== 'objectLit') return rhs;
+  ctx.helpers.add(DOT_DICT_SHIM_PY);
+  return `__DotDict(${rhs})`;
 }
 
 function unwrapBodyExpr(value: unknown): string | undefined {
@@ -1644,12 +1693,20 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   // Emit FIRST (its `emitPyExprCtx` lowering fail-closes a regex method on a
   // bound regex ident) so the RHS is checked against the PRE-reassignment table
   // (`re = s.match(re)` must still see `re` as a regex). Mirrors the TS leg.
-  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // A plain-`=` ident reassignment to a DIRECT object literal takes the SAME
+  // __DotDict wrap as a record `let` initializer — `rebindRecordOnReassign`
+  // below re-marks the binding as a record, so the VALUE must be record-
+  // shaped too or later emitted field reads (attribute access) would hit a
+  // plain dict. Lockstep with `emitLetInitializerPy`.
+  const rhs =
+    rawOp === '=' && targetIR.kind === 'ident' ? emitLetInitializerPy(valueIR, ctx) : emitPyExprCtx(valueIR, ctx);
+  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${rhs}`;
   // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
   // plain `=` to a direct regex literal stays a regex binding (still
   // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
   if (targetIR.kind === 'ident') {
     rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+    rebindRecordOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
   }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
@@ -1669,6 +1726,7 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
   }
   scope.set(name, kind);
   setRegexBinding(ctx, name, null);
+  setRecordBinding(ctx, name, false);
 }
 
 function setRegexBinding(
@@ -1697,6 +1755,34 @@ function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: Valu
   const next = valueIR.kind === 'regexLit' ? valueIR : null;
   for (let i = ctx.regexScopes.length - 1; i >= 0; i--) {
     const scope = ctx.regexScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      return;
+    }
+  }
+}
+
+/** Record whether `name` is bound to a DIRECT record literal in the current scope. */
+function setRecordBinding(ctx: BodyEmitContext, name: string, isRecord: boolean): void {
+  ctx.recordScopes.at(-1)?.set(name, isRecord);
+}
+
+/** True iff `name` resolves to a record-literal binding, walking enclosing scopes. */
+function lookupRecordBinding(ctx: BodyEmitContext, name: string): boolean {
+  for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScopes[i];
+    if (scope.has(name)) return scope.get(name) === true;
+  }
+  return false;
+}
+
+/** Reassign-invalidation for the record table — mirrors `rebindRegexOnReassign`
+ *  (and the TS emitter's `rebindRecordOnReassign`): owning-scope update, no
+ *  stale record classification after `assign target=r value=<non-record>`. */
+function rebindRecordOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'objectLit';
+  for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScopes[i];
     if (scope.has(name)) {
       scope.set(name, next);
       return;
@@ -2084,6 +2170,7 @@ export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOpt
   if (outerBindings.length > 0) {
     ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScopes.push(new Map(outerBindings.map((n) => [n, false])));
     ctx.renameStack.push(new Map());
   }
   const code = emitPyExprCtx(node, ctx);
@@ -2520,7 +2607,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'objectLit': {
       // Slice 2d — Python dict literal. Keys are ALWAYS double-quoted (no
-      // shorthand-key syntax in Python).
+      // shorthand-key syntax in Python). Emits the BASE plain-dict form —
+      // record-binding `let` initializers (the ONLY position where field
+      // reads are certified) wrap in __DotDict at the let site, so every
+      // other object-literal position keeps its pre-slice bytes.
       const entries = node.entries.map((e) => {
         if ('kind' in e && (e as any).kind === 'spread') {
           return `**${emitPyExprCtx((e as any).argument, ctx)}`;
@@ -3109,9 +3199,38 @@ function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmi
 
 type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 
+/** Nested-record-field receiver, LOCKSTEP with the TS twin
+ *  (`nestedRecordFieldReceiver` in codegen-expression.ts): fires ONLY when the
+ *  binding table proves the SOURCE-named ident is a record literal; any other
+ *  two-level chain (`this.data.filter(...)`, object params, unproven idents,
+ *  parenthesized receivers) keeps its base lowering. INVARIANT: the lookup is
+ *  by SOURCE name, but the EMITTED name goes through `ctx.symbolMap` — Python's
+ *  flat function scope renames shadowed bindings, while the TS leg never
+ *  renames (real block scoping), which is why the TS twin has no remap. */
+function nestedRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
+  if (node.kind !== 'member' || node.optional) return null;
+  if (node.object.kind !== 'ident') return null;
+  if (!lookupRecordBinding(ctx, node.object.name)) return null;
+  if (isParenthesized(node.object)) return null;
+  return { record: ctx.symbolMap[node.object.name] ?? node.object.name, field: node.property };
+}
+
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    const nested = nestedRecordFieldReceiverPy(obj, ctx);
+    if (nested !== null) {
+      if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
+      if (node.property !== 'length') {
+        ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
+        return {
+          guard: null,
+          expr: `_kern_nested_no_property(${JSON.stringify(`${nested.record}.${nested.field}`)}, ${JSON.stringify(node.property)})`,
+        };
+      }
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      return { guard: null, expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)})` };
+    }
     // Error-substrate Slice 1 — a `<caughtBinding>.message` read lowers to
     // `str(<caughtBinding>)`. Python exceptions have NO `.message` attribute
     // (a bare `e.message` raises AttributeError), but `str(Exception("x"))`
@@ -3160,6 +3279,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
         : { guard: null, expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)) };
+    // Nested-values slice-1 — a PROVEN record binding's single-level member
+    // read must stay an ATTRIBUTE read even for shared array property names
+    // (`r.length` is the scalar FIELD "length" on a __DotDict, never len(r));
+    // every other receiver keeps the base shared list-ops lowering below.
+    const recordReceiver = obj.kind === 'ident' && lookupRecordBinding(ctx, obj.name);
     // Portable Array *property* read (non-call `.length`) lowers through the
     // SAME shared list-ops hook the route emitter uses, so `this.items.length`
     // emits `len(self.items)` (not invalid `self.items.length`) — identical to
@@ -3177,18 +3301,36 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       // receiver is not itself an optional chain ⇒ `inner.guard === null`); a
       // non-pure receiver UNDER an existing optional chain still throws below.
       const opt = lowerOptionalLink(inner, node.object, ctx);
-      const linkExpr = isSharedPortableArrayProperty(node.property)
-        ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
-        : `${opt.branchRef}.${node.property}`;
+      const linkExpr =
+        !recordReceiver && isSharedPortableArrayProperty(node.property)
+          ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
+          : `${opt.branchRef}.${node.property}`;
       return { guard: opt.guard, expr: linkExpr, lambdaBind: opt.lambdaBind };
     }
-    const linkExpr = isSharedPortableArrayProperty(node.property)
-      ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
-      : `${inner.expr}.${node.property}`;
+    const linkExpr =
+      !recordReceiver && isSharedPortableArrayProperty(node.property)
+        ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
+        : `${inner.expr}.${node.property}`;
     return { guard: inner.guard, expr: linkExpr, lambdaBind: inner.lambdaBind };
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    const nested = nestedRecordFieldReceiverPy(obj, ctx);
+    if (nested !== null) {
+      if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      if (!isSafeIntegerLiteralIndex(node.index)) {
+        return {
+          guard: null,
+          expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, "__kern_invalid_index__")`,
+        };
+      }
+      const literalIndex = node.index as Extract<ValueIR, { kind: 'numLit' }>;
+      return {
+        guard: null,
+        expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, ${literalIndex.raw})`,
+      };
+    }
     // Slice 2 review fix — the bracket (`index`) form of a regex-literal
     // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
     // launders the pattern/flags back to a string exactly like the dotted
@@ -3238,6 +3380,20 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       "Optional call '?.()' is not yet supported on Python target. " +
         'Bind the function reference to a `let` first, then test for `none` before calling.',
     );
+  }
+  // Nested-values slice-1 CHOKE POINT (lockstep with the TS call case's
+  // identical guard): ANY method call on a PROVEN record binding's array
+  // field fails closed BEFORE any per-method lowering (regex / lambda-array /
+  // portable-array) can admit it — the runner abstains on every such program.
+  if (node.callee.kind === 'member' && !node.callee.optional) {
+    const nestedRecv = nestedRecordFieldReceiverPy(node.callee.object, ctx);
+    if (nestedRecv !== null) {
+      ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
+      return {
+        guard: null,
+        expr: `_kern_nested_no_property(${JSON.stringify(`${nestedRecv.record}.${nestedRecv.field}`)}, ${JSON.stringify(node.callee.property)})`,
+      };
+    }
   }
   // Slice 2a — KERN-stdlib dispatch must run on a top-level Module.method
   // call BEFORE we descend into the callee chain, so `Number.floor(x)`
@@ -4761,7 +4917,8 @@ function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
   declareLocalBinding(ctx, userName, 'const');
   const name = maybeRenameOnShadow(ctx, userName);
   setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);
-  const lines = [`${name} = ${emitPyExprCtx(exprIR, ctx)}`];
+  setRecordBinding(ctx, userName, exprIR.kind === 'objectLit');
+  const lines = [`${name} = ${emitLetInitializerPy(exprIR, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
 }

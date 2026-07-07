@@ -39,6 +39,9 @@ export interface SemanticEnv {
   runnerProtectedClassInstances?: WeakSet<RunnerClassInstanceValue>;
   capabilities?: KernRunnerCapabilities;
   capabilityContext?: KernRunnerCapabilityContext;
+  /** Float/int fence escape hatch, set only for `Text.*` safe-integer index
+   *  args (`requireSafeIntegerArg`), which never print/return the value. */
+  intIndexCtx?: boolean;
   /**
    * Enclosing lexical scope, if any. A `let` binds in THIS scope's `bindings`;
    * reads and `assign` walk up `parent` to the declaring scope (write-through).

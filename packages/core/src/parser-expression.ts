@@ -19,7 +19,7 @@ import {
   type ClosureClassifier,
   unavailableClosureClassifier,
 } from './closure-classifier.js';
-import type { ValueIR } from './value-ir.js';
+import { markParenthesized, type ValueIR } from './value-ir.js';
 
 // ── Tokenizer ────────────────────────────────────────────────────────────
 
@@ -1473,6 +1473,7 @@ class Parser {
         this.advance();
         const inner = this.parseLambda();
         this.expect('rparen');
+        markParenthesized(inner);
         return inner;
       }
       case 'lbrace':

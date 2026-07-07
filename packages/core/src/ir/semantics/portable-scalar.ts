@@ -22,7 +22,7 @@ import {
 } from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { isValueIR, type ValueIR } from '../../value-ir.js';
+import { isParenthesized, isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
@@ -35,6 +35,7 @@ import {
   type RunnerModuleScope,
   type SemanticEnv,
 } from './index.js';
+import { evalArrayLiteralValue } from './portable-array.js';
 import { evalMapReadCall } from './portable-map.js';
 import { evalStringOpCall } from './portable-string.js';
 import { referenceRunSequence } from './reference-runner.js';
@@ -176,7 +177,7 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
   return typeof a === typeof b;
 }
 
-export type PortableRecord = Readonly<Record<string, PortableScalar>>;
+export type PortableRecord = Readonly<Record<string, PortableScalar | RunnerPortableArrayValue>>;
 export type RunnerPortableArrayValue = ReadonlyArray<PortableScalar | RunnerPortableArrayValue>;
 export type RunnerPortableValue = PortableScalar | PortableRecord | RunnerPortableArrayValue;
 export type RunnerFunctionValue = RunnerPortableValue | RunnerClassInstanceValue;
@@ -199,7 +200,9 @@ export function isPortableRecordValue(value: unknown): value is PortableRecord {
   if (isDecimalValue(value) || isCaughtErrorValue(value)) return false;
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return false;
-  return Object.values(value as Record<string, unknown>).every(isPortableScalar);
+  return Object.values(value as Record<string, unknown>).every(
+    (field) => isPortableScalar(field) || isRunnerPortableArrayValue(field),
+  );
 }
 
 export function isRunnerPortableArrayValue(
@@ -269,31 +272,56 @@ export function isRecordLiteralExpression(node: ValueIR): node is Extract<ValueI
   return node.kind === 'objectLit';
 }
 
-/** Evaluate a flat record literal whose values are portable scalars.
- * Spreads, numeric keys, computed keys, and nested records/arrays are deferred so
- * record reads cannot accidentally widen into host-object semantics. */
+export type PortableRecordEntry = { key: string; rawKey?: string; value: ValueIR };
+
+/** Shared record-literal entry guard (spread/numeric-key/key-shape/reserved/
+ *  duplicate rules) — single source for the sync AND async evaluators. */
+export function assertPortableRecordEntry(
+  entry: PortableRecordEntry | { kind: 'spread'; argument: ValueIR },
+  out: Record<string, unknown>,
+): PortableRecordEntry {
+  if ('kind' in entry) {
+    throw new Error('portable-record: object spreads are outside the portable record domain');
+  }
+  if ('rawKey' in entry && entry.rawKey !== undefined) {
+    throw new Error('portable-record: numeric record keys are outside the portable record domain');
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
+    throw new Error('portable-record: record keys must be identifier-like strings');
+  }
+  if (RESERVED_RECORD_KEYS.has(entry.key)) {
+    throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
+  }
+  if (Object.hasOwn(out, entry.key)) {
+    throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
+  }
+  return entry;
+}
+
+/** Array-literal record FIELD admission (shared sync/async; elements are
+ *  literals only, so the sync array evaluator is exact for the async leg).
+ *  `undefined` = not an array literal, use the caller's scalar path. */
+export function evalRecordArrayFieldValue(value: ValueIR, env: SemanticEnv): RunnerPortableArrayValue | undefined {
+  return value.kind === 'arrayLit'
+    ? evalArrayLiteralValue(value, env, { allowFiniteNumericLiterals: true })
+    : undefined;
+}
+
+/** Evaluate a flat record literal whose values are portable scalars plus this
+ * slice's syntactic array-literal fields. Spreads, numeric keys, computed keys,
+ * and nested records are deferred so record reads cannot accidentally widen
+ * into host-object semantics. */
 export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): PortableRecord {
   if (node.kind !== 'objectLit') {
     throw new Error('portable-record: expected an object literal expression');
   }
-  const out: Record<string, PortableScalar> = Object.create(null) as Record<string, PortableScalar>;
-  for (const entry of node.entries) {
-    if ('kind' in entry) {
-      throw new Error('portable-record: object spreads are outside the portable record domain');
-    }
-    if ('rawKey' in entry && entry.rawKey !== undefined) {
-      throw new Error('portable-record: numeric record keys are outside the portable record domain');
-    }
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
-      throw new Error('portable-record: record keys must be identifier-like strings');
-    }
-    if (RESERVED_RECORD_KEYS.has(entry.key)) {
-      throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
-    }
-    if (Object.hasOwn(out, entry.key)) {
-      throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
-    }
-    out[entry.key] = evalPortableValue(entry.value, env);
+  const out: Record<string, PortableScalar | RunnerPortableArrayValue> = Object.create(null) as Record<
+    string,
+    PortableScalar | RunnerPortableArrayValue
+  >;
+  for (const rawEntry of node.entries) {
+    const entry = assertPortableRecordEntry(rawEntry, out);
+    out[entry.key] = evalRecordArrayFieldValue(entry.value, env) ?? evalPortableValue(entry.value, env);
   }
   return Object.freeze(out);
 }
@@ -314,6 +342,21 @@ export function evalRecordLiteralValue(node: ValueIR, env: SemanticEnv): Portabl
  *  index-reads are excluded too (they can resolve to a Python float). So a computed
  *  or variable index ABSTAINS; dynamic indexing is deferred to a slice that proves
  *  exact integer arithmetic (e.g. BigInt-checked) or carries integer provenance. */
+/** Float/int fence rules 2+3: `/` always fences an integer-valued result;
+ *  other ops fence only when a non-integer operand produced one. */
+export function assertArithmeticResultNotFloatCollapsed(
+  left: number,
+  right: number,
+  result: PortableScalar,
+  op: string,
+): PortableScalar {
+  if (typeof result !== 'number' || !Number.isInteger(result)) return result;
+  if (op === '/' || !Number.isInteger(left) || !Number.isInteger(right)) {
+    throw new Error(`portable: ${op} result is integer-valued (float/int divergence)`);
+  }
+  return result;
+}
+
 export function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
   if (node.kind !== 'numLit' || node.bigint) return false;
   if (!/^[0-9]+$/.test(node.raw)) return false;
@@ -368,9 +411,13 @@ export function isIntProvenancedExpr(node: ValueIR, env: SemanticEnv): boolean {
 
 export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScalar {
   switch (node.kind) {
-    case 'numLit':
+    case 'numLit': {
       if (node.bigint || !Number.isFinite(node.value)) throw new Error('portable: number literal must be finite');
+      if (!env.intIndexCtx && (node.raw.includes('.') || /[eE]/.test(node.raw)) && Number.isInteger(node.value)) {
+        throw new Error('portable: float literal has an integer value (float/int divergence)');
+      }
       return node.value;
+    }
     case 'strLit':
       return node.value;
     case 'boolLit':
@@ -397,105 +444,10 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
       return portableTruthy(evalPortableValue(node.test, env))
         ? evalPortableValue(node.consequent, env)
         : evalPortableValue(node.alternate, env);
-    case 'member': {
-      const runnerValue = evalRunnerClassMemberScalar(node, env);
-      if (runnerValue !== RUNNER_CLASS_NO_VALUE) return runnerValue;
-      // Member reads are admitted only for the explicit portable slices:
-      // `<arrayBinding>.length`, `<recordBinding>.<field>`, and
-      // `<caughtErrorBinding>.message`. All must be
-      // non-optional reads on a bare identifier. Everything else throws -> the
-      // runner ABSTAINS rather than producing a one-leg value.
-      if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
-      if (!isValueIR(node.object) || node.object.kind !== 'ident') {
-        throw new Error('portable: member access is only admitted on an array, record, or caught-error binding');
-      }
-      // Resolve the binding explicitly (mirrors the `index` case) so an UNBOUND
-      // receiver fails with a precise "binding not found" rather than the generic
-      // out-of-domain message. Either way the runner abstains; this is diagnostics.
-      if (!hasBinding(env, node.object.name)) {
-        throw new Error(`portable: binding "${node.object.name}" not found`);
-      }
-      const obj = getBinding(env, node.object.name);
-      if (Array.isArray(obj)) {
-        // Array `.length` is portable; string `.length` is not (JS counts UTF-16
-        // code units while Python counts code points), so only arrays pass here.
-        if (node.property !== 'length') {
-          throw new Error(`portable: array has no portable property "${node.property}" (only .length is admitted)`);
-        }
-        return obj.length;
-      }
-      const recordField = portableRecordScalarField(obj, node.object.name, node.property);
-      if (recordField !== PORTABLE_RECORD_FIELD_MISSING) {
-        return recordField;
-      }
-      if (!isCaughtErrorValue(obj)) {
-        throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
-      }
-      if (node.property !== 'message') {
-        throw new Error(
-          `portable: caught error has no portable property "${node.property}" (only .message is admitted)`,
-        );
-      }
-      return obj.message;
-    }
-    case 'index': {
-      // Array INDEX read. Certify an in-bounds, non-negative, safe-integer index
-      // into an ident-bound array, returning a PORTABLE SCALAR element. The index
-      // SOURCE must be INTEGER-PROVENANCED (`isIntProvenancedExpr`, milestone
-      // 5.1b): a bare safe-integer LITERAL, a bare ident that is
-      // INTEGER-PROVENANCED (currently: the live counter of an enclosing `for`,
-      // or a helper param whose caller argument was itself provenanced), or
-      // `+`/`-` arithmetic recursively combining such operands (`xs[i + 1]`,
-      // `xs[i - 1]`, `xs[1 + 1]`). Everything else throws -> the runner ABSTAINS.
-      //
-      // Why not any ident, and why `*`/`/`/`%`/unary still abstain — TS<->Python
-      // divergences verified on real node+python3:
-      //   - INT vs FLOAT: Python list indices MUST be int — `xs[1.0]`, `xs[4/2]`
-      //     (Python `/` is float), and any PLAIN-let ident bound to a float raise
-      //     TypeError in Python while JS + the reference collapse `1.0 === 1`. A
-      //     for-counter is exempt because its provenance proves it is an int; a
-      //     plain `let` is NOT provenanced (and `let j = i` is not transitive).
-      //   - integer `%` diverges on a negative operand (`5 % -3` is 2 in JS, -1 in
-      //     Python) — a SIGN divergence, not a precision one, so `%` stays
-      //     excluded from `isIntProvenancedExpr` regardless of operand safety.
-      //   - `+`/`-` ARE admitted (see `isIntProvenancedExpr`'s doc comment for the
-      //     exact-IEEE-754 argument for why this cannot silently diverge): the
-      //     safe-integer + bounds check below still applies to the FINAL
-      //     evaluated index, so an overflowing computation still abstains.
-      //   - JS has no int/float distinction and the emitters preserve the source
-      //     numeric form, so the reference cannot tell a Python int from a float by
-      //     VALUE — hence the syntactic literal / provenance gate, not a value check.
-      // Provenance proves INTEGER-NESS, not IN-BOUNDS-ness: OOB / NEGATIVE indices
-      // are caught at runtime below (TS undefined vs Py IndexError / wraparound),
-      // and the throw propagates atomically. Object restricted to an array-binding
-      // ident, so OBJECT-position nesting (`xs[0][1]`) and string index (`s[0]`)
-      // abstain; a nested-array element is not a portable scalar, so
-      // `assertPortableScalar` abstains on it.
-      if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
-      if (!isValueIR(node.object) || node.object.kind !== 'ident') {
-        throw new Error('portable: index access is only admitted on an array-binding identifier');
-      }
-      if (!isValueIR(node.index) || !isIntProvenancedExpr(node.index, env)) {
-        throw new Error(
-          'portable: array index must be a bare non-negative safe-integer literal, an integer-provenanced loop counter, or +/- arithmetic between them',
-        );
-      }
-      if (!hasBinding(env, node.object.name)) {
-        throw new Error(`portable: binding "${node.object.name}" not found`);
-      }
-      const arr = getBinding(env, node.object.name);
-      if (!Array.isArray(arr)) {
-        throw new Error(`portable: index access on "${node.object.name}" requires an array binding`);
-      }
-      const idx = evalPortableValue(node.index, env);
-      if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= arr.length) {
-        throw new Error('portable: array index must be an in-bounds non-negative safe integer');
-      }
-      if (!(idx in arr)) {
-        throw new Error('portable: array index must point at an existing element');
-      }
-      return assertPortableScalar(arr[idx], `element "${node.object.name}[${idx}]"`);
-    }
+    case 'member':
+      return evalMemberScalar(node, env);
+    case 'index':
+      return evalIndexScalar(node, env);
     case 'typeAssert':
     case 'nonNull':
       return evalPortableValue(node.expression, env);
@@ -535,6 +487,109 @@ export function evalPortableValue(node: ValueIR, env: SemanticEnv): PortableScal
     default:
       throw new Error(`portable: expression kind "${node.kind}" is outside the portable scalar domain`);
   }
+}
+
+/** `member` case of {@link evalPortableValue}, extracted whole: the
+ *  dispatcher's V8 frame is paid ~2x512 deep in recursion, and this case's
+ *  nested-values locals overflowed the 512-depth contract test until hoisted
+ *  out (member/index never sit on the recursion descent path). */
+function evalMemberScalar(node: Extract<ValueIR, { kind: 'member' }>, env: SemanticEnv): PortableScalar {
+  const runnerValue = evalRunnerClassMemberScalar(node, env);
+  if (runnerValue !== RUNNER_CLASS_NO_VALUE) return runnerValue;
+  if (node.optional) throw new Error('portable: optional member access is outside the portable scalar domain');
+  const nestedArrayField = portableNestedArrayField(node, env);
+  if (nestedArrayField !== PORTABLE_RECORD_FIELD_MISSING) {
+    if (node.property !== 'length') {
+      throw new Error(
+        `portable: nested array field "${nestedArrayField.recordName}.${nestedArrayField.fieldName}" has no portable property "${node.property}" (only .length is admitted)`,
+      );
+    }
+    return nestedArrayField.value.length;
+  }
+  if (!isValueIR(node.object) || node.object.kind !== 'ident') {
+    throw new Error('portable: member access is only admitted on an array, record, or caught-error binding');
+  }
+  // Resolve the binding explicitly (mirrors the `index` case) so an UNBOUND
+  // receiver fails with a precise "binding not found" rather than the generic
+  // out-of-domain message. Either way the runner abstains; this is diagnostics.
+  if (!hasBinding(env, node.object.name)) {
+    throw new Error(`portable: binding "${node.object.name}" not found`);
+  }
+  const obj = getBinding(env, node.object.name);
+  if (Array.isArray(obj)) {
+    // Array `.length` is portable; string `.length` is not (JS counts UTF-16
+    // code units while Python counts code points), so only arrays pass here.
+    if (node.property !== 'length') {
+      throw new Error(`portable: array has no portable property "${node.property}" (only .length is admitted)`);
+    }
+    return obj.length;
+  }
+  const recordField = portableRecordScalarField(obj, node.object.name, node.property);
+  if (recordField !== PORTABLE_RECORD_FIELD_MISSING) {
+    return recordField;
+  }
+  if (!isCaughtErrorValue(obj)) {
+    throw new Error(`portable: member access on "${node.object.name}" is outside the portable scalar domain`);
+  }
+  if (node.property !== 'message') {
+    throw new Error(`portable: caught error has no portable property "${node.property}" (only .message is admitted)`);
+  }
+  return obj.message;
+}
+
+/** `index` case of {@link evalPortableValue}, extracted whole — same
+ *  stack-frame rationale as {@link evalMemberScalar}.
+ *
+ *  Array INDEX read: certify an in-bounds, non-negative, safe-integer index
+ *  into an ident-bound array, returning a portable scalar element. The index
+ *  SOURCE must be integer-provenanced — see `isIntProvenancedExpr`'s doc for
+ *  the full admitted set (safe-int literal / provenanced ident / `+`-`-`
+ *  arithmetic) and why `*`/`/`/`%`/plain idents abstain (Python list indices
+ *  must be exact ints; `%` sign-diverges on negatives). Provenance proves
+ *  integer-ness, not in-bounds-ness — OOB/negative die at runtime below.
+ *  Object-position nesting (`xs[0][1]`) and string indexing abstain. */
+function evalIndexScalar(node: Extract<ValueIR, { kind: 'index' }>, env: SemanticEnv): PortableScalar {
+  if (node.optional) throw new Error('portable: optional index access is outside the portable scalar domain');
+  const nestedArrayField = portableNestedIndexArrayField(node, env);
+  if (nestedArrayField !== PORTABLE_RECORD_FIELD_MISSING) {
+    if (!isValueIR(node.index) || !isSafeIntegerLiteralIndex(node.index)) {
+      throw new Error('portable: nested array index must be a bare non-negative safe-integer literal');
+    }
+    const idx = evalPortableValue(node.index, env);
+    if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= nestedArrayField.value.length) {
+      throw new Error('portable: nested array index must be an in-bounds non-negative safe integer');
+    }
+    if (!(idx in nestedArrayField.value)) {
+      throw new Error('portable: nested array index must point at an existing element');
+    }
+    return assertPortableScalar(
+      nestedArrayField.value[idx],
+      `element "${nestedArrayField.recordName}.${nestedArrayField.fieldName}[${idx}]"`,
+    );
+  }
+  if (!isValueIR(node.object) || node.object.kind !== 'ident') {
+    throw new Error('portable: index access is only admitted on an array-binding identifier');
+  }
+  if (!isValueIR(node.index) || !isIntProvenancedExpr(node.index, env)) {
+    throw new Error(
+      'portable: array index must be a bare non-negative safe-integer literal, an integer-provenanced loop counter, or +/- arithmetic between them',
+    );
+  }
+  if (!hasBinding(env, node.object.name)) {
+    throw new Error(`portable: binding "${node.object.name}" not found`);
+  }
+  const arr = getBinding(env, node.object.name);
+  if (!Array.isArray(arr)) {
+    throw new Error(`portable: index access on "${node.object.name}" requires an array binding`);
+  }
+  const idx = evalPortableValue(node.index, env);
+  if (typeof idx !== 'number' || !Number.isSafeInteger(idx) || idx < 0 || idx >= arr.length) {
+    throw new Error('portable: array index must be an in-bounds non-negative safe integer');
+  }
+  if (!(idx in arr)) {
+    throw new Error('portable: array index must point at an existing element');
+  }
+  return assertPortableScalar(arr[idx], `element "${node.object.name}[${idx}]"`);
 }
 
 export function isRunnerClassInstanceValue(value: unknown): value is RunnerClassInstanceValue {
@@ -1209,6 +1264,42 @@ function evalRunnerFunctionCall(fnName: string, args: readonly ValueIR[], env: S
 
 const PORTABLE_RECORD_FIELD_MISSING = Symbol('portableRecordFieldMissing');
 
+interface PortableNestedArrayField {
+  readonly recordName: string;
+  readonly fieldName: string;
+  readonly value: RunnerPortableArrayValue;
+}
+
+function portableNestedArrayField(
+  node: Extract<ValueIR, { kind: 'member' }>,
+  env: SemanticEnv,
+): PortableNestedArrayField | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (!isValueIR(node.object) || node.object.kind !== 'member' || node.object.optional) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
+  const inner = node.object;
+  if (!isValueIR(inner.object) || inner.object.kind !== 'ident') return PORTABLE_RECORD_FIELD_MISSING;
+  if (isParenthesized(inner.object)) return PORTABLE_RECORD_FIELD_MISSING;
+  const recordName = inner.object.name;
+  if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
+  return portableRecordArrayField(getBinding(env, recordName), recordName, inner.property);
+}
+
+function portableNestedIndexArrayField(
+  node: Extract<ValueIR, { kind: 'index' }>,
+  env: SemanticEnv,
+): PortableNestedArrayField | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (!isValueIR(node.object) || node.object.kind !== 'member' || node.object.optional) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
+  const inner = node.object;
+  if (!isValueIR(inner.object) || inner.object.kind !== 'ident') return PORTABLE_RECORD_FIELD_MISSING;
+  if (isParenthesized(inner.object)) return PORTABLE_RECORD_FIELD_MISSING;
+  const recordName = inner.object.name;
+  if (!hasBinding(env, recordName)) throw new Error(`portable: binding "${recordName}" not found`);
+  return portableRecordArrayField(getBinding(env, recordName), recordName, inner.property);
+}
+
 function portableRecordScalarField(
   obj: unknown,
   recordName: string,
@@ -1231,6 +1322,33 @@ function portableRecordScalarField(
     throw new Error(`portable: record "${recordName}" field "${property}" is outside the portable scalar domain`);
   }
   return assertPortableScalar(descriptor.value, `field "${recordName}.${property}"`);
+}
+
+function portableRecordArrayField(
+  obj: unknown,
+  recordName: string,
+  property: string,
+): PortableNestedArrayField | typeof PORTABLE_RECORD_FIELD_MISSING {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return PORTABLE_RECORD_FIELD_MISSING;
+  if (isDecimalValue(obj) || isCaughtErrorValue(obj) || isRunnerClassInstanceValue(obj)) {
+    return PORTABLE_RECORD_FIELD_MISSING;
+  }
+  const proto = Object.getPrototypeOf(obj);
+  if (proto !== Object.prototype && proto !== null) return PORTABLE_RECORD_FIELD_MISSING;
+  if (Object.getOwnPropertySymbols(obj).length > 0) {
+    throw new Error(`portable: record "${recordName}" is outside the portable scalar domain`);
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(obj, property);
+  if (!descriptor) {
+    throw new Error(`portable: record "${recordName}" has no field "${property}"`);
+  }
+  if (!descriptor.enumerable || descriptor.get || descriptor.set || !('value' in descriptor)) {
+    throw new Error(`portable: record "${recordName}" field "${property}" is outside the portable scalar domain`);
+  }
+  if (!isRunnerPortableArrayValue(descriptor.value)) {
+    throw new Error(`portable: record "${recordName}" field "${property}" must be an array for nested access`);
+  }
+  return { recordName, fieldName: property, value: descriptor.value };
 }
 
 export function coerceToString(val: PortableScalar): string {
@@ -1256,14 +1374,12 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
   const right = evalPortableValue(node.right, env);
   switch (node.op) {
     case '+':
-      if (typeof left === 'number' && typeof right === 'number') return assertPortableScalar(left + right, '+');
-      if (typeof left === 'string' && typeof right === 'string') return left + right;
-      throw new Error('portable: + requires two numbers or two strings');
+      return evalPlusOperator(left, right, env);
     case '-':
     case '*':
     case '/':
     case '%':
-      return evalNumberBinary(node.op, left, right);
+      return evalNumberBinary(node.op, left, right, env);
     case '===':
       return sameType(left, right) ? left === right : false;
     case '!==':
@@ -1291,12 +1407,31 @@ export function evalPortableBinary(node: Extract<ValueIR, { kind: 'binary' }>, e
   }
 }
 
-export function evalNumberBinary(op: string, left: PortableScalar, right: PortableScalar): PortableScalar {
+/** Shared `+` evaluation for the sync and async binary evaluators. */
+export function evalPlusOperator(left: PortableScalar, right: PortableScalar, env: SemanticEnv): PortableScalar {
+  if (typeof left === 'number' && typeof right === 'number') {
+    const result = assertPortableScalar(left + right, '+');
+    return env.intIndexCtx ? result : assertArithmeticResultNotFloatCollapsed(left, right, result, '+');
+  }
+  if (typeof left === 'string' && typeof right === 'string') return left + right;
+  throw new Error('portable: + requires two numbers or two strings');
+}
+
+/** `-`/`*`/`/`/`%` over two numbers, plus the float/int fence unless
+ *  `env.intIndexCtx` opts out (see `SemanticEnv`). */
+export function evalNumberBinary(
+  op: string,
+  left: PortableScalar,
+  right: PortableScalar,
+  env: SemanticEnv,
+): PortableScalar {
   if (typeof left !== 'number' || typeof right !== 'number') throw new Error(`portable: ${op} requires numbers`);
-  if (op === '-') return assertPortableScalar(left - right, op);
-  if (op === '*') return assertPortableScalar(left * right, op);
-  if (op === '/') return assertPortableScalar(left / right, op);
-  return assertPortableScalar(left % right, op);
+  let result: PortableScalar;
+  if (op === '-') result = assertPortableScalar(left - right, op);
+  else if (op === '*') result = assertPortableScalar(left * right, op);
+  else if (op === '/') result = assertPortableScalar(left / right, op);
+  else result = assertPortableScalar(left % right, op);
+  return env.intIndexCtx ? result : assertArithmeticResultNotFloatCollapsed(left, right, result, op);
 }
 
 export function evalOrderedComparison(op: string, left: string | number, right: string | number): boolean {

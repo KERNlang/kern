@@ -1,5 +1,6 @@
 import { parseDocument } from '@kernlang/core';
 import { generatePythonCoreNode } from '../src/codegen-python.js';
+import { DOT_DICT_SHIM_PY } from '../src/targets/python.js';
 
 describe('first-class KERN syntax — Python target', () => {
   test('http decorators lower to FastAPI router decorators on fn codegen', () => {
@@ -31,12 +32,17 @@ describe('first-class KERN syntax — Python target', () => {
     const fn = root.children?.find((child) => child.type === 'fn');
     if (!fn) throw new Error('expected fn node');
 
+    // Nested-values slice-1 — a let-bound record literal wraps in __DotDict
+    // (the shim helper rides along inside the def), so later member reads on
+    // the binding resolve at runtime. BYTE-EXACT pin (delta review: contain-
+    // assertions mask drift): decorator + def + 4-space-indented helpers
+    // block ('\n\n'-joined) + wrapped let + return.
+    const inner = `${DOT_DICT_SHIM_PY.trimEnd()}\n\npayload = __DotDict({"id": id})\nreturn payload`;
     expect(generatePythonCoreNode(fn).join('\n')).toBe(
       [
         '@router.get("/users/{id}")',
         'def get_user(id: str) -> User:',
-        '    payload = {"id": id}',
-        '    return payload',
+        ...inner.split('\n').map((line) => `    ${line}`),
       ].join('\n'),
     );
   });

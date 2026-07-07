@@ -570,6 +570,91 @@ const FIXTURES = [
     body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
     expected: { bounded: 12.5 } },
 
+  // ── NV: Stage-1 Slice-1 nested values, codegen leg parity. ────────────────
+  // Native-body codegen must execute the admitted record-with-array-literal
+  // surface identically on TS object literals and Python __DotDict wrapping,
+  // and rejected nested paths must fail closed on BOTH legs.
+  { kind: 'stmt', name: 'stmt: NV-1 record with array field keeps scalar field readable',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nreturn value="r.a"`,
+    expected: 1 },
+  { kind: 'stmt', name: 'stmt: NV-2 nested array-field length',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nreturn value="r.b.length"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: NV-3 nested literal indices are receiver-sensitive',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nreturn value="{ first: r.b[0], last: r.b[2] }"`,
+    expected: { first: 10, last: 30 } },
+  { kind: 'stmt', name: 'stmt: NV-4 nested array literal field length',
+    params: [],
+    body: `let name=r value="{b: [[1,2],[3,4]]}"\nreturn value="r.b.length"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: NV-6 float element survives nested field indexing',
+    params: [],
+    body: `let name=r value="{b: [1.5, 2.5]}"\nreturn value="r.b[1]"`,
+    expected: 2.5 },
+  { kind: 'stmt', name: 'stmt: NV-7 string element survives nested field indexing',
+    params: [],
+    body: `let name=r value="{tags: ['x','y']}"\nreturn value="r.tags[1]"`,
+    expected: 'y' },
+  { kind: 'stmt', name: 'stmt: NV-8 record rebinding preserves nested array field reads',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nlet name=s value="r"\nreturn value="s.b[1]"`,
+    expected: 20 },
+  { kind: 'stmt', name: 'stmt: NV-9 nested field read uses the exact receiver',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nlet name=s value="{a: 1, b: [77,88,99]}"\nreturn value="{ sb: s.b[2], rb: r.b[2] }"`,
+    expected: { sb: 99, rb: 30 } },
+  { kind: 'stmt', name: 'stmt: NV-10 array length and scalar length field do not collide',
+    params: [],
+    body: `let name=r value="{b: [10,20,30], length: 999}"\nreturn value="{ arrayLen: r.b.length, fieldLen: r.length }"`,
+    expected: { arrayLen: 3, fieldLen: 999 } },
+  { kind: 'stmt', name: 'stmt: NV-12 held-out field order and fresh values',
+    params: [],
+    body: `let name=r value="{c: 42, b: ['left','right','tail'], z: true}"\nreturn value="{ item: r.b[2], c: r.c, z: r.z }"`,
+    expected: { item: 'tail', c: 42, z: true } },
+  { kind: 'stmt', name: 'stmt: NV-P1 scalar record field pin',
+    params: [],
+    body: `let name=r value="{a: 7}"\nreturn value="r.a"`,
+    expected: 7 },
+  { kind: 'stmt', name: 'stmt: NV-P2 scalar expression record field pin',
+    params: [],
+    body: `let name=r value="{a: 3 + 4}"\nreturn value="r.a"`,
+    expected: 7 },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R4 nested provenanced counter index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nfor name=i from=0 to=2\n  return value="r.b[i]"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R9 nested plain-let index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nlet name=idx value="0"\nreturn value="r.b[idx]"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R10 nested fractional index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [11,22,33]}"\nreturn value="r.b[1.5]"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R14 scalar-field length fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{name: 'abcde'}"\nreturn value="r.name.length"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R18 missing nested field fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{a: 1}"\nreturn value="r.b.length"` },
+  // Receiver gating (agon review): the nested rewrite fires ONLY for PROVEN
+  // record bindings; on those, a non-length property on the array field fails
+  // closed on BOTH legs (the decided lockstep contract — the runner abstains
+  // on the same program).
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
+  // Record REASSIGNMENT (delta review, blocking): a mutable record binding
+  // reassigned to a NEW object literal must stay record-shaped on BOTH legs
+  // (Python re-wraps in __DotDict, lockstep with the let initializer), so
+  // subsequent field/nested reads agree. The RUNNER abstains on record
+  // reassignment (assign requires a scalar current binding) — this is a
+  // codegen-leg-parity pin, mirroring the fence pattern.
+  { kind: 'stmt', name: 'stmt: NV-A1 record reassignment keeps field and nested reads working on both codegen legs',
+    params: [],
+    body: `let kind=let name=r value="{a: 1}"\nassign target=r value="{a: 2, b: [7, 8]}"\nreturn value="{ a: r.a, len: r.b.length }"`,
+    expected: { a: 2, len: 2 } },
+
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
   // the stmt harness proves TS == Python on a let-position block arrow that (a) reads a

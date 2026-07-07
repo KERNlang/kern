@@ -107,3 +107,14 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'conditional'
   );
 }
+
+/** Mark explicit source-paren grouping. Lambda is excluded: its own
+ *  `parenthesized` field means "the PARAM LIST had parens" — marking it here
+ *  would corrupt `(x => x)(5)` emission. `isParenthesized` mirrors that. */
+export function markParenthesized(node: ValueIR): void {
+  if (node.kind !== 'lambda') (node as ValueIR & { parenthesized?: true }).parenthesized = true;
+}
+
+export function isParenthesized(node: ValueIR): boolean {
+  return node.kind !== 'lambda' && (node as { parenthesized?: unknown }).parenthesized === true;
+}
