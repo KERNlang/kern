@@ -195,6 +195,18 @@ describe('runner nested values — admitted single-use fresh array fields', () =
     expect(trace.completion.kind).toBe('return');
     expect((trace.completion as { value: { items: readonly unknown[] } }).value.items).toEqual([1, 2]);
   });
+
+  it('FV-PUSH-1 preserves freshness across scalar pushes before capture', () => {
+    expect(
+      runStdout([
+        letBind('xs', '[]'),
+        doValue('xs.push(1)'),
+        doValue('xs.push(2)'),
+        letBind('r', '{children: xs}'),
+        print('r.children.length'),
+      ]),
+    ).toBe('2\n');
+  });
 });
 
 describe('runner nested values — rejected surface stays abstaining', () => {
@@ -236,6 +248,18 @@ describe('runner nested values — rejected surface stays abstaining', () => {
 
   it('FV-R10 rejects capturing an outer fresh array inside a repeatable loop body', () => {
     abstains([letBind('xs', '[1,2]'), forLoop('i', '0', '2', letBind('r', '{a: xs}'))]);
+  });
+
+  it('FV-PUSH-R1 rejects capture after pushing a composite element', () => {
+    abstains([letBind('xs', '[]'), doValue('xs.push([1])'), letBind('r', '{children: xs}')]);
+  });
+
+  it('FV-PUSH-R2 rejects capture after pushing through an alias', () => {
+    abstains([letBind('xs', '[]'), letBind('ys', 'xs'), doValue('ys.push(1)'), letBind('r', '{children: xs}')]);
+  });
+
+  it('FV-PUSH-R3 rejects integer-valued float elements like array literals do', () => {
+    abstains([letBind('xs', '[]'), doValue('xs.push(4.0)'), letBind('r', '{children: xs}')]);
   });
 
   it('NV-R2 rejects record-in-record fields', () => {
