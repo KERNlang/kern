@@ -271,6 +271,27 @@ describe('runner nested values — first-class iteration over record array field
       eachLoop('child', 'r.children', doValue('r.children.push(3)')),
     ]);
   });
+
+  it('NI-A1 keeps async runner nested iteration in lockstep with sync runner', async () => {
+    const admitted = [
+      letBind('xs', '[1,2,3]'),
+      letBind('r', '{children: xs}'),
+      eachLoop('child', 'r.children', print('child')),
+    ];
+    expect(await runStdoutAsync(admitted)).toBe(runStdout(admitted));
+
+    const directRead = [letBind('xs', '[4,5]'), letBind('r', '{children: xs}'), print('r.children.length')];
+    expect(await runStdoutAsync(directRead)).toBe(runStdout(directRead));
+
+    const unproven = [
+      letBind('xs', '[1,2]'),
+      letBind('r', '{children: xs}'),
+      letBind('s', 'r'),
+      eachLoop('child', 's.children', print('child')),
+    ];
+    abstains(unproven);
+    await expect(asyncReferenceRunSequence(unproven, makeEnv(), {})).rejects.toThrow(ReferenceRunnerError);
+  });
 });
 
 describe('runner nested values — rejected surface stays abstaining', () => {

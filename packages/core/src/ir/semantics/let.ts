@@ -155,7 +155,10 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 
-function recordArrayFieldsFromValue(value: unknown): Set<string> {
+/** Proven nested-iteration fields: evaluated record fields whose value is an array
+ * of portable scalar elements. Composite array fields stay outside first-class
+ * iteration until a later slice widens the cross-target contract. */
+export function recordArrayFieldsFromValue(value: unknown): Set<string> {
   const fields = new Set<string>();
   if (value === null || typeof value !== 'object' || Array.isArray(value) || isRunnerClassInstanceValue(value)) {
     return fields;
