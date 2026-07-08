@@ -344,6 +344,124 @@ describe('@kernlang/core/runner source executor', () => {
     ).resolves.toBe('before\nanswer:\nok refund\nafter\n');
   });
 
+  // Nested-values slice-1 async-leg parity — the async runner's record
+  // evaluator shares the sync evaluator's admission rules, so a record with
+  // an array-literal field loads (and reads back) identically on the async
+  // capability leg. Before the consolidation this ABSTAINED async-only.
+  test('async descriptor handlers admit record array-literal fields like the sync runner', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=r value="{a: 1, b: [10,20,30]}"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="r.b[1]"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('20\ngrounded\n');
+  });
+
+  test('async descriptor handlers capture fresh array bindings as record array fields', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=xs value="[10,20,30]"',
+      '    let name=r value="{ items: xs }"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="r.items[1]"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toBe('20\ngrounded\n');
+  });
+
+  test('async descriptor handlers reject mutation through captured array-field aliases', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=xs value="[1,2]"',
+      '    let name=r value="{ items: xs }"',
+      '    let name=ys value="r.items"',
+      '    do value="ys.push(3)"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+  });
+
+  test('async descriptor handlers reject integer-valued float array-field elements like the sync runner', async () => {
+    const source = [
+      'fn name=answerRoute returns=void',
+      '  handler lang="kern"',
+      '    let name=r value="{b: [4.0]}"',
+      '    capability namespace=llm operation=complete name=answer input="{ prompt: \\"refund\\" }"',
+      '    print value="answer"',
+    ].join('\n');
+
+    await expect(
+      executeKernEntrySourceAsync(
+        source,
+        { kind: 'route', name: 'Answer', handler: 'answerRoute' },
+        {
+          providedAsyncCapabilities: ['llm.complete'],
+          asyncCapabilities: {
+            llm: {
+              complete() {
+                return 'grounded';
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow(KernRunnerError);
+  });
+
   test('async descriptor preflight ignores sync capability requirements unreachable from the selected entry', async () => {
     const source = [
       'fn name=unused returns=void',
@@ -1386,6 +1504,32 @@ describe('@kernlang/core/runner source executor', () => {
     expect(stdout).toBe('0\n2\n4\n3\n');
   });
 
+  test('captures a fresh array binding as a record array field', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=xs value="[10,20,30]"',
+        'let name=r value="{ items: xs }"',
+        'print value="r.items.length"',
+        'print value="r.items[1]"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n20\n');
+  });
+
+  test('fails closed when a captured fresh array is mutated after record capture', () => {
+    expect(() =>
+      executeKernSource(
+        mainProgram([
+          'let name=xs value="[1,2]"',
+          'let name=r value="{ items: xs }"',
+          'do value="xs.push(3)"',
+          'print value="r.items.length"',
+        ]),
+      ),
+    ).toThrow(KernRunnerError);
+  });
+
   test('fails closed pushing onto a non-array binding', () => {
     expect(() =>
       executeKernSource(mainProgram(['let name=n value="1"', 'do value="n.push(1)"', 'print value="1"'])),
@@ -1406,6 +1550,266 @@ describe('@kernlang/core/runner source executor', () => {
     );
 
     expect(stdout).toBe('3\n1\ntrue\nfalse\n');
+  });
+
+  // T3 traversal helper pins are GREEN-at-add regression coverage by lead verdict:
+  // they lock the current flattened-tree traversal surface rather than proving a new capability.
+  test('TRAV-1 pin: scans parallel top-level arrays with a for-counter index and bound comparison', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=parentIdx value="[9,0,0,1]"',
+        'let name=typeIdx value="[0,4,5,6]"',
+        'let name=target value="0"',
+        'let kind=let name=found value="-1"',
+        'for name=i from="0" to="parentIdx.length"',
+        '  if cond="parentIdx[i] == target"',
+        '    assign target=found value="typeIdx[i]"',
+        'print value="found"',
+      ]),
+    );
+
+    expect(stdout).toBe('5\n');
+  });
+
+  test('TRAV-2 pin: conditionally accumulates children of a parent from parallel arrays', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=parentIdx value="[9,0,0,1]"',
+        'let name=target value="0"',
+        'let kind=let name=count value="0"',
+        'for name=i from="0" to="parentIdx.length"',
+        '  if cond="parentIdx[i] == target"',
+        '    assign target=count value="count + 1"',
+        'print value="count"',
+      ]),
+    );
+
+    expect(stdout).toBe('2\n');
+  });
+
+  test('TRAV-3 pin: selects the nth child by keyIdx under a parent', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=parentIdx value="[9,0,0,0,2]"',
+        'let name=keyIdx value="[0,4,7,4,4]"',
+        'let name=targetParent value="0"',
+        'let name=wantedKey value="4"',
+        'let name=nth value="1"',
+        'let kind=let name=seen value="0"',
+        'let kind=let name=selected value="-1"',
+        'for name=i from="0" to="parentIdx.length"',
+        '  if cond="parentIdx[i] == targetParent"',
+        '    if cond="keyIdx[i] == wantedKey"',
+        '      if cond="seen == nth"',
+        '        assign target=selected value="i"',
+        '      assign target=seen value="seen + 1"',
+        'print value="selected"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n');
+  });
+
+  test('TRAV-4 pin: helper parameter preserves for-counter index provenance', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=get params="children:number[],i:number" returns=number',
+            '  handler lang="kern"',
+            '    return value="children[i]"',
+          ],
+          [
+            'fn name=probe returns=number',
+            '  handler lang="kern"',
+            '    let name=children value="[10,20,30]"',
+            '    let kind=let name=out value="-1"',
+            '    for name=i from="0" to="children.length"',
+            '      if cond="i == 1"',
+            '        assign target=out value="get(children, i)"',
+            '    return value="out"',
+          ],
+        ],
+        ['print value="probe()"'],
+      ),
+    );
+
+    expect(stdout).toBe('20\n');
+  });
+
+  test('TRAV-5 pin: Map.has safely guards Map.get including a false missing branch', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=m value="new Map()"',
+        'let name=key value="\\"child\\""',
+        'let name=missing value="\\"missing\\""',
+        'let kind=let name=out value="0"',
+        'do value="Map.set(m, key, 7)"',
+        'if cond="Map.has(m, key)"',
+        '  assign target=out value="Map.get(m, key)"',
+        'if cond="Map.has(m, missing)"',
+        '  assign target=out value="Map.get(m, missing)"',
+        'print value="out"',
+      ]),
+    );
+
+    expect(stdout).toBe('7\n');
+  });
+
+  // NEG-LIT exit criterion: revisit only if a future capstone slice requires negative parent sentinels.
+  test('NEG-LIT fence: runner abstains on negative integer elements in array literals', () => {
+    expect(() =>
+      executeKernSource(mainProgram(['let name=parentIdx value="[-1,0,0]"', 'print value="parentIdx[0]"'])),
+    ).toThrow(KernRunnerError);
+  });
+
+  // T4 pins are GREEN-at-add regression coverage for the string/sorting surface used by tools.
+  test('STR-1 pin: string equality and ordering comparisons are usable in if conditions', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=a value="\\"x\\""',
+        'let name=b value="\\"x0\\""',
+        'let kind=let name=score value="0"',
+        'if cond="a == \\"x\\""',
+        '  assign target=score value="score + 1"',
+        'if cond="a < b"',
+        '  assign target=score value="score + 2"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('3\n');
+  });
+
+  test('STR-2 pin: string concatenation composes tool keys', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=a value="\\"x\\""',
+        'let name=b value="\\"0\\""',
+        'let name=c value="\\".\\""',
+        'print value="a + b + c"',
+      ]),
+    );
+
+    expect(stdout).toBe('x0.\n');
+  });
+
+  test('STR-3 pin: Text namespace operations compose in if conditions', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=s value="\\"hello\\""',
+        'let kind=let name=score value="0"',
+        'if cond="Text.length(s) == 5"',
+        '  assign target=score value="score + 1"',
+        'if cond="Text.charAt(s, 1) == \\"e\\""',
+        '  assign target=score value="score + 2"',
+        'if cond="Text.slice(s, 1, 4) == \\"ell\\""',
+        '  assign target=score value="score + 4"',
+        'if cond="Text.indexOf(s, \\"ll\\") == 2"',
+        '  assign target=score value="score + 8"',
+        'if cond="Text.startsWith(s, \\"he\\")"',
+        '  assign target=score value="score + 16"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('31\n');
+  });
+
+  test('STR-4 pin: hostile corpus keys are matched as data, not parsed paths', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=keys value="[\'x\',\'x0\',\'x.\']"',
+        'let kind=let name=score value="0"',
+        'for name=i from="0" to="keys.length"',
+        '  if cond="keys[i] == \\"x\\""',
+        '    assign target=score value="score + 1"',
+        '  if cond="keys[i] == \\"x0\\""',
+        '    assign target=score value="score + 10"',
+        '  if cond="keys[i] == \\"x.\\""',
+        '    assign target=score value="score + 100"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('111\n');
+  });
+
+  test('STR-5 pin: well-formed non-BMP strings follow the code-point Text contract', () => {
+    const stdout = executeKernSource(
+      mainProgram([
+        'let name=s value="\\"a😀b\\""',
+        'let kind=let name=score value="0"',
+        'if cond="s == \\"a😀b\\""',
+        '  assign target=score value="score + 1"',
+        'if cond="Text.length(s) == 3"',
+        '  assign target=score value="score + 2"',
+        'if cond="Text.charAt(s, 1) == \\"😀\\""',
+        '  assign target=score value="score + 4"',
+        'if cond="Text.slice(s, 1, 2) == \\"😀\\""',
+        '  assign target=score value="score + 8"',
+        'if cond="Text.length(s) != 4"',
+        '  assign target=score value="score + 16"',
+        'print value="score"',
+      ]),
+    );
+
+    expect(stdout).toBe('31\n');
+  });
+
+  // MERGE-PTR fence: mutable plain-let indexes into helper array params remain outside runner provenance;
+  // TS/Python codegen execution is pinned in conformance.mjs.
+  test('MERGE-PTR fence: runner abstains on mutable pointer indexes into helper array params', () => {
+    expect(() =>
+      executeKernSource(
+        [
+          'fn name=pick params="xs:string[]" returns=string',
+          '  handler lang="kern"',
+          '    let kind=let name=i value="0"',
+          '    assign target=i value="i + 0"',
+          '    return value="xs[i]"',
+          mainProgram(['let name=xs value="[\'a\']"', 'print value="pick(xs)"']),
+        ].join('\n'),
+      ),
+    ).toThrow(/Preconditions failed for node type "print"/);
+  });
+
+  test('SORT-1 pin: selection-sort into a fresh array sorts hostile string keys without pointer indexes', () => {
+    const stdout = executeKernSource(
+      programWithFunctions(
+        [
+          [
+            'fn name=sortstrings params="xs:string[]" returns=string',
+            '  handler lang="kern"',
+            '    let name=out value="[]"',
+            '    let kind=let name=emitted value="0"',
+            '    let kind=let name=last value="\\"\\""',
+            '    let kind=let name=found value="false"',
+            '    let kind=let name=min value="\\"\\""',
+            '    while cond="emitted < xs.length"',
+            '      assign target=found value="false"',
+            '      assign target=min value="\\"\\""',
+            '      for name=i from="0" to="xs.length"',
+            '        if cond="emitted == 0 || last < xs[i]"',
+            '          if cond="!found"',
+            '            assign target=min value="xs[i]"',
+            '            assign target=found value="true"',
+            '          else',
+            '            if cond="xs[i] < min"',
+            '              assign target=min value="xs[i]"',
+            '      for name=j from="0" to="xs.length"',
+            '        if cond="xs[j] == min"',
+            '          do value="out.push(min)"',
+            '          assign target=emitted value="emitted + 1"',
+            '      assign target=last value="min"',
+            '    return value="out[0] + \\",\\" + out[1] + \\",\\" + out[2] + \\",\\" + out[3]"',
+          ],
+        ],
+        ['let name=xs value="[\'x0\',\'x\',\'x.\',\'x\']"', 'print value="sortstrings(xs)"'],
+      ),
+    );
+
+    expect(stdout).toBe('x,x,x.,x0\n');
   });
 
   test('rejects runner functions that produce side effects', () => {
@@ -1532,14 +1936,52 @@ describe('@kernlang/core/runner source executor', () => {
     ).toThrow(KernRunnerError);
   });
 
+  // Nested-values slice-1 float/int fence — `print` was widened to admit
+  // non-integer floats (both legs shortest-roundtrip identically), so `3 / 2`
+  // is no longer a non-portable operation on its own. The atomicity intent
+  // of this test is preserved with a LATER statement (`4 / 2`, an
+  // integer-valued division result — rule 2) that must still abstain.
   test('abstains atomically on non-portable operations', () => {
     try {
-      executeKernSource(mainProgram(['print value="1"', 'print value="3 / 2"']));
+      executeKernSource(mainProgram(['print value="3 / 2"', 'print value="4 / 2"']));
       throw new Error('expected executeKernSource to fail');
     } catch (error) {
       expect(error).toBeInstanceOf(KernRunnerError);
       expect((error as Error).message).toContain('non-portable operation');
     }
+  });
+
+  test('division with a non-integer result prints the shortest round-trip float', () => {
+    expect(executeKernSource(mainProgram(['print value="7 / 2"']))).toBe('3.5\n');
+  });
+
+  test('division with an integer-valued result abstains regardless of operands (rule 2)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="4 / 2"']))).toThrow(KernRunnerError);
+  });
+
+  // Rule 2 fences the COMPUTED RESULT at evaluation, not the AST literal
+  // shape — variable indirection through plain `let` bindings must abstain
+  // identically to the literal form above.
+  test('division indirection through plain-let bindings still abstains on an integer-valued result', () => {
+    expect(() =>
+      executeKernSource(mainProgram(['let name=a value="10"', 'let name=b value="2"', 'print value="a / b"'])),
+    ).toThrow(KernRunnerError);
+  });
+
+  test('arithmetic with a non-integer operand abstains when the result collapses to an integer (rule 3)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="2.5 + 1.5"']))).toThrow(KernRunnerError);
+  });
+
+  test('a floaty-lexeme literal with an integer value abstains (rule 1)', () => {
+    expect(() => executeKernSource(mainProgram(['print value="4.0"']))).toThrow(KernRunnerError);
+  });
+
+  test('a non-integer float literal prints normally', () => {
+    expect(executeKernSource(mainProgram(['print value="2.5"']))).toBe('2.5\n');
+  });
+
+  test('division by zero still abstains on the pre-existing finiteness fence', () => {
+    expect(() => executeKernSource(mainProgram(['print value="1 / 0"']))).toThrow(KernRunnerError);
   });
 
   test('fails closed on uncaught explicit throws without replaying partial stdout', () => {
@@ -1968,6 +2410,31 @@ describe('@kernlang/core/runner source executor', () => {
 
     expect(stdout).toBe('file-body\n201\ngrounded answer\n');
     expect(calls).toEqual(['fs:README.md', 'net:https://example.test', 'llm:file-body']);
+  });
+
+  test('FS-1 pin: async fs.readText returns portable text usable by Text.length', async () => {
+    const asyncCapabilities: KernRunnerAsyncCapabilities = {
+      fs: {
+        async readText(call) {
+          expect(call.input).toEqual({ path: 'fixture.txt' });
+          return 'hello fixture';
+        },
+      },
+    };
+
+    const stdout = await executeKernSourceAsync(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"',
+        'print value="body"',
+        'print value="Text.length(body)"',
+      ]),
+      {
+        asyncCapabilities,
+        providedAsyncCapabilities: ['fs.readText'],
+      },
+    );
+
+    expect(stdout).toBe('hello fixture\n13\n');
   });
 
   // Milestone 5.1b review fix (codex 0.90) — the async preview lane's own

@@ -23,7 +23,9 @@
  *     completion; 1 = unexpected host failure.
  *
  * Executable surface is exactly what the runner certifies today: print / let /
- * assign / for / if / while / each / return / portable arithmetic / portable
+ * assign / for / if / while / each / return / portable arithmetic (including
+ * non-integer division; integer-valued division still abstains at the print
+ * fence) / portable
  * array-literal binding / literal in-bounds array index reads / array `.length`
  * (value AND as a for-range bound) / dynamic index reads by a for-counter OR
  * `+`/`-` arithmetic between provenanced operands (`xs[i]`, `xs[i + 1]`) /
@@ -387,6 +389,9 @@ function parseCapabilityReport(result: RunResult): CapabilityReport {
 // ── HAPPY PATH: exact stdout, exit 0, clean stderr ───────────────────────────
 describe('kern run — executes a void main and replays stdout (exit 0)', () => {
   // Portable scalars (values + expected bytes proven by print-stdout-differential).
+  // `/` is only print-portable when both legs render the same shortest value:
+  // `3 / 2` prints `1.5`, while `6 / 2` abstains because Python would render
+  // an integer-valued float as `3.0` where JS renders `3`.
   const PORTABLE_PRINTS: Array<[string, string[], string]> = [
     ['bool true -> lowercase', ['print value="true"'], 'true\n'],
     ['bool false -> lowercase', ['print value="false"'], 'false\n'],
@@ -394,7 +399,7 @@ describe('kern run — executes a void main and replays stdout (exit 0)', () => 
     ['positive integer base-10', ['print value="42"'], '42\n'],
     ['zero', ['print value="0"'], '0\n'],
     ['negative integer keeps sign', ['print value="0 - 7"'], '-7\n'],
-    ['integer-valued arithmetic collapses to integer', ['print value="6 / 2"'], '3\n'],
+    ['non-integer division prints shortest float', ['print value="3 / 2"'], '1.5\n'],
     ['string passthrough', ['print value="\\"hello\\""'], 'hello\n'],
     ['empty string still emits its newline', ['print value="\\"\\""'], '\n'],
     ['unicode preserved', ['print value="\\"café→😀\\""'], 'café→😀\n'],
@@ -2064,6 +2069,40 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     expect(readFileSync(join(fsRoot, 'out.txt'), 'utf-8')).toBe('hello async');
   });
 
+  test('FS-2 pin: fs.readText returns exact UTF-8 text and composes with Text.length', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    writeFileSync(join(fsRoot, 'fixture.txt'), 'hello fixture');
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"',
+        'print value="body"',
+        'print value="Text.length(body)"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe('hello fixture\n13\n');
+  });
+
+  test('FS-3 pin: plain kern run fails closed on fs.readText without an async fs provider', () => {
+    const file = writeFile(
+      mainProgram([
+        'capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"',
+        'print value="body"',
+      ]),
+    );
+
+    const result = runArgs(['run', file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('missing async providers: fs.readText');
+  });
+
   test('denies fs.writeText during preflight unless a write root is explicit', () => {
     const fsRoot = join(dir, `fs-root-${counter++}`);
     mkdirSync(fsRoot);
@@ -2136,6 +2175,49 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
     expect(result.status).toBe(2);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('escapes fs root');
+  });
+
+  test('FS-4 pin: denies absolute and symlink read escapes without replaying partial stdout', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const outside = join(dir, `outside-read-${counter++}.txt`);
+    writeFileSync(outside, 'outside');
+    symlinkSync(outside, join(fsRoot, 'linked-out.txt'));
+
+    for (const path of [outside, 'linked-out.txt']) {
+      const targetPath = path.replace(/\\/g, '/');
+      const file = writeFile(
+        mainProgram([
+          'print value="\\"before\\""',
+          `capability namespace=fs operation=readText name=body input="{ path: \\"${targetPath}\\" }"`,
+          'print value="body"',
+        ]),
+      );
+
+      const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+      expect(result.status).toBe(2);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('escapes fs root');
+    }
+  });
+
+  test('FS-5 pin: fs.readText rejects non-string path input without replaying partial stdout', () => {
+    const fsRoot = join(dir, `fs-root-${counter++}`);
+    mkdirSync(fsRoot);
+    const file = writeFile(
+      mainProgram([
+        'print value="\\"before\\""',
+        'capability namespace=fs operation=readText name=body input="{ path: 42 }"',
+        'print value="body"',
+      ]),
+    );
+
+    const result = runArgs(['run', '--async-preview', '--fs-root', fsRoot, file]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('fs.readText path must be a string');
   });
 
   test('runs straight-line net.fetch and llm.complete without fs roots when explicitly enabled', () => {
@@ -2736,8 +2818,8 @@ describe('kern run --async-preview — executes CLI-owned async adapters', () =>
 
 // ── FAIL-CLOSE ATOMICITY: abstain produces NO stdout, exit 2 ──────────────────
 describe('kern run — abstains atomically on non-portable ops (exit 2, no stdout)', () => {
-  test('a non-integer float print abstains with no output', () => {
-    const r = runProgram(['print value="3 / 2"']);
+  test('integer-valued division abstains with no output', () => {
+    const r = runProgram(['print value="6 / 2"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
     expect(r.stderr).not.toBe('');
@@ -2745,7 +2827,7 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
 
   test('ATOMICITY: a later abstaining print suppresses ALL prior stdout', () => {
     // The "1" must NOT leak: render only happens after the whole body succeeds.
-    const r = runProgram(['print value="1"', 'print value="3 / 2"']);
+    const r = runProgram(['print value="1"', 'print value="6 / 2"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });
@@ -2894,8 +2976,14 @@ describe('kern run — abstains atomically on non-portable ops (exit 2, no stdou
     expect(r.status).toBe(0);
   });
 
-  test('a NON-counter (plain let) index abstains even when in-bounds', () => {
-    const r = runProgram(['let name=xs value="[10,20,30]"', 'let name=j value="4 / 2"', 'print value="xs[j]"']);
+  test('a NON-counter computed let index abstains even when in-bounds', () => {
+    const r = runProgram(['let name=xs value="[10,20,30]"', 'let name=j value="1 + 1"', 'print value="xs[j]"']);
+    expect(r.stdout).toBe('');
+    expect(r.status).toBe(2);
+  });
+
+  test('integer-valued division setup abstains before later stdout can render', () => {
+    const r = runProgram(['let name=j value="4 / 2"', 'print value="1"']);
     expect(r.stdout).toBe('');
     expect(r.status).toBe(2);
   });

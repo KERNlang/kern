@@ -21,25 +21,37 @@ import { forPreconditions, forRuntimeRange } from './for.js';
 import {
   assignBinding,
   childEnv,
+  defineArrayAliasBinding,
   defineBinding,
+  defineCapturedArrayBinding,
+  defineFreshArrayBinding,
   defineIntBinding,
+  defineRecordBinding,
   getBinding,
   hasBinding,
   hasOwnBinding,
+  markRepeatableLoopBody,
   type SemanticEnv,
 } from './index.js';
+import { recordArrayFieldsFromValue } from './let.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
+  assertPortableRecordEntry,
   assertPortableScalar,
   assertRunnerPortableValue,
+  assertSingleUseFreshArrayRecordSources,
   assignRunnerClassMember,
+  evalRecordArrayFieldReferenceValue,
+  evalRecordArrayFieldValue,
   isPortableBindingName,
   isRecordLiteralExpression,
   isRunnerClassInstanceValue,
+  type PortableRecord,
   type PortableScalar,
   portableTruthy,
+  type RunnerPortableArrayValue,
 } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
@@ -147,9 +159,17 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
 
+  const parsed = (() => {
+    try {
+      return parseExpression(String(props.value));
+    } catch (error) {
+      throw asyncPreconditionError(ir, error);
+    }
+  })();
+
   let value: unknown;
+  let recordArrayFieldValue: RunnerPortableArrayValue | undefined;
   try {
-    const parsed = parseExpression(String(props.value));
     if (isArrayLiteralExpression(parsed)) {
       value = await evalArrayLiteralValueAsync(parsed, env, options);
     } else if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
@@ -161,7 +181,9 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
       // and fails closed, matching the sync path.
       value = new Map<string, unknown>();
     } else if (isRecordLiteralExpression(parsed)) {
-      value = await evalRecordLiteralValueAsync(parsed, env, options);
+      value = await evalRecordLiteralValueAsync(parsed, env, options, true);
+    } else if ((recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env)) !== undefined) {
+      value = recordArrayFieldValue;
     } else if (parsed.kind === 'new') {
       value = await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options));
     } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
@@ -177,7 +199,13 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   } catch (error) {
     throw asyncPreconditionError(ir, error);
   }
-  defineBinding(env, name, value);
+  if (isArrayLiteralExpression(parsed)) defineFreshArrayBinding(env, name, value as readonly unknown[]);
+  else if (recordArrayFieldValue !== undefined) defineCapturedArrayBinding(env, name, recordArrayFieldValue);
+  else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
+    // Source freshness/captured metadata handled by defineArrayAliasBinding.
+  } else if (isRecordLiteralExpression(parsed))
+    defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
+  else defineBinding(env, name, value);
   return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
 }
 
@@ -291,7 +319,9 @@ async function asyncReturnEffects(ir: IRNode, env: SemanticEnv, options: AsyncRe
     if (isArrayLiteralExpression(parsed)) {
       resolved = await evalArrayLiteralValueAsync(parsed, env, options);
     } else if (isRecordLiteralExpression(parsed)) {
-      resolved = await evalRecordLiteralValueAsync(parsed, env, options);
+      resolved = await evalRecordLiteralValueAsync(parsed, env, options, true);
+    } else if (evalRecordArrayFieldReferenceValue(parsed, env) !== undefined) {
+      resolved = evalRecordArrayFieldReferenceValue(parsed, env);
     } else if (parsed.kind === 'new') {
       resolved = await evalRunnerClassNewValueAsync(parsed, env, asyncEvalOptions(options));
     } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && parsed.callee.name !== 'String') {
@@ -431,7 +461,9 @@ async function asyncWhileEffects(ir: IRNode, env: SemanticEnv, options: AsyncRef
     }
     iterations += 1;
 
-    const childTrace = await asyncReferenceRunSequence(children, childEnv(env), options);
+    const iterEnv = childEnv(env);
+    markRepeatableLoopBody(iterEnv);
+    const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
     out.events.push(...childTrace.events);
 
     const c = childTrace.completion;
@@ -468,6 +500,7 @@ async function asyncForEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
     out.events.push({ op: 'iter-next', binding: name, value: i });
 
     const iterEnv = childEnv(env);
+    markRepeatableLoopBody(iterEnv);
     defineIntBinding(iterEnv, name, i);
 
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
@@ -515,6 +548,7 @@ async function asyncEachEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefe
     out.events.push({ op: 'iter-next', binding: step.primary[0], value: step.primary[1] });
 
     const iterEnv = childEnv(env);
+    markRepeatableLoopBody(iterEnv);
     for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
@@ -651,27 +685,25 @@ async function evalArrayLiteralValueAsync(
   return Object.freeze(out);
 }
 
+/** Thin async record evaluator over the SHARED sync admission rules
+ *  (`assertPortableRecordEntry`/`evalRecordArrayFieldValue`) — the async leg
+ *  admits the same shapes as the sync runner; only scalar fields await. */
 async function evalRecordLiteralValueAsync(
   node: Extract<ValueIR, { kind: 'objectLit' }>,
   env: SemanticEnv,
   options: AsyncReferenceRunnerOptions,
-): Promise<Readonly<Record<string, PortableScalar>>> {
-  const out: Record<string, PortableScalar> = Object.create(null);
-  for (const entry of node.entries) {
-    if ('kind' in entry) throw new Error('portable-record: object spreads are outside the portable record domain');
-    if ('rawKey' in entry && entry.rawKey !== undefined) {
-      throw new Error('portable-record: numeric record keys are outside the portable record domain');
-    }
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
-      throw new Error('portable-record: record keys must be identifier-like strings');
-    }
-    if (['__proto__', 'prototype', 'constructor'].includes(entry.key)) {
-      throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
-    }
-    if (Object.hasOwn(out, entry.key)) {
-      throw new Error(`portable-record: duplicate key "${entry.key}" is outside the portable record domain`);
-    }
-    out[entry.key] = await evalPortableValueForAsyncRunner(entry.value, env, options);
+  captureFreshArrayBindings = false,
+): Promise<PortableRecord> {
+  assertSingleUseFreshArrayRecordSources(node, env);
+  const out: Record<string, PortableScalar | RunnerPortableArrayValue> = Object.create(null) as Record<
+    string,
+    PortableScalar | RunnerPortableArrayValue
+  >;
+  for (const rawEntry of node.entries) {
+    const entry = assertPortableRecordEntry(rawEntry, out);
+    out[entry.key] =
+      evalRecordArrayFieldValue(entry.value, env, { captureFreshArrayBindings }) ??
+      (await evalPortableValueForAsyncRunner(entry.value, env, options));
   }
   return Object.freeze(out);
 }

@@ -18,6 +18,7 @@ import {
   getBinding,
   hasBinding,
   isIntProvenanced,
+  markRepeatableLoopBody,
   type NodeContract,
   type NodeFixture,
   registerContract,
@@ -141,6 +142,7 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
     // emitted TS/Python loops. (Previously this forked `new Map(env.bindings)`,
     // discarding outer mutations: a `sum += i` accumulator returned 0, not 15.)
     const iterEnv = childEnv(env);
+    markRepeatableLoopBody(iterEnv);
     defineIntBinding(iterEnv, name, i);
 
     const childTrace = referenceRunSequence(children, iterEnv);

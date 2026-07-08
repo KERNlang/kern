@@ -3669,12 +3669,12 @@ describe('native kern test runner', () => {
     writeFileSync(
       join(tmpDir, 'scope-leak.kern'),
       [
-        'fn name=collectKeys params="value:object" returns="string[]"',
+        'fn name=countKeys params="value:object" returns=number',
         '  handler lang=kern',
-        '    let kind=let name=out value="[]"',
+        '    let kind=let name=count value="0"',
         '    each name=item in="Object.keys(value)"',
-        '      assign target="out" value="[...out, item]"',
-        '    return value="out"',
+        '      assign target="count" value="count + 1"',
+        '    return value="count"',
         'fn name=doubleNumber params="n:number" returns=number',
         '  handler <<<',
         '    return n * 2;',
@@ -3693,7 +3693,7 @@ describe('native kern test runner', () => {
         '  it name="sibling without leak"',
         '    expect fn=doubleNumber args={{[7]}} equals=14',
         '    expect fn=greet args={{["ada"]}} equals="hi ada"',
-        '    expect fn=collectKeys args={{[{ a: 1, b: 2 }]}} equals={{["a", "b"]}}',
+        '    expect fn=countKeys args={{[{ a: 1, b: 2 }]}} equals=2',
       ].join('\n'),
     );
 

@@ -294,6 +294,7 @@ export {
   resolvePackageEntryFiles,
   resolveSpecifierToSrc,
 } from './public-api.js';
+export { PYTHON_BUILTIN_EXCEPTIONS } from './python-builtin-exceptions.js';
 export { runQualityRules } from './quality-rules.js';
 // RAG grounding gate (cite-or-drop enforcement for LLM findings against a
 // mined-rule corpus) — see rag-grounding.ts module doc for Tier A/B design.

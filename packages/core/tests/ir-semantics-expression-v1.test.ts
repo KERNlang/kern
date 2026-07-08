@@ -102,8 +102,8 @@ describe('expression-v1 contract — preconditions reject out-of-domain IR', () 
     mustReject({ type: 'expression-v1', props: { name: 'x', expr: { __expr: true, code: '' } } }, 'empty expr object');
   });
 
-  it('rejects non-portable object literals', () => {
-    mustReject({ type: 'expression-v1', props: { name: 'x', expr: '{ a: 1 }' } }, 'object literal');
+  it('rejects non-portable nested object literals', () => {
+    mustReject({ type: 'expression-v1', props: { name: 'x', expr: '{ a: { b: 1 } }' } }, 'nested object literal');
   });
 
   it('rejects builtin-shadowing names', () => {

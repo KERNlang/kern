@@ -53,7 +53,9 @@ import {
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
+  isParenthesized,
   isPostfixMutationOperator,
+  isSafeIntegerLiteralIndex,
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
   KERN_DECIMAL_OPS_HELPER_PY,
@@ -125,6 +127,7 @@ import {
   lowerPortableArrayPropertyPy,
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
+import { DOT_DICT_SHIM_PY } from './targets/python.js';
 import { mapTsTypeToPython } from './type-map.js';
 
 /** Parse options for Python codegen — always inject the TypeScript-backed
@@ -137,6 +140,48 @@ const TS_PARSE_OPTS = { closureClassifier: typescriptClosureClassifier };
 function parseExpr(input: string): ReturnType<typeof parseExpression> {
   return parseExpression(input, TS_PARSE_OPTS);
 }
+
+type ArrayBindingStatus = 'fresh' | 'fresh-push' | 'stale' | 'captured';
+
+/** Property-specific fail-close for a non-length read/call on a nested record
+ *  array field — message LOCKSTEP with the TS twin (`nestedArrayMemberThrowTS`
+ *  in codegen-expression.ts): 'has no portable property "<name>"'. */
+const KERN_NESTED_NO_PROPERTY_HELPER_PY = `def _kern_nested_no_property(path, prop):
+    raise Exception('portable: nested array field "' + path + '" has no portable property "' + prop + '"')
+`;
+
+const KERN_NESTED_ARRAY_HELPER_PY = `def _kern_nested_array_value(record, field, index=None):
+    if not isinstance(record, dict) or field not in record:
+        raise Exception("portable: nested array receiver must be a record field")
+    value = record[field]
+    if not isinstance(value, list):
+        raise Exception("portable: nested record field must be an array")
+    if index is None:
+        return len(value)
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= len(value):
+        raise Exception("portable: nested array index must be an in-bounds non-negative safe integer")
+    out = value[index]
+    if not (out is None or isinstance(out, str) or isinstance(out, bool) or (isinstance(out, (int, float)) and not isinstance(out, bool) and out == out and out != float("inf") and out != float("-inf"))):
+        raise Exception("portable: nested array element must be a portable scalar")
+    return out
+`;
+
+const KERN_NESTED_ARRAY_REF_HELPER_PY = `def _kern_nested_array_ref(record, field):
+    if not isinstance(record, dict) or field not in record:
+        raise Exception("portable: nested array receiver must be a record field")
+    value = record[field]
+    if not isinstance(value, list):
+        raise Exception("portable: nested record field must be an array")
+    return value
+`;
+
+const KERN_NESTED_ARRAY_ITER_HELPER_PY = `def _kern_nested_array_iter(record, field):
+    value = _kern_nested_array_ref(record, field)
+    for out in value:
+        if not (out is None or isinstance(out, str) or isinstance(out, bool) or (isinstance(out, (int, float)) and not isinstance(out, bool) and out == out and out != float("inf") and out != float("-inf"))):
+            raise Exception("portable: nested array element must be a portable scalar")
+    return value
+`;
 
 /** Slice 3e — caller-provided options for the Python body emitter.
  *  Currently only `symbolMap`; future slices may add diagnostics, source-map
@@ -241,6 +286,17 @@ interface BodyEmitContext {
   shadowedSymbols: Set<string>;
   localScopes: Array<Map<string, 'const' | 'let' | 'cell'>>;
   regexScopes: Array<Map<string, Extract<ValueIR, { kind: 'regexLit' }> | null>>;
+  /** Nested-values slice-1 — per-scope RECORD-LITERAL binding table, index-
+   *  aligned with `localScopes` (mirrors the TS emitter's `recordScopes`).
+   *  `true` when a `let`/`expression-v1` bound a DIRECT object literal; the
+   *  nested-record-field lowering fires ONLY for proven record idents —
+   *  every other two-level chain keeps its base lowering. */
+  recordScopes: Array<Map<string, boolean>>;
+  recordArrayFieldScopes: Array<Map<string, Set<string> | null>>;
+  recordScalarArrayFieldScopes: Array<Map<string, Set<string> | null>>;
+  maybeRecordArrayFieldScopes: Array<Map<string, Set<string> | null>>;
+  arrayBindingScopes: Array<Map<string, ArrayBindingStatus>>;
+  scalarArrayBindingScopes: Array<Map<string, boolean>>;
   /** Per-scope `userName -> emittedName` map. Populated when an inner-block
    * `let` shadows an outer binding so TS block-scope (`let x=1; if(c){let x=2}
    * return x` → 1) survives Python's flat function-scope (would otherwise
@@ -356,6 +412,12 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     shadowedSymbols: new Set<string>(),
     localScopes: [],
     regexScopes: [],
+    recordScopes: [],
+    recordArrayFieldScopes: [],
+    recordScalarArrayFieldScopes: [],
+    maybeRecordArrayFieldScopes: [],
+    arrayBindingScopes: [],
+    scalarArrayBindingScopes: [],
     renameStack: [],
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
@@ -461,6 +523,12 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
     // no regex literal was assigned to it). Mirroring it here keeps regex
     // and local-binding scope stacks index-aligned.
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScopes.push(new Map(outerBindings.map((n) => [n, false])));
+    ctx.recordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScalarArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.maybeRecordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.arrayBindingScopes.push(new Map());
+    ctx.scalarArrayBindingScopes.push(new Map());
     ctx.renameStack.push(new Map());
   }
   try {
@@ -479,6 +547,12 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
     if (outerBindings.length > 0) {
       ctx.localScopes.pop();
       ctx.regexScopes.pop();
+      ctx.recordScopes.pop();
+      ctx.recordArrayFieldScopes.pop();
+      ctx.recordScalarArrayFieldScopes.pop();
+      ctx.maybeRecordArrayFieldScopes.pop();
+      ctx.arrayBindingScopes.pop();
+      ctx.scalarArrayBindingScopes.pop();
       ctx.renameStack.pop();
     }
   }
@@ -549,6 +623,15 @@ function collectLoopAssignLastIndexes(children: IRNode[]): Map<string, number> {
   return last;
 }
 
+function childrenCanFallThrough(children: readonly IRNode[]): boolean {
+  for (const child of children) {
+    if (child.type === 'return' || child.type === 'throw' || child.type === 'break' || child.type === 'continue') {
+      return false;
+    }
+  }
+  return true;
+}
+
 function emitChildrenPy(
   children: IRNode[],
   ctx: BodyEmitContext,
@@ -559,6 +642,12 @@ function emitChildrenPy(
   const lines: string[] = [];
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.recordScopes.push(new Map(initialBindings.map(([name]) => [name, false])));
+  ctx.recordArrayFieldScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.recordScalarArrayFieldScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.maybeRecordArrayFieldScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
+  ctx.arrayBindingScopes.push(new Map());
+  ctx.scalarArrayBindingScopes.push(new Map());
   ctx.renameStack.push(new Map());
   // Slice-2 loop-variable pinning. When this recursion is a loop BODY, record
   // the just-pushed scope's index so `emitBlockClosurePy` can decide whether a
@@ -610,6 +699,10 @@ function emitChildrenPy(
         for (const line of emitExpressionV1Py(child, ctx)) lines.push(`${indent}${line}`);
       } else if (child.type === 'fn') {
         for (const line of emitFnPy(child, ctx, indent)) lines.push(line);
+      } else if (child.type === 'capability') {
+        throw new Error(
+          'capability nodes are not supported in emitted TypeScript/Python until an emitted capability ABI exists',
+        );
       } else if (child.type === 'assign') {
         // Same shadowing guard for a bare-identifier assignment target: after
         // `assign target="e" …`, `e` is no longer the caught error.
@@ -650,9 +743,16 @@ function emitChildrenPy(
         // Wrap UNCONDITIONALLY (no "looks boolean" skip-analysis in v1).
         ctx.helpers.add(KERN_JS_HELPER_PY);
         lines.push(`${indent}if _kern_truthy(${emitPyExprCtx(condIR, ctx)}):`);
+        const branchBase = cloneBranchBindingScopes(ctx);
+        const branchOutcomes: BranchBindingSnapshot[] = [];
+        let remainingBranchReachable = !isStaticBooleanLiteral(condIR, true);
+        restoreBranchBindingScopes(ctx, branchBase);
         const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
         if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
         for (const sl of inner) lines.push(sl);
+        if (!isStaticBooleanLiteral(condIR, false) && childrenCanFallThrough(child.children ?? [])) {
+          branchOutcomes.push(cloneBranchBindingScopes(ctx));
+        }
         // Walk the `else` chain. Recognised shapes for `else`:
         //   1. else > [if, else_inner]  → emit `elif`, recurse on else_inner
         //   2. else > [if]              → terminal `elif` with no else
@@ -661,11 +761,13 @@ function emitChildrenPy(
         // raw-body `else if` chains round-trip cleanly through slice 5b.
         let elseCandidate: IRNode | undefined = children[i + 1];
         if (elseCandidate?.type === 'else') i++;
+        let hasTerminalElse = false;
         while (elseCandidate && elseCandidate.type === 'else') {
           const ec: IRNode[] = elseCandidate.children ?? [];
           const isChainable =
             ec.length >= 1 && ec[0].type === 'if' && (ec.length === 1 || (ec.length === 2 && ec[1].type === 'else'));
           if (isChainable) {
+            restoreBranchBindingScopes(ctx, branchBase);
             const ifNode = ec[0];
             const nestedCondRaw = String(ifNode.props?.cond ?? '');
             const nestedCondIR = parseExpr(nestedCondRaw);
@@ -680,15 +782,30 @@ function emitChildrenPy(
             const ifInner = emitChildrenPy(ifNode.children ?? [], ctx, indent + INDENT_STEP);
             if (ifInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const sl of ifInner) lines.push(sl);
+            if (
+              remainingBranchReachable &&
+              !isStaticBooleanLiteral(nestedCondIR, false) &&
+              childrenCanFallThrough(ifNode.children ?? [])
+            ) {
+              branchOutcomes.push(cloneBranchBindingScopes(ctx));
+            }
+            if (isStaticBooleanLiteral(nestedCondIR, true)) remainingBranchReachable = false;
             elseCandidate = ec.length === 2 ? ec[1] : undefined;
           } else {
+            restoreBranchBindingScopes(ctx, branchBase);
             lines.push(`${indent}else:`);
             const elseInner = emitChildrenPy(ec, ctx, indent + INDENT_STEP);
             if (elseInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
             for (const el of elseInner) lines.push(el);
+            if (remainingBranchReachable && childrenCanFallThrough(ec))
+              branchOutcomes.push(cloneBranchBindingScopes(ctx));
+            hasTerminalElse = true;
+            remainingBranchReachable = false;
             break;
           }
         }
+        if (!hasTerminalElse && remainingBranchReachable) branchOutcomes.push(branchBase);
+        mergeBranchBindingSnapshots(ctx, branchBase, branchOutcomes);
       } else if (child.type === 'else') {
         // Slice-2 review fix: orphan `else` is a structural error (matches TS side).
         throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
@@ -821,7 +938,8 @@ function emitChildrenPy(
           }
           const k = String(pairKey);
           const v = String(pairValue);
-          const sourceExpr = emitPyExprCtx(listIR, ctx);
+          assertNoKeyedNestedRecordReceiverPy(listIR, ctx);
+          const sourceExpr = emitEachIterablePy(listIR, ctx);
           ctx.helpers.add(KERN_PAIR_HELPERS_PY);
           const iterableExpr = isAwait ? `_kern_async_pairs(${sourceExpr})` : `_kern_pairs(${sourceExpr})`;
           lines.push(`${indent}${isAwait ? 'async ' : ''}for ${k}, ${v} in ${iterableExpr}:`);
@@ -857,7 +975,8 @@ function emitChildrenPy(
           if (entryKey && entryValue) {
             throw new Error('body-statement `each` cannot combine `entryKey=` and `entryValue=`.');
           }
-          const sourceExpr = emitPyExprCtx(listIR, ctx);
+          assertNoKeyedNestedRecordReceiverPy(listIR, ctx);
+          const sourceExpr = emitEachIterablePy(listIR, ctx);
           if (entryKey) {
             const k = String(entryKey);
             const iterableExpr = `${sourceExpr}.keys()`;
@@ -902,7 +1021,7 @@ function emitChildrenPy(
         // the IR-semantics differential audit (PR-3b).
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
         const idxName = child.props?.index !== undefined ? String(child.props.index) : null;
-        const iterableExpr = emitPyExprCtx(listIR, ctx);
+        const iterableExpr = emitEachIterablePy(listIR, ctx);
         let primaryBindingPy: string;
         let initialBindings: Array<[string, 'const' | 'let']>;
         if (idxName !== null) {
@@ -983,6 +1102,12 @@ function emitChildrenPy(
     if (loopFrame) ctx.loopLaterAssignFrames.pop();
     ctx.localScopes.pop();
     ctx.regexScopes.pop();
+    ctx.recordScopes.pop();
+    ctx.recordArrayFieldScopes.pop();
+    ctx.recordScalarArrayFieldScopes.pop();
+    ctx.maybeRecordArrayFieldScopes.pop();
+    ctx.arrayBindingScopes.pop();
+    ctx.scalarArrayBindingScopes.pop();
     ctx.renameStack.pop();
     // Restore the parent level's hoist buffer (see the isolation comment at
     // entry). Any defs THIS level's last child left behind are appended so the
@@ -1005,6 +1130,16 @@ function resolveLocalRename(ctx: BodyEmitContext, name: string): string {
     if (renamed !== undefined) return renamed;
   }
   return name;
+}
+
+function emitScopedIdentPy(ctx: BodyEmitContext, name: string): string {
+  // Only custom nested-record rewrites need this helper; ordinary expression
+  // emission descends through the ident case, which already resolves block
+  // renames before applying symbol-map names.
+  const blockRename = resolveLocalRename(ctx, name);
+  if (blockRename !== name) return blockRename;
+  if (ctx.shadowedSymbols.has(name)) return name;
+  return ctx.symbolMap[name] ?? name;
 }
 
 /** Returns the renamed name if `let name=` here would shadow a binding in
@@ -1319,6 +1454,14 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpr(String(rawValue));
   setRegexBinding(ctx, userName, valueIR.kind === 'regexLit' ? valueIR : null);
+  setRecordBinding(
+    ctx,
+    userName,
+    valueIR.kind === 'objectLit',
+    recordArrayFieldsForValue(valueIR, ctx),
+    recordScalarArrayFieldsForValue(valueIR, ctx),
+  );
+  bindArrayStatusFromLet(ctx, userName, valueIR);
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
@@ -1333,9 +1476,20 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
     if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
     return lines;
   }
-  const lines = [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
+  const lines = [`${name} = ${emitLetInitializerPy(valueIR, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
+}
+
+/** RECORD-binding initializer wrap (nested-values slice-1): a `let` bound to a
+ *  DIRECT object literal becomes a `__DotDict` so certified field reads
+ *  (`r.a`, `r.length`) resolve on the Python leg. ONLY this position wraps —
+ *  inline/argument/return object literals keep base plain-dict emission. */
+function emitLetInitializerPy(valueIR: ValueIR, ctx: BodyEmitContext): string {
+  const rhs = emitPyExprCtx(valueIR, ctx);
+  if (valueIR.kind !== 'objectLit') return rhs;
+  ctx.helpers.add(DOT_DICT_SHIM_PY);
+  return `__DotDict(${rhs})`;
 }
 
 function unwrapBodyExpr(value: unknown): string | undefined {
@@ -1627,6 +1781,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
   assertAssignableLocalTarget(targetIR, ctx);
+  applyArrayMutationAssignPy(targetIR, ctx);
   // Python lacks `++` / `--`; lower postfix mutation to the canonical compound
   // assignment (`X += 1` / `X -= 1`). The TS round-trip stays byte-equivalent
   // because TS emits `X++;` from the same IR — only the Python target diverges
@@ -1644,12 +1799,21 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   // Emit FIRST (its `emitPyExprCtx` lowering fail-closes a regex method on a
   // bound regex ident) so the RHS is checked against the PRE-reassignment table
   // (`re = s.match(re)` must still see `re` as a regex). Mirrors the TS leg.
-  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`;
+  // A plain-`=` ident reassignment to a DIRECT object literal takes the SAME
+  // __DotDict wrap as a record `let` initializer — `rebindRecordOnReassign`
+  // below re-marks the binding as a record, so the VALUE must be record-
+  // shaped too or later emitted field reads (attribute access) would hit a
+  // plain dict. Lockstep with `emitLetInitializerPy`.
+  const rhs =
+    rawOp === '=' && targetIR.kind === 'ident' ? emitLetInitializerPy(valueIR, ctx) : emitPyExprCtx(valueIR, ctx);
+  const stmt = `${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${rhs}`;
   // Reassign-invalidation (Slice-3c): keep the regex-binding table honest. A
   // plain `=` to a direct regex literal stays a regex binding (still
   // fail-closed); any compound op (`+=`, …) or non-regex RHS UNMARKS it.
   if (targetIR.kind === 'ident') {
     rebindRegexOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+    rebindRecordOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
+    rebindArrayOnReassign(ctx, targetIR.name, rawOp === '=' ? valueIR : { kind: 'undefLit' });
   }
   // Differential-harness opt-in (see BodyEmitOptions.traceHooks.letAssign): the
   // `assign` contract observes a reassignment via the same `{op:"assign"}` event
@@ -1669,6 +1833,8 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
   }
   scope.set(name, kind);
   setRegexBinding(ctx, name, null);
+  setRecordBinding(ctx, name, false);
+  setArrayBindingStatus(ctx, name, null);
 }
 
 function setRegexBinding(
@@ -1699,6 +1865,399 @@ function rebindRegexOnReassign(ctx: BodyEmitContext, name: string, valueIR: Valu
     const scope = ctx.regexScopes[i];
     if (scope.has(name)) {
       scope.set(name, next);
+      return;
+    }
+  }
+}
+
+/** Record whether `name` is bound to a DIRECT record literal in the current scope. */
+function setRecordBinding(
+  ctx: BodyEmitContext,
+  name: string,
+  isRecord: boolean,
+  arrayFields: Set<string> | null = null,
+  scalarArrayFields: Set<string> | null = null,
+): void {
+  ctx.recordScopes.at(-1)?.set(name, isRecord);
+  ctx.recordArrayFieldScopes.at(-1)?.set(name, isRecord ? arrayFields : null);
+  ctx.recordScalarArrayFieldScopes.at(-1)?.set(name, isRecord ? scalarArrayFields : null);
+  ctx.maybeRecordArrayFieldScopes.at(-1)?.set(name, isRecord ? arrayFields : null);
+}
+
+function recordArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<string> | null {
+  if (valueIR.kind !== 'objectLit') return null;
+  const fields = new Set<string>();
+  for (const entry of valueIR.entries) {
+    if ('kind' in entry) continue;
+    if (entry.value.kind === 'arrayLit') {
+      assertPortableArrayLiteralElementsPy(entry.value);
+      fields.add(entry.key);
+    } else if (entry.value.kind === 'ident') {
+      const status = lookupArrayBindingStatus(ctx, entry.value.name);
+      if (status === 'fresh' || status === 'fresh-push' || status === 'captured') fields.add(entry.key);
+    }
+  }
+  return fields;
+}
+
+function recordScalarArrayFieldsForValue(valueIR: ValueIR, ctx: BodyEmitContext): Set<string> | null {
+  if (valueIR.kind !== 'objectLit') return null;
+  const fields = new Set<string>();
+  for (const entry of valueIR.entries) {
+    if ('kind' in entry) continue;
+    if (entry.value.kind === 'arrayLit' && arrayLiteralHasOnlyScalarElements(entry.value)) fields.add(entry.key);
+    else if (entry.value.kind === 'ident') {
+      const status = lookupArrayBindingStatus(ctx, entry.value.name);
+      if (
+        (status === 'fresh' || status === 'fresh-push' || status === 'captured') &&
+        lookupScalarArrayBinding(ctx, entry.value.name)
+      ) {
+        fields.add(entry.key);
+      }
+    }
+  }
+  return fields;
+}
+
+function assertPortableArrayLiteralElementsPy(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): void {
+  for (const item of valueIR.items) {
+    if (item.kind === 'arrayLit') {
+      assertPortableArrayLiteralElementsPy(item);
+      continue;
+    }
+    if (item.kind === 'strLit' || item.kind === 'boolLit' || item.kind === 'nullLit') continue;
+    if (item.kind === 'numLit' && item.bigint !== true && Number.isFinite(item.value)) {
+      if (isIntegerValuedFloatLiteralPy(item))
+        throw new Error('portable: float literal has an integer value (float/int divergence)');
+      continue;
+    }
+    throw new Error('portable-array: array literal fields must contain only portable scalar or array elements');
+  }
+}
+
+function arrayLiteralHasOnlyScalarElements(valueIR: Extract<ValueIR, { kind: 'arrayLit' }>): boolean {
+  return valueIR.items.every(
+    (item) =>
+      (item.kind === 'numLit' &&
+        item.bigint !== true &&
+        Number.isFinite(item.value) &&
+        !isIntegerValuedFloatLiteralPy(item)) ||
+      item.kind === 'strLit' ||
+      item.kind === 'boolLit' ||
+      item.kind === 'nullLit',
+  );
+}
+
+function setArrayBindingStatus(ctx: BodyEmitContext, name: string, status: ArrayBindingStatus | null): void {
+  const scope = ctx.arrayBindingScopes.at(-1);
+  if (!scope) return;
+  if (status === null) scope.delete(name);
+  else scope.set(name, status);
+}
+
+function setScalarArrayBinding(ctx: BodyEmitContext, name: string, scalar: boolean): void {
+  const scope = ctx.scalarArrayBindingScopes.at(-1);
+  if (!scope) return;
+  if (scalar) scope.set(name, true);
+  else scope.delete(name);
+}
+
+function lookupArrayBindingStatus(ctx: BodyEmitContext, name: string): ArrayBindingStatus | null {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (!ctx.localScopes[i].has(name)) continue;
+    return ctx.arrayBindingScopes[i]?.get(name) ?? null;
+  }
+  return null;
+}
+
+function lookupScalarArrayBinding(ctx: BodyEmitContext, name: string): boolean {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (!ctx.localScopes[i].has(name)) continue;
+    return ctx.scalarArrayBindingScopes[i]?.get(name) === true;
+  }
+  return false;
+}
+
+function setDeclaringArrayBindingStatus(ctx: BodyEmitContext, name: string, status: ArrayBindingStatus | null): void {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (!ctx.localScopes[i].has(name)) continue;
+    const scope = ctx.arrayBindingScopes[i];
+    if (status === null) scope?.delete(name);
+    else scope?.set(name, status);
+    return;
+  }
+}
+
+function setDeclaringScalarArrayBinding(ctx: BodyEmitContext, name: string, scalar: boolean): void {
+  for (let i = ctx.localScopes.length - 1; i >= 0; i--) {
+    if (!ctx.localScopes[i].has(name)) continue;
+    const scope = ctx.scalarArrayBindingScopes[i];
+    if (scalar) scope?.set(name, true);
+    else scope?.delete(name);
+    return;
+  }
+}
+
+function assertFreshArrayCaptureNotInRepeatableLoopPy(ctx: BodyEmitContext, name: string): void {
+  const loopScopeIndex = ctx.loopScopeIndexes.at(-1);
+  if (loopScopeIndex === undefined) return;
+  const scopeIndex = findBindingScopeIndex(ctx, name);
+  if (scopeIndex !== null && scopeIndex < loopScopeIndex) {
+    throw new Error(`fresh array binding "${name}" cannot be captured inside a repeatable loop body`);
+  }
+}
+
+function isStaticBooleanLiteral(node: ValueIR, value: boolean): boolean {
+  return node.kind === 'boolLit' && node.value === value;
+}
+
+type BranchBindingSnapshot = {
+  readonly array: Array<Map<string, ArrayBindingStatus>>;
+  readonly scalarArray: Array<Map<string, boolean>>;
+  readonly record: Array<Map<string, boolean>>;
+  readonly recordArrayField: Array<Map<string, Set<string> | null>>;
+  readonly recordScalarArrayField: Array<Map<string, Set<string> | null>>;
+  readonly maybeRecordArrayField: Array<Map<string, Set<string> | null>>;
+};
+
+function cloneFieldScopes(scopes: Array<Map<string, Set<string> | null>>): Array<Map<string, Set<string> | null>> {
+  return scopes.map(
+    (scope) => new Map([...scope.entries()].map(([name, fields]) => [name, fields === null ? null : new Set(fields)])),
+  );
+}
+
+function cloneBranchBindingScopes(ctx: BodyEmitContext): BranchBindingSnapshot {
+  return {
+    array: ctx.arrayBindingScopes.map((scope) => new Map(scope)),
+    scalarArray: ctx.scalarArrayBindingScopes.map((scope) => new Map(scope)),
+    record: ctx.recordScopes.map((scope) => new Map(scope)),
+    recordArrayField: cloneFieldScopes(ctx.recordArrayFieldScopes),
+    recordScalarArrayField: cloneFieldScopes(ctx.recordScalarArrayFieldScopes),
+    maybeRecordArrayField: cloneFieldScopes(ctx.maybeRecordArrayFieldScopes),
+  };
+}
+
+function restoreBranchBindingScopes(ctx: BodyEmitContext, snapshot: BranchBindingSnapshot): void {
+  ctx.arrayBindingScopes = snapshot.array.map((scope) => new Map(scope));
+  ctx.scalarArrayBindingScopes = snapshot.scalarArray.map((scope) => new Map(scope));
+  ctx.recordScopes = snapshot.record.map((scope) => new Map(scope));
+  ctx.recordArrayFieldScopes = cloneFieldScopes(snapshot.recordArrayField);
+  ctx.recordScalarArrayFieldScopes = cloneFieldScopes(snapshot.recordScalarArrayField);
+  ctx.maybeRecordArrayFieldScopes = cloneFieldScopes(snapshot.maybeRecordArrayField);
+}
+
+function strongestArrayBindingStatus(statuses: Array<ArrayBindingStatus | null>): ArrayBindingStatus | null {
+  if (statuses.includes('captured')) return 'captured';
+  if (statuses.includes('stale')) return 'stale';
+  if (statuses.includes('fresh')) return 'fresh';
+  if (statuses.includes('fresh-push')) return 'fresh-push';
+  return null;
+}
+
+function mergeArrayScopes(
+  base: Array<Map<string, ArrayBindingStatus>>,
+  outcomes: Array<Array<Map<string, ArrayBindingStatus>>>,
+) {
+  const merged = base.map((scope) => new Map(scope));
+  for (let scopeIndex = 0; scopeIndex < merged.length; scopeIndex++) {
+    const names = new Set<string>(merged[scopeIndex].keys());
+    for (const outcome of outcomes) for (const name of outcome[scopeIndex]?.keys() ?? []) names.add(name);
+    for (const name of names) {
+      const status = strongestArrayBindingStatus(outcomes.map((outcome) => outcome[scopeIndex]?.get(name) ?? null));
+      if (status === null) merged[scopeIndex].delete(name);
+      else merged[scopeIndex].set(name, status);
+    }
+  }
+  return merged;
+}
+
+function mergeScalarArrayScopes(base: Array<Map<string, boolean>>, outcomes: Array<Array<Map<string, boolean>>>) {
+  const merged = base.map((scope) => new Map(scope));
+  for (let scopeIndex = 0; scopeIndex < merged.length; scopeIndex++) {
+    const names = new Set<string>(merged[scopeIndex].keys());
+    for (const outcome of outcomes) for (const name of outcome[scopeIndex]?.keys() ?? []) names.add(name);
+    for (const name of names) {
+      const scalar = outcomes.length > 0 && outcomes.every((outcome) => outcome[scopeIndex]?.get(name) === true);
+      if (scalar) merged[scopeIndex].set(name, true);
+      else merged[scopeIndex].delete(name);
+    }
+  }
+  return merged;
+}
+
+function mergeRecordScopes(base: Array<Map<string, boolean>>, outcomes: Array<Array<Map<string, boolean>>>) {
+  const merged = base.map((scope) => new Map(scope));
+  for (let scopeIndex = 0; scopeIndex < merged.length; scopeIndex++) {
+    const names = new Set<string>(merged[scopeIndex].keys());
+    for (const outcome of outcomes) for (const name of outcome[scopeIndex]?.keys() ?? []) names.add(name);
+    for (const name of names) {
+      merged[scopeIndex].set(
+        name,
+        outcomes.length > 0 && outcomes.every((outcome) => outcome[scopeIndex]?.get(name) === true),
+      );
+    }
+  }
+  return merged;
+}
+
+function mergeFieldScopes(
+  base: Array<Map<string, Set<string> | null>>,
+  outcomes: Array<Array<Map<string, Set<string> | null>>>,
+  mode: 'intersection' | 'union',
+) {
+  const merged = base.map((scope) => new Map(scope));
+  for (let scopeIndex = 0; scopeIndex < merged.length; scopeIndex++) {
+    const names = new Set<string>(merged[scopeIndex].keys());
+    for (const outcome of outcomes) for (const name of outcome[scopeIndex]?.keys() ?? []) names.add(name);
+    for (const name of names) {
+      const outcomeFields = outcomes.map((outcome) => outcome[scopeIndex]?.get(name) ?? null);
+      const fields = new Set<string>();
+      if (mode === 'union') {
+        for (const set of outcomeFields) if (set) for (const field of set) fields.add(field);
+      } else if (outcomeFields.length > 0 && outcomeFields.every((set) => set !== null)) {
+        for (const field of outcomeFields[0] ?? []) {
+          if (outcomeFields.every((set) => set?.has(field) === true)) fields.add(field);
+        }
+      }
+      merged[scopeIndex].set(name, fields.size > 0 ? fields : null);
+    }
+  }
+  return merged;
+}
+
+function mergeBranchBindingSnapshots(
+  ctx: BodyEmitContext,
+  base: BranchBindingSnapshot,
+  outcomes: Array<BranchBindingSnapshot>,
+): void {
+  ctx.arrayBindingScopes = mergeArrayScopes(
+    base.array,
+    outcomes.map((outcome) => outcome.array),
+  );
+  ctx.scalarArrayBindingScopes = mergeScalarArrayScopes(
+    base.scalarArray,
+    outcomes.map((outcome) => outcome.scalarArray),
+  );
+  ctx.recordScopes = mergeRecordScopes(
+    base.record,
+    outcomes.map((outcome) => outcome.record),
+  );
+  ctx.recordArrayFieldScopes = mergeFieldScopes(
+    base.recordArrayField,
+    outcomes.map((outcome) => outcome.recordArrayField),
+    'intersection',
+  );
+  ctx.recordScalarArrayFieldScopes = mergeFieldScopes(
+    base.recordScalarArrayField,
+    outcomes.map((outcome) => outcome.recordScalarArrayField),
+    'intersection',
+  );
+  ctx.maybeRecordArrayFieldScopes = mergeFieldScopes(
+    base.maybeRecordArrayField,
+    outcomes.map((outcome) => outcome.maybeRecordArrayField),
+    'union',
+  );
+}
+
+function lookupRecordBinding(ctx: BodyEmitContext, name: string): boolean {
+  for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScopes[i];
+    if (scope.has(name)) return scope.get(name) === true;
+  }
+  return false;
+}
+
+function lookupRecordArrayField(ctx: BodyEmitContext, name: string, field: string): boolean {
+  for (let i = ctx.recordArrayFieldScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordArrayFieldScopes[i];
+    if (!scope.has(name)) continue;
+    return scope.get(name)?.has(field) === true;
+  }
+  return false;
+}
+
+function lookupRecordScalarArrayField(ctx: BodyEmitContext, name: string, field: string): boolean {
+  for (let i = ctx.recordScalarArrayFieldScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScalarArrayFieldScopes[i];
+    if (!scope.has(name)) continue;
+    return scope.get(name)?.has(field) === true;
+  }
+  return false;
+}
+
+function lookupMaybeRecordArrayField(ctx: BodyEmitContext, name: string, field: string): boolean {
+  for (let i = ctx.maybeRecordArrayFieldScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.maybeRecordArrayFieldScopes[i];
+    if (!scope.has(name)) continue;
+    return scope.get(name)?.has(field) === true;
+  }
+  return false;
+}
+
+function bindArrayStatusFromLet(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  if (valueIR.kind === 'arrayLit') {
+    setArrayBindingStatus(ctx, name, valueIR.items.length === 0 ? 'fresh-push' : 'fresh');
+    setScalarArrayBinding(ctx, name, arrayLiteralHasOnlyScalarElements(valueIR));
+    return;
+  }
+  if (valueIR.kind === 'ident') {
+    const sourceStatus = lookupArrayBindingStatus(ctx, valueIR.name);
+    const sourceScalar = lookupScalarArrayBinding(ctx, valueIR.name);
+    if (sourceStatus === 'fresh' || sourceStatus === 'fresh-push') {
+      setDeclaringArrayBindingStatus(ctx, valueIR.name, 'stale');
+      setDeclaringScalarArrayBinding(ctx, valueIR.name, false);
+      setArrayBindingStatus(ctx, name, 'stale');
+      setScalarArrayBinding(ctx, name, false);
+      return;
+    }
+    if (sourceStatus === 'captured') {
+      setArrayBindingStatus(ctx, name, 'captured');
+      setScalarArrayBinding(ctx, name, sourceScalar);
+      return;
+    }
+    if (sourceStatus === 'stale') {
+      setArrayBindingStatus(ctx, name, 'stale');
+      setScalarArrayBinding(ctx, name, false);
+      return;
+    }
+  }
+  if (
+    valueIR.kind === 'member' &&
+    valueIR.object.kind === 'ident' &&
+    lookupRecordArrayField(ctx, valueIR.object.name, valueIR.property)
+  ) {
+    setArrayBindingStatus(ctx, name, 'captured');
+    setScalarArrayBinding(ctx, name, lookupRecordScalarArrayField(ctx, valueIR.object.name, valueIR.property));
+    return;
+  }
+  setArrayBindingStatus(ctx, name, null);
+  setScalarArrayBinding(ctx, name, false);
+}
+
+function rebindArrayOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  if (valueIR.kind === 'arrayLit') {
+    setDeclaringArrayBindingStatus(ctx, name, 'stale');
+    setDeclaringScalarArrayBinding(ctx, name, false);
+  } else {
+    setDeclaringArrayBindingStatus(ctx, name, null);
+    setDeclaringScalarArrayBinding(ctx, name, false);
+  }
+}
+
+/** Reassign-invalidation for the record table — mirrors `rebindRegexOnReassign`
+ *  (and the TS emitter's `rebindRecordOnReassign`): owning-scope update, no
+ *  stale record classification after `assign target=r value=<non-record>`. */
+function rebindRecordOnReassign(ctx: BodyEmitContext, name: string, valueIR: ValueIR): void {
+  const next = valueIR.kind === 'objectLit';
+  const arrayFields = recordArrayFieldsForValue(valueIR, ctx);
+  const scalarArrayFields = recordScalarArrayFieldsForValue(valueIR, ctx);
+  for (let i = ctx.recordScopes.length - 1; i >= 0; i--) {
+    const scope = ctx.recordScopes[i];
+    if (scope.has(name)) {
+      scope.set(name, next);
+      ctx.recordArrayFieldScopes[i]?.set(name, next ? arrayFields : null);
+      ctx.recordScalarArrayFieldScopes[i]?.set(name, next ? scalarArrayFields : null);
+      ctx.maybeRecordArrayFieldScopes[i]?.set(name, next ? arrayFields : null);
       return;
     }
   }
@@ -2036,7 +2595,7 @@ function emitDoPy(node: IRNode, ctx: BodyEmitContext): string[] {
     ctx.usedPropagation = true;
     return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx)];
   }
-  return [`${emitPyExprCtx(valueIR, ctx)}`];
+  return [`${emitPyExprCtx(valueIR, ctx, { preserveFreshPush: true })}`];
 }
 
 /** ValueIR `kind`s that lower to Python literals/values and would trigger
@@ -2084,13 +2643,210 @@ export function emitPyExpressionWithImports(node: ValueIR, options?: BodyEmitOpt
   if (outerBindings.length > 0) {
     ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
     ctx.regexScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScopes.push(new Map(outerBindings.map((n) => [n, false])));
+    ctx.recordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.recordScalarArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.maybeRecordArrayFieldScopes.push(new Map(outerBindings.map((n) => [n, null])));
+    ctx.arrayBindingScopes.push(new Map());
+    ctx.scalarArrayBindingScopes.push(new Map());
     ctx.renameStack.push(new Map());
   }
   const code = emitPyExprCtx(node, ctx);
   return { code, imports: ctx.imports, helpers: ctx.helpers };
 }
 
-function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
+const MUTATING_ARRAY_METHODS = new Set([
+  'copyWithin',
+  'fill',
+  'pop',
+  'push',
+  'reverse',
+  'shift',
+  'sort',
+  'splice',
+  'unshift',
+]);
+
+function captureFreshArrayRecordSourcesPy(node: Extract<ValueIR, { kind: 'objectLit' }>, ctx: BodyEmitContext): void {
+  const freshSources = new Set<string>();
+  for (const entry of node.entries) {
+    if ('kind' in entry) continue;
+    if (
+      entry.value.kind === 'member' &&
+      entry.value.object.kind === 'ident' &&
+      lookupMaybeRecordArrayField(ctx, entry.value.object.name, entry.value.property)
+    ) {
+      throw new Error(
+        `record field "${entry.value.object.name}.${entry.value.property}" cannot be captured by another record field`,
+      );
+    }
+    if (entry.value.kind !== 'ident') continue;
+    const status = lookupArrayBindingStatus(ctx, entry.value.name);
+    if (status === 'fresh' || status === 'fresh-push') {
+      if (freshSources.has(entry.value.name)) {
+        throw new Error(`fresh array binding "${entry.value.name}" can be captured only once`);
+      }
+      assertFreshArrayCaptureNotInRepeatableLoopPy(ctx, entry.value.name);
+      freshSources.add(entry.value.name);
+    } else if (status === 'captured') {
+      throw new Error(`fresh array binding "${entry.value.name}" was already captured by a record field`);
+    } else if (status === 'stale') {
+      throw new Error(`stale array binding "${entry.value.name}" cannot be captured by a record field`);
+    }
+  }
+  for (const name of freshSources) setDeclaringArrayBindingStatus(ctx, name, 'captured');
+}
+
+function rootIdentName(node: ValueIR): string | null {
+  if (node.kind === 'ident') return node.name;
+  if (node.kind === 'member' || node.kind === 'index') return rootIdentName(node.object);
+  return null;
+}
+
+function recordArrayFieldMutationTarget(
+  node: ValueIR,
+  ctx: BodyEmitContext,
+): { recordName: string; fieldName: string } | null {
+  if (
+    node.kind === 'member' &&
+    node.object.kind === 'ident' &&
+    lookupMaybeRecordArrayField(ctx, node.object.name, node.property)
+  ) {
+    return { recordName: node.object.name, fieldName: node.property };
+  }
+  if (node.kind === 'member' || node.kind === 'index') return recordArrayFieldMutationTarget(node.object, ctx);
+  return null;
+}
+
+function isIntegerValuedFloatLiteralPy(node: Extract<ValueIR, { kind: 'numLit' }>): boolean {
+  return (node.raw.includes('.') || /[eE]/.test(node.raw)) && Number.isInteger(node.value);
+}
+
+function isFreshnessPreservingPushElementPy(node: ValueIR): boolean {
+  if (node.kind === 'strLit' || node.kind === 'boolLit' || node.kind === 'nullLit') return true;
+  if (node.kind !== 'numLit') return false;
+  if (node.bigint || !Number.isFinite(node.value)) return false;
+  if (isIntegerValuedFloatLiteralPy(node))
+    throw new Error('portable: float literal has an integer value (float/int divergence)');
+  return true;
+}
+
+function pushMutationTargetPy(node: ValueIR): { target: ValueIR; element: ValueIR } | null {
+  if (node.kind !== 'call' || node.optional || node.args.length !== 1) return null;
+  const callee = node.callee;
+  if (callee.kind !== 'member' || callee.optional || callee.property !== 'push') return null;
+  return { target: callee.object, element: node.args[0] };
+}
+
+function applyArrayMutationTargetPy(target: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  const recordField = recordArrayFieldMutationTarget(target, ctx);
+  if (recordField !== null) {
+    throw new Error(
+      `record array field "${recordField.recordName}.${recordField.fieldName}" cannot be mutated after capture`,
+    );
+  }
+  const targetName = rootIdentName(target);
+  if (targetName === null) return;
+  const status = lookupArrayBindingStatus(ctx, targetName);
+  if (status === 'captured') {
+    throw new Error(`fresh array binding "${targetName}" was already captured by a record field`);
+  }
+  if (status === 'fresh-push' && preserveFreshPush) return;
+  if (status === 'fresh' || status === 'fresh-push') setDeclaringArrayBindingStatus(ctx, targetName, 'stale');
+}
+
+function applyArrayMutationDoPy(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  const pushTarget = pushMutationTargetPy(node);
+  if (pushTarget !== null) {
+    const keepFresh = preserveFreshPush && isFreshnessPreservingPushElementPy(pushTarget.element);
+    applyArrayMutationTargetPy(pushTarget.target, ctx, keepFresh);
+    return;
+  }
+  if (node.kind !== 'call') return;
+  const callee = node.callee;
+  if (callee.kind === 'member' && MUTATING_ARRAY_METHODS.has(callee.property))
+    applyArrayMutationTargetPy(callee.object, ctx);
+}
+
+function applyArrayMutationAssignPy(target: ValueIR, ctx: BodyEmitContext): void {
+  if (target.kind === 'ident') {
+    const status = lookupArrayBindingStatus(ctx, target.name);
+    if (status === 'captured') {
+      throw new Error(`fresh array binding "${target.name}" was already captured by a record field`);
+    }
+    if (status === 'fresh' || status === 'fresh-push' || status === 'stale') {
+      throw new Error(`array binding "${target.name}" cannot be reassigned by portable assign`);
+    }
+    return;
+  }
+  applyArrayMutationTargetPy(target, ctx);
+}
+
+function forEachValueIRChildPy(node: ValueIR, visit: (child: ValueIR) => void): void {
+  if (node.kind === 'member') visit(node.object);
+  else if (node.kind === 'index') {
+    visit(node.object);
+    visit(node.index);
+  } else if (node.kind === 'call') {
+    visit(node.callee);
+    for (const arg of node.args) visit(arg);
+  } else if (node.kind === 'binary') {
+    visit(node.left);
+    visit(node.right);
+  } else if (
+    node.kind === 'unary' ||
+    node.kind === 'spread' ||
+    node.kind === 'await' ||
+    node.kind === 'new' ||
+    node.kind === 'propagate'
+  ) {
+    visit(node.argument);
+  } else if (node.kind === 'typeAssert' || node.kind === 'nonNull') visit(node.expression);
+  else if (node.kind === 'conditional') {
+    visit(node.test);
+    visit(node.consequent);
+    visit(node.alternate);
+  } else if (node.kind === 'tmplLit') for (const expr of node.expressions) visit(expr);
+  else if (node.kind === 'objectLit') {
+    for (const entry of node.entries) {
+      if ('kind' in entry && entry.kind === 'spread') visit(entry.argument);
+      else visit((entry as { value: ValueIR }).value);
+    }
+  } else if (node.kind === 'arrayLit') for (const item of node.items) visit(item);
+  else if (node.kind === 'lambda' && node.body) visit(node.body as ValueIR);
+}
+
+function applyArrayMutationsInExpressionPy(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
+  applyArrayMutationDoPy(node, ctx, preserveFreshPush);
+  // Only a direct `do xs.push(<scalar>)` statement certifies the push-built freshness chain.
+  // Nested pushes inside a larger expression are still mutation expressions and must stale.
+  forEachValueIRChildPy(node, (child) => applyArrayMutationsInExpressionPy(child, ctx));
+}
+
+function assertRecordArrayFieldReadsProvenPy(node: ValueIR, ctx: BodyEmitContext): void {
+  if (
+    node.kind === 'member' &&
+    node.object.kind === 'ident' &&
+    lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
+    (node.optional || isParenthesized(node.object))
+  ) {
+    throw new Error(`record array field "${node.object.name}.${node.property}" must use a bare non-optional receiver`);
+  }
+  if (
+    node.kind === 'member' &&
+    node.object.kind === 'ident' &&
+    lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
+    !lookupRecordArrayField(ctx, node.object.name, node.property)
+  ) {
+    throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
+  }
+  forEachValueIRChildPy(node, (child) => assertRecordArrayFieldReadsProvenPy(child, ctx));
+}
+
+function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext, options: { preserveFreshPush?: boolean } = {}): string {
+  applyArrayMutationsInExpressionPy(node, ctx, options.preserveFreshPush === true);
+  assertRecordArrayFieldReadsProvenPy(node, ctx);
+  if (node.kind === 'objectLit') captureFreshArrayRecordSourcesPy(node, ctx);
   switch (node.kind) {
     case 'numLit':
       return node.raw;
@@ -2520,7 +3276,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'objectLit': {
       // Slice 2d — Python dict literal. Keys are ALWAYS double-quoted (no
-      // shorthand-key syntax in Python).
+      // shorthand-key syntax in Python). Emits the BASE plain-dict form —
+      // record-binding `let` initializers (the ONLY position where field
+      // reads are certified) wrap in __DotDict at the let site, so every
+      // other object-literal position keeps its pre-slice bytes.
       const entries = node.entries.map((e) => {
         if ('kind' in e && (e as any).kind === 'spread') {
           return `**${emitPyExprCtx((e as any).argument, ctx)}`;
@@ -3109,9 +3868,118 @@ function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmi
 
 type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 
+/** Nested-record-field receiver, LOCKSTEP with the TS twin
+ *  (`nestedRecordFieldReceiver` in codegen-expression.ts): fires ONLY when the
+ *  binding table proves the SOURCE-named ident is a record literal; any other
+ *  two-level chain (`this.data.filter(...)`, object params, unproven idents,
+ *  parenthesized receivers) keeps its base lowering. INVARIANT: the lookup is
+ *  by SOURCE name, but the EMITTED name goes through `ctx.symbolMap` — Python's
+ *  flat function scope renames shadowed bindings, while the TS leg never
+ *  renames (real block scoping), which is why the TS twin has no remap. */
+function provenRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
+  if (node.kind !== 'member' || node.optional) return null;
+  if (node.object.kind !== 'ident') return null;
+  if (!lookupRecordBinding(ctx, node.object.name)) return null;
+  if (isParenthesized(node.object)) return null;
+  return { record: emitScopedIdentPy(ctx, node.object.name), field: node.property };
+}
+
+function nestedRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
+  if (node.kind !== 'member' || node.object.kind !== 'ident') return null;
+  const proven = provenRecordFieldReceiverPy(node, ctx);
+  if (proven === null) return null;
+  if (!lookupRecordArrayField(ctx, node.object.name, node.property)) return null;
+  return proven;
+}
+
+function nestedRecordFieldNonArrayReceiverPy(
+  node: ValueIR,
+  ctx: BodyEmitContext,
+): { record: string; field: string } | null {
+  if (node.kind !== 'member' || node.object.kind !== 'ident') return null;
+  const proven = provenRecordFieldReceiverPy(node, ctx);
+  if (proven === null) return null;
+  if (lookupRecordArrayField(ctx, node.object.name, node.property)) return null;
+  return proven;
+}
+
+function emitEachIterablePy(node: ValueIR, ctx: BodyEmitContext): string {
+  if (node.kind === 'member' && node.object.kind === 'ident') {
+    if (!lookupRecordBinding(ctx, node.object.name)) return emitPyExprCtx(node, ctx);
+    if (node.optional || isParenthesized(node.object)) {
+      throw new Error(`each nested record-array receiver "${node.object.name}.${node.property}" is not proven`);
+    }
+    if (
+      lookupMaybeRecordArrayField(ctx, node.object.name, node.property) &&
+      !lookupRecordArrayField(ctx, node.object.name, node.property)
+    ) {
+      throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
+    }
+    if (
+      lookupRecordArrayField(ctx, node.object.name, node.property) &&
+      !lookupRecordScalarArrayField(ctx, node.object.name, node.property)
+    ) {
+      throw new Error(
+        `record array field "${node.object.name}.${node.property}" elements are not proven portable scalars`,
+      );
+    }
+    ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
+    ctx.helpers.add(KERN_NESTED_ARRAY_ITER_HELPER_PY);
+    const record = emitScopedIdentPy(ctx, node.object.name);
+    return `_kern_nested_array_iter(${record}, ${JSON.stringify(node.property)})`;
+  }
+  return emitPyExprCtx(node, ctx);
+}
+
+function assertNoKeyedNestedRecordReceiverPy(node: ValueIR, ctx: BodyEmitContext): void {
+  if (node.kind !== 'member' || node.object.kind !== 'ident') return;
+  if (!lookupRecordBinding(ctx, node.object.name)) return;
+  if (node.optional || isParenthesized(node.object)) return;
+  throw new Error(
+    `keyed iteration over nested record field "${node.object.name}.${node.property}" is outside the portable domain`,
+  );
+}
+
 function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
+    const directArrayField = nestedRecordFieldReceiverPy(node, ctx);
+    if (directArrayField !== null) {
+      ctx.helpers.add(KERN_NESTED_ARRAY_REF_HELPER_PY);
+      return {
+        guard: null,
+        expr: `_kern_nested_array_ref(${directArrayField.record}, ${JSON.stringify(directArrayField.field)})`,
+      };
+    }
+    const nested = nestedRecordFieldReceiverPy(obj, ctx);
+    if (nested !== null) {
+      if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
+      if (node.property !== 'length') {
+        ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
+        return {
+          guard: null,
+          expr: `_kern_nested_no_property(${JSON.stringify(`${nested.record}.${nested.field}`)}, ${JSON.stringify(node.property)})`,
+        };
+      }
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      return { guard: null, expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)})` };
+    }
+    const nonArrayNested = nestedRecordFieldNonArrayReceiverPy(obj, ctx);
+    if (nonArrayNested !== null) {
+      if (node.optional) throw new Error('portable: optional nested member access is outside the portable domain');
+      if (node.property !== 'length') {
+        ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
+        return {
+          guard: null,
+          expr: `_kern_nested_no_property(${JSON.stringify(`${nonArrayNested.record}.${nonArrayNested.field}`)}, ${JSON.stringify(node.property)})`,
+        };
+      }
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      return {
+        guard: null,
+        expr: `_kern_nested_array_value(${nonArrayNested.record}, ${JSON.stringify(nonArrayNested.field)})`,
+      };
+    }
     // Error-substrate Slice 1 — a `<caughtBinding>.message` read lowers to
     // `str(<caughtBinding>)`. Python exceptions have NO `.message` attribute
     // (a bare `e.message` raises AttributeError), but `str(Exception("x"))`
@@ -3160,6 +4028,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
         : { guard: null, expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)) };
+    // Nested-values slice-1 — a PROVEN record binding's single-level member
+    // read must stay an ATTRIBUTE read even for shared array property names
+    // (`r.length` is the scalar FIELD "length" on a __DotDict, never len(r));
+    // every other receiver keeps the base shared list-ops lowering below.
+    const recordReceiver = obj.kind === 'ident' && lookupRecordBinding(ctx, obj.name);
     // Portable Array *property* read (non-call `.length`) lowers through the
     // SAME shared list-ops hook the route emitter uses, so `this.items.length`
     // emits `len(self.items)` (not invalid `self.items.length`) — identical to
@@ -3177,18 +4050,52 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       // receiver is not itself an optional chain ⇒ `inner.guard === null`); a
       // non-pure receiver UNDER an existing optional chain still throws below.
       const opt = lowerOptionalLink(inner, node.object, ctx);
-      const linkExpr = isSharedPortableArrayProperty(node.property)
-        ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
-        : `${opt.branchRef}.${node.property}`;
+      const linkExpr =
+        !recordReceiver && isSharedPortableArrayProperty(node.property)
+          ? (lowerPortableArrayPropertyPy(opt.branchRef, node.property) ?? `${opt.branchRef}.${node.property}`)
+          : `${opt.branchRef}.${node.property}`;
       return { guard: opt.guard, expr: linkExpr, lambdaBind: opt.lambdaBind };
     }
-    const linkExpr = isSharedPortableArrayProperty(node.property)
-      ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
-      : `${inner.expr}.${node.property}`;
+    const linkExpr =
+      !recordReceiver && isSharedPortableArrayProperty(node.property)
+        ? (lowerPortableArrayPropertyPy(inner.expr, node.property) ?? `${inner.expr}.${node.property}`)
+        : `${inner.expr}.${node.property}`;
     return { guard: inner.guard, expr: linkExpr, lambdaBind: inner.lambdaBind };
   }
   if (node.kind === 'index') {
     const obj = node.object;
+    const nested = nestedRecordFieldReceiverPy(obj, ctx);
+    if (nested !== null) {
+      if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      if (!isSafeIntegerLiteralIndex(node.index)) {
+        return {
+          guard: null,
+          expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, "__kern_invalid_index__")`,
+        };
+      }
+      const literalIndex = node.index as Extract<ValueIR, { kind: 'numLit' }>;
+      return {
+        guard: null,
+        expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)}, ${literalIndex.raw})`,
+      };
+    }
+    const nonArrayNested = nestedRecordFieldNonArrayReceiverPy(obj, ctx);
+    if (nonArrayNested !== null) {
+      if (node.optional) throw new Error('portable: optional nested index access is outside the portable domain');
+      ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
+      if (!isSafeIntegerLiteralIndex(node.index)) {
+        return {
+          guard: null,
+          expr: `_kern_nested_array_value(${nonArrayNested.record}, ${JSON.stringify(nonArrayNested.field)}, "__kern_invalid_index__")`,
+        };
+      }
+      const literalIndex = node.index as Extract<ValueIR, { kind: 'numLit' }>;
+      return {
+        guard: null,
+        expr: `_kern_nested_array_value(${nonArrayNested.record}, ${JSON.stringify(nonArrayNested.field)}, ${literalIndex.raw})`,
+      };
+    }
     // Slice 2 review fix — the bracket (`index`) form of a regex-literal
     // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
     // launders the pattern/flags back to a string exactly like the dotted
@@ -3238,6 +4145,28 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       "Optional call '?.()' is not yet supported on Python target. " +
         'Bind the function reference to a `let` first, then test for `none` before calling.',
     );
+  }
+  // Nested-values slice-1 CHOKE POINT (lockstep with the TS call case's
+  // identical guard): ANY method call on a PROVEN record binding's array
+  // field fails closed BEFORE any per-method lowering (regex / lambda-array /
+  // portable-array) can admit it — the runner abstains on every such program.
+  if (node.callee.kind === 'member' && !node.callee.optional) {
+    const nestedRecv = nestedRecordFieldReceiverPy(node.callee.object, ctx);
+    if (nestedRecv !== null) {
+      ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
+      return {
+        guard: null,
+        expr: `_kern_nested_no_property(${JSON.stringify(`${nestedRecv.record}.${nestedRecv.field}`)}, ${JSON.stringify(node.callee.property)})`,
+      };
+    }
+    const nonArrayNested = nestedRecordFieldNonArrayReceiverPy(node.callee.object, ctx);
+    if (nonArrayNested !== null) {
+      ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
+      return {
+        guard: null,
+        expr: `_kern_nested_no_property(${JSON.stringify(`${nonArrayNested.record}.${nonArrayNested.field}`)}, ${JSON.stringify(node.callee.property)})`,
+      };
+    }
   }
   // Slice 2a — KERN-stdlib dispatch must run on a top-level Module.method
   // call BEFORE we descend into the callee chain, so `Number.floor(x)`
@@ -4761,7 +5690,15 @@ function emitExpressionV1Py(node: IRNode, ctx: BodyEmitContext): string[] {
   declareLocalBinding(ctx, userName, 'const');
   const name = maybeRenameOnShadow(ctx, userName);
   setRegexBinding(ctx, userName, exprIR.kind === 'regexLit' ? exprIR : null);
-  const lines = [`${name} = ${emitPyExprCtx(exprIR, ctx)}`];
+  setRecordBinding(
+    ctx,
+    userName,
+    exprIR.kind === 'objectLit',
+    recordArrayFieldsForValue(exprIR, ctx),
+    recordScalarArrayFieldsForValue(exprIR, ctx),
+  );
+  bindArrayStatusFromLet(ctx, userName, exprIR);
+  const lines = [`${name} = ${emitLetInitializerPy(exprIR, ctx)}`];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTracePy(name));
   return lines;
 }

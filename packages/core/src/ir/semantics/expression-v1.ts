@@ -5,7 +5,12 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import {
+  defineArrayAliasBinding,
   defineBinding,
+  defineCapturedArrayBinding,
+  defineFreshArrayBinding,
+  defineRecordBinding,
+  getBinding,
   hasBinding,
   hasOwnBinding,
   type NodeContract,
@@ -13,6 +18,8 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { recordArrayFieldsFromValue } from './let.js';
+import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import {
   evalRegexGlobalMatchExpression,
   evalRegexMatchAllExpression,
@@ -33,8 +40,11 @@ import {
 import {
   evalDecimalExpression,
   evalPortableValue,
+  evalRecordArrayFieldReferenceValue,
+  evalRecordLiteralValue,
   isDecimalValueExpression,
   isPortableBindingName,
+  isRecordLiteralExpression,
   isRunnerNativeDecimalFailClose,
   makeDecimalValue,
 } from './portable-scalar.js';
@@ -195,6 +205,18 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
         return false;
       }
     }
+    if (isArrayLiteralExpression(parsed)) {
+      evalArrayLiteralValue(parsed, env);
+      return true;
+    }
+    if (isRecordLiteralExpression(parsed)) {
+      evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: false });
+      return true;
+    }
+    if (evalRecordArrayFieldReferenceValue(parsed, env) !== undefined) return true;
+    if (parsed.kind === 'ident' && hasBinding(env, parsed.name) && Array.isArray(getBinding(env, parsed.name))) {
+      return true;
+    }
     // Trial-evaluate the portable expression: a DOWNSTREAM read of a Decimal
     // binding (`d === "1"`) hits `assertPortableScalar` on the tagged Decimal
     // value, which throws → the runner ABSTAINS (Slice-1 boundary; Slice-2 gives
@@ -275,6 +297,28 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
     const value = evalRegexReplaceExpression(parsed, env);
     defineBinding(env, name, value);
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  if (isArrayLiteralExpression(parsed)) {
+    const value = evalArrayLiteralValue(parsed, env);
+    defineFreshArrayBinding(env, name, value);
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  if (isRecordLiteralExpression(parsed)) {
+    const value = evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: true });
+    defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
+    return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  }
+  const recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env);
+  if (recordArrayFieldValue !== undefined) {
+    defineCapturedArrayBinding(env, name, recordArrayFieldValue);
+    return { events: [{ op: 'assign', target: name, value: recordArrayFieldValue }], completion: { kind: 'normal' } };
+  }
+  if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
+    const value = getBinding(env, parsed.name);
+    if (Array.isArray(value)) {
+      defineArrayAliasBinding(env, name, parsed.name, value);
+      return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+    }
   }
   const value = evalPortableValue(parsed, env);
   defineBinding(env, name, value);

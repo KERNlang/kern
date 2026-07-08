@@ -1,5 +1,6 @@
 import type { ConceptNode, ErrorHandlePayload } from '@kernlang/core';
 import { conceptId } from '@kernlang/core';
+import { PYTHON_BUILTIN_EXCEPTIONS } from '@kernlang/review';
 import type Parser from 'tree-sitter';
 import { getContainerId, nodeSpan, nodeText, walkNodes } from '../helpers/ast.js';
 import { PY_API_ERROR_STATUS_CODES } from '../signatures.js';
@@ -70,23 +71,20 @@ function classifyPythonDisposition(
 
   // except: pass → ignored
   if (children.length === 1 && children[0].type === 'pass_statement') {
-    if (isIntentionalNoopExcept(exceptNode, source)) return { type: 'wrapped', confidence: 0.55 };
-    return { type: 'ignored', confidence: 1.0 };
+    return noopDisposition(exceptNode, block, source);
   }
 
   // except: ... (ellipsis) → ignored
   if (children.length === 1 && children[0].type === 'expression_statement') {
     const text = source.substring(children[0].startIndex, children[0].endIndex).trim();
     if (text === '...') {
-      if (isIntentionalNoopExcept(exceptNode, source)) return { type: 'wrapped', confidence: 0.55 };
-      return { type: 'ignored', confidence: 1.0 };
+      return noopDisposition(exceptNode, block, source);
     }
   }
 
   // Empty block
   if (children.length === 0) {
-    if (isIntentionalNoopExcept(exceptNode, source)) return { type: 'wrapped', confidence: 0.55 };
-    return { type: 'ignored', confidence: 1.0 };
+    return noopDisposition(exceptNode, block, source);
   }
 
   const bodyText = source.substring(block.startIndex, block.endIndex);
@@ -112,6 +110,46 @@ function classifyPythonDisposition(
   }
 
   return { type: 'wrapped', confidence: 0.5 };
+}
+
+// A silent swallow (`pass` / `...` / empty block) reads as a genuine "ignored"
+// error ONLY when the catch is broad/bare AND undocumented. Two shapes are
+// expected patterns, not oversights, and downgrade to 'wrapped':
+//   • a narrow, NON-builtin (domain/library) exception — `except IntegrityError:
+//     pass` (dedupe on a unique constraint), `except ProgressDataNotFoundException:
+//     pass` (optional section). Builtin exceptions stay flaggable because they
+//     are broad enough to hide an UNRELATED failure (`except OSError: pass`
+//     around mixed I/O).
+//   • an explanatory comment in the except header or block — a conscious
+//     decision ("# instrumentation must never break a chat turn").
+// This closed 4 correct-swallow false positives kern-guard raised on fitvt PR #16.
+function noopDisposition(
+  exceptNode: Parser.SyntaxNode,
+  block: Parser.SyntaxNode,
+  source: string,
+): { type: ErrorHandlePayload['disposition']; confidence: number } {
+  const intentional =
+    isIntentionalNoopExcept(exceptNode, source) ||
+    isNarrowNonBuiltinExcept(exceptNode, block, source) ||
+    hasExplanatoryComment(exceptNode, block, source);
+  return intentional ? { type: 'wrapped', confidence: 0.55 } : { type: 'ignored', confidence: 1.0 };
+}
+
+// True when EVERY caught type is a narrow, non-builtin exception. Bare `except:`
+// (no types) and any builtin / `Exception` / `BaseException` disqualify it, so a
+// mixed `except (IntegrityError, Exception):` stays flaggable.
+function isNarrowNonBuiltinExcept(exceptNode: Parser.SyntaxNode, block: Parser.SyntaxNode, source: string): boolean {
+  const types = parseExceptTypes(source.substring(exceptNode.startIndex, block.startIndex));
+  if (types.length === 0) return false;
+  return types.every((t) => !PYTHON_BUILTIN_EXCEPTIONS.has(t));
+}
+
+// True when the except header or its (pass/…/empty) block carries a `#` comment.
+// The block body here is only pass/…/empty, and an except header holds no string
+// literals, so any `#` in this contiguous source range is a comment — the scan
+// is safe without string-stripping.
+function hasExplanatoryComment(exceptNode: Parser.SyntaxNode, block: Parser.SyntaxNode, source: string): boolean {
+  return source.substring(exceptNode.startIndex, block.endIndex).includes('#');
 }
 
 function isIntentionalNoopExcept(exceptNode: Parser.SyntaxNode, source: string): boolean {

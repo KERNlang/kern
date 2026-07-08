@@ -10,7 +10,7 @@
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
-import type { Project } from 'ts-morph';
+import { Node, type Project, type SourceFile, SyntaxKind, type Node as TsMorphNode, type Type } from 'ts-morph';
 import { createProject, findTsConfig } from './inferrer.js';
 import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
@@ -246,6 +246,11 @@ export function runTSCDiagnostics(
       // (451 files) emitted 1869 of these as errors — pure noise drowning real findings.
       //   ts2792  — "Cannot find module X. Did you mean to set 'moduleResolution' to 'nodenext'?"
       //   ts17004 — "Cannot use JSX unless the '--jsx' flag is provided"
+      //   ts6142  — "Module 'X' was resolved to 'Y', but '--jsx' is not set." The
+      //     import-a-.tsx-file twin of ts17004: same root cause (the host
+      //     tsconfig's jsx option never applied — e.g. `extends: "expo/tsconfig.base"`
+      //     is unresolvable without node_modules in the sparse clone), and it
+      //     fires on EVERY .tsx import, so it dominated fitvt PR #19's noise.
       //   ts2580 / ts2591 — "Cannot find name 'process'/'require'/'module'. Install @types/node?"
       //     (TS emits 2580 when the name resolves via global lib shims, 2591 when it doesn't —
       //     both point at the same user-side remedy, both are environmental from review's POV.)
@@ -262,7 +267,8 @@ export function runTSCDiagnostics(
       // the JSX global namespace from @types/react isn't reachable in the
       // sparse clone. Suppress unconditionally in review mode; the dev's IDE
       // sees the real shape via their installed node_modules.
-      const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580 || code === 2591 || code === 7026;
+      const isEnvironmentalNoise =
+        code === 2792 || code === 17004 || code === 6142 || code === 2580 || code === 2591 || code === 7026;
       // TS2503 ("Cannot find namespace 'X'") is the same class for type-position
       // uses like `let x: NodeJS.Timeout` — the @types/node `NodeJS` namespace
       // isn't reachable. TS2584 ("Cannot find name 'console'. Do you need to
@@ -270,7 +276,8 @@ export function runTSCDiagnostics(
       // belongs in the same noise class. Both are environmental, gated on
       // the same review-mode flag. Gemini + Codex caught these.
       const isNodeGlobalUnresolved =
-        (code === 2304 || code === 2552 || code === 2503 || code === 2584) && isNodeGlobalCannotFindName(messageStr);
+        (code === 2304 || code === 2552 || code === 2503 || code === 2584) &&
+        (isNodeGlobalCannotFindName(messageStr) || isWebRuntimeGlobalCannotFindName(messageStr));
       // TS2741 "Property 'children' is missing" on a JSX user-component call
       // site is environmental whenever the JSX global namespace is broken in
       // the same file. Without `JSX.ElementChildrenAttribute`, TS does not
@@ -301,6 +308,36 @@ export function runTSCDiagnostics(
       // `unknown`-handling bug in a cleanly-resolved file still surfaces.
       const isUnresolvedImportErosionCascade =
         UNRESOLVED_IMPORT_EROSION_CODES.has(code) && filesWithSuppressedModuleMiss.has(filePath);
+      // TS2307 whose (file, specifier) the collector already classified as a
+      // review-mode noise miss — including an absent RELATIVE sibling
+      // (`./x.helpers` not on disk in the sparse clone). Surfacing the raw
+      // "Cannot find module './x.helpers'" is itself a sparse-clone FP; the dev's
+      // local `tsc` (siblings present) resolves it. Unifies the raw-2307
+      // suppression with the same decisions that drive the TS2305 facade cascade
+      // and the TS18046/2571/2698 erosion cascade, so they stay consistent.
+      // Review mode only. NOTE: TS2322/TS2345 are deliberately NOT suppressed —
+      // an absent sibling erodes an import to `any`, which is assignable to
+      // everything and so emits no mismatch; the mechanism could not be
+      // reproduced, and blanket-suppressing the highest-value real-bug codes on
+      // an unproven cause was rejected.
+      const isCollectedModuleMiss =
+        code === 2307 &&
+        suppressedModuleMisses.has(moduleMissKey(filePath, extractMissingModuleSpecifier(messageStr) ?? ''));
+      // TS2339 "Property 'kind' does not exist on type 'never'" can be a
+      // review-mode control-flow cascade around KERN's parseExpression value
+      // guards. The canonical compiler accepts these files, but ts-morph's
+      // sparse/ad-hoc Project can over-narrow the `parsed` variable after
+      // the array/record literal guards plus the record-array-field probe, then
+      // reports later `parsed.kind`/`parsed.callee` accesses as `never`.
+      // Suppress only that AST shape, and only when the parseExpression return
+      // type still has non-array/non-record variants; truly exhaustive branches
+      // remain real TS2339 findings even in review mode.
+      const isParserExpressionNeverCascade = isReviewModeParserExpressionNeverCascade(
+        sourceFile,
+        code,
+        messageStr,
+        start,
+      );
       if (
         options.downgradeProjectLoadingErrors &&
         (isLoadingNoise ||
@@ -309,6 +346,8 @@ export function runTSCDiagnostics(
           isJsxChildrenInferenceNoise ||
           isBrokenJsxRuntimeNoise ||
           isUnresolvedImportErosionCascade ||
+          isCollectedModuleMiss ||
+          isParserExpressionNeverCascade ||
           isReviewModeModuleResolutionNoise(code, messageStr, filePath) ||
           isReviewModeGeneratedFacadeExportCascade(sourceFile, code, messageStr, suppressedModuleMisses))
       ) {
@@ -358,12 +397,39 @@ function collectReviewModeSuppressedModuleMisses(diagnostics: ReturnType<Project
     const messageStr = typeof message === 'string' ? message : message.getMessageText();
     const specifier = extractMissingModuleSpecifier(messageStr);
     if (!specifier) continue;
-    if (isReviewModeModuleResolutionNoise(2307, messageStr, sourceFile.getFilePath())) {
+    if (
+      isReviewModeModuleResolutionNoise(2307, messageStr, sourceFile.getFilePath()) ||
+      isAbsentRelativeSibling(sourceFile, specifier)
+    ) {
       keys.add(moduleMissKey(sourceFile.getFilePath(), specifier));
       files.add(sourceFile.getFilePath());
     }
   }
   return { keys, files };
+}
+
+// True when `specifier` is a RELATIVE import/export (`./x`, `../x`) whose target
+// resolves to no source file on disk — i.e. a sibling module absent from
+// kern-guard's sparse clone (which checks out only the PR's changed files, so a
+// screen split into sibling `./x.types` / `./x.helpers` / `./x.sections` modules
+// loses those siblings). Distinguished from a bare/generated miss (handled by
+// isReviewModeModuleResolutionNoise) and used ONLY in review mode.
+//
+// Trade-off, made explicit: a genuinely typo'd or deleted relative path is
+// indistinguishable from a sparse-clone absence, so treating relative misses as
+// noise means review no longer flags a broken relative import. This is
+// consistent with the engine's standing philosophy — the dev's local
+// `tsc --noEmit` / CI (siblings present) already catches a real broken path;
+// review's value-add is KERN findings, not duplicating the compiler. Gated to
+// relative specifiers only; bare/package and absolute misses are unaffected.
+function isAbsentRelativeSibling(sourceFile: import('ts-morph').SourceFile, specifier: string): boolean {
+  if (!specifier.startsWith('./') && !specifier.startsWith('../')) return false;
+  const decls = [...sourceFile.getImportDeclarations(), ...sourceFile.getExportDeclarations()].filter(
+    (decl) => decl.getModuleSpecifierValue() === specifier,
+  );
+  if (decls.length === 0) return false;
+  // Absent iff no matching decl resolves to a source file on disk.
+  return decls.every((decl) => !decl.getModuleSpecifierSourceFile());
 }
 
 // Files where TS reports the JSX global namespace is broken — `@types/react`
@@ -428,6 +494,226 @@ function isMissingChildrenDiagnostic(message: string): boolean {
 const BROKEN_JSX_RUNTIME_RE = /['"][^'"]*\/jsx-(?:dev-)?runtime['"]/;
 function isBrokenJsxRuntimeDiagnostic(message: string): boolean {
   return BROKEN_JSX_RUNTIME_RE.test(message);
+}
+
+function isReviewModeParserExpressionNeverCascade(
+  sourceFile: SourceFile,
+  code: number,
+  message: string,
+  start: number | undefined,
+): boolean {
+  if (code !== 2339 || start === undefined) return false;
+  if (!/^Property ['"][^'"]+['"] does not exist on type ['"]never['"]\./.test(message)) return false;
+
+  const receiver = parserExpressionReceiverAt(sourceFile, start);
+  if (!receiver) return false;
+
+  return (
+    receiverHasPrecedingCall(receiver, 'isArrayLiteralExpression', start) &&
+    receiverHasPrecedingCall(receiver, 'isRecordLiteralExpression', start) &&
+    receiverHasPrecedingCall(receiver, 'evalRecordArrayFieldReferenceValue', start) &&
+    parseExpressionTypeHasRuntimeBranches(receiver.declaration) &&
+    siteHasRuntimeKindGuard(receiver, start)
+  );
+}
+
+function parserExpressionReceiverAt(
+  sourceFile: SourceFile,
+  propertyStart: number,
+):
+  | {
+      declaration: import('ts-morph').VariableDeclaration;
+      propertyAccess: import('ts-morph').PropertyAccessExpression;
+    }
+  | undefined {
+  const nodeAtDiagnostic = sourceFile.getDescendantAtPos(propertyStart);
+  const propertyAccess = Node.isPropertyAccessExpression(nodeAtDiagnostic)
+    ? nodeAtDiagnostic
+    : nodeAtDiagnostic?.getFirstAncestorByKind(SyntaxKind.PropertyAccessExpression);
+  if (!propertyAccess) return undefined;
+
+  const receiver = propertyAccessRootIdentifier(propertyAccess);
+  if (!receiver) return undefined;
+
+  const declaration = receiver
+    .getSymbol()
+    ?.getDeclarations()
+    .find((decl): decl is import('ts-morph').VariableDeclaration => Node.isVariableDeclaration(decl));
+  if (!declaration) return undefined;
+
+  const initializer = unwrapExpression(declaration.getInitializer());
+  if (!initializer || !Node.isCallExpression(initializer)) return undefined;
+  if (!isCallNamed(initializer, 'parseExpression')) return undefined;
+
+  return { declaration, propertyAccess };
+}
+
+function propertyAccessRootIdentifier(
+  propertyAccess: import('ts-morph').PropertyAccessExpression,
+): import('ts-morph').Identifier | undefined {
+  let expression = unwrapExpression(propertyAccess.getExpression());
+  while (expression && Node.isPropertyAccessExpression(expression)) {
+    expression = unwrapExpression(expression.getExpression());
+  }
+  return expression && Node.isIdentifier(expression) ? expression : undefined;
+}
+
+function receiverHasPrecedingCall(
+  receiver: {
+    declaration: import('ts-morph').VariableDeclaration;
+    propertyAccess: import('ts-morph').PropertyAccessExpression;
+  },
+  calleeName: string,
+  propertyStart: number,
+): boolean {
+  const owner = nearestFunctionBoundary(receiver.propertyAccess);
+  const searchRoot = owner ?? receiver.propertyAccess.getSourceFile();
+  for (const call of searchRoot.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (call.getStart() <= receiver.declaration.getEnd() || call.getStart() >= propertyStart) continue;
+    if (!sameOptionalNode(nearestFunctionBoundary(call), owner)) continue;
+    if (!isCallNamed(call, calleeName)) continue;
+    const firstArg = unwrapExpression(call.getArguments()[0]);
+    if (firstArg && Node.isIdentifier(firstArg) && identifierDeclares(firstArg, receiver.declaration)) return true;
+  }
+  return false;
+}
+
+function siteHasRuntimeKindGuard(
+  receiver: {
+    declaration: import('ts-morph').VariableDeclaration;
+    propertyAccess: import('ts-morph').PropertyAccessExpression;
+  },
+  propertyStart: number,
+): boolean {
+  const owner = nearestFunctionBoundary(receiver.propertyAccess);
+  for (const ancestor of receiver.propertyAccess.getAncestors()) {
+    if (owner && sameNode(ancestor, owner)) break;
+    if (Node.isIfStatement(ancestor)) {
+      const condition = ancestor.getExpression();
+      if (containsPosition(condition, propertyStart) || containsPosition(ancestor.getThenStatement(), propertyStart)) {
+        return conditionHasRuntimeKindGuard(condition, receiver.declaration);
+      }
+    }
+    if (Node.isConditionalExpression(ancestor)) {
+      const condition = ancestor.getCondition();
+      if (containsPosition(condition, propertyStart) || containsPosition(ancestor.getWhenTrue(), propertyStart)) {
+        return conditionHasRuntimeKindGuard(condition, receiver.declaration);
+      }
+    }
+  }
+  return false;
+}
+
+function conditionHasRuntimeKindGuard(
+  condition: TsMorphNode,
+  declaration: import('ts-morph').VariableDeclaration,
+): boolean {
+  const candidates = Node.isBinaryExpression(condition)
+    ? [condition, ...condition.getDescendantsOfKind(SyntaxKind.BinaryExpression)]
+    : condition.getDescendantsOfKind(SyntaxKind.BinaryExpression);
+  return candidates.some((binary) => binaryIsRuntimeKindGuard(binary, declaration));
+}
+
+function binaryIsRuntimeKindGuard(
+  binary: import('ts-morph').BinaryExpression,
+  declaration: import('ts-morph').VariableDeclaration,
+): boolean {
+  const operator = binary.getOperatorToken().getKind();
+  if (operator !== SyntaxKind.EqualsEqualsEqualsToken && operator !== SyntaxKind.EqualsEqualsToken) return false;
+  const left = unwrapExpression(binary.getLeft());
+  const right = unwrapExpression(binary.getRight());
+  return (
+    (isReceiverKindAccess(left, declaration) && isRuntimeKindLiteral(right)) ||
+    (isRuntimeKindLiteral(left) && isReceiverKindAccess(right, declaration))
+  );
+}
+
+const PARSER_RUNTIME_KIND_GUARDS = new Set(['call', 'ident', 'new']);
+
+function isReceiverKindAccess(
+  expression: TsMorphNode | undefined,
+  declaration: import('ts-morph').VariableDeclaration,
+): boolean {
+  if (!expression || !Node.isPropertyAccessExpression(expression)) return false;
+  if (expression.getName() !== 'kind') return false;
+  const receiver = propertyAccessRootIdentifier(expression);
+  return receiver !== undefined && identifierDeclares(receiver, declaration);
+}
+
+function isRuntimeKindLiteral(expression: TsMorphNode | undefined): boolean {
+  return (
+    expression !== undefined &&
+    Node.isStringLiteral(expression) &&
+    PARSER_RUNTIME_KIND_GUARDS.has(expression.getLiteralText())
+  );
+}
+
+function containsPosition(node: TsMorphNode, position: number): boolean {
+  return node.getStart() <= position && position < node.getEnd();
+}
+
+function parseExpressionTypeHasRuntimeBranches(declaration: import('ts-morph').VariableDeclaration): boolean {
+  const kinds = discriminantKindValues(declaration.getType(), declaration);
+  if (kinds.size === 0) return false;
+  return [...kinds].some((kind) => kind !== 'arrayLit' && kind !== 'objectLit');
+}
+
+function discriminantKindValues(type: Type, location: TsMorphNode): Set<string> {
+  const values = new Set<string>();
+  const members = type.isUnion() ? type.getUnionTypes() : [type];
+  for (const member of members) {
+    const kind = member.getProperty('kind');
+    if (!kind) continue;
+    const kindType = kind.getTypeAtLocation(location);
+    const kindMembers = kindType.isUnion() ? kindType.getUnionTypes() : [kindType];
+    for (const kindMember of kindMembers) {
+      if (kindMember.isStringLiteral()) values.add(String(kindMember.getLiteralValue()));
+    }
+  }
+  return values;
+}
+
+function identifierDeclares(identifier: import('ts-morph').Identifier, declaration: TsMorphNode): boolean {
+  return (identifier.getSymbol()?.getDeclarations() ?? []).some((candidate) => sameNode(candidate, declaration));
+}
+
+function sameNode(a: TsMorphNode, b: TsMorphNode): boolean {
+  return a.getSourceFile().getFilePath() === b.getSourceFile().getFilePath() && a.getStart() === b.getStart();
+}
+
+function sameOptionalNode(a: TsMorphNode | undefined, b: TsMorphNode | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return sameNode(a, b);
+}
+
+const FUNCTION_BOUNDARY_KINDS = new Set<SyntaxKind>([
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.Constructor,
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.GetAccessor,
+  SyntaxKind.MethodDeclaration,
+  SyntaxKind.SetAccessor,
+]);
+
+function nearestFunctionBoundary(node: TsMorphNode): TsMorphNode | undefined {
+  return node.getAncestors().find((ancestor) => FUNCTION_BOUNDARY_KINDS.has(ancestor.getKind()));
+}
+
+function isCallNamed(call: import('ts-morph').CallExpression, name: string): boolean {
+  const expression = unwrapExpression(call.getExpression());
+  return expression !== undefined && Node.isIdentifier(expression) && expression.getText() === name;
+}
+
+function unwrapExpression<T extends TsMorphNode | undefined>(expression: T): T | TsMorphNode | undefined {
+  let current: TsMorphNode | undefined = expression;
+  while (
+    current &&
+    (Node.isParenthesizedExpression(current) || Node.isAsExpression(current) || Node.isTypeAssertion(current))
+  ) {
+    current = current.getExpression();
+  }
+  return current;
 }
 
 function isReviewModeGeneratedFacadeExportCascade(
@@ -534,6 +820,32 @@ function isNodeGlobalCannotFindName(message: string): boolean {
   const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
   if (!m) return false;
   return NODE_GLOBAL_NAMES.has(m[1]);
+}
+
+// Names provided as globals/lib types by the React-Native/Expo and DOM ambient
+// libs — unreachable in kern-guard's sparse clone (no node_modules, and the
+// host tsconfig's `lib`/`extends` often doesn't apply). Same class as the
+// @types/node globals: the dev's local `tsc` resolves them, review's ad-hoc
+// Project can't, so `Cannot find name/namespace 'X'` is environmental noise.
+//   __DEV__ — the RN/Expo build-flag global (from `@types/react-native`).
+//   HeadersInit / RequestInit / ResponseInit / BodyInit / RequestInfo — DOM
+//     lib type aliases devs commonly annotate directly (fetch wrappers).
+// Deliberately narrow: only names dev code types directly, so a genuine
+// missing-symbol still surfaces.
+const WEB_RUNTIME_GLOBAL_NAMES = new Set([
+  '__DEV__',
+  'HeadersInit',
+  'RequestInit',
+  'ResponseInit',
+  'BodyInit',
+  'RequestInfo',
+]);
+
+// The RN/Expo/DOM-lib counterpart of isNodeGlobalCannotFindName.
+function isWebRuntimeGlobalCannotFindName(message: string): boolean {
+  const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
+  if (!m) return false;
+  return WEB_RUNTIME_GLOBAL_NAMES.has(m[1]);
 }
 
 function isReviewModeModuleResolutionNoise(code: number, message: string, importerFilePath: string): boolean {

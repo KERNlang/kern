@@ -52,8 +52,14 @@ function printText(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string') return value;
-  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
-  throw new Error('print: value must be a portable scalar (null, boolean, string, or safe integer)');
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    (Number.isSafeInteger(value) || !Number.isInteger(value))
+  ) {
+    return String(value);
+  }
+  throw new Error('print: value must be a portable scalar (null, boolean, string, or finite safe number)');
 }
 
 function resolvePrintText(ir: IRNode, env: SemanticEnv): string {

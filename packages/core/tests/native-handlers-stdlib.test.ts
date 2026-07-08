@@ -130,6 +130,37 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     expect(emitExpression(parseExpression('x => a ? b : c'))).toBe('x => a ? b : c');
   });
 
+  // Nested-values slice-1 receiver gating (agon review): the nested-record-
+  // field rewrite fires ONLY for idents the body emitter PROVED are record
+  // literals with a PROVEN array-valued field (`ctx.isRecordBinding` plus
+  // `ctx.isRecordArrayField`). Unproven idents keep their base verbatim
+  // emission; proven record fields that are not proven arrays stay fenced.
+  test('two-level chains without a proven record binding keep base verbatim emission', () => {
+    const ctx = { isUserBinding: () => false, coerceJsValues: true };
+    expect(emitExpression(parseExpression('item.tags.filter((x) => x)'), ctx)).toBe('item.tags.filter((x) => x)');
+    expect(emitExpression(parseExpression('item.tags[0]'), ctx)).toBe('item.tags[0]');
+    expect(emitExpression(parseExpression('this.data.filter((x) => x % 2 === 0)'), ctx)).toBe(
+      'this.data.filter((x) => x % 2 === 0)',
+    );
+  });
+
+  test('two-level chains on a proven record array field lower through the guarded nested helpers', () => {
+    const ctx = {
+      isUserBinding: () => false,
+      coerceJsValues: true,
+      isRecordBinding: (name: string) => name === 'r',
+      isRecordArrayField: (name: string, field: string) => name === 'r' && field === 'b',
+    };
+    expect(emitExpression(parseExpression('r.b.length'), ctx)).toContain('__kern_record = r');
+    expect(emitExpression(parseExpression('r.b[1]'), ctx)).toContain('__kern_index = 1');
+    // Non-length property on a proven record array field stays fail-closed.
+    expect(emitExpression(parseExpression('r.b.filter((x) => x)'), ctx)).toContain('has no portable property');
+    // A scalar field on the same proven record has no array-field proof and stays fail-closed.
+    expect(emitExpression(parseExpression('r.a.length'), ctx)).toContain('nested record field must be an array');
+    // A DIFFERENT ident without the proof falls through verbatim.
+    expect(emitExpression(parseExpression('other.b.length'), ctx)).toBe('other.b.length');
+  });
+
   test('stdlib template args parenthesize lambda receivers', () => {
     // KERN 4.5.0 item 3 — `Text.length` lowers to a free-function-shaped
     // template now (`__kern_text_length($0)`), but `needsArgParens` still

@@ -14,6 +14,7 @@ import {
   coerceToString,
   evalNumberBinary,
   evalOrderedComparison,
+  evalPlusOperator,
   evalPortableValue,
   evalRunnerClassMethodScalarWithArgumentsAsync,
   evalRunnerClassNewValue,
@@ -148,14 +149,12 @@ async function evalPortableBinaryAsync(
   const right = await evalPortableValueAsync(node.right, env, options);
   switch (node.op) {
     case '+':
-      if (typeof left === 'number' && typeof right === 'number') return assertPortableScalar(left + right, '+');
-      if (typeof left === 'string' && typeof right === 'string') return left + right;
-      throw new Error('portable: + requires two numbers or two strings');
+      return evalPlusOperator(left, right, env);
     case '-':
     case '*':
     case '/':
     case '%':
-      return evalNumberBinary(node.op, left, right);
+      return evalNumberBinary(node.op, left, right, env);
     case '===':
     case '==':
       return sameType(left, right) ? left === right : false;

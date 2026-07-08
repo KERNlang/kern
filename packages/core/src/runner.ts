@@ -1030,7 +1030,9 @@ function valueChildren(
       }
       if (mode === 'let') {
         return node.entries.flatMap((entry) =>
-          'kind' in entry ? [] : [{ node: entry.value, mode: 'scalar' as const }],
+          'kind' in entry
+            ? []
+            : [{ node: entry.value, mode: entry.value.kind === 'arrayLit' ? ('let' as const) : ('scalar' as const) }],
         );
       }
       return [];

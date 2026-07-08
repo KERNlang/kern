@@ -109,9 +109,14 @@ const CERT: Array<[string, string[], string]> = [
   ['int', ['print value="42"'], '42\n'],
   ['zero', ['print value="0"'], '0\n'],
   ['negative int', ['print value="0 - 7"'], '-7\n'],
-  // integer-VALUED division: Python `6/2 == 3.0` (float) collapses to "3" via
-  // `_kern_fmt.is_integer()` — KILLER for an impl that leaks "3.0".
-  ['int-valued division 6/2', ['print value="6 / 2"'], '3\n'],
+  // NON-integer division (float/int fence, nested-values slice-1): both legs
+  // shortest-roundtrip "3.5" and the runner now certifies it. Integer-VALUED
+  // division (`6 / 2`) moved to the ABSTAIN suite — Python's `/` is float-
+  // typed, and while `_kern_fmt.is_integer()` collapses it in PRINT position,
+  // the same value diverges in non-print positions (JSON return: "3" vs
+  // "3.0"), so the runner fences it at EVALUATION, conservatively.
+  ['non-integer division 7/2', ['print value="7 / 2"'], '3.5\n'],
+  ['non-integer float literal 2.5', ['print value="2.5"'], '2.5\n'],
   // strings — exact passthrough.
   ['plain string', ['print value="\\"hello\\""'], 'hello\n'],
   // empty string — KILLER for a truthiness-guarded "skip empty" impl; must be a bare newline.
@@ -166,10 +171,15 @@ execDescribe('print primitive — stdout differential (ref === ts === py)', () =
 
 // ── FAIL-CLOSE FENCE (runner-only — GREEN without python3) ───────────────────
 // The runner ABSTAINS (precondition fails -> referenceRunSequence throws) on
-// every value outside the portable {null, bool, string, safe-integer} domain.
+// every value outside the portable {null, bool, string, safe-integer,
+// non-integer finite float} domain.
 const ABSTAIN: Array<[string, string[]]> = [
-  ['non-integer float via division (3/2)', ['print value="3 / 2"']],
-  ['non-integer float literal (1.5)', ['print value="1.5"']],
+  // Float/int fence (nested-values slice-1) — integer-VALUED float values
+  // abstain at evaluation: Python cannot portably prove the int/float TYPE
+  // of `4 / 2` (float 2.0) or `4.0` outside _kern_fmt-collapsed positions.
+  ['integer-valued division (4/2)', ['print value="4 / 2"']],
+  ['integer-valued float literal (4.0)', ['print value="4.0"']],
+  ['float-collapsing arithmetic (2.5 + 1.5)', ['print value="2.5 + 1.5"']],
   ['unsafe integer (2^53 + 1)', ['print value="9007199254740993"']],
   ['object literal', ['print value="{ x: 1 }"']],
   ['array literal', ['print value="[1, 2]"']],

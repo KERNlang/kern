@@ -570,6 +570,179 @@ const FIXTURES = [
     body: `clamp name=bounded value=score min=lo max=hi\nreturn value="{ bounded: bounded }"`,
     expected: { bounded: 12.5 } },
 
+  // ── NV: Stage-1 Slice-1 nested values, codegen leg parity. ────────────────
+  // Native-body codegen must execute the admitted record-with-array-literal
+  // surface identically on TS object literals and Python __DotDict wrapping,
+  // and rejected nested paths must fail closed on BOTH legs.
+  { kind: 'stmt', name: 'stmt: NV-1 record with array field keeps scalar field readable',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nreturn value="r.a"`,
+    expected: 1 },
+  { kind: 'stmt', name: 'stmt: NV-2 nested array-field length',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nreturn value="r.b.length"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: NV-3 nested literal indices are receiver-sensitive',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nreturn value="{ first: r.b[0], last: r.b[2] }"`,
+    expected: { first: 10, last: 30 } },
+  { kind: 'stmt', name: 'stmt: NV-4 nested array literal field length',
+    params: [],
+    body: `let name=r value="{b: [[1,2],[3,4]]}"\nreturn value="r.b.length"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: NV-6 float element survives nested field indexing',
+    params: [],
+    body: `let name=r value="{b: [1.5, 2.5]}"\nreturn value="r.b[1]"`,
+    expected: 2.5 },
+  { kind: 'stmt', name: 'stmt: NV-7 string element survives nested field indexing',
+    params: [],
+    body: `let name=r value="{tags: ['x','y']}"\nreturn value="r.tags[1]"`,
+    expected: 'y' },
+  { kind: 'stmt', name: 'stmt: NV-8 record rebinding preserves nested array field reads',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nlet name=s value="r"\nreturn value="s.b[1]"`,
+    expected: 20 },
+  { kind: 'stmt', name: 'stmt: NV-9 nested field read uses the exact receiver',
+    params: [],
+    body: `let name=r value="{a: 1, b: [10,20,30]}"\nlet name=s value="{a: 1, b: [77,88,99]}"\nreturn value="{ sb: s.b[2], rb: r.b[2] }"`,
+    expected: { sb: 99, rb: 30 } },
+  { kind: 'stmt', name: 'stmt: NV-10 array length and scalar length field do not collide',
+    params: [],
+    body: `let name=r value="{b: [10,20,30], length: 999}"\nreturn value="{ arrayLen: r.b.length, fieldLen: r.length }"`,
+    expected: { arrayLen: 3, fieldLen: 999 } },
+  { kind: 'stmt', name: 'stmt: NV-12 held-out field order and fresh values',
+    params: [],
+    body: `let name=r value="{c: 42, b: ['left','right','tail'], z: true}"\nreturn value="{ item: r.b[2], c: r.c, z: r.z }"`,
+    expected: { item: 'tail', c: 42, z: true } },
+  { kind: 'stmt', name: 'stmt: NV-P1 scalar record field pin',
+    params: [],
+    body: `let name=r value="{a: 7}"\nreturn value="r.a"`,
+    expected: 7 },
+  { kind: 'stmt', name: 'stmt: NV-P2 scalar expression record field pin',
+    params: [],
+    body: `let name=r value="{a: 3 + 4}"\nreturn value="r.a"`,
+    expected: 7 },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R4 nested provenanced counter index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nfor name=i from=0 to=2\n  return value="r.b[i]"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R9 nested plain-let index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nlet name=idx value="0"\nreturn value="r.b[idx]"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R10 nested fractional index fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [11,22,33]}"\nreturn value="r.b[1.5]"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R14 scalar-field length fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{name: 'abcde'}"\nreturn value="r.name.length"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R18 missing nested field fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{a: 1}"\nreturn value="r.b.length"` },
+  // Receiver gating (agon review): the nested rewrite fires ONLY for PROVEN
+  // record bindings; on those, a non-length property on the array field fails
+  // closed on BOTH legs (the decided lockstep contract — the runner abstains
+  // on the same program).
+  { kind: 'stmt', throws: true, name: 'stmt: NV-R19 nested non-length property on a record binding fails closed on both codegen legs',
+    params: [],
+    body: `let name=r value="{b: [10,20,30]}"\nreturn value="r.b.filter((x) => x > 10)"` },
+  { kind: 'compile-reject', name: 'compile-reject: NV-R20 nested undefined array-field element is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [undefined]}"
+    return value="r.b[0]"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NV-R21 nested non-finite array-field element is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [Infinity]}"
+    return value="r.b[0]"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  // Record REASSIGNMENT (delta review, blocking): a mutable record binding
+  // reassigned to a NEW object literal must stay record-shaped on BOTH legs
+  // (Python re-wraps in __DotDict, lockstep with the let initializer), so
+  // subsequent field/nested reads agree. The RUNNER abstains on record
+  // reassignment (assign requires a scalar current binding) — this is a
+  // codegen-leg-parity pin, mirroring the fence pattern.
+  { kind: 'stmt', name: 'stmt: NV-A1 record reassignment keeps field and nested reads working on both codegen legs',
+    params: [],
+    body: `let kind=let name=r value="{a: 1}"\nassign target=r value="{a: 2, b: [7, 8]}"\nreturn value="{ a: r.a, len: r.b.length }"`,
+    expected: { a: 2, len: 2 } },
+  // ── FV: Stage-1 Slice-2 fresh array fields, codegen leg parity. ───────────
+  // A fresh array binding may be captured exactly once by a record field. The
+  // generated TS/Python legs must then keep the nested read rewrite scoped to
+  // the proven receiver+field pair and reject later mutation/capture attempts
+  // via the compile-reject fixtures below.
+  { kind: 'stmt', name: 'stmt: FV-1 fresh array binding record field length',
+    params: [],
+    body: `let name=xs value="[10,20,30]"\nlet name=r value="{items: xs}"\nreturn value="r.items.length"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: FV-2 fresh array binding record field literal indices',
+    params: [],
+    body: `let name=xs value="[10,20,30]"\nlet name=r value="{items: xs}"\nreturn value="{ first: r.items[0], last: r.items[2] }"`,
+    expected: { first: 10, last: 30 } },
+  { kind: 'stmt', name: 'stmt: FV-3 independent fresh arrays captured by one record',
+    params: [],
+    body: `let name=xs value="[1,2]"\nlet name=ys value="[3,4,5]"\nlet name=r value="{left: xs, right: ys}"\nreturn value="{ leftLen: r.left.length, rightLast: r.right[2] }"`,
+    expected: { leftLen: 2, rightLast: 5 } },
+  { kind: 'stmt', name: 'stmt: FV-4 expression-v1 array can be captured by a record field',
+    params: [],
+    body: `expression-v1 name=xs expr="[7,8,9]"\nlet name=r value="{items: xs}"\nreturn value="r.items[1]"`,
+    expected: 8 },
+  { kind: 'stmt', name: 'stmt: FV-5 selected branch can capture and return a fresh array field',
+    params: [{ name: 'flag', type: 'boolean', value: true }],
+    body: `if cond="flag"\n  let name=xs value="[1,2]"\n  let name=r value="{items: xs}"\n  return value="r.items.length"\nelse\n  let name=ys value="[3,4,5]"\n  let name=s value="{items: ys}"\n  return value="s.items.length"\nreturn value="0"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: FV-6 loop-local fresh arrays can be captured per iteration',
+    params: [],
+    body: `let kind=let name=total value="0"\nfor name=i from=0 to=2\n  let name=xs value="[1,2]"\n  let name=r value="{items: xs}"\n  assign target=total value="total + r.items.length"\nreturn value="total"`,
+    expected: 4 },
+  { kind: 'stmt', name: 'stmt: FV-7 static-false branch capture does not consume freshness',
+    params: [],
+    body: `let name=xs value="[1,2]"\nif cond="false"\n  let name=dead value="{items: xs}"\nlet name=r value="{items: xs}"\nreturn value="r.items.length"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: FV-8 captured record-array field can be aliased for reads',
+    params: [],
+    body: `let name=xs value="[10,20,30]"\nlet name=r value="{items: xs}"\nlet name=ys value="r.items"\nreturn value="{ len: ys.length, second: ys[1] }"`,
+    expected: { len: 3, second: 20 } },
+  { kind: 'stmt', name: 'stmt: FV-9 expression-v1 can alias a captured record-array field for reads',
+    params: [],
+    body: `let name=xs value="[7,8,9]"\nlet name=r value="{items: xs}"\nexpression-v1 name=ys expr="r.items"\nreturn value="ys[2]"`,
+    expected: 9 },
+  { kind: 'stmt', name: 'stmt: FV-10 return record can capture a fresh array field',
+    params: [],
+    body: `let name=xs value="[1,2]"\nreturn value="{items: xs}"`,
+    expected: { items: [1, 2] } },
+  { kind: 'stmt', name: 'stmt: FV-11 returned branch capture does not consume fallthrough freshness',
+    params: [{ name: 'flag', type: 'boolean', value: false }],
+    body: `let name=xs value="[1,2]"\nif cond="flag"\n  let name=early value="{items: xs}"\n  return value="early.items.length"\nlet name=late value="{items: xs}"\nreturn value="late.items.length"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: FV-PUSH-1 scalar pushes preserve freshness before capture',
+    params: [],
+    body: `let name=xs value="[]"\ndo value="xs.push(1)"\ndo value="xs.push(2)"\nlet name=r value="{children: xs}"\nreturn value="r.children.length"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: NI-1 each iterates captured record-array field in order',
+    params: [],
+    body: `let name=xs value="[1,2,3]"\nlet name=r value="{children: xs}"\nlet kind=let name=acc value="0"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
+    expected: 123 },
+  { kind: 'stmt', name: 'stmt: NI-2 each nested receiver identity is exact',
+    params: [],
+    body: `let name=xs value="[1,2]"\nlet name=ys value="[7,8]"\nlet name=r value="{children: xs}"\nlet name=s value="{children: ys}"\nlet kind=let name=acc value="0"\neach name=child in="s.children"\n  assign target=acc value="acc * 10 + child"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
+    expected: 7812 },
+  { kind: 'stmt', name: 'stmt: NI-3 each nested receiver honors block shadow rename',
+    params: [{ name: 'flag', type: 'boolean', value: true }],
+    body: `let name=xs value="[1]"\nlet name=r value="{children: xs}"\nif cond="flag"\n  let name=ys value="[2]"\n  let name=r value="{children: ys}"\n  each name=child in="r.children"\n    return value="child"\nreturn value="0"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: NI-4 each iterates expression-v1 record-array field',
+    params: [],
+    body: `expression-v1 name=r expr="{children: [4,5]}"\nlet kind=let name=acc value="0"\neach name=child in="r.children"\n  assign target=acc value="acc * 10 + child"\nreturn value="acc"`,
+    expected: 45 },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R1 each over missing nested array field fails closed',
+    params: [],
+    body: `let name=r value="{a: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
+  { kind: 'stmt', throws: true, name: 'stmt: NI-R2 each over non-array nested field fails closed',
+    params: [],
+    body: `let name=r value="{children: 1}"\neach name=child in="r.children"\n  return value="child"\nreturn value="0"` },
   // ── BLOCK-BODIED ARROW CLOSURE (slices 0+1) on the native-body stmt path. ──────────
   // The closure lowers via the SAME emitChildrenPy hoist point the class path uses, so
   // the stmt harness proves TS == Python on a let-position block arrow that (a) reads a
@@ -1349,6 +1522,134 @@ fn name=probe returns=boolean
     do value="Map.set(m, \\"a\\", 1)"
     return value="[List.length(xs), Map.get(m, \\"a\\"), Map.has(m, \\"a\\") ? 1 : 0, Map.has(m, \\"missing\\") ? 1 : 0]"`,
     expected: [3, 1, 1, 0] },
+  // T3 traversal helper pins are GREEN-at-add regression coverage by lead verdict:
+  // they lock the current flattened-tree traversal surface rather than proving a new capability.
+  // Matching runner pins live in runner-source-executor.test.ts.
+  { kind: 'stmt', name: 'stmt: TRAV-1 pin parallel-array scan by for-counter index',
+    params: [],
+    body: `let name=parentIdx value="[9,0,0,1]"\nlet name=typeIdx value="[0,4,5,6]"\nlet name=target value="0"\nlet kind=let name=found value="-1"\nfor name=i from="0" to="parentIdx.length"\n  if cond="parentIdx[i] == target"\n    assign target=found value="typeIdx[i]"\nreturn value="found"`,
+    expected: 5 },
+  { kind: 'stmt', name: 'stmt: TRAV-2 pin conditional child-count accumulation',
+    params: [],
+    body: `let name=parentIdx value="[9,0,0,1]"\nlet name=target value="0"\nlet kind=let name=count value="0"\nfor name=i from="0" to="parentIdx.length"\n  if cond="parentIdx[i] == target"\n    assign target=count value="count + 1"\nreturn value="count"`,
+    expected: 2 },
+  { kind: 'stmt', name: 'stmt: TRAV-3 pin select nth child by keyIdx',
+    params: [],
+    body: `let name=parentIdx value="[9,0,0,0,2]"\nlet name=keyIdx value="[0,4,7,4,4]"\nlet name=targetParent value="0"\nlet name=wantedKey value="4"\nlet name=nth value="1"\nlet kind=let name=seen value="0"\nlet kind=let name=selected value="-1"\nfor name=i from="0" to="parentIdx.length"\n  if cond="parentIdx[i] == targetParent"\n    if cond="keyIdx[i] == wantedKey"\n      if cond="seen == nth"\n        assign target=selected value="i"\n      assign target=seen value="seen + 1"\nreturn value="selected"`,
+    expected: 3 },
+  { kind: 'whole-file', name: 'whole-file: TRAV-4 pin helper-param for-counter index provenance',
+    kern: `fn name=get params="children:number[],i:number" returns=number
+  handler lang=kern
+    return value="children[i]"
+fn name=probe returns=number
+  handler lang=kern
+    let name=children value="[10,20,30]"
+    let kind=let name=out value="-1"
+    for name=i from="0" to="children.length"
+      if cond="i == 1"
+        assign target=out value="get(children, i)"
+    return value="out"`,
+    expected: 20 },
+  { kind: 'stmt', name: 'stmt: TRAV-5 pin Map.has-before-Map.get traversal law',
+    params: [],
+    body: `let name=m value="new Map()"\nlet name=key value="\\"child\\""\nlet name=missing value="\\"missing\\""\nlet kind=let name=out value="0"\ndo value="Map.set(m, key, 7)"\nif cond="Map.has(m, key)"\n  assign target=out value="Map.get(m, key)"\nif cond="Map.has(m, missing)"\n  assign target=out value="Map.get(m, missing)"\nreturn value="out"`,
+    expected: 7 },
+  // NEG-LIT fence: the runner currently abstains on negative integer elements inside
+  // array literals (pinned in runner-source-executor.test.ts), while TS/Python execute.
+  // T3 intentionally documents this fence instead of changing semantics.
+  // Exit criterion: revisit only if a future capstone slice requires negative parent sentinels.
+  { kind: 'stmt', name: 'stmt: NEG-LIT fence codegen legs execute negative array literal element',
+    params: [],
+    body: `let name=parentIdx value="[-1,0,0]"\nreturn value="parentIdx[0]"`,
+    expected: -1 },
+
+  // T4 string/sorting pins are GREEN-at-add regression coverage for tool-facing .kern programs.
+  // Runner companions live in runner-source-executor.test.ts; no source semantics change in this slice.
+  { kind: 'stmt', name: 'stmt: STR-1 pin string equality and ordering in if conditions',
+    params: [],
+    body: `let name=a value="\\"x\\""\nlet name=b value="\\"x0\\""\nlet kind=let name=score value="0"\nif cond="a == \\"x\\""\n  assign target=score value="score + 1"\nif cond="a < b"\n  assign target=score value="score + 2"\nreturn value="score"`,
+    expected: 3 },
+  { kind: 'stmt', name: 'stmt: STR-2 pin string concatenation for tool keys',
+    params: [],
+    body: `let name=a value="\\"x\\""\nlet name=b value="\\"0\\""\nlet name=c value="\\".\\""\nreturn value="a + b + c"`,
+    expected: 'x0.' },
+  { kind: 'stmt', name: 'stmt: STR-3 pin Text operations in if conditions',
+    params: [],
+    body: `let name=s value="\\"hello\\""\nlet kind=let name=score value="0"\nif cond="Text.length(s) == 5"\n  assign target=score value="score + 1"\nif cond="Text.charAt(s, 1) == \\"e\\""\n  assign target=score value="score + 2"\nif cond="Text.slice(s, 1, 4) == \\"ell\\""\n  assign target=score value="score + 4"\nif cond="Text.indexOf(s, \\"ll\\") == 2"\n  assign target=score value="score + 8"\nif cond="Text.startsWith(s, \\"he\\")"\n  assign target=score value="score + 16"\nreturn value="score"`,
+    expected: 31 },
+  { kind: 'stmt', name: 'stmt: STR-4 pin hostile key matching treats punctuation as data',
+    params: [],
+    body: `let name=keys value="['x','x0','x.']"\nlet kind=let name=score value="0"\nfor name=i from="0" to="keys.length"\n  if cond="keys[i] == \\"x\\""\n    assign target=score value="score + 1"\n  if cond="keys[i] == \\"x0\\""\n    assign target=score value="score + 10"\n  if cond="keys[i] == \\"x.\\""\n    assign target=score value="score + 100"\nreturn value="score"`,
+    expected: 111 },
+  { kind: 'stmt', name: 'stmt: STR-5 pin well-formed non-BMP Text code-point behavior',
+    params: [],
+    body: `let name=s value="\\"a😀b\\""\nlet kind=let name=score value="0"\nif cond="s == \\"a😀b\\""\n  assign target=score value="score + 1"\nif cond="Text.length(s) == 3"\n  assign target=score value="score + 2"\nif cond="Text.charAt(s, 1) == \\"😀\\""\n  assign target=score value="score + 4"\nif cond="Text.slice(s, 1, 2) == \\"😀\\""\n  assign target=score value="score + 8"\nif cond="Text.length(s) != 4"\n  assign target=score value="score + 16"\nreturn value="score"`,
+    expected: 31 },
+  // MERGE-PTR fence: this is an intentional runner-vs-codegen boundary, not a
+  // source semantics change. The runner abstains because mutable plain-let
+  // pointer indexes into helper array params are outside index provenance;
+  // TS/Python codegen currently execute the direct merge pattern below.
+  { kind: 'stmt', name: 'stmt: MERGE-PTR fence codegen executes mutable pointer merge body',
+    params: [],
+    body: `let name=left value="['a']"\nlet name=right value="['b','c']"\nlet name=out value="[]"\nlet kind=let name=i value="0"\nlet kind=let name=j value="0"\nwhile cond="i < left.length && j < right.length"\n  if cond="left[i] <= right[j]"\n    do value="out.push(left[i])"\n    assign target=i value="i + 1"\n  else\n    do value="out.push(right[j])"\n    assign target=j value="j + 1"\nwhile cond="i < left.length"\n  do value="out.push(left[i])"\n  assign target=i value="i + 1"\nwhile cond="j < right.length"\n  do value="out.push(right[j])"\n  assign target=j value="j + 1"\nreturn value="out[0] + ',' + out[1] + ',' + out[2]"`,
+    expected: 'a,b,c' },
+  { kind: 'whole-file', name: 'whole-file: MERGE-PTR fence codegen executes mutable pointer merge',
+    kern: `fn name=merge params="left:string[],right:string[]" returns=string[]
+  handler lang=kern
+    let name=out value="[]"
+    let kind=let name=i value="0"
+    let kind=let name=j value="0"
+    while cond="i < left.length && j < right.length"
+      if cond="left[i] <= right[j]"
+        do value="out.push(left[i])"
+        assign target=i value="i + 1"
+      else
+        do value="out.push(right[j])"
+        assign target=j value="j + 1"
+    while cond="i < left.length"
+      do value="out.push(left[i])"
+      assign target=i value="i + 1"
+    while cond="j < right.length"
+      do value="out.push(right[j])"
+      assign target=j value="j + 1"
+    return value="out"
+fn name=probe returns=string
+  handler lang=kern
+    let name=left value="['a']"
+    let name=right value="['b','c']"
+    let name=ys value="merge(left, right)"
+    return value="ys[0] + ',' + ys[1] + ',' + ys[2]"`,
+    expected: 'a,b,c' },
+  { kind: 'whole-file', name: 'whole-file: SORT-1 pin selection-sort into fresh array for hostile keys',
+    kern: `fn name=sortstrings params="xs:string[]" returns=string
+  handler lang=kern
+    let name=out value="[]"
+    let kind=let name=emitted value="0"
+    let kind=let name=last value="\\"\\""
+    let kind=let name=found value="false"
+    let kind=let name=min value="\\"\\""
+    while cond="emitted < xs.length"
+      assign target=found value="false"
+      assign target=min value="\\"\\""
+      for name=i from="0" to="xs.length"
+        if cond="emitted == 0 || last < xs[i]"
+          if cond="!found"
+            assign target=min value="xs[i]"
+            assign target=found value="true"
+          else
+            if cond="xs[i] < min"
+              assign target=min value="xs[i]"
+      for name=j from="0" to="xs.length"
+        if cond="xs[j] == min"
+          do value="out.push(min)"
+          assign target=emitted value="emitted + 1"
+      assign target=last value="min"
+    return value="out[0] + ',' + out[1] + ',' + out[2] + ',' + out[3]"
+fn name=probe returns=string
+  handler lang=kern
+    let name=xs value="['x0','x','x.','x']"
+    return value="sortstrings(xs)"`,
+    expected: 'x,x,x.,x0' },
 
   // ──────────────────────────────────────────────────────────────────────────
   // KERN 4.5.0 item 3 — string parity completion (tribunal-locked contract,
@@ -1522,6 +1823,13 @@ fn name=probe returns=boolean
   //   • instanceof-rhs-wrapper-rejected — REAL substring of the Python throw
   //                                      `instanceof RHS 'String' has no Python lowering
   //                                      (instanceof-rhs-wrapper-rejected). …` (Python-side only).
+  { kind: 'compile-reject', name: 'compile-reject: capability nodes fail closed in emitted TS/Python',
+    kern: `fn name=probe returns=string
+  handler lang=kern
+    capability namespace=fs operation=readText name=body input="{ path: \\"fixture.txt\\" }"
+    return value="body"`,
+    expectReason: 'capability nodes are not supported in emitted TypeScript/Python',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
   { kind: 'compile-reject', name: 'compile-reject: closure writes this.x (closure-this)',
     kern: `fn name=probe returns=number
   handler lang=kern
@@ -1552,6 +1860,305 @@ fn name=probe returns=boolean
     let name=x value="\\"a\\""
     return value="x instanceof String"`,
     expectReason: 'instanceof-rhs-wrapper-rejected', rejectLayers: ['python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: nested optional record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [10,20,30]}"
+    return value="r?.b.length"`,
+    expectReason: 'record array field "r.b" must use a bare non-optional receiver',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: nested parenthesized record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{b: [10,20,30]}"
+    return value="(r).b.length"`,
+    expectReason: 'record array field "r.b" must use a bare non-optional receiver',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R3 each over composite nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [[1],[2]]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" elements are not proven portable scalars',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4 each over undefined nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [undefined]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4a nested integer-valued float array field is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [4.0]}"
+    return value="r.children.length"`,
+    expectReason: 'float literal has an integer value',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R4b each over bigint nested elements is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=r value="{children: [123n]}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'portable-array: array literal fields must contain only portable scalar or array elements',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R5 each over branch-unproven nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  param name=flag type=boolean
+  handler lang=kern
+    let kind=let name=r value="{children: 1}"
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{children: xs}"
+    each name=child in="r.children"
+      return value="child"
+    return value="0"`,
+    expectReason: 'record array field "r.children" is not proven on every branch',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6 entryKey over nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    each entryKey=k in="r.children" entries=true
+      return value="k"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R6b entryKey over branch-unproven nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  param name=flag type=boolean
+  handler lang=kern
+    let kind=let name=r value="{children: 1}"
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{children: xs}"
+    each entryKey=k in="r.children" entries=true
+      return value="k"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: NI-R7 pair iteration over nested record-array receiver is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{children: xs}"
+    each pairKey=k pairValue=v in="r.children"
+      return value="v"
+    return value="0"`,
+    expectReason: 'keyed iteration over nested record field "r.children" is outside the portable domain',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array stale after push cannot be captured',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    do value="xs.push(3)"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array composite push before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]"
+    do value="xs.push([1])"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array alias push before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]"
+    let name=ys value="xs"
+    do value="ys.push(1)"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array integer-valued float push before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]"
+    do value="xs.push(4.0)"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'float literal has an integer value',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array push-built binding reassign before capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[]" kind=let
+    assign target=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'array binding "xs" cannot be reassigned by portable assign',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array alias before capture cannot be captured',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=ys value="xs"
+    let name=r value="{items: ys}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "ys" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array expression-v1 alias before capture cannot be captured',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    expression-v1 name=ys expr="xs"
+    let name=r value="{items: ys}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "ys" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array mutation after capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="xs.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array non-push mutator after capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="xs.pop()"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured binding reassign is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]" kind=let
+    let name=r value="{items: xs}"
+    assign target=xs value="[3,4]"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array duplicate fields capture the same source',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{a: xs, b: xs}"
+    return value="r.a.length"`,
+    expectReason: 'fresh array binding "xs" can be captured only once',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array second record capture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{a: xs}"
+    let name=s value="{b: xs}"
+    return value="r.a.length"`,
+    expectReason: 'fresh array binding "xs" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field recapture is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=s value="{copy: r.items}"
+    return value="s.copy.length"`,
+    expectReason: 'record field "r.items" cannot be captured by another record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field push is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="r.items.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'record array field "r.items" cannot be mutated after capture',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field non-push mutator is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    do value="r.items.sort()"
+    return value="r.items.length"`,
+    expectReason: 'record array field "r.items" cannot be mutated after capture',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array record field index assign is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    assign target="r.items[0]" value="9"
+    return value="r.items[0]"`,
+    expectReason: 'record array field "r.items" cannot be mutated after capture',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured direct alias mutation is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=ys value="xs"
+    do value="ys.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "ys" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured record-field alias mutation is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=ys value="r.items"
+    do value="ys.push(3)"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "ys" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array captured record-field alias reassign is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    let name=r value="{items: xs}"
+    let name=ys value="r.items" kind=let
+    assign target=ys value="[3,4]"
+    return value="r.items.length"`,
+    expectReason: 'fresh array binding "ys" was already captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array maybe-field alias after branch is rejected',
+    kern: `fn name=probe params="flag:boolean" returns=number
+  handler lang=kern
+    let name=r value="{items: [0]}" kind=let
+    if cond="flag"
+      let name=xs value="[1,2]"
+      assign target=r value="{items: xs}"
+    else
+      assign target=r value="{items: 1}"
+    let name=ys value="r.items"
+    return value="0"`,
+    expectReason: 'record array field "r.items" is not proven on every branch',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array index assignment before capture makes source stale',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]" kind=let
+    assign target="xs[0]" value="9"
+    let name=r value="{items: xs}"
+    return value="r.items.length"`,
+    expectReason: 'stale array binding "xs" cannot be captured by a record field',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
+  { kind: 'compile-reject', name: 'compile-reject: fresh-array outer capture inside repeatable loop is rejected',
+    kern: `fn name=probe returns=number
+  handler lang=kern
+    let name=xs value="[1,2]"
+    for name=i from=0 to=2
+      let name=r value="{items: xs}"
+    return value="0"`,
+    expectReason: 'fresh array binding "xs" cannot be captured inside a repeatable loop body',
+    rejectLayers: ['ts-codegen', 'python-codegen'] },
 ];
 
 // ── Value → literal emitters ────────────────────────────────────────────────
