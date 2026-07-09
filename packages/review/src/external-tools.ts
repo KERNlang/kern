@@ -278,6 +278,27 @@ export function runTSCDiagnostics(
       const isNodeGlobalUnresolved =
         (code === 2304 || code === 2552 || code === 2503 || code === 2584) &&
         (isNodeGlobalCannotFindName(messageStr) || isWebRuntimeGlobalCannotFindName(messageStr));
+      // TS2582 / TS2593 — "Cannot find name 'describe'. Do you need to install
+      // type definitions for a test runner?" TS emits these two codes ONLY for
+      // its hardcoded test-runner name list (describe / suite / it / test /
+      // beforeEach / afterEach / …): 2582 when no @types/jest|mocha is
+      // installed, 2593 when installed but absent from the tsconfig `types`
+      // field. Both mean the host's test-runner ambient types
+      // (types: ["jest"], vitest globals) aren't reachable from review's
+      // ad-hoc Project — the same class as TS2580/TS2591 for @types/node.
+      // Globals NOT on TS's hint list (expect, jest, vi, …) fall through as
+      // plain TS2304/TS2552 — suppress those only when the name is a known
+      // test-runner global AND the file is test-like (.test./.spec./__tests__/
+      // setup files), so a stray `expect` in production code still surfaces.
+      // kern-guard flagged every describe/it/expect in a React-Native repo
+      // whose local `pnpm typecheck` was clean (456/456 tests) — pure sandbox
+      // noise from the missing `types: ["jest"]`.
+      const isTestRunnerGlobalUnresolved =
+        code === 2582 ||
+        code === 2593 ||
+        ((code === 2304 || code === 2552) &&
+          isTestRunnerGlobalCannotFindName(messageStr) &&
+          isTestLikeFilePath(filePath));
       // TS2741 "Property 'children' is missing" on a JSX user-component call
       // site is environmental whenever the JSX global namespace is broken in
       // the same file. Without `JSX.ElementChildrenAttribute`, TS does not
@@ -343,6 +364,7 @@ export function runTSCDiagnostics(
         (isLoadingNoise ||
           isEnvironmentalNoise ||
           isNodeGlobalUnresolved ||
+          isTestRunnerGlobalUnresolved ||
           isJsxChildrenInferenceNoise ||
           isBrokenJsxRuntimeNoise ||
           isUnresolvedImportErosionCascade ||
@@ -846,6 +868,58 @@ function isWebRuntimeGlobalCannotFindName(message: string): boolean {
   const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
   if (!m) return false;
   return WEB_RUNTIME_GLOBAL_NAMES.has(m[1]);
+}
+
+// Globals injected by jest (`types: ["jest"]`), vitest (`globals: true`), and
+// mocha/jasmine ambient types — unreachable in review's ad-hoc Project for the
+// same reason as the @types/node globals. describe/suite/it/test are listed
+// for robustness even though current TS routes them through the dedicated
+// TS2582/TS2593 test-runner-hint codes rather than plain TS2304.
+const TEST_RUNNER_GLOBAL_NAMES = new Set([
+  'describe',
+  'suite',
+  'it',
+  'test',
+  'expect',
+  'jest',
+  'vi',
+  'beforeEach',
+  'afterEach',
+  'beforeAll',
+  'afterAll',
+  'before',
+  'after',
+  // Focus/skip variants (jest/jasmine): a temporarily focused or skipped
+  // test committed to a PR would otherwise emit ts2304 sandbox noise.
+  'fdescribe',
+  'fit',
+  'xdescribe',
+  'xit',
+  'xtest',
+]);
+
+// The test-runner counterpart of isNodeGlobalCannotFindName. Callers must
+// additionally gate on isTestLikeFilePath — unlike Node globals, a
+// test-runner global in production code is worth surfacing.
+function isTestRunnerGlobalCannotFindName(message: string): boolean {
+  const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
+  if (!m) return false;
+  return TEST_RUNNER_GLOBAL_NAMES.has(m[1]);
+}
+
+// Files where test-runner globals are legitimately ambient: *.test.* / *.spec.*
+// suffixes, __tests__/__mocks__ directories, test/tests/e2e directories, and
+// runner setup files (jest.setup.ts, vitest.setup.ts, setupTests.ts) which use
+// beforeEach/expect at module scope but don't carry a test suffix.
+function isTestLikeFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  return (
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
+    /(?:^|\/)__(?:tests|mocks)__\//.test(normalized) ||
+    /(?:^|\/)(?:tests?|e2e)\//.test(normalized) ||
+    /(?:^|\/)(?:jest|vitest)\.setup\.[cm]?[jt]sx?$/.test(normalized) ||
+    /(?:^|\/)setupTests\.[cm]?[jt]sx?$/.test(normalized)
+  );
 }
 
 function isReviewModeModuleResolutionNoise(code: number, message: string, importerFilePath: string): boolean {
