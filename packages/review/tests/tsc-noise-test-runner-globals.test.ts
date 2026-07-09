@@ -102,6 +102,19 @@ describe('runTSCDiagnostics — test-runner global noise suppression', () => {
     }
   });
 
+  it('treats Cypress spec suffixes and support files as test-like paths', () => {
+    const projects = [
+      projectFor('cy.visit("/");', '/cypress/e2e/login.cy.ts'),
+      projectFor('cy.visit("/");', '/cypress/e2e/login.e2e.ts'),
+      projectFor('Cypress.Commands.add("login", () => {});', '/cypress/support/commands.ts'),
+    ];
+
+    for (const project of projects) {
+      const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
+      expect(findings.find((f) => /Cannot find name '(?:cy|Cypress)'/.test(f.message))).toBeUndefined();
+    }
+  });
+
   it('drops TS2503 for jest namespace in type position (let m: jest.Mock) in a test file', () => {
     const project = projectFor(`
       let mockFn: jest.Mock | undefined;
