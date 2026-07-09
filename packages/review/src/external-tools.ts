@@ -298,8 +298,7 @@ export function runTSCDiagnostics(
       const isTestRunnerGlobalUnresolved =
         (code === 2582 ||
           code === 2593 ||
-          ((code === 2304 || code === 2552 || code === 2503) &&
-            isTestRunnerGlobalCannotFindName(messageStr))) &&
+          ((code === 2304 || code === 2552 || code === 2503) && isTestRunnerGlobalCannotFindName(messageStr))) &&
         isTestLikeFilePath(filePath);
       // TS2741 "Property 'children' is missing" on a JSX user-component call
       // site is environmental whenever the JSX global namespace is broken in
