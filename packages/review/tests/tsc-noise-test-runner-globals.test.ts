@@ -61,6 +61,22 @@ describe('runTSCDiagnostics — test-runner global noise suppression', () => {
     expect(findings.find((f) => /Cannot find name 'xit'/.test(f.message))).toBeUndefined();
   });
 
+  it('drops TS2304 for Mocha aliases in a test-like file', () => {
+    const project = projectFor(`
+      context('suite', () => {
+        specify('case', () => {});
+      });
+      setup(() => {});
+      teardown(() => {});
+      suiteSetup(() => {});
+      suiteTeardown(() => {});
+    `);
+    const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
+    for (const name of ['context', 'specify', 'setup', 'teardown', 'suiteSetup', 'suiteTeardown']) {
+      expect(findings.find((f) => new RegExp(`Cannot find name '${name}'`).test(f.message))).toBeUndefined();
+    }
+  });
+
   it('drops TS2304 for beforeEach in a runner setup file (vitest.setup.ts)', () => {
     const project = projectFor(
       `
@@ -70,6 +86,20 @@ describe('runTSCDiagnostics — test-runner global noise suppression', () => {
     );
     const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
     expect(findings.find((f) => /Cannot find name 'beforeEach'/.test(f.message))).toBeUndefined();
+  });
+
+  it('treats uppercase and exact test/helper filenames as test-like paths', () => {
+    const projects = [
+      projectFor('expect(1).toBe(1);', '/src/Foo.TEST.ts'),
+      projectFor('expect(1).toBe(1);', '/src/__Tests__/helper.ts'),
+      projectFor('expect(1).toBe(1);', '/src/test.ts'),
+      projectFor('expect(1).toBe(1);', '/src/test-utils.ts'),
+    ];
+
+    for (const project of projects) {
+      const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
+      expect(findings.find((f) => /Cannot find name 'expect'/.test(f.message))).toBeUndefined();
+    }
   });
 
   it('drops TS2503 for jest namespace in type position (let m: jest.Mock) in a test file', () => {

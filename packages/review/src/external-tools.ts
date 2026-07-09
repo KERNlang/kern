@@ -13,6 +13,7 @@ import { dirname, resolve } from 'path';
 import { Node, type Project, type SourceFile, SyntaxKind, type Node as TsMorphNode, type Type } from 'ts-morph';
 import { createProject, findTsConfig } from './inferrer.js';
 import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
+import { isTestLikeFilePath, isTestRunnerGlobalCannotFindName } from './test-runner-noise.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
@@ -869,61 +870,6 @@ function isWebRuntimeGlobalCannotFindName(message: string): boolean {
   const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
   if (!m) return false;
   return WEB_RUNTIME_GLOBAL_NAMES.has(m[1]);
-}
-
-// Globals injected by jest (`types: ["jest"]`), vitest (`globals: true`), and
-// mocha/jasmine ambient types — unreachable in review's ad-hoc Project for the
-// same reason as the @types/node globals. describe/suite/it/test are listed
-// for robustness even though current TS routes them through the dedicated
-// TS2582/TS2593 test-runner-hint codes rather than plain TS2304.
-const TEST_RUNNER_GLOBAL_NAMES = new Set([
-  'describe',
-  'suite',
-  'it',
-  'test',
-  'expect',
-  'jest',
-  'vi',
-  'beforeEach',
-  'afterEach',
-  'beforeAll',
-  'afterAll',
-  'before',
-  'after',
-  // Focus/skip variants (jest/jasmine): a temporarily focused or skipped
-  // test committed to a PR would otherwise emit ts2304 sandbox noise.
-  'fdescribe',
-  'fit',
-  'xdescribe',
-  'xit',
-  'xtest',
-]);
-
-// The test-runner counterpart of isNodeGlobalCannotFindName. Matches both
-// value position ("Cannot find name 'expect'", TS2304/2552) and namespace
-// position ("Cannot find namespace 'jest'" from `let m: jest.Mock`, TS2503).
-// Callers must additionally gate on isTestLikeFilePath — unlike Node
-// globals, a test-runner global in production code is worth surfacing.
-function isTestRunnerGlobalCannotFindName(message: string): boolean {
-  const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
-  if (!m) return false;
-  return TEST_RUNNER_GLOBAL_NAMES.has(m[1]);
-}
-
-// Files where test-runner globals are legitimately ambient: *.test.* / *.spec.*
-// suffixes; __tests__/__test__/__mocks__ directories; test/tests/spec/e2e/
-// testing/test-utils/test-helpers directories; and runner setup files
-// (jest.setup.ts, vitest-setup.ts, setupTests.ts, test-setup.ts, …) which use
-// beforeEach/expect at module scope but don't carry a test suffix.
-function isTestLikeFilePath(filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
-  return (
-    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
-    /(?:^|\/)__(?:tests?|mocks?)__\//.test(normalized) ||
-    /(?:^|\/)(?:tests?|spec|e2e|testing|test-utils|test-helpers)\//.test(normalized) ||
-    /(?:^|\/)(?:jest|vitest)[.-]setup\.[cm]?[jt]sx?$/.test(normalized) ||
-    /(?:^|\/)(?:setup[.-]?tests?|test[.-]?setup)\.[cm]?[jt]sx?$/i.test(normalized)
-  );
 }
 
 function isReviewModeModuleResolutionNoise(code: number, message: string, importerFilePath: string): boolean {
