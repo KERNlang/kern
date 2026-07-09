@@ -287,18 +287,20 @@ export function runTSCDiagnostics(
       // (types: ["jest"], vitest globals) aren't reachable from review's
       // ad-hoc Project — the same class as TS2580/TS2591 for @types/node.
       // Globals NOT on TS's hint list (expect, jest, vi, …) fall through as
-      // plain TS2304/TS2552 — suppress those only when the name is a known
-      // test-runner global AND the file is test-like (.test./.spec./__tests__/
-      // setup files), so a stray `expect` in production code still surfaces.
+      // plain TS2304/TS2552, and namespace-position uses (`let m: jest.Mock`)
+      // as TS2503. ALL legs are gated to test-like files (.test./.spec./
+      // __tests__/setup files), so a stray test-runner global in production
+      // code still surfaces (codex review caught that 2582/2593 fire for
+      // describe/it in any file, not just tests; agy caught the 2503 leg).
       // kern-guard flagged every describe/it/expect in a React-Native repo
       // whose local `pnpm typecheck` was clean (456/456 tests) — pure sandbox
       // noise from the missing `types: ["jest"]`.
       const isTestRunnerGlobalUnresolved =
-        code === 2582 ||
-        code === 2593 ||
-        ((code === 2304 || code === 2552) &&
-          isTestRunnerGlobalCannotFindName(messageStr) &&
-          isTestLikeFilePath(filePath));
+        (code === 2582 ||
+          code === 2593 ||
+          ((code === 2304 || code === 2552 || code === 2503) &&
+            isTestRunnerGlobalCannotFindName(messageStr))) &&
+        isTestLikeFilePath(filePath);
       // TS2741 "Property 'children' is missing" on a JSX user-component call
       // site is environmental whenever the JSX global namespace is broken in
       // the same file. Without `JSX.ElementChildrenAttribute`, TS does not
@@ -898,9 +900,11 @@ const TEST_RUNNER_GLOBAL_NAMES = new Set([
   'xtest',
 ]);
 
-// The test-runner counterpart of isNodeGlobalCannotFindName. Callers must
-// additionally gate on isTestLikeFilePath — unlike Node globals, a
-// test-runner global in production code is worth surfacing.
+// The test-runner counterpart of isNodeGlobalCannotFindName. Matches both
+// value position ("Cannot find name 'expect'", TS2304/2552) and namespace
+// position ("Cannot find namespace 'jest'" from `let m: jest.Mock`, TS2503).
+// Callers must additionally gate on isTestLikeFilePath — unlike Node
+// globals, a test-runner global in production code is worth surfacing.
 function isTestRunnerGlobalCannotFindName(message: string): boolean {
   const m = message.match(/^Cannot find (?:name|namespace) '([^']+)'\.?/);
   if (!m) return false;
@@ -908,17 +912,18 @@ function isTestRunnerGlobalCannotFindName(message: string): boolean {
 }
 
 // Files where test-runner globals are legitimately ambient: *.test.* / *.spec.*
-// suffixes, __tests__/__mocks__ directories, test/tests/e2e directories, and
-// runner setup files (jest.setup.ts, vitest.setup.ts, setupTests.ts) which use
+// suffixes; __tests__/__test__/__mocks__ directories; test/tests/spec/e2e/
+// testing/test-utils/test-helpers directories; and runner setup files
+// (jest.setup.ts, vitest-setup.ts, setupTests.ts, test-setup.ts, …) which use
 // beforeEach/expect at module scope but don't carry a test suffix.
 function isTestLikeFilePath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/');
   return (
     /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
-    /(?:^|\/)__(?:tests|mocks)__\//.test(normalized) ||
-    /(?:^|\/)(?:tests?|e2e)\//.test(normalized) ||
-    /(?:^|\/)(?:jest|vitest)\.setup\.[cm]?[jt]sx?$/.test(normalized) ||
-    /(?:^|\/)setupTests\.[cm]?[jt]sx?$/.test(normalized)
+    /(?:^|\/)__(?:tests?|mocks?)__\//.test(normalized) ||
+    /(?:^|\/)(?:tests?|spec|e2e|testing|test-utils|test-helpers)\//.test(normalized) ||
+    /(?:^|\/)(?:jest|vitest)[.-]setup\.[cm]?[jt]sx?$/.test(normalized) ||
+    /(?:^|\/)(?:setup[.-]?tests?|test[.-]?setup)\.[cm]?[jt]sx?$/i.test(normalized)
   );
 }
 

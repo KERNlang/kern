@@ -72,6 +72,37 @@ describe('runTSCDiagnostics — test-runner global noise suppression', () => {
     expect(findings.find((f) => /Cannot find name 'beforeEach'/.test(f.message))).toBeUndefined();
   });
 
+  it('drops TS2503 for jest namespace in type position (let m: jest.Mock) in a test file', () => {
+    const project = projectFor(`
+      let mockFn: jest.Mock | undefined;
+      mockFn = undefined;
+    `);
+    const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
+    expect(findings.find((f) => /Cannot find namespace 'jest'/.test(f.message))).toBeUndefined();
+  });
+
+  it('drops TS2304 for beforeEach in hyphen-separated setup files (test-setup.ts)', () => {
+    const project = projectFor(
+      `
+      beforeEach(() => {});
+    `,
+      '/test-setup.ts',
+    );
+    const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
+    expect(findings.find((f) => /Cannot find name 'beforeEach'/.test(f.message))).toBeUndefined();
+  });
+
+  it('STILL surfaces TS2582/TS2593 for describe in a production (non-test) file', () => {
+    const project = projectFor(
+      `
+      describe('not a test file', () => {});
+    `,
+      '/src/app.ts',
+    );
+    const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
+    expect(findings.find((f) => /Cannot find name 'describe'/.test(f.message))).toBeDefined();
+  });
+
   it('STILL surfaces TS2304 for expect in a production (non-test) file', () => {
     const project = projectFor(
       `
