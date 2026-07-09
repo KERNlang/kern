@@ -93,7 +93,9 @@ describe('runTSCDiagnostics — test-runner global noise suppression', () => {
       projectFor('expect(1).toBe(1);', '/src/Foo.TEST.ts'),
       projectFor('expect(1).toBe(1);', '/src/__Tests__/helper.ts'),
       projectFor('expect(1).toBe(1);', '/src/test.ts'),
+      projectFor('expect(1).toBe(1);', '/src/test-util.ts'),
       projectFor('expect(1).toBe(1);', '/src/test-utils.ts'),
+      projectFor('expect(1).toBe(1);', '/src/test-helper.ts'),
     ];
 
     for (const project of projects) {
@@ -103,15 +105,22 @@ describe('runTSCDiagnostics — test-runner global noise suppression', () => {
   });
 
   it('treats Cypress spec suffixes and support files as test-like paths', () => {
-    const projects = [
-      projectFor('cy.visit("/");', '/cypress/e2e/login.cy.ts'),
-      projectFor('cy.visit("/");', '/cypress/e2e/login.e2e.ts'),
-      projectFor('Cypress.Commands.add("login", () => {});', '/cypress/support/commands.ts'),
+    const cases = [
+      { filename: '/cypress/e2e/login.cy.ts', source: 'cy.visit("/");', names: ['cy'] },
+      { filename: '/cypress/e2e/login.e2e.ts', source: 'cy.visit("/");', names: ['cy'] },
+      {
+        filename: '/cypress/support/commands.ts',
+        source: 'Cypress.Commands.add("login", () => {});',
+        names: ['Cypress'],
+      },
     ];
 
-    for (const project of projects) {
+    for (const { filename, names, source } of cases) {
+      const project = projectFor(source, filename);
       const findings = runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true });
-      expect(findings.find((f) => /Cannot find name '(?:cy|Cypress)'/.test(f.message))).toBeUndefined();
+      for (const name of names) {
+        expect(findings.find((f) => new RegExp(`Cannot find name '${name}'`).test(f.message))).toBeUndefined();
+      }
     }
   });
 

@@ -38,7 +38,7 @@ const TEST_LIKE_FILE_PATH_PATTERNS = [
   /(?:^|\/|\.)(?:test|spec|cy|e2e)\.[cm]?[jt]sx?$/i,
   /(?:^|\/)__(?:tests?|mocks?)__\//i,
   /(?:^|\/)cypress\/(?:e2e|integration|component|support)\//i,
-  /(?:^|\/)(?:tests?|spec|e2e|testing|test-utils|test-helpers)(?:\/|\.[cm]?[jt]sx?$)/i,
+  /(?:^|\/)(?:tests?|spec|e2e|testing|test-utils?|test-helpers?)(?:\/|\.[cm]?[jt]sx?$)/i,
   /(?:^|\/)(?:jest|vitest)[.-]setup\.[cm]?[jt]sx?$/i,
   /(?:^|\/)(?:setup[.-]?tests?|test[.-]?setup)\.[cm]?[jt]sx?$/i,
 ];
