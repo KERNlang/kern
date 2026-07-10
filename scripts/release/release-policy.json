@@ -3,6 +3,27 @@
   "packageRoots": [
     "packages"
   ],
+  "artifacts": {
+    "maxTarballBytes": 268435456,
+    "maxUnpackedBytes": 536870912,
+    "maxPackageJsonBytes": 1048576,
+    "maxCommandOutputBytes": 16777216,
+    "commandTimeoutMs": 600000,
+    "smokeTimeoutMs": 5000,
+    "safeBins": [
+      "kern"
+    ],
+    "consumerBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "tree-sitter",
+      "tree-sitter-python",
+      "unrs-resolver"
+    ],
+    "importSmokeExclusions": [
+      "@kernlang/mcp-server"
+    ]
+  },
   "channels": {
     "stable": {
       "versionMode": "stable-input",

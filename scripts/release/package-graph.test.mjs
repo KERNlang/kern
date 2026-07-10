@@ -34,6 +34,7 @@ test('current workspace resolves exactly 22 public packages dependency-first', a
   assert.equal(names.includes('@kernlang/playground'), false);
   assert.equal(names.includes('kern-monorepo'), false);
   assert.equal(names.includes('kern-lang'), true);
+  assert.ok(names.indexOf('@kernlang/core') < names.indexOf('@kernlang/check'));
   assert.ok(names.indexOf('@kernlang/core') < names.indexOf('@kernlang/express'));
   assert.ok(names.indexOf('@kernlang/core') < names.indexOf('@kernlang/cli'));
   assert.ok(names.indexOf('@kernlang/cli') < names.indexOf('kern-lang'));

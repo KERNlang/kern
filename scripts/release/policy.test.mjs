@@ -9,6 +9,23 @@ import {
 const policy = {
   schemaVersion: 1,
   packageRoots: ['packages'],
+  artifacts: {
+    maxTarballBytes: 268435456,
+    maxUnpackedBytes: 536870912,
+    maxPackageJsonBytes: 1048576,
+    maxCommandOutputBytes: 16777216,
+    commandTimeoutMs: 600000,
+    smokeTimeoutMs: 5000,
+    safeBins: ['kern'],
+    consumerBuiltDependencies: [
+      'esbuild',
+      'sharp',
+      'tree-sitter',
+      'tree-sitter-python',
+      'unrs-resolver',
+    ],
+    importSmokeExclusions: ['@kernlang/mcp-server'],
+  },
   channels: {
     stable: {
       versionMode: 'stable-input',
@@ -184,6 +201,50 @@ test('policy rejects unsafe or duplicate package roots', () => {
   const empty = structuredClone(policy);
   empty.packageRoots = [];
   assert.throws(() => validateReleasePolicy(empty), /package root/i);
+});
+
+test('policy validates artifact resource limits and safe-bin allowlist', () => {
+  const cases = [
+    ['missing artifacts', (copy) => delete copy.artifacts],
+    ['zero tarball limit', (copy) => (copy.artifacts.maxTarballBytes = 0)],
+    ['fractional timeout', (copy) => (copy.artifacts.commandTimeoutMs = 1.5)],
+    ['zero command output limit', (copy) => (copy.artifacts.maxCommandOutputBytes = 0)],
+    [
+      'package metadata limit above unpacked limit',
+      (copy) => (copy.artifacts.maxPackageJsonBytes = copy.artifacts.maxUnpackedBytes + 1),
+    ],
+    ['unsafe bin', (copy) => (copy.artifacts.safeBins = ['kern;publish'])],
+    ['duplicate bin', (copy) => (copy.artifacts.safeBins = ['kern', 'kern'])],
+    [
+      'unsafe built dependency',
+      (copy) => (copy.artifacts.consumerBuiltDependencies = ['tree-sitter;publish']),
+    ],
+    [
+      'duplicate built dependency',
+      (copy) => (copy.artifacts.consumerBuiltDependencies = ['tree-sitter', 'tree-sitter']),
+    ],
+    [
+      'unsafe import exclusion',
+      (copy) => (copy.artifacts.importSmokeExclusions = ['@kernlang/mcp-server;publish']),
+    ],
+    [
+      'duplicate import exclusion',
+      (copy) =>
+        (copy.artifacts.importSmokeExclusions = [
+          '@kernlang/mcp-server',
+          '@kernlang/mcp-server',
+        ]),
+    ],
+  ];
+  for (const [name, mutate] of cases) {
+    const copy = structuredClone(policy);
+    mutate(copy);
+    assert.throws(
+      () => validateReleasePolicy(copy),
+      /artifact|limit|integer|safeBins|bin|duplicate/i,
+      `policy accepted ${name}`,
+    );
+  }
 });
 
 test('policy validates channel modes, tags, and canary version components', () => {
