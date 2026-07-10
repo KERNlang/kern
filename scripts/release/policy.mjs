@@ -5,6 +5,8 @@ const SHA_RE = /^[0-9a-f]{40}$/;
 const DIST_TAG_RE = /^[a-z][a-z0-9._-]*$/;
 const PRERELEASE_ID_RE = /^[a-z][a-z0-9-]*$/;
 const CHANNEL_NAME_RE = /^[a-z][a-z0-9._-]*$/;
+const BIN_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
 function assertPlainSemver(value, label) {
   if (typeof value !== 'string' || !PLAIN_SEMVER_RE.test(value)) {
@@ -46,6 +48,65 @@ export function validateReleasePolicy(policy) {
       throw new Error(`Duplicate package root: ${root}`);
     }
     seenRoots.add(root);
+  }
+
+  const artifacts = policy.artifacts;
+  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
+    throw new Error('artifacts must be an object');
+  }
+  for (const field of [
+    'maxTarballBytes',
+    'maxUnpackedBytes',
+    'maxPackageJsonBytes',
+    'maxCommandOutputBytes',
+    'commandTimeoutMs',
+    'smokeTimeoutMs',
+  ]) {
+    if (!Number.isSafeInteger(artifacts[field]) || artifacts[field] <= 0) {
+      throw new Error(`artifacts.${field} must be a positive safe integer`);
+    }
+  }
+  if (artifacts.maxPackageJsonBytes > artifacts.maxUnpackedBytes) {
+    throw new Error('artifacts.maxPackageJsonBytes cannot exceed maxUnpackedBytes');
+  }
+  if (!Array.isArray(artifacts.safeBins)) {
+    throw new Error('artifacts.safeBins must be an array');
+  }
+  const safeBins = new Set();
+  for (const bin of artifacts.safeBins) {
+    if (typeof bin !== 'string' || !BIN_NAME_RE.test(bin)) {
+      throw new Error(`Invalid artifacts.safeBins entry: ${bin}`);
+    }
+    if (safeBins.has(bin)) {
+      throw new Error(`Duplicate artifacts.safeBins entry: ${bin}`);
+    }
+    safeBins.add(bin);
+  }
+  if (!Array.isArray(artifacts.consumerBuiltDependencies)) {
+    throw new Error('artifacts.consumerBuiltDependencies must be an array');
+  }
+  const builtDependencies = new Set();
+  for (const name of artifacts.consumerBuiltDependencies) {
+    if (typeof name !== 'string' || !PACKAGE_NAME_RE.test(name)) {
+      throw new Error(`Invalid artifacts.consumerBuiltDependencies entry: ${name}`);
+    }
+    if (builtDependencies.has(name)) {
+      throw new Error(`Duplicate artifacts.consumerBuiltDependencies entry: ${name}`);
+    }
+    builtDependencies.add(name);
+  }
+  if (!Array.isArray(artifacts.importSmokeExclusions)) {
+    throw new Error('artifacts.importSmokeExclusions must be an array');
+  }
+  const importSmokeExclusions = new Set();
+  for (const name of artifacts.importSmokeExclusions) {
+    if (typeof name !== 'string' || !PACKAGE_NAME_RE.test(name)) {
+      throw new Error(`Invalid artifacts.importSmokeExclusions entry: ${name}`);
+    }
+    if (importSmokeExclusions.has(name)) {
+      throw new Error(`Duplicate artifacts.importSmokeExclusions entry: ${name}`);
+    }
+    importSmokeExclusions.add(name);
   }
 
   if (

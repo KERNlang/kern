@@ -36,7 +36,7 @@ importers:
         version: 6.0.3
 
   packages/check:
-    devDependencies:
+    dependencies:
       '@kernlang/core':
         specifier: workspace:*
         version: link:../core

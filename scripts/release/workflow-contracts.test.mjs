@@ -46,6 +46,26 @@ test('reusable pipeline computes policy and publishes with an explicit tag', asy
   );
 });
 
+test('artifact wall is preflight-only and runs after build before its dry run', async () => {
+  const pipeline = await workflow('release-pipeline.yml');
+  const buildIndex = pipeline.indexOf('      - name: Build');
+  const artifactIndex = pipeline.indexOf('      - name: Run Artifact Wall');
+  const preflightDryRunIndex = pipeline.indexOf(
+    '      - name: Publish dry run (preflight)\n        if: ${{ !inputs.publish }}',
+  );
+
+  assert.ok(buildIndex >= 0, 'build step is missing');
+  assert.ok(artifactIndex > buildIndex, 'artifact wall must run after build');
+  assert.ok(
+    preflightDryRunIndex > artifactIndex,
+    'preflight dry run must consume a successful artifact wall first',
+  );
+  assert.match(
+    pipeline,
+    /      - name: Run Artifact Wall\n        if: \$\{\{ !inputs\.publish \}\}/,
+  );
+});
+
 test('dev synchronization is guarded by the release plan', async () => {
   const pipeline = await workflow('release-pipeline.yml');
 

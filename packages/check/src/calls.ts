@@ -41,9 +41,8 @@
  * Unparseable / legacy bodies are SKIPPED silently (parse errors swallowed).
  */
 
-import { parseExpression } from '../../core/dist/parser-expression.js';
-import { typescriptClosureClassifier } from '../../core/dist/typescript-closure-classifier.js';
-import type { ValueIR } from '../../core/dist/value-ir.js';
+import { typescriptClosureClassifier } from '@kernlang/core/node';
+import { parseExpression, type ValueIR } from '@kernlang/core/runner';
 import { assignable, type NominalClassInfo } from './assignable.js';
 import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
 

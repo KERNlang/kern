@@ -51,10 +51,12 @@ jobs:
       - name: Compute Release Plan
         id: release-plan
         run: |
+          mkdir -p .release
           node scripts/release/plan-cli.mjs \
             --channel "${{ inputs.channel }}" \
             --version "${{ inputs.version }}" \
-            --sha "$GITHUB_SHA"
+            --sha "$GITHUB_SHA" > .release/release-plan.json
+          cat .release/release-plan.json
 
       - name: Set package versions
         env:
@@ -144,7 +146,16 @@ jobs:
             fi
           done
 
-      - name: Publish dry run
+      - name: Run Artifact Wall
+        if: ${{ !inputs.publish }}
+        run: |
+          node scripts/release/artifacts-cli.mjs \
+            --plan .release/release-plan.json \
+            --out .release/artifacts \
+            --manifest .release/artifact-manifest.json \
+            --offline-consumer-test
+
+      - name: Publish dry run (preflight)
         if: ${{ !inputs.publish }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
