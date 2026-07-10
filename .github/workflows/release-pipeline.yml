@@ -7,6 +7,10 @@ on:
         description: Release version without the leading v
         required: true
         type: string
+      channel:
+        description: Release channel
+        required: true
+        type: string
       publish:
         description: Publish packages and sync versions back to dev
         required: true
@@ -44,9 +48,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Compute Release Plan
+        id: release-plan
+        run: |
+          node scripts/release/plan-cli.mjs \
+            --channel "${{ inputs.channel }}" \
+            --version "${{ inputs.version }}" \
+            --sha "$GITHUB_SHA"
+
       - name: Set package versions
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           tmp=$(mktemp)
           jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
@@ -88,20 +100,22 @@ jobs:
 
       - name: Publish dry run
         if: ${{ inputs.publish }}
-        run: pnpm -r publish --dry-run --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
+        run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$DIST_TAG"
 
       - name: Publish packages
         if: ${{ inputs.publish }}
-        run: pnpm -r publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
+        run: pnpm -r publish --no-git-checks --access public --tag "$DIST_TAG"
 
       - name: Verify published packages on npm
         if: ${{ inputs.publish }}
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           VERSION="$RELEASE_VERSION"
 
@@ -132,14 +146,15 @@ jobs:
 
       - name: Publish dry run
         if: ${{ !inputs.publish }}
-        run: pnpm -r publish --dry-run --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
+        run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$DIST_TAG"
 
       - name: Sync versions back to dev
-        if: ${{ inputs.publish }}
+        if: ${{ inputs.publish && steps.release-plan.outputs.syncs_dev == 'true' }}
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
