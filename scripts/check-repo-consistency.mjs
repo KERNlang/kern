@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { validateReleasePolicy } from './release/policy.mjs';
+
 const root = process.cwd();
 const failures = [];
 
@@ -90,6 +92,16 @@ function checkWorkflowContracts() {
       `package.json must pin packageManager to pnpm@${pnpmVersion} (found ${rootPackageJson.packageManager})`,
     );
   }
+  if (rootPackageJson.scripts?.['test:release-policy'] !== 'node --test scripts/release/*.test.mjs') {
+    fail('package.json must expose the complete release-policy test wall as test:release-policy.');
+  }
+
+  const releasePolicyPath = path.join(root, 'scripts', 'release', 'release-policy.json');
+  try {
+    validateReleasePolicy(JSON.parse(readFileSync(releasePolicyPath, 'utf8')));
+  } catch (error) {
+    fail(`scripts/release/release-policy.json is invalid: ${error.message}`);
+  }
 
   const workflowChecks = [
     {
@@ -112,8 +124,11 @@ function checkWorkflowContracts() {
         `corepack prepare pnpm@${pnpmVersion} --activate`,
         'pnpm install --frozen-lockfile',
         'pnpm test:kern',
-        'pnpm -r publish --no-git-checks --access public',
-        'pnpm -r publish --dry-run --no-git-checks --access public',
+        'node scripts/release/plan-cli.mjs',
+        'channel:\n        description: Release channel\n        required: true\n        type: string',
+        'pnpm -r publish --no-git-checks --access public --tag "$DIST_TAG"',
+        'pnpm -r publish --dry-run --no-git-checks --access public --tag "$DIST_TAG"',
+        "steps.release-plan.outputs.syncs_dev == 'true'",
       ],
       banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
     },
@@ -124,6 +139,7 @@ function checkWorkflowContracts() {
         'Run this workflow from the main branch',
         'Version must be plain semver without a leading v',
         'uses: ./.github/workflows/release-pipeline.yml',
+        'channel: stable',
         'publish: false',
       ],
       banned: [],
@@ -134,10 +150,24 @@ function checkWorkflowContracts() {
         'name: Version & Publish',
         "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
         'Release tags must use lowercase v and semver',
+        'cancel-in-progress: false',
         'uses: ./.github/workflows/release-pipeline.yml',
+        'channel: stable',
         'publish: true',
       ],
       banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+    },
+    {
+      path: '.github/workflows/canary-publish.yml',
+      required: [
+        'cancel-in-progress: false',
+        "github.event_name == 'workflow_dispatch'",
+        "github.ref_name == 'main'",
+        'node scripts/release/plan-cli.mjs',
+        '--channel canary',
+        '--tag "$NPM_TAG"',
+      ],
+      banned: [/npm_tag:/g, /NPM_TAG_INPUT/g, /workflow_run:/g, /branches:\s*\[dev\]/g],
     },
   ];
 
