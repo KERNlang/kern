@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "packageRoots": [
+    "packages"
+  ],
+  "channels": {
+    "stable": {
+      "versionMode": "stable-input",
+      "distTag": "latest",
+      "syncDev": true
+    },
+    "canary": {
+      "versionMode": "canary-run",
+      "baseVersion": "5.0.0",
+      "prereleaseId": "canary",
+      "distTag": "canary",
+      "syncDev": false
+    }
+  }
+}

@@ -6,7 +6,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -50,5 +50,6 @@ jobs:
     uses: ./.github/workflows/release-pipeline.yml
     with:
       version: ${{ needs.validate.outputs.version }}
+      channel: stable
       publish: true
     secrets: inherit
