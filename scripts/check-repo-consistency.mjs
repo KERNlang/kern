@@ -84,6 +84,63 @@ function checkContributing() {
   }
 }
 
+function collectPolicyPublicPackageNames(policy) {
+  const packageNames = new Map();
+  for (const packageRoot of policy.packageRoots) {
+    const absoluteRoot = path.join(root, packageRoot);
+    if (!existsSync(absoluteRoot)) {
+      fail(`Release policy package root does not exist: ${packageRoot}`);
+      continue;
+    }
+    for (const entry of readdirSync(absoluteRoot)) {
+      const packageJsonPath = path.join(absoluteRoot, entry, 'package.json');
+      if (!existsSync(packageJsonPath)) continue;
+      let pkg;
+      try {
+        pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+      } catch (error) {
+        fail(`${path.relative(root, packageJsonPath)} is invalid JSON: ${error.message}`);
+        continue;
+      }
+      if (pkg.private === true) continue;
+      if (typeof pkg.name !== 'string' || pkg.name.length === 0) {
+        fail(`${path.relative(root, packageJsonPath)}: public release package must have a name`);
+        continue;
+      }
+      const previous = packageNames.get(pkg.name);
+      if (previous) {
+        fail(`Duplicate public release package name ${pkg.name}: ${previous} and ${packageJsonPath}`);
+        continue;
+      }
+      packageNames.set(pkg.name, packageJsonPath);
+    }
+  }
+  return packageNames;
+}
+
+function checkReleaseWorkflowToolchain(workflowPath, contents, releasePolicy) {
+  const nodePins = [...contents.matchAll(/node-version:\s*['"]?([1-9]\d*)['"]?/g)].map(
+    (match) => Number.parseInt(match[1], 10),
+  );
+  if (nodePins.length !== 1 || nodePins[0] !== releasePolicy.release.nodeMajor) {
+    fail(
+      `${workflowPath} must pin exactly Node ${releasePolicy.release.nodeMajor} from release policy (found ${nodePins.join(', ') || 'none'})`,
+    );
+  }
+
+  const packageManagerPins = [...contents.matchAll(/corepack prepare ([^\s]+) --activate/g)].map(
+    (match) => match[1],
+  );
+  if (
+    packageManagerPins.length !== 1 ||
+    packageManagerPins[0] !== releasePolicy.release.packageManager
+  ) {
+    fail(
+      `${workflowPath} must activate exactly ${releasePolicy.release.packageManager} from release policy (found ${packageManagerPins.join(', ') || 'none'})`,
+    );
+  }
+}
+
 function checkWorkflowContracts() {
   const { pnpmVersion } = collectRepoFacts();
   const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -97,10 +154,32 @@ function checkWorkflowContracts() {
   }
 
   const releasePolicyPath = path.join(root, 'scripts', 'release', 'release-policy.json');
+  let releasePolicy;
   try {
-    validateReleasePolicy(JSON.parse(readFileSync(releasePolicyPath, 'utf8')));
+    releasePolicy = JSON.parse(readFileSync(releasePolicyPath, 'utf8'));
+    validateReleasePolicy(releasePolicy);
   } catch (error) {
     fail(`scripts/release/release-policy.json is invalid: ${error.message}`);
+    releasePolicy = null;
+  }
+
+  if (releasePolicy) {
+    if (rootPackageJson.packageManager !== releasePolicy.release.packageManager) {
+      fail(
+        `package.json packageManager (${rootPackageJson.packageManager}) must equal release policy packageManager (${releasePolicy.release.packageManager})`,
+      );
+    }
+    const publicPackageNames = collectPolicyPublicPackageNames(releasePolicy);
+    if (publicPackageNames.size !== releasePolicy.release.expectedPublicPackageCount) {
+      fail(
+        `Release policy expected ${releasePolicy.release.expectedPublicPackageCount} public packages but discovered ${publicPackageNames.size}`,
+      );
+    }
+    for (const name of releasePolicy.recovery.entryPackageNames) {
+      if (!publicPackageNames.has(name)) {
+        fail(`Recovery entry package is not a discovered public release package: ${name}`);
+      }
+    }
   }
 
   const workflowChecks = [
@@ -131,11 +210,17 @@ function checkWorkflowContracts() {
         'node scripts/release/registry-cli.mjs --mode publish-snapshot',
         'node scripts/release/registry-cli.mjs --mode publish-promote',
         'node scripts/release/registry-cli.mjs --mode publish-smoke',
+        'id: publish-promote',
+        'id: publish-smoke',
+        'node scripts/release/registry-cli.mjs\n          --mode publish-recover',
+        '--recovery-reason post-promotion-smoke-failed',
+        "steps.publish-promote.outcome == 'success'",
+        "steps.publish-smoke.outcome == 'failure'",
         'uses: actions/upload-artifact@v7',
         'Confirm durable bundle',
         'Confirm durable promotion snapshot',
         'node scripts/release/registry-cli.mjs --mode preflight',
-        "steps.release-plan.outputs.syncs_dev == 'true'",
+        "success() && inputs.publish && steps.release-plan.outputs.syncs_dev == 'true'",
       ],
       banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g, /pnpm -r publish/g],
     },
@@ -192,6 +277,15 @@ function checkWorkflowContracts() {
       if (pattern.test(contents)) {
         fail(`${workflow.path} contains banned workflow pattern: ${pattern}`);
       }
+    }
+
+    if (
+      releasePolicy &&
+      ['.github/workflows/release-pipeline.yml', '.github/workflows/canary-publish.yml'].includes(
+        workflow.path,
+      )
+    ) {
+      checkReleaseWorkflowToolchain(workflow.path, contents, releasePolicy);
     }
   }
 

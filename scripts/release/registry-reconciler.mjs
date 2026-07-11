@@ -13,6 +13,7 @@ import {
   validatePromotionSnapshot,
 } from './promotion.mjs';
 import { reconcileRegistryVersions } from './registry-metadata.mjs';
+import { containFailedRelease } from './recovery.mjs';
 import { runRegistrySmoke } from './registry-smoke.mjs';
 
 export { deriveStagingTag } from './promotion.mjs';
@@ -93,6 +94,8 @@ export async function runReleaseWorkflow({
   journal,
   packArtifactsFn,
   registrySmokeFn = runRegistrySmoke,
+  restoredSmokeFn,
+  recoveryDryRun = false,
   mode,
 }) {
   const bundleName = deriveBundleName({ plan, policy });
@@ -224,6 +227,31 @@ export async function runReleaseWorkflow({
     });
     await journal.setFinalState('succeeded');
     return { bundleName };
+  }
+
+  if (mode === 'publish-recover') {
+    const snapshot = await loadLocalSnapshot({
+      rootDir,
+      plan,
+      policy,
+      manifestSha512: verified.bundle.artifactManifestSha512,
+    });
+    const result = await containFailedRelease({
+      rootDir,
+      plan,
+      policy,
+      manifest: verified.manifest,
+      snapshot,
+      registryClient,
+      clock,
+      journal,
+      dryRun: recoveryDryRun,
+      ...(restoredSmokeFn ? { restoredSmokeFn } : {}),
+    });
+    if (recoveryDryRun) return { bundleName, recovery: result };
+    throw new Error(
+      'Failed release containment completed; this version remains failed and a new version is required',
+    );
   }
 
   throw new Error(`Unsupported release workflow mode: ${mode}`);

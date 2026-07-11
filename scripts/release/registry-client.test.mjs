@@ -61,3 +61,72 @@ test('required provenance is explicit in npm publish argv', async () => {
     assert.ok(argv.includes('--provenance'));
   } finally { await rm(env.root, { recursive: true, force: true }); }
 });
+
+test('recovery mutations use exact argv with configured execution bounds', async () => {
+  const calls = [];
+  const registry = client({
+    runCommandFn: async (file, argv, options) => {
+      calls.push({ file, argv, options });
+    },
+  });
+  const version = '5.0.0-canary.42.g01234567';
+  const message =
+    `KERN release ${version} from 0123456789abcdef0123456789abcdef01234567 failed post-promotion smoke.`;
+
+  await registry.removeDistTag('@kernlang/cli', 'latest');
+  await registry.deprecateVersion('@kernlang/cli', version, message);
+
+  assert.deepEqual(calls, [
+    {
+      file: policy.registry.clientCommand,
+      argv: [
+        'dist-tag',
+        'rm',
+        '@kernlang/cli',
+        'latest',
+        '--registry',
+        policy.registry.url,
+      ],
+      options: {
+        timeout: policy.registry.mutationTimeoutMs,
+        maxBuffer: policy.artifacts.maxCommandOutputBytes,
+      },
+    },
+    {
+      file: policy.registry.clientCommand,
+      argv: [
+        'deprecate',
+        `@kernlang/cli@${version}`,
+        message,
+        '--registry',
+        policy.registry.url,
+      ],
+      options: {
+        timeout: policy.registry.mutationTimeoutMs,
+        maxBuffer: policy.artifacts.maxCommandOutputBytes,
+      },
+    },
+  ]);
+});
+
+test('recovery mutation inputs reject unsafe or unbounded argv before execution', async () => {
+  let calls = 0;
+  const registry = client({
+    maxOutputBytes: 64,
+    runCommandFn: async () => {
+      calls += 1;
+    },
+  });
+
+  await assert.rejects(registry.removeDistTag('bad package', 'latest'), /package name/i);
+  await assert.rejects(registry.removeDistTag('@kernlang/cli', 'latest --force'), /dist-tag/i);
+  await assert.rejects(registry.setDistTag('bad package', '5.0.0', 'latest'), /package name/i);
+  await assert.rejects(registry.setDistTag('@kernlang/cli', 'latest', 'latest'), /semver/i);
+  await assert.rejects(registry.setDistTag('@kernlang/cli', '5.0.0', 'latest --force'), /dist-tag/i);
+  await assert.rejects(registry.deprecateVersion('@kernlang/cli', 'latest', 'failed release'), /semver/i);
+  await assert.rejects(registry.deprecateVersion('@kernlang/cli', '5.0.0', ''), /message/i);
+  await assert.rejects(registry.deprecateVersion('@kernlang/cli', '5.0.0', 'bad\nmessage'), /message/i);
+  await assert.rejects(registry.deprecateVersion('@kernlang/cli', '5.0.0', 'x'.repeat(65)), /limit/i);
+
+  assert.equal(calls, 0);
+});

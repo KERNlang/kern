@@ -7,6 +7,8 @@ const PRERELEASE_ID_RE = /^[a-z][a-z0-9-]*$/;
 const CHANNEL_NAME_RE = /^[a-z][a-z0-9._-]*$/;
 const BIN_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const PACKAGE_MANAGER_RE = /^pnpm@(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const DEPRECATION_PLACEHOLDERS = new Set(['version', 'sourceSha']);
 
 function assertPlainSemver(value, label) {
   if (typeof value !== 'string' || !PLAIN_SEMVER_RE.test(value)) {
@@ -35,6 +37,12 @@ export function validateReleasePolicy(policy) {
   }
   if (!Number.isSafeInteger(release.expectedPublicPackageCount) || release.expectedPublicPackageCount <= 0) {
     throw new Error('release.expectedPublicPackageCount must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(release.nodeMajor) || release.nodeMajor <= 0) {
+    throw new Error('release.nodeMajor must be a positive safe integer');
+  }
+  if (typeof release.packageManager !== 'string' || !PACKAGE_MANAGER_RE.test(release.packageManager)) {
+    throw new Error(`Invalid release.packageManager: ${release.packageManager}`);
   }
 
   const registry = policy.registry;
@@ -121,8 +129,52 @@ export function validateReleasePolicy(policy) {
   if (!promotion || typeof promotion !== 'object' || Array.isArray(promotion)) {
     throw new Error('promotion must be an object');
   }
-  if (typeof promotion.rootPackageName !== 'string' || !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/.test(promotion.rootPackageName)) {
+  if (typeof promotion.rootPackageName !== 'string' || !PACKAGE_NAME_RE.test(promotion.rootPackageName)) {
     throw new Error(`Invalid promotion.rootPackageName: ${promotion.rootPackageName}`);
+  }
+
+  const recovery = policy.recovery;
+  if (!recovery || typeof recovery !== 'object' || Array.isArray(recovery)) {
+    throw new Error('recovery must be an object');
+  }
+  if (!Array.isArray(recovery.entryPackageNames) || recovery.entryPackageNames.length === 0) {
+    throw new Error('recovery.entryPackageNames must be a non-empty array');
+  }
+  const entryPackageNames = new Set();
+  for (const name of recovery.entryPackageNames) {
+    if (typeof name !== 'string' || !PACKAGE_NAME_RE.test(name)) {
+      throw new Error(`Invalid recovery.entryPackageNames entry: ${name}`);
+    }
+    if (entryPackageNames.has(name)) {
+      throw new Error(`Duplicate recovery.entryPackageNames entry: ${name}`);
+    }
+    entryPackageNames.add(name);
+  }
+  if (!entryPackageNames.has(promotion.rootPackageName)) {
+    throw new Error('recovery.entryPackageNames must include promotion.rootPackageName');
+  }
+
+  const deprecationMessage = recovery.deprecationMessage;
+  if (
+    typeof deprecationMessage !== 'string' ||
+    deprecationMessage.length === 0 ||
+    deprecationMessage.trim() !== deprecationMessage ||
+    !/^[\x20-\x7e]+$/.test(deprecationMessage)
+  ) {
+    throw new Error('recovery.deprecationMessage must be a non-empty single-line ASCII template');
+  }
+  const placeholders = [...deprecationMessage.matchAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g)].map(
+    (match) => match[1],
+  );
+  if (
+    placeholders.length !== DEPRECATION_PLACEHOLDERS.size ||
+    new Set(placeholders).size !== DEPRECATION_PLACEHOLDERS.size ||
+    placeholders.some((placeholder) => !DEPRECATION_PLACEHOLDERS.has(placeholder)) ||
+    deprecationMessage.replaceAll(/\{[a-zA-Z][a-zA-Z0-9]*\}/g, '').match(/[{}]/)
+  ) {
+    throw new Error(
+      'recovery.deprecationMessage must contain exactly one {version} and one {sourceSha} placeholder',
+    );
   }
 
   if (!Array.isArray(policy.packageRoots) || policy.packageRoots.length === 0) {
@@ -162,6 +214,11 @@ export function validateReleasePolicy(policy) {
     if (!Number.isSafeInteger(artifacts[field]) || artifacts[field] <= 0) {
       throw new Error(`artifacts.${field} must be a positive safe integer`);
     }
+  }
+  if (Buffer.byteLength(deprecationMessage, 'utf8') > artifacts.maxCommandOutputBytes) {
+    throw new Error(
+      'recovery.deprecationMessage exceeds artifacts.maxCommandOutputBytes',
+    );
   }
   if (artifacts.maxPackageJsonBytes > artifacts.maxUnpackedBytes) {
     throw new Error('artifacts.maxPackageJsonBytes cannot exceed maxUnpackedBytes');

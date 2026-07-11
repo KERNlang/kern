@@ -3,6 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import {
+  assertDeprecationMessage,
+  assertDistTag,
+  assertExactVersion,
+  assertPackageName,
+} from './registry-validation.mjs';
+
 const execFileAsync = promisify(execFile);
 
 function encodePackageName(packageName) {
@@ -84,9 +91,7 @@ export class DefaultRegistryClient {
     if (!info.isFile() || info.isSymbolicLink()) {
       throw new Error(`Publish tarball is not a regular file: ${tarballPath}`);
     }
-    if (typeof distTag !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(distTag)) {
-      throw new Error(`Publish staging tag is invalid: ${distTag}`);
-    }
+    assertDistTag(distTag, this.maxOutputBytes);
     const args = [
       'publish',
       tarballPath,
@@ -113,7 +118,9 @@ export class DefaultRegistryClient {
   }
 
   async setDistTag(packageName, version, distTag) {
-    if (!packageName || !version || !distTag) throw new Error('Dist-tag mutation arguments are missing');
+    assertPackageName(packageName, this.maxOutputBytes);
+    assertExactVersion(version, this.maxOutputBytes);
+    assertDistTag(distTag, this.maxOutputBytes);
     try {
       await this.runCommandFn(
         this.clientCommand,
@@ -122,6 +129,35 @@ export class DefaultRegistryClient {
       );
     } catch (error) {
       throw new Error(`Registry dist-tag mutation failed: ${error.message}`);
+    }
+  }
+
+  async removeDistTag(packageName, distTag) {
+    assertPackageName(packageName, this.maxOutputBytes);
+    assertDistTag(distTag, this.maxOutputBytes);
+    try {
+      await this.runCommandFn(
+        this.clientCommand,
+        ['dist-tag', 'rm', packageName, distTag, '--registry', this.registryUrl],
+        { timeout: this.mutationTimeoutMs, maxBuffer: this.maxOutputBytes },
+      );
+    } catch (error) {
+      throw new Error(`Registry dist-tag removal failed: ${error.message}`);
+    }
+  }
+
+  async deprecateVersion(packageName, version, message) {
+    assertPackageName(packageName, this.maxOutputBytes);
+    assertExactVersion(version, this.maxOutputBytes);
+    assertDeprecationMessage(message, this.maxOutputBytes);
+    try {
+      await this.runCommandFn(
+        this.clientCommand,
+        ['deprecate', `${packageName}@${version}`, message, '--registry', this.registryUrl],
+        { timeout: this.mutationTimeoutMs, maxBuffer: this.maxOutputBytes },
+      );
+    } catch (error) {
+      throw new Error(`Registry deprecation failed: ${error.message}`);
     }
   }
 }

@@ -89,15 +89,29 @@ export async function reconcileRegistryVersions({
       if (path.dirname(tarballPath) !== artifactRoot) {
         throw new Error(`Manifest tarball path escapes bundle: ${pkg.tarball}`);
       }
-      await registryClient.publishTarball(tarballPath, stagingTag);
-      registryInfo = await poll({
-        attempts: policy.retry.attempts,
-        delayMs: policy.retry.delayMs,
-        clock,
-        read: () => registryClient.getVersion(pkg.name, plan.version),
-        accept: (value) => value !== null,
-        failureMessage: `Package ${pkg.name}@${plan.version} is not readable after publish`,
-      });
+      let publishError;
+      try {
+        await registryClient.publishTarball(tarballPath, stagingTag);
+      } catch (error) {
+        publishError = error;
+      }
+      try {
+        registryInfo = await poll({
+          attempts: policy.retry.attempts,
+          delayMs: policy.retry.delayMs,
+          clock,
+          read: () => registryClient.getVersion(pkg.name, plan.version),
+          accept: (value) => value !== null,
+          failureMessage: `Package ${pkg.name}@${plan.version} is not readable after publish`,
+        });
+      } catch (observationError) {
+        if (publishError) {
+          throw new Error(
+            `Registry publish failed and the exact version was not observed: ${publishError.message}`,
+          );
+        }
+        throw observationError;
+      }
       assertRegistryMetadata({ registryInfo, manifestPackage: pkg, plan });
       await journal.writeEvent({
         phase,
@@ -117,15 +131,29 @@ export async function reconcileRegistryVersions({
 
     const tags = await registryClient.getDistTags(pkg.name);
     if (tags[stagingTag] !== plan.version) {
-      await registryClient.setDistTag(pkg.name, plan.version, stagingTag);
-      await poll({
-        attempts: policy.retry.attempts,
-        delayMs: policy.retry.delayMs,
-        clock,
-        read: () => registryClient.getDistTags(pkg.name),
-        accept: (current) => current[stagingTag] === plan.version,
-        failureMessage: `Staging tag verification failed for ${pkg.name}`,
-      });
+      let tagError;
+      try {
+        await registryClient.setDistTag(pkg.name, plan.version, stagingTag);
+      } catch (error) {
+        tagError = error;
+      }
+      try {
+        await poll({
+          attempts: policy.retry.attempts,
+          delayMs: policy.retry.delayMs,
+          clock,
+          read: () => registryClient.getDistTags(pkg.name),
+          accept: (current) => current[stagingTag] === plan.version,
+          failureMessage: `Staging tag verification failed for ${pkg.name}`,
+        });
+      } catch (observationError) {
+        if (tagError) {
+          throw new Error(
+            `Staging-tag mutation failed and the exact tag was not observed: ${tagError.message}`,
+          );
+        }
+        throw observationError;
+      }
     }
   }
 }

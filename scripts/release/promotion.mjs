@@ -1,5 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import { assertExactVersion } from './registry-validation.mjs';
+
 export function deriveSnapshotName(plan) {
   return `promotion-snapshot-${plan.sha}-${plan.version}`;
 }
@@ -22,7 +24,13 @@ export function validatePromotionSnapshot({ snapshot, plan, policy, manifestSha5
   const actualNames = Object.keys(snapshot?.priorTags ?? {}).sort();
   const validPriorTags = actualNames.every((name) => {
     const value = snapshot.priorTags[name];
-    return value === null || typeof value === 'string';
+    if (value === null) return true;
+    try {
+      assertExactVersion(value, policy.artifacts.maxCommandOutputBytes);
+      return true;
+    } catch {
+      return false;
+    }
   });
   const valid =
     snapshot?.schemaVersion === 1 &&
@@ -59,6 +67,11 @@ export async function preparePromotionSnapshot({
     const tags = await registryClient.getDistTags(pkg.name);
     if (tags[stagingTag] !== plan.version) {
       throw new Error(`Cannot snapshot before staging tag verification for ${pkg.name}`);
+    }
+    if (tags[plan.distTag] === plan.version) {
+      throw new Error(
+        `Cannot create a promotion snapshot after public promotion for ${pkg.name}; recover the durable snapshot instead`,
+      );
     }
     priorTags[pkg.name] = tags[plan.distTag] ?? null;
   }
@@ -146,8 +159,29 @@ export async function promoteRegistryTags({
       outcome: 'started',
     });
     try {
-      await registryClient.setDistTag(pkg.name, plan.version, plan.distTag);
-      await verifyTag({ pkg, tag: plan.distTag, version: plan.version, registryClient, clock, policy });
+      let mutationError;
+      try {
+        await registryClient.setDistTag(pkg.name, plan.version, plan.distTag);
+      } catch (error) {
+        mutationError = error;
+      }
+      try {
+        await verifyTag({
+          pkg,
+          tag: plan.distTag,
+          version: plan.version,
+          registryClient,
+          clock,
+          policy,
+        });
+      } catch (observationError) {
+        if (mutationError) {
+          throw new Error(
+            `Public-tag mutation failed and the exact tag was not observed: ${mutationError.message}`,
+          );
+        }
+        throw observationError;
+      }
     } catch (error) {
       await journal.writeEvent({
         phase: 'promote-tag',

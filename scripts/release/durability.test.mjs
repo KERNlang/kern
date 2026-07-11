@@ -6,7 +6,11 @@ import test from 'node:test';
 
 import { DefaultArtifactStore } from './artifact-store.mjs';
 import { validateDurabilityReceipt, writeDurabilityReceipt } from './durability.mjs';
-import { parseCliArgs } from './registry-cli.mjs';
+import {
+  assertReleaseRuntime,
+  parseCliArgs,
+  recordFailureEvidence,
+} from './registry-cli.mjs';
 import { plan, policy } from './registry-test-fixtures.mjs';
 
 function artifact(overrides = {}) {
@@ -183,4 +187,56 @@ test('registry CLI exposes only explicit release phases and guards confirmations
     ]).artifactId,
     '123',
   );
+  const recovery = parseCliArgs([
+    '--mode', 'publish-recover',
+    ...base,
+    '--recovery-reason', 'post-promotion-smoke-failed',
+    '--dry-run', 'true',
+  ]);
+  assert.equal(recovery.dryRun, 'true');
+  assert.throws(
+    () => parseCliArgs(['--mode', 'publish-recover', ...base]),
+    /recovery-reason/i,
+  );
+  assert.throws(
+    () => parseCliArgs(['--mode', 'publish-smoke', ...base, '--dry-run', 'true']),
+    /only.*publish-recover/i,
+  );
+  assert.throws(
+    () => parseCliArgs([
+      '--mode', 'publish-recover',
+      ...base,
+      '--recovery-reason', 'post-promotion-smoke-failed',
+      '--dry-run', 'yes',
+    ]),
+    /true or false/i,
+  );
+});
+
+test('registry CLI release runtime is policy-bound before release I/O', () => {
+  assert.doesNotThrow(() => assertReleaseRuntime({ release: { nodeMajor: 22 } }, '22.22.0'));
+  assert.throws(
+    () => assertReleaseRuntime({ release: { nodeMajor: 22 } }, '20.9.0'),
+    /requires Node 22\.x/i,
+  );
+});
+
+test('registry CLI failure evidence cannot mask the release failure', async () => {
+  const events = [];
+  const originalError = new Error('original registry failure');
+  assert.equal(await recordFailureEvidence({
+    writeEvent: async (event) => { events.push(event); },
+    setFinalState: async () => {},
+  }, 'publish-recover', originalError), true);
+  assert.equal(events[0].error, originalError);
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(await recordFailureEvidence({
+      writeEvent: async () => { throw new Error('disk full'); },
+      setFinalState: async () => { throw new Error('must not run'); },
+    }, 'publish-recover'), false);
+  } finally {
+    console.warn = originalWarn;
+  }
 });

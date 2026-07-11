@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-import { runRegistrySmoke } from './registry-smoke.mjs';
+import { runRegistrySmoke, runRestoredEntrySmoke } from './registry-smoke.mjs';
 import { createTestEnv, FakeRegistryClient, plan, policy } from './registry-test-fixtures.mjs';
 
 function seedRegistry(registry, manifest) {
@@ -70,6 +70,81 @@ test('registry smoke fails before install when any public tag is stale', async (
         runCommandFn: async () => { commands += 1; },
       }),
       /stale latest tag/i,
+    );
+    assert.equal(commands, 0);
+  } finally { await rm(env.root, { recursive: true, force: true }); }
+});
+
+test('restored entry smoke installs the prior channel version and checks exact internal pins', async () => {
+  const env = await createTestEnv();
+  try {
+    const registry = new FakeRegistryClient(env.manifest);
+    const priorVersion = '4.5.0';
+    registry.tags.set('kern-lang', { [plan.distTag]: priorVersion });
+    registry.versions.set(`kern-lang@${priorVersion}`, {
+      name: 'kern-lang',
+      version: priorVersion,
+      dependencies: { '@kernlang/core': priorVersion },
+    });
+    const commands = [];
+    const result = await runRestoredEntrySmoke({
+      rootDir: env.root,
+      plan,
+      snapshot: { priorTags: { 'kern-lang': priorVersion } },
+      policy,
+      registryClient: registry,
+      runCommandFn: async (file, argv, options) => {
+        commands.push({ file, argv });
+        if (file !== policy.registry.clientCommand) return { stdout: '', stderr: '' };
+        const packageDir = path.join(options.cwd, 'node_modules', 'kern-lang');
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+          path.join(packageDir, 'package.json'),
+          JSON.stringify({
+            name: 'kern-lang',
+            version: priorVersion,
+            dependencies: { '@kernlang/core': priorVersion },
+          }),
+        );
+        return { stdout: '', stderr: '' };
+      },
+    });
+    assert.deepEqual(result, [{
+      packageName: 'kern-lang',
+      version: priorVersion,
+      verified: 'clean-install',
+    }]);
+    assert.equal(commands[0].file, policy.registry.clientCommand);
+
+    registry.versions.get(`kern-lang@${priorVersion}`).dependencies['@kernlang/core'] = '^4.5.0';
+    await assert.rejects(
+      runRestoredEntrySmoke({
+        rootDir: env.root,
+        plan,
+        snapshot: { priorTags: { 'kern-lang': priorVersion } },
+        policy,
+        registryClient: registry,
+        runCommandFn: async () => ({ stdout: '', stderr: '' }),
+      }),
+      /does not exactly pin/i,
+    );
+  } finally { await rm(env.root, { recursive: true, force: true }); }
+});
+
+test('restored entry smoke rejects a snapshot missing a configured entry', async () => {
+  const env = await createTestEnv();
+  try {
+    let commands = 0;
+    await assert.rejects(
+      runRestoredEntrySmoke({
+        rootDir: env.root,
+        plan,
+        snapshot: { priorTags: {} },
+        policy,
+        registryClient: new FakeRegistryClient(env.manifest),
+        runCommandFn: async () => { commands += 1; },
+      }),
+      /missing recovery entry/i,
     );
     assert.equal(commands, 0);
   } finally { await rm(env.root, { recursive: true, force: true }); }

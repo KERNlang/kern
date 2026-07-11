@@ -23,6 +23,7 @@ const MODES = new Set([
   'confirm-snapshot',
   'publish-promote',
   'publish-smoke',
+  'publish-recover',
 ]);
 const OPTION_NAMES = new Map([
   ['--channel', 'channel'],
@@ -34,6 +35,8 @@ const OPTION_NAMES = new Map([
   ['--artifact-id', 'artifactId'],
   ['--artifact-digest', 'artifactDigest'],
   ['--tag', 'tag'],
+  ['--recovery-reason', 'recoveryReason'],
+  ['--dry-run', 'dryRun'],
 ]);
 
 export function parseCliArgs(args) {
@@ -55,7 +58,28 @@ export function parseCliArgs(args) {
   if (options.mode.startsWith('confirm-') && (!options.artifactId || !options.artifactDigest)) {
     throw new Error('Confirmation modes require --artifact-id and --artifact-digest');
   }
+  if (options.mode === 'publish-recover') {
+    if (options.recoveryReason !== 'post-promotion-smoke-failed') {
+      throw new Error(
+        'publish-recover requires --recovery-reason post-promotion-smoke-failed',
+      );
+    }
+    if (options.dryRun !== undefined && !['true', 'false'].includes(options.dryRun)) {
+      throw new Error('--dry-run must be true or false');
+    }
+  } else if (options.recoveryReason !== undefined || options.dryRun !== undefined) {
+    throw new Error('Recovery options are valid only with --mode publish-recover');
+  }
   return options;
+}
+
+export function assertReleaseRuntime(policy, nodeVersion = process.versions.node) {
+  const major = Number.parseInt(nodeVersion.split('.')[0], 10);
+  if (major !== policy.release.nodeMajor) {
+    throw new Error(
+      `Release CLI requires Node ${policy.release.nodeMajor}.x; current runtime is ${nodeVersion}`,
+    );
+  }
 }
 
 async function writeOutputs(values) {
@@ -68,10 +92,36 @@ function normalizedArtifactDigest(value) {
   return value.startsWith('sha256:') ? value : `sha256:${value}`;
 }
 
+function noOpJournal() {
+  return {
+    writeEvent: async () => {},
+    setFinalState: async () => {},
+    setBundleDigest: async () => {},
+  };
+}
+
+export async function recordFailureEvidence(journal, mode, originalError) {
+  try {
+    await journal.writeEvent({
+      phase: mode,
+      packageName: null,
+      operation: 'phase',
+      outcome: 'failed',
+      error: originalError ?? new Error(`${mode} failed`),
+    });
+    await journal.setFinalState('failed');
+    return true;
+  } catch {
+    console.warn('Release journal failure evidence could not be recorded');
+    return false;
+  }
+}
+
 async function main() {
   const options = parseCliArgs(process.argv.slice(2));
   const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const policy = await loadReleasePolicy(path.join(rootDir, 'scripts/release/release-policy.json'));
+  assertReleaseRuntime(policy);
   const plan = await createReleasePlan({
     rootDir,
     policy,
@@ -121,15 +171,19 @@ async function main() {
     rootDir,
     limits: policy.bundle,
   });
-  const journal = await DefaultJournalSink.open({
-    journalPath: options.journal
-      ? path.resolve(rootDir, options.journal)
-      : path.join(releaseDir, 'journal.json'),
-    plan,
-    bundleName,
-    bundleDigest: null,
-  });
+  const dryRun = options.dryRun === 'true';
+  let journal = noOpJournal();
   try {
+    if (!dryRun) {
+      journal = await DefaultJournalSink.open({
+        journalPath: options.journal
+          ? path.resolve(rootDir, options.journal)
+          : path.join(releaseDir, 'journal.json'),
+        plan,
+        bundleName,
+        bundleDigest: null,
+      });
+    }
     const result = await runReleaseWorkflow({
       rootDir,
       plan,
@@ -144,6 +198,7 @@ async function main() {
       },
       journal,
       packArtifactsFn: packArtifacts,
+      recoveryDryRun: dryRun,
       mode: options.mode,
     });
     if (options.mode === 'publish-pack') {
@@ -160,15 +215,11 @@ async function main() {
         'retention-days': policy.bundle.retentionDays,
       });
     }
+    if (options.mode === 'publish-recover' && dryRun) {
+      console.log(JSON.stringify(result.recovery.actions, null, 2));
+    }
   } catch (error) {
-    await journal.writeEvent({
-      phase: options.mode,
-      packageName: null,
-      operation: 'phase',
-      outcome: 'failed',
-      error: new Error(`${options.mode} failed`),
-    });
-    await journal.setFinalState('failed');
+    if (!dryRun) await recordFailureEvidence(journal, options.mode, error);
     throw error;
   }
 }

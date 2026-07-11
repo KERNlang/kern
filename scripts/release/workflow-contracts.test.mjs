@@ -10,6 +10,10 @@ async function workflow(name) {
   return readFile(path.join(repoRoot, '.github/workflows', name), 'utf8');
 }
 
+async function json(relativePath) {
+  return JSON.parse(await readFile(path.join(repoRoot, relativePath), 'utf8'));
+}
+
 test('real publish workflows cannot be cancelled in progress', async () => {
   const stable = await workflow('release.yml');
   const canary = await workflow('canary-publish.yml');
@@ -82,12 +86,59 @@ test('publish phases enforce durable receipts before mutations and finish with s
   }
 });
 
+test('release workflow toolchain pins match policy and the root package manager', async () => {
+  const policy = await json('scripts/release/release-policy.json');
+  const rootPackage = await json('package.json');
+  assert.equal(rootPackage.packageManager, policy.release.packageManager);
+
+  for (const name of ['release-pipeline.yml', 'canary-publish.yml']) {
+    const contents = await workflow(name);
+    const nodeMajor = contents.match(/node-version:\s*['"]?([1-9]\d*)['"]?/)?.[1];
+    const packageManager = contents.match(/corepack prepare ([^\s]+) --activate/)?.[1];
+    assert.equal(nodeMajor, String(policy.release.nodeMajor), `${name} Node major drifted from policy`);
+    assert.equal(packageManager, policy.release.packageManager, `${name} package manager drifted from policy`);
+  }
+});
+
+test('failed-smoke containment is authorized only by successful promotion and failed smoke', async () => {
+  const pipeline = await workflow('release-pipeline.yml');
+  const promoteIndex = pipeline.indexOf('      - name: Promote public tags');
+  const smokeIndex = pipeline.indexOf('      - name: Run clean registry smoke tests');
+  const recoverIndex = pipeline.indexOf('      - name: Contain failed post-promotion smoke');
+  const journalIndex = pipeline.indexOf('      - name: Upload Journal');
+
+  assert.ok(promoteIndex >= 0 && promoteIndex < smokeIndex);
+  assert.ok(smokeIndex < recoverIndex && recoverIndex < journalIndex);
+  assert.match(
+    pipeline,
+    /      - name: Promote public tags\n        id: publish-promote\n/,
+  );
+  assert.match(
+    pipeline,
+    /      - name: Run clean registry smoke tests\n        id: publish-smoke\n/,
+  );
+
+  const containment = pipeline.slice(recoverIndex, journalIndex);
+  assert.match(
+    containment,
+    /if: \$\{\{ failure\(\) && inputs\.publish && steps\.publish-promote\.outcome == 'success' && steps\.publish-smoke\.outcome == 'failure' \}\}/,
+  );
+  assert.match(containment, /NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
+  assert.match(containment, /--mode publish-recover/);
+  assert.match(containment, /--recovery-reason post-promotion-smoke-failed/);
+  assert.doesNotMatch(containment, /continue-on-error|if:\s*always\(\)|exit 0/);
+  assert.equal(
+    (pipeline.match(/--recovery-reason post-promotion-smoke-failed/g) ?? []).length,
+    1,
+  );
+});
+
 test('dev synchronization is guarded by the release plan', async () => {
   const pipeline = await workflow('release-pipeline.yml');
 
   assert.match(
     pipeline,
-    /if:\s*\$\{\{[^\n]*inputs\.publish[^\n]*steps\.release-plan\.outputs\.syncs_dev\s*==\s*'true'/,
+    /if:\s*\$\{\{\s*success\(\)\s*&&\s*inputs\.publish\s*&&\s*steps\.release-plan\.outputs\.syncs_dev\s*==\s*'true'/,
   );
 });
 

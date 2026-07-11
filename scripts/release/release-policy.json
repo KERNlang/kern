@@ -4,7 +4,9 @@
     "packages"
   ],
   "release": {
-    "expectedPublicPackageCount": 22
+    "expectedPublicPackageCount": 22,
+    "nodeMajor": 22,
+    "packageManager": "pnpm@10.32.1"
   },
   "registry": {
     "url": "https://registry.npmjs.org",
@@ -33,6 +35,13 @@
   },
   "promotion": {
     "rootPackageName": "kern-lang"
+  },
+  "recovery": {
+    "entryPackageNames": [
+      "@kernlang/cli",
+      "kern-lang"
+    ],
+    "deprecationMessage": "KERN release {version} from {sourceSha} failed post-promotion registry smoke and must not be used."
   },
   "provenance": {
     "mode": "disabled-unverified"
