@@ -38,6 +38,7 @@
     "test:root": "pnpm build && node ./scripts/run-node-tests.mjs \"tests/**/*.test.ts\"",
     "test:prepush": "node --test scripts/pre-push.test.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
+    "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
     "test:infra": "pnpm test:prepush && pnpm test:release-policy && pnpm test:kern-5-fitness",
     "fitness": "pnpm fitness:kern-5",
     "fitness:kern-5": "node ./scripts/kern-5-fitness.mjs",

@@ -31,6 +31,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | app-behavior | Three-leg app behavior | current | `pnpm test:app-behavior` |
 | drift-showcase | Backend drift showcase | current | `pnpm test:drift-showcase` |
 | browser-budget | Required browser budget | current | `pnpm check:runner-browser-budget:required` |
+| kir-seam-probe | Typed semantic KIR seam probe | current | `pnpm test:kern-ir-probe` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
 | runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
@@ -57,6 +58,7 @@ wall and must remain absent until promoted.
 | kern-module-validator | KERN module validator | internal-oracle | `pnpm test:selfhost-validator` |
 | kern-checker-v1 | KERN checker subset v1 | shipped-4.5 | `git show v4.5.0:examples/capstone-checker-subset/checker.kern` |
 | checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |
+| kir-seam-selection | Typed semantic KIR seam selection | internal-oracle | `pnpm test:kern-ir-probe` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R1 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |

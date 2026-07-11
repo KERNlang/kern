@@ -163,7 +163,9 @@ trusted-publishing/provenance configuration is inspected.
 - [x] R1.2 checker v2 closure: 48/48 TS/KERN byte-matched fixtures,
   36 accept-but-abstain attacks rejected, 23 direct safe-integer cases, and the
   complete `fitness:kern-5` wall passed on 2026-07-11.
-- [ ] R1.3 KIR seam probe and selection.
+- [x] R1.3 KIR seam probe and selection: typed semantic projection selected;
+  source AST and runner lowering rejected; 20/20 strict, hostile-value,
+  module-graph, mutation, and subprocess checks passed on 2026-07-11.
 - [ ] R1.4 versioned KIR/runtime/handler/capability contract freeze.
 - [ ] R1.5 non-circular semantic ownership proof and Alpha manifest.
 
@@ -364,6 +366,7 @@ pnpm test:runner-smoke
 pnpm test:app-behavior
 pnpm test:drift-showcase
 pnpm check:runner-browser-budget:required
+pnpm test:kern-ir-probe               # CURRENT experimental seam oracle
 pnpm test:kern-ir                      # TARGET
 pnpm test:runtime-abi                  # TARGET
 pnpm test:kern-frontend                # TARGET

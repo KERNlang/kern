@@ -5,6 +5,7 @@
     "fitness": "pnpm fitness:kern-5",
     "fitness:kern-5": "node ./scripts/kern-5-fitness.mjs",
     "test:app-behavior": "node ./scripts/app-behavior-conformance.mjs",
+    "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -67,6 +68,12 @@
       "label": "Required browser budget",
       "status": "current",
       "argv": ["pnpm", "check:runner-browser-budget:required"]
+    },
+    {
+      "id": "kir-seam-probe",
+      "label": "Typed semantic KIR seam probe",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-ir-probe"]
     },
     {
       "id": "diff-hygiene",
@@ -153,6 +160,12 @@
       "label": "Checker v2 and production shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:capstone-checker-subset"
+    },
+    {
+      "id": "kir-seam-selection",
+      "label": "Typed semantic KIR seam selection",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-ir-probe"
     },
     {
       "id": "versioned-kir-v1",
