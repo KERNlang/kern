@@ -4,7 +4,12 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { writeDurabilityReceipt } from './durability.mjs';
-import { deriveSnapshotName, deriveStagingTag } from './promotion.mjs';
+import {
+  deriveSnapshotName,
+  deriveStagingTag,
+  preparePromotionSnapshot,
+  validatePromotionSnapshot,
+} from './promotion.mjs';
 import { runReleaseWorkflow } from './registry-reconciler.mjs';
 import {
   clock,
@@ -71,6 +76,33 @@ test('promotion snapshot requires every staging tag and binds the manifest diges
     assert.equal(result.snapshot.artifactManifestSha512, bundle.artifactManifestSha512);
     assert.deepEqual(Object.keys(result.snapshot.priorTags).sort(), plan.packages.map((pkg) => pkg.name).sort());
   } finally { await rm(env.root, { recursive: true, force: true }); }
+});
+
+test('promotion snapshot cannot be recreated after a public tag has moved', async () => {
+  const env = await createTestEnv();
+  try {
+    const registry = new FakeRegistryClient(env.manifest);
+    const store = new FakeArtifactStore(env.root);
+    seedStaging(registry);
+    registry.tags.set('@kernlang/core', {
+      ...registry.tags.get('@kernlang/core'),
+      [plan.distTag]: plan.version,
+    });
+    await assert.rejects(
+      preparePromotionSnapshot({
+        plan,
+        policy,
+        manifestSha512: 'a'.repeat(128),
+        registryClient: registry,
+        artifactStore: store,
+      }),
+      /after public promotion.*recover the durable snapshot/i,
+    );
+    assert.equal(store.snapshots.size, 0);
+    assert.equal(registry.mutationTrace.length, 0);
+  } finally {
+    await rm(env.root, { recursive: true, force: true });
+  }
 });
 
 test('public tags cannot move without the matching durable snapshot receipt', async () => {
@@ -182,4 +214,40 @@ test('smoke success and final success are recorded only after the real smoke cal
 
 test('snapshot identity includes source SHA and version', () => {
   assert.equal(deriveSnapshotName(plan), `promotion-snapshot-${plan.sha}-${plan.version}`);
+});
+
+test('promotion snapshot prior tags must be null or bounded exact SemVer', () => {
+  const manifestSha512 = 'a'.repeat(128);
+  const snapshot = {
+    schemaVersion: 1,
+    sha: plan.sha,
+    version: plan.version,
+    channel: plan.channel,
+    distTag: plan.distTag,
+    stagingTag: deriveStagingTag({ plan, policy }),
+    artifactManifestSha512: manifestSha512,
+    priorTags: Object.fromEntries(plan.packages.map((pkg) => [pkg.name, '4.5.0'])),
+  };
+  assert.doesNotThrow(() => validatePromotionSnapshot({ snapshot, plan, policy, manifestSha512 }));
+  for (const invalid of ['latest --force', '^4.5.0', '4.5']) {
+    const mutated = structuredClone(snapshot);
+    mutated.priorTags['kern-lang'] = invalid;
+    assert.throws(
+      () => validatePromotionSnapshot({ snapshot: mutated, plan, policy, manifestSha512 }),
+      /does not match/i,
+    );
+  }
+  const boundedPolicy = structuredClone(policy);
+  boundedPolicy.artifacts.maxCommandOutputBytes = 8;
+  const oversized = structuredClone(snapshot);
+  oversized.priorTags['kern-lang'] = '5.0.0-abc';
+  assert.throws(
+    () => validatePromotionSnapshot({
+      snapshot: oversized,
+      plan,
+      policy: boundedPolicy,
+      manifestSha512,
+    }),
+    /does not match/i,
+  );
 });

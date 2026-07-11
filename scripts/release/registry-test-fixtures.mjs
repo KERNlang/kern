@@ -10,7 +10,11 @@ import { writeDurabilityReceipt } from './durability.mjs';
 export const policy = {
   schemaVersion: 1,
   packageRoots: ['packages'],
-  release: { expectedPublicPackageCount: 2 },
+  release: {
+    expectedPublicPackageCount: 2,
+    nodeMajor: 22,
+    packageManager: 'pnpm@10.32.1',
+  },
   registry: {
     url: 'https://registry.npmjs.org',
     timeoutMs: 30000,
@@ -32,6 +36,10 @@ export const policy = {
   retry: { attempts: 2, delayMs: 1 },
   staging: { tagPrefix: 'kern-stage' },
   promotion: { rootPackageName: 'kern-lang' },
+  recovery: {
+    entryPackageNames: ['kern-lang'],
+    deprecationMessage: 'KERN release {version} from {sourceSha} failed post-promotion smoke.',
+  },
   provenance: { mode: 'disabled-unverified' },
   artifacts: {
     maxTarballBytes: 268435456,
@@ -171,32 +179,171 @@ export class FakeRegistryClient {
     this.manifest = manifest;
     this.versions = new Map();
     this.tags = new Map();
+    this.deprecations = new Map();
     this.calls = [];
+    this.mutationTrace = [];
     this.afterPublish = null;
+    this.failpoints = [];
+    this.versionReadQueues = new Map();
+    this.distTagReadQueues = new Map();
+    this.nextMutationSequence = 1;
   }
+
+  failNextMutation({ method, when = 'before', match = {}, occurrence = 1, error } = {}) {
+    if (typeof method !== 'string' || method.length === 0) {
+      throw new Error('Fake registry failpoint requires a mutation method');
+    }
+    if (when !== 'before' && when !== 'after-apply') {
+      throw new Error(`Fake registry failpoint timing must be before or after-apply, got ${when}`);
+    }
+    if (!Number.isInteger(occurrence) || occurrence <= 0) {
+      throw new Error('Fake registry failpoint occurrence must be a positive integer');
+    }
+    this.failpoints.push({
+      method,
+      when,
+      match: { ...match },
+      remaining: occurrence,
+      error: error ?? new Error(`Injected ${when} failure for ${method}`),
+    });
+  }
+
+  queueVersionReads(name, version, values) {
+    if (!Array.isArray(values)) throw new Error('Fake registry version read queue must be an array');
+    this.versionReadQueues.set(`${name}@${version}`, [...values]);
+  }
+
+  queueDistTagReads(name, values) {
+    if (!Array.isArray(values)) throw new Error('Fake registry dist-tag read queue must be an array');
+    this.distTagReadQueues.set(name, values.map((value) => ({ ...value })));
+  }
+
+  setExternalVersion(name, version, metadata) {
+    this.versions.set(`${name}@${version}`, metadata);
+    this.#recordExternalMutation('setExternalVersion', { name, version });
+  }
+
+  setExternalDistTag(name, tag, version) {
+    this.tags.set(name, { ...(this.tags.get(name) ?? {}), [tag]: version });
+    this.#recordExternalMutation('setExternalDistTag', { name, tag, version });
+  }
+
+  removeExternalDistTag(name, tag) {
+    const tags = { ...(this.tags.get(name) ?? {}) };
+    delete tags[tag];
+    this.tags.set(name, tags);
+    this.#recordExternalMutation('removeExternalDistTag', { name, tag });
+  }
+
+  #recordExternalMutation(method, details) {
+    const sequence = this.nextMutationSequence;
+    this.nextMutationSequence += 1;
+    this.mutationTrace.push({ sequence, source: 'external', method, phase: 'applied', ...details });
+  }
+
+  #matchingFailpoint(method, when, details) {
+    for (let index = 0; index < this.failpoints.length; index += 1) {
+      const candidate = this.failpoints[index];
+      if (candidate.method !== method || candidate.when !== when) continue;
+      if (!Object.entries(candidate.match).every(([key, value]) => details[key] === value)) continue;
+      candidate.remaining -= 1;
+      if (candidate.remaining > 0) continue;
+      this.failpoints.splice(index, 1);
+      return candidate;
+    }
+    return null;
+  }
+
+  async #runMutation(method, details, apply) {
+    const sequence = this.nextMutationSequence;
+    this.nextMutationSequence += 1;
+    const trace = (phase) => {
+      this.mutationTrace.push({ sequence, source: 'client', method, phase, ...details });
+    };
+    trace('attempted');
+    const before = this.#matchingFailpoint(method, 'before', details);
+    if (before) {
+      trace('failed-before');
+      throw before.error;
+    }
+    try {
+      await apply();
+    } catch (error) {
+      trace('apply-error');
+      throw error;
+    }
+    trace('applied');
+    const after = this.#matchingFailpoint(method, 'after-apply', details);
+    if (after) {
+      trace('failed-after-apply');
+      throw after.error;
+    }
+    trace('completed');
+  }
+
   async getVersion(name, version) {
     this.calls.push({ method: 'getVersion', name, version });
-    return this.versions.get(`${name}@${version}`) ?? null;
+    const key = `${name}@${version}`;
+    const queued = this.versionReadQueues.get(key);
+    if (queued?.length) {
+      const value = queued.shift();
+      if (queued.length === 0) this.versionReadQueues.delete(key);
+      return value;
+    }
+    return this.versions.get(key) ?? null;
   }
   async getDistTags(name) {
     this.calls.push({ method: 'getDistTags', name });
+    const queued = this.distTagReadQueues.get(name);
+    if (queued?.length) {
+      const value = queued.shift();
+      if (queued.length === 0) this.distTagReadQueues.delete(name);
+      return { ...value };
+    }
     return { ...(this.tags.get(name) ?? {}) };
   }
   async publishTarball(tarballPath, tag) {
     this.calls.push({ method: 'publishTarball', tarballPath, tag });
     const pkg = this.manifest.packages.find((candidate) => candidate.tarball === path.basename(tarballPath));
+    if (!pkg) throw new Error(`Unknown fake-registry tarball: ${path.basename(tarballPath)}`);
     const metadata = {
       name: pkg.name,
       version: pkg.version,
       dist: { integrity: pkg.integrity },
       dependencies: Object.fromEntries(pkg.internalRuntimeDependencies.map((dep) => [dep.name, dep.version])),
     };
-    this.versions.set(`${pkg.name}@${pkg.version}`, metadata);
-    if (this.afterPublish) await this.afterPublish({ pkg, metadata });
+    await this.#runMutation(
+      'publishTarball',
+      { name: pkg.name, version: pkg.version, tag, tarballPath },
+      async () => {
+        this.versions.set(`${pkg.name}@${pkg.version}`, metadata);
+        if (this.afterPublish) await this.afterPublish({ pkg, metadata });
+      },
+    );
   }
   async setDistTag(name, version, tag) {
     this.calls.push({ method: 'setDistTag', name, version, tag });
-    this.tags.set(name, { ...(this.tags.get(name) ?? {}), [tag]: version });
+    await this.#runMutation('setDistTag', { name, version, tag }, async () => {
+      this.tags.set(name, { ...(this.tags.get(name) ?? {}), [tag]: version });
+    });
+  }
+  async removeDistTag(name, tag) {
+    this.calls.push({ method: 'removeDistTag', name, tag });
+    await this.#runMutation('removeDistTag', { name, tag }, async () => {
+      const tags = { ...(this.tags.get(name) ?? {}) };
+      delete tags[tag];
+      this.tags.set(name, tags);
+    });
+  }
+  async deprecateVersion(name, version, message) {
+    this.calls.push({ method: 'deprecateVersion', name, version, message });
+    await this.#runMutation('deprecateVersion', { name, version, message }, async () => {
+      const key = `${name}@${version}`;
+      const metadata = this.versions.get(key);
+      if (!metadata) throw new Error(`Cannot deprecate missing fake-registry version ${key}`);
+      metadata.deprecated = message;
+      this.deprecations.set(key, message);
+    });
   }
 }
 

@@ -168,6 +168,7 @@ jobs:
           --artifact-digest "${{ steps.promotion-snapshot-upload.outputs.artifact-digest }}"
 
       - name: Promote public tags
+        id: publish-promote
         if: ${{ inputs.publish }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -175,8 +176,21 @@ jobs:
         run: node scripts/release/registry-cli.mjs --mode publish-promote --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA" --tag "$DIST_TAG"
 
       - name: Run clean registry smoke tests
+        id: publish-smoke
         if: ${{ inputs.publish }}
         run: node scripts/release/registry-cli.mjs --mode publish-smoke --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Contain failed post-promotion smoke
+        if: ${{ failure() && inputs.publish && steps.publish-promote.outcome == 'success' && steps.publish-smoke.outcome == 'failure' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: >-
+          node scripts/release/registry-cli.mjs
+          --mode publish-recover
+          --channel "${{ inputs.channel }}"
+          --version "${{ inputs.version }}"
+          --sha "$GITHUB_SHA"
+          --recovery-reason post-promotion-smoke-failed
 
       - name: Run Artifact Wall
         if: ${{ !inputs.publish }}
@@ -192,7 +206,7 @@ jobs:
           include-hidden-files: true
 
       - name: Sync versions back to dev
-        if: ${{ inputs.publish && steps.release-plan.outputs.syncs_dev == 'true' }}
+        if: ${{ success() && inputs.publish && steps.release-plan.outputs.syncs_dev == 'true' }}
         env:
           RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |

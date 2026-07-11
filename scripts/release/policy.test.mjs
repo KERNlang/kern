@@ -9,7 +9,11 @@ import {
 const policy = {
   schemaVersion: 1,
   packageRoots: ['packages'],
-  release: { expectedPublicPackageCount: 22 },
+  release: {
+    expectedPublicPackageCount: 22,
+    nodeMajor: 22,
+    packageManager: 'pnpm@10.32.1',
+  },
   registry: {
     url: 'https://registry.npmjs.org',
     timeoutMs: 30000,
@@ -37,6 +41,11 @@ const policy = {
   },
   promotion: {
     rootPackageName: 'kern-lang',
+  },
+  recovery: {
+    entryPackageNames: ['@kernlang/cli', 'kern-lang'],
+    deprecationMessage:
+      'KERN release {version} from {sourceSha} failed post-promotion registry smoke and must not be used.',
   },
   provenance: {
     mode: 'disabled-unverified',
@@ -233,6 +242,76 @@ test('policy rejects unsafe or duplicate package roots', () => {
   const empty = structuredClone(policy);
   empty.packageRoots = [];
   assert.throws(() => validateReleasePolicy(empty), /package root/i);
+});
+
+test('policy validates the release runtime and package-manager contract', () => {
+  const invalidCases = [
+    ['missing Node major', (copy) => delete copy.release.nodeMajor],
+    ['zero Node major', (copy) => (copy.release.nodeMajor = 0)],
+    ['fractional Node major', (copy) => (copy.release.nodeMajor = 22.5)],
+    ['string Node major', (copy) => (copy.release.nodeMajor = '22')],
+    ['missing package manager', (copy) => delete copy.release.packageManager],
+    ['wrong package manager', (copy) => (copy.release.packageManager = 'npm@10.9.4')],
+    ['incomplete pnpm version', (copy) => (copy.release.packageManager = 'pnpm@10.32')],
+    ['prerelease pnpm version', (copy) => (copy.release.packageManager = 'pnpm@10.32.1-rc.1')],
+    ['padded pnpm version', (copy) => (copy.release.packageManager = 'pnpm@10.032.1')],
+  ];
+  for (const [name, mutate] of invalidCases) {
+    const copy = structuredClone(policy);
+    mutate(copy);
+    assert.throws(
+      () => validateReleasePolicy(copy),
+      /release|nodeMajor|packageManager|positive safe integer/i,
+      `policy accepted ${name}`,
+    );
+  }
+});
+
+test('policy validates configured recovery entry packages', () => {
+  const invalidCases = [
+    ['missing recovery', (copy) => delete copy.recovery],
+    ['empty entries', (copy) => (copy.recovery.entryPackageNames = [])],
+    ['unsafe entry', (copy) => (copy.recovery.entryPackageNames = ['@kernlang/cli;publish', 'kern-lang'])],
+    ['duplicate entry', (copy) => (copy.recovery.entryPackageNames = ['kern-lang', 'kern-lang'])],
+    ['missing root entry', (copy) => (copy.recovery.entryPackageNames = ['@kernlang/cli'])],
+  ];
+  for (const [name, mutate] of invalidCases) {
+    const copy = structuredClone(policy);
+    mutate(copy);
+    assert.throws(
+      () => validateReleasePolicy(copy),
+      /recovery|entryPackageNames|rootPackageName|duplicate/i,
+      `policy accepted ${name}`,
+    );
+  }
+});
+
+test('deprecation template requires exactly version and sourceSha once each', () => {
+  const invalidMessages = [
+    '',
+    'KERN release {version} failed.',
+    'KERN release {sourceSha} failed.',
+    'KERN release {version} {version} from {sourceSha} failed.',
+    'KERN release {version} from {sourceSha} in {channel} failed.',
+    'KERN release {version} from {sourceSha failed.',
+    ' KERN release {version} from {sourceSha} failed.',
+    'KERN release {version} from {sourceSha} failed.\nDo not use.',
+  ];
+  for (const message of invalidMessages) {
+    const copy = structuredClone(policy);
+    copy.recovery.deprecationMessage = message;
+    assert.throws(
+      () => validateReleasePolicy(copy),
+      /deprecationMessage|placeholder|template/i,
+      `policy accepted deprecation message ${JSON.stringify(message)}`,
+    );
+  }
+  const oversized = structuredClone(policy);
+  oversized.artifacts.maxCommandOutputBytes = 8;
+  assert.throws(
+    () => validateReleasePolicy(oversized),
+    /deprecationMessage.*maxCommandOutputBytes/i,
+  );
 });
 
 test('policy validates artifact resource limits and safe-bin allowlist', () => {

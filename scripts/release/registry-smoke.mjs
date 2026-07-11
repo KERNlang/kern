@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { stringifyCanonical } from './artifact-types.mjs';
+import { normalizeExportsAndBin, stringifyCanonical } from './artifact-types.mjs';
 import { verifyInstalledConsumer } from './offline-consumer.mjs';
 import { assertRegistryMetadata } from './registry-metadata.mjs';
 
@@ -20,6 +20,10 @@ async function verifyInstalledVersions(tempDir, expected) {
       throw new Error(`Registry smoke installed unexpected ${packageName} version ${packageJson.version}`);
     }
   }
+}
+
+function safeLabel(value) {
+  return value.replace(/^@/, 'scope-').replace(/[^a-zA-Z0-9._-]/g, '-');
 }
 
 async function installInCleanDirectory({ rootDir, label, dependencies, policy, runCommandFn }) {
@@ -123,4 +127,81 @@ export async function runRegistrySmoke({
   } finally {
     await rm(channelDir, { recursive: true, force: true });
   }
+}
+
+export async function runRestoredEntrySmoke({
+  rootDir,
+  plan,
+  snapshot,
+  policy,
+  registryClient,
+  runCommandFn = execFileAsync,
+}) {
+  const planNames = new Set(plan.packages.map((pkg) => pkg.name));
+  const results = [];
+  for (const packageName of policy.recovery.entryPackageNames) {
+    if (!Object.hasOwn(snapshot.priorTags, packageName)) {
+      throw new Error(`Promotion snapshot is missing recovery entry ${packageName}`);
+    }
+    const expectedVersion = snapshot.priorTags[packageName];
+    const tags = await registryClient.getDistTags(packageName);
+    if (expectedVersion === null) {
+      if (Object.hasOwn(tags, plan.distTag)) {
+        throw new Error(`Restored entry tag ${packageName}@${plan.distTag} should be absent`);
+      }
+      results.push({ packageName, version: null, verified: 'tag-absent' });
+      continue;
+    }
+    if (tags[plan.distTag] !== expectedVersion) {
+      throw new Error(
+        `Restored entry tag mismatch for ${packageName}: expected ${expectedVersion}, got ${tags[plan.distTag] ?? null}`,
+      );
+    }
+    const registryInfo = await registryClient.getVersion(packageName, expectedVersion);
+    if (!registryInfo || registryInfo.name !== packageName || registryInfo.version !== expectedVersion) {
+      throw new Error(`Restored entry metadata is unavailable for ${packageName}@${expectedVersion}`);
+    }
+    for (const field of ['dependencies', 'optionalDependencies']) {
+      for (const [dependencyName, dependencyVersion] of Object.entries(registryInfo[field] ?? {})) {
+        if (planNames.has(dependencyName) && dependencyVersion !== expectedVersion) {
+          throw new Error(
+            `Restored entry ${packageName} does not exactly pin ${dependencyName}@${expectedVersion}`,
+          );
+        }
+      }
+    }
+
+    const tempDir = await installInCleanDirectory({
+      rootDir,
+      label: `restored-${safeLabel(packageName)}`,
+      dependencies: { [packageName]: plan.distTag },
+      policy,
+      runCommandFn,
+    });
+    try {
+      await verifyInstalledVersions(tempDir, [[packageName, expectedVersion]]);
+      const installed = JSON.parse(await readFile(installedPackageJson(tempDir, packageName), 'utf8'));
+      const normalized = normalizeExportsAndBin(installed, packageName);
+      await verifyInstalledConsumer({
+        manifest: {
+          packages: [{
+            name: packageName,
+            exports: normalized.exports,
+            bin: normalized.bin,
+          }],
+        },
+        tempDir,
+        limits: policy.artifacts,
+        safeBins: policy.artifacts.safeBins,
+        importSmokeExclusions: policy.artifacts.importSmokeExclusions.filter(
+          (excludedName) => excludedName === packageName,
+        ),
+        runCommandFn,
+      });
+      results.push({ packageName, version: expectedVersion, verified: 'clean-install' });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+  return results;
 }
