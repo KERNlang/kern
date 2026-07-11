@@ -55,8 +55,8 @@ wall and must remain absent until promoted.
 | browser-safe-runner | Browser-safe runner | shipped-4.5 | `scripts/check-runner-browser-budget.mjs` |
 | kern-assertion-engine | KERN assertion engine | internal-oracle | `pnpm test:capstone-assertion-engine` |
 | kern-module-validator | KERN module validator | internal-oracle | `pnpm test:selfhost-validator` |
-| kern-checker-v1 | KERN checker subset v1 | internal-oracle | `pnpm test:capstone-checker-subset` |
-| checker-v2 | Checker v2 and production shadow | not-shipped | R1 planned |
+| kern-checker-v1 | KERN checker subset v1 | shipped-4.5 | `git show v4.5.0:examples/capstone-checker-subset/checker.kern` |
+| checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R1 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |

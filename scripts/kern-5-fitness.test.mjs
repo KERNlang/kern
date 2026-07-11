@@ -64,8 +64,8 @@ test('matrix mutations fail with the affected gate or ownership id', () => {
     {
       name: 'changed ownership evidence',
       text: matrixText.replace(
-        '| checker-v2 | Checker v2 and production shadow | not-shipped | R1 planned |',
-        '| checker-v2 | Checker v2 and production shadow | not-shipped | shipped |',
+        '| checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |',
+        '| checker-v2 | Checker v2 and production shadow | internal-oracle | shipped |',
       ),
       error: /checker-v2/i,
     },

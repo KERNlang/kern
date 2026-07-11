@@ -145,14 +145,14 @@
     {
       "id": "kern-checker-v1",
       "label": "KERN checker subset v1",
-      "status": "internal-oracle",
-      "evidence": "pnpm test:capstone-checker-subset"
+      "status": "shipped-4.5",
+      "evidence": "git show v4.5.0:examples/capstone-checker-subset/checker.kern"
     },
     {
       "id": "checker-v2",
       "label": "Checker v2 and production shadow",
-      "status": "not-shipped",
-      "evidence": "R1 planned"
+      "status": "internal-oracle",
+      "evidence": "pnpm test:capstone-checker-subset"
     },
     {
       "id": "versioned-kir-v1",

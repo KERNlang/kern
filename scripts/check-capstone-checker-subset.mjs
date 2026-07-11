@@ -3,7 +3,7 @@
  * T10 self-hosted checker subset gate.
  *
  * Byte-compares the KERN checker in examples/capstone-checker-subset/checker.kern
- * against the TS reference over the same frozen t10.v1 structural rows. The TS
+ * against the TS reference over the same frozen t10.v2 structural rows. The TS
  * reference cites production print/fmt contracts; the flattener is deliberately
  * structural and carries no verdict/provenance fields.
  */
@@ -15,12 +15,16 @@ import { fileURLToPath } from 'node:url';
 
 import { checkFlatModule } from './capstone-checker-subset/reference.mjs';
 import { flattenKernSource } from './capstone-checker-subset/flatten-kern.mjs';
-import { FIXTURES, RED_TEAM_ATTEMPTS } from './capstone-checker-subset/fixtures.mjs';
-import { generateCheckerMainKern } from './capstone-checker-subset/gen-fixtures-kern.mjs';
+import { FIXTURES, RED_TEAM_ATTEMPTS, SAFE_INTEGER_TEXT_CASES } from './capstone-checker-subset/fixtures.mjs';
+import {
+  generateCheckerMainKern,
+  generateNumericMainKern,
+} from './capstone-checker-subset/gen-fixtures-kern.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = resolve(ROOT, 'packages/cli/dist/cli.js');
 const MAIN_KERN = resolve(ROOT, 'examples/capstone-checker-subset/main.kern');
+const NUMERIC_MAIN_KERN = resolve(ROOT, 'examples/capstone-checker-subset/numeric-main.kern');
 
 if (!existsSync(CLI)) {
   console.error(`missing built CLI at ${CLI}; run pnpm --filter @kernlang/cli build first`);
@@ -39,6 +43,18 @@ if (onDisk !== generated) {
   console.error(`${MAIN_KERN} is stale - run: node scripts/capstone-checker-subset/gen-fixtures-kern.mjs`);
   process.exit(1);
 }
+const numericGenerated = generateNumericMainKern();
+let numericOnDisk = '';
+try {
+  numericOnDisk = readFileSync(NUMERIC_MAIN_KERN, 'utf8');
+} catch {
+  console.error(`missing ${NUMERIC_MAIN_KERN} - run: node scripts/capstone-checker-subset/gen-fixtures-kern.mjs`);
+  process.exit(1);
+}
+if (numericOnDisk !== numericGenerated) {
+  console.error(`${NUMERIC_MAIN_KERN} is stale - run: node scripts/capstone-checker-subset/gen-fixtures-kern.mjs`);
+  process.exit(1);
+}
 
 const expectedLines = [];
 let polarityFailures = 0;
@@ -54,6 +70,12 @@ for (const fixture of FIXTURES) {
   if (fixture.expected === 'reject' && !rejected) {
     console.error(`fixture ${fixture.id}: TS reference accepted a red-team fixture`);
     polarityFailures += 1;
+  }
+  for (const expectedReject of fixture.expectedRejects ?? []) {
+    if (!lines.some((line) => line.includes(`|${expectedReject}`))) {
+      console.error(`fixture ${fixture.id}: missing required reject ${expectedReject}`);
+      polarityFailures += 1;
+    }
   }
 }
 if (polarityFailures > 0) process.exit(1);
@@ -93,6 +115,7 @@ if (!sameLines(actualLines, expectedLines)) {
 }
 
 verifyAcceptedRunnableFixtures();
+verifyKernSafeIntegerPredicate();
 
 console.log(
   `capstone checker subset: ${FIXTURES.length}/${FIXTURES.length} fixtures byte-match TS reference; ` +
@@ -121,6 +144,29 @@ function verifyAcceptedRunnableFixtures() {
       if (run.stderr) console.error(run.stderr);
       process.exit(1);
     }
+  }
+}
+
+function verifyKernSafeIntegerPredicate() {
+  const run = spawnSync(process.execPath, [CLI, 'run', NUMERIC_MAIN_KERN], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, NODE_NO_WARNINGS: '1' },
+    timeout: 30000,
+  });
+  if (run.status !== 0 || run.signal || run.error || run.stderr) {
+    console.error('direct KERN safe-integer predicate probe failed to execute cleanly');
+    if (run.error) console.error(run.error.message);
+    if (run.signal) console.error(`signal: ${run.signal}`);
+    if (run.stderr) console.error(run.stderr);
+    process.exit(1);
+  }
+  const actual = (run.stdout ?? '').trimEnd().split('\n');
+  const expected = SAFE_INTEGER_TEXT_CASES.map(([, accepted], index) => `${index}:${String(accepted)}`);
+  if (!sameLines(actual, expected)) {
+    console.error('direct KERN safe-integer predicate byte-compare failed');
+    printDiff(actual, expected);
+    process.exit(1);
   }
 }
 

@@ -160,7 +160,9 @@ trusted-publishing/provenance configuration is inspected.
 - [x] R1.1 Alpha constitution: truthful support matrix, versioned fitness
   policy, frozen current-wall oracle, canonical aggregate, and shared
   repository contract validation.
-- [ ] R1.2 checker v2 closure.
+- [x] R1.2 checker v2 closure: 48/48 TS/KERN byte-matched fixtures,
+  36 accept-but-abstain attacks rejected, 23 direct safe-integer cases, and the
+  complete `fitness:kern-5` wall passed on 2026-07-11.
 - [ ] R1.3 KIR seam probe and selection.
 - [ ] R1.4 versioned KIR/runtime/handler/capability contract freeze.
 - [ ] R1.5 non-circular semantic ownership proof and Alpha manifest.
