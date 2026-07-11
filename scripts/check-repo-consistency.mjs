@@ -2,12 +2,21 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { validateReleasePolicy } from './release/policy.mjs';
+import { loadKern5FitnessContract } from './kern-5-fitness.mjs';
 
 const root = process.cwd();
 const failures = [];
 
 function fail(message) {
   failures.push(message);
+}
+
+function checkKern5FitnessContract() {
+  try {
+    loadKern5FitnessContract(root);
+  } catch (error) {
+    fail(`KERN 5 fitness contract: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function checkReadme() {
@@ -458,6 +467,7 @@ checkWorkflowContracts();
 checkPackages();
 checkPackageVersions();
 checkKernVersion();
+checkKern5FitnessContract();
 
 if (failures.length > 0) {
   console.error('Repo consistency check failed:\n');
