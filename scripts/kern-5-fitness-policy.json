@@ -6,6 +6,7 @@
     "fitness:kern-5": "node ./scripts/kern-5-fitness.mjs",
     "test:app-behavior": "node ./scripts/app-behavior-conformance.mjs",
     "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
+    "test:kern-ir-reader-candidate": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-reader-candidate.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -74,6 +75,12 @@
       "label": "Typed semantic KIR seam probe",
       "status": "current",
       "argv": ["pnpm", "test:kern-ir-probe"]
+    },
+    {
+      "id": "kir-reader-candidate",
+      "label": "Internal semantic KIR reader candidate",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-ir-reader-candidate"]
     },
     {
       "id": "diff-hygiene",
@@ -166,6 +173,12 @@
       "label": "Typed semantic KIR seam selection",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-ir-probe"
+    },
+    {
+      "id": "kir-reader-candidate",
+      "label": "Internal semantic KIR reader candidate",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-ir-reader-candidate"
     },
     {
       "id": "versioned-kir-v1",

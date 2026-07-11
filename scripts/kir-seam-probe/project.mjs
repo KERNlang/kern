@@ -185,7 +185,7 @@ function projectNode(node, pathName) {
 
 function normalizeId(id) {
   const portable = id.replaceAll('\\', '/');
-  if (/^[A-Za-z]:(?:\/|$)/u.test(portable)) throw new TypeError(`module id ${JSON.stringify(id)} is drive-qualified`);
+  if (/^[A-Za-z]:/u.test(portable)) throw new TypeError(`module id ${JSON.stringify(id)} is drive-qualified`);
   const normalized = path.posix.normalize(portable.replace(/^\.\//u, ''));
   if (normalized === '.' || normalized.startsWith('/') || normalized === '..' || normalized.startsWith('../')) {
     throw new TypeError(`module id ${JSON.stringify(id)} is outside the probe root`);

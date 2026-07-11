@@ -51,6 +51,18 @@ const NODE_CHILDREN = {
   capability: new Set(),
   print: new Set(),
 };
+const NODE_PROPERTY_TAGS = {
+  fn: { name: 'text', params: 'text', returns: 'text', async: 'bool', stream: 'bool', export: 'bool', effects: 'text' },
+  param: {
+    name: 'text', type: 'text', value: 'expression', required: 'bool', optional: 'bool', variadic: 'bool',
+    description: 'text', min: 'int', max: 'int',
+  },
+  handler: { lang: 'text', reason: 'text', review: 'text' },
+  return: { value: 'expression', trailingComment: 'text' },
+  let: { name: 'text', value: 'expression', type: 'text', kind: 'text', trailingComment: 'text' },
+  capability: { namespace: 'text', operation: 'text', name: 'text', input: 'expression' },
+  print: { value: 'expression', trailingComment: 'text' },
+};
 
 function fail(path, message) {
   throw new TypeError(`${path}: ${message}`);
@@ -169,6 +181,47 @@ function validateExpression(value, path) {
   validateEntryArray(value.fields, `${path}.fields`, validateValue);
   const expected = EXPRESSION_FIELDS[value.kind];
   validateEntryKeys(value.fields, expected, expected, `${path}.fields`);
+  const byName = new Map(value.fields.map((field) => [field.key, field.value]));
+  const requireTag = (name, tag) => {
+    if (byName.get(name)?.tag !== tag) fail(`${path}.fields.${name}`, `expected ${tag} value`);
+  };
+  if (value.kind === 'identifier') {
+    requireTag('name', 'text');
+    identifier(byName.get('name').value, `${path}.fields.name`);
+  } else if (value.kind === 'integer') requireTag('value', 'int');
+  else if (value.kind === 'decimal') requireTag('value', 'decimal');
+  else if (value.kind === 'text') requireTag('value', 'text');
+  else if (value.kind === 'boolean') requireTag('value', 'bool');
+  else if (value.kind === 'regex') requireTag('value', 'regex');
+  else if (value.kind === 'list') requireExpressionCollection(byName.get('items'), `${path}.fields.items`, 'list');
+  else if (value.kind === 'record') requireExpressionCollection(byName.get('entries'), `${path}.fields.entries`, 'record');
+  else if (value.kind === 'member') {
+    requireTag('object', 'expression'); requireTag('property', 'text'); requireTag('optional', 'bool');
+  } else if (value.kind === 'index') {
+    requireTag('object', 'expression'); requireTag('index', 'expression'); requireTag('optional', 'bool');
+  } else if (value.kind === 'call') {
+    requireTag('callee', 'expression'); requireExpressionCollection(byName.get('arguments'), `${path}.fields.arguments`, 'list'); requireTag('optional', 'bool');
+  } else if (value.kind === 'lambda') {
+    const parameters = byName.get('parameters');
+    if (parameters?.tag !== 'list' || parameters.value.some((item) => item.tag !== 'text')) {
+      fail(`${path}.fields.parameters`, 'expected list of text values');
+    }
+    parameters.value.forEach((parameter, index) => identifier(parameter.value, `${path}.fields.parameters[${index}]`));
+    requireTag('body', 'expression');
+  } else if (value.kind === 'binary') {
+    requireTag('operator', 'text'); requireTag('left', 'expression'); requireTag('right', 'expression');
+  } else if (value.kind === 'unary') {
+    requireTag('operator', 'text'); requireTag('argument', 'expression');
+  } else if (value.kind === 'conditional') {
+    requireTag('test', 'expression'); requireTag('consequent', 'expression'); requireTag('alternate', 'expression');
+  }
+}
+
+function requireExpressionCollection(value, path, tag) {
+  if (value?.tag !== tag) fail(path, `expected ${tag} value`);
+  if (value.value.some((item) => (tag === 'list' ? item : item.value).tag !== 'expression')) {
+    fail(path, `expected ${tag} of expression values`);
+  }
 }
 
 export function validateValue(value, path = 'value') {
@@ -217,6 +270,10 @@ function validateNode(value, path) {
   validateEntryArray(value.properties, `${path}.properties`, validateValue);
   const shape = NODE_PROPERTIES[value.kind];
   validateEntryKeys(value.properties, shape.allowed, shape.required, `${path}.properties`);
+  for (const property of value.properties) {
+    const expectedTag = NODE_PROPERTY_TAGS[value.kind][property.key];
+    if (property.value.tag !== expectedTag) fail(`${path}.properties.${property.key}`, `expected ${expectedTag} value`);
+  }
   const identifierProperties = {
     fn: ['name'], param: ['name'], handler: [], return: [], let: ['name'],
     capability: ['namespace', 'operation', 'name'], print: [],
@@ -230,6 +287,19 @@ function validateNode(value, path) {
     validateNode(child, `${path}.children[${index}]`);
     if (!NODE_CHILDREN[value.kind].has(child.kind)) fail(`${path}.children[${index}].kind`, `${child.kind} is not allowed under ${value.kind}`);
   });
+  if (value.kind === 'fn') {
+    let handlerCount = 0;
+    let sawHandler = false;
+    for (const [index, child] of value.children.entries()) {
+      if (child.kind === 'handler') {
+        handlerCount += 1;
+        sawHandler = true;
+      } else if (child.kind === 'param' && sawHandler) {
+        fail(`${path}.children[${index}]`, 'params must precede the handler');
+      }
+    }
+    if (handlerCount > 1) fail(`${path}.children`, 'fn may contain at most one handler');
+  }
 }
 
 function validateBinding(value, path) {
@@ -298,7 +368,7 @@ export function validateEnvelope(value) {
     exactKeys(module, ['id', 'imports', 'exports', 'nodes'], path);
     text(module.id, `${path}.id`);
     const segments = module.id.split('/');
-    if (/^[A-Za-z]:(?:\/|$)/u.test(module.id) || module.id.includes('\\') || module.id.startsWith('/') ||
+    if (/^[A-Za-z]:/u.test(module.id) || module.id.includes('\\') || module.id.startsWith('/') ||
       module.id.endsWith('/') || /[\u0000-\u001f\u007f]/u.test(module.id) ||
       segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
       fail(`${path}.id`, 'expected normalized relative POSIX id');
@@ -339,6 +409,7 @@ export function validateEnvelope(value) {
     const declarations = new Map();
     array(module.nodes, `${path}.nodes`).forEach((item, itemIndex) => {
       validateNode(item, `${path}.nodes[${itemIndex}]`);
+      if (item.kind !== 'fn') fail(`${path}.nodes[${itemIndex}].kind`, 'module root nodes must be fn');
       if (item.kind === 'fn') {
         const name = item.properties.find((entry) => entry.key === 'name').value.value;
         if (declarations.has(name)) fail(`${path}.nodes[${itemIndex}]`, `duplicate local declaration ${name}`);

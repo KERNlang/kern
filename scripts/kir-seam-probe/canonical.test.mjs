@@ -118,6 +118,26 @@ test('hostile duplicate keys and malformed spans fail closed', () => {
   const invalidChild = structuredClone(artifact);
   invalidChild.modules[0].nodes[0].children.push(structuredClone(artifact.modules[1].nodes[0].children[0].children.at(-1)));
   assert.throws(() => encodeCanonical(invalidChild), /print is not allowed under fn/u);
+
+  const wrongPropertyTag = structuredClone(artifact);
+  wrongPropertyTag.modules[0].nodes[0].properties.find((entry) => entry.key === 'export').value = { tag: 'text', value: 'true' };
+  assert.throws(() => encodeCanonical(wrongPropertyTag), /expected bool value/u);
+
+  const wrongExpressionTag = structuredClone(artifact);
+  findExpressionKind(wrongExpressionTag, 'binary').fields.find((entry) => entry.key === 'operator').value = { tag: 'bool', value: true };
+  assert.throws(() => encodeCanonical(wrongExpressionTag), /expected text value/u);
+
+  const nonFunctionRoot = structuredClone(artifact);
+  nonFunctionRoot.modules[0].nodes[0] = structuredClone(nonFunctionRoot.modules[0].nodes[0].children.at(-1));
+  assert.throws(() => encodeCanonical(nonFunctionRoot), /module root nodes must be fn/u);
+
+  const reorderedFunctionChildren = structuredClone(artifact);
+  reorderedFunctionChildren.modules[0].nodes[0].children.reverse();
+  assert.throws(() => encodeCanonical(reorderedFunctionChildren), /params must precede/u);
+
+  const duplicateHandler = structuredClone(artifact);
+  duplicateHandler.modules[0].nodes[0].children.push(structuredClone(duplicateHandler.modules[0].nodes[0].children.at(-1)));
+  assert.throws(() => encodeCanonical(duplicateHandler), /at most one handler/u);
 });
 
 test('strict reader revalidates module graph identity and links', () => {
@@ -163,6 +183,10 @@ test('strict reader revalidates module graph identity and links', () => {
   const driveQualified = structuredClone(artifact);
   driveQualified.modules[0].id = 'C:/lib/math.kern';
   assert.throws(() => encodeCanonical(driveQualified), /relative POSIX id/u);
+
+  const driveRelative = structuredClone(artifact);
+  driveRelative.modules[0].id = 'C:lib/math.kern';
+  assert.throws(() => encodeCanonical(driveRelative), /relative POSIX id/u);
 
   for (const id of ['./lib/math.kern', 'lib//math.kern', 'lib/math.kern/', 'lib/\u0000math.kern']) {
     const noncanonicalId = structuredClone(artifact);

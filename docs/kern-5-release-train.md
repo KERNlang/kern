@@ -166,8 +166,11 @@ trusted-publishing/provenance configuration is inspected.
 - [x] R1.3 KIR seam probe and selection: typed semantic projection selected;
   source AST and runner lowering rejected; 20/20 strict, hostile-value,
   module-graph, mutation, and subprocess checks passed on 2026-07-11.
-- [ ] R1.4 versioned KIR/runtime/handler/capability contract freeze.
-- [ ] R1.5 non-circular semantic ownership proof and Alpha manifest.
+- [x] R1.4a internal semantic KIR reader candidate: core/probe parity with no
+  public export or stability claim.
+- [ ] R1.4b non-circular semantic ownership proof over the reader candidate.
+- [ ] R1.5 eligible KIR/value/diagnostic/trace/handler/capability contract
+  freeze and Alpha manifest.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
@@ -177,11 +180,19 @@ trusted-publishing/provenance configuration is inspected.
 3. Probe the three KIR seams and select one only after hostile values,
    diagnostics, effects, modules, capabilities, and determinism discriminate
    them.
-4. Freeze versioned KIR, value, diagnostic, trace, handler, and capability
-   contracts. Unknown versions fail closed.
-5. Prove the planned canonical runtime call chain is non-circular: executing a
-   KERN-authored interpreter through `referenceRunSequence` is not yet semantic
-   ownership.
+4. Promote the selected strict reader into browser-safe core source as an
+   internal candidate, parity-locked to the probe and deliberately unexported.
+5. Prove the planned canonical runtime call chain is non-circular before any
+   ABI promise: executing a KERN-authored interpreter through
+   `referenceRunSequence` is not yet semantic ownership.
+6. Freeze only KIR, value, diagnostic, trace, handler, and capability contracts
+   with a proven owner and bounded portable value space. Unknown versions fail
+   closed.
+
+The original broad R1.4-before-ownership order was withdrawn after the R1.3
+probe. The selected projection covers seven node kinds, while current trace and
+capability values still expose incompatible host-shaped domains. The split
+prevents an internal shadow schema from becoming an accidental public promise.
 
 **Binary exit:**
 
@@ -367,6 +378,7 @@ pnpm test:app-behavior
 pnpm test:drift-showcase
 pnpm check:runner-browser-budget:required
 pnpm test:kern-ir-probe               # CURRENT experimental seam oracle
+pnpm test:kern-ir-reader-candidate    # CURRENT internal reader candidate
 pnpm test:kern-ir                      # TARGET
 pnpm test:runtime-abi                  # TARGET
 pnpm test:kern-frontend                # TARGET
