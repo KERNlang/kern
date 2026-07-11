@@ -28,6 +28,103 @@ export function validateReleasePolicy(policy) {
   if (policy.schemaVersion !== 1) {
     throw new Error('Unsupported schema version');
   }
+
+  const release = policy.release;
+  if (!release || typeof release !== 'object' || Array.isArray(release)) {
+    throw new Error('release must be an object');
+  }
+  if (!Number.isSafeInteger(release.expectedPublicPackageCount) || release.expectedPublicPackageCount <= 0) {
+    throw new Error('release.expectedPublicPackageCount must be a positive safe integer');
+  }
+
+  const registry = policy.registry;
+  if (!registry || typeof registry !== 'object' || Array.isArray(registry)) {
+    throw new Error('registry must be an object');
+  }
+  let registryUrl;
+  try {
+    registryUrl = new URL(registry.url);
+  } catch {
+    throw new Error(`Invalid registry url: ${registry.url}`);
+  }
+  if (registryUrl.protocol !== 'https:' || registryUrl.hostname !== 'registry.npmjs.org' || registryUrl.pathname !== '/') {
+    throw new Error(`Invalid registry url: ${registry.url}`);
+  }
+  for (const field of ['timeoutMs', 'mutationTimeoutMs']) {
+    if (!Number.isSafeInteger(registry[field]) || registry[field] <= 0) {
+      throw new Error(`registry.${field} must be a positive safe integer`);
+    }
+  }
+  if (typeof registry.clientCommand !== 'string' || !/^[a-z0-9._-]+$/.test(registry.clientCommand)) {
+    throw new Error(`Invalid registry.clientCommand: ${registry.clientCommand}`);
+  }
+
+  const bundle = policy.bundle;
+  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) {
+    throw new Error('bundle must be an object');
+  }
+  if (typeof bundle.namePrefix !== 'string' || !/^[a-z][a-z0-9-]*$/.test(bundle.namePrefix)) {
+    throw new Error(`Invalid bundle.namePrefix: ${bundle.namePrefix}`);
+  }
+  if (!Number.isSafeInteger(bundle.maxNameLength) || bundle.maxNameLength <= 0) {
+    throw new Error('bundle.maxNameLength must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(bundle.retentionDays) || bundle.retentionDays <= 0 || bundle.retentionDays > 90) {
+    throw new Error('bundle.retentionDays must be a safe integer from 1 through 90');
+  }
+  for (const field of [
+    'maxArchiveBytes',
+    'maxExtractedBytes',
+    'maxEntries',
+    'maxPages',
+    'commandTimeoutMs',
+    'maxCommandOutputBytes',
+  ]) {
+    if (!Number.isSafeInteger(bundle[field]) || bundle[field] <= 0) {
+      throw new Error(`bundle.${field} must be a positive safe integer`);
+    }
+  }
+  if (!/^20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])$/.test(bundle.githubApiVersion)) {
+    throw new Error(`Invalid bundle.githubApiVersion: ${bundle.githubApiVersion}`);
+  }
+
+  const retry = policy.retry;
+  if (!retry || typeof retry !== 'object' || Array.isArray(retry)) {
+    throw new Error('retry must be an object');
+  }
+  if (!Number.isSafeInteger(retry.attempts) || retry.attempts <= 0) {
+    throw new Error('retry.attempts must be a positive safe integer');
+  }
+  if (!Number.isSafeInteger(retry.delayMs) || retry.delayMs <= 0) {
+    throw new Error('retry.delayMs must be a positive safe integer');
+  }
+
+  const staging = policy.staging;
+  if (!staging || typeof staging !== 'object' || Array.isArray(staging)) {
+    throw new Error('staging must be an object');
+  }
+  if (typeof staging.tagPrefix !== 'string' || !/^[a-z][a-z0-9-]*$/.test(staging.tagPrefix)) {
+    throw new Error(`Invalid staging.tagPrefix: ${staging.tagPrefix}`);
+  }
+
+  const provenance = policy.provenance;
+  if (!provenance || typeof provenance !== 'object' || Array.isArray(provenance)) {
+    throw new Error('provenance must be an object');
+  }
+  if (provenance.mode !== 'disabled-unverified') {
+    throw new Error(
+      `Invalid provenance.mode: ${provenance.mode}; required provenance remains disabled until external trusted-publisher verification is implemented`,
+    );
+  }
+
+  const promotion = policy.promotion;
+  if (!promotion || typeof promotion !== 'object' || Array.isArray(promotion)) {
+    throw new Error('promotion must be an object');
+  }
+  if (typeof promotion.rootPackageName !== 'string' || !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/.test(promotion.rootPackageName)) {
+    throw new Error(`Invalid promotion.rootPackageName: ${promotion.rootPackageName}`);
+  }
+
   if (!Array.isArray(policy.packageRoots) || policy.packageRoots.length === 0) {
     throw new Error('At least one package root is required');
   }

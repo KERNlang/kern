@@ -14,6 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -45,18 +46,28 @@ jobs:
           corepack prepare pnpm@10.32.1 --activate
           pnpm --version
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Python MCP SDK (for transpiler E2E tests)
+        run: pip install mcp
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Compute canary version
         id: release-plan
         run: |
+          mkdir -p .release
           node scripts/release/plan-cli.mjs \
             --channel canary \
             --sha "$BUILD_SHA" \
-            --run-number "$GITHUB_RUN_NUMBER"
+            --run-number "$GITHUB_RUN_NUMBER" | tee .release/release-plan.json
 
       - name: Set package versions
+        env:
+          CANARY_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           tmp=$(mktemp)
           jq --arg v "$CANARY_VERSION" '.version = $v' package.json > "$tmp"
@@ -85,12 +96,119 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish dry run
-        run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$NPM_TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Test
+        run: pnpm test
 
-      - name: Publish packages
-        run: pnpm -r publish --no-git-checks --access public --tag "$NPM_TAG"
+      - name: Native KERN Tests
+        run: pnpm test:kern
+
+      - name: Differential conformance
+        run: pnpm check:conformance
+
+      - name: Runner smoke
+        run: pnpm test:runner-smoke
+
+      - name: Recover bundle or pack new bundle
+        id: release-bundle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-pack \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload new bundle
+        id: release-bundle-upload
+        if: ${{ steps.release-bundle.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release-bundle.outputs.artifact-name }}
+          path: .release/bundle
+          retention-days: ${{ steps.release-bundle.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable bundle
+        if: ${{ steps.release-bundle.outputs.created == 'true' }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode confirm-bundle \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --artifact-id "${{ steps.release-bundle-upload.outputs.artifact-id }}" \
+            --artifact-digest "${{ steps.release-bundle-upload.outputs.artifact-digest }}"
+
+      - name: Reconcile versions and staging tags
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-reconcile \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Create Promotion Snapshot
+        id: promotion-snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-snapshot \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload Promotion Snapshot
+        id: promotion-snapshot-upload
+        if: ${{ steps.promotion-snapshot.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.promotion-snapshot.outputs.artifact-name }}
+          path: .release/${{ steps.promotion-snapshot.outputs.artifact-name }}.json
+          retention-days: ${{ steps.promotion-snapshot.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable promotion snapshot
+        if: ${{ steps.promotion-snapshot.outputs.created == 'true' }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode confirm-snapshot \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --artifact-id "${{ steps.promotion-snapshot-upload.outputs.artifact-id }}" \
+            --artifact-digest "${{ steps.promotion-snapshot-upload.outputs.artifact-digest }}"
+
+      - name: Promote public tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ steps.release-plan.outputs.dist_tag }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-promote \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --tag "$NPM_TAG"
+
+      - name: Run clean registry smoke tests
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-smoke \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload Journal
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-journal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release/journal.json
+          if-no-files-found: ignore
+          include-hidden-files: true

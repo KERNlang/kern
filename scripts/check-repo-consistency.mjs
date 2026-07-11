@@ -126,16 +126,18 @@ function checkWorkflowContracts() {
         'pnpm test:kern',
         'node scripts/release/plan-cli.mjs',
         'channel:\n        description: Release channel\n        required: true\n        type: string',
-        'pnpm -r publish --no-git-checks --access public --tag "$DIST_TAG"',
-        'pnpm -r publish --dry-run --no-git-checks --access public --tag "$DIST_TAG"',
+        'node scripts/release/registry-cli.mjs --mode publish-pack',
+        'node scripts/release/registry-cli.mjs --mode publish-reconcile',
+        'node scripts/release/registry-cli.mjs --mode publish-snapshot',
+        'node scripts/release/registry-cli.mjs --mode publish-promote',
+        'node scripts/release/registry-cli.mjs --mode publish-smoke',
+        'uses: actions/upload-artifact@v7',
+        'Confirm durable bundle',
+        'Confirm durable promotion snapshot',
+        'node scripts/release/registry-cli.mjs --mode preflight',
         "steps.release-plan.outputs.syncs_dev == 'true'",
-        'node scripts/release/artifacts-cli.mjs',
-        '--plan .release/release-plan.json',
-        '--out .release/artifacts',
-        '--manifest .release/artifact-manifest.json',
-        '--offline-consumer-test',
       ],
-      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g, /pnpm -r publish/g],
     },
     {
       path: '.github/workflows/release-preflight.yml',
@@ -172,7 +174,7 @@ function checkWorkflowContracts() {
         '--channel canary',
         '--tag "$NPM_TAG"',
       ],
-      banned: [/npm_tag:/g, /NPM_TAG_INPUT/g, /workflow_run:/g, /branches:\s*\[dev\]/g],
+      banned: [/npm_tag:/g, /NPM_TAG_INPUT/g, /workflow_run:/g, /branches:\s*\[dev\]/g, /pnpm -r publish/g],
     },
   ];
 
@@ -190,6 +192,14 @@ function checkWorkflowContracts() {
       if (pattern.test(contents)) {
         fail(`${workflow.path} contains banned workflow pattern: ${pattern}`);
       }
+    }
+  }
+
+  const workflowDir = path.join(root, '.github/workflows');
+  for (const name of readdirSync(workflowDir).filter((entry) => /\.ya?ml$/.test(entry))) {
+    const contents = readFileSync(path.join(workflowDir, name), 'utf8');
+    if (/pnpm -r publish/.test(contents)) {
+      fail(`.github/workflows/${name} contains banned recursive workspace publication`);
     }
   }
 }
@@ -240,6 +250,11 @@ function checkPackages() {
     }
 
     const packageDir = path.join(packagesDir, dir);
+    for (const entry of readdirSync(packageDir)) {
+      if (entry.endsWith('.tgz')) {
+        fail(`${path.join('packages', dir, entry)}: packed release tarballs must live under .release only`);
+      }
+    }
 
     for (const [binName, binPath] of Object.entries(pkg.bin || {})) {
       if (typeof binPath !== 'string') {
