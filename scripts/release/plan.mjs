@@ -85,6 +85,11 @@ export function validateReleasePlan(plan, policy) {
   if (!Array.isArray(plan.packages)) {
     throw new Error('packages must be an array');
   }
+  if (plan.packages.length !== policy.release.expectedPublicPackageCount) {
+    throw new Error(
+      `Public package count mismatch: expected ${policy.release.expectedPublicPackageCount}, found ${plan.packages.length}`,
+    );
+  }
 
   const seenPackages = new Set();
   const packageNames = new Set(plan.packages.map((pkg) => pkg?.name));

@@ -20,7 +20,6 @@ jobs:
   release:
     name: ${{ inputs.publish && 'Publish to npm' || 'Release Preflight' }}
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v7
         with:
@@ -93,74 +92,104 @@ jobs:
         run: pnpm build
 
       - name: Test
-        if: ${{ !inputs.publish }}
         run: pnpm test
 
       - name: Native KERN Tests
-        if: ${{ !inputs.publish }}
         run: pnpm test:kern
 
-      - name: Publish dry run
+      - name: Differential conformance
+        run: pnpm check:conformance
+
+      - name: Runner smoke
+        run: pnpm test:runner-smoke
+
+      - name: Recover bundle or pack new bundle
+        id: release-bundle
+        if: ${{ inputs.publish }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release/registry-cli.mjs --mode publish-pack --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Upload new bundle
+        id: release-bundle-upload
+        if: ${{ inputs.publish && steps.release-bundle.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release-bundle.outputs.artifact-name }}
+          path: .release/bundle
+          retention-days: ${{ steps.release-bundle.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable bundle
+        if: ${{ inputs.publish && steps.release-bundle.outputs.created == 'true' }}
+        run: >-
+          node scripts/release/registry-cli.mjs
+          --mode confirm-bundle
+          --channel "${{ inputs.channel }}"
+          --version "${{ inputs.version }}"
+          --sha "$GITHUB_SHA"
+          --artifact-id "${{ steps.release-bundle-upload.outputs.artifact-id }}"
+          --artifact-digest "${{ steps.release-bundle-upload.outputs.artifact-digest }}"
+
+      - name: Reconcile versions and staging tags
+        if: ${{ inputs.publish }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/release/registry-cli.mjs --mode publish-reconcile --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Create Promotion Snapshot
+        id: promotion-snapshot
+        if: ${{ inputs.publish }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release/registry-cli.mjs --mode publish-snapshot --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Upload Promotion Snapshot
+        id: promotion-snapshot-upload
+        if: ${{ inputs.publish && steps.promotion-snapshot.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.promotion-snapshot.outputs.artifact-name }}
+          path: .release/${{ steps.promotion-snapshot.outputs.artifact-name }}.json
+          retention-days: ${{ steps.promotion-snapshot.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable promotion snapshot
+        if: ${{ inputs.publish && steps.promotion-snapshot.outputs.created == 'true' }}
+        run: >-
+          node scripts/release/registry-cli.mjs
+          --mode confirm-snapshot
+          --channel "${{ inputs.channel }}"
+          --version "${{ inputs.version }}"
+          --sha "$GITHUB_SHA"
+          --artifact-id "${{ steps.promotion-snapshot-upload.outputs.artifact-id }}"
+          --artifact-digest "${{ steps.promotion-snapshot-upload.outputs.artifact-digest }}"
+
+      - name: Promote public tags
         if: ${{ inputs.publish }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
-        run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$DIST_TAG"
+        run: node scripts/release/registry-cli.mjs --mode publish-promote --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA" --tag "$DIST_TAG"
 
-      - name: Publish packages
+      - name: Run clean registry smoke tests
         if: ${{ inputs.publish }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
-        run: pnpm -r publish --no-git-checks --access public --tag "$DIST_TAG"
-
-      - name: Verify published packages on npm
-        if: ${{ inputs.publish }}
-        env:
-          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
-        run: |
-          VERSION="$RELEASE_VERSION"
-
-          for pkg in packages/*/package.json; do
-            NAME=$(jq -r '.name' "$pkg")
-            PRIVATE=$(jq -r '.private // false' "$pkg")
-
-            if [ "$PRIVATE" = "true" ]; then
-              continue
-            fi
-
-            ENCODED_NAME=$(node -p "encodeURIComponent(process.argv[1])" "$NAME")
-            PUBLISHED=false
-
-            for attempt in 1 2 3 4 5 6; do
-              if curl -fsS "https://registry.npmjs.org/$ENCODED_NAME/$VERSION" > /dev/null; then
-                PUBLISHED=true
-                break
-              fi
-              sleep 10
-            done
-
-            if [ "$PUBLISHED" != "true" ]; then
-              echo "::error::Package $NAME@$VERSION is not available from the npm registry after publish"
-              exit 1
-            fi
-          done
+        run: node scripts/release/registry-cli.mjs --mode publish-smoke --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
 
       - name: Run Artifact Wall
         if: ${{ !inputs.publish }}
-        run: |
-          node scripts/release/artifacts-cli.mjs \
-            --plan .release/release-plan.json \
-            --out .release/artifacts \
-            --manifest .release/artifact-manifest.json \
-            --offline-consumer-test
+        run: node scripts/release/registry-cli.mjs --mode preflight --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
 
-      - name: Publish dry run (preflight)
-        if: ${{ !inputs.publish }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
-        run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$DIST_TAG"
+      - name: Upload Journal
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-journal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release/journal.json
+          if-no-files-found: ignore
+          include-hidden-files: true
 
       - name: Sync versions back to dev
         if: ${{ inputs.publish && steps.release-plan.outputs.syncs_dev == 'true' }}

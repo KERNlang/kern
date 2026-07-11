@@ -57,6 +57,56 @@ function safePackageBinPath(tempDir, packageName, target) {
   return resolved;
 }
 
+export async function verifyInstalledConsumer({
+  manifest,
+  tempDir,
+  limits,
+  safeBins,
+  importSmokeExclusions,
+  runCommandFn = defaultRunCommand,
+}) {
+  const allowedBins = new Set(safeBins);
+  const excludedImports = new Set(importSmokeExclusions);
+  if (excludedImports.size !== importSmokeExclusions.length) {
+    throw new Error('importSmokeExclusions must not contain duplicates');
+  }
+  const run = async (file, args, timeout = limits.commandTimeoutMs) => {
+    try {
+      return await runCommandFn(file, args, {
+        cwd: tempDir,
+        timeout,
+        maxBuffer: limits.maxCommandOutputBytes,
+      });
+    } catch (error) {
+      const stdout = error.stdout?.toString() ?? '';
+      const stderr = error.stderr?.toString() ?? '';
+      throw new Error(`Consumer smoke command failed: ${file} ${args.join(' ')}\n${stdout}\n${stderr}\n${error.message}`);
+    }
+  };
+  const imports = manifest.packages.flatMap((artifact) =>
+    excludedImports.has(artifact.name) ? [] : importableSpecifiers(artifact.exports, artifact.name));
+  for (const specifier of imports) {
+    await run(
+      process.execPath,
+      ['--input-type=module', '--eval', 'await import(process.argv[1])', specifier],
+      limits.smokeTimeoutMs,
+    );
+  }
+  const executedBins = [];
+  for (const artifact of manifest.packages) {
+    for (const [binName, target] of Object.entries(artifact.bin ?? {})) {
+      if (!allowedBins.has(binName)) continue;
+      const binPath = safePackageBinPath(tempDir, artifact.name, target);
+      if (!fs.existsSync(binPath)) {
+        throw new Error(`Safe bin script not found: ${artifact.name}/${target}`);
+      }
+      await run(process.execPath, [binPath, '--help'], limits.smokeTimeoutMs);
+      executedBins.push(binName);
+    }
+  }
+  return { imports, executedBins };
+}
+
 export async function verifyOfflineConsumer({
   manifest,
   outDir,
@@ -94,7 +144,6 @@ export async function verifyOfflineConsumer({
     tempRoot,
     `temp-consumer-${crypto.randomBytes(8).toString('hex')}`,
   );
-  const allowedBins = new Set(safeBins);
   const excludedImports = new Set(importSmokeExclusions);
   if (excludedImports.size !== importSmokeExclusions.length) {
     throw new Error('importSmokeExclusions must not contain duplicates');
@@ -182,31 +231,14 @@ export async function verifyOfflineConsumer({
       '--frozen-lockfile',
     ]);
 
-    const imports = manifest.packages.flatMap((artifact) =>
-      excludedImports.has(artifact.name)
-        ? []
-        : importableSpecifiers(artifact.exports, artifact.name),
-    );
-    for (const specifier of imports) {
-      await run(
-        process.execPath,
-        ['--input-type=module', '--eval', 'await import(process.argv[1])', specifier],
-        limits.smokeTimeoutMs,
-      );
-    }
-
-    const executedBins = [];
-    for (const artifact of manifest.packages) {
-      for (const [binName, target] of Object.entries(artifact.bin ?? {})) {
-        if (!allowedBins.has(binName)) continue;
-        const binPath = safePackageBinPath(tempDir, artifact.name, target);
-        if (!fs.existsSync(binPath)) {
-          throw new Error(`Safe bin script not found: ${artifact.name}/${target}`);
-        }
-        await run(process.execPath, [binPath, '--help'], limits.smokeTimeoutMs);
-        executedBins.push(binName);
-      }
-    }
+    const { imports, executedBins } = await verifyInstalledConsumer({
+      manifest,
+      tempDir,
+      limits,
+      safeBins,
+      importSmokeExclusions,
+      runCommandFn,
+    });
     return { imports, executedBins, invocations, tempDir: keepTemp ? tempDir : null };
   } finally {
     if (!keepTemp && fs.existsSync(tempDir)) {

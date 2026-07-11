@@ -3,6 +3,40 @@
   "packageRoots": [
     "packages"
   ],
+  "release": {
+    "expectedPublicPackageCount": 22
+  },
+  "registry": {
+    "url": "https://registry.npmjs.org",
+    "timeoutMs": 30000,
+    "mutationTimeoutMs": 120000,
+    "clientCommand": "npm"
+  },
+  "bundle": {
+    "namePrefix": "kern-release",
+    "maxNameLength": 128,
+    "retentionDays": 90,
+    "maxArchiveBytes": 1073741824,
+    "maxExtractedBytes": 6442450944,
+    "maxEntries": 128,
+    "maxPages": 10,
+    "commandTimeoutMs": 60000,
+    "maxCommandOutputBytes": 1048576,
+    "githubApiVersion": "2026-03-10"
+  },
+  "retry": {
+    "attempts": 5,
+    "delayMs": 2000
+  },
+  "staging": {
+    "tagPrefix": "kern-stage"
+  },
+  "promotion": {
+    "rootPackageName": "kern-lang"
+  },
+  "provenance": {
+    "mode": "disabled-unverified"
+  },
   "artifacts": {
     "maxTarballBytes": 268435456,
     "maxUnpackedBytes": 536870912,

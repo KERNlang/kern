@@ -9,6 +9,38 @@ import {
 const policy = {
   schemaVersion: 1,
   packageRoots: ['packages'],
+  release: { expectedPublicPackageCount: 22 },
+  registry: {
+    url: 'https://registry.npmjs.org',
+    timeoutMs: 30000,
+    mutationTimeoutMs: 120000,
+    clientCommand: 'npm',
+  },
+  bundle: {
+    namePrefix: 'kern-release',
+    maxNameLength: 128,
+    retentionDays: 90,
+    maxArchiveBytes: 1073741824,
+    maxExtractedBytes: 6442450944,
+    maxEntries: 128,
+    maxPages: 10,
+    commandTimeoutMs: 60000,
+    maxCommandOutputBytes: 1048576,
+    githubApiVersion: '2026-03-10',
+  },
+  retry: {
+    attempts: 5,
+    delayMs: 2000,
+  },
+  staging: {
+    tagPrefix: 'kern-stage',
+  },
+  promotion: {
+    rootPackageName: 'kern-lang',
+  },
+  provenance: {
+    mode: 'disabled-unverified',
+  },
   artifacts: {
     maxTarballBytes: 268435456,
     maxUnpackedBytes: 536870912,
@@ -242,6 +274,35 @@ test('policy validates artifact resource limits and safe-bin allowlist', () => {
     assert.throws(
       () => validateReleasePolicy(copy),
       /artifact|limit|integer|safeBins|bin|duplicate/i,
+      `policy accepted ${name}`,
+    );
+  }
+});
+
+test('policy validates registry and durable artifact configuration', () => {
+  const invalidCases = [
+    ['registry lookalike host', (copy) => (copy.registry.url = 'https://registry.npmjs.org.evil.example')],
+    ['zero package count', (copy) => (copy.release.expectedPublicPackageCount = 0)],
+    ['zero mutation timeout', (copy) => (copy.registry.mutationTimeoutMs = 0)],
+    ['unsafe client command', (copy) => (copy.registry.clientCommand = 'npm; publish')],
+    ['zero archive limit', (copy) => (copy.bundle.maxArchiveBytes = 0)],
+    ['zero name limit', (copy) => (copy.bundle.maxNameLength = 0)],
+    ['zero extracted limit', (copy) => (copy.bundle.maxExtractedBytes = 0)],
+    ['unsupported retention', (copy) => (copy.bundle.retentionDays = 91)],
+    ['fractional entry limit', (copy) => (copy.bundle.maxEntries = 1.5)],
+    ['zero page limit', (copy) => (copy.bundle.maxPages = 0)],
+    ['invalid API version', (copy) => (copy.bundle.githubApiVersion = 'latest')],
+    ['unsafe staging prefix', (copy) => (copy.staging.tagPrefix = 'stage/latest')],
+    ['unknown provenance mode', (copy) => (copy.provenance.mode = 'best-effort')],
+    ['unverified required provenance', (copy) => (copy.provenance.mode = 'required')],
+    ['unsafe root package', (copy) => (copy.promotion.rootPackageName = '../kern-lang')],
+  ];
+  for (const [name, mutate] of invalidCases) {
+    const copy = structuredClone(policy);
+    mutate(copy);
+    assert.throws(
+      () => validateReleasePolicy(copy),
+      /registry|bundle|release|integer|client|API|staging|provenance|invalid/i,
       `policy accepted ${name}`,
     );
   }
