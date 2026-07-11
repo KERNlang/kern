@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "entrypoints": {
+    "check:kern-5-contract": "node ./scripts/kern-5-fitness.mjs --check",
+    "fitness": "pnpm fitness:kern-5",
+    "fitness:kern-5": "node ./scripts/kern-5-fitness.mjs",
+    "test:app-behavior": "node ./scripts/app-behavior-conformance.mjs",
+    "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
+  },
+  "gates": [
+    {
+      "id": "repo-consistency",
+      "label": "Repository consistency",
+      "status": "current",
+      "argv": ["pnpm", "check:repo"]
+    },
+    {
+      "id": "lint",
+      "label": "Formatting and lint",
+      "status": "current",
+      "argv": ["pnpm", "lint"]
+    },
+    {
+      "id": "build",
+      "label": "Build and typecheck",
+      "status": "current",
+      "argv": ["pnpm", "build"]
+    },
+    {
+      "id": "workspace-tests",
+      "label": "Full workspace tests",
+      "status": "current",
+      "argv": ["pnpm", "test"]
+    },
+    {
+      "id": "cross-target-conformance",
+      "label": "TypeScript and Python conformance",
+      "status": "current",
+      "argv": ["pnpm", "check:conformance"]
+    },
+    {
+      "id": "native-kern",
+      "label": "Native KERN tests",
+      "status": "current",
+      "argv": ["pnpm", "test:kern"]
+    },
+    {
+      "id": "runner-smoke",
+      "label": "Runner and self-host smoke",
+      "status": "current",
+      "argv": ["pnpm", "test:runner-smoke"]
+    },
+    {
+      "id": "app-behavior",
+      "label": "Three-leg app behavior",
+      "status": "current",
+      "argv": ["pnpm", "test:app-behavior"]
+    },
+    {
+      "id": "drift-showcase",
+      "label": "Backend drift showcase",
+      "status": "current",
+      "argv": ["pnpm", "test:drift-showcase"]
+    },
+    {
+      "id": "browser-budget",
+      "label": "Required browser budget",
+      "status": "current",
+      "argv": ["pnpm", "check:runner-browser-budget:required"]
+    },
+    {
+      "id": "diff-hygiene",
+      "label": "Git diff hygiene",
+      "status": "current",
+      "argv": ["git", "diff", "--check"]
+    },
+    {
+      "id": "kir-v1",
+      "label": "Versioned canonical KIR",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-ir"]
+    },
+    {
+      "id": "runtime-handler-abi",
+      "label": "Runtime and handler ABI",
+      "status": "planned",
+      "argv": ["pnpm", "test:runtime-abi"]
+    },
+    {
+      "id": "kern-frontend",
+      "label": "KERN-authored frontend",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-frontend"]
+    },
+    {
+      "id": "kern-compiler",
+      "label": "KERN-authored compiler",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-compiler"]
+    },
+    {
+      "id": "selfhost-fixed-point",
+      "label": "Stage 1 equals Stage 2",
+      "status": "planned",
+      "argv": ["pnpm", "test:selfhost-fixed-point"]
+    },
+    {
+      "id": "kern-interpreter-shadow",
+      "label": "KERN interpreter shadow",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-interpreter-shadow"]
+    },
+    {
+      "id": "packed-release",
+      "label": "Packed release proof",
+      "status": "planned",
+      "argv": ["pnpm", "test:packed-release"]
+    }
+  ],
+  "ownership": [
+    {
+      "id": "direct-source-runtime",
+      "label": "Direct .kern source runtime",
+      "status": "shipped-4.5",
+      "evidence": "packages/core/tests/runner-source-executor.test.ts"
+    },
+    {
+      "id": "browser-safe-runner",
+      "label": "Browser-safe runner",
+      "status": "shipped-4.5",
+      "evidence": "scripts/check-runner-browser-budget.mjs"
+    },
+    {
+      "id": "kern-assertion-engine",
+      "label": "KERN assertion engine",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:capstone-assertion-engine"
+    },
+    {
+      "id": "kern-module-validator",
+      "label": "KERN module validator",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:selfhost-validator"
+    },
+    {
+      "id": "kern-checker-v1",
+      "label": "KERN checker subset v1",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:capstone-checker-subset"
+    },
+    {
+      "id": "checker-v2",
+      "label": "Checker v2 and production shadow",
+      "status": "not-shipped",
+      "evidence": "R1 planned"
+    },
+    {
+      "id": "versioned-kir-v1",
+      "label": "Versioned canonical KIR v1",
+      "status": "not-shipped",
+      "evidence": "R1 planned"
+    },
+    {
+      "id": "typed-runtime-handler-abi",
+      "label": "Typed runtime and handler ABI",
+      "status": "not-shipped",
+      "evidence": "R1 planned"
+    },
+    {
+      "id": "kern-formatter",
+      "label": "KERN formatter or canonicalizer",
+      "status": "not-shipped",
+      "evidence": "R2 planned"
+    },
+    {
+      "id": "kern-frontend",
+      "label": "KERN-authored source frontend",
+      "status": "not-shipped",
+      "evidence": "R2 planned"
+    },
+    {
+      "id": "kern-compiler",
+      "label": "KERN-authored compiler",
+      "status": "not-shipped",
+      "evidence": "R2 planned"
+    },
+    {
+      "id": "selfhost-fixed-point",
+      "label": "Clean Stage 1 equals Stage 2",
+      "status": "not-shipped",
+      "evidence": "R2 planned"
+    },
+    {
+      "id": "kern-interpreter",
+      "label": "KERN semantic interpreter",
+      "status": "not-shipped",
+      "evidence": "R2 and R3 planned"
+    },
+    {
+      "id": "packed-release-proof",
+      "label": "Exact packed release proof",
+      "status": "not-shipped",
+      "evidence": "R4 planned"
+    }
+  ]
+}
