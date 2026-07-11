@@ -155,6 +155,16 @@ trusted-publishing/provenance configuration is inspected.
 
 **Build order:**
 
+**Slice progress:**
+
+- [x] R1.1 Alpha constitution: truthful support matrix, versioned fitness
+  policy, frozen current-wall oracle, canonical aggregate, and shared
+  repository contract validation.
+- [ ] R1.2 checker v2 closure.
+- [ ] R1.3 KIR seam probe and selection.
+- [ ] R1.4 versioned KIR/runtime/handler/capability contract freeze.
+- [ ] R1.5 non-circular semantic ownership proof and Alpha manifest.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
@@ -336,8 +346,10 @@ RC, and publish `5.0.1`.
 
 ## Target Release Wall
 
-The current `fitness:kern-5` is not this wall. Commands marked TARGET must be
-created and wired before RC.
+The current `fitness:kern-5` implements every CURRENT row in the versioned
+fitness policy, but it is not yet the full target wall. Commands marked TARGET
+must be created and promoted atomically in the policy and support matrix before
+RC.
 
 ```text
 pnpm check:repo
@@ -347,7 +359,7 @@ pnpm test
 pnpm check:conformance
 pnpm test:kern
 pnpm test:runner-smoke
-pnpm test:app-behavior                 # TARGET named command
+pnpm test:app-behavior
 pnpm test:drift-showcase
 pnpm check:runner-browser-budget:required
 pnpm test:kern-ir                      # TARGET

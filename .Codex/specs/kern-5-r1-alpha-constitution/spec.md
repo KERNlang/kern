@@ -1,6 +1,6 @@
 # KERN 5 R1.1 Alpha Constitution
 
-**Status:** READY TO BUILD
+**Status:** COMPLETE
 **Date:** 2026-07-11
 **Confidence:** 0.97
 **Depends on:** R0.4 branch head `b9546b3c24a09b0d06197e4b086362e9f178a8d3`
@@ -166,28 +166,28 @@ lockfile, package source, runtime, checker, parser, compiler, or workflow change
 
 ## Acceptance Criteria
 
-- [ ] The support matrix no longer calls KERN 5 final-complete before Alpha and
+- [x] The support matrix no longer calls KERN 5 final-complete before Alpha and
       contains no KERN 5.2/5.3 release claims.
-- [ ] Matrix gate and ownership tables exactly match policy order, IDs,
+- [x] Matrix gate and ownership tables exactly match policy order, IDs,
       statuses, commands, labels, and evidence.
-- [ ] Every current pnpm gate maps to an existing root script; every planned
+- [x] Every current pnpm gate maps to an existing root script; every planned
       pnpm gate is absent until promoted in the same policy/matrix change.
-- [ ] Missing/duplicate/unknown/reordered rows, unsupported statuses, unsafe
+- [x] Missing/duplicate/unknown/reordered rows, unsupported statuses, unsafe
       argv, missing evidence, missing current scripts, and prematurely added
       planned scripts each fail with the offending ID.
-- [ ] `test:app-behavior` runs the existing three-leg plus Express/FastAPI boot
+- [x] `test:app-behavior` runs the existing three-leg plus Express/FastAPI boot
       harness and adds no new semantic implementation.
-- [ ] `check:repo` fails on a mutated matrix or policy and remains green on the
+- [x] `check:repo` fails on a mutated matrix or policy and remains green on the
       exact contract.
-- [ ] `fitness:kern-5` validates first, executes every current gate in policy
+- [x] `fitness:kern-5` validates first, executes every current gate in policy
       order with no shell, stops at the first failure, propagates signals/nonzero
       statuses, and reaches `git diff --check` only after all earlier gates pass.
-- [ ] The complete aggregate passes from the current clean branch without
+- [x] The complete aggregate passes from the current clean branch without
       reading a prior SHA's evidence.
-- [ ] No public tag, package version, Alpha manifest, checker-v2, KIR,
+- [x] No public tag, package version, Alpha manifest, checker-v2, KIR,
       formatter, frontend, compiler, fixed-point, interpreter, runtime ABI, or
       packed-release implementation is created by this slice.
-- [ ] Full-roster Agon review returns no verified or unresolved needs-check
+- [x] Full-roster Agon review returns no verified or unresolved needs-check
       finding before commit.
 
 ## Out of Scope
@@ -228,3 +228,24 @@ dependency; no tag is created before merge and green main CI.
 ## Open Questions
 
 None. No ASSUMED or OPEN claim feeds the R1.1 oracle.
+
+## Completion Evidence
+
+- `pnpm fitness:kern-5` passed the complete 11-gate current wall after a frozen
+  dependency install restored the lockfile-declared local tools.
+- `pnpm test:kern-5-fitness` passed 7/7 tests, including the frozen ordered
+  current-wall oracle, policy/matrix mutation killers, no-shell execution,
+  early exit, and signal failure.
+- `pnpm lint` passed across 1,111 files and explicitly includes both new
+  canonical contract scripts; `pnpm check:repo` and `git diff --check` passed.
+- Full-roster reviews:
+  `review-1783777493357-4u0vxu-kern5-r1-alpha-constitution` and
+  `review-1783778433284-lmkbt8-kern5-r1-alpha-constitution-clos` completed 6/6.
+  Findings were fixed or disproved against source.
+- Final review
+  `review-1783778922758-k4sbmv-kern5-r1-alpha-constitution-fina` completed 5/6
+  with zero verified findings; GLM timed out. Targeted retry
+  `review-1783779995077-52wse7-kern5-r1-alpha-constitution-fina` completed 2/2,
+  including GLM, with zero verified findings. The remaining coordinated-change
+  observation requires an explicit policy, matrix, and frozen-oracle edit and
+  is therefore not silent drift.
