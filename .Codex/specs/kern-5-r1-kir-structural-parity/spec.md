@@ -1,0 +1,200 @@
+# KERN 5 R1.5c Structural KIR Writer-Reader Parity
+
+**Status:** APPROVED FOR IMPLEMENTATION
+**Date:** 2026-07-12
+**Confidence:** 0.96
+**Depends on:** R1.5b commit `6cb544e359e852d860df98fc657f6efa1967dc78`
+**Tribunal:** `tribunal-1783835067558-kx1n7x-kern-5-r1-5c-parity`
+(`claude,codex,agy`, 3/3)
+
+## Executive Summary
+
+R1.5c introduces the internal-only structural format
+`kern.kir.structural.alpha.1`. It closes writer-reader parity over the complete
+302-kind source catalog without renaming the seven-node semantic probe, binding
+the runtime, or claiming KIR v1. Every source node and property contract must
+be included, deterministically lowered, or explicitly rejected with executable
+evidence. Raw host expressions and blocks never cross the format as opaque
+strings. **VERIFIED tribunal decision**
+
+R1.5c is implemented as four serial, releasable sub-slices. Each sub-slice has
+its own gate, full KERN 5 wall, three-engine review, commit, and push. R1.5c is
+not complete until all four are green. **VERIFIED delivery decision**
+
+## Current State and Root Cause
+
+1. The live `NODE_TYPES` catalog contains 302 source kinds; the semantic probe
+   witnesses seven, leaving 295 source rows unresolved. **VERIFIED**
+2. All 16 runner contracts remain unresolved, but they describe M3 execution
+   ABIs rather than R1.5c source serialization. **VERIFIED prior tribunal
+   decision**
+3. `NODE_SCHEMAS` is not catalog-total: `alternate-screen` and `scroll-box`
+   have no schema. It also contains seven names outside `NODE_TYPES`: `trim`,
+   `split`, `replaceFirst`, `replaceAll`, `case`, `fixture`, and `mock`.
+   **VERIFIED audit**
+4. The 300 catalog-backed schemas contain 1,149 property contracts: 343
+   identifiers, 261 strings, 188 raw expressions, 150 booleans, 95 type
+   annotations, 72 numbers, 29 parsed expressions, six raw blocks, and five
+   import paths. **VERIFIED audit**
+5. The current projector accepts only `fn`, `param`, `handler`, `return`, `let`,
+   `capability`, and `print`; imports/exports are fixed to `kind: 'fn'`, integer
+   admission is host-safe-number bounded, regex admission calls host `RegExp`,
+   and source locations participate in bytes. **VERIFIED**
+6. Therefore expanding the old probe or bulk-marking 295 kinds excluded would
+   produce false closure. The structural contract needs its own format,
+   property-level disposition matrix, and generated fixture census.
+   **VERIFIED conclusion**
+
+## Contract Boundary
+
+| Area | R1.5c contract | Claim |
+|---|---|---|
+| Format | Exact `kern.kir.structural.alpha.1`; internal, non-exported, non-runtime | VERIFIED tribunal decision |
+| Envelope | Canonical value envelope containing exact `format` and ordered `modules`; evidence/locations absent | VERIFIED design decision |
+| Catalog | Exact ordered equality with all 302 live `NODE_TYPES`; no wildcard/default row | VERIFIED design decision |
+| Node | Exact `kind`, code-point-sorted property entries, and ordered children | VERIFIED design decision |
+| Properties | Each of 1,149 live schema properties has a frozen disposition and reason | VERIFIED audit requirement |
+| Direct values | Identifier, string, boolean, number, and import-path contracts normalize into R1.5b portable values | VERIFIED design decision |
+| Expressions | Parsed `expression` and eligible `rawExpr` values lower into a separately enumerated portable expression tree; opaque source text never crosses | VERIFIED tribunal decision |
+| Host syntax | Non-portable `rawExpr`, all `rawBlock`, and unlowered host type syntax reject before an artifact is returned | VERIFIED tribunal decision |
+| Types | Portable types require an enumerated KERN type grammar; host-specific type annotations reject rather than pass through | VERIFIED design decision |
+| Regex | No host `RegExp` validation; either an enumerated portable grammar is frozen or regex expressions reject | VERIFIED tribunal decision |
+| Modules | Normalized relative module IDs; deterministic import/export order; bindings carry the declared included symbol kind, not only `fn` | VERIFIED tribunal decision |
+| Bounds | Caller supplies all byte/depth/node/module/collection/string/integer limits; writer output must decode under the same limits | VERIFIED R1.5b inheritance |
+| Runtime | No trace, handler, scheduler, capability, completion, or runner-consumption ABI | VERIFIED M3 deferral |
+| Claims | `ALPHA-NO-GO`; no `test:kern-ir`, public export, semantic cutover, or KIR v1 freeze | VERIFIED release constraint |
+
+## Property Dispositions
+
+The property constitution is source-bound to `NODE_SCHEMAS`. Every row is
+identified by `(nodeKind, propertyName)` and records schema kind, requiredness,
+and exactly one disposition:
+
+- `included-value`: already-portable identifier/string/boolean/number value;
+- `lowered-import-path`: normalized portable relative module path;
+- `lowered-expression`: parsed and admitted portable expression tree;
+- `lowered-type`: parsed and admitted portable KERN type tree;
+- `excluded-host-expression`: raw expression outside the portable expression
+  grammar;
+- `excluded-host-type`: host type syntax outside the portable type grammar;
+- `excluded-raw-block`: opaque host block, always forbidden.
+
+An included node kind may still reject a particular source program when one of
+its supplied properties has an excluded disposition. The rejection is a
+language-profile boundary, never silent omission or opaque transport.
+**VERIFIED tribunal interpretation**
+
+## Serial Sub-slices
+
+### R1.5c.1 — Schema and property constitution
+
+- Make `NODE_SCHEMAS` exactly cover all 302 `NODE_TYPES` or explicitly bind
+  schema aliases outside the catalog without counting them as source kinds.
+- Add a generated, source-bound 302-node/1,149-property disposition census.
+- Reject missing, extra, duplicate, reordered, wildcard, or stale rows.
+- Keep every existing runtime and KIR candidate path unchanged.
+
+**Exit:** `test:kern-kir-structural-constitution` reports exact node/property
+counts and `ALPHA-NO-GO`.
+
+### R1.5c.2 — Structural writer and bounded reader
+
+- Add browser-safe internal writer/reader modules consuming the R1.5b value
+  contract.
+- Prove exact fields, canonical ordering, same-limit round trip, unknown-field
+  rejection, and no raw host payload leakage.
+- Add expression/type sub-catalogs; unsupported syntax rejects with stable
+  codes and paths.
+
+**Exit:** all admitted node/property fixtures round-trip byte-identically and
+all exclusion fixtures reject before artifact return.
+
+### R1.5c.3 — Module and symbol-kind parity
+
+- Generalize imports/exports beyond `fn` using the declared included symbol
+  kind.
+- Prove aliases, re-exports, duplicate local binding, missing export, kind
+  mismatch, unsafe path, and cycle rejection.
+- Preserve module input-order invariance and child-order significance.
+
+**Exit:** module graph hostile corpus is deterministic across fresh processes,
+locale, timezone, and clean roots.
+
+### R1.5c.4 — Coverage closure
+
+- Generate one positive round-trip witness per included/lowered node kind.
+- Generate one negative fixture per exclusion reason and bind every property
+  row to an applicable witness.
+- Transition all 302 source rows from `candidate-witnessed`/`unresolved` to
+  `included-structural`, `lowered-semantic`, or `excluded-explicit`.
+- Reclassify the 16 runner rows as `deferred-runtime-m3`, not source-parity
+  failures, while retaining their unresolved runtime evidence.
+
+**Exit:** zero source rows unresolved; `ALPHA-NO-GO` remains because R1.5d
+diagnostic/location evidence and the clean-SHA Alpha manifest are absent.
+
+## Rejected Options
+
+### Expand only the 16 runtime contracts
+
+Rejected. This conflates M3 execution ABIs with the 302-kind source wire and
+leaves module/node writer-reader parity open.
+
+### Mark all unsupported source kinds excluded
+
+Rejected. Absence of an implementation is not evidence of a language-level
+exclusion. Each exclusion needs a property-level reason and executable reject
+fixture.
+
+### Serialize `NODE_SCHEMAS` plus raw property strings
+
+Rejected. That would canonically preserve TypeScript/Python/host syntax rather
+than define KERN-owned semantics.
+
+### Rename the semantic probe to KIR v1
+
+Rejected. The seven-node probe remains a differential oracle and does not
+cover the language, structural module graph, diagnostics, or runtime.
+
+## Acceptance Criteria
+
+- [x] R1.5c.1 exact 302-node and property constitution is source-bound and
+      mutation-tested.
+- [ ] R1.5c.2 writer output decodes under identical limits and all portable
+      values/expressions/types are byte-canonical.
+- [ ] R1.5c.3 imports/exports support every admitted declaration kind and all
+      hostile graph cases reject deterministically.
+- [ ] R1.5c.4 leaves zero unresolved source rows and binds every disposition to
+      executable evidence.
+- [ ] No raw expression, raw block, host regex validation, host numeric
+      conversion, unknown field, or fallback crosses the boundary.
+- [ ] Existing semantic probe, reader candidate, ownership, and R1.5a/R1.5b
+      gates remain unchanged and green.
+- [ ] Full `fitness:kern-5` and Agon review with exactly `claude,codex,agy`
+      pass for every serial sub-slice before commit/push.
+- [ ] `ALPHA-NO-GO`, absent `test:kern-ir`, internal containment, and all M3
+      runtime deferrals remain true after R1.5c.
+
+### R1.5c.1 Closure Evidence
+
+- `test:kern-kir-structural-constitution`: 5/5 tests passed; 300/302
+  schema-bound nodes, 1,149 exact property dispositions, two explicit
+  missing-schema exclusions, and seven fully bound non-catalog schemas.
+- `fitness:kern-5`: complete current wall passed on 2026-07-12.
+- Agon review `review-1783838024689-5t2dq4-kern-5-r1-5c1-constitution-final`:
+  `claude,codex,agy` all succeeded with zero findings.
+- Status remains `ALPHA-NO-GO`; there is no public KIR export, runtime adoption,
+  probe replacement, or KIR v1 freeze.
+
+## Out of Scope / Explicit Non-Claims
+
+- Diagnostic IDs/messages/categories, source spans, or evidence envelope.
+- KIR v1 public freeze, package export, Alpha acceptance, or semantic cutover.
+- Runtime trace, handler, capability, scheduler, outcome, or completion ABI.
+- KERN-authored frontend/interpreter and fixed-point self-hosting.
+
+## Rollback
+
+Each sub-slice is internal and additive. Rollback removes its constitution or
+reader gate; the R1.5b canonical value reader, seven-node semantic probe, KERN
+4.5 runtime, and all public package surfaces remain unchanged.

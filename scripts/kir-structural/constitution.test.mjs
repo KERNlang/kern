@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+import { NODE_SCHEMAS } from '../../packages/core/dist/schema.js';
+import { NODE_TYPES } from '../../packages/core/dist/spec.js';
+import { buildStructuralConstitution, validateStructuralConstitution } from './constitution.mjs';
+
+const checkedIn = JSON.parse(readFileSync('scripts/kir-structural/constitution.json', 'utf8'));
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+test('checked-in constitution binds the complete live source and property catalogs', () => {
+  const counts = validateStructuralConstitution(checkedIn, NODE_TYPES, NODE_SCHEMAS);
+  assert.deepEqual(counts, {
+    sourceNodes: 302,
+    boundNodes: 300,
+    missingSchemas: 2,
+    properties: 1149,
+    nonCatalogSchemas: 7,
+  });
+});
+
+test('missing schemas and non-catalog schemas remain explicit', () => {
+  const missing = checkedIn.nodes.filter((node) => node.schemaStatus === 'missing');
+  assert.deepEqual(missing, [
+    { id: 'alternate-screen', schemaStatus: 'missing', allowedChildren: null, disposition: 'excluded-explicit', reasonId: 'missing-node-schema' },
+    { id: 'scroll-box', schemaStatus: 'missing', allowedChildren: null, disposition: 'excluded-explicit', reasonId: 'missing-node-schema' },
+  ]);
+  assert.deepEqual(checkedIn.nonCatalogSchemas.map((row) => row.id), [
+    'case', 'fixture', 'mock', 'replaceAll', 'replaceFirst', 'split', 'trim',
+  ]);
+});
+
+test('catalog and schema drift cannot be absorbed silently', () => {
+  const deletedNode = clone(checkedIn);
+  deletedNode.nodes.pop();
+  assert.throws(() => validateStructuralConstitution(deletedNode, NODE_TYPES, NODE_SCHEMAS), /constitution drifted/u);
+
+  const inventedCatalog = [...NODE_TYPES, 'invented-node'];
+  assert.throws(() => validateStructuralConstitution(checkedIn, inventedCatalog, NODE_SCHEMAS), /constitution drifted/u);
+
+  const changedSchema = clone(NODE_SCHEMAS);
+  changedSchema.fn.props.name.required = false;
+  assert.throws(() => validateStructuralConstitution(checkedIn, NODE_TYPES, changedSchema), /constitution drifted/u);
+
+  const changedAlias = clone(NODE_SCHEMAS);
+  changedAlias.trim.props.in.kind = 'string';
+  assert.throws(() => validateStructuralConstitution(checkedIn, NODE_TYPES, changedAlias), /constitution drifted/u);
+});
+
+test('property disposition and ordering mutations fail', () => {
+  const disposition = clone(checkedIn);
+  disposition.properties[0].disposition = 'excluded-host-type';
+  assert.throws(() => validateStructuralConstitution(disposition, NODE_TYPES, NODE_SCHEMAS), /constitution drifted/u);
+
+  const reordered = clone(checkedIn);
+  [reordered.properties[0], reordered.properties[1]] = [reordered.properties[1], reordered.properties[0]];
+  assert.throws(() => validateStructuralConstitution(reordered, NODE_TYPES, NODE_SCHEMAS), /constitution drifted/u);
+
+  const enumValues = clone(checkedIn);
+  const constrained = enumValues.properties.find((row) => row.values !== null);
+  constrained.values.reverse();
+  assert.throws(() => validateStructuralConstitution(enumValues, NODE_TYPES, NODE_SCHEMAS), /constitution drifted/u);
+});
+
+test('unknown schema property kinds fail constitution generation', () => {
+  const schemas = clone(NODE_SCHEMAS);
+  schemas.fn.props.name.kind = 'host-mystery';
+  assert.throws(() => buildStructuralConstitution(NODE_TYPES, schemas), /unknown property kind/u);
+});
