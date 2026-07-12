@@ -94,6 +94,9 @@ export async function discoverPublicPackageGraph({ rootDir, packageRoots }) {
 
     visited.set(name, 1);
     const node = graph.get(name);
+    if (node === undefined) {
+      throw new Error(`Unknown package in dependency graph: ${name}`);
+    }
     const nextPathTrace = [...pathTrace, name];
     for (const dep of node.dependencies) {
       visit(dep, nextPathTrace);
