@@ -46,11 +46,24 @@ export interface EntrypointPayload {
   name: string;
   httpMethod?: string;
   /**
-   * For Python/FastAPI-style route decorators, the declared response shape
-   * from `response_model=...`. Omitted when the mapper cannot prove one is
-   * present.
+   * For Python/FastAPI routes, the effective validated response shape from an
+   * explicit `response_model=...` or a handler return annotation. Omitted when
+   * the mapper cannot prove one is present.
    */
   responseModel?: string;
+  /**
+   * For Python/FastAPI routes, the concrete response class proven by either
+   * `response_class=...` or the handler return annotation. This is distinct
+   * from `responseModel`: raw response classes control serialization rather
+   * than defining a validated JSON schema.
+   */
+  responseClass?: string;
+  /**
+   * For Python/FastAPI routes, the literal `include_in_schema` value when the
+   * mapper can prove it. `false` means the route intentionally has no OpenAPI
+   * contract boundary.
+   */
+  includeInSchema?: boolean;
   /**
    * For route entrypoints whose mapper can inspect the backing handler.
    * Omitted when the route abstraction does not expose handler async-ness.
@@ -64,6 +77,12 @@ export interface EntrypointPayload {
    * them under a URL prefix.
    */
   routerName?: string;
+  /**
+   * For `'route-mount'` only. `false` means `routerName` came from a bare
+   * imported router object, so an exported alias may differ from the
+   * decorator variable in the source module.
+   */
+  routerNameAuthoritative?: boolean;
   /**
    * For `'route-mount'` only — the imported module specifier hosting the
    * router. FastAPI example: `from app.api import nutrition_goals;

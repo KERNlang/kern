@@ -8,35 +8,74 @@ function conceptsOf(source: string, filePath: string): ConceptMap {
   return extractTsConcepts(project.createSourceFile(filePath, source), filePath);
 }
 
-function pythonRoute(path: string, responseModel?: string): ConceptMap {
+function pythonRoute(
+  path: string,
+  responseModel?: string,
+  options: { includeInSchema?: boolean; responseClass?: string; routerName?: string } = {},
+  filePath = 'app/api/users.py',
+): ConceptMap {
   return {
-    filePath: 'app/api/users.py',
+    filePath,
     language: 'py',
     extractorVersion: 'test',
     nodes: [
       {
-        id: 'app/api/users.py#entrypoint@1',
+        id: `${filePath}#entrypoint@1`,
         kind: 'entrypoint',
-        primarySpan: { file: 'app/api/users.py', startLine: 4, startCol: 1, endLine: 4, endCol: 30 },
+        primarySpan: { file: filePath, startLine: 4, startCol: 1, endLine: 4, endCol: 30 },
         evidence: `@router.get("${path}")`,
         confidence: 1,
         language: 'py',
-        payload: { kind: 'entrypoint', subtype: 'route', name: path, httpMethod: 'GET', responseModel },
+        payload: {
+          kind: 'entrypoint',
+          subtype: 'route',
+          name: path,
+          httpMethod: 'GET',
+          responseModel,
+          ...options,
+        },
       },
     ],
     edges: [
       {
-        id: 'app/api/users.py#dep@1',
+        id: `${filePath}#dep@1`,
         kind: 'dependency',
-        sourceId: 'app/api/users.py',
+        sourceId: filePath,
         targetId: 'fastapi',
-        primarySpan: { file: 'app/api/users.py', startLine: 1, startCol: 1, endLine: 1, endCol: 30 },
+        primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 30 },
         evidence: 'from fastapi import APIRouter',
         confidence: 1,
         language: 'py',
         payload: { kind: 'dependency', subtype: 'external', specifier: 'fastapi' },
       },
     ],
+  };
+}
+
+function pythonMount(prefix: string, includeInSchema: boolean): ConceptMap {
+  return {
+    filePath: 'app/main.py',
+    language: 'py',
+    extractorVersion: 'test',
+    nodes: [
+      {
+        id: 'app/main.py#entrypoint@1',
+        kind: 'entrypoint',
+        primarySpan: { file: 'app/main.py', startLine: 4, startCol: 1, endLine: 4, endCol: 60 },
+        evidence: `app.include_router(users.router, prefix="${prefix}")`,
+        confidence: 1,
+        language: 'py',
+        payload: {
+          kind: 'entrypoint',
+          subtype: 'route-mount',
+          name: prefix,
+          routerName: 'router',
+          sourceModule: 'app.api.users',
+          includeInSchema,
+        },
+      },
+    ],
+    edges: [],
   };
 }
 
@@ -84,6 +123,47 @@ describe('untyped-both-ends-response', () => {
     expect(untypedBothEndsResponse(ctxFrom([client, pythonRoute('/api/users', 'UserOut')], 'src/client.ts'))).toEqual(
       [],
     );
+  });
+
+  it('is silent for schema-excluded and non-JSON FastAPI routes', () => {
+    const client = conceptsOf(
+      `
+      async function loadUsers() {
+        return fetch('/api/users').then(r => r.json());
+      }
+      async function loadMedia() {
+        return fetch('/api/media').then(r => r.json());
+      }
+    `,
+      'src/client.ts',
+    );
+
+    expect(
+      untypedBothEndsResponse(
+        ctxFrom(
+          [
+            client,
+            pythonRoute('/api/users', undefined, { includeInSchema: false }),
+            pythonRoute('/api/media', undefined, { responseClass: 'FileResponse' }, 'app/api/media.py'),
+          ],
+          'src/client.ts',
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('is silent when the matching FastAPI router mount is schema-excluded', () => {
+    const client = conceptsOf(
+      `
+      async function loadUsers() {
+        return fetch('/api/users').then(r => r.json());
+      }
+    `,
+      'src/client.ts',
+    );
+    const route = pythonRoute('/users', undefined, { routerName: 'router' });
+
+    expect(untypedBothEndsResponse(ctxFrom([client, route, pythonMount('/api', false)], 'src/client.ts'))).toEqual([]);
   });
 
   it('is silent when the matching Python route is not a FastAPI route', () => {

@@ -1,5 +1,17 @@
 import type { ConceptNode } from '@kernlang/core';
 import { conceptId } from '@kernlang/core';
+import {
+  collectPythonImportAliases,
+  combinePythonSchemaInclusion,
+  extractPythonKeywordArgument,
+  extractPythonRoutePath,
+  extractPythonRouterArgument,
+  extractPythonStringLiteral,
+  inferPythonResponseEvidence,
+  inferPythonRouterConfiguration,
+  joinPythonRoutePaths,
+  resolvePythonRouterReference,
+} from '@kernlang/review';
 import type Parser from 'tree-sitter';
 import { getSelfContainerId, isAsyncFunction, nodeSpan, nodeText, walkNodes } from '../helpers/ast.js';
 import type { FieldTypeMap } from '../helpers/types.js';
@@ -31,6 +43,22 @@ export function extractEntrypoints(
   nodes: ConceptNode[],
 ): void {
   const pydanticModels = collectPydanticModels(source);
+  const importAliases = collectPythonImportAliases(source);
+  const routerConfigurations = new Map<string, ReturnType<typeof inferPythonRouterConfiguration>>();
+
+  walkNodes(root, 'assignment', (node) => {
+    const left = node.childForFieldName('left');
+    const right = node.childForFieldName('right');
+    if (!left || !right || left.type !== 'identifier' || right.type !== 'call') return;
+    const fn = right.childForFieldName('function');
+    if (!fn) return;
+    const fnText = source.substring(fn.startIndex, fn.endIndex);
+    if (!/(?:^|\.)APIRouter$/.test(fnText)) return;
+    routerConfigurations.set(
+      source.substring(left.startIndex, left.endIndex),
+      inferPythonRouterConfiguration(source.substring(right.startIndex, right.endIndex)),
+    );
+  });
 
   // FastAPI / Flask route decorators.
   //
@@ -54,22 +82,27 @@ export function extractEntrypoints(
 
       const routerName = routeMatch[1];
       const method = routeMatch[2].toUpperCase();
-      const pathMatch = decText.match(/['"]([^'"]+)['"]/);
-      const routePath = pathMatch?.[1];
+      const declaredRoutePath = extractPythonRoutePath(decText);
       // Only surface the decorator as a route when we could extract a URL
       // path literal. Mystery decorators with only kwargs (e.g. `@app.get`
       // stub) are noise — skip them instead of filling `name` with the
       // function name, which cross-stack routes treat as invalid.
-      if (!routePath?.startsWith('/')) continue;
+      if (!declaredRoutePath?.startsWith('/')) continue;
+      const routerConfiguration = routerConfigurations.get(routerName);
+      const routePath = joinPythonRoutePaths(routerConfiguration?.prefix, declaredRoutePath);
 
-      const responseModel = extractResponseModel(decText);
+      const returnTypeNode = fnDef.childForFieldName('return_type');
+      const response = inferPythonResponseEvidence(
+        decText,
+        returnTypeNode ? source.substring(returnTypeNode.startIndex, returnTypeNode.endIndex) : undefined,
+      );
       const routeContainerId = getSelfContainerId(fnDef, filePath);
       const routeAnalysis = analyzePythonRoute(
         fnDef,
         source,
         method,
         routePath,
-        responseModel,
+        response.responseModel,
         pydanticModels,
         decText,
       );
@@ -87,7 +120,9 @@ export function extractEntrypoints(
           subtype: 'route',
           name: routePath,
           httpMethod: method === 'ROUTE' ? undefined : method,
-          responseModel,
+          responseModel: response.responseModel,
+          responseClass: response.responseClass,
+          includeInSchema: combinePythonSchemaInclusion(response.includeInSchema, routerConfiguration?.includeInSchema),
           isAsync: isAsyncFunction(fnDef),
           routerName,
           errorStatusCodes: routeAnalysis.errorStatusCodes,
@@ -122,22 +157,21 @@ export function extractEntrypoints(
     const argsNode = node.childForFieldName('arguments');
     if (!argsNode) return;
     const argsText = source.substring(argsNode.startIndex, argsNode.endIndex);
+    const mountResponse = inferPythonResponseEvidence(argsText, undefined);
 
     // First positional arg is the router. Common shapes:
     //   include_router(router)                  — local identifier
     //   include_router(nutrition_goals.router)  — imported-module attribute
     //   include_router(auth_router)             — aliased local identifier
-    const posMatch = argsText.match(/^\(\s*([A-Za-z_][\w.]*)/);
-    if (!posMatch) return;
-    const routerRef = posMatch[1];
-    const dot = routerRef.lastIndexOf('.');
-    const sourceModule = dot === -1 ? undefined : routerRef.slice(0, dot);
-    const routerName = dot === -1 ? routerRef : routerRef.slice(dot + 1);
+    const routerRef = extractPythonRouterArgument(argsText);
+    if (!routerRef) return;
+    const resolvedRouter = resolvePythonRouterReference(routerRef, importAliases);
 
-    const prefixMatch = argsText.match(/prefix\s*=\s*['"]([^'"]*)['"]/);
     // Prefix defaults to '' when omitted — still valid (the route keeps its
     // declared path as-is), so emit the mount either way.
-    const prefix = prefixMatch?.[1] ?? '';
+    const prefixArgument = extractPythonKeywordArgument(argsText, 'prefix');
+    const prefix = prefixArgument === undefined ? '' : extractPythonStringLiteral(prefixArgument);
+    if (prefix === undefined) return;
 
     nodes.push({
       id: conceptId(filePath, 'entrypoint', node.startIndex),
@@ -150,8 +184,10 @@ export function extractEntrypoints(
         kind: 'entrypoint',
         subtype: 'route-mount',
         name: prefix,
-        routerName,
-        sourceModule,
+        routerName: resolvedRouter.routerName,
+        routerNameAuthoritative: resolvedRouter.routerNameAuthoritative,
+        sourceModule: resolvedRouter.sourceModule,
+        includeInSchema: mountResponse.includeInSchema,
       },
     });
   });
@@ -220,53 +256,4 @@ function hasUnboundedPythonCollectionQuery(
     PY_DB_COLLECTION_RE.test(text) &&
     (responseLooksList || /\breturn\b[\s\S]*(\.all\s*\(|\.find\s*\(|\.fetchall\s*\()/.test(text))
   );
-}
-
-function extractResponseModel(decoratorText: string): string | undefined {
-  const match = decoratorText.match(/\bresponse_model\s*=/);
-  if (!match || match.index === undefined) return undefined;
-
-  let index = match.index + match[0].length;
-  while (/\s/.test(decoratorText[index] ?? '')) index++;
-
-  const start = index;
-  let squareDepth = 0;
-  let parenDepth = 0;
-  let braceDepth = 0;
-  let quote: string | undefined;
-
-  while (index < decoratorText.length) {
-    const char = decoratorText[index];
-    const prev = decoratorText[index - 1];
-
-    if (quote) {
-      if (char === quote && prev !== '\\') quote = undefined;
-      index++;
-      continue;
-    }
-
-    if (char === '"' || char === "'") {
-      quote = char;
-      index++;
-      continue;
-    }
-
-    if (char === '[') squareDepth++;
-    else if (char === ']') squareDepth = Math.max(0, squareDepth - 1);
-    else if (char === '(') parenDepth++;
-    else if (char === ')') {
-      if (squareDepth === 0 && parenDepth === 0 && braceDepth === 0) break;
-      parenDepth = Math.max(0, parenDepth - 1);
-    } else if (char === '{') braceDepth++;
-    else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
-    else if (char === ',' && squareDepth === 0 && parenDepth === 0 && braceDepth === 0) {
-      break;
-    }
-
-    index++;
-  }
-
-  const model = decoratorText.slice(start, index).trim();
-  if (!model || model === 'None') return undefined;
-  return model;
 }

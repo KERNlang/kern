@@ -64,6 +64,7 @@ export function untypedBothEndsResponse(ctx: ConceptRuleContext): ReviewFinding[
 }
 
 function routeMissingResponseModel(route: ServerRoute, allConcepts: ReadonlyMap<string, ConceptMap>): boolean {
+  if (route.includeInSchema === false) return false;
   const node = route.node;
   if (!node) return false;
   return isFastApiRouteMissingResponseModel(node, allConcepts.get(node.primarySpan.file));

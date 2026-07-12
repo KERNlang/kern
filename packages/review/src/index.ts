@@ -295,6 +295,25 @@ export {
   resolveSpecifierToSrc,
 } from './public-api.js';
 export { PYTHON_BUILTIN_EXCEPTIONS } from './python-builtin-exceptions.js';
+export {
+  collectPythonImportAliases,
+  combinePythonSchemaInclusion,
+  extractPythonKeywordArgument,
+  extractPythonRoutePath,
+  extractPythonRouterArgument,
+  extractPythonStringLiteral,
+  inferPythonResponseEvidence,
+  inferPythonRouterConfiguration,
+  isNonJsonFastApiResponseClass,
+  joinPythonRoutePaths,
+  type PythonImportAlias,
+  type PythonResponseEvidence,
+  type PythonRouterConfiguration,
+  type PythonRouterReference,
+  pythonExecutableLineMask,
+  resolvePythonRouterReference,
+  stripPythonLineComment,
+} from './python-response-contract.js';
 export { runQualityRules } from './quality-rules.js';
 // RAG grounding gate (cite-or-drop enforcement for LLM findings against a
 // mined-rule corpus) — see rag-grounding.ts module doc for Tier A/B design.
