@@ -185,6 +185,7 @@ export class FakeRegistryClient {
   async publishTarball(tarballPath, tag) {
     this.calls.push({ method: 'publishTarball', tarballPath, tag });
     const pkg = this.manifest.packages.find((candidate) => candidate.tarball === path.basename(tarballPath));
+    if (!pkg) throw new Error(`Unknown fake-registry tarball: ${path.basename(tarballPath)}`);
     const metadata = {
       name: pkg.name,
       version: pkg.version,
