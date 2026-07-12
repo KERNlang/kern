@@ -224,10 +224,12 @@ trusted-publishing/provenance configuration is inspected.
     Per-handler cache identity carries the seam through rebuilt function/class
     environments without cross-call leakage. The full fitness wall and final
     3/3 Agon review passed with zero verified findings on 2026-07-12.
-  - [ ] M3.5 internal scheduler control: caller-supplied cancellation and
+  - [x] M3.5 internal scheduler control: caller-supplied cancellation and
     timeout bound internal envelope execution and capability waits with closed,
     distinct diagnostics. Provider abort propagation, trace convergence,
-    linking, value symmetry, and public ABI promotion remain deferred.
+    linking, value symmetry, and public ABI promotion remain deferred. The full
+    fitness wall and final 3/3 Agon review passed with zero verified findings on
+    2026-07-13.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

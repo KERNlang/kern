@@ -1,8 +1,8 @@
 # KERN 5 R2/M3.5 Internal Scheduler Control
 
-**Status:** IN PROGRESS
-**Date:** 2026-07-12
-**Confidence:** 0.94
+**Status:** DONE
+**Date:** 2026-07-13
+**Confidence:** 0.98
 
 ## Executive Summary
 
@@ -77,24 +77,24 @@ capability ABI is designed.
 
 ## Acceptance Criteria
 
-- [ ] Omitted scheduler preserves current sync and async envelope bytes.
-- [ ] Invalid scheduler shapes, unknown fields, invalid signals, and invalid
+- [x] Omitted scheduler preserves current sync and async envelope bytes.
+- [x] Invalid scheduler shapes, unknown fields, invalid signals, and invalid
       timeout values fail before handler execution with no events/result.
-- [ ] Already-aborted sync and async calls fail as `execution-cancelled` before
+- [x] Already-aborted sync and async calls fail as `execution-cancelled` before
       the body or provider runs.
-- [ ] In-flight abort during an interceptor wait prevents provider dispatch and
+- [x] In-flight abort during an interceptor wait prevents provider dispatch and
       returns a stable closed cancellation envelope.
-- [ ] Scheduler timeout during an interceptor or async-provider wait returns
+- [x] Scheduler timeout during an interceptor or async-provider wait returns
       `execution-timeout`, distinct from provider capability timeout.
-- [ ] Late resolution and rejection after a scheduler terminal event are
+- [x] Late resolution and rejection after a scheduler terminal event are
       observed without unhandled rejection, envelope mutation, or new events.
-- [ ] Abort listeners and timers are removed after success, failure,
+- [x] Abort listeners and timers are removed after success, failure,
       cancellation, and timeout.
-- [ ] A later handler call has fresh scheduler state and cannot observe the
+- [x] A later handler call has fresh scheduler state and cannot observe the
       prior call's terminal state.
-- [ ] Public exports and the planned `runtime-handler-abi` gate remain unchanged.
-- [ ] `pnpm test:kern-runtime-envelope` and `pnpm fitness:kern-5` pass.
-- [ ] Final Agon review with `claude,codex,agy` has zero verified findings.
+- [x] Public exports and the planned `runtime-handler-abi` gate remain unchanged.
+- [x] `pnpm test:kern-runtime-envelope` and `pnpm fitness:kern-5` pass.
+- [x] Final Agon review with `claude,codex,agy` has zero verified findings.
 
 ## Explicit Deferrals
 
@@ -124,3 +124,14 @@ ABI freeze remain later.
 |---|---|---|
 | Tribunal described generic cancellation across provider work | The current provider ABI exposes no abort channel | M3.5 stops waiting and suppresses late settlement; provider abort propagation is explicitly deferred |
 | Tribunal requested zero lingering handles | A host provider may own unrelated handles outside KERN control | The executable oracle binds only scheduler-owned timers/listeners and late promise observation |
+| A disposed scheduler generation should always delete its state immediately | A cancelled generation may retain a handle-free terminal tombstone while old work remains pending | Fresh handler calls remain isolated by `runnerCallCache`; unsafe same-environment reuse cannot revive cancelled work under a newer generation |
+
+## Completion Evidence
+
+- Commit `103ffcca` is present on
+  `origin/feat/kern-5-r1-kir-v1-parity`. **VERIFIED**
+- `pnpm fitness:kern-5` passed on 2026-07-13, including 45 focused runtime
+  envelope tests and the complete workspace/release wall. **VERIFIED**
+- Agon review
+  `review-1783897091165-u04ede-kern5-m3-5-internal-scheduler-fi` completed
+  with all three engines and zero verified findings. **VERIFIED**
