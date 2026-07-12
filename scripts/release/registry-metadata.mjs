@@ -17,7 +17,7 @@ function registryInternalDependencies(registryInfo, planNames) {
       if (planNames.has(name)) result.push({ name, kind, version });
     }
   }
-  return result.sort((left, right) =>
+  return [...result].sort((left, right) =>
     left.name.localeCompare(right.name) || left.kind.localeCompare(right.kind));
 }
 
