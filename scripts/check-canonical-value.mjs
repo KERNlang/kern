@@ -6,7 +6,10 @@ import ts from 'typescript';
 
 const sourceRoot = 'packages/core/src';
 const ownRoot = path.join(sourceRoot, 'canonical-value');
-const structuralConsumerRoot = path.join(sourceRoot, 'kir-structural');
+const allowedConsumerRoots = [
+  path.join(sourceRoot, 'kir-structural'),
+  path.join(sourceRoot, 'kir-evidence'),
+];
 const graphEntry = path.join(ownRoot, 'canonical.ts');
 
 function sourceFiles(directory) {
@@ -57,7 +60,7 @@ export function runCanonicalValueCheck() {
   for (const sourcePath of sourceFiles(sourceRoot)) {
     if (sourcePath.startsWith(`${ownRoot}${path.sep}`)) continue;
     if (canonicalValueReferences(readFileSync(sourcePath, 'utf8'), sourcePath).length > 0) {
-      if (sourcePath.startsWith(`${structuralConsumerRoot}${path.sep}`)) continue;
+      if (allowedConsumerRoots.some((root) => sourcePath.startsWith(`${root}${path.sep}`))) continue;
       throw new Error(`canonical value reader must remain internal and unconsumed; found reference in ${sourcePath}`);
     }
   }
@@ -95,7 +98,7 @@ export function runCanonicalValueCheck() {
   }
 
   process.stdout.write(
-    'Canonical value reader: PASS (INTERNAL; browser graph closed; only structural codec consumes it; ALPHA-NO-GO; no KIR v1, public export, runtime adoption, or probe replacement).\n',
+    'Canonical value reader: PASS (INTERNAL; browser graph closed; only structural and evidence codecs consume it; ALPHA-NO-GO; no KIR v1, public export, runtime adoption, or probe replacement).\n',
   );
 }
 

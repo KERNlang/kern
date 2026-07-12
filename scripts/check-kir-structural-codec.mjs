@@ -7,6 +7,7 @@ import { moduleSpecifiers } from './check-canonical-value.mjs';
 
 const sourceRoot = 'packages/core/src';
 const ownRoot = path.join(sourceRoot, 'kir-structural');
+const evidenceConsumerRoot = path.join(sourceRoot, 'kir-evidence');
 const graphEntry = path.join(ownRoot, 'canonical.ts');
 
 function sourceFiles(directory) {
@@ -37,6 +38,7 @@ export function runStructuralKirCodecCheck() {
   for (const sourcePath of sourceFiles(sourceRoot)) {
     if (sourcePath.startsWith(`${ownRoot}${path.sep}`)) continue;
     if (structuralKirReferences(readFileSync(sourcePath, 'utf8'), sourcePath).length > 0) {
+      if (sourcePath.startsWith(`${evidenceConsumerRoot}${path.sep}`)) continue;
       throw new Error(`structural KIR codec must remain internal and unconsumed; found reference in ${sourcePath}`);
     }
   }
@@ -68,7 +70,7 @@ export function runStructuralKirCodecCheck() {
   }
 
   process.stdout.write(
-    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; empty type catalog; ALPHA-NO-GO).\n`,
+    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence-only consumer; empty type catalog; ALPHA-NO-GO).\n`,
   );
 }
 

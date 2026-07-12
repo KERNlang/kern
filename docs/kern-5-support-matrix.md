@@ -40,6 +40,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kir-structural-codec | Bounded structural KIR writer and reader | current | `pnpm test:kern-kir-structural-codec` |
 | kir-module-graph | Structural KIR module and symbol graph | current | `pnpm test:kern-kir-module-graph` |
 | kir-coverage-closure | Structural KIR coverage witness closure | current | `pnpm test:kern-kir-coverage-closure` |
+| kir-evidence | Diagnostic and UTF-8 location evidence | current | `pnpm test:kern-kir-evidence` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
 | runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
@@ -75,6 +76,7 @@ wall and must remain absent until promoted.
 | kir-structural-codec | Bounded structural KIR writer and reader | internal-oracle | `pnpm test:kern-kir-structural-codec` |
 | kir-module-graph | Structural KIR module and symbol graph | internal-oracle | `pnpm test:kern-kir-module-graph` |
 | kir-coverage-closure | Structural KIR coverage witness closure | internal-oracle | `pnpm test:kern-kir-coverage-closure` |
+| kir-evidence | Diagnostic and UTF-8 location evidence | internal-oracle | `pnpm test:kern-kir-evidence` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |

@@ -188,8 +188,15 @@ trusted-publishing/provenance configuration is inspected.
       explicit `class | fn` symbols, dependency-ordered transitive re-exports,
       pure POSIX resolution, full fitness wall, and final 3/3 Agon review passed
       on 2026-07-12 (`ALPHA-NO-GO`).
-    - [ ] R1.5c.4 executable coverage closure.
+    - [x] R1.5c.4 executable coverage closure: all 302 node kinds and 1,149
+      properties have 2,286 executable include/exclude witnesses; 16 runtime
+      contracts remain explicitly deferred to M3. Full fitness wall and final
+      3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
   - [ ] R1.5d diagnostic/location evidence contract and Alpha manifest.
+    - [x] R1.5d.1 separately versioned diagnostic and UTF-8 byte-location
+      evidence, bound to exact source and structural KIR bytes. Full fitness
+      wall and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
+    - [ ] R1.5d.2 clean-HEAD immutable Alpha manifest build receipt.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
