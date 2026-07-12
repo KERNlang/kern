@@ -411,7 +411,9 @@ export function validateEnvelope(value) {
       validateNode(item, `${path}.nodes[${itemIndex}]`);
       if (item.kind !== 'fn') fail(`${path}.nodes[${itemIndex}].kind`, 'module root nodes must be fn');
       if (item.kind === 'fn') {
-        const name = item.properties.find((entry) => entry.key === 'name').value.value;
+        const nameProperty = item.properties.find((entry) => entry.key === 'name');
+        if (nameProperty === undefined) fail(`${path}.nodes[${itemIndex}].properties`, 'missing name property');
+        const name = nameProperty.value.value;
         if (declarations.has(name)) fail(`${path}.nodes[${itemIndex}]`, `duplicate local declaration ${name}`);
         declarations.set(name, item.kind);
       }
@@ -421,12 +423,18 @@ export function validateEnvelope(value) {
   const graph = new Map();
   for (const module of value.modules) {
     const targets = [];
-    const localNames = new Set(declarationsByModule.get(module.id).keys());
-    for (const [importIndex, imported] of importsByModule.get(module.id).entries()) {
+    const modulePath = `envelope.modules[${value.modules.indexOf(module)}]`;
+    const declarations = declarationsByModule.get(module.id);
+    if (declarations === undefined) fail(modulePath, `missing declarations for ${module.id}`);
+    const moduleImports = importsByModule.get(module.id);
+    if (moduleImports === undefined) fail(modulePath, `missing imports for ${module.id}`);
+    const localNames = new Set(declarations.keys());
+    for (const [importIndex, imported] of moduleImports.entries()) {
       const importPath = `envelope.modules[${value.modules.indexOf(module)}].imports[${importIndex}]`;
       if (!ids.has(imported.source)) fail(`${importPath}.source`, `missing module ${imported.source}`);
       targets.push(imported.source);
       const targetExports = exportsByModule.get(imported.source);
+      if (targetExports === undefined) fail(`${importPath}.source`, `missing exports for ${imported.source}`);
       for (const [bindingIndex, binding] of imported.bindings.entries()) {
         if (!targetExports.has(binding.imported)) fail(`${importPath}.bindings[${bindingIndex}].imported`, `missing export ${binding.imported}`);
         const exportedKind = targetExports.get(binding.imported);

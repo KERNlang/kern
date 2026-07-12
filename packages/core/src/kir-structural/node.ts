@@ -256,7 +256,9 @@ function canonicalRecord(value: CanonicalValue, keys: readonly string[], path: s
 }
 
 function canonicalField(record: Map<string, CanonicalValue>, name: string): CanonicalValue {
-  return record.get(name) as CanonicalValue;
+  const value = record.get(name);
+  if (value === undefined) fail('invalid-artifact', `$.${name}`, `missing canonical field ${name}`);
+  return value;
 }
 
 function canonicalText(value: CanonicalValue, path: string): string {

@@ -173,7 +173,11 @@ export function deriveModuleGraph(
   const link = (seed: ModuleSeed): ModuleKirModule => {
     const existing = linked.get(seed.id);
     if (existing !== undefined) return existing;
-    for (const use of usesById.get(seed.id) ?? []) link(seeds.get(use.target) as ModuleSeed);
+    for (const use of usesById.get(seed.id) ?? []) {
+      const targetSeed = seeds.get(use.target);
+      if (targetSeed === undefined) fail('missing-module', `$.modules.${seed.id}`, `missing module ${use.target}`);
+      link(targetSeed);
+    }
     const module = linkModule(seed, usesById.get(seed.id) ?? [], linked);
     linked.set(seed.id, module);
     return module;

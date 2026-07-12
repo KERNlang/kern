@@ -203,7 +203,9 @@ function exactRecord(value: CanonicalValue, keys: readonly string[], path: strin
 }
 
 function field(recordValue: Map<string, CanonicalValue>, key: string): CanonicalValue {
-  return recordValue.get(key) as CanonicalValue;
+  const value = recordValue.get(key);
+  if (value === undefined) fail('invalid-expression', `$.${key}`, `missing expression field ${key}`);
+  return value;
 }
 
 function text(value: CanonicalValue, path: string): string {

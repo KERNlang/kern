@@ -60,7 +60,9 @@ function exact(value: CanonicalValue, keys: readonly string[], path: string): Ma
 }
 
 function field(record: Map<string, CanonicalValue>, name: string): CanonicalValue {
-  return record.get(name) as CanonicalValue;
+  const value = record.get(name);
+  if (value === undefined) fail('invalid-artifact', `$.${name}`, `missing field ${name}`);
+  return value;
 }
 
 function exactText(value: CanonicalValue, expected: string, codePath: string): void {

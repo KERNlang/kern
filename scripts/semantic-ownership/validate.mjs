@@ -152,6 +152,7 @@ function validateContracts(policy, componentIds) {
   const semantic = policy.contracts.find((contract) => contract.id === 'semantic-execution');
   if (!semantic) fail('semantic-execution contract is required');
   const owner = policy.components.find((component) => component.id === semantic.owner);
+  if (owner === undefined) fail(`semantic-execution owner ${semantic.owner} is not a component`);
   if (owner.role !== 'planned-semantic-owner') {
     fail(`semantic-execution owner ${semantic.owner} must have role planned-semantic-owner`);
   }
@@ -172,8 +173,10 @@ function validateCanonicalGraph(policy, componentIds) {
     const edgeId = `${edge.from}->${edge.to}`;
     if (edgeIds.has(edgeId)) fail(`duplicate canonical edge ${edgeId}`);
     edgeIds.add(edgeId);
-    outgoing.get(edge.from).push(edge.to);
-    indegree.set(edge.to, indegree.get(edge.to) + 1);
+    const fromEdges = outgoing.get(edge.from);
+    if (fromEdges === undefined) fail(`canonical edge source ${edge.from} is unknown`);
+    fromEdges.push(edge.to);
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
   }
 
   const reachable = new Set();
@@ -182,7 +185,7 @@ function validateCanonicalGraph(policy, componentIds) {
     if (visiting.has(componentId)) fail(`canonical graph contains a cycle at ${componentId}`);
     if (reachable.has(componentId)) return;
     visiting.add(componentId);
-    for (const next of outgoing.get(componentId)) visit(next);
+    for (const next of outgoing.get(componentId) ?? []) visit(next);
     visiting.delete(componentId);
     reachable.add(componentId);
   }
@@ -201,7 +204,7 @@ function validateCanonicalGraph(policy, componentIds) {
     }
   }
   if (indegree.get(policy.canonicalSource) !== 0) fail('canonical source must have no incoming edge');
-  if (outgoing.get(policy.canonicalSink).length !== 0) fail('canonical sink must have no outgoing edge');
+  if ((outgoing.get(policy.canonicalSink) ?? []).length !== 0) fail('canonical sink must have no outgoing edge');
 }
 
 function parsedSource(source, sourcePath) {

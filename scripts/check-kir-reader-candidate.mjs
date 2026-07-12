@@ -25,16 +25,22 @@ check('core reader is byte-identical to the selected R1.3 probe', () => {
   assert.deepEqual(decodeKirReaderCandidate(probeBytes), decodeCanonical(probeBytes));
 });
 
+function mustFind(items, predicate, label) {
+  const found = items.find(predicate);
+  if (found === undefined) throw new Error(`Probe fixture is missing ${label}`);
+  return found;
+}
+
 const mutations = [
   ['unknown format', (copy) => { copy.format = 'kern.semantic-kir.v1'; }],
   ['extra envelope field', (copy) => { copy.surprise = true; }],
   ['unknown node kind', (copy) => { copy.modules[0].nodes[0].kind = 'class'; }],
   ['unknown value tag', (copy) => { copy.modules[0].nodes[0].properties[0].value.tag = 'host-object'; }],
   ['wrong semantic property tag', (copy) => {
-    copy.modules[0].nodes[0].properties.find((entry) => entry.key === 'export').value = { tag: 'text', value: 'true' };
+    mustFind(copy.modules[0].nodes[0].properties, (entry) => entry.key === 'export', 'export property').value = { tag: 'text', value: 'true' };
   }],
   ['wrong expression field tag', (copy) => {
-    requireExpressionKind(copy, 'binary').fields.find((entry) => entry.key === 'operator').value = { tag: 'bool', value: true };
+    mustFind(requireExpressionKind(copy, 'binary').fields, (entry) => entry.key === 'operator', 'operator field').value = { tag: 'bool', value: true };
   }],
   ['non-function module root', (copy) => { copy.modules[0].nodes[0] = structuredClone(copy.modules[0].nodes[0].children.at(-1)); }],
   ['param after handler', (copy) => { copy.modules[0].nodes[0].children.reverse(); }],
@@ -59,7 +65,7 @@ const mutations = [
     copy.modules[0].nodes[0].location.end = { line: 1, column: 1 };
   }],
   ['invalid identifier', (copy) => {
-    copy.modules[0].nodes[0].properties.find((entry) => entry.key === 'name').value.value = 'not valid';
+    mustFind(copy.modules[0].nodes[0].properties, (entry) => entry.key === 'name', 'name property').value.value = 'not valid';
   }],
   ['missing node property', (copy) => {
     copy.modules[0].nodes[0].properties = copy.modules[0].nodes[0].properties.filter((entry) => entry.key !== 'name');
@@ -72,7 +78,7 @@ const mutations = [
   ['missing export', (copy) => { copy.modules[1].imports[0].bindings[0].imported = 'absent'; }],
   ['wrong import kind', (copy) => { copy.modules[1].imports[0].bindings[0].kind = 'class'; }],
   ['wrong re-export kind', (copy) => {
-    copy.modules[1].exports.find((item) => item.name === 'twice').kind = 'class';
+    mustFind(copy.modules[1].exports, (item) => item.name === 'twice', 'twice export').kind = 'class';
   }],
   ['duplicate export', (copy) => { copy.modules[1].exports.push(structuredClone(copy.modules[1].exports[0])); }],
   ['fake local export', (copy) => { copy.modules[0].exports.unshift({ name: 'absent', kind: 'fn', source: null }); }],

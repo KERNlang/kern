@@ -272,7 +272,9 @@ export function projectModules(inputs) {
       for (const binding of use.children ?? []) {
         if (binding.type !== 'from') throw new TypeError(`${module.id}: use child ${binding.type} is outside the probe`);
         const imported = binding.props.name;
-        const targetExport = exportSets.get(target).find((item) => item.name === imported);
+        const targetExportSet = exportSets.get(target);
+        if (targetExportSet === undefined) throw new TypeError(`${module.id}: missing export set for ${target}`);
+        const targetExport = targetExportSet.find((item) => item.name === imported);
         if (targetExport === undefined) {
           throw new TypeError(`${module.id}: missing export ${imported} from ${target}`);
         }
