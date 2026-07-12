@@ -42,6 +42,8 @@ export type InternalRuntimeDiagnosticCode =
   | 'capability-error'
   | 'encoded-limit'
   | 'escaped-control'
+  | 'execution-cancelled'
+  | 'execution-timeout'
   | 'handler-entry-ambiguous'
   | 'handler-entry-not-found'
   | 'handler-entry-unsupported'
@@ -71,6 +73,10 @@ export interface InternalRuntimeEnvelopeOptions {
   readonly capabilityInterceptor?: InternalRuntimeCapabilityInterceptor;
   readonly enabled: true;
   readonly limits: InternalRuntimeEnvelopeLimits;
+  readonly scheduler?: {
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+  };
 }
 
 export class InternalRuntimeEnvelopeError extends TypeError {

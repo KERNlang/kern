@@ -148,7 +148,7 @@
     },
     {
       "id": "internal-runtime-envelope",
-      "label": "Internal runtime envelope, handler entry, source link, and capability seam",
+      "label": "Internal runtime envelope, handler entry, source link, capability seam, and scheduler control",
       "status": "current",
       "argv": ["pnpm", "test:kern-runtime-envelope"]
     },
@@ -325,6 +325,12 @@
     {
       "id": "internal-runtime-capability-seam",
       "label": "Default-off capability interception seam",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
+      "id": "internal-runtime-scheduler-control",
+      "label": "Default-off cancellation and timeout control",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-runtime-envelope"
     },

@@ -5,6 +5,8 @@ const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
 const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
+const INTERNAL_SCHEDULER = join(INTERNAL_DIRECTORY, 'internal-scheduler.ts');
+const RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS = new Set([CAPABILITY_SEAM]);
 const CAPABILITY_SEAM_IMPORTERS = new Set([
   CAPABILITY_SEAM,
   join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts'),
@@ -26,7 +28,7 @@ function sourceFiles(directory) {
 for (const path of sourceFiles(CORE_SOURCE)) {
   if (path.startsWith(`${INTERNAL_DIRECTORY}/`)) continue;
   const text = readFileSync(path, 'utf8');
-  if (text.includes('runtime-envelope')) {
+  if (text.includes('runtime-envelope') && !RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS.has(path)) {
     fail(`production adoption is forbidden outside the internal directory: ${relative(ROOT, path)}`);
   }
   if (text.includes('internal-capability-interceptor') && !CAPABILITY_SEAM_IMPORTERS.has(path)) {
@@ -37,6 +39,10 @@ for (const path of sourceFiles(CORE_SOURCE)) {
 const capabilitySeam = readFileSync(CAPABILITY_SEAM, 'utf8');
 if (!capabilitySeam.includes("'kern.capability.request.internal.r0'")) {
   fail('capability seam request format must remain exact and internal');
+}
+const internalScheduler = readFileSync(INTERNAL_SCHEDULER, 'utf8');
+for (const witness of ['execution-cancelled', 'execution-timeout', 'removeEventListener', 'clearTimeout']) {
+  if (!internalScheduler.includes(witness)) fail(`internal scheduler is missing ${witness}`);
 }
 
 const corePackage = JSON.parse(readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8'));
@@ -59,6 +65,10 @@ if (publicGate?.status !== 'planned') {
 const capabilityOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-capability-seam');
 if (capabilityOwnership?.status !== 'internal-oracle') {
   fail('internal runtime capability seam must remain an internal oracle');
+}
+const schedulerOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-scheduler-control');
+if (schedulerOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime scheduler control must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));

@@ -1,6 +1,7 @@
 import { ReferenceRunnerError } from '../ir/semantics/reference-runner.js';
 import type { Trace, TraceEvent } from '../ir/semantics/trace.js';
 import { KernCapabilityError } from '../runner-capabilities.js';
+import { InternalRuntimeSchedulerError } from './internal-scheduler.js';
 import {
   INTERNAL_RUNTIME_ENVELOPE_FORMAT,
   type InternalRuntimeDiagnosticCode,
@@ -140,6 +141,7 @@ export function normalizeInternalRuntimeTrace(
 }
 
 export function normalizeInternalRuntimeFailure(error: unknown): InternalRuntimeEnvelope {
+  if (error instanceof InternalRuntimeSchedulerError) return internalRuntimeFailure(error.code);
   if (error instanceof KernCapabilityError) return internalRuntimeFailure('capability-error');
   if (error instanceof ReferenceRunnerError) return internalRuntimeFailure('unsupported-runtime-input');
   if (error instanceof InternalRuntimeEnvelopeError) {

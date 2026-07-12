@@ -3,6 +3,11 @@ import type { SemanticEnv } from '../ir/semantics/index.js';
 import { referenceRunSequence } from '../ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../ir/semantics/register-all.js';
 import type { IRNode } from '../types.js';
+import {
+  installInternalRuntimeScheduler,
+  throwIfInternalRuntimeSchedulerTerminated,
+  waitForInternalRuntimeScheduler,
+} from './internal-scheduler.js';
 import { normalizeInternalRuntimeFailure, normalizeInternalRuntimeTrace } from './normalize.js';
 import {
   type InternalRuntimeEnvelope,
@@ -25,11 +30,18 @@ export function executeInternalRuntimeEnvelopeSync(
   options?: InternalRuntimeEnvelopeOptions,
 ): InternalRuntimeEnvelope {
   const accepted = enabled(options);
+  let disposeScheduler = () => {};
   try {
+    disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
+    throwIfInternalRuntimeSchedulerTerminated(env);
     registerAllContracts();
-    return normalizeInternalRuntimeTrace(referenceRunSequence(nodes, env), accepted.limits);
+    const trace = referenceRunSequence(nodes, env);
+    throwIfInternalRuntimeSchedulerTerminated(env);
+    return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {
     return normalizeInternalRuntimeFailure(error);
+  } finally {
+    disposeScheduler();
   }
 }
 
@@ -40,10 +52,17 @@ export async function executeInternalRuntimeEnvelopeAsync(
   asyncOptions: AsyncReferenceRunnerOptions = {},
 ): Promise<InternalRuntimeEnvelope> {
   const accepted = enabled(options);
+  let disposeScheduler = () => {};
   try {
+    disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
+    throwIfInternalRuntimeSchedulerTerminated(env);
     registerAllContracts();
-    return normalizeInternalRuntimeTrace(await asyncReferenceRunSequence(nodes, env, asyncOptions), accepted.limits);
+    const trace = await waitForInternalRuntimeScheduler(env, () => asyncReferenceRunSequence(nodes, env, asyncOptions));
+    throwIfInternalRuntimeSchedulerTerminated(env);
+    return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {
     return normalizeInternalRuntimeFailure(error);
+  } finally {
+    disposeScheduler();
   }
 }

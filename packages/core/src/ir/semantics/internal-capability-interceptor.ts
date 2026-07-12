@@ -8,6 +8,10 @@ import {
   type RuntimeCapabilityCall,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
+import {
+  InternalRuntimeSchedulerError,
+  waitForInternalRuntimeScheduler,
+} from '../../runtime-envelope/internal-scheduler.js';
 import type { SemanticEnv } from './index.js';
 
 export const INTERNAL_RUNTIME_CAPABILITY_REQUEST_FORMAT = 'kern.capability.request.internal.r0' as const;
@@ -123,12 +127,14 @@ function syncDecision(
 }
 
 async function asyncDecision(
+  env: SemanticEnv,
   state: InterceptorState,
   request: InternalRuntimeCapabilityRequest,
 ): Promise<InternalRuntimeCapabilityDecision> {
   try {
-    return inspectDecision(await state.interceptor(request), request);
+    return inspectDecision(await waitForInternalRuntimeScheduler(env, () => state.interceptor(request)), request);
   } catch (error) {
+    if (error instanceof InternalRuntimeSchedulerError) throw error;
     if (error instanceof KernCapabilityError) throw error;
     fail(request, 'failed');
   }
@@ -167,12 +173,18 @@ export async function invokeInternalRuntimeSyncCapabilityAsync(
   call: RuntimeCapabilityCall,
 ): Promise<RuntimeCapabilityValue | undefined> {
   const state = stateFor(env);
-  if (!state) return invokeRunnerCapability(env.capabilities, call, env.capabilityContext);
+  if (!state) {
+    return waitForInternalRuntimeScheduler(env, () =>
+      invokeRunnerCapability(env.capabilities, call, env.capabilityContext),
+    );
+  }
   const request = nextRequest(state, call, 'async');
-  const decision = await asyncDecision(state, request);
+  const decision = await asyncDecision(env, state, request);
   if (decision.kind === 'reject') fail(request, 'rejected the request');
   if (decision.kind === 'return') return syntheticResult(decision);
-  return invokeRunnerCapability(env.capabilities, call, env.capabilityContext);
+  return waitForInternalRuntimeScheduler(env, () =>
+    invokeRunnerCapability(env.capabilities, call, env.capabilityContext),
+  );
 }
 
 export async function invokeInternalRuntimeCapabilityAsync(
@@ -182,10 +194,16 @@ export async function invokeInternalRuntimeCapabilityAsync(
   options: InvokeRunnerCapabilityAsyncOptions,
 ): Promise<RuntimeCapabilityValue | undefined> {
   const state = stateFor(env);
-  if (!state) return invokeRunnerCapabilityAsync(capabilities, call, env.capabilityContext, options);
+  if (!state) {
+    return waitForInternalRuntimeScheduler(env, () =>
+      invokeRunnerCapabilityAsync(capabilities, call, env.capabilityContext, options),
+    );
+  }
   const request = nextRequest(state, call, 'async');
-  const decision = await asyncDecision(state, request);
+  const decision = await asyncDecision(env, state, request);
   if (decision.kind === 'reject') fail(request, 'rejected the request');
   if (decision.kind === 'return') return syntheticResult(decision);
-  return invokeRunnerCapabilityAsync(capabilities, call, env.capabilityContext, options);
+  return waitForInternalRuntimeScheduler(env, () =>
+    invokeRunnerCapabilityAsync(capabilities, call, env.capabilityContext, options),
+  );
 }
