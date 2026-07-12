@@ -34,6 +34,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kir-seam-probe | Typed semantic KIR seam probe | current | `pnpm test:kern-ir-probe` |
 | kir-reader-candidate | Internal semantic KIR reader candidate | current | `pnpm test:kern-ir-reader-candidate` |
 | semantic-ownership-proof | Bootstrap-dependent semantic ownership proof | current | `pnpm test:kern-semantic-ownership` |
+| kir-v1-eligibility | KIR v1 coverage and identity eligibility | current | `pnpm test:kern-ir-eligibility` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
 | runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
@@ -63,8 +64,9 @@ wall and must remain absent until promoted.
 | kir-seam-selection | Typed semantic KIR seam selection | internal-oracle | `pnpm test:kern-ir-probe` |
 | kir-reader-candidate | Internal semantic KIR reader candidate | internal-oracle | `pnpm test:kern-ir-reader-candidate` |
 | semantic-ownership-proof | Non-circular semantic ownership substrate | internal-oracle | `pnpm test:kern-semantic-ownership` |
+| kir-v1-eligibility | KIR v1 coverage and identity eligibility | internal-oracle | `pnpm test:kern-ir-eligibility` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
-| typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R1 planned |
+| typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |

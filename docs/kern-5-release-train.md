@@ -172,8 +172,12 @@ trusted-publishing/provenance configuration is inspected.
   source-bound current TypeScript authority witness plus an acyclic,
   oracle-free planned path over the internal reader candidate. This is not
   executable handler-semantic ownership or runtime cutover.
-- [ ] R1.5 eligible KIR/value/diagnostic/trace/handler/capability contract
-  freeze and Alpha manifest.
+- [ ] R1.5 eligible KIR/value/diagnostic contract freeze and Alpha manifest.
+  Runtime trace, handler, scheduler, and capability ABIs are M3 work in R2.
+  - [x] R1.5a source/runner eligibility inventory and identity constitution.
+  - [ ] R1.5b bounded strict UTF-8 canonical/value reader.
+  - [ ] R1.5c coverage-closed module/node writer-reader parity.
+  - [ ] R1.5d diagnostic/location evidence contract and Alpha manifest.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
@@ -188,14 +192,24 @@ trusted-publishing/provenance configuration is inspected.
 5. Prove the planned canonical runtime call chain is non-circular before any
    ABI promise: executing a KERN-authored interpreter through
    `referenceRunSequence` is not yet semantic ownership.
-6. Freeze only KIR, value, diagnostic, trace, handler, and capability contracts
-   with a proven owner and bounded portable value space. Unknown versions fail
-   closed.
+6. R1.5a: bind every static source node and native runner contract to an
+   executable eligibility inventory. Preserve `ALPHA-NO-GO` while the selected
+   probe covers only seven of 302 source node kinds.
+7. R1.5b: implement the bounded strict UTF-8 canonical/value reader with closed
+   scalar, collection, operator, and regex profiles.
+8. R1.5c: close module/node writer-reader parity. Every catalog row becomes
+   included, deterministically lowered, or explicitly excluded with fixtures.
+9. R1.5d: version diagnostic/location evidence separately, require stable
+   non-empty diagnostics and expression spans, then generate the clean-SHA
+   Alpha manifest. Unknown versions and fields fail before effects.
 
 The original broad R1.4-before-ownership order was withdrawn after the R1.3
-probe. The selected projection covers seven node kinds, while current trace and
-capability values still expose incompatible host-shaped domains. The split
-prevents an internal shadow schema from becoming an accidental public promise.
+probe. The selected projection covers seven of 302 source node kinds, while the
+native runner requires 16 semantic contracts. R1.5a makes that denominator and
+the remaining blockers executable. Trace, handler, scheduler, and capability
+ABIs stay in M3 because they describe runtime convergence rather than KIR wire
+identity. The split prevents an internal shadow schema from becoming an
+accidental public promise.
 
 **Binary exit:**
 
@@ -215,10 +229,14 @@ oracle results, and known exclusions. No package version or public tag.
 the KIR leaks TypeScript coercion rules or the runtime seam is circular, Alpha
 fails and the contract is redesigned.
 
-**Estimate:** 2-4 active / 3-6 calendar days.
+**Scheduling rule:** release by binary slice completion, not calendar guesses.
+Each R1.5a-d slice ships only after its named oracle, the complete 4.5 wall, and
+three-engine review pass. Historical 4.0/4.5 throughput is useful for ordering,
+but it is not evidence for the unresolved KIR coverage count.
 
-**Confidence:** 0.90 for checker closure; 0.68 before the KIR probe. The KIR
-build cannot start until investigation raises it above 0.70.
+**Confidence:** 0.97 in the R1.5a-d order after the completed KIR audit,
+three-engine tribunal, and full-roster brainstorm. Confidence in Alpha timing
+remains deliberately unstated until R1.5b measures the strict-reader work.
 
 ## R2 - Internal Beta: Become Feature Complete
 
@@ -383,6 +401,7 @@ pnpm check:runner-browser-budget:required
 pnpm test:kern-ir-probe               # CURRENT experimental seam oracle
 pnpm test:kern-ir-reader-candidate    # CURRENT internal reader candidate
 pnpm test:kern-semantic-ownership     # CURRENT bootstrap-dependent ownership proof
+pnpm test:kern-ir-eligibility         # CURRENT Alpha no-go coverage/identity inventory
 pnpm test:kern-ir                      # TARGET
 pnpm test:runtime-abi                  # TARGET
 pnpm test:kern-frontend                # TARGET

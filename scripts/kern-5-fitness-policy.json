@@ -8,6 +8,7 @@
     "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
     "test:kern-ir-reader-candidate": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-reader-candidate.mjs",
     "test:kern-semantic-ownership": "node --test scripts/semantic-ownership/validate.test.mjs && node ./scripts/check-semantic-ownership.mjs",
+    "test:kern-ir-eligibility": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/validate-eligibility.test.mjs && node ./scripts/check-kir-v1-eligibility.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -88,6 +89,12 @@
       "label": "Bootstrap-dependent semantic ownership proof",
       "status": "current",
       "argv": ["pnpm", "test:kern-semantic-ownership"]
+    },
+    {
+      "id": "kir-v1-eligibility",
+      "label": "KIR v1 coverage and identity eligibility",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-ir-eligibility"]
     },
     {
       "id": "diff-hygiene",
@@ -194,6 +201,12 @@
       "evidence": "pnpm test:kern-semantic-ownership"
     },
     {
+      "id": "kir-v1-eligibility",
+      "label": "KIR v1 coverage and identity eligibility",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-ir-eligibility"
+    },
+    {
       "id": "versioned-kir-v1",
       "label": "Versioned canonical KIR v1",
       "status": "not-shipped",
@@ -203,7 +216,7 @@
       "id": "typed-runtime-handler-abi",
       "label": "Typed runtime and handler ABI",
       "status": "not-shipped",
-      "evidence": "R1 planned"
+      "evidence": "R2 M3 planned"
     },
     {
       "id": "kern-formatter",
