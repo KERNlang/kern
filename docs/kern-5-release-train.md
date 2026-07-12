@@ -218,6 +218,12 @@ trusted-publishing/provenance configuration is inspected.
     and public-ABI work remain explicitly deferred. The full fitness wall and
     final 3/3 Agon review passed with zero verified findings on 2026-07-12;
     review-discovered handler-name byte bounding is regression-covered.
+  - [x] M3.4 internal capability interception seam: one private, default-off,
+    versioned request/decision point routes synchronous and asynchronous handler
+    capability dispatch without changing public runner or handler contracts.
+    Per-handler cache identity carries the seam through rebuilt function/class
+    environments without cross-call leakage. The full fitness wall and final
+    3/3 Agon review passed with zero verified findings on 2026-07-12.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

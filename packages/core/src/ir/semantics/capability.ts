@@ -1,7 +1,6 @@
 import { parseExpression } from '../../parser-expression.js';
 import {
   assertRuntimeCapabilityValue,
-  invokeRunnerCapability,
   KernCapabilityError,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
@@ -17,6 +16,7 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { invokeInternalRuntimeCapabilitySync } from './internal-capability-interceptor.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue, isPortableBindingName, isRecordLiteralExpression } from './portable-scalar.js';
 import type { Trace } from './trace.js';
@@ -135,7 +135,7 @@ function capabilityEffects(ir: IRNode, env: SemanticEnv): Trace {
   const namespace = props.namespace;
   const operation = props.operation;
   const input = capabilityInput(ir, env);
-  const result = invokeRunnerCapability(env.capabilities, { namespace, operation, input }, env.capabilityContext);
+  const result = invokeInternalRuntimeCapabilitySync(env, { namespace, operation, input });
   const events: Trace['events'] = [{ op: 'capability', namespace, operation, input, result }];
   if (props.name !== undefined && props.name !== '') {
     if (result === undefined) {

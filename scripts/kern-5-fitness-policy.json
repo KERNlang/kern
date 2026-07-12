@@ -148,7 +148,7 @@
     },
     {
       "id": "internal-runtime-envelope",
-      "label": "Internal runtime envelope, handler entry, and source link",
+      "label": "Internal runtime envelope, handler entry, source link, and capability seam",
       "status": "current",
       "argv": ["pnpm", "test:kern-runtime-envelope"]
     },
@@ -319,6 +319,12 @@
     {
       "id": "internal-runtime-source-handler-link",
       "label": "Bounded source handler identity and link",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
+      "id": "internal-runtime-capability-seam",
+      "label": "Default-off capability interception seam",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-runtime-envelope"
     },

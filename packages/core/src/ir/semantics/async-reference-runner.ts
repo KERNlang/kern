@@ -1,8 +1,6 @@
 import { parseExpression } from '../../parser-expression.js';
 import {
   assertRuntimeCapabilityValue,
-  invokeRunnerCapability,
-  invokeRunnerCapabilityAsync,
   type KernRunnerAsyncCapabilities,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
@@ -33,6 +31,10 @@ import {
   markRepeatableLoopBody,
   type SemanticEnv,
 } from './index.js';
+import {
+  invokeInternalRuntimeCapabilityAsync,
+  invokeInternalRuntimeSyncCapabilityAsync,
+} from './internal-capability-interceptor.js';
 import { recordArrayFieldsFromValue } from './let.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
@@ -590,10 +592,10 @@ async function asyncCapabilityEffects(
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
-  const rawResult = await invokeRunnerCapabilityAsync(
+  const rawResult = await invokeInternalRuntimeCapabilityAsync(
+    env,
     options.asyncCapabilities,
     { namespace, operation, input },
-    env.capabilityContext,
     { timeoutMs: options.capabilityTimeoutMs },
   );
   const result =
@@ -638,7 +640,7 @@ async function asyncSyncCapabilityEffects(
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
-  const result = invokeRunnerCapability(env.capabilities, { namespace, operation, input }, env.capabilityContext);
+  const result = await invokeInternalRuntimeSyncCapabilityAsync(env, { namespace, operation, input });
   const events: Trace['events'] = [{ op: 'capability', namespace, operation, input, result }];
   if (name !== undefined && name !== '') {
     if (result === undefined) {

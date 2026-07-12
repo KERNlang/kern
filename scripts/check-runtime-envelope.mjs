@@ -4,6 +4,12 @@ import { join, relative } from 'node:path';
 const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
 const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
+const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
+const CAPABILITY_SEAM_IMPORTERS = new Set([
+  CAPABILITY_SEAM,
+  join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts'),
+  join(CORE_SOURCE, 'ir/semantics/capability.ts'),
+]);
 
 function fail(message) {
   throw new Error(`internal runtime envelope: ${message}`);
@@ -23,6 +29,14 @@ for (const path of sourceFiles(CORE_SOURCE)) {
   if (text.includes('runtime-envelope')) {
     fail(`production adoption is forbidden outside the internal directory: ${relative(ROOT, path)}`);
   }
+  if (text.includes('internal-capability-interceptor') && !CAPABILITY_SEAM_IMPORTERS.has(path)) {
+    fail(`capability seam adoption is forbidden outside its semantic dispatchers: ${relative(ROOT, path)}`);
+  }
+}
+
+const capabilitySeam = readFileSync(CAPABILITY_SEAM, 'utf8');
+if (!capabilitySeam.includes("'kern.capability.request.internal.r0'")) {
+  fail('capability seam request format must remain exact and internal');
 }
 
 const corePackage = JSON.parse(readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8'));
@@ -41,6 +55,10 @@ const policy = JSON.parse(readFileSync(join(ROOT, 'scripts/kern-5-fitness-policy
 const publicGate = policy.gates.find((gate) => gate.id === 'runtime-handler-abi');
 if (publicGate?.status !== 'planned') {
   fail('runtime-handler-abi must remain planned during the internal envelope slice');
+}
+const capabilityOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-capability-seam');
+if (capabilityOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime capability seam must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));
