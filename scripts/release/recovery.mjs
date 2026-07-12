@@ -138,12 +138,18 @@ export async function planFailedReleaseRecovery({ plan, policy, manifest, snapsh
     policy.promotion.rootPackageName,
   ];
   return {
-    restorations: entryOrder.map((name) => ({
-      packageName: name,
-      tag: plan.distTag,
-      from: states.get(name).current,
-      to: states.get(name).prior,
-    })),
+    restorations: entryOrder.map((name) => {
+      const state = states.get(name);
+      if (state === undefined) {
+        throw new Error(`Recovery state is missing for package ${name}`);
+      }
+      return {
+        packageName: name,
+        tag: plan.distTag,
+        from: state.current,
+        to: state.prior,
+      };
+    }),
     deprecations: plan.packages.map((pkg) => ({
       packageName: pkg.name,
       version: plan.version,
