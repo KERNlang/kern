@@ -148,7 +148,7 @@
     },
     {
       "id": "internal-runtime-envelope",
-      "label": "Internal transactional runtime envelope",
+      "label": "Internal runtime envelope and handler entry",
       "status": "current",
       "argv": ["pnpm", "test:kern-runtime-envelope"]
     },
@@ -307,6 +307,12 @@
     {
       "id": "internal-runtime-envelope",
       "label": "Default-off transactional runtime envelope",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
+      "id": "internal-runtime-handler-entry",
+      "label": "Typed current-domain handler entry",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-runtime-envelope"
     },

@@ -40,6 +40,7 @@ export type InternalRuntimeDiagnosticCode =
   | 'capability-error'
   | 'encoded-limit'
   | 'escaped-control'
+  | 'invalid-handler-arguments'
   | 'internal-runner-error'
   | 'non-portable-value'
   | 'uncaught-throw'

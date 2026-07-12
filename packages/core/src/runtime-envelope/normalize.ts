@@ -68,7 +68,7 @@ function canonicalJson(value: unknown, seen = new WeakSet<object>()): unknown {
   return output;
 }
 
-function failure(code: InternalRuntimeDiagnosticCode): InternalRuntimeEnvelope {
+export function internalRuntimeFailure(code: InternalRuntimeDiagnosticCode): InternalRuntimeEnvelope {
   return {
     completion: { kind: 'error' },
     diagnostics: [{ category: 'runtime', code, phase: 'execution' }],
@@ -112,8 +112,9 @@ export function normalizeInternalRuntimeTrace(
   limits: InternalRuntimeEnvelopeLimits,
 ): InternalRuntimeEnvelope {
   validateInternalRuntimeLimits(limits);
-  if (trace.completion.kind === 'throw') return failure('uncaught-throw');
-  if (trace.completion.kind === 'break' || trace.completion.kind === 'continue') return failure('escaped-control');
+  if (trace.completion.kind === 'throw') return internalRuntimeFailure('uncaught-throw');
+  if (trace.completion.kind === 'break' || trace.completion.kind === 'continue')
+    return internalRuntimeFailure('escaped-control');
   try {
     const events = trace.events
       .map((item, index) => event(item, limits, index))
@@ -129,17 +130,17 @@ export function normalizeInternalRuntimeTrace(
       result,
     };
   } catch {
-    return failure('non-portable-value');
+    return internalRuntimeFailure('non-portable-value');
   }
 }
 
 export function normalizeInternalRuntimeFailure(error: unknown): InternalRuntimeEnvelope {
-  if (error instanceof KernCapabilityError) return failure('capability-error');
-  if (error instanceof ReferenceRunnerError) return failure('unsupported-runtime-input');
+  if (error instanceof KernCapabilityError) return internalRuntimeFailure('capability-error');
+  if (error instanceof ReferenceRunnerError) return internalRuntimeFailure('unsupported-runtime-input');
   if (error instanceof InternalRuntimeEnvelopeError) {
-    return failure(error.code === 'limit-exceeded' ? 'non-portable-value' : 'internal-runner-error');
+    return internalRuntimeFailure(error.code === 'limit-exceeded' ? 'non-portable-value' : 'internal-runner-error');
   }
-  return failure('internal-runner-error');
+  return internalRuntimeFailure('internal-runner-error');
 }
 
 export function encodeInternalRuntimeEnvelope(
@@ -148,11 +149,11 @@ export function encodeInternalRuntimeEnvelope(
 ): Uint8Array {
   validateInternalRuntimeLimits(limits);
   if (envelope.diagnostics.length > limits.maxDiagnostics || envelope.events.length > limits.maxEvents) {
-    return encodeInternalRuntimeEnvelope(failure('encoded-limit'), limits);
+    return encodeInternalRuntimeEnvelope(internalRuntimeFailure('encoded-limit'), limits);
   }
   const bytes = textEncoder.encode(`${JSON.stringify(canonicalJson(envelope))}\n`);
   if (bytes.length > limits.maxBytes) {
-    const failed = textEncoder.encode(`${JSON.stringify(canonicalJson(failure('encoded-limit')))}\n`);
+    const failed = textEncoder.encode(`${JSON.stringify(canonicalJson(internalRuntimeFailure('encoded-limit')))}\n`);
     if (failed.length > limits.maxBytes) {
       throw new InternalRuntimeEnvelopeError('limit-exceeded', 'maxBytes cannot contain a failure envelope');
     }

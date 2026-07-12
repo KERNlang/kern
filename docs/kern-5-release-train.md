@@ -206,6 +206,12 @@ trusted-publishing/provenance configuration is inspected.
     suppression, and containment from every public export. This deliberately
     leaves the public runtime/handler ABI and effect scheduler unpromoted. The
     full fitness wall and final 3/3 Agon review passed on 2026-07-12.
+  - [x] M3.2 internal typed handler entry: exact-arity portable parameters feed
+    fresh sync/async runtime environments, with invalid or currently
+    non-executable argument shapes rejected before handler execution. Decimal,
+    nested-record, source-linking, scheduler, and public-ABI work remain
+    explicitly deferred. The full fitness wall and terminal 3/3 Agon review
+    passed with zero verified findings on 2026-07-12.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -143,6 +143,16 @@ export function normalizeInternalRuntimeValue(
   return normalize(value, limits, path, 0, new WeakSet());
 }
 
+export function normalizeInternalRuntimeValues(
+  values: readonly unknown[],
+  limits: InternalRuntimeEnvelopeLimits,
+  path: string,
+): readonly InternalRuntimeValue[] {
+  validateInternalRuntimeLimits(limits);
+  const seen = new WeakSet<object>();
+  return values.map((value, index) => normalize(value, limits, `${path}[${index}]`, 0, seen));
+}
+
 export function normalizeInternalRuntimeSlot(
   value: unknown,
   limits: InternalRuntimeEnvelopeLimits,
