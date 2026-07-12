@@ -1,3 +1,8 @@
+import {
+  extractPythonKeywordArgument,
+  type PythonStringDelimiter,
+  scanPythonStructuralLine,
+} from '../../python-response-contract.js';
 import type { LineInfo } from '../helpers/lines.js';
 import { API_SUCCESS_STATUS_CODES_FB, FASTAPI_DEFAULT_SUCCESS_FB } from '../signatures.js';
 
@@ -12,10 +17,10 @@ export function successStatusCodesFromDecoratorAndBody(
 ): { codes: readonly number[] | undefined; resolved: boolean } {
   let sawDynamic = false;
 
-  const decStatusMatch = decoratorText.match(/\bstatus_code\s*=\s*([^,)]+)/);
+  const decoratorStatus = extractPythonKeywordArgument(decoratorText, 'status_code');
   let decoratorCode: number | undefined;
-  if (decStatusMatch) {
-    const code = parseFastApiStatusValueFb(decStatusMatch[1].trim());
+  if (decoratorStatus !== undefined) {
+    const code = parseFastApiStatusValueFb(decoratorStatus);
     if (code === undefined) sawDynamic = true;
     else if (API_SUCCESS_STATUS_CODES_FB.has(code)) decoratorCode = code;
   }
@@ -76,17 +81,14 @@ export function collectFullDecoratorText(lines: readonly LineInfo[], startIdx: n
   const parts: string[] = [];
   let depth = 0;
   let started = false;
+  let quote: PythonStringDelimiter | undefined;
   for (let i = startIdx; i < lines.length; i++) {
     const line = lines[i].text;
     parts.push(line);
-    for (const ch of line) {
-      if (ch === '(') {
-        depth++;
-        started = true;
-      } else if (ch === ')') {
-        depth--;
-      }
-    }
+    const structural = scanPythonStructuralLine(line, quote);
+    quote = structural.quote;
+    depth += structural.parenDelta;
+    if (structural.sawOpenParen) started = true;
     if (started && depth === 0) break;
   }
   return parts.join('\n');

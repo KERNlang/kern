@@ -60,6 +60,7 @@ const SECRET_KEY_RE =
 const PLACEHOLDER_PATTERNS = [
   /^\s*$/,
   /^(changeme|change-me|change_me|example|sample|placeholder|todo|tbd|xxx+|none|null|undefined|fill[_-]?me[_-]?in)\s*$/i,
+  /^change[_-]?me(?:[_-].*)?$/i,
   /^your[_-]?.+[_-]?here$/i, // `your_api_key_here`
   /^<[^>]+>$/, // `<your-token>`
   /^\$\{[^}]+\}$/, // `${VAR}`
@@ -143,7 +144,14 @@ function isPlaceholder(value: string): boolean {
  *  secret-likeness rule is suppressed. */
 function isPlaceholderFile(filePath: string): boolean {
   const base = basename(filePath).toLowerCase();
-  return /^\.env\.(example|sample|template|defaults|dist)$/.test(base);
+  return /^\.env(?:\.[^.]+)*\.(example|sample|template|defaults|dist)$/.test(base);
+}
+
+function isNumericSecretPolicy(key: string, value: string): boolean {
+  if (!/^[+-]?\d+(?:\.\d+)?$/.test(value)) return false;
+  return /_(?:EXPIRE|EXPIRY|TTL|BYTES|(?:MIN_|MAX_)?LENGTH|SIZE|COUNT|LIMIT|TIMEOUT)(?:_(?:SECONDS?|MINUTES?|HOURS?|DAYS?))?$/i.test(
+    key,
+  );
 }
 
 /** Files this analyzer claims. Routed by basename, not extension: `.env`
@@ -227,7 +235,7 @@ export function reviewEnvFile(source: string, filePath: string): ReviewFinding[]
     // ── Possible committed secret ──────────────────────────────────────
     if (!suppressSecretRule && SECRET_KEY_RE.test(key)) {
       const valueUnquoted = valueForSecretCheck(rawValue);
-      if (valueUnquoted.length > 0 && !isPlaceholder(valueUnquoted)) {
+      if (valueUnquoted.length > 0 && !isPlaceholder(valueUnquoted) && !isNumericSecretPolicy(key, valueUnquoted)) {
         const ruleId = 'env/possible-secret';
         findings.push({
           source: 'kern',

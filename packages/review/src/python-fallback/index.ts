@@ -1,12 +1,29 @@
 import type { ConceptEdge, ConceptMap, ConceptNode } from '@kernlang/core';
 import { conceptId } from '@kernlang/core';
+import {
+  collectPythonImportAliases,
+  combinePythonSchemaInclusion,
+  extractPythonKeywordArgument,
+  extractPythonRouterArgument,
+  extractPythonStringLiteral,
+  inferPythonResponseEvidence,
+  inferPythonRouterConfiguration,
+  joinPythonRoutePaths,
+  resolvePythonRouterReference,
+} from '../python-response-contract.js';
 import { collectBackgroundTaskParams } from './extractors/background-tasks.js';
 import { addDependency } from './extractors/dependency.js';
 import { classifyExceptDisposition, errorStatusCodesFromBody } from './extractors/error.js';
 import { paginationStrategyFromSignature } from './extractors/fastapi-pagination.js';
 import { collectFullDecoratorText, successStatusCodesFromDecoratorAndBody } from './extractors/fastapi-status.js';
 import { collectPydanticModels, fallbackBodyValidation } from './extractors/pydantic.js';
-import { functionBody, routeMethod, routeName, routePath, routeResponseModel } from './extractors/routes.js';
+import {
+  functionBody,
+  functionReturnAnnotation,
+  routeMethod,
+  routePath,
+  routeRouterName,
+} from './extractors/routes.js';
 import {
   addNode,
   containerForLine,
@@ -16,6 +33,7 @@ import {
   nextFunctionAfter,
   splitLines,
 } from './helpers/lines.js';
+import { withoutTripleQuotedStringLines } from './helpers/python-strings.js';
 import {
   DB_COLLECTION_RE,
   DB_METHODS,
@@ -28,10 +46,13 @@ import {
 } from './signatures.js';
 
 export function extractPythonConceptsFallback(source: string, filePath: string): ConceptMap {
-  const lines = splitLines(source);
+  const sourceLines = splitLines(source);
+  const lines = withoutTripleQuotedStringLines(sourceLines);
   const functionBlocks = findFunctionBlocks(lines, filePath);
   const pydanticModels = collectPydanticModels(lines);
   const backgroundTaskParams = collectBackgroundTaskParams(lines, functionBlocks);
+  const importAliases = collectPythonImportAliases(source);
+  const routerConfigurations = new Map<string, ReturnType<typeof inferPythonRouterConfiguration>>();
   const nodes: ConceptNode[] = [];
   const edges: ConceptEdge[] = [];
   const globalNames = new Set<string>();
@@ -43,6 +64,14 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
     const containerId = block?.id;
 
     if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const routerAssignment = trimmed.match(/^([A-Za-z_]\w*)\s*=\s*(?:[A-Za-z_]\w*\.)?APIRouter\s*\(/);
+    if (routerAssignment) {
+      routerConfigurations.set(
+        routerAssignment[1],
+        inferPythonRouterConfiguration(collectFullDecoratorText(sourceLines, info.line - 1)),
+      );
+    }
 
     const fn = functionBlocks.find((candidate) => candidate.startLine === info.line);
     if (fn) {
@@ -91,24 +120,25 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
       }
     }
 
-    if (/^@(app|router|bp)\.(route|get|post|put|delete|patch)\s*\(/.test(trimmed)) {
-      const method = routeMethod(trimmed);
-      const path = routePath(trimmed) ?? routeName(lines, info.line - 1);
-      const responseModel = routeResponseModel(trimmed);
+    if (/^@[A-Za-z_]\w*\.(route|get|post|put|delete|patch)\s*\(/.test(trimmed)) {
+      const decoratorFullText = collectFullDecoratorText(sourceLines, info.line - 1);
+      const method = routeMethod(decoratorFullText);
+      const declaredPath = routePath(decoratorFullText);
+      if (!declaredPath?.startsWith('/')) continue;
+      const routerName = routeRouterName(decoratorFullText);
+      const routerConfiguration = routerName ? routerConfigurations.get(routerName) : undefined;
+      const path = joinPythonRoutePaths(routerConfiguration?.prefix, declaredPath);
       const routeFn = nextFunctionAfter(functionBlocks, info.line);
       const body = functionBody(lines, routeFn);
       const validation = fallbackBodyValidation(routeFn, lines, pydanticModels);
-      // Codex impl-review #3: multi-line decorators put `status_code=` on
-      // continuation lines. Collect the full decorator text across lines
-      // until the outer `(` closes.
-      const decoratorFullText = collectFullDecoratorText(lines, info.line - 1);
+      const response = inferPythonResponseEvidence(decoratorFullText, functionReturnAnnotation(lines, routeFn));
       const success = successStatusCodesFromDecoratorAndBody(decoratorFullText, body);
       const pagination = paginationStrategyFromSignature(routeFn, lines);
       addNode(nodes, {
         id: conceptId(filePath, 'entrypoint', info.offset),
         kind: 'entrypoint',
         primarySpan: span,
-        evidence: trimmed,
+        evidence: decoratorFullText.trim().slice(0, 200),
         confidence: 0.9,
         language: 'py',
         containerId,
@@ -117,7 +147,10 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
           subtype: 'route',
           name: path,
           httpMethod: method,
-          responseModel,
+          routerName,
+          responseModel: response.responseModel,
+          responseClass: response.responseClass,
+          includeInSchema: combinePythonSchemaInclusion(response.includeInSchema, routerConfiguration?.includeInSchema),
           errorStatusCodes: errorStatusCodesFromBody(body),
           successStatusCodes: success.codes,
           successStatusCodesResolved: success.resolved,
@@ -128,7 +161,7 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
             !/[{:]/.test(path) &&
             !PAGINATION_RE.test(body) &&
             DB_COLLECTION_RE.test(body) &&
-            (responseModel ? /^(list|List|Sequence|Iterable)\s*\[/.test(responseModel) : true),
+            (response.responseModel ? /^(list|List|Sequence|Iterable)\s*\[/.test(response.responseModel) : true),
           hasDbWrite: DB_WRITE_RE.test(body),
           hasIdempotencyProtection: IDEMPOTENCY_RE.test(body),
           hasBodyValidation: validation.has,
@@ -137,6 +170,37 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
           validatedBodyFieldTypes: validation.types,
         },
       });
+    }
+
+    if (/^[A-Za-z_]\w*\.include_router\s*\(/.test(trimmed)) {
+      const callText = collectFullDecoratorText(sourceLines, info.line - 1);
+      const routerRef = extractPythonRouterArgument(callText);
+      if (routerRef) {
+        const prefixArgument = extractPythonKeywordArgument(callText, 'prefix');
+        const prefix = prefixArgument === undefined ? '' : extractPythonStringLiteral(prefixArgument);
+        const mountResponse = inferPythonResponseEvidence(callText, undefined);
+        if (prefix !== undefined) {
+          const resolvedRouter = resolvePythonRouterReference(routerRef, importAliases);
+          addNode(nodes, {
+            id: conceptId(filePath, 'entrypoint', info.offset),
+            kind: 'entrypoint',
+            primarySpan: span,
+            evidence: callText.trim().slice(0, 200),
+            confidence: 0.9,
+            language: 'py',
+            containerId,
+            payload: {
+              kind: 'entrypoint',
+              subtype: 'route-mount',
+              name: prefix,
+              routerName: resolvedRouter.routerName,
+              routerNameAuthoritative: resolvedRouter.routerNameAuthoritative,
+              sourceModule: resolvedRouter.sourceModule,
+              includeInSchema: mountResponse.includeInSchema,
+            },
+          });
+        }
+      }
     }
 
     if (/@(login_required|requires_auth|permission_required|auth_required|authenticated)/.test(trimmed)) {
@@ -218,7 +282,7 @@ export function extractPythonConceptsFallback(source: string, filePath: string):
         confidence: 0.75,
         language: 'py',
         containerId,
-        payload: classifyExceptDisposition(lines, info.line - 1),
+        payload: classifyExceptDisposition(sourceLines, info.line - 1),
       });
     }
 

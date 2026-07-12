@@ -1,3 +1,4 @@
+import { extractPythonKeywordArgument } from '@kernlang/review';
 import type Parser from 'tree-sitter';
 import { FASTAPI_DEFAULT_SUCCESS_STATUS, PY_API_SUCCESS_STATUS_CODES } from '../signatures.js';
 
@@ -30,10 +31,10 @@ export function extractFastApiSuccessStatusCodes(
   // 1. Decorator `status_code=N` — applies ONLY to plain `return data` paths.
   //    For routes whose return paths all use explicit Response/JSONResponse,
   //    the decorator code is dead (Codex impl-review #1).
-  const decStatusMatch = decText.match(/\bstatus_code\s*=\s*([^,)]+)/);
+  const decoratorStatus = extractPythonKeywordArgument(decText, 'status_code');
   let decoratorCode: number | undefined;
-  if (decStatusMatch) {
-    const code = parseFastApiStatusValue(decStatusMatch[1].trim());
+  if (decoratorStatus !== undefined) {
+    const code = parseFastApiStatusValue(decoratorStatus);
     if (code === undefined) sawDynamic = true;
     else if (PY_API_SUCCESS_STATUS_CODES.has(code)) decoratorCode = code;
   }

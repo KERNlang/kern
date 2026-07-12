@@ -9,6 +9,7 @@
  */
 
 import type { ConceptMap, ConceptNode } from '@kernlang/core';
+import { isNonJsonFastApiResponseClass } from '../python-response-contract.js';
 
 /**
  * Multiplier applied to a node's base confidence when firing a cross-stack
@@ -80,6 +81,8 @@ export function aggregatePaginationStrategy(keys: readonly string[]): 'page' | '
 export interface ServerRoute {
   path: string;
   method: string | undefined;
+  includeInSchema?: boolean;
+  mounted?: boolean;
   /** Present when the caller needs to cite the server route in a finding. */
   node?: ConceptNode;
 }
@@ -97,6 +100,8 @@ export function isFastApiRouteMissingResponseModel(node: ConceptNode, map?: Conc
   if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint') return false;
   if (node.payload.subtype !== 'route') return false;
   if (node.payload.responseModel) return false;
+  if (node.payload.includeInSchema === false) return false;
+  if (isNonJsonFastApiResponseClass(node.payload.responseClass)) return false;
   return map ? hasFastApiEvidence(map) : false;
 }
 
@@ -118,7 +123,16 @@ export function collectRoutes(map: ConceptMap, routes: ServerRoute[]): void {
     if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint' || node.payload.subtype !== 'route') continue;
     const path = node.payload.name;
     if (typeof path !== 'string' || !path.startsWith('/')) continue;
-    routes.push({ path, method: node.payload.httpMethod, node });
+    routes.push({
+      path,
+      method: node.payload.httpMethod,
+      includeInSchema: node.payload.includeInSchema,
+      mounted:
+        node.payload.routerName === undefined ||
+        node.payload.routerName === 'app' ||
+        node.payload.routerName === 'application',
+      node,
+    });
   }
 }
 
@@ -142,9 +156,16 @@ export function collectRoutes(map: ConceptMap, routes: ServerRoute[]): void {
  */
 export function collectRoutesAcrossGraph(allConcepts: ReadonlyMap<string, ConceptMap>): ServerRoute[] {
   const routes: ServerRoute[] = [];
+  interface RouteMount {
+    prefix: string;
+    mountFile: string;
+    includeInSchema?: boolean;
+    routerName?: string;
+    routerNameAuthoritative?: boolean;
+  }
   // Build the mount index first so each route can look up its prefix.
-  const mountsByModule = new Map<string, string[]>();
-  const mountsByRouter = new Map<string, Array<{ prefix: string; mountFile: string }>>();
+  const mountsByModule = new Map<string, RouteMount[]>();
+  const mountsByRouter = new Map<string, RouteMount[]>();
   for (const [mountFile, map] of allConcepts) {
     for (const node of map.nodes) {
       if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint') continue;
@@ -152,62 +173,135 @@ export function collectRoutesAcrossGraph(allConcepts: ReadonlyMap<string, Concep
       const prefix = node.payload.name;
       const routerName = node.payload.routerName;
       const sourceModule = node.payload.sourceModule;
+      const mount = {
+        prefix,
+        mountFile,
+        includeInSchema: node.payload.includeInSchema,
+        routerName,
+        routerNameAuthoritative: node.payload.routerNameAuthoritative,
+      };
       if (sourceModule) {
         const list = mountsByModule.get(sourceModule) ?? [];
-        list.push(prefix);
+        list.push(mount);
         mountsByModule.set(sourceModule, list);
       }
       if (routerName) {
         const list = mountsByRouter.get(routerName) ?? [];
-        list.push({ prefix, mountFile });
+        list.push(mount);
         mountsByRouter.set(routerName, list);
       }
     }
   }
 
   for (const [routeFile, map] of allConcepts) {
+    const routeRouterNames = new Set(
+      map.nodes.flatMap((node) =>
+        node.kind === 'entrypoint' &&
+        node.payload.kind === 'entrypoint' &&
+        node.payload.subtype === 'route' &&
+        node.payload.routerName
+          ? [node.payload.routerName]
+          : [],
+      ),
+    );
     for (const node of map.nodes) {
       if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint') continue;
       if (node.payload.subtype !== 'route') continue;
       const path = node.payload.name;
       if (typeof path !== 'string' || !path.startsWith('/')) continue;
 
-      const prefix = resolveMountPrefix(routeFile, node.payload.routerName, mountsByModule, mountsByRouter);
-      const fullPath = prefix ? joinPaths(prefix, path) : path;
-      routes.push({ path: fullPath, method: node.payload.httpMethod, node });
+      const mounts = resolveRouteMounts(
+        routeFile,
+        node.payload.routerName,
+        routeRouterNames,
+        mountsByModule,
+        mountsByRouter,
+      );
+      const effectiveMounts = mounts.length > 0 ? mounts : [undefined];
+      const directAppRoute =
+        node.payload.routerName === undefined ||
+        node.payload.routerName === 'app' ||
+        node.payload.routerName === 'application';
+      for (const mount of effectiveMounts) {
+        routes.push({
+          path: mount ? joinPaths(mount.prefix, path) : path,
+          method: node.payload.httpMethod,
+          includeInSchema: combineSchemaInclusion(node.payload.includeInSchema, mount?.includeInSchema),
+          mounted: mount !== undefined || directAppRoute,
+          node,
+        });
+      }
     }
   }
   return routes;
 }
 
-function resolveMountPrefix(
+function resolveRouteMounts<
+  T extends { prefix: string; mountFile: string; routerName?: string; routerNameAuthoritative?: boolean },
+>(
   routeFile: string,
   routerName: string | undefined,
-  mountsByModule: ReadonlyMap<string, string[]>,
-  mountsByRouter: ReadonlyMap<string, Array<{ prefix: string; mountFile: string }>>,
-): string | undefined {
+  routeRouterNames: ReadonlySet<string>,
+  mountsByModule: ReadonlyMap<string, T[]>,
+  mountsByRouter: ReadonlyMap<string, T[]>,
+): T[] {
+  const normalizedRouteFile = routeFile.replace(/\\/g, '/');
+  const moduleMatches: T[] = [];
   // Module-based match. TS mounts emit a `sourceModule` that already carries a
   // code extension (e.g. `routes/review.ts`) — use it as a path suffix directly.
   // Python mounts emit a dotted module name (`app.api.nutrition_goals`) — translate
   // to `app/api/nutrition_goals.py` first. The leading-slash boundary check in
   // both branches prevents `blog/api.py` from false-matching module `api`.
-  for (const [sourceModule, prefixes] of mountsByModule) {
-    if (prefixes.length === 0) continue;
-    const relTail = /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(sourceModule)
-      ? sourceModule
-      : `${sourceModule.replace(/\./g, '/')}.py`;
-    if (routeFile === relTail || routeFile.endsWith(`/${relTail}`)) return prefixes[0];
+  // A package-level `from app.web import router` may re-export the router from
+  // `app/web/router.py`, so Python module candidates include that conventional
+  // child plus the package `__init__.py`.
+  for (const [sourceModule, mounts] of mountsByModule) {
+    if (mounts.length === 0) continue;
+    for (const mount of mounts) {
+      if (routerName && mount.routerName && routerName !== mount.routerName) {
+        const ambiguousAliasFallback = mount.routerNameAuthoritative === false && routeRouterNames.size === 1;
+        if (!ambiguousAliasFallback) continue;
+      }
+      const relTails = pythonOrTsModuleCandidates(sourceModule, mount.mountFile);
+      if (relTails.some((relTail) => normalizedRouteFile === relTail || normalizedRouteFile.endsWith(`/${relTail}`))) {
+        moduleMatches.push(mount);
+      }
+    }
   }
+  if (moduleMatches.length > 0) return moduleMatches;
   // Same-file match: `router = APIRouter(); app.include_router(router, prefix=…)`.
   // The mount has no `sourceModule` but shares the file with the routes.
   if (routerName) {
     const entries = mountsByRouter.get(routerName);
     if (entries) {
-      const sameFile = entries.find((e) => e.mountFile === routeFile);
-      if (sameFile) return sameFile.prefix;
+      return entries.filter((entry) => entry.mountFile.replace(/\\/g, '/') === normalizedRouteFile);
     }
   }
+  return [];
+}
+
+function combineSchemaInclusion(routeValue: boolean | undefined, mountValue: boolean | undefined): boolean | undefined {
+  if (routeValue === false || mountValue === false) return false;
+  if (routeValue === true || mountValue === true) return true;
   return undefined;
+}
+
+function pythonOrTsModuleCandidates(sourceModule: string, mountFile: string): string[] {
+  if (/\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(sourceModule)) return [sourceModule];
+
+  const leadingDots = sourceModule.match(/^\.+/)?.[0].length ?? 0;
+  const moduleSuffix = sourceModule.slice(leadingDots);
+  let moduleParts: string[];
+  if (leadingDots > 0) {
+    const mountDirectory = mountFile.replace(/\\/g, '/').split('/').slice(0, -1);
+    const packageBase = mountDirectory.slice(0, Math.max(0, mountDirectory.length - (leadingDots - 1)));
+    moduleParts = [...packageBase, ...moduleSuffix.split('.').filter(Boolean)];
+  } else {
+    moduleParts = moduleSuffix.split('.').filter(Boolean);
+  }
+
+  const modulePath = moduleParts.join('/');
+  return [`${modulePath}.py`, `${modulePath}/router.py`, `${modulePath}/__init__.py`];
 }
 
 function joinPaths(prefix: string, path: string): string {

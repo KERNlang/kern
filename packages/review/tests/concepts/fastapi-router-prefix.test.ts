@@ -104,6 +104,16 @@ describe('FastAPI router-prefix expansion', () => {
     expect(routes.map((r) => r.path)).toEqual(['/api/single/current']);
   });
 
+  it('does not apply a module mount to a different router in the same file', () => {
+    const all = mergeMaps(
+      pythonRoute('app/routes.py', '/auth', 'GET', 'auth_router', 1),
+      pythonRoute('app/routes.py', '/admin', 'GET', 'admin_router', 2),
+      pythonMount('app/main.py', '/api/auth', 'auth_router', 'app.routes'),
+    );
+
+    expect(collectRoutesAcrossGraph(all).map((route) => route.path)).toEqual(['/api/auth/auth', '/admin']);
+  });
+
   it('contract-drift fires when frontend URL misses the prefixed backend route', () => {
     // Frontend calls /api/nutrition/goals but backend is mounted at
     // /api/nutrition-goals — a realistic prefix-typo drift.

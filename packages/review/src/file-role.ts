@@ -37,7 +37,7 @@ export function classifyFileRole(sourceFile: SourceFile, filePath: string): File
     /\/examples?\//i.test(lower) ||
     /\/fixtures?\//i.test(lower) ||
     /\/preview-/.test(basename) ||
-    /(?:^|[-_.])examples?\.(tsx?|jsx?)$/.test(basename)
+    /(?:^|[-_.])examples?(?:[-_.](?:usage|demo|fixture|sample))?\.(tsx?|jsx?)$/.test(basename)
   ) {
     return 'example';
   }
@@ -86,7 +86,7 @@ export function classifyFileRoleByPath(filePath: string): FileRole {
     /\/examples?\//i.test(lower) ||
     /\/fixtures?\//i.test(lower) ||
     /\/preview-/.test(basename) ||
-    /(?:^|[-_.])examples?\.(tsx?|jsx?|py)$/.test(basename)
+    /(?:^|[-_.])examples?(?:[-_.](?:usage|demo|fixture|sample))?\.(tsx?|jsx?|py)$/.test(basename)
   ) {
     return 'example';
   }
