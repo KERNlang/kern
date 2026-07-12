@@ -50,7 +50,7 @@ function internalRuntimeDependencies(pkgJson, planNames, expectedVersion, ownerN
     }
     result.push({ name, kind: 'optionalDependency', version });
   }
-  return result.sort((a, b) => a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind));
+  return [...result].sort((a, b) => a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind));
 }
 
 export function constructManifest({ plan, packedInfo }) {
