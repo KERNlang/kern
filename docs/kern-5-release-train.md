@@ -196,7 +196,10 @@ trusted-publishing/provenance configuration is inspected.
     - [x] R1.5d.1 separately versioned diagnostic and UTF-8 byte-location
       evidence, bound to exact source and structural KIR bytes. Full fitness
       wall and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
-    - [ ] R1.5d.2 clean-HEAD immutable Alpha manifest build receipt.
+    - [x] R1.5d.2 clean-HEAD immutable Alpha receipt generator and release
+      gate: policy-bound hashes/oracles/exclusions, dirty-tree and symlink kill
+      tests, full fitness wall, and final 3/3 Agon review passed on 2026-07-12.
+      The SHA-named ignored receipt is generated only after commit.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

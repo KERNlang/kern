@@ -15,6 +15,7 @@
     "test:kern-kir-module-graph": "pnpm --filter @kernlang/core test --testPathPatterns=kir-module-graph && node ./scripts/check-kir-module-graph.mjs",
     "test:kern-kir-coverage-closure": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/coverage-ledger.test.mjs && node ./scripts/check-kir-coverage-closure.mjs",
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
+    "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -137,6 +138,12 @@
       "label": "Diagnostic and UTF-8 location evidence",
       "status": "current",
       "argv": ["pnpm", "test:kern-kir-evidence"]
+    },
+    {
+      "id": "kir-alpha-receipt",
+      "label": "Clean-HEAD immutable Alpha receipt",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-alpha-receipt"]
     },
     {
       "id": "diff-hygiene",
@@ -283,6 +290,12 @@
       "label": "Diagnostic and UTF-8 location evidence",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-kir-evidence"
+    },
+    {
+      "id": "kir-alpha-receipt",
+      "label": "Clean-HEAD immutable Alpha receipt",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-alpha-receipt"
     },
     {
       "id": "versioned-kir-v1",
