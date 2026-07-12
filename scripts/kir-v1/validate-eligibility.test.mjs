@@ -28,8 +28,10 @@ test('repository inventory is an explicit Alpha no-go proof', () => {
   assert.equal(result.proofLabel, 'ALPHA-NO-GO');
   assert.equal(result.sourceNodeCount, policy.sourceCatalog.nodes.length);
   assert.equal(result.witnessedNodeCount, 7);
-  assert.ok(result.unresolvedSourceNodeCount > 0);
-  assert.equal(result.unresolvedRunnerContractCount, 16);
+  assert.equal(result.coveredSourceNodeCount, 302);
+  assert.equal(result.unresolvedSourceNodeCount, 0);
+  assert.equal(result.deferredRunnerContractCount, 16);
+  assert.equal(result.unresolvedRunnerContractCount, 0);
 });
 
 const inventoryMutations = [
@@ -66,7 +68,7 @@ test('matching catalog edits still require an explicit coverage row', () => {
   copy.sourceCatalog.nodes.push('future-node');
   assert.throws(
     () => validateKirV1Eligibility(copy, overlay('packages/core/src/spec.ts', source)),
-    /source coverage ids drifted.*missing future-node/u,
+    /coverage ledger node ids drifted.*missing future-node/u,
   );
 });
 
@@ -164,30 +166,29 @@ test('candidate fixture is executed through the selected projector', () => {
 });
 
 test('every source node has an explicit exact coverage disposition', () => {
-  const unresolved = policy.sourceCoverage.find((row) => row.disposition === 'unresolved');
-  const witnessed = policy.sourceCoverage.find((row) => row.disposition === 'candidate-witnessed');
+  const included = policy.sourceCoverage.find((row) => row.disposition === 'included-structural');
   assert.throws(
-    mutate((copy) => { copy.sourceCoverage = copy.sourceCoverage.filter((row) => row.id !== unresolved.id); }),
-    /source coverage ids drifted/u,
+    mutate((copy) => { copy.sourceCoverage = copy.sourceCoverage.filter((row) => row.id !== included.id); }),
+    /must exactly match the coverage ledger|source coverage ids drifted/u,
   );
   assert.throws(
-    mutate((copy) => { copy.sourceCoverage.find((row) => row.id === unresolved.id).blockerIds = []; }),
-    /blockerIds must be a non-empty array/u,
+    mutate((copy) => { copy.sourceCoverage.find((row) => row.id === included.id).witnessId = 'invented'; }),
+    /must exactly match the coverage ledger/u,
   );
   assert.throws(
-    mutate((copy) => { copy.sourceCoverage.find((row) => row.id === witnessed.id).disposition = 'unresolved'; }),
-    /must be candidate-witnessed/u,
-  );
-  assert.throws(
-    mutate((copy) => { copy.sourceCoverage.find((row) => row.id === witnessed.id).blockerIds = null; }),
-    /blockerIds must be an array/u,
+    mutate((copy) => { copy.sourceCoverage.find((row) => row.id === included.id).disposition = 'unresolved'; }),
+    /must exactly match the coverage ledger/u,
   );
 });
 
-test('every runner contract remains explicitly unresolved', () => {
+test('every runner contract remains an explicit M3 deferral', () => {
   assert.throws(
     mutate((copy) => { copy.runnerCoverage[0].disposition = 'candidate-witnessed'; }),
-    /runner coverage .* must remain unresolved/u,
+    /must remain an explicit M3 runtime deferral/u,
+  );
+  assert.throws(
+    mutate((copy) => { copy.runnerCoverage[0].milestone = 'M2'; }),
+    /must remain an explicit M3 runtime deferral/u,
   );
   assert.throws(
     mutate((copy) => copy.runnerCoverage.reverse()),
@@ -199,11 +200,22 @@ test('blocker identity and scope cannot be weakened', () => {
   assert.throws(mutate((copy) => copy.blockers.pop()), /blocker ids drifted/u);
   assert.throws(
     mutate((copy) => { copy.blockers[0].appliesTo = 'optional'; }),
-    /coverage-decision changed scope/u,
+    /diagnostic-location-evidence changed scope/u,
   );
   assert.throws(
     mutate((copy) => { copy.blockers[0].detail = ''; }),
     /blockers\[0\]\.detail must be non-empty/u,
+  );
+});
+
+test('coverage ledger binding is digest-bound and cannot be promoted silently', () => {
+  assert.throws(
+    mutate((copy) => { copy.coverageWitnessLedger.canonicalSha256 = '0'.repeat(64); }),
+    /coverage ledger digest drifted/u,
+  );
+  assert.throws(
+    mutate((copy) => { copy.coverageWitnessLedger.format = 'kern.kir.v1'; }),
+    /coverage ledger format changed/u,
   );
 });
 

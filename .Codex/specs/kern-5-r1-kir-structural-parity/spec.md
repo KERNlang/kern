@@ -224,6 +224,36 @@ public export or runtime adoption. **VERIFIED**
 **Exit:** zero source rows unresolved; `ALPHA-NO-GO` remains because R1.5d
 diagnostic/location evidence and the clean-SHA Alpha manifest are absent.
 
+#### R1.5c.4 decided contract
+
+- Keep the constitution generator inventory-only. Add a compact checked-in
+  witness ledger whose node/property expectations and fixture recipes are
+  compared to, but never generated or auto-promoted from, the live
+  constitution during a gate. **DECIDED**
+- Source dispositions are exactly `included-structural`, `lowered-semantic`,
+  `required-excluded-host-payload`, and `explicit-missing-schema`. Every row
+  names a stable executable witness ID; zero `unresolved` or
+  `candidate-witnessed` rows remain. **DECIDED**
+- Every property row retains the c.1 disposition vocabulary and binds populated
+  evidence. Optional properties additionally bind omitted-state evidence so
+  defaults cannot cross the boundary. Properties on a globally rejected node
+  bind to the explicit node-rejection context rather than claiming unreachable
+  positive semantics. **DECIDED**
+- The executor consumes ledger fixture recipes independently of `NODE_SCHEMAS`,
+  round-trips admitted/lowered cases, and asserts stable rejection codes for
+  host-only or missing-schema cases. The validator separately proves exact
+  ordered equality with all 302 node and 1,149 property constitution rows.
+  **GUARD**
+- All 16 runner rows become `deferred-runtime-m3`, with an explicit M3 reason;
+  they are neither covered nor unresolved source-parity failures. R1.5d
+  diagnostics/locations, runtime ABI/execution, KIR v1 freeze, Alpha acceptance,
+  public export, and semantic cutover remain false. **GUARD**
+
+Decision evidence: adversarial tribunal
+`tribunal-1783851382134-cywq23-kern-5-r1-5c4-coverage-closure-c` completed 3/3
+on 2026-07-12 and selected independent checked-in ledger evidence over both
+auto-generated self-proof and handwritten fixture explosion. **VERIFIED**
+
 ## Rejected Options
 
 ### Expand only the 16 runtime contracts
@@ -257,15 +287,15 @@ cover the language, structural module graph, diagnostics, or runtime.
 - [x] R1.5c.3 imports/exports support the explicit `class | fn` symbol catalog,
       including transitive re-exports, and hostile graph cases reject
       deterministically.
-- [ ] R1.5c.4 leaves zero unresolved source rows and binds every disposition to
+- [x] R1.5c.4 leaves zero unresolved source rows and binds every disposition to
       executable evidence.
-- [ ] No raw expression, raw block, host regex validation, host numeric
+- [x] No raw expression, raw block, host regex validation, host numeric
       conversion, unknown field, or fallback crosses the boundary.
-- [ ] Existing semantic probe, reader candidate, ownership, and R1.5a/R1.5b
+- [x] Existing semantic probe, reader candidate, ownership, and R1.5a/R1.5b
       gates remain unchanged and green.
-- [ ] Full `fitness:kern-5` and Agon review with exactly `claude,codex,agy`
+- [x] Full `fitness:kern-5` and Agon review with exactly `claude,codex,agy`
       pass for every serial sub-slice before commit/push.
-- [ ] `ALPHA-NO-GO`, absent `test:kern-ir`, internal containment, and all M3
+- [x] `ALPHA-NO-GO`, absent `test:kern-ir`, internal containment, and all M3
       runtime deferrals remain true after R1.5c.
 
 ### R1.5c.1 Closure Evidence
@@ -278,6 +308,29 @@ cover the language, structural module graph, diagnostics, or runtime.
   `claude,codex,agy` all succeeded with zero findings.
 - Status remains `ALPHA-NO-GO`; there is no public KIR export, runtime adoption,
   probe replacement, or KIR v1 freeze.
+
+### R1.5c.4 Closure Evidence
+
+- `test:kern-kir-coverage-closure`: 302/302 node dispositions and 1,149/1,149
+  property dispositions are ledger-bound; 2,286 populated/omitted executable
+  witnesses passed with exact canonical values or stable rejection codes.
+- `test:kern-ir-eligibility`: zero unresolved source rows; all 16 runner
+  contracts are explicit `deferred-runtime-m3` rows, while all promotion claims
+  remain false.
+- `fitness:kern-5`: the complete current wall passed on 2026-07-12, including
+  existing seam, reader, ownership, R1.5a/R1.5b, conformance, native, browser,
+  and diff-hygiene gates.
+- Agon review `review-1783852143959-dalddv` completed 3/3. Its canonical-value
+  needs-check was fixed by comparing every admitted fixture to an independent
+  canonical value recipe; the decoded-property-shape needs-check was disproved
+  by the structural reader contract and made explicit in the executor failure.
+- Final Agon review `review-1783853586198-sevw0o` completed 3/3 with zero
+  verified findings. Its order-sensitive equality needs-check was dismissed:
+  canonical record ordering is semantic evidence here, not incidental object
+  equality.
+- Status remains `ALPHA-NO-GO`; R1.5d diagnostic/location evidence and the
+  clean-SHA Alpha manifest remain absent, with no KIR v1 freeze, public export,
+  runtime adoption, or semantic cutover.
 
 ## Out of Scope / Explicit Non-Claims
 

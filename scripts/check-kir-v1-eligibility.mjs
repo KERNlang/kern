@@ -14,5 +14,5 @@ if (Object.hasOwn(packageJson.scripts, 'test:kern-ir')) {
 }
 
 process.stdout.write(
-  `KIR v1 eligibility: PASS (${result.proofLabel}; ${result.witnessedNodeCount}/${result.sourceNodeCount} source nodes witnessed; ${result.unresolvedRunnerContractCount}/${result.runnerContractCount} runner contracts unresolved).\n`,
+  `KIR v1 eligibility: PASS (${result.proofLabel}; ${result.coveredSourceNodeCount}/${result.sourceNodeCount} source nodes ledger-covered; ${result.deferredRunnerContractCount}/${result.runnerContractCount} runner contracts deferred to M3).\n`,
 );

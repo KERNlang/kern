@@ -1,10 +1,12 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
+import { validateCoverageLedger } from './validate-coverage-ledger.mjs';
+
 const EXPECTED_BLOCKERS = Object.freeze({
-  'coverage-decision': 'source-node',
-  'portable-node-schema': 'source-node',
-  'runner-kir-binding': 'runner-contract',
+  'diagnostic-location-evidence': 'alpha-release',
+  'clean-sha-alpha-manifest': 'alpha-release',
 });
 const EXPECTED_IDENTITY = Object.freeze({
   semanticIncludes: ['module-graph', 'imports', 'exports', 'node-kinds', 'semantic-properties', 'child-order'],
@@ -43,6 +45,7 @@ const EXPECTED_DEFERRED = Object.freeze([
   ['handler-abi', 'M3'],
   ['capability-abi', 'M3'],
 ]);
+const EXPECTED_RUNNER_REASON = 'runtime-kir-binding-deferred';
 
 function fail(message) {
   throw new Error(`KIR v1 eligibility: ${message}`);
@@ -197,34 +200,51 @@ function validateCandidate(policy, sourceIds, readText) {
   return new Set(witness.nodeKinds);
 }
 
-function validateCoverage(rows, catalogIds, witnessedIds, kind) {
-  if (!Array.isArray(rows) || rows.length === 0) fail(`${kind}Coverage must be a non-empty array`);
-  const catalog = [...catalogIds];
-  const rowIds = [];
-  const unresolved = [];
-  for (const [index, row] of rows.entries()) {
-    exactKeys(row, ['id', 'disposition', 'blockerIds'], `${kind}Coverage[${index}]`);
-    text(row.id, `${kind}Coverage[${index}].id`);
-    rowIds.push(row.id);
-    if (!Array.isArray(row.blockerIds)) fail(`${kind}Coverage[${index}].blockerIds must be an array`);
-    const blockers = row.blockerIds;
-    if (kind === 'source' && witnessedIds.has(row.id)) {
-      if (row.disposition !== 'candidate-witnessed' || blockers.length !== 0) {
-        fail(`source coverage ${row.id} must be candidate-witnessed without blockers`);
-      }
-      continue;
+function validateCoverageLedgerBinding(policy, sourceIds, readText) {
+  exactKeys(policy.coverageWitnessLedger, ['path', 'format', 'canonicalSha256'], 'coverageWitnessLedger');
+  const binding = policy.coverageWitnessLedger;
+  if (binding.path !== 'scripts/kir-v1/coverage-witness-ledger.json') fail('coverage ledger path changed');
+  if (binding.format !== 'kern.kir.coverage-witness-ledger.r1.5c.4') fail('coverage ledger format changed');
+  if (!/^[0-9a-f]{64}$/u.test(binding.canonicalSha256)) fail('coverage ledger SHA-256 is invalid');
+  const ledgerText = readText(binding.path);
+  const digest = createHash('sha256').update(ledgerText).digest('hex');
+  if (digest !== binding.canonicalSha256) fail('coverage ledger digest drifted');
+  const constitution = JSON.parse(readText('scripts/kir-structural/constitution.json'));
+  const ledger = JSON.parse(ledgerText);
+  const validated = validateCoverageLedger(ledger, constitution);
+  sameOrdered(ledger.nodes.map((row) => row.id), [...sourceIds], 'coverage ledger node ids');
+  return { ledger, validated };
+}
+
+function validateSourceCoverage(rows, sourceIds, ledger) {
+  if (!Array.isArray(rows) || rows.length === 0) fail('sourceCoverage must be a non-empty array');
+  rows.forEach((row, index) => {
+    exactKeys(row, ['id', 'disposition', 'witnessId'], `sourceCoverage[${index}]`);
+    const expected = ledger.nodes[index];
+    if (
+      row.id !== expected?.id ||
+      row.disposition !== expected.disposition ||
+      row.witnessId !== expected.witnessId
+    ) {
+      fail(`source coverage ${row.id ?? index} must exactly match the coverage ledger`);
     }
-    if (row.disposition !== 'unresolved') fail(`${kind} coverage ${row.id} must remain unresolved`);
-    const expectedBlockers = kind === 'source'
-      ? ['coverage-decision', 'portable-node-schema']
-      : ['runner-kir-binding'];
-    uniqueTextArray(blockers, `${kind} coverage ${row.id} blockerIds`);
-    sameOrdered(blockers, expectedBlockers, `${kind} coverage ${row.id} blockers`);
-    unresolved.push(row.id);
-  }
-  uniqueTextArray(rowIds, `${kind} coverage ids`);
-  sameOrdered(rowIds, catalog, `${kind} coverage ids`);
-  return unresolved;
+  });
+  sameOrdered(rows.map((row) => row.id), [...sourceIds], 'source coverage ids');
+}
+
+function validateRunnerCoverage(rows, runnerIds) {
+  if (!Array.isArray(rows) || rows.length === 0) fail('runnerCoverage must be a non-empty array');
+  rows.forEach((row, index) => {
+    exactKeys(row, ['id', 'disposition', 'milestone', 'reasonId'], `runnerCoverage[${index}]`);
+    if (
+      row.disposition !== 'deferred-runtime-m3' ||
+      row.milestone !== 'M3' ||
+      row.reasonId !== EXPECTED_RUNNER_REASON
+    ) {
+      fail(`runner coverage ${row.id} must remain an explicit M3 runtime deferral`);
+    }
+  });
+  sameOrdered(rows.map((row) => row.id), [...runnerIds], 'runner coverage ids');
 }
 
 function validateBlockers(policy) {
@@ -275,12 +295,12 @@ export function validateKirV1Eligibility(policy, options = {}) {
     policy,
     [
       'schemaVersion', 'stage', 'decision', 'proofLabel', 'sourceCatalog', 'runnerCatalog',
-      'candidateWitness', 'blockers', 'identity', 'requiredLimitConfigKeys', 'skewPolicy',
+      'candidateWitness', 'coverageWitnessLedger', 'blockers', 'identity', 'requiredLimitConfigKeys', 'skewPolicy',
       'claims', 'deferredContracts', 'sourceCoverage', 'runnerCoverage',
     ],
     'policy',
   );
-  if (policy.schemaVersion !== 1) fail('schemaVersion must be 1');
+  if (policy.schemaVersion !== 2) fail('schemaVersion must be 2');
   if (policy.stage !== 'internal-alpha-candidate') fail('stage must remain internal-alpha-candidate');
   if (policy.decision !== 'no-go' || policy.proofLabel !== 'ALPHA-NO-GO') fail('R1.5a must remain ALPHA-NO-GO');
 
@@ -297,23 +317,21 @@ export function validateKirV1Eligibility(policy, options = {}) {
     readText,
   );
   const witnessedIds = validateCandidate(policy, sourceIds, readText);
+  const { ledger } = validateCoverageLedgerBinding(policy, sourceIds, readText);
   validateBlockers(policy);
   validateDecisions(policy);
   validateDeferred(policy);
 
-  const unresolvedSourceNodes = validateCoverage(policy.sourceCoverage, sourceIds, witnessedIds, 'source');
-  // A projected node shape is not a runtime binding. The current runner never
-  // consumes this candidate, so all runner contracts remain unresolved here.
-  const unresolvedRunnerContracts = validateCoverage(policy.runnerCoverage, runnerIds, witnessedIds, 'runner');
-  if (unresolvedSourceNodes.length === 0 || unresolvedRunnerContracts.length === 0) {
-    fail('eligibility inventory cannot claim complete coverage');
-  }
+  validateSourceCoverage(policy.sourceCoverage, sourceIds, ledger);
+  validateRunnerCoverage(policy.runnerCoverage, runnerIds);
   return {
     proofLabel: policy.proofLabel,
     sourceNodeCount: sourceIds.size,
     witnessedNodeCount: witnessedIds.size,
-    unresolvedSourceNodeCount: unresolvedSourceNodes.length,
+    coveredSourceNodeCount: sourceIds.size,
+    unresolvedSourceNodeCount: 0,
     runnerContractCount: runnerIds.size,
-    unresolvedRunnerContractCount: unresolvedRunnerContracts.length,
+    deferredRunnerContractCount: runnerIds.size,
+    unresolvedRunnerContractCount: 0,
   };
 }

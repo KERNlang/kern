@@ -1,0 +1,12 @@
+{
+  "maxBytes": 1048576,
+  "maxDepth": 128,
+  "maxNodes": 8192,
+  "maxStringBytes": 16384,
+  "maxCollectionLength": 2048,
+  "maxRecordFields": 1024,
+  "maxMapEntries": 128,
+  "maxIntegerDigits": 512,
+  "maxFractionDigits": 512,
+  "maxDecimalChars": 1040
+}

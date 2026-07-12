@@ -13,6 +13,7 @@
     "test:kern-kir-structural-constitution": "pnpm --filter @kernlang/core build && node --test ./scripts/kir-structural/constitution.test.mjs && node ./scripts/check-kir-structural-constitution.mjs",
     "test:kern-kir-structural-codec": "pnpm --filter @kernlang/core test --testPathPatterns=kir-structural && node --test ./scripts/check-kir-structural-codec.test.mjs && node ./scripts/check-kir-structural-codec.mjs",
     "test:kern-kir-module-graph": "pnpm --filter @kernlang/core test --testPathPatterns=kir-module-graph && node ./scripts/check-kir-module-graph.mjs",
+    "test:kern-kir-coverage-closure": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/coverage-ledger.test.mjs && node ./scripts/check-kir-coverage-closure.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -123,6 +124,12 @@
       "label": "Structural KIR module and symbol graph",
       "status": "current",
       "argv": ["pnpm", "test:kern-kir-module-graph"]
+    },
+    {
+      "id": "kir-coverage-closure",
+      "label": "Structural KIR coverage witness closure",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-kir-coverage-closure"]
     },
     {
       "id": "diff-hygiene",
@@ -257,6 +264,12 @@
       "label": "Structural KIR module and symbol graph",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-kir-module-graph"
+    },
+    {
+      "id": "kir-coverage-closure",
+      "label": "Structural KIR coverage witness closure",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-kir-coverage-closure"
     },
     {
       "id": "versioned-kir-v1",
