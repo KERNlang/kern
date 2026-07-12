@@ -55,7 +55,7 @@
       "unrs-resolver"
     ],
     "overrides": {
-      "typescript": "^7.0.2",
+      "typescript": "^6.0.3",
       "dompurify": ">=3.4.0",
       "brace-expansion": ">=5.0.6",
       "picomatch": ">=4.0.4",
@@ -67,10 +67,10 @@
     }
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.3",
-    "@types/node": "^26.1.1",
+    "@biomejs/biome": "^2.5.2",
+    "@types/node": "^26.1.0",
     "express": "^5.2.1",
-      "tsx": "^4.23.0",
-    "typescript": "^7.0.2"
+    "tsx": "^4.22.5",
+    "typescript": "^6.0.3"
   }
 }
