@@ -179,13 +179,18 @@ describe('internal source handler identity and link', () => {
       failureCode(
         executeInternalRuntimeSourceHandlerSync(
           'x',
-          { handlerName: 'answer', sourcePath: 'long/path.kern' },
+          { handlerName: 'a', sourcePath: 'long/path.kern' },
           [],
           makeEnv(),
           tiny,
         ),
       ),
     ).toBe('handler-link-error');
+    expect(
+      failureCode(
+        executeInternalRuntimeSourceHandlerSync('x', { handlerName: 'answer', sourcePath: 'a' }, [], makeEnv(), tiny),
+      ),
+    ).toBe('handler-entry-unsupported');
   });
 
   test('does not invoke a capability when source linking fails', async () => {

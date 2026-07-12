@@ -62,8 +62,10 @@ function canonicalSourcePath(path: unknown, maxBytes: number): string {
   return path;
 }
 
-function portableName(value: unknown): string {
-  if (!isPortableBindingName(value)) fail('handler-entry-unsupported');
+function portableName(value: unknown, maxBytes?: number): string {
+  if (!isPortableBindingName(value) || (maxBytes !== undefined && textEncoder.encode(value).length > maxBytes)) {
+    fail('handler-entry-unsupported');
+  }
   return value;
 }
 
@@ -139,7 +141,7 @@ export function resolveInternalRuntimeSourceHandler(
       fail('handler-link-error');
     }
     const canonicalIdentity = {
-      handlerName: portableName(identity?.handlerName),
+      handlerName: portableName(identity?.handlerName, accepted.limits.maxStringBytes),
       sourcePath: canonicalSourcePath(identity?.sourcePath, accepted.limits.maxStringBytes),
     };
     return linkedEntry(source, canonicalIdentity);

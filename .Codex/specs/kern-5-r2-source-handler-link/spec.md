@@ -58,8 +58,8 @@ loader, and KIR reader remain unchanged. **GUARD**
       diagnostics.
 - [x] Link failure cannot invoke a capability or expose events/result.
 - [x] Public containment and the planned `runtime-handler-abi` gate remain.
-- [ ] Full KERN 5 fitness wall remains green.
-- [ ] Final Agon review with `claude,codex,agy` has zero verified findings.
+- [x] Full KERN 5 fitness wall remains green.
+- [x] Final Agon review with `claude,codex,agy` has zero verified findings.
 
 ## Deferred
 
