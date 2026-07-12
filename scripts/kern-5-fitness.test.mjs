@@ -43,6 +43,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'canonical-value-reader',
       'kir-structural-constitution',
       'kir-structural-codec',
+      'kir-module-graph',
       'diff-hygiene',
     ],
   );

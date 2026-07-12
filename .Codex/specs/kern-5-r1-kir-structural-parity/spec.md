@@ -159,6 +159,58 @@ adopted by the runtime. **VERIFIED**
 **Exit:** module graph hostile corpus is deterministic across fresh processes,
 locale, timezone, and clean roots.
 
+#### R1.5c.3 decided contract
+
+- Add a separate internal envelope `kern.kir.modules.r1.5c.3-alpha`; do not
+  mutate the R1.5c.2 single-root format or its empty type catalog. The envelope
+  binds exactly `constitution`, empty `diagnostics`, `format`, sorted `modules`,
+  `proofLabel`, and `symbolCatalog`. **DECIDED**
+- The symbol catalog admits exactly `class` and `fn`, matching the live runner
+  linker while closing the old semantic probe's `fn`-only gap. Admission is
+  structural: a top-level node of an embedded R1.5c.2 document root, portable
+  text `name`, and boolean `export=true` for local exports. No schema-derived
+  expansion is allowed. **DECIDED**
+- Each module binds its normalized relative POSIX `.kern` `id`, an ordered
+  `roots` list containing one independently projected R1.5c.2 structural node
+  per source top-level node, sorted import records with sorted bindings, and
+  sorted export records. `document` is not admitted by c.2 and is forbidden;
+  no synthetic `module` wrapper may be invented. The narrow c.3 root catalog is
+  `class | fn | from | module | use`; only `class`, `fn`, and `use/from` edges
+  contribute graph semantics. Import resolution is pure, root-confined, and
+  tries the exact normalized target followed by `.kern`; it performs no
+  filesystem, package, loader, or host resolution. **DECIDED**
+- The writer derives graph metadata from the roots. The reader revalidates every
+  embedded root, recomputes declarations/imports/exports, compares them to the
+  serialized metadata, then proves missing-module/export, kind, alias,
+  re-export, duplicate-binding/export, and cycle invariants before return.
+  Stable codes and canonical artifact paths identify every rejection.
+  **DECIDED**
+- Module records, imports, bindings, and exports use code-point ordering;
+  semantic child order inside each root remains significant. Module input order,
+  locale, timezone, and fresh-process state cannot alter bytes. **GUARD**
+- Diagnostics must remain empty; diagnostic/location identity is R1.5d. This
+  slice does not define type/value namespaces, host/default/type exports, full
+  symbol semantics, codegen/runner behavior, M3 ABI, public export, KIR v1, or
+  the R1.5c.4 302-node coverage closure. **GUARD**
+
+Decision evidence: adversarial tribunal
+`tribunal-1783847083626-s5bwle-kern-5-r1-5c3-module-symbol-cont` completed 3/3
+on 2026-07-12 and selected the self-contained embed-and-revalidate envelope
+with an explicit `class | fn` catalog. Follow-up brainstorm
+`brainstorm-1783847677949-0wsjgo-kern-5-r1-5c3-module-container-c` completed
+3/3 after focused tests proved `document` is non-catalog; it unanimously
+selected ordered per-source `roots[]` over a synthetic wrapper. **VERIFIED**
+
+Closure evidence: `pnpm test:kern-kir-module-graph` passed 23 focused graph,
+hostile, transitive re-export, path, and fresh-process determinism tests plus a
+16-module browser-containment check. `pnpm fitness:kern-5` reached
+`KERN 5 current fitness wall passed.` on 2026-07-12. Final Agon review
+`review-1783850995953-nye6e3-kern-5-r1-5c3-module-symbol-grap` completed 3/3
+with zero verified findings. The remaining needs-check suggestions were
+disproved by the gate's explicit core build and the inherited fail-closed c.2
+error contract. The module codec remains internal and `ALPHA-NO-GO`, with no
+public export or runtime adoption. **VERIFIED**
+
 ### R1.5c.4 — Coverage closure
 
 - Generate one positive round-trip witness per included/lowered node kind.
@@ -202,8 +254,9 @@ cover the language, structural module graph, diagnostics, or runtime.
 - [x] R1.5c.2 writer output decodes under identical limits, admitted portable
       values/expressions are byte-canonical, and the empty type catalog rejects
       required types without degradation.
-- [ ] R1.5c.3 imports/exports support every admitted declaration kind and all
-      hostile graph cases reject deterministically.
+- [x] R1.5c.3 imports/exports support the explicit `class | fn` symbol catalog,
+      including transitive re-exports, and hostile graph cases reject
+      deterministically.
 - [ ] R1.5c.4 leaves zero unresolved source rows and binds every disposition to
       executable evidence.
 - [ ] No raw expression, raw block, host regex validation, host numeric

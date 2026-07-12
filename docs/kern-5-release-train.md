@@ -184,7 +184,10 @@ trusted-publishing/provenance configuration is inspected.
       codec uses identical bounded canonical-value limits, a closed portable
       expression catalog, and an explicit empty type catalog; full fitness wall
       and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
-    - [ ] R1.5c.3 module and symbol-kind parity.
+    - [x] R1.5c.3 module and symbol-kind parity: ordered per-source roots,
+      explicit `class | fn` symbols, dependency-ordered transitive re-exports,
+      pure POSIX resolution, full fitness wall, and final 3/3 Agon review passed
+      on 2026-07-12 (`ALPHA-NO-GO`).
     - [ ] R1.5c.4 executable coverage closure.
   - [ ] R1.5d diagnostic/location evidence contract and Alpha manifest.
 

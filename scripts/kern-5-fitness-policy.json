@@ -12,6 +12,7 @@
     "test:kern-canonical-value": "pnpm --filter @kernlang/core test --testPathPatterns=canonical-value && node --test ./scripts/check-canonical-value.test.mjs && node ./scripts/check-canonical-value.mjs",
     "test:kern-kir-structural-constitution": "pnpm --filter @kernlang/core build && node --test ./scripts/kir-structural/constitution.test.mjs && node ./scripts/check-kir-structural-constitution.mjs",
     "test:kern-kir-structural-codec": "pnpm --filter @kernlang/core test --testPathPatterns=kir-structural && node --test ./scripts/check-kir-structural-codec.test.mjs && node ./scripts/check-kir-structural-codec.mjs",
+    "test:kern-kir-module-graph": "pnpm --filter @kernlang/core test --testPathPatterns=kir-module-graph && node ./scripts/check-kir-module-graph.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -116,6 +117,12 @@
       "label": "Bounded structural KIR writer and reader",
       "status": "current",
       "argv": ["pnpm", "test:kern-kir-structural-codec"]
+    },
+    {
+      "id": "kir-module-graph",
+      "label": "Structural KIR module and symbol graph",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-kir-module-graph"]
     },
     {
       "id": "diff-hygiene",
@@ -244,6 +251,12 @@
       "label": "Bounded structural KIR writer and reader",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-kir-structural-codec"
+    },
+    {
+      "id": "kir-module-graph",
+      "label": "Structural KIR module and symbol graph",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-kir-module-graph"
     },
     {
       "id": "versioned-kir-v1",
