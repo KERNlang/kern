@@ -33,6 +33,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | browser-budget | Required browser budget | current | `pnpm check:runner-browser-budget:required` |
 | kir-seam-probe | Typed semantic KIR seam probe | current | `pnpm test:kern-ir-probe` |
 | kir-reader-candidate | Internal semantic KIR reader candidate | current | `pnpm test:kern-ir-reader-candidate` |
+| semantic-ownership-proof | Bootstrap-dependent semantic ownership proof | current | `pnpm test:kern-semantic-ownership` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
 | runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
@@ -61,6 +62,7 @@ wall and must remain absent until promoted.
 | checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |
 | kir-seam-selection | Typed semantic KIR seam selection | internal-oracle | `pnpm test:kern-ir-probe` |
 | kir-reader-candidate | Internal semantic KIR reader candidate | internal-oracle | `pnpm test:kern-ir-reader-candidate` |
+| semantic-ownership-proof | Non-circular semantic ownership substrate | internal-oracle | `pnpm test:kern-semantic-ownership` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R1 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
@@ -75,6 +77,12 @@ wall and must remain absent until promoted.
 means KERN-authored logic participates in a release-blocking differential
 harness but is not yet the production API or semantic authority. `not-shipped`
 means the ownership boundary cannot support a KERN 5 release claim.
+
+The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
+acyclic, oracle-free assignment for the planned canonical path and binds the
+current TypeScript authority to source evidence. It does not prove executable
+handler-semantic ownership, runtime cutover, or self-hosting; those remain
+blocked on the planned interpreter shadow and fixed-point gates.
 
 ## KERN 4.5 Manifest App Substrate
 

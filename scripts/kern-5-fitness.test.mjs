@@ -38,6 +38,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'browser-budget',
       'kir-seam-probe',
       'kir-reader-candidate',
+      'semantic-ownership-proof',
       'diff-hygiene',
     ],
   );

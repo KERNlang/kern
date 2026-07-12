@@ -7,6 +7,7 @@
     "test:app-behavior": "node ./scripts/app-behavior-conformance.mjs",
     "test:kern-ir-probe": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-seam-probe.mjs",
     "test:kern-ir-reader-candidate": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-reader-candidate.mjs",
+    "test:kern-semantic-ownership": "node --test scripts/semantic-ownership/validate.test.mjs && node ./scripts/check-semantic-ownership.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -81,6 +82,12 @@
       "label": "Internal semantic KIR reader candidate",
       "status": "current",
       "argv": ["pnpm", "test:kern-ir-reader-candidate"]
+    },
+    {
+      "id": "semantic-ownership-proof",
+      "label": "Bootstrap-dependent semantic ownership proof",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-semantic-ownership"]
     },
     {
       "id": "diff-hygiene",
@@ -179,6 +186,12 @@
       "label": "Internal semantic KIR reader candidate",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-ir-reader-candidate"
+    },
+    {
+      "id": "semantic-ownership-proof",
+      "label": "Non-circular semantic ownership substrate",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-semantic-ownership"
     },
     {
       "id": "versioned-kir-v1",

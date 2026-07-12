@@ -168,7 +168,10 @@ trusted-publishing/provenance configuration is inspected.
   module-graph, mutation, and subprocess checks passed on 2026-07-11.
 - [x] R1.4a internal semantic KIR reader candidate: core/probe parity with no
   public export or stability claim.
-- [ ] R1.4b non-circular semantic ownership proof over the reader candidate.
+- [x] R1.4b bootstrap-dependent, non-circular semantic ownership substrate:
+  source-bound current TypeScript authority witness plus an acyclic,
+  oracle-free planned path over the internal reader candidate. This is not
+  executable handler-semantic ownership or runtime cutover.
 - [ ] R1.5 eligible KIR/value/diagnostic/trace/handler/capability contract
   freeze and Alpha manifest.
 
@@ -379,6 +382,7 @@ pnpm test:drift-showcase
 pnpm check:runner-browser-budget:required
 pnpm test:kern-ir-probe               # CURRENT experimental seam oracle
 pnpm test:kern-ir-reader-candidate    # CURRENT internal reader candidate
+pnpm test:kern-semantic-ownership     # CURRENT bootstrap-dependent ownership proof
 pnpm test:kern-ir                      # TARGET
 pnpm test:runtime-abi                  # TARGET
 pnpm test:kern-frontend                # TARGET
