@@ -212,6 +212,10 @@ trusted-publishing/provenance configuration is inspected.
     nested-record, source-linking, scheduler, and public-ABI work remain
     explicitly deferred. The full fitness wall and terminal 3/3 Agon review
     passed with zero verified findings on 2026-07-12.
+  - [ ] M3.3 internal source handler identity/link: one bounded source document
+    resolves a canonical source path and exact top-level KERN handler into the
+    M3.2 typed entry. Modules, helper/class linking, scheduler, runner-contract,
+    and public-ABI work remain explicitly deferred.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

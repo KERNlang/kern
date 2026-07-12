@@ -79,6 +79,11 @@ export function internalRuntimeFailure(code: InternalRuntimeDiagnosticCode): Int
   };
 }
 
+export function internalRuntimeLinkFailure(code: InternalRuntimeDiagnosticCode): InternalRuntimeEnvelope {
+  const envelope = internalRuntimeFailure(code);
+  return { ...envelope, diagnostics: envelope.diagnostics.map((diagnostic) => ({ ...diagnostic, phase: 'link' })) };
+}
+
 function event(input: TraceEvent, limits: InternalRuntimeEnvelopeLimits, index: number): InternalRuntimeEvent | null {
   if (input.op === 'stdout' || input.op === 'stderr') {
     const slot = normalizeInternalRuntimeSlot(input.text, limits, `$.events[${index}].text`);

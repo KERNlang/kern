@@ -40,6 +40,10 @@ export type InternalRuntimeDiagnosticCode =
   | 'capability-error'
   | 'encoded-limit'
   | 'escaped-control'
+  | 'handler-entry-ambiguous'
+  | 'handler-entry-not-found'
+  | 'handler-entry-unsupported'
+  | 'handler-link-error'
   | 'invalid-handler-arguments'
   | 'internal-runner-error'
   | 'non-portable-value'
@@ -49,7 +53,7 @@ export type InternalRuntimeDiagnosticCode =
 export interface InternalRuntimeDiagnostic {
   readonly category: 'runtime';
   readonly code: InternalRuntimeDiagnosticCode;
-  readonly phase: 'execution';
+  readonly phase: 'execution' | 'link';
 }
 
 export interface InternalRuntimeEnvelope {
