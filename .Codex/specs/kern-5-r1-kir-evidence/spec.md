@@ -122,6 +122,46 @@ Only `alphaAccepted` may become true after both d.1 and d.2 pass. KIR v1,
 runtime ABI, public export, and semantic cutover remain false. No package
 version, npm tag, or public release occurs. **GUARD**
 
+## R1.5d.2 Implementation Contract
+
+The receipt policy is checked in, but every generated receipt lives below the
+policy-declared ignored `.kern/` output root and is named by the full accepted
+commit SHA. The generator refuses a dirty tree before or after oracle
+execution, symlinked bindings/output paths, unsafe policy paths, unknown policy
+fields, failed oracles, and an existing receipt whose bytes differ. Identical
+regeneration returns the existing byte-for-byte receipt. **DECIDED**
+
+The canonical JSON receipt contains no clock, hostname, absolute path, engine
+output, or ambient environment. It records the exact HEAD SHA, policy SHA-256,
+sorted binding path/SHA-256 pairs, ordered oracle IDs and argv with `passed`
+status, explicit M3/release exclusions, and the closed status vector. Only
+`alphaAccepted` is true; KIR v1 freeze, runtime ABI, public reader export,
+runtime cutover, and semantic self-hosting remain false. **GUARD**
+
+R1.5d.2 acceptance requires dirty-tree, failed-oracle, post-oracle dirtiness,
+binding tamper, unsafe path, symlink, immutable-output, and byte-identical
+regeneration witnesses; a clean real-HEAD generation occurs only after the
+implementation commit makes the worktree clean. **DECIDED**
+
+Initial review `review-1783861396875-0up7cr-r1-5d2-initial` completed 3/3
+with zero verified findings; its policy-binding and symlink needs-checks were
+hardened. The full KERN 5 fitness wall then passed. Final review
+`review-1783862944595-k2jedi-r1-5d2-final` completed 3/3 with zero verified
+findings and prompted an exact checked-in binding witness. Final fixed review
+`review-1783863151799-p8abai-r1-5d2-final-fixed` completed 3/3 with zero
+verified and zero needs-check findings. **VERIFIED**
+
+- [x] Checked-in policy is closed, sorted, self-bound, and every real binding
+      is a readable non-symlinked regular file.
+- [x] Clean simulated HEAD generation and byte-identical regeneration pass.
+- [x] Dirty-before/after, failed oracle, policy drift, unsafe path, parent and
+      final symlink, premature status, and immutable-output attacks reject.
+- [x] Full KERN 5 fitness wall passes with the receipt gate both in
+      `test:infra` and as a standalone current gate.
+- [x] Final Agon review with exactly `claude,codex,agy` has zero verified and
+      zero needs-check findings.
+- [ ] Real clean-HEAD receipt is generated after the implementation commit.
+
 ## Kill Switches
 
 - Any diagnostic/location data enters structural KIR semantic bytes.
