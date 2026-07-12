@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "packageRoots": [
+    "packages"
+  ],
+  "release": {
+    "expectedPublicPackageCount": 22,
+    "nodeMajor": 22,
+    "packageManager": "pnpm@10.32.1"
+  },
+  "registry": {
+    "url": "https://registry.npmjs.org",
+    "timeoutMs": 30000,
+    "mutationTimeoutMs": 120000,
+    "clientCommand": "npm"
+  },
+  "bundle": {
+    "namePrefix": "kern-release",
+    "maxNameLength": 128,
+    "retentionDays": 90,
+    "maxArchiveBytes": 1073741824,
+    "maxExtractedBytes": 6442450944,
+    "maxEntries": 128,
+    "maxPages": 10,
+    "commandTimeoutMs": 60000,
+    "maxCommandOutputBytes": 1048576,
+    "githubApiVersion": "2026-03-10"
+  },
+  "retry": {
+    "attempts": 5,
+    "delayMs": 2000
+  },
+  "staging": {
+    "tagPrefix": "kern-stage"
+  },
+  "promotion": {
+    "rootPackageName": "kern-lang"
+  },
+  "recovery": {
+    "entryPackageNames": [
+      "@kernlang/cli",
+      "kern-lang"
+    ],
+    "deprecationMessage": "KERN release {version} from {sourceSha} failed post-promotion registry smoke and must not be used."
+  },
+  "provenance": {
+    "mode": "disabled-unverified"
+  },
+  "artifacts": {
+    "maxTarballBytes": 268435456,
+    "maxUnpackedBytes": 536870912,
+    "maxPackageJsonBytes": 1048576,
+    "maxCommandOutputBytes": 16777216,
+    "commandTimeoutMs": 600000,
+    "smokeTimeoutMs": 5000,
+    "safeBins": [
+      "kern"
+    ],
+    "consumerBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "tree-sitter",
+      "tree-sitter-python",
+      "unrs-resolver"
+    ],
+    "importSmokeExclusions": [
+      "@kernlang/mcp-server"
+    ]
+  },
+  "channels": {
+    "stable": {
+      "versionMode": "stable-input",
+      "distTag": "latest",
+      "syncDev": true
+    },
+    "canary": {
+      "versionMode": "canary-run",
+      "baseVersion": "5.0.0",
+      "prereleaseId": "canary",
+      "distTag": "canary",
+      "syncDev": false
+    }
+  }
+}

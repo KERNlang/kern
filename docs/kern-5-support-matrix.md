@@ -1,119 +1,169 @@
-# KERN 5 Support Matrix
+# KERN 5 Ownership Support Matrix
 
-This document defines the bounded KERN 5.0 final-complete claim. KERN 5.0 is
-complete for the manifest-driven native runner app surface described here. Code
-outside this matrix is not part of the 5.0 runtime promise unless a later
-release adds tests and documentation for it.
+**Release status:** R1 internal Alpha constitution; KERN 5.0 is not complete.
+**Current product baseline:** KERN 4.5.0, audited from `main` at `477063a1`.
+**Release meaning:** KERN 5 parses, checks, compiles, and executes its canonical
+handler language through KERN-authored semantic tooling over versioned KIR.
+Host code provides explicit capabilities and transport only. A clean bootstrap
+must prove a deterministic Stage 1 equals Stage 2 fixed point.
 
-The release rule is fail-closed: unsupported runtime shapes must reject before
-they can leak partial output or implicit host effects.
+This document is the human-readable mirror of
+`scripts/kern-5-fitness-policy.json`. `pnpm check:kern-5-contract` requires the
+two marked tables below to match that policy exactly. A current gate is runnable
+now; a planned gate is deliberately absent until its implementation slice
+promotes the policy and matrix atomically.
+
+The fail-closed rule applies throughout: unsupported runtime shapes reject
+before partial output, result, diagnostic, or implicit host effect escapes.
 
 ## Canonical Gates
 
-| Gate | Proof |
-| --- | --- |
-| Build and typecheck | `pnpm build` |
-| Full workspace tests | `pnpm test` |
-| Native KERN contract tests | `pnpm test:kern` |
-| Runner and preview smoke | `pnpm test:runner-smoke` |
-| KERN 5 focused gate | `pnpm fitness:kern-5` |
-| Repository formatting/lint | `pnpm lint` |
-| Final multi-engine review | `agon review uncommitted` |
+<!-- KERN5_GATE_MATRIX_START -->
+| ID | Gate | Status | Command |
+| --- | --- | --- | --- |
+| repo-consistency | Repository consistency | current | `pnpm check:repo` |
+| lint | Formatting and lint | current | `pnpm lint` |
+| build | Build and typecheck | current | `pnpm build` |
+| workspace-tests | Full workspace tests | current | `pnpm test` |
+| cross-target-conformance | TypeScript and Python conformance | current | `pnpm check:conformance` |
+| native-kern | Native KERN tests | current | `pnpm test:kern` |
+| runner-smoke | Runner and self-host smoke | current | `pnpm test:runner-smoke` |
+| app-behavior | Three-leg app behavior | current | `pnpm test:app-behavior` |
+| drift-showcase | Backend drift showcase | current | `pnpm test:drift-showcase` |
+| browser-budget | Required browser budget | current | `pnpm check:runner-browser-budget:required` |
+| kir-seam-probe | Typed semantic KIR seam probe | current | `pnpm test:kern-ir-probe` |
+| kir-reader-candidate | Internal semantic KIR reader candidate | current | `pnpm test:kern-ir-reader-candidate` |
+| semantic-ownership-proof | Bootstrap-dependent semantic ownership proof | current | `pnpm test:kern-semantic-ownership` |
+| kir-v1-eligibility | KIR v1 coverage and identity eligibility | current | `pnpm test:kern-ir-eligibility` |
+| canonical-value-reader | Bounded canonical value reader | current | `pnpm test:kern-canonical-value` |
+| kir-structural-constitution | Structural KIR node and property constitution | current | `pnpm test:kern-kir-structural-constitution` |
+| kir-structural-codec | Bounded structural KIR writer and reader | current | `pnpm test:kern-kir-structural-codec` |
+| kir-module-graph | Structural KIR module and symbol graph | current | `pnpm test:kern-kir-module-graph` |
+| kir-coverage-closure | Structural KIR coverage witness closure | current | `pnpm test:kern-kir-coverage-closure` |
+| kir-evidence | Diagnostic and UTF-8 location evidence | current | `pnpm test:kern-kir-evidence` |
+| kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | current | `pnpm test:kern-alpha-receipt` |
+| diff-hygiene | Git diff hygiene | current | `git diff --check` |
+| kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
+| runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
+| kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
+| kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
+| selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
+| kern-interpreter-shadow | KERN interpreter shadow | planned | `pnpm test:kern-interpreter-shadow` |
+| packed-release | Packed release proof | planned | `pnpm test:packed-release` |
+<!-- KERN5_GATE_MATRIX_END -->
 
-## Manifest App Surface
+`pnpm fitness:kern-5` validates this contract, then executes every current gate
+in the listed order without a shell and stops on the first failure. Planned
+commands are not silently skipped; they are explicitly outside the current
+wall and must remain absent until promoted.
 
-| Surface | KERN 5 status | Evidence |
+## Ownership Status
+
+<!-- KERN5_OWNERSHIP_MATRIX_START -->
+| ID | Ownership boundary | Status | Evidence |
+| --- | --- | --- | --- |
+| direct-source-runtime | Direct .kern source runtime | shipped-4.5 | `packages/core/tests/runner-source-executor.test.ts` |
+| browser-safe-runner | Browser-safe runner | shipped-4.5 | `scripts/check-runner-browser-budget.mjs` |
+| kern-assertion-engine | KERN assertion engine | internal-oracle | `pnpm test:capstone-assertion-engine` |
+| kern-module-validator | KERN module validator | internal-oracle | `pnpm test:selfhost-validator` |
+| kern-checker-v1 | KERN checker subset v1 | shipped-4.5 | `git show v4.5.0:examples/capstone-checker-subset/checker.kern` |
+| checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |
+| kir-seam-selection | Typed semantic KIR seam selection | internal-oracle | `pnpm test:kern-ir-probe` |
+| kir-reader-candidate | Internal semantic KIR reader candidate | internal-oracle | `pnpm test:kern-ir-reader-candidate` |
+| semantic-ownership-proof | Non-circular semantic ownership substrate | internal-oracle | `pnpm test:kern-semantic-ownership` |
+| kir-v1-eligibility | KIR v1 coverage and identity eligibility | internal-oracle | `pnpm test:kern-ir-eligibility` |
+| canonical-value-reader | Bounded canonical value reader | internal-oracle | `pnpm test:kern-canonical-value` |
+| kir-structural-constitution | Structural KIR node and property constitution | internal-oracle | `pnpm test:kern-kir-structural-constitution` |
+| kir-structural-codec | Bounded structural KIR writer and reader | internal-oracle | `pnpm test:kern-kir-structural-codec` |
+| kir-module-graph | Structural KIR module and symbol graph | internal-oracle | `pnpm test:kern-kir-module-graph` |
+| kir-coverage-closure | Structural KIR coverage witness closure | internal-oracle | `pnpm test:kern-kir-coverage-closure` |
+| kir-evidence | Diagnostic and UTF-8 location evidence | internal-oracle | `pnpm test:kern-kir-evidence` |
+| kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | internal-oracle | `pnpm test:kern-alpha-receipt` |
+| versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
+| typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
+| kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
+| kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
+| kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
+| selfhost-fixed-point | Clean Stage 1 equals Stage 2 | not-shipped | R2 planned |
+| kern-interpreter | KERN semantic interpreter | not-shipped | R2 and R3 planned |
+| packed-release-proof | Exact packed release proof | not-shipped | R4 planned |
+<!-- KERN5_OWNERSHIP_MATRIX_END -->
+
+`shipped-4.5` means public substrate in the current product. `internal-oracle`
+means KERN-authored logic participates in a release-blocking differential
+harness but is not yet the production API or semantic authority. `not-shipped`
+means the ownership boundary cannot support a KERN 5 release claim.
+
+The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
+acyclic, oracle-free assignment for the planned canonical path and binds the
+current TypeScript authority to source evidence. It does not prove executable
+handler-semantic ownership, runtime cutover, or self-hosting; those remain
+blocked on the planned interpreter shadow and fixed-point gates.
+
+## KERN 4.5 Manifest App Substrate
+
+| Surface | Current status | Evidence |
 | --- | --- | --- |
 | `app`, `view`, `route`, and `policy` manifest declarations | Supported | `packages/core/tests/app-descriptor.test.ts` |
 | Duplicate apps, routes, views, policies, and handlers | Fail-closed | `packages/core/tests/app-descriptor.test.ts`, `packages/core/tests/runner-source-executor.test.ts` |
 | Unknown policies and unknown capabilities | Fail-closed | `packages/core/tests/app-descriptor.test.ts`, `packages/core/tests/runner-capability-plan.test.ts` |
 | Source path escaping, absolute source paths, and missing source files | Fail-closed | `packages/core/tests/app-descriptor.test.ts` |
 | Descriptor-selected view and route handler execution | Supported | `packages/core/tests/runner-source-executor.test.ts` |
-| Descriptor-selected async route execution | Supported for the matrix shapes below | `packages/core/tests/runner-source-executor.test.ts` |
-| Descriptor-selected unsupported async class initialization | Fail-closed | `packages/core/tests/runner-source-executor.test.ts` |
+| Descriptor-selected async route execution | Supported for the tested matrix | `packages/core/tests/runner-source-executor.test.ts` |
+| Unsupported async class initialization | Fail-closed in descriptor-selected paths | `packages/core/tests/runner-source-executor.test.ts` |
 
-## Native Runner Runtime Surface
+## KERN 4.5 Native Runner Substrate
 
-| Feature | KERN 5 status | Evidence |
+| Feature | Current status | Evidence |
 | --- | --- | --- |
 | Functions and same-file pure helper calls | Supported | `packages/core/tests/runner-source-executor.test.ts` |
-| Explicit multi-file `use` / `from` imports for pure helper functions and classes | Supported for host-resolved `.kern` files with explicit exports | `packages/core/tests/runner-source-executor.test.ts`, `packages/cli/tests/run.test.ts`, `examples/native-multifile` |
-| Missing exports, duplicate imported aliases, import cycles, imported `fn main`, and path-containment failures | Fail-closed link errors before stdout | `packages/core/tests/runner-source-executor.test.ts`, `packages/cli/tests/run.test.ts` |
-| Helper calls with scalar, record, array, and class-instance values | Supported in tested sync and descriptor async paths | `packages/core/tests/runner-source-executor.test.ts` |
+| Explicit multi-file `use` / `from` imports for pure helpers and classes | Supported for host-resolved `.kern` files with explicit exports | `packages/core/tests/runner-source-executor.test.ts`, `packages/cli/tests/run.test.ts`, `examples/native-multifile` |
+| Missing exports, duplicate aliases, import cycles, imported `fn main`, and path escapes | Fail-closed before stdout | `packages/core/tests/runner-source-executor.test.ts`, `packages/cli/tests/run.test.ts` |
+| Scalar, record, array, and class-instance helper values | Supported in tested sync and descriptor async paths | `packages/core/tests/runner-source-executor.test.ts` |
 | `let`, mutable `let`, and `assign` | Supported for portable values and tested class fields | `packages/core/tests/runner-source-executor.test.ts` |
 | `if`, `branch`, `while`, `for`, and `each` | Supported for tested portable runner shapes | `packages/core/tests/runner-source-executor.test.ts`, `packages/core/tests/runner-capability-plan.test.ts` |
-| Arrays and records | Supported for portable bindings, helper returns, arguments, dot reads, literal index reads, and iteration | `packages/core/tests/runner-source-executor.test.ts` |
-| Classes, fields, constructors, methods, inheritance, and `super(...)` | Supported for tested portable sync paths and pure descriptor async argument paths | `packages/core/tests/runner-source-executor.test.ts` |
+| Arrays and records | Supported for tested bindings, returns, arguments, reads, and iteration | `packages/core/tests/runner-source-executor.test.ts` |
+| Classes, fields, constructors, methods, inheritance, and `super(...)` | Supported for tested portable sync and pure descriptor async paths | `packages/core/tests/runner-source-executor.test.ts` |
 | Capability calls inside class methods or constructors | Fail-closed | `packages/core/tests/runner-source-executor.test.ts` |
-| Async class field initializers and async explicit `super(...)` arguments | Outside the supported matrix; descriptor-selected paths fail closed | `packages/core/tests/runner-source-executor.test.ts` |
-| Async class member assignment RHS parity beyond tested paths | Outside the supported matrix | No 5.0 promise |
-| Async helper call caching semantics | Outside the supported matrix; async helper calls must remain pure within tested paths | No 5.0 promise |
+| Async class field initialization and async explicit `super(...)` arguments | Outside the supported matrix; descriptor paths fail closed | `packages/core/tests/runner-source-executor.test.ts` |
 | Side-effecting helper calls | Outside the supported matrix and rejected where detected | `packages/core/tests/runner-source-executor.test.ts` |
-| `throw`, `try`, `catch`, and `finally` | Supported for explicit `new Error(...)`, caught `.message`, and tested cleanup paths | `packages/core/tests/runner-source-executor.test.ts` |
+| `throw`, `try`, `catch`, and `finally` | Supported for tested explicit errors and cleanup paths | `packages/core/tests/runner-source-executor.test.ts` |
 
-## Capability Contract
+## KERN 4.5 Capability Substrate
 
-| Capability family | KERN 5 status | Provider rule |
+| Capability family | Current status | Provider rule |
 | --- | --- | --- |
-| `storage.*` | Shipped sync | Explicit host injection required |
-| `crypto.*` | Shipped sync | Explicit host crypto source required |
-| `app-http.queryParam` | Shipped sync | Host adapter provides request input; app source must declare it |
-| `rag.retrieve` | Shipped sync | Node/local RAG adapter only |
-| `rag.promptContext` | Shipped sync | Explicit host injection required |
-| `rag.checkAnswer` | Shipped sync | Explicit host injection required |
-| `fs.*` | Async preview (`--async-preview` only) | Explicit async provider required (`--fs-root` / `--fs-write-root`) |
-| `net.fetch` | Async preview (`--async-preview` only) | Explicit async provider required (`--allow-net <origin>`) |
-| `llm.complete` | Shipped async (no `--async-preview`) | Explicit async provider required (`--llm-response` / `--llm-provider openai`); per-call timeout via `--capability-timeout-ms` (default 30s, fail-closed) |
-| `rag.retrieveAsync`, `rag.answer`, and `rag.ingest` | Shipped async (no `--async-preview`) | Explicit async provider required; `kern run` routes through the async executor automatically when the program's executable requirements need the async boundary |
+| `storage.*` and `crypto.*` | Shipped sync | Explicit host injection required |
+| `app-http.queryParam` | Shipped sync | Host adapter provides declared request input |
+| `rag.retrieve`, `rag.promptContext`, and `rag.checkAnswer` | Shipped sync | Explicit host injection required |
+| `fs.*` and `net.fetch` | Async preview only | Explicit bounded async provider and opt-in required |
+| `llm.complete` | Shipped async | Explicit bounded async provider required |
+| `rag.retrieveAsync`, `rag.answer`, and `rag.ingest` | Shipped async | Explicit bounded async provider required |
 
-Capability requirements are checked before execution. Unknown, undeclared,
-missing, unsupported, and unprovided capabilities reject before app code can
-continue. The preview app treats `app.kern` as the authoritative policy and
-capability declaration; JavaScript may only provide host adapters for declared
-capabilities. `kern run --capabilities` aggregates requirements over the whole
-linked native-runner module graph, not only the root file; its
-`capabilityReadinessMode` reports `sync`, `async` (promoted lane, no flag), or
-`async-preview` (still-gated `fs.*`/`net.fetch`).
-
-Promotion hardening shipped with the KERN 5.2 lane: every async capability
-provider call is bounded by a host-configurable per-call timeout
-(`capabilityTimeoutMs` / `--capability-timeout-ms`, default 30s; a timed-out
-provider fails closed), retrieved-chunk citation provenance uses one
-normalized wire shape across `rag.retrieve`/`rag.retrieveAsync` emission and
-`rag.promptContext`/`rag.checkAnswer`/`rag.answer` parsing (disagreeing
-duplicate encodings fail closed), retrieved-chunk metadata is preserved across
-that wire shape when present, and `rag.promptContext` returns `safeText` —
-the assembled context wrapped in instruction-boundary markers with
-boundary-marker lookalikes in retrieved data neutralized — which `rag.answer`
-uses for its default prompt.
-
-Routes and views may attach executable policy slots (`policy ... slot=pre|post
-kind=passthrough`, optional `source=`/`handler=`); KERN 5.2 ships the slot
-shape, fail-closed validation, and the `executeKernAppEntryPolicySlot` hook
-with the no-op passthrough kind only — real guard kinds land in 5.3. External
-vector-store adapter kinds become retrievable only through
-`registerExternalRagVectorStoreAdapter`, which runs the full vector-store
-conformance suite at registration and fails closed on any failing case.
+Requirements are checked before execution. Unknown, undeclared, missing,
+unsupported, and unprovided capabilities reject before application code can
+continue. These providers remain host capabilities; their existence does not
+constitute a KERN-authored capability ABI or semantic runtime.
 
 ## Reference App
 
-`examples/kern-5-preview-app` is the maintained KERN 5 reference app for this
-matrix. Its app manifest, UI view, route behavior, RAG query path, and grounding
-guard are authored in `.kern`. `server.mjs` is host glue for HTTP, filesystem
-source loading, request query input, local RAG/vector lookup, deterministic LLM
-output, and JSON response shaping.
+`examples/kern-5-preview-app` is the maintained preview app for the current
+substrate. Its manifest, view, route behavior, RAG query path, and grounding
+guard are authored in `.kern`. `server.mjs` remains explicit host glue for HTTP,
+filesystem source loading, request facts, local retrieval, deterministic model
+output, and JSON transport framing.
 
 ## Explicit Exclusions
 
-The following are not KERN 5.0 final promises:
+Until their ownership rows and gates are promoted, KERN 5.0 does not claim:
 
-- Broad async class initialization semantics beyond the fail-closed descriptor
-  guard tested in `runner-source-executor.test.ts`.
-- Async class member assignment parity beyond tested portable paths.
-- Side-effecting helper functions.
-- Async capability calls inside streams or broad unsupported async control-flow
-  shapes.
-- Bare package imports, implicit top-level leakage, lazy module initialization,
-  and value import cycles in the native runner.
-- Production network, filesystem, vector database, or model-provider adapters
-  without explicit host wiring and capability declarations.
+- a production KERN checker v2 or production checker shadow;
+- a frozen versioned KIR/value/diagnostic/trace contract;
+- a typed runtime/handler or capability ABI;
+- a KERN-authored formatter, source frontend, compiler, or semantic interpreter;
+- a clean Stage 0 to Stage 1 to Stage 2 fixed point;
+- an exact packed-release/bootstrap proof;
+- broad async class semantics, side-effecting helpers, or implicit host effects
+  outside the tested 4.5 substrate.
+
+No internal Alpha/Beta/RC status changes a package version or public npm tag.

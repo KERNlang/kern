@@ -1,11 +1,22 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
+import { validateReleasePolicy } from './release/policy.mjs';
+import { loadKern5FitnessContract } from './kern-5-fitness.mjs';
+
 const root = process.cwd();
 const failures = [];
 
 function fail(message) {
   failures.push(message);
+}
+
+function checkKern5FitnessContract() {
+  try {
+    loadKern5FitnessContract(root);
+  } catch (error) {
+    fail(`KERN 5 fitness contract: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function checkReadme() {
@@ -82,6 +93,63 @@ function checkContributing() {
   }
 }
 
+function collectPolicyPublicPackageNames(policy) {
+  const packageNames = new Map();
+  for (const packageRoot of policy.packageRoots) {
+    const absoluteRoot = path.join(root, packageRoot);
+    if (!existsSync(absoluteRoot)) {
+      fail(`Release policy package root does not exist: ${packageRoot}`);
+      continue;
+    }
+    for (const entry of readdirSync(absoluteRoot)) {
+      const packageJsonPath = path.join(absoluteRoot, entry, 'package.json');
+      if (!existsSync(packageJsonPath)) continue;
+      let pkg;
+      try {
+        pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+      } catch (error) {
+        fail(`${path.relative(root, packageJsonPath)} is invalid JSON: ${error.message}`);
+        continue;
+      }
+      if (pkg.private === true) continue;
+      if (typeof pkg.name !== 'string' || pkg.name.length === 0) {
+        fail(`${path.relative(root, packageJsonPath)}: public release package must have a name`);
+        continue;
+      }
+      const previous = packageNames.get(pkg.name);
+      if (previous) {
+        fail(`Duplicate public release package name ${pkg.name}: ${previous} and ${packageJsonPath}`);
+        continue;
+      }
+      packageNames.set(pkg.name, packageJsonPath);
+    }
+  }
+  return packageNames;
+}
+
+function checkReleaseWorkflowToolchain(workflowPath, contents, releasePolicy) {
+  const nodePins = [...contents.matchAll(/node-version:\s*['"]?([1-9]\d*)['"]?/g)].map(
+    (match) => Number.parseInt(match[1], 10),
+  );
+  if (nodePins.length !== 1 || nodePins[0] !== releasePolicy.release.nodeMajor) {
+    fail(
+      `${workflowPath} must pin exactly Node ${releasePolicy.release.nodeMajor} from release policy (found ${nodePins.join(', ') || 'none'})`,
+    );
+  }
+
+  const packageManagerPins = [...contents.matchAll(/corepack prepare ([^\s]+) --activate/g)].map(
+    (match) => match[1],
+  );
+  if (
+    packageManagerPins.length !== 1 ||
+    packageManagerPins[0] !== releasePolicy.release.packageManager
+  ) {
+    fail(
+      `${workflowPath} must activate exactly ${releasePolicy.release.packageManager} from release policy (found ${packageManagerPins.join(', ') || 'none'})`,
+    );
+  }
+}
+
 function checkWorkflowContracts() {
   const { pnpmVersion } = collectRepoFacts();
   const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -89,6 +157,38 @@ function checkWorkflowContracts() {
     fail(
       `package.json must pin packageManager to pnpm@${pnpmVersion} (found ${rootPackageJson.packageManager})`,
     );
+  }
+  if (rootPackageJson.scripts?.['test:release-policy'] !== 'node --test scripts/release/*.test.mjs') {
+    fail('package.json must expose the complete release-policy test wall as test:release-policy.');
+  }
+
+  const releasePolicyPath = path.join(root, 'scripts', 'release', 'release-policy.json');
+  let releasePolicy;
+  try {
+    releasePolicy = JSON.parse(readFileSync(releasePolicyPath, 'utf8'));
+    validateReleasePolicy(releasePolicy);
+  } catch (error) {
+    fail(`scripts/release/release-policy.json is invalid: ${error.message}`);
+    releasePolicy = null;
+  }
+
+  if (releasePolicy) {
+    if (rootPackageJson.packageManager !== releasePolicy.release.packageManager) {
+      fail(
+        `package.json packageManager (${rootPackageJson.packageManager}) must equal release policy packageManager (${releasePolicy.release.packageManager})`,
+      );
+    }
+    const publicPackageNames = collectPolicyPublicPackageNames(releasePolicy);
+    if (publicPackageNames.size !== releasePolicy.release.expectedPublicPackageCount) {
+      fail(
+        `Release policy expected ${releasePolicy.release.expectedPublicPackageCount} public packages but discovered ${publicPackageNames.size}`,
+      );
+    }
+    for (const name of releasePolicy.recovery.entryPackageNames) {
+      if (!publicPackageNames.has(name)) {
+        fail(`Recovery entry package is not a discovered public release package: ${name}`);
+      }
+    }
   }
 
   const workflowChecks = [
@@ -112,10 +212,26 @@ function checkWorkflowContracts() {
         `corepack prepare pnpm@${pnpmVersion} --activate`,
         'pnpm install --frozen-lockfile',
         'pnpm test:kern',
-        'pnpm -r publish --no-git-checks --access public',
-        'pnpm -r publish --dry-run --no-git-checks --access public',
+        'node scripts/release/plan-cli.mjs',
+        'channel:\n        description: Release channel\n        required: true\n        type: string',
+        'node scripts/release/registry-cli.mjs --mode publish-pack',
+        'node scripts/release/registry-cli.mjs --mode publish-reconcile',
+        'node scripts/release/registry-cli.mjs --mode publish-snapshot',
+        'node scripts/release/registry-cli.mjs --mode publish-promote',
+        'node scripts/release/registry-cli.mjs --mode publish-smoke',
+        'id: publish-promote',
+        'id: publish-smoke',
+        'node scripts/release/registry-cli.mjs\n          --mode publish-recover',
+        '--recovery-reason post-promotion-smoke-failed',
+        "steps.publish-promote.outcome == 'success'",
+        "steps.publish-smoke.outcome == 'failure'",
+        'uses: actions/upload-artifact@v7',
+        'Confirm durable bundle',
+        'Confirm durable promotion snapshot',
+        'node scripts/release/registry-cli.mjs --mode preflight',
+        "success() && inputs.publish && steps.release-plan.outputs.syncs_dev == 'true'",
       ],
-      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g, /pnpm -r publish/g],
     },
     {
       path: '.github/workflows/release-preflight.yml',
@@ -124,6 +240,7 @@ function checkWorkflowContracts() {
         'Run this workflow from the main branch',
         'Version must be plain semver without a leading v',
         'uses: ./.github/workflows/release-pipeline.yml',
+        'channel: stable',
         'publish: false',
       ],
       banned: [],
@@ -134,10 +251,24 @@ function checkWorkflowContracts() {
         'name: Version & Publish',
         "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
         'Release tags must use lowercase v and semver',
+        'cancel-in-progress: false',
         'uses: ./.github/workflows/release-pipeline.yml',
+        'channel: stable',
         'publish: true',
       ],
       banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+    },
+    {
+      path: '.github/workflows/canary-publish.yml',
+      required: [
+        'cancel-in-progress: false',
+        "github.event_name == 'workflow_dispatch'",
+        "github.ref_name == 'main'",
+        'node scripts/release/plan-cli.mjs',
+        '--channel canary',
+        '--tag "$NPM_TAG"',
+      ],
+      banned: [/npm_tag:/g, /NPM_TAG_INPUT/g, /workflow_run:/g, /branches:\s*\[dev\]/g, /pnpm -r publish/g],
     },
   ];
 
@@ -155,6 +286,23 @@ function checkWorkflowContracts() {
       if (pattern.test(contents)) {
         fail(`${workflow.path} contains banned workflow pattern: ${pattern}`);
       }
+    }
+
+    if (
+      releasePolicy &&
+      ['.github/workflows/release-pipeline.yml', '.github/workflows/canary-publish.yml'].includes(
+        workflow.path,
+      )
+    ) {
+      checkReleaseWorkflowToolchain(workflow.path, contents, releasePolicy);
+    }
+  }
+
+  const workflowDir = path.join(root, '.github/workflows');
+  for (const name of readdirSync(workflowDir).filter((entry) => /\.ya?ml$/.test(entry))) {
+    const contents = readFileSync(path.join(workflowDir, name), 'utf8');
+    if (/pnpm -r publish/.test(contents)) {
+      fail(`.github/workflows/${name} contains banned recursive workspace publication`);
     }
   }
 }
@@ -205,6 +353,11 @@ function checkPackages() {
     }
 
     const packageDir = path.join(packagesDir, dir);
+    for (const entry of readdirSync(packageDir)) {
+      if (entry.endsWith('.tgz')) {
+        fail(`${path.join('packages', dir, entry)}: packed release tarballs must live under .release only`);
+      }
+    }
 
     for (const [binName, binPath] of Object.entries(pkg.bin || {})) {
       if (typeof binPath !== 'string') {
@@ -314,6 +467,7 @@ checkWorkflowContracts();
 checkPackages();
 checkPackageVersions();
 checkKernVersion();
+checkKern5FitnessContract();
 
 if (failures.length > 0) {
   console.error('Repo consistency check failed:\n');

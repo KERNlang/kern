@@ -35,8 +35,8 @@
  * resolution, route / handler response models, fail-fast on unknown node kinds.
  */
 
-import { parseExpression } from '../../core/dist/parser-expression.js';
-import { typescriptClosureClassifier } from '../../core/dist/typescript-closure-classifier.js';
+import { typescriptClosureClassifier } from '@kernlang/core/node';
+import { parseExpression } from '@kernlang/core/runner';
 import { assignable } from './assignable.js';
 import { buildClassByName, expressionPropText, type IRNode, newClassName, stringProp, walkTree } from './shared.js';
 

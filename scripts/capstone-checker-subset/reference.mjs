@@ -20,6 +20,8 @@ export function checkFlatModule(flat) {
     if (kind === 'print') checkPrint(flat, i, reject);
     if (kind === 'fmt') checkFmt(flat, i, reject);
     if (kind === 'do') checkDo(flat, i, reject);
+    if (kind === 'else') checkElse(flat, i, reject);
+    if (kind === 'while') checkWhile(flat, i, reject);
   }
 
   for (let i = 0; i < flat.callName.length; i += 1) checkCall(flat, i, reject);
@@ -43,10 +45,180 @@ function isSurfaceKind(kind) {
     'do',
     'for',
     'if',
+    'else',
+    'while',
     'return',
     'print',
     'fmt',
   ].includes(kind);
+}
+
+function checkElse(flat, i, reject) {
+  const previous = previousSiblingIndex(flat, i);
+  if (previous < 0) {
+    reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_ELSE', 'orphan_else');
+    return;
+  }
+  if (flat.stmtKind[previous] === 'else') {
+    reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_ELSE', 'duplicate_else');
+    return;
+  }
+  if (flat.stmtKind[previous] !== 'if') {
+    reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_ELSE', 'invalid_predecessor');
+    return;
+  }
+  if (!hasDirectChild(flat, i)) reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_ELSE', 'empty_body');
+}
+
+function checkWhile(flat, i, reject) {
+  if (!hasDirectChild(flat, i)) {
+    reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_WHILE', 'empty_body');
+    return;
+  }
+  const kind = flat.stmtExprKind[i];
+  const operator = flat.stmtExprName[i];
+  if (kind === 'boolLit') {
+    if (operator === 'true') reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_WHILE', 'literal_true');
+    return;
+  }
+  const booleanBinary = ['==', '!=', '===', '!==', '<', '<=', '>', '>='].includes(operator);
+  if (kind === 'binary' && booleanBinary) {
+    const literalValue = literalComparisonValue(flat, i, operator);
+    if (literalValue === true) {
+      reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_WHILE', 'literal_true');
+      return;
+    }
+    const literals = new Set(['numLit', 'strLit', 'boolLit', 'nullLit']);
+    if (literals.has(flat.stmtExprLeftKind[i]) && literals.has(flat.stmtExprRightKind[i])) {
+      reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_WHILE', 'non_boolean_condition');
+      return;
+    }
+    if (comparisonOperandsOk(flat, i, operator)) return;
+  }
+  reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_WHILE', 'non_boolean_condition');
+}
+
+function literalComparisonValue(flat, i, operator) {
+  const leftKind = flat.stmtExprLeftKind[i];
+  const rightKind = flat.stmtExprRightKind[i];
+  const literals = new Set(['numLit', 'strLit', 'boolLit', 'nullLit']);
+  if (!literals.has(leftKind) || leftKind !== rightKind) return undefined;
+  const left = literalValue(flat, i, 'Left', leftKind);
+  const right = literalValue(flat, i, 'Right', rightKind);
+  if (left === undefined || right === undefined) return undefined;
+  if (operator === '==' || operator === '===') return left === right;
+  if (operator === '!=' || operator === '!==') return left !== right;
+  return undefined;
+}
+
+function literalValue(flat, i, side, kind) {
+  if (kind === 'numLit') {
+    const raw = flat[`stmtExpr${side}Num`][i];
+    return isSafeIntText(raw) ? BigInt(raw) : undefined;
+  }
+  if (kind === 'strLit') return flat[`stmtExpr${side}Name`][i];
+  if (kind === 'boolLit') return flat[`stmtExpr${side}Name`][i] === 'true';
+  if (kind === 'nullLit') return null;
+  return undefined;
+}
+
+function comparisonOperandsOk(flat, i, operator) {
+  const left = flat.stmtExprLeftKind[i];
+  const right = flat.stmtExprRightKind[i];
+  const ordered = ['<', '<=', '>', '>='].includes(operator);
+  if (!ordered) return false;
+  const fn = flat.stmtFn[i];
+  const leftStep = operator === '<' || operator === '<=' ? '+' : '-';
+  const rightStep = operator === '<' || operator === '<=' ? '-' : '+';
+  const leftBinding = left === 'ident' && numericBindingProven(flat, i, fn, flat.stmtExprLeftName[i], leftStep);
+  const rightBinding = right === 'ident' && numericBindingProven(flat, i, fn, flat.stmtExprRightName[i], rightStep);
+  const leftLiteral = left === 'numLit' && isSafeIntText(flat.stmtExprLeftNum[i]);
+  const rightLiteral = right === 'numLit' && isSafeIntText(flat.stmtExprRightNum[i]);
+  const leftLength =
+    left === 'member' &&
+    flat.stmtExprLeftMemberProp[i] === 'length' &&
+    lengthReceiverProven(flat, i, fn, flat.stmtExprLeftMemberObject[i]);
+  const rightLength =
+    right === 'member' &&
+    flat.stmtExprRightMemberProp[i] === 'length' &&
+    lengthReceiverProven(flat, i, fn, flat.stmtExprRightMemberObject[i]);
+  return (leftBinding && (rightBinding || rightLiteral || rightLength)) || (rightBinding && (leftLiteral || leftLength));
+}
+
+function numericBindingProven(flat, row, fn, name, requiredStep) {
+  let declared = false;
+  let stepped = false;
+  const end = subtreeEnd(flat, row);
+  const fnRow = flat.stmtKind.findIndex((kind, i) => kind === 'fn' && flat.stmtName[i] === fn);
+  for (let i = 0; i < flat.stmtKind.length; i += 1) {
+    if (flat.stmtFn[i] !== fn) continue;
+    if (i < row && flat.stmtParent[i] === fnRow && flat.stmtKind[i] === 'let' && flat.stmtName[i] === name) {
+      if (declared || flat.stmtExprKind[i] !== 'numLit' || !isSafeIntText(flat.stmtExprNum[i])) return false;
+      declared = true;
+    }
+    const relevant = i < row || (i > row && i < end);
+    if (
+      i > row &&
+      i < end &&
+      flat.stmtKind[i] === 'let' &&
+      flat.stmtName[i] === name
+    ) {
+      return false;
+    }
+    if (relevant && flat.stmtKind[i] === 'assign' && flat.stmtTarget[i] === name) {
+      const safeStep =
+        flat.stmtExprName[i] === requiredStep &&
+        flat.stmtExprLeftKind[i] === 'ident' &&
+        flat.stmtExprLeftName[i] === name &&
+        flat.stmtExprRightKind[i] === 'numLit' &&
+        isPositiveSafeIntText(flat.stmtExprRightNum[i]);
+      if (!safeStep) return false;
+      if (i > row) stepped = true;
+    }
+  }
+  return declared && stepped;
+}
+
+function lengthReceiverProven(flat, row, fn, name) {
+  let declared = false;
+  const end = subtreeEnd(flat, row);
+  const fnRow = flat.stmtKind.findIndex((kind, i) => kind === 'fn' && flat.stmtName[i] === fn);
+  for (let i = 0; i < flat.paramFn.length; i += 1) {
+    const type = flat.paramType[i];
+    if (flat.paramFn[i] === fn && flat.paramName[i] === name && (type === 'string' || type.endsWith('[]'))) declared = true;
+  }
+  for (let i = 0; i < flat.stmtKind.length; i += 1) {
+    if (flat.stmtFn[i] !== fn) continue;
+    if (i < row && flat.stmtParent[i] === fnRow && flat.stmtKind[i] === 'let' && flat.stmtName[i] === name) {
+      if (declared || !['arrayLit', 'strLit'].includes(flat.stmtExprKind[i])) return false;
+      declared = true;
+    }
+    if ((i < row || (i > row && i < end)) && flat.stmtKind[i] === 'assign' && flat.stmtTarget[i] === name) return false;
+  }
+  return declared;
+}
+
+function isPositiveSafeIntText(raw) {
+  return raw !== '0' && !raw.startsWith('-') && isSafeIntText(raw);
+}
+
+function subtreeEnd(flat, row) {
+  for (let i = row + 1; i < flat.stmtParent.length; i += 1) {
+    if (flat.stmtParent[i] < row) return i;
+  }
+  return flat.stmtParent.length;
+}
+
+function previousSiblingIndex(flat, i) {
+  let previous = -1;
+  for (let candidate = 0; candidate < i; candidate += 1) {
+    if (flat.stmtParent[candidate] === flat.stmtParent[i]) previous = candidate;
+  }
+  return previous;
+}
+
+function hasDirectChild(flat, i) {
+  return flat.stmtParent.some((parent) => parent === i);
 }
 
 function checkPrint(flat, i, reject) {
@@ -60,7 +232,7 @@ function checkPrint(flat, i, reject) {
     reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_PRINT', 'array_binding');
     return;
   }
-  if (exprKind === 'numLit' && (!productionPrintAcceptsLiteral(raw) || !v1AcceptedNumberLiteral(raw))) {
+  if (exprKind === 'numLit' && (!productionPrintAcceptsLiteral(raw) || !isCanonicalSafeIntText(raw))) {
     reject(flat.stmtLine[i], flat.stmtCol[i], 'T10_PRINT', 'production_reject');
   }
 }
@@ -146,8 +318,12 @@ function checkIndex(flat, i, reject) {
     reject(flat.idxLine[i], flat.idxCol[i], 'T10_INDEX', 'unsupported_index_expr');
     return;
   }
-  if (isForCounter(flat, fn, name) && !isAssigned(flat, fn, name)) return;
-  if (isFunctionParam(flat, fn, name) && !isAssigned(flat, fn, name) && paramCallsitesOk(flat, fn, paramOrdinal(flat, fn, name))) {
+  if (isForCounter(flat, fn, name) && !isIndexRebound(flat, fn, name)) return;
+  if (
+    isFunctionParam(flat, fn, name) &&
+    !isIndexRebound(flat, fn, name) &&
+    paramCallsitesOk(flat, fn, paramOrdinal(flat, fn, name))
+  ) {
     return;
   }
   reject(flat.idxLine[i], flat.idxCol[i], 'T10_INDEX', 'missing_provenance');
@@ -175,7 +351,8 @@ function isArrayBinding(flat, fn, name) {
 function isUserCallable(flat, name) {
   for (let i = 0; i < flat.stmtKind.length; i += 1) {
     if (flat.stmtKind[i] === 'fn' && flat.stmtName[i] === name) return true;
-    if (flat.stmtKind[i] === 'from' && (flat.stmtName[i] === name || flat.stmtTarget[i] === name)) return true;
+    if (flat.stmtKind[i] === 'from' && flat.stmtTarget[i] === name) return true;
+    if (flat.stmtKind[i] === 'from' && flat.stmtTarget[i] === '' && flat.stmtName[i] === name) return true;
   }
   return false;
 }
@@ -190,6 +367,15 @@ function isForCounter(flat, fn, name) {
 function isAssigned(flat, fn, name) {
   for (let i = 0; i < flat.stmtKind.length; i += 1) {
     if (flat.stmtFn[i] === fn && flat.stmtKind[i] === 'assign' && flat.stmtTarget[i] === name) return true;
+  }
+  return false;
+}
+
+function isIndexRebound(flat, fn, name) {
+  for (let i = 0; i < flat.stmtKind.length; i += 1) {
+    if (flat.stmtFn[i] !== fn) continue;
+    if (flat.stmtKind[i] === 'assign' && flat.stmtTarget[i] === name) return true;
+    if (flat.stmtKind[i] === 'let' && flat.stmtName[i] === name) return true;
   }
   return false;
 }
@@ -231,7 +417,7 @@ function argProvenanced(flat, arg) {
   if (flat.argKind[arg] === 'binary' && (flat.argOp[arg] === '+' || flat.argOp[arg] === '-')) {
     const left = termProvenanced(flat, fn, flat.argLeftKind[arg], flat.argLeftName[arg], flat.argLeftNum[arg]);
     const right = termProvenanced(flat, fn, flat.argRightKind[arg], flat.argRightName[arg], flat.argRightNum[arg]);
-    return left || right;
+    return left && right;
   }
   return false;
 }
@@ -239,8 +425,8 @@ function argProvenanced(flat, arg) {
 function termProvenanced(flat, fn, kind, name, num) {
   if (kind === 'numLit') return isSafeIntText(num);
   if (kind !== 'ident') return false;
-  if (isForCounter(flat, fn, name) && !isAssigned(flat, fn, name)) return true;
-  if (isFunctionParam(flat, fn, name) && !isAssigned(flat, fn, name)) return true;
+  if (isForCounter(flat, fn, name) && !isIndexRebound(flat, fn, name)) return true;
+  if (isFunctionParam(flat, fn, name) && !isIndexRebound(flat, fn, name)) return true;
   return false;
 }
 
@@ -276,9 +462,16 @@ function mapKeyToken(flat, call) {
 }
 
 function isSafeIntText(raw) {
-  return v1AcceptedNumberLiteral(raw);
+  return isCanonicalSafeIntText(raw);
 }
 
-function v1AcceptedNumberLiteral(raw) {
-  return raw === '-1' || raw === '0' || raw === '1' || raw === '2' || raw === '3';
+function isCanonicalSafeIntText(raw) {
+  const negative = raw.startsWith('-');
+  const magnitude = negative ? raw.slice(1) : raw;
+  if (magnitude === '' || (magnitude.length > 1 && magnitude.startsWith('0'))) return false;
+  if (negative && magnitude === '0') return false;
+  if (!/^[0-9]+$/u.test(magnitude)) return false;
+  if (magnitude.length < 16) return true;
+  if (magnitude.length > 16) return false;
+  return magnitude <= '9007199254740991';
 }
