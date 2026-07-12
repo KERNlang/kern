@@ -228,7 +228,11 @@ let isMain = false;
 try {
   isMain = Boolean(process.argv[1]) &&
     fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
-} catch {}
+} catch {
+  // Entry-point detection must never crash the CLI: unreadable argv/module
+  // paths mean this is not the executed entry module.
+  isMain = false;
+}
 
 if (isMain) {
   main().catch((error) => {

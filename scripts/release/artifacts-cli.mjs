@@ -137,7 +137,11 @@ try {
     const modulePath = fs.realpathSync(fileURLToPath(import.meta.url));
     isMain = mainPath === modulePath;
   }
-} catch {}
+} catch {
+  // Entry-point detection must never crash the CLI: unreadable argv/module
+  // paths mean this is not the executed entry module.
+  isMain = false;
+}
 
 if (isMain) {
   main().catch((err) => {
