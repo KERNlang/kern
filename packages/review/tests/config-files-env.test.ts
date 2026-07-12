@@ -141,6 +141,31 @@ describe('config-files/env', () => {
       expect(reviewEnvFile(src, '/r/.env.template').filter((f) => f.ruleId === 'env/possible-secret')).toEqual([]);
     });
 
+    it('is SUPPRESSED on environment-specific example variants', () => {
+      const src = 'API_KEY=sk_live_abc123\n';
+      const variants = ['/r/.env.prod.example', '/r/.env.production.sample', '/r/.env.local.template'];
+      for (const filePath of variants) {
+        expect(reviewEnvFile(src, filePath).filter((f) => f.ruleId === 'env/possible-secret')).toEqual([]);
+      }
+    });
+
+    it('does NOT fire on CHANGE_ME-prefixed placeholders', () => {
+      const src = 'WEBHOOK_AUTH_TOKEN=CHANGE_ME_IN_PRODUCTION\n';
+      expect(reviewEnvFile(src, '/r/.env.production').filter((f) => f.ruleId === 'env/possible-secret')).toEqual([]);
+    });
+
+    it('does NOT fire on numeric secret-policy metadata', () => {
+      const src = ['ACCESS_TOKEN_EXPIRE_MINUTES=30', 'REFRESH_TOKEN_BYTES=48', 'PASSWORD_MIN_LENGTH=12'].join('\n');
+      expect(reviewEnvFile(`${src}\n`, '/r/.env.production').filter((f) => f.ruleId === 'env/possible-secret')).toEqual(
+        [],
+      );
+    });
+
+    it('STILL fires on a numeric value assigned directly to a credential key', () => {
+      const findings = reviewEnvFile('PASSWORD=123456\n', '/r/.env.production');
+      expect(findings.filter((f) => f.ruleId === 'env/possible-secret')).toHaveLength(1);
+    });
+
     it('strips an inline `# comment` before checking for placeholder shapes', () => {
       const findings = reviewEnvFile('API_KEY=changeme # for prod replace this\n', '/r/.env');
       expect(findings.filter((f) => f.ruleId === 'env/possible-secret')).toEqual([]);
