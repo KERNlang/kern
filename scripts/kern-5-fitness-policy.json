@@ -9,6 +9,7 @@
     "test:kern-ir-reader-candidate": "pnpm --filter @kernlang/core build && node ./scripts/check-kir-reader-candidate.mjs",
     "test:kern-semantic-ownership": "node --test scripts/semantic-ownership/validate.test.mjs && node ./scripts/check-semantic-ownership.mjs",
     "test:kern-ir-eligibility": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/validate-eligibility.test.mjs && node ./scripts/check-kir-v1-eligibility.mjs",
+    "test:kern-canonical-value": "pnpm --filter @kernlang/core test --testPathPatterns=canonical-value && node --test ./scripts/check-canonical-value.test.mjs && node ./scripts/check-canonical-value.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -95,6 +96,12 @@
       "label": "KIR v1 coverage and identity eligibility",
       "status": "current",
       "argv": ["pnpm", "test:kern-ir-eligibility"]
+    },
+    {
+      "id": "canonical-value-reader",
+      "label": "Bounded canonical value reader",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-canonical-value"]
     },
     {
       "id": "diff-hygiene",
@@ -205,6 +212,12 @@
       "label": "KIR v1 coverage and identity eligibility",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-ir-eligibility"
+    },
+    {
+      "id": "canonical-value-reader",
+      "label": "Bounded canonical value reader",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-canonical-value"
     },
     {
       "id": "versioned-kir-v1",

@@ -175,7 +175,7 @@ trusted-publishing/provenance configuration is inspected.
 - [ ] R1.5 eligible KIR/value/diagnostic contract freeze and Alpha manifest.
   Runtime trace, handler, scheduler, and capability ABIs are M3 work in R2.
   - [x] R1.5a source/runner eligibility inventory and identity constitution.
-  - [ ] R1.5b bounded strict UTF-8 canonical/value reader.
+  - [x] R1.5b bounded strict UTF-8 canonical/value reader.
   - [ ] R1.5c coverage-closed module/node writer-reader parity.
   - [ ] R1.5d diagnostic/location evidence contract and Alpha manifest.
 
@@ -196,8 +196,10 @@ trusted-publishing/provenance configuration is inspected.
    executable eligibility inventory. Preserve `ALPHA-NO-GO` while the selected
    probe covers only seven of 302 source node kinds.
 7. R1.5b: implement the bounded strict UTF-8 canonical/value reader with closed
-   scalar, collection, operator, and regex profiles.
-8. R1.5c: close module/node writer-reader parity. Every catalog row becomes
+   scalar, collection, map, record, and error-data profiles. Regex, expression,
+   and operator admission remain excluded from this portable value format.
+8. R1.5c: close module/node writer-reader parity and freeze any portable regex
+   and operator grammar that admitted nodes require. Every catalog row becomes
    included, deterministically lowered, or explicitly excluded with fixtures.
 9. R1.5d: version diagnostic/location evidence separately, require stable
    non-empty diagnostics and expression spans, then generate the clean-SHA
@@ -402,6 +404,7 @@ pnpm test:kern-ir-probe               # CURRENT experimental seam oracle
 pnpm test:kern-ir-reader-candidate    # CURRENT internal reader candidate
 pnpm test:kern-semantic-ownership     # CURRENT bootstrap-dependent ownership proof
 pnpm test:kern-ir-eligibility         # CURRENT Alpha no-go coverage/identity inventory
+pnpm test:kern-canonical-value        # CURRENT bounded internal value reader
 pnpm test:kern-ir                      # TARGET
 pnpm test:runtime-abi                  # TARGET
 pnpm test:kern-frontend                # TARGET
