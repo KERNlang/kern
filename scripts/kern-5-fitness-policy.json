@@ -16,6 +16,7 @@
     "test:kern-kir-coverage-closure": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/coverage-ledger.test.mjs && node ./scripts/check-kir-coverage-closure.mjs",
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
+    "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns=runtime-envelope && node ./scripts/check-runtime-envelope.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
@@ -144,6 +145,12 @@
       "label": "Clean-HEAD immutable Alpha receipt",
       "status": "current",
       "argv": ["pnpm", "test:kern-alpha-receipt"]
+    },
+    {
+      "id": "internal-runtime-envelope",
+      "label": "Internal runtime envelope, handler entry, and source link",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-runtime-envelope"]
     },
     {
       "id": "diff-hygiene",
@@ -296,6 +303,24 @@
       "label": "Clean-HEAD immutable Alpha receipt",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-alpha-receipt"
+    },
+    {
+      "id": "internal-runtime-envelope",
+      "label": "Default-off transactional runtime envelope",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
+      "id": "internal-runtime-handler-entry",
+      "label": "Typed current-domain handler entry",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
+      "id": "internal-runtime-source-handler-link",
+      "label": "Bounded source handler identity and link",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
     },
     {
       "id": "versioned-kir-v1",

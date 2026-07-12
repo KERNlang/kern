@@ -200,6 +200,22 @@ trusted-publishing/provenance configuration is inspected.
       gate: policy-bound hashes/oracles/exclusions, dirty-tree and symlink kill
       tests, full fitness wall, and final 3/3 Agon review passed on 2026-07-12.
       The SHA-named ignored receipt is generated only after commit.
+- [ ] R2 M3 runtime and handler ownership.
+  - [x] M3.1 internal transactional runtime envelope: default-off sync/async
+    normalization with closed portable values, structural diagnostics, failure
+    suppression, and containment from every public export. This deliberately
+    leaves the public runtime/handler ABI and effect scheduler unpromoted. The
+    full fitness wall and final 3/3 Agon review passed on 2026-07-12.
+  - [x] M3.2 internal typed handler entry: exact-arity portable parameters feed
+    fresh sync/async runtime environments, with invalid or currently
+    non-executable argument shapes rejected before handler execution. Decimal,
+    nested-record, source-linking, scheduler, and public-ABI work remain
+    explicitly deferred. The full fitness wall and terminal 3/3 Agon review
+    passed with zero verified findings on 2026-07-12.
+  - [ ] M3.3 internal source handler identity/link: one bounded source document
+    resolves a canonical source path and exact top-level KERN handler into the
+    M3.2 typed entry. Modules, helper/class linking, scheduler, runner-contract,
+    and public-ABI work remain explicitly deferred.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

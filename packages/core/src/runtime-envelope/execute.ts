@@ -1,0 +1,49 @@
+import { type AsyncReferenceRunnerOptions, asyncReferenceRunSequence } from '../ir/semantics/async-reference-runner.js';
+import type { SemanticEnv } from '../ir/semantics/index.js';
+import { referenceRunSequence } from '../ir/semantics/reference-runner.js';
+import { registerAllContracts } from '../ir/semantics/register-all.js';
+import type { IRNode } from '../types.js';
+import { normalizeInternalRuntimeFailure, normalizeInternalRuntimeTrace } from './normalize.js';
+import {
+  type InternalRuntimeEnvelope,
+  InternalRuntimeEnvelopeError,
+  type InternalRuntimeEnvelopeOptions,
+} from './types.js';
+import { validateInternalRuntimeLimits } from './value.js';
+
+function enabled(options: InternalRuntimeEnvelopeOptions | undefined): InternalRuntimeEnvelopeOptions {
+  if (options?.enabled !== true) {
+    throw new InternalRuntimeEnvelopeError('disabled', 'internal runtime envelope is default-off');
+  }
+  validateInternalRuntimeLimits(options.limits);
+  return options;
+}
+
+export function executeInternalRuntimeEnvelopeSync(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  options?: InternalRuntimeEnvelopeOptions,
+): InternalRuntimeEnvelope {
+  const accepted = enabled(options);
+  try {
+    registerAllContracts();
+    return normalizeInternalRuntimeTrace(referenceRunSequence(nodes, env), accepted.limits);
+  } catch (error) {
+    return normalizeInternalRuntimeFailure(error);
+  }
+}
+
+export async function executeInternalRuntimeEnvelopeAsync(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  options: InternalRuntimeEnvelopeOptions | undefined,
+  asyncOptions: AsyncReferenceRunnerOptions = {},
+): Promise<InternalRuntimeEnvelope> {
+  const accepted = enabled(options);
+  try {
+    registerAllContracts();
+    return normalizeInternalRuntimeTrace(await asyncReferenceRunSequence(nodes, env, asyncOptions), accepted.limits);
+  } catch (error) {
+    return normalizeInternalRuntimeFailure(error);
+  }
+}
