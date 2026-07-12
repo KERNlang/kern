@@ -4,7 +4,11 @@ import test from 'node:test';
 
 import { NODE_SCHEMAS } from '../../packages/core/dist/schema.js';
 import { NODE_TYPES } from '../../packages/core/dist/spec.js';
-import { buildStructuralConstitution, validateStructuralConstitution } from './constitution.mjs';
+import {
+  buildStructuralConstitution,
+  renderStructuralRuntimeCatalog,
+  validateStructuralConstitution,
+} from './constitution.mjs';
 
 const checkedIn = JSON.parse(readFileSync('scripts/kir-structural/constitution.json', 'utf8'));
 
@@ -21,6 +25,11 @@ test('checked-in constitution binds the complete live source and property catalo
     properties: 1149,
     nonCatalogSchemas: 7,
   });
+});
+
+test('generated browser-safe runtime catalog is byte-bound to the constitution', () => {
+  const catalog = readFileSync('packages/core/src/kir-structural/catalog.generated.ts', 'utf8');
+  assert.equal(catalog, renderStructuralRuntimeCatalog(checkedIn));
 });
 
 test('missing schemas and non-catalog schemas remain explicit', () => {

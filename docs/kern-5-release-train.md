@@ -180,7 +180,10 @@ trusted-publishing/provenance configuration is inspected.
     - [x] R1.5c.1 schema and property constitution: exact source-bound census
       covers all 302 node kinds and 1,149 property contracts; full fitness wall
       and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
-    - [ ] R1.5c.2 structural writer and bounded reader.
+    - [x] R1.5c.2 structural writer and bounded reader: internal browser-safe
+      codec uses identical bounded canonical-value limits, a closed portable
+      expression catalog, and an explicit empty type catalog; full fitness wall
+      and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
     - [ ] R1.5c.3 module and symbol-kind parity.
     - [ ] R1.5c.4 executable coverage closure.
   - [ ] R1.5d diagnostic/location evidence contract and Alpha manifest.

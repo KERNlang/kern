@@ -109,6 +109,45 @@ counts and `ALPHA-NO-GO`.
 **Exit:** all admitted node/property fixtures round-trip byte-identically and
 all exclusion fixtures reject before artifact return.
 
+#### R1.5c.2 decided contract
+
+- The internal artifact format is `kern.kir.structural.r1.5c.2-alpha`. Its
+  canonical root record binds exactly `constitution`, `format`, `proofLabel`,
+  one `root` node, and `typeCatalog`. The type catalog binds exactly its format
+  and an empty `admittedKinds` list. A node contains only `children`, string
+  `kind`, and a sorted property record. Children retain source order.
+  **DECIDED**
+- The writer returns R1.5b canonical-value bytes and the reader accepts only
+  those bytes under the identical caller-supplied `CanonicalValueLimits`.
+  Unknown fields, unsorted/duplicate keys, noncanonical bytes, and limit
+  failures reject before an artifact is returned. **DECIDED**
+- The expression catalog is closed over portable literal, identifier, list,
+  record, member, index, call, expression-lambda, binary, unary, and
+  conditional forms. Regex, template, undefined, spread, await, new, type
+  assertion, non-null, propagation, typed lambda, and raw closure forms reject
+  with stable code and path evidence. **DECIDED**
+- The type catalog is deliberately empty. All 95 `typeAnnotation` contracts
+  remain `excluded-host-type`; required-type nodes reject rather than degrade.
+  A non-empty KERN-owned type grammar requires a later reviewed slice.
+  **DECIDED**
+- Import paths are syntax-normalized only. Module resolution and symbol-kind
+  parity remain R1.5c.3; complete disposition witnesses remain R1.5c.4.
+  **DECIDED**
+- This boundary does not export from `@kernlang/core`, enter the runner/browser
+  graph, replace the semantic probe, or claim KIR v1/Alpha. **GUARD**
+
+Decision evidence: adversarial tribunal
+`tribunal-1783838255063-eec72y` completed 3/3 on 2026-07-12 and selected this
+tightened conservative boundary over a premature type AST. **VERIFIED**
+
+Closure evidence: `pnpm test:kern-kir-structural-codec` passed with 38 codec
+tests plus the AST-based containment regression; `pnpm fitness:kern-5` reached
+`KERN 5 current fitness wall passed.` on 2026-07-12. Final Agon review
+`review-1783846772713-dl5228-kern-5-r1-5c2-structural-codec-f` completed 3/3
+with zero verified, needs-check, or speculative findings. The codec remains
+internal, browser-safe, and `ALPHA-NO-GO`; it is not publicly exported or
+adopted by the runtime. **VERIFIED**
+
 ### R1.5c.3 — Module and symbol-kind parity
 
 - Generalize imports/exports beyond `fn` using the declared included symbol
@@ -160,8 +199,9 @@ cover the language, structural module graph, diagnostics, or runtime.
 
 - [x] R1.5c.1 exact 302-node and property constitution is source-bound and
       mutation-tested.
-- [ ] R1.5c.2 writer output decodes under identical limits and all portable
-      values/expressions/types are byte-canonical.
+- [x] R1.5c.2 writer output decodes under identical limits, admitted portable
+      values/expressions are byte-canonical, and the empty type catalog rejects
+      required types without degradation.
 - [ ] R1.5c.3 imports/exports support every admitted declaration kind and all
       hostile graph cases reject deterministically.
 - [ ] R1.5c.4 leaves zero unresolved source rows and binds every disposition to
