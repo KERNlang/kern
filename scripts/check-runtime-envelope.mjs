@@ -61,7 +61,19 @@ for (const witness of ['INTERNAL_EFFECT_MACHINE_DISPOSITION', "kind: 'capability
 for (const witness of ["if: 'unified'", 'evaluateIfCondition', 'yield* runIf']) {
   if (!effectMachine.includes(witness)) fail(`effect-machine if expansion is missing ${witness}`);
 }
-for (const witness of ["branch: 'legacy'", "try: 'legacy'", "while: 'legacy'"]) {
+for (const witness of [
+  "branch: 'unified'",
+  'assertBranchFrameSupported',
+  'assertMachineStructureSupported',
+  'branchPreconditions',
+  'branchShapePreconditions',
+  'selectBranchPath',
+  'childEnv(env)',
+  'yield* runBranch',
+]) {
+  if (!effectMachine.includes(witness)) fail(`effect-machine branch expansion is missing ${witness}`);
+}
+for (const witness of ["try: 'legacy'", "while: 'legacy'"]) {
   if (!effectMachine.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
 }
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
@@ -108,6 +120,12 @@ if (effectMachineOwnership?.status !== 'internal-oracle') {
 const effectMachineIfOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-effect-machine-if');
 if (effectMachineIfOwnership?.status !== 'internal-oracle') {
   fail('internal runtime effect-machine if expansion must remain an internal oracle');
+}
+const effectMachineBranchOwnership = policy.ownership.find(
+  (entry) => entry.id === 'internal-runtime-effect-machine-branch',
+);
+if (effectMachineBranchOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime effect-machine branch expansion must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));

@@ -120,9 +120,22 @@ function pathShapeIsValid(path: IRNode): boolean {
   return true;
 }
 
-export function branchPreconditions(ir: IRNode, env: SemanticEnv): boolean {
-  const p = asBranchProps(ir);
-  if (typeof p.on !== 'string' || p.on.trim() === '') return false;
+function expressionShapeIsPortable(raw: unknown): boolean {
+  if (typeof raw === 'number') return Number.isFinite(raw);
+  if (typeof raw !== 'string') return false;
+  const text = raw.trim();
+  if (text.length === 0 || text.startsWith("'")) return false;
+  if (isNumericLiteral(text) || isIdentifier(text)) return true;
+  if (!text.startsWith('"') || !text.endsWith('"')) return false;
+  try {
+    return typeof JSON.parse(text) === 'string';
+  } catch {
+    return false;
+  }
+}
+
+export function branchShapePreconditions(ir: IRNode): boolean {
+  if (!expressionShapeIsPortable(asBranchProps(ir).on)) return false;
   const paths = ir.children ?? [];
   if (paths.length === 0) return false;
   let defaultCount = 0;
@@ -130,17 +143,27 @@ export function branchPreconditions(ir: IRNode, env: SemanticEnv): boolean {
     if (!pathShapeIsValid(path)) return false;
     if (isDefaultPath(path)) {
       defaultCount += 1;
-      continue;
+    } else if (hasQuotedValue(path)) {
+      if (typeof path.props?.value !== 'string') return false;
+    } else if (!expressionShapeIsPortable(path.props?.value)) {
+      return false;
     }
+  }
+  return defaultCount <= 1;
+}
+
+export function branchPreconditions(ir: IRNode, env: SemanticEnv): boolean {
+  if (!branchShapePreconditions(ir)) return false;
+  for (const path of ir.children ?? []) {
+    if (isDefaultPath(path)) continue;
     try {
       evalPathValue(path, env);
     } catch {
       return false;
     }
   }
-  if (defaultCount > 1) return false;
   try {
-    evalExpressionInContractDomain(p.on, env, 'on');
+    evalExpressionInContractDomain(asBranchProps(ir).on, env, 'on');
   } catch {
     return false;
   }

@@ -41,7 +41,7 @@ describe('private internal effect machine', () => {
   test('has one closed disposition for all required runner contracts', () => {
     expect(INTERNAL_EFFECT_MACHINE_DISPOSITION).toEqual({
       assign: 'unified',
-      branch: 'legacy',
+      branch: 'unified',
       capability: 'unified',
       do: 'legacy',
       each: 'legacy',
@@ -82,7 +82,6 @@ describe('private internal effect machine', () => {
     const asyncTrace = await runInternalEffectMachineAsync(unifiedNodes, makeEnv(), {
       asyncCapabilities: { llm: { complete: async () => 'world' } },
     });
-
     expect(tracesEqual(syncTrace, asyncTrace)).toBe(true);
     expect(syncTrace).toEqual({
       completion: { kind: 'return', value: 'world' },
@@ -152,7 +151,6 @@ describe('private internal effect machine', () => {
     const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
       asyncCapabilities: { llm: { complete: async ({ input }) => `sync:${input}` } },
     });
-
     expect(tracesEqual(syncTrace, asyncTrace)).toBe(true);
     expect(syncTrace).toEqual({
       completion: { kind: 'return', value: 'sync:selected' },
@@ -215,6 +213,223 @@ describe('private internal effect machine', () => {
     expect(sync).toMatchObject({ outcome: 'success', result: { value: { tag: 'text', value: 'selected' } } });
   });
 
+  test('branch claims the machine and preserves first-match and default selection without fallthrough', () => {
+    const matchingEnv = makeEnv({ bindings: new Map([['kind', 'paid']]) });
+    const matching: IRNode[] = [
+      {
+        type: 'branch',
+        props: { on: 'kind' },
+        children: [
+          {
+            type: 'path',
+            props: { value: 'paid' },
+            __quotedProps: ['value'],
+            children: [{ type: 'print', props: { value: '"first"' } }],
+          },
+          {
+            type: 'path',
+            props: { value: 'paid' },
+            __quotedProps: ['value'],
+            children: [{ type: 'print', props: { value: '"second"' } }],
+          },
+          {
+            type: 'path',
+            props: { default: true },
+            children: [{ type: 'print', props: { value: '"default"' } }],
+          },
+        ],
+      },
+    ];
+    expect(isInternalEffectMachineEligible(matching, matchingEnv)).toBe(true);
+    expect(selectInternalRuntimeEngine(matching, matchingEnv)).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
+    expect(runInternalEffectMachineSync(matching, matchingEnv)).toEqual({
+      completion: { kind: 'normal' },
+      events: [{ op: 'stdout', text: 'first' }],
+    });
+    const defaultEnv = makeEnv({ bindings: new Map([['kind', 'missing']]) });
+    expect(runInternalEffectMachineSync(matching, defaultEnv)).toEqual({
+      completion: { kind: 'normal' },
+      events: [{ op: 'stdout', text: 'default' }],
+    });
+  });
+
+  test('branch path uses child lexical scope while outer assignments write through', () => {
+    const env = makeEnv({
+      bindings: new Map<string, unknown>([
+        ['kind', 'paid'],
+        ['total', 1],
+      ]),
+    });
+    const nodes: IRNode[] = [
+      {
+        type: 'branch',
+        props: { on: 'kind' },
+        children: [
+          {
+            type: 'path',
+            props: { value: 'paid' },
+            __quotedProps: ['value'],
+            children: [
+              { type: 'let', props: { name: 'local', value: '2' } },
+              { type: 'assign', props: { op: '+=', target: 'total', value: 'local' } },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(runInternalEffectMachineSync(nodes, env)).toEqual({
+      completion: { kind: 'normal' },
+      events: [
+        { op: 'assign', target: 'local', value: 2 },
+        { op: 'assign', target: 'total', value: 3 },
+      ],
+    });
+    expect(env.bindings.get('total')).toBe(3);
+    expect(env.bindings.has('local')).toBe(false);
+  });
+
+  test('branch, if, and nested branch frames share raw sync and async capability traces', async () => {
+    const nodes: IRNode[] = [
+      {
+        type: 'branch',
+        props: { on: '"outer"' },
+        children: [
+          {
+            type: 'path',
+            props: { value: 'outer' },
+            __quotedProps: ['value'],
+            children: [
+              {
+                type: 'if',
+                props: { cond: 'true' },
+                children: [
+                  {
+                    type: 'branch',
+                    props: { on: '"inner"' },
+                    children: [
+                      {
+                        type: 'path',
+                        props: { value: 'inner' },
+                        __quotedProps: ['value'],
+                        children: [
+                          {
+                            type: 'capability',
+                            props: {
+                              input: '"selected"',
+                              name: 'answer',
+                              namespace: 'llm',
+                              operation: 'complete',
+                            },
+                          },
+                          { type: 'return', props: { value: 'answer' } },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const syncTrace = runInternalEffectMachineSync(
+      nodes,
+      makeEnv({ capabilities: { llm: { complete: ({ input }) => `same:${input}` } } }),
+    );
+    const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
+      asyncCapabilities: { llm: { complete: async ({ input }) => `same:${input}` } },
+    });
+    expect(tracesEqual(syncTrace, asyncTrace)).toBe(true);
+    expect(syncTrace.completion).toEqual({ kind: 'return', value: 'same:selected' });
+    const ifToBranch: IRNode[] = [
+      {
+        type: 'if',
+        props: { cond: 'true' },
+        children: [
+          {
+            type: 'branch',
+            props: { on: '"yes"' },
+            children: [
+              {
+                type: 'path',
+                props: { value: 'yes' },
+                __quotedProps: ['value'],
+                children: [{ type: 'return', props: { value: '"nested"' } }],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(runInternalEffectMachineSync(ifToBranch, makeEnv()).completion).toEqual({
+      kind: 'return',
+      value: 'nested',
+    });
+  });
+
+  test('branch structurally closes every path and fails before provider dispatch', () => {
+    let calls = 0;
+    const env = makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } });
+    const nodes: IRNode[] = [
+      {
+        type: 'branch',
+        props: { on: '"selected"' },
+        children: [
+          {
+            type: 'path',
+            props: { value: 'ignored' },
+            __quotedProps: ['value'],
+            children: [
+              { type: 'while', children: [] },
+              { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+            ],
+          },
+          {
+            type: 'path',
+            props: { value: 'selected' },
+            __quotedProps: ['value'],
+            children: [{ type: 'return', props: { value: '"ok"' } }],
+          },
+        ],
+      },
+    ];
+    expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
+      diagnostics: [{ code: 'unsupported-runtime-input' }],
+      events: [],
+      outcome: 'failure',
+    });
+    expect(calls).toBe(0);
+    const unsupported: IRNode[] = [
+      {
+        type: 'branch',
+        props: { on: '"selected"' },
+        children: [
+          {
+            type: 'path',
+            props: { value: 'selected' },
+            __quotedProps: ['value'],
+            children: [
+              { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+              { type: 'while', children: [] },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(executeInternalRuntimeEnvelopeSync(unsupported, env, enabled)).toMatchObject({
+      diagnostics: [{ code: 'unsupported-runtime-input' }],
+      events: [],
+      outcome: 'failure',
+    });
+    expect(calls).toBe(0);
+    const malformed: IRNode[] = [{ type: 'branch', props: { on: '"x"' }, children: [{ type: 'path' }] }];
+    expect(selectInternalRuntimeEngine(malformed, makeEnv())).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
+    expect(executeInternalRuntimeEnvelopeSync(malformed, makeEnv(), enabled)).toMatchObject({
+      diagnostics: [{ code: 'unsupported-runtime-input' }],
+      outcome: 'failure',
+    });
+  });
   test('pairing ignores smuggled metadata and trusts only the immediate else sibling', () => {
     let calls = 0;
     const smuggledElse: IRNode = {

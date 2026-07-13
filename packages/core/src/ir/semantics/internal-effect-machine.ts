@@ -1,5 +1,6 @@
 import type { KernRunnerAsyncCapabilities, RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
+import { branchPreconditions, branchShapePreconditions, selectBranchPath } from './branch.js';
 import {
   type PreparedInternalCapabilityEffect,
   prepareInternalCapabilityEffect,
@@ -7,7 +8,7 @@ import {
 } from './capability.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
 import { evaluateIfCondition } from './if.js';
-import { CONTRACT_REGISTRY, type SemanticEnv } from './index.js';
+import { CONTRACT_REGISTRY, childEnv, type SemanticEnv } from './index.js';
 import {
   invokeInternalRuntimeCapabilityAsync,
   invokeInternalRuntimeCapabilitySync,
@@ -19,7 +20,7 @@ export const INTERNAL_EFFECT_MACHINE_FORMAT = 'kern.runtime.effect-machine.inter
 
 export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   assign: 'unified',
-  branch: 'legacy',
+  branch: 'unified',
   capability: 'unified',
   do: 'legacy',
   each: 'legacy',
@@ -90,6 +91,7 @@ export function isInternalEffectMachineEligible(nodes: readonly IRNode[], env: S
 function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
+    if (node.type === 'branch') continue;
     if (node.type === 'if') {
       if (nodes[index + 1]?.type === 'else') index += 1;
       continue;
@@ -136,6 +138,64 @@ function* runIf(
   return yield* runSequence(selected, env);
 }
 
+function selectMachineBranch(node: IRNode, env: SemanticEnv): IRNode | undefined {
+  try {
+    if (!branchPreconditions(node, env)) {
+      throw new InternalEffectMachineError('effect machine rejected branch node', node);
+    }
+    return selectBranchPath(node, env);
+  } catch (error) {
+    if (error instanceof InternalEffectMachineError) throw error;
+    throw new InternalEffectMachineError('effect machine rejected branch node', node);
+  }
+}
+
+function assertBranchFrameSupported(node: IRNode): void {
+  if (!branchShapePreconditions(node)) {
+    throw new InternalEffectMachineError('effect machine rejected branch node', node);
+  }
+  for (const path of node.children ?? []) {
+    assertMachineStructureSupported(path.children ?? []);
+  }
+}
+
+function assertMachineStructureSupported(nodes: readonly IRNode[]): void {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    let elseNode: IRNode | undefined;
+    if (node.type === 'if') {
+      if (typeof node.props?.cond !== 'string' || node.props.cond.trim() === '') {
+        throw new InternalEffectMachineError('effect machine rejected if node', node);
+      }
+      elseNode = nodes[index + 1]?.type === 'else' ? nodes[index + 1] : undefined;
+      if (elseNode) index += 1;
+      assertMachineStructureSupported(node.children ?? []);
+      if (elseNode) assertMachineStructureSupported(elseNode.children ?? []);
+      continue;
+    }
+    if (node.type === 'else') {
+      throw new InternalEffectMachineError('else must immediately follow an if sibling', node);
+    }
+    if (node.type === 'branch') {
+      assertBranchFrameSupported(node);
+      continue;
+    }
+    if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
+      throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
+    }
+  }
+}
+
+function* runBranch(
+  node: IRNode,
+  env: SemanticEnv,
+): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
+  const selected = selectMachineBranch(node, env);
+  if (!selected) return emptyTrace();
+  const branchEnv = childEnv(env);
+  return yield* runSequence(selected.children ?? [], branchEnv);
+}
+
 function* runSequence(
   nodes: readonly IRNode[],
   env: SemanticEnv,
@@ -153,6 +213,8 @@ function* runSequence(
     let next: Trace;
     if (node.type === 'if') {
       next = yield* runIf(node, elseNode, env);
+    } else if (node.type === 'branch') {
+      next = yield* runBranch(node, env);
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     } else if (node.type === 'capability') {
@@ -181,6 +243,7 @@ function* runMachine(
       nodes[0] ?? { type: '__block' },
     );
   }
+  assertMachineStructureSupported(nodes);
   return yield* runSequence(nodes, env);
 }
 
