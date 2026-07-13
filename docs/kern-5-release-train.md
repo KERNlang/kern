@@ -268,6 +268,16 @@ trusted-publishing/provenance configuration is inspected.
     bounds, fresh induction scope, repeated capability parity, loop control,
     pre-effect structural closure, and a caller-configured shared sync/async
     iteration budget are regression-covered.
+  - [x] M3.11 private effect-machine array `each` frames: portable array and
+    indexed-array shapes iterate lazily through the shared resumable machine,
+    with canonical bindings, fresh scopes, shared budgets, capability parity,
+    and loop completion semantics. Pair, entry, pseudo-async, try/unwind,
+    linking, value symmetry, and public ABI promotion remain deferred. The
+    focused runtime-envelope suite and full KERN 5 fitness wall passed on
+    2026-07-13. The terminal 3/3 Agon review passed with zero actionable
+    findings; its single nit concerns unchanged, deferred legacy entry shapes.
+    Review-discovered non-array diagnostics and pre-read budget containment are
+    regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

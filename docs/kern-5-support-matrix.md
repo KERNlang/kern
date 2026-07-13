@@ -90,6 +90,7 @@ wall and must remain absent until promoted.
 | internal-runtime-effect-machine-branch | Private effect-machine branch frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine-while | Private effect-machine while frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine-for | Private effect-machine counted for frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-each-array | Private effect-machine array each frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |

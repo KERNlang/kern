@@ -5,6 +5,7 @@ const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
 const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
+const EACH_RUNTIME = join(CORE_SOURCE, 'ir/semantics/each-runtime.ts');
 const EFFECT_MACHINE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine.ts');
 const ENVELOPE_EXECUTE = join(INTERNAL_DIRECTORY, 'execute.ts');
 const INTERNAL_ENGINE = join(INTERNAL_DIRECTORY, 'internal-engine.ts');
@@ -96,7 +97,20 @@ for (const witness of [
 ]) {
   if (!effectMachine.includes(witness)) fail(`effect-machine for expansion is missing ${witness}`);
 }
-for (const witness of ["each: 'legacy'", "try: 'legacy'"]) {
+for (const witness of [
+  "each: 'partial'",
+  'isInternalEffectMachineArrayEach',
+  'iterateEachRuntimeSteps',
+  'yield* runEach',
+  'defineBinding',
+]) {
+  if (!effectMachine.includes(witness)) fail(`effect-machine each expansion is missing ${witness}`);
+}
+const eachRuntime = readFileSync(EACH_RUNTIME, 'utf8');
+for (const witness of ['function* iterateEachRuntimeSteps', 'yield* iterateCollection', 'Array.from(iterateEachRuntimeSteps']) {
+  if (!eachRuntime.includes(witness)) fail(`effect-machine each runtime is missing ${witness}`);
+}
+for (const witness of ["try: 'legacy'"]) {
   if (!effectMachine.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
 }
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
@@ -165,6 +179,12 @@ const effectMachineForOwnership = policy.ownership.find(
 );
 if (effectMachineForOwnership?.status !== 'internal-oracle') {
   fail('internal runtime effect-machine for expansion must remain an internal oracle');
+}
+const effectMachineEachOwnership = policy.ownership.find(
+  (entry) => entry.id === 'internal-runtime-effect-machine-each-array',
+);
+if (effectMachineEachOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime effect-machine array each expansion must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));

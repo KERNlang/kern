@@ -7,9 +7,17 @@ import {
   resumeInternalCapabilityEffect,
 } from './capability.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
+import { isInternalEffectMachineArrayEach, iterateEachRuntimeSteps } from './each-runtime.js';
 import { forRuntimeRange, forShapePreconditions } from './for.js';
 import { evaluateIfCondition } from './if.js';
-import { CONTRACT_REGISTRY, childEnv, defineIntBinding, markRepeatableLoopBody, type SemanticEnv } from './index.js';
+import {
+  CONTRACT_REGISTRY,
+  childEnv,
+  defineBinding,
+  defineIntBinding,
+  markRepeatableLoopBody,
+  type SemanticEnv,
+} from './index.js';
 import {
   invokeInternalRuntimeCapabilityAsync,
   invokeInternalRuntimeCapabilitySync,
@@ -27,7 +35,7 @@ export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   capability: 'unified',
   continue: 'unified',
   do: 'legacy',
-  each: 'legacy',
+  each: 'partial',
   'expression-v1': 'legacy',
   fmt: 'unified',
   for: 'unified',
@@ -105,6 +113,10 @@ function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
     if (node.type === 'branch' || node.type === 'for' || node.type === 'while') continue;
+    if (node.type === 'each') {
+      if (!isInternalEffectMachineArrayEach(node)) return false;
+      continue;
+    }
     if (node.type === 'if') {
       if (nodes[index + 1]?.type === 'else') index += 1;
       continue;
@@ -219,6 +231,13 @@ function assertMachineStructureSupported(nodes: readonly IRNode[], loopDepth = 0
       assertMachineStructureSupported(node.children ?? [], loopDepth + 1);
       continue;
     }
+    if (node.type === 'each') {
+      if (!isInternalEffectMachineArrayEach(node)) {
+        throw new InternalEffectMachineError('effect machine rejected each node', node);
+      }
+      assertMachineStructureSupported(node.children ?? [], loopDepth + 1);
+      continue;
+    }
     if (node.type === 'while') {
       if (typeof node.props?.cond !== 'string' || node.props.cond.trim() === '' || !Array.isArray(node.children)) {
         throw new InternalEffectMachineError('effect machine rejected while node', node);
@@ -252,6 +271,38 @@ function machineForRange(node: IRNode, env: SemanticEnv) {
   } catch {
     throw new InternalEffectMachineError('effect machine rejected for node', node);
   }
+}
+
+function* machineEachSteps(node: IRNode, env: SemanticEnv, beforeArrayElementRead: () => void) {
+  try {
+    yield* iterateEachRuntimeSteps(node, env, beforeArrayElementRead);
+  } catch (error) {
+    if (error instanceof InternalEffectMachineError) throw error;
+    throw new InternalEffectMachineError('effect machine rejected each node', node);
+  }
+}
+
+function* runEach(
+  node: IRNode,
+  env: SemanticEnv,
+  state: InternalEffectMachineState,
+): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
+  const out = emptyTrace();
+  for (const step of machineEachSteps(node, env, () => consumeIterationBudget(state, node))) {
+    out.events.push({ binding: step.primary[0], op: 'iter-next', value: step.primary[1] });
+    const iterationEnv = childEnv(env);
+    markRepeatableLoopBody(iterationEnv);
+    for (const [name, value] of step.bindings) defineBinding(iterationEnv, name, value);
+    const next = yield* runSequence(node.children ?? [], iterationEnv, state);
+    out.events.push(...next.events);
+    if (next.completion.kind === 'break') return out;
+    if (next.completion.kind === 'continue') continue;
+    if (next.completion.kind === 'return' || next.completion.kind === 'throw') {
+      out.completion = next.completion;
+      return out;
+    }
+  }
+  return out;
 }
 
 function* runFor(
@@ -342,6 +393,8 @@ function* runSequence(
       next = yield* runBranch(node, env, state);
     } else if (node.type === 'for') {
       next = yield* runFor(node, env, state);
+    } else if (node.type === 'each') {
+      next = yield* runEach(node, env, state);
     } else if (node.type === 'while') {
       next = yield* runWhile(node, env, state);
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
