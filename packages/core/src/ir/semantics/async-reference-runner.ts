@@ -58,7 +58,7 @@ import {
 } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
-import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try.js';
+import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 import { WHILE_MAX_ITERATIONS } from './while.js';
 
 export interface AsyncReferenceRunnerOptions {

@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { assertRuntimeImportClosureExcludes } from './runtime-envelope-import-closure.mjs';
 
 const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
@@ -10,11 +11,17 @@ const EFFECT_MACHINE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine.t
 const EFFECT_MACHINE_SEQUENCE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-sequence.ts');
 const EFFECT_MACHINE_STRUCTURE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-structure.ts');
 const EFFECT_MACHINE_TYPES = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-types.ts');
+const EFFECT_MACHINE_TRY = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-try.ts');
+const TRY_RUNTIME = join(CORE_SOURCE, 'ir/semantics/try-runtime.ts');
+const LEGACY_TRY = join(CORE_SOURCE, 'ir/semantics/try.ts');
+const REFERENCE_RUNNER = join(CORE_SOURCE, 'ir/semantics/reference-runner.ts');
+const ASYNC_REFERENCE_RUNNER = join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts');
 const EFFECT_MACHINE_FILES = [
   EFFECT_MACHINE,
   EFFECT_MACHINE_SEQUENCE,
   EFFECT_MACHINE_STRUCTURE,
   EFFECT_MACHINE_TYPES,
+  EFFECT_MACHINE_TRY,
 ];
 const ENVELOPE_EXECUTE = join(INTERNAL_DIRECTORY, 'execute.ts');
 const INTERNAL_ENGINE = join(INTERNAL_DIRECTORY, 'internal-engine.ts');
@@ -63,7 +70,9 @@ const effectMachine = effectMachineSources.get(EFFECT_MACHINE);
 const effectMachineSequence = effectMachineSources.get(EFFECT_MACHINE_SEQUENCE);
 const effectMachineStructure = effectMachineSources.get(EFFECT_MACHINE_STRUCTURE);
 const effectMachineTypes = effectMachineSources.get(EFFECT_MACHINE_TYPES);
+const effectMachineTry = effectMachineSources.get(EFFECT_MACHINE_TRY);
 const effectMachineFamily = [...effectMachineSources.values()].join('\n');
+const tryRuntime = readFileSync(TRY_RUNTIME, 'utf8');
 if (!effectMachineTypes.includes('kern.runtime.effect-machine.internal.r0')) {
   fail('effect machine format must remain exact and internal');
 }
@@ -128,8 +137,14 @@ const eachRuntime = readFileSync(EACH_RUNTIME, 'utf8');
 for (const witness of ['function* iterateEachRuntimeSteps', 'yield* iterateCollection', 'Array.from(iterateEachRuntimeSteps']) {
   if (!eachRuntime.includes(witness)) fail(`effect-machine each runtime is missing ${witness}`);
 }
-for (const witness of ["try: 'legacy'"]) {
-  if (!effectMachineTypes.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
+for (const witness of [
+  "try: 'unified'",
+  'runInternalEffectMachineTry',
+  'tryRuntimeParts',
+  'UNAVAILABLE_CAUGHT_ERROR',
+  'machine.throw(error)',
+]) {
+  if (!effectMachineFamily.includes(witness)) fail(`effect-machine try ownership is missing ${witness}`);
 }
 for (const [path, source] of effectMachineSources) {
   if (source.trimEnd().split('\n').length >= 500) {
@@ -139,7 +154,12 @@ for (const [path, source] of effectMachineSources) {
 if (effectMachine.trimEnd().split('\n').length >= 300) {
   fail('effect-machine stable driver must remain below 300 lines');
 }
-for (const forbidden of ['internal-effect-machine-sequence', 'internal-effect-machine.js', 'runtime-envelope']) {
+for (const forbidden of [
+  'internal-effect-machine-sequence',
+  'internal-effect-machine-try',
+  'internal-effect-machine.js',
+  'runtime-envelope',
+]) {
   if (effectMachineStructure.includes(forbidden)) {
     fail(`effect-machine structure imports forbidden dependency ${forbidden}`);
   }
@@ -153,11 +173,44 @@ for (const forbidden of [
   'internal-effect-machine-sequence',
   'internal-effect-machine-structure',
   'internal-effect-machine.js',
+  "from './try.js'",
+  'reference-runner',
+  'async-reference-runner',
+  'runtime-envelope',
+]) {
+  if (effectMachineTry.includes(forbidden)) {
+    fail(`effect-machine try imports forbidden dependency ${forbidden}`);
+  }
+}
+for (const forbidden of [
+  'internal-effect-machine-sequence',
+  'internal-effect-machine-structure',
+  'internal-effect-machine.js',
 ]) {
   if (effectMachineTypes.includes(forbidden)) {
     fail(`effect-machine types import forbidden dependency ${forbidden}`);
   }
 }
+for (const forbidden of ['internal-effect-machine', "from './try.js'", 'reference-runner', 'async-reference-runner']) {
+  if (tryRuntime.includes(forbidden)) fail(`try runtime leaf imports forbidden dependency ${forbidden}`);
+}
+assertRuntimeImportClosureExcludes(
+  [EFFECT_MACHINE],
+  [LEGACY_TRY, REFERENCE_RUNNER, ASYNC_REFERENCE_RUNNER],
+);
+assertRuntimeImportClosureExcludes(
+  [TRY_RUNTIME],
+  [
+    LEGACY_TRY,
+    REFERENCE_RUNNER,
+    ASYNC_REFERENCE_RUNNER,
+    EFFECT_MACHINE,
+    EFFECT_MACHINE_SEQUENCE,
+    EFFECT_MACHINE_STRUCTURE,
+    EFFECT_MACHINE_TYPES,
+    EFFECT_MACHINE_TRY,
+  ],
+);
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
 for (const witness of [
   'accepted.limits.maxCollectionLength',

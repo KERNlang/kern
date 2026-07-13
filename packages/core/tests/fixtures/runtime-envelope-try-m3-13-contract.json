@@ -1,238 +1,41 @@
 {
-  "format": "kern.runtime.try-m3-13-contract.internal.r0",
-  "currentEvidence": "routing-only",
+  "format": "kern.runtime.try-m3-13-contract.internal.r1",
+  "currentEvidence": "executable-machine-acceptance",
   "cases": [
-    {
-      "id": "preflight-body-before-capability",
-      "category": "preflight",
-      "description": "The complete try body is checked before any capability dispatch.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "lambda", "props": { "name": "unsupported" } },
-            { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Reject before provider calls or trace events."
-    },
-    {
-      "id": "preflight-catch-before-capability",
-      "category": "preflight",
-      "description": "The complete catch body is checked before protected-body capability dispatch.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "catch", "props": { "name": "error" }, "children": [{ "type": "lambda", "props": { "name": "unsupported" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Reject before provider calls even when catch would be unselected."
-    },
-    {
-      "id": "preflight-finally-before-capability",
-      "category": "preflight",
-      "description": "The complete finally body is checked before protected-body capability dispatch.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "finally", "children": [{ "type": "lambda", "props": { "name": "unsupported" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Reject before provider calls or trace events."
-    },
-    {
-      "id": "catch-binding-replaces-throw-and-restores",
-      "category": "catch-binding",
-      "description": "A canonical throw binds the caught name, catch replaces completion, and the name is restored afterward.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "throw", "props": { "errorKind": "Error" } },
-            { "type": "catch", "props": { "name": "error" }, "children": [{ "type": "print", "props": { "value": "error.message" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Catch observes the canonical error and no caught binding leaks."
-    },
-    {
-      "id": "finally-preserves-normal",
-      "category": "finally-preservation",
-      "description": "Finally runs after a normal protected body and preserves normal completion.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "print", "props": { "value": "\"work\"" } },
-            { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Trace order is work then cleanup."
-    },
-    {
-      "id": "finally-preserves-return",
-      "category": "finally-preservation",
-      "description": "Finally runs after a protected-body return and preserves its value.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "return", "props": { "value": "7" } },
-            { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Cleanup precedes propagation of return 7."
-    },
-    {
-      "id": "finally-preserves-uncaught-throw",
-      "category": "finally-preservation",
-      "description": "Finally runs after an uncaught canonical throw and preserves it.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "throw", "props": { "errorKind": "Error" } },
-            { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Cleanup precedes propagation of the canonical throw."
-    },
-    {
-      "id": "finally-preserves-caught-throw",
-      "category": "finally-preservation",
-      "description": "Catch replaces a throw and finally preserves the catch completion.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "throw", "props": { "errorKind": "Error" } },
-            { "type": "catch", "props": { "name": "error" }, "children": [{ "type": "print", "props": { "value": "\"caught\"" } }] },
-            { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Trace order is caught then cleanup."
-    },
-    {
-      "id": "abrupt-finally-rejects",
-      "category": "abrupt-finally",
-      "description": "Cleanup-only finally rejects any abrupt completion.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "print", "props": { "value": "\"work\"" } },
-            { "type": "finally", "children": [{ "type": "return", "props": { "value": "9" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Reject cleanup return instead of replacing the body completion."
-    },
-    {
-      "id": "capabilities-in-body-catch-finally",
-      "category": "capability-parity",
-      "description": "Capabilities resume in protected, catch, and finally sequences with raw sync/async trace parity.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "throw", "props": { "errorKind": "Error" } },
-            { "type": "catch", "props": { "name": "error" }, "children": [{ "type": "capability", "props": { "namespace": "storage", "operation": "get" } }] },
-            { "type": "finally", "children": [{ "type": "capability", "props": { "namespace": "storage", "operation": "get" } }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "Sync and async raw traces are byte-identical in body, catch, and finally order."
-    },
-    {
-      "id": "try-inside-counted-for",
-      "category": "try-in-loop",
-      "description": "A try nested in a machine-owned counted loop is structurally rejected until M3.13.",
-      "currentDisposition": "machine-preflight-reject",
-      "nodes": [
-        {
-          "type": "for",
-          "props": { "name": "index", "from": "0", "to": "1" },
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "try", "children": [{ "type": "print", "props": { "value": "index" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "The nested try executes without leaving the machine."
-    },
-    {
-      "id": "try-inside-array-each",
-      "category": "try-in-loop",
-      "description": "A try nested in machine-owned array each is structurally rejected until M3.13.",
-      "currentDisposition": "machine-preflight-reject",
-      "nodes": [
-        {
-          "type": "each",
-          "props": { "in": "items", "name": "item" },
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "try", "children": [{ "type": "print", "props": { "value": "item" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "The nested try executes without leaving the machine."
-    },
-    {
-      "id": "try-inside-while",
-      "category": "try-in-loop",
-      "description": "A try nested in a machine-owned while loop is structurally rejected until M3.13.",
-      "currentDisposition": "machine-preflight-reject",
-      "nodes": [
-        {
-          "type": "while",
-          "props": { "cond": "true" },
-          "children": [
-            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
-            { "type": "try", "children": [{ "type": "print", "props": { "value": "\"work\"" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "The nested try executes without leaving the machine."
-    },
-    {
-      "id": "loop-inside-try",
-      "category": "loop-in-try",
-      "description": "Machine-owned loops execute inside protected, catch, and finally sequences after unwind ownership.",
-      "currentDisposition": "legacy",
-      "nodes": [
-        {
-          "type": "try",
-          "children": [
-            { "type": "for", "props": { "name": "index", "from": "0", "to": "1" }, "children": [{ "type": "print", "props": { "value": "index" } }] },
-            { "type": "catch", "props": { "name": "error" }, "children": [{ "type": "while", "props": { "cond": "false" }, "children": [{ "type": "break" }] }] },
-            { "type": "finally", "children": [{ "type": "each", "props": { "in": "items", "name": "item" }, "children": [{ "type": "print", "props": { "value": "item" } }] }] }
-          ]
-        }
-      ],
-      "m3_13Acceptance": "All nested loops share the caller budget and remain in the machine."
-    }
+    { "id": "preflight-body-before-capability", "category": "preflight", "description": "Unsupported protected-body structure rejects before capability dispatch." },
+    { "id": "preflight-catch-before-capability", "category": "preflight", "description": "Unsupported unselected catch structure rejects before protected-body capability dispatch." },
+    { "id": "preflight-finally-before-capability", "category": "preflight", "description": "Unsupported finally structure rejects before protected-body capability dispatch." },
+    { "id": "catch-binding-replaces-throw-and-tombstones", "category": "catch-binding", "description": "Catch observes a literal canonical message, replaces throw, and tombstones its name." },
+    { "id": "finally-preserves-normal", "category": "finally-preservation", "description": "Normal body runs cleanup and remains normal." },
+    { "id": "finally-preserves-return", "category": "finally-preservation", "description": "Cleanup runs before preserving a return value." },
+    { "id": "finally-preserves-uncaught-throw", "category": "finally-preservation", "description": "Cleanup runs before preserving an uncaught canonical throw." },
+    { "id": "finally-preserves-caught-throw", "category": "finally-preservation", "description": "Catch replaces throw and cleanup preserves the catch completion." },
+    { "id": "abrupt-finally-return-rejects", "category": "abrupt-finally", "description": "Cleanup-only finally rejects an unconsumed return before effects." },
+    { "id": "abrupt-finally-throw-rejects", "category": "abrupt-finally", "description": "Cleanup-only finally rejects an unconsumed throw before effects." },
+    { "id": "abrupt-finally-break-rejects", "category": "abrupt-finally", "description": "Cleanup-only finally rejects an unconsumed break before effects." },
+    { "id": "abrupt-finally-continue-rejects", "category": "abrupt-finally", "description": "Cleanup-only finally rejects an unconsumed continue before effects." },
+    { "id": "capabilities-in-body-catch-finally", "category": "capability-parity", "description": "Body, catch, and finally capabilities resume with raw sync and async parity." },
+    { "id": "try-inside-counted-for", "category": "try-in-loop", "description": "Try remains machine-owned inside counted for and shares its budget." },
+    { "id": "try-inside-array-each", "category": "try-in-loop", "description": "Try remains machine-owned inside array each and shares its budget." },
+    { "id": "try-inside-while", "category": "try-in-loop", "description": "Try remains machine-owned inside while and propagates loop control through cleanup." },
+    { "id": "loop-inside-try-body", "category": "loop-in-try", "description": "A counted loop executes in the protected body." },
+    { "id": "loop-inside-try-catch", "category": "loop-in-try", "description": "A counted loop executes in the selected catch." },
+    { "id": "loop-inside-try-finally", "category": "loop-in-try", "description": "Array each executes in finally without leaving the machine." },
+    { "id": "break-through-finally", "category": "loop-control", "description": "Break propagates through normal cleanup and is consumed by the owning loop." },
+    { "id": "continue-through-finally", "category": "loop-control", "description": "Continue propagates through normal cleanup and is consumed by the owning loop." },
+    { "id": "nested-try-in-body", "category": "nested-try", "description": "Nested try executes in a protected body without fallback." },
+    { "id": "nested-try-in-catch", "category": "nested-try", "description": "Nested try executes in a selected catch without fallback." },
+    { "id": "nested-caught-try-in-finally", "category": "nested-try", "description": "A nested caught throw completes normally inside finally." },
+    { "id": "return-with-catch-direct-rejects", "category": "return-with-catch", "description": "Direct protected return with catch rejects before effects." },
+    { "id": "return-with-catch-if-rejects", "category": "return-with-catch", "description": "Protected return in if with catch rejects before effects." },
+    { "id": "return-with-catch-else-rejects", "category": "return-with-catch", "description": "Protected return in else with catch rejects before effects." },
+    { "id": "return-with-catch-branch-rejects", "category": "return-with-catch", "description": "Protected return in branch with catch rejects before effects." },
+    { "id": "return-with-catch-for-rejects", "category": "return-with-catch", "description": "Protected return in counted for with catch rejects before effects." },
+    { "id": "return-with-catch-each-rejects", "category": "return-with-catch", "description": "Protected return in array each with catch rejects before effects." },
+    { "id": "return-with-catch-while-rejects", "category": "return-with-catch", "description": "Protected return in while with catch rejects before effects." },
+    { "id": "return-with-catch-nested-try-rejects", "category": "return-with-catch", "description": "Protected return through nested try with catch rejects before effects." },
+    { "id": "finally-loop-consumes-break", "category": "cleanup-analysis", "description": "A loop inside finally may consume break and leave cleanup normal." },
+    { "id": "provider-failure-tombstones-sync-catch", "category": "provider-cleanup", "description": "Sync provider failure remains uncaught while catch binding is tombstoned." },
+    { "id": "provider-failure-tombstones-async-catch", "category": "provider-cleanup", "description": "Async provider rejection remains uncaught while catch binding is tombstoned." }
   ]
 }

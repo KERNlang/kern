@@ -24,6 +24,7 @@ import {
   type InternalEffectMachineState,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
+import { runInternalEffectMachineTry } from './internal-effect-machine-try.js';
 import { emptyTrace, type Trace } from './trace.js';
 import { evaluateWhileCondition, WHILE_MAX_ITERATIONS } from './while.js';
 
@@ -211,6 +212,8 @@ export function* runInternalEffectMachineSequence(
       next = yield* runEach(node, env, state);
     } else if (node.type === 'while') {
       next = yield* runWhile(node, env, state);
+    } else if (node.type === 'try') {
+      next = yield* runInternalEffectMachineTry(node, env, state, runInternalEffectMachineSequence);
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     } else if (node.type === 'capability') {

@@ -1,4 +1,5 @@
 import type { IRNode } from '../../types.js';
+import type { RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
 import type { SemanticEnv } from './index.js';
 import {
@@ -19,6 +20,16 @@ import {
   type InternalEffectMachineSyncOptions,
 } from './internal-effect-machine-types.js';
 import type { Trace } from './trace.js';
+
+function unwindMachineAfterProviderError(machine: InternalEffectMachineGenerator, error: unknown): never {
+  try {
+    machine.throw(error);
+  } catch {
+    // Preserve the provider/scheduler failure. Injecting it only gives active
+    // generator finally blocks a chance to release internal bindings.
+  }
+  throw error;
+}
 
 export { isInternalEffectMachineEligible } from './internal-effect-machine-structure.js';
 export type {
@@ -54,7 +65,12 @@ export function runInternalEffectMachineSync(
   const machine = runMachine(nodes, env, { remainingIterations: options.iterationBudget });
   let step = machine.next();
   while (!step.done) {
-    const result = invokeInternalRuntimeCapabilitySync(env, step.value.prepared.call);
+    let result: RuntimeCapabilityValue | undefined;
+    try {
+      result = invokeInternalRuntimeCapabilitySync(env, step.value.prepared.call);
+    } catch (error) {
+      unwindMachineAfterProviderError(machine, error);
+    }
     step = machine.next(result);
   }
   return step.value;
@@ -69,11 +85,16 @@ export async function runInternalEffectMachineAsync(
   let step = machine.next();
   while (!step.done) {
     const call = step.value.prepared.call;
-    const result = isAsyncPlannedCapability(call.namespace, call.operation)
-      ? await invokeInternalRuntimeCapabilityAsync(env, options.asyncCapabilities, call, {
-          timeoutMs: options.capabilityTimeoutMs,
-        })
-      : await invokeInternalRuntimeSyncCapabilityAsync(env, call);
+    let result: RuntimeCapabilityValue | undefined;
+    try {
+      result = isAsyncPlannedCapability(call.namespace, call.operation)
+        ? await invokeInternalRuntimeCapabilityAsync(env, options.asyncCapabilities, call, {
+            timeoutMs: options.capabilityTimeoutMs,
+          })
+        : await invokeInternalRuntimeSyncCapabilityAsync(env, call);
+    } catch (error) {
+      unwindMachineAfterProviderError(machine, error);
+    }
     step = machine.next(result);
   }
   return step.value;
