@@ -1,3 +1,5 @@
+import type { InternalRuntimeCapabilityInterceptor } from '../ir/semantics/internal-capability-interceptor.js';
+
 export const INTERNAL_RUNTIME_ENVELOPE_FORMAT = 'kern.runtime.internal.r0' as const;
 
 export interface InternalRuntimeEnvelopeLimits {
@@ -40,6 +42,8 @@ export type InternalRuntimeDiagnosticCode =
   | 'capability-error'
   | 'encoded-limit'
   | 'escaped-control'
+  | 'execution-cancelled'
+  | 'execution-timeout'
   | 'handler-entry-ambiguous'
   | 'handler-entry-not-found'
   | 'handler-entry-unsupported'
@@ -66,8 +70,13 @@ export interface InternalRuntimeEnvelope {
 }
 
 export interface InternalRuntimeEnvelopeOptions {
+  readonly capabilityInterceptor?: InternalRuntimeCapabilityInterceptor;
   readonly enabled: true;
   readonly limits: InternalRuntimeEnvelopeLimits;
+  readonly scheduler?: {
+    readonly signal?: AbortSignal;
+    readonly timeoutMs?: number;
+  };
 }
 
 export class InternalRuntimeEnvelopeError extends TypeError {

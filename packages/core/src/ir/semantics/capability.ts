@@ -1,8 +1,8 @@
 import { parseExpression } from '../../parser-expression.js';
 import {
   assertRuntimeCapabilityValue,
-  invokeRunnerCapability,
   KernCapabilityError,
+  type RuntimeCapabilityCall,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
@@ -17,6 +17,7 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import { invokeInternalRuntimeCapabilitySync } from './internal-capability-interceptor.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue, isPortableBindingName, isRecordLiteralExpression } from './portable-scalar.js';
 import type { Trace } from './trace.js';
@@ -109,21 +110,20 @@ function evalCapabilityInputArray(
 }
 
 function capabilityPreconditions(ir: IRNode, env: SemanticEnv): boolean {
-  const props = asCapabilityProps(ir);
-  if (!isCapabilityToken(props.namespace) || !isCapabilityToken(props.operation)) return false;
-  if (props.name !== undefined && props.name !== '') {
-    if (!isPortableBindingName(props.name)) return false;
-    if (hasOwnBinding(env, props.name)) return false;
-  }
   try {
-    capabilityInput(ir, env);
+    prepareInternalCapabilityEffect(ir, env);
     return true;
   } catch {
     return false;
   }
 }
 
-function capabilityEffects(ir: IRNode, env: SemanticEnv): Trace {
+export interface PreparedInternalCapabilityEffect {
+  readonly call: RuntimeCapabilityCall;
+  readonly resultBinding: string | undefined;
+}
+
+export function prepareInternalCapabilityEffect(ir: IRNode, env: SemanticEnv): PreparedInternalCapabilityEffect {
   const props = asCapabilityProps(ir);
   if (!isCapabilityToken(props.namespace) || !isCapabilityToken(props.operation)) {
     throw new KernCapabilityError(
@@ -135,20 +135,41 @@ function capabilityEffects(ir: IRNode, env: SemanticEnv): Trace {
   const namespace = props.namespace;
   const operation = props.operation;
   const input = capabilityInput(ir, env);
-  const result = invokeRunnerCapability(env.capabilities, { namespace, operation, input }, env.capabilityContext);
-  const events: Trace['events'] = [{ op: 'capability', namespace, operation, input, result }];
+  let resultBinding: string | undefined;
   if (props.name !== undefined && props.name !== '') {
+    if (typeof props.name !== 'string' || !isPortableBindingName(props.name) || hasOwnBinding(env, props.name)) {
+      throw new KernCapabilityError(namespace, operation, 'capability result binding is invalid');
+    }
+    resultBinding = props.name;
+  }
+  return { call: { namespace, operation, input }, resultBinding };
+}
+
+export function resumeInternalCapabilityEffect(
+  prepared: PreparedInternalCapabilityEffect,
+  result: RuntimeCapabilityValue | undefined,
+  env: SemanticEnv,
+): Trace {
+  const { input, namespace, operation } = prepared.call;
+  const events: Trace['events'] = [{ op: 'capability', namespace, operation, input, result }];
+  if (prepared.resultBinding !== undefined) {
     if (result === undefined) {
       throw new KernCapabilityError(
         namespace,
         operation,
-        `capability: ${namespace}.${operation} returned no value for name=${String(props.name)}`,
+        `capability: ${namespace}.${operation} returned no value for name=${prepared.resultBinding}`,
       );
     }
-    defineBinding(env, props.name as string, result);
-    events.push({ op: 'assign', target: props.name as string, value: result });
+    defineBinding(env, prepared.resultBinding, result);
+    events.push({ op: 'assign', target: prepared.resultBinding, value: result });
   }
   return { events, completion: { kind: 'normal' } };
+}
+
+function capabilityEffects(ir: IRNode, env: SemanticEnv): Trace {
+  const prepared = prepareInternalCapabilityEffect(ir, env);
+  const result = invokeInternalRuntimeCapabilitySync(env, prepared.call);
+  return resumeInternalCapabilityEffect(prepared, result, env);
 }
 
 const FIXTURES: readonly NodeFixture[] = Object.freeze([]);

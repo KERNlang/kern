@@ -218,6 +218,91 @@ trusted-publishing/provenance configuration is inspected.
     and public-ABI work remain explicitly deferred. The full fitness wall and
     final 3/3 Agon review passed with zero verified findings on 2026-07-12;
     review-discovered handler-name byte bounding is regression-covered.
+  - [x] M3.4 internal capability interception seam: one private, default-off,
+    versioned request/decision point routes synchronous and asynchronous handler
+    capability dispatch without changing public runner or handler contracts.
+    Per-handler cache identity carries the seam through rebuilt function/class
+    environments without cross-call leakage. The full fitness wall and final
+    3/3 Agon review passed with zero verified findings on 2026-07-12.
+  - [x] M3.5 internal scheduler control: caller-supplied cancellation and
+    timeout bound internal envelope execution and capability waits with closed,
+    distinct diagnostics. Provider abort propagation, trace convergence,
+    linking, value symmetry, and public ABI promotion remain deferred. The full
+    fitness wall and final 3/3 Agon review passed with zero verified findings on
+    2026-07-13.
+  - [x] M3.6 private effect-machine convergence: one closed flat-statement
+    corpus routes sync and async internal envelope execution through a shared
+    resumable machine with explicit capability effects and raw-trace parity.
+    Control-flow expansion, legacy async-mirror removal, linking, value
+    symmetry, and public ABI promotion remain deferred. The full fitness wall
+    and final 3/3 Agon review passed with zero findings on 2026-07-13.
+  - [x] M3.7 private effect-machine `if`/`else` frames: immediate sibling
+    pairing and selected nested bodies run through the shared resumable machine
+    with raw-trace parity and no nested legacy fallback. Branch, try, loops,
+    linking, value symmetry, and public ABI promotion remain deferred. The full
+    fitness wall and terminal 3/3 Agon review passed with zero findings on
+    2026-07-13; unselected else-if evaluation and smuggled pairing metadata are
+    regression-covered.
+  - [x] M3.8 private effect-machine `branch` frames: strict first-match/default
+    selection executes only the selected path through the shared resumable
+    machine in a child lexical environment. Loops, try/unwind, linking, value
+    symmetry, and public ABI promotion remain deferred. The exact commit
+    `64a5b6d7` passed the full fitness wall and terminal 3/3 Agon review on
+    2026-07-13; review-discovered pre-effect structural closure and valid
+    capability-to-format dataflow are regression-covered.
+  - [x] M3.9 private effect-machine `while` frames: strict-boolean conditions
+    re-evaluate around fresh iteration scopes, repeated capabilities resume
+    through the shared machine, loop-local `break`/`continue` are consumed, and
+    `return`/`throw` propagate. `for`, `each`, try/unwind, linking, value
+    symmetry, and public ABI promotion remain deferred. The full fitness wall
+    and terminal 3/3 Agon review passed with zero findings on 2026-07-13; nested
+    loop control, repeated capability parity, fresh scope, and pre-effect
+    structural closure are regression-covered.
+  - [x] M3.10 private effect-machine counted `for` frames: evaluated-once safe
+    integer ranges execute with half-open positive/negative steps, canonical
+    iteration events, fresh integer-provenanced bindings, resumable capability
+    effects, consumed loop control, and propagated abrupt completions. `each`,
+    try/unwind, linking, value symmetry, and public ABI promotion remain
+    deferred. The full fitness wall and terminal 3/3 Agon review passed with
+    zero verified findings on 2026-07-13; range direction, evaluated-once
+    bounds, fresh induction scope, repeated capability parity, loop control,
+    pre-effect structural closure, and a caller-configured shared sync/async
+    iteration budget are regression-covered.
+  - [x] M3.11 private effect-machine array `each` frames: portable array and
+    indexed-array shapes iterate lazily through the shared resumable machine,
+    with canonical bindings, fresh scopes, shared budgets, capability parity,
+    and loop completion semantics. Pair, entry, pseudo-async, try/unwind,
+    linking, value symmetry, and public ABI promotion remain deferred. The
+    focused runtime-envelope suite and full KERN 5 fitness wall passed on
+    2026-07-13. The terminal 3/3 Agon review passed with zero actionable
+    findings; its single nit concerns unchanged, deferred legacy entry shapes.
+    Review-discovered non-array diagnostics and pre-read budget containment are
+    regression-covered.
+  - [x] M3.12 private effect-machine architecture boundary: the monolithic
+    machine is split into an 80-line stable driver, 80-line contract/type
+    owner, 107-line structural preflight owner, and 230-line sequence/frame
+    owner with a guarded acyclic dependency direction. Runtime behavior,
+    stable internal imports, and `try: 'legacy'` remain unchanged. A live,
+    skip-free M3.13 manifest records the complete portable unwind acceptance
+    surface. The full KERN 5 fitness wall and terminal 3/3 Agon review passed
+    with zero findings on 2026-07-13. Review-discovered emitted-`.js`
+    dependency guarding, complete while/for/each try-in-loop coverage, and
+    pre-effect rejection evidence are regression-covered.
+  - [x] M3.13 private effect-machine `try`/`catch`/`finally` frames: root and
+    nested portable try shapes route through the resumable machine, with
+    completion-aware whole-tree preflight, cleanup-only finally, canonical
+    catch values, mandatory catch tombstoning, provider-error/cancellation
+    unwind, and sync/immediate-async parity. The executable skip-free manifest
+    and import-closure mutation oracle are implemented. The full KERN 5
+    fitness wall passed, followed by a terminal 3/3 Agon review with zero
+    verified or needs-check findings on 2026-07-13
+    (`review-1783937376907-jxblxa-m3-13-terminal`).
+  - [ ] M3.14 legacy-free shared evaluator boundary: split runtime-only
+    branch/for/if/while and portable scalar evaluator leaves so the stable
+    effect-machine import closure no longer instantiates
+    `reference-runner.ts`. M3.13 already severs legacy `try.ts` and keeps the
+    new try executor itself legacy-free; M3.14 closes the older helper debt
+    before public runtime ABI promotion.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

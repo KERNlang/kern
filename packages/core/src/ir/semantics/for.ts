@@ -40,6 +40,10 @@ function asForProps(ir: IRNode): ForProps {
 }
 
 export function forPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
+  return forShapePreconditions(ir);
+}
+
+export function forShapePreconditions(ir: IRNode): boolean {
   const p = asForProps(ir);
   if (typeof p.name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(p.name)) return false;
   if (p.from === undefined || p.from === '') return false;

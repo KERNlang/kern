@@ -7,6 +7,7 @@ import {
   makeEnv,
   type SemanticEnv,
 } from '../ir/semantics/index.js';
+import { installInternalRuntimeCapabilityInterceptor } from '../ir/semantics/internal-capability-interceptor.js';
 import { recordArrayFieldsFromValue } from '../ir/semantics/let.js';
 import { isPortableBindingName } from '../ir/semantics/portable-scalar.js';
 import type { IRNode } from '../types.js';
@@ -106,7 +107,11 @@ function validatedArguments(
   }
 }
 
-function handlerEnvironment(validated: ValidatedArguments, host: SemanticEnv): SemanticEnv {
+function handlerEnvironment(
+  validated: ValidatedArguments,
+  host: SemanticEnv,
+  options: InternalRuntimeEnvelopeOptions | undefined,
+): SemanticEnv {
   const env = makeEnv({
     bindings: new Map(),
     capabilities: host.capabilities,
@@ -116,6 +121,10 @@ function handlerEnvironment(validated: ValidatedArguments, host: SemanticEnv): S
     runnerCallStack: [],
     seed: host.seed,
   });
+  const interceptor = options?.capabilityInterceptor;
+  if (interceptor) {
+    installInternalRuntimeCapabilityInterceptor(env, interceptor);
+  }
   for (const [index, name] of validated.names.entries()) {
     const argument = validated.values[index];
     if (!argument) throw new Error(`argument ${index} was not normalized`);
@@ -138,7 +147,7 @@ function preparedEnvironment(
   const validated = validatedArguments(entry, args, options);
   if ('format' in validated) return validated;
   try {
-    return handlerEnvironment(validated, host);
+    return handlerEnvironment(validated, host, options);
   } catch (error) {
     return normalizeInternalRuntimeFailure(error);
   }

@@ -42,7 +42,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kir-coverage-closure | Structural KIR coverage witness closure | current | `pnpm test:kern-kir-coverage-closure` |
 | kir-evidence | Diagnostic and UTF-8 location evidence | current | `pnpm test:kern-kir-evidence` |
 | kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | current | `pnpm test:kern-alpha-receipt` |
-| internal-runtime-envelope | Internal runtime envelope, handler entry, and source link | current | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-envelope | Internal runtime envelope, handler entry, source link, capability seam, scheduler control, and private effect machine | current | `pnpm test:kern-runtime-envelope` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
 | runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
@@ -83,6 +83,16 @@ wall and must remain absent until promoted.
 | internal-runtime-envelope | Default-off transactional runtime envelope | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-handler-entry | Typed current-domain handler entry | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-source-handler-link | Bounded source handler identity and link | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-capability-seam | Default-off capability interception seam | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-scheduler-control | Default-off cancellation and timeout control | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine | Private sync and async effect-machine convergence | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-if | Private effect-machine if and else frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-branch | Private effect-machine branch frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-while | Private effect-machine while frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-for | Private effect-machine counted for frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-each-array | Private effect-machine array each frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-architecture | Private effect-machine architecture boundary | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-try | Private effect-machine try, catch, and finally frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |

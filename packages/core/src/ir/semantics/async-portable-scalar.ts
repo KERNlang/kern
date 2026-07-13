@@ -1,4 +1,4 @@
-import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
+import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-catalog.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   getBinding,

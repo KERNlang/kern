@@ -1,12 +1,10 @@
 import { parseExpression } from '../../parser-expression.js';
 import {
   assertRuntimeCapabilityValue,
-  invokeRunnerCapability,
-  invokeRunnerCapabilityAsync,
   type KernRunnerAsyncCapabilities,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
-import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES, CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
+import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES } from '../../runner-capability-plan.js';
 import type { IRNode } from '../../types.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
@@ -16,6 +14,7 @@ import {
 } from './async-portable-scalar.js';
 import { branchPreconditions, selectBranchPath } from './branch.js';
 import { isCapabilityToken } from './capability.js';
+import { isAsyncPlannedCapabilityNode } from './capability-lane.js';
 import { eachPreconditions, eachRuntimeSteps } from './each.js';
 import { forPreconditions, forRuntimeRange } from './for.js';
 import {
@@ -33,6 +32,10 @@ import {
   markRepeatableLoopBody,
   type SemanticEnv,
 } from './index.js';
+import {
+  invokeInternalRuntimeCapabilityAsync,
+  invokeInternalRuntimeSyncCapabilityAsync,
+} from './internal-capability-interceptor.js';
 import { recordArrayFieldsFromValue } from './let.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
@@ -55,7 +58,7 @@ import {
 } from './portable-scalar.js';
 import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
-import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try.js';
+import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 import { WHILE_MAX_ITERATIONS } from './while.js';
 
 export interface AsyncReferenceRunnerOptions {
@@ -590,10 +593,10 @@ async function asyncCapabilityEffects(
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
-  const rawResult = await invokeRunnerCapabilityAsync(
+  const rawResult = await invokeInternalRuntimeCapabilityAsync(
+    env,
     options.asyncCapabilities,
     { namespace, operation, input },
-    env.capabilityContext,
     { timeoutMs: options.capabilityTimeoutMs },
   );
   const result =
@@ -638,7 +641,7 @@ async function asyncSyncCapabilityEffects(
   } catch {
     throw new ReferenceRunnerError(`Preconditions failed for node type "${ir.type}".`, ir);
   }
-  const result = invokeRunnerCapability(env.capabilities, { namespace, operation, input }, env.capabilityContext);
+  const result = await invokeInternalRuntimeSyncCapabilityAsync(env, { namespace, operation, input });
   const events: Trace['events'] = [{ op: 'capability', namespace, operation, input, result }];
   if (name !== undefined && name !== '') {
     if (result === undefined) {
@@ -883,16 +886,6 @@ function unsupportedAsyncContainer(root: IRNode): IRNode | undefined {
 
 function unsupportedAsyncContainerInSequence(nodes: readonly IRNode[]): IRNode | undefined {
   return unsupportedAsyncContainer({ type: '__block', children: [...nodes] });
-}
-
-function isAsyncPlannedCapabilityNode(node: IRNode): boolean {
-  const namespace = node.props?.namespace;
-  const operation = node.props?.operation;
-  if (typeof namespace !== 'string' || typeof operation !== 'string') return false;
-  return (
-    CAPABILITY_DESCRIPTORS[`${namespace}.${operation}` as keyof typeof CAPABILITY_DESCRIPTORS]?.syncBoundary ===
-    'async-planned'
-  );
 }
 
 function isElseNode(value: unknown): value is IRNode {

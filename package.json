@@ -49,7 +49,7 @@
     "test:kern-kir-coverage-closure": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/coverage-ledger.test.mjs && node ./scripts/check-kir-coverage-closure.mjs",
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
-    "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns=runtime-envelope && node ./scripts/check-runtime-envelope.mjs",
+    "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns=runtime-envelope && node --test ./scripts/runtime-envelope-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "build:kern-alpha-receipt": "node ./scripts/kir-v1/alpha-receipt.mjs",
     "test:infra": "pnpm test:prepush && pnpm test:release-policy && pnpm test:kern-5-fitness && pnpm test:kern-semantic-ownership && pnpm test:kern-ir-eligibility && pnpm test:kern-canonical-value && pnpm test:kern-kir-structural-constitution && pnpm test:kern-kir-structural-codec && pnpm test:kern-kir-module-graph && pnpm test:kern-kir-coverage-closure && pnpm test:kern-kir-evidence && pnpm test:kern-alpha-receipt && pnpm test:kern-runtime-envelope",
     "fitness": "pnpm fitness:kern-5",

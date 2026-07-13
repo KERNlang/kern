@@ -15,7 +15,8 @@
 
 import { kernValueToCoreFixtureValue } from '../../core-runtime/contract-adapter.js';
 import { createCoreRuntimeEnv, evalCoreExpression, type KernValue } from '../../core-runtime/index.js';
-import { makeEnv, ReferenceRunnerError, referenceRun } from './index.js';
+import { makeEnv } from './index.js';
+import { ReferenceRunnerError, referenceRun } from './reference-runner.js';
 import type { Trace } from './trace.js';
 
 /** Result of observing one engine. `value` is present only when `ok === true`. */

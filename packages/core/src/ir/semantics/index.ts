@@ -483,8 +483,6 @@ export {
 // what lets the standalone runner entry (`@kernlang/core/runner`) stay typescript-
 // free. The harness lives in the sibling `./testing.js` barrel; the anti-rot guard
 // `tests/runner-entry-import-graph.test.ts` pins the runner closure to zero TS.
-export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './reference-runner.js';
-export { registerAllContracts } from './register-all.js';
 export type {
   CanonicalError,
   CompletionKind,

@@ -2,18 +2,16 @@ import { asyncReferenceRunSequence } from './ir/semantics/async-reference-runner
 import {
   CONTRACT_REGISTRY,
   makeEnv,
-  ReferenceRunnerError,
   type RunnerClassBinding,
   type RunnerClassFieldBinding,
   type RunnerClassMemberBinding,
   type RunnerFunctionBinding,
   type RunnerModuleScope,
-  referenceRunSequence,
-  registerAllContracts,
   type SemanticEnv,
 } from './ir/semantics/index.js';
 import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
-import { resetAllContractRegistration } from './ir/semantics/register-all.js';
+import { ReferenceRunnerError, referenceRunSequence } from './ir/semantics/reference-runner.js';
+import { registerAllContracts, resetAllContractRegistration } from './ir/semantics/register-all.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { parseExpression } from './parser-expression.js';
@@ -1359,11 +1357,10 @@ export {
   deepEqual,
   emptyTrace,
   eventsEqual,
-  ReferenceRunnerError,
-  referenceRun,
   registerContract,
   tracesEqual,
 } from './ir/semantics/index.js';
+export { ReferenceRunnerError, referenceRun } from './ir/semantics/reference-runner.js';
 export type { ParseExpressionOptions } from './parser-expression.js';
 // ── Lazy expression parsing — the runner parses string-valued IR expression
 //    props at eval time. `parseExpression` is already typescript-free (it imports
