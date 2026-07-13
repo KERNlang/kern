@@ -2,7 +2,8 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { isParenthesized, isValueIR } from '../../value-ir.js';
 import { getBinding, hasBinding, recordArrayFieldsForBinding, type SemanticEnv } from './index.js';
-import { evalRecordArrayFieldReferenceValue, isPortableScalar } from './portable-scalar.js';
+import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
+import { isPortableScalar } from './portable-scalar-domain.js';
 
 export type EachShape = 'array' | 'array-indexed' | 'pair-sync' | 'pair-async' | 'entry-key' | 'entry-value';
 

@@ -72,6 +72,9 @@ describe('private internal effect machine', () => {
     expect(
       isInternalEffectMachineEligible(unifiedNodes, makeEnv({ runnerFunctions: new Map([['f', {} as never]]) })),
     ).toBe(false);
+    expect(
+      isInternalEffectMachineEligible(unifiedNodes, makeEnv({ runnerClasses: new Map([['C', {} as never]]) })),
+    ).toBe(false);
   });
 
   test('routes root try through the unified effect machine', () => {
@@ -116,6 +119,36 @@ describe('private internal effect machine', () => {
       },
       { op: 'stdout', text: 'world' },
     ]);
+  });
+
+  test('evaluates structured capability input through the machine-safe scalar core', () => {
+    const seen: unknown[] = [];
+    const trace = runInternalEffectMachineSync(
+      [
+        {
+          type: 'capability',
+          props: {
+            input: '{ prompt: Text.slice("hello", 0, 2), values: [1, true, null], meta: { ok: true } }',
+            name: 'answer',
+            namespace: 'llm',
+            operation: 'complete',
+          },
+        },
+        { type: 'return', props: { value: 'answer' } },
+      ],
+      makeEnv({
+        capabilities: {
+          llm: {
+            complete: ({ input }) => {
+              seen.push(input);
+              return 'ok';
+            },
+          },
+        },
+      }),
+    );
+    expect(seen[0]).toMatchObject({ prompt: 'he', values: [1, true, null], meta: { ok: true } });
+    expect(trace.completion).toEqual({ kind: 'return', value: 'ok' });
   });
 
   test('both envelope lanes route the unified corpus and preserve transactional bytes', async () => {

@@ -1,13 +1,13 @@
 import type { IRNode } from '../../types.js';
-import { branchPreconditions, selectBranchPath } from './branch.js';
+import { branchPreconditions, selectBranchPath } from './branch-runtime.js';
 import {
   type PreparedInternalCapabilityEffect,
-  prepareInternalCapabilityEffect,
+  prepareInternalCapabilityEffectWithEvaluator,
   resumeInternalCapabilityEffect,
-} from './capability.js';
+} from './capability-runtime.js';
 import { iterateEachRuntimeSteps } from './each-runtime.js';
-import { forRuntimeRange } from './for.js';
-import { evaluateIfCondition } from './if.js';
+import { forRuntimeRange } from './for-runtime.js';
+import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
 import {
   CONTRACT_REGISTRY,
   childEnv,
@@ -25,8 +25,9 @@ import {
   type InternalEffectMachineState,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
+import { evalPortableValue as evalMachinePortableValue } from './portable-machine-evaluator.js';
 import { emptyTrace, type Trace } from './trace.js';
-import { evaluateWhileCondition, WHILE_MAX_ITERATIONS } from './while.js';
+import { evaluateWhileConditionWithEvaluator, WHILE_MAX_ITERATIONS } from './while-runtime.js';
 
 function runRegisteredNode(node: IRNode, env: SemanticEnv): Trace {
   const contract = CONTRACT_REGISTRY.get(node.type);
@@ -38,7 +39,7 @@ function runRegisteredNode(node: IRNode, env: SemanticEnv): Trace {
 
 function prepareCapability(node: IRNode, env: SemanticEnv): PreparedInternalCapabilityEffect {
   try {
-    return prepareInternalCapabilityEffect(node, env);
+    return prepareInternalCapabilityEffectWithEvaluator(node, env, evalMachinePortableValue);
   } catch {
     throw new InternalEffectMachineError('effect machine rejected capability node', node);
   }
@@ -69,7 +70,9 @@ function* runIf(
 ): InternalEffectMachineGenerator {
   let selected: readonly IRNode[];
   try {
-    selected = evaluateIfCondition(node, env) ? (node.children ?? []) : (elseNode?.children ?? []);
+    selected = evaluateIfConditionWithEvaluator(node, env, evalMachinePortableValue)
+      ? (node.children ?? [])
+      : (elseNode?.children ?? []);
   } catch {
     throw new InternalEffectMachineError('effect machine rejected if node', node);
   }
@@ -90,7 +93,7 @@ function selectMachineBranch(node: IRNode, env: SemanticEnv): IRNode | undefined
 
 function evaluateMachineWhileCondition(node: IRNode, env: SemanticEnv): boolean {
   try {
-    return evaluateWhileCondition(node, env);
+    return evaluateWhileConditionWithEvaluator(node, env, evalMachinePortableValue);
   } catch {
     throw new InternalEffectMachineError('effect machine rejected while node', node);
   }

@@ -18,7 +18,8 @@
  */
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
-import { evalPortableValue, type PortableScalar } from './portable-scalar.js';
+import type { EvalPortableValue } from './portable-eval-types.js';
+import type { PortableScalar } from './portable-scalar-domain.js';
 
 export type PortableArrayElement = PortableScalar | ReadonlyArray<PortableArrayElement>;
 
@@ -37,12 +38,17 @@ interface EvalArrayLiteralOptions {
   readonly allowFiniteNumericLiterals?: boolean;
 }
 
-function evalArrayLiteralItem(item: unknown, env: SemanticEnv, options: EvalArrayLiteralOptions): PortableArrayElement {
+function evalArrayLiteralItem(
+  item: unknown,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+  options: EvalArrayLiteralOptions,
+): PortableArrayElement {
   if (!isValueIR(item)) {
     throw new Error('portable-array: array literal items must be value IR nodes');
   }
   const node: ValueIR = item;
-  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env, options);
+  if (node.kind === 'arrayLit') return evalArrayLiteralValue(node, env, evaluate, options);
   if (
     node.kind === 'numLit' &&
     !isCanonicalSafeIntegerLiteral(node) &&
@@ -53,7 +59,7 @@ function evalArrayLiteralItem(item: unknown, env: SemanticEnv, options: EvalArra
   if (node.kind !== 'numLit' && node.kind !== 'strLit' && node.kind !== 'boolLit' && node.kind !== 'nullLit') {
     throw new Error('portable-array: elements must be literal scalars or nested array literals');
   }
-  const value = evalPortableValue(node, env);
+  const value = evaluate(node, env);
   if (typeof value === 'number' && !Number.isSafeInteger(value) && options.allowFiniteNumericLiterals !== true) {
     throw new Error('portable-array: numeric elements must evaluate to safe integers');
   }
@@ -66,6 +72,7 @@ function evalArrayLiteralItem(item: unknown, env: SemanticEnv, options: EvalArra
 export function evalArrayLiteralValue(
   node: ValueIR,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
   options: EvalArrayLiteralOptions = {},
 ): ReadonlyArray<PortableArrayElement> {
   if (node.kind !== 'arrayLit') {
@@ -79,7 +86,7 @@ export function evalArrayLiteralValue(
     if (!(index in node.items)) {
       throw new Error('portable-array: array literal items must not contain sparse holes');
     }
-    items.push(evalArrayLiteralItem(node.items[index], env, options));
+    items.push(evalArrayLiteralItem(node.items[index], env, evaluate, options));
   }
   return Object.freeze(items);
 }

@@ -1,7 +1,7 @@
 import type { IRNode } from '../../types.js';
-import { branchShapePreconditions } from './branch.js';
+import { branchShapePreconditions } from './branch-runtime.js';
 import { isInternalEffectMachineArrayEach } from './each-runtime.js';
-import { forShapePreconditions } from './for.js';
+import { forShapePreconditions } from './for-runtime.js';
 import type { SemanticEnv } from './index.js';
 import { hasNoBody, InternalEffectMachineError, isUnifiedNodeType } from './internal-effect-machine-types.js';
 import type { CompletionKind } from './trace.js';
