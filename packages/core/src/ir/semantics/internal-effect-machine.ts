@@ -7,8 +7,9 @@ import {
   resumeInternalCapabilityEffect,
 } from './capability.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
+import { forRuntimeRange, forShapePreconditions } from './for.js';
 import { evaluateIfCondition } from './if.js';
-import { CONTRACT_REGISTRY, childEnv, markRepeatableLoopBody, type SemanticEnv } from './index.js';
+import { CONTRACT_REGISTRY, childEnv, defineIntBinding, markRepeatableLoopBody, type SemanticEnv } from './index.js';
 import {
   invokeInternalRuntimeCapabilityAsync,
   invokeInternalRuntimeCapabilitySync,
@@ -29,7 +30,7 @@ export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   each: 'legacy',
   'expression-v1': 'legacy',
   fmt: 'unified',
-  for: 'legacy',
+  for: 'unified',
   if: 'unified',
   lambda: 'legacy',
   let: 'unified',
@@ -49,12 +50,21 @@ type UnifiedNodeType = {
 export interface InternalEffectMachineAsyncOptions {
   readonly asyncCapabilities?: KernRunnerAsyncCapabilities;
   readonly capabilityTimeoutMs?: number;
+  readonly iterationBudget?: number;
+}
+
+export interface InternalEffectMachineSyncOptions {
+  readonly iterationBudget?: number;
 }
 
 interface InternalCapabilityEffectRequest {
   readonly format: typeof INTERNAL_EFFECT_MACHINE_FORMAT;
   readonly kind: 'capability';
   readonly prepared: PreparedInternalCapabilityEffect;
+}
+
+interface InternalEffectMachineState {
+  remainingIterations: number | undefined;
 }
 
 export class InternalEffectMachineError extends Error {
@@ -94,7 +104,7 @@ export function isInternalEffectMachineEligible(nodes: readonly IRNode[], env: S
 function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node.type === 'branch' || node.type === 'while') continue;
+    if (node.type === 'branch' || node.type === 'for' || node.type === 'while') continue;
     if (node.type === 'if') {
       if (nodes[index + 1]?.type === 'else') index += 1;
       continue;
@@ -135,10 +145,21 @@ function appendTrace(out: Trace, next: Trace): boolean {
   return true;
 }
 
+function consumeIterationBudget(state: InternalEffectMachineState, node: IRNode): void {
+  if (state.remainingIterations === undefined) {
+    throw new InternalEffectMachineError('effect machine loop requires an iteration budget', node);
+  }
+  if (state.remainingIterations <= 0) {
+    throw new InternalEffectMachineError('effect machine iteration budget exhausted', node);
+  }
+  state.remainingIterations -= 1;
+}
+
 function* runIf(
   node: IRNode,
   elseNode: IRNode | undefined,
   env: SemanticEnv,
+  state: InternalEffectMachineState,
 ): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
   let selected: readonly IRNode[];
   try {
@@ -146,7 +167,7 @@ function* runIf(
   } catch {
     throw new InternalEffectMachineError('effect machine rejected if node', node);
   }
-  return yield* runSequence(selected, env);
+  return yield* runSequence(selected, env, state);
 }
 
 function selectMachineBranch(node: IRNode, env: SemanticEnv): IRNode | undefined {
@@ -191,6 +212,13 @@ function assertMachineStructureSupported(nodes: readonly IRNode[], loopDepth = 0
       assertBranchFrameSupported(node, loopDepth);
       continue;
     }
+    if (node.type === 'for') {
+      if (!forShapePreconditions(node)) {
+        throw new InternalEffectMachineError('effect machine rejected for node', node);
+      }
+      assertMachineStructureSupported(node.children ?? [], loopDepth + 1);
+      continue;
+    }
     if (node.type === 'while') {
       if (typeof node.props?.cond !== 'string' || node.props.cond.trim() === '' || !Array.isArray(node.children)) {
         throw new InternalEffectMachineError('effect machine rejected while node', node);
@@ -218,13 +246,48 @@ function evaluateMachineWhileCondition(node: IRNode, env: SemanticEnv): boolean 
   }
 }
 
+function machineForRange(node: IRNode, env: SemanticEnv) {
+  try {
+    return forRuntimeRange(node, env);
+  } catch {
+    throw new InternalEffectMachineError('effect machine rejected for node', node);
+  }
+}
+
+function* runFor(
+  node: IRNode,
+  env: SemanticEnv,
+  state: InternalEffectMachineState,
+): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
+  const { name, from, to, step, children } = machineForRange(node, env);
+  const out = emptyTrace();
+  for (let value = from; step > 0 ? value < to : value > to; value += step) {
+    consumeIterationBudget(state, node);
+    out.events.push({ binding: name, op: 'iter-next', value });
+    const iterationEnv = childEnv(env);
+    markRepeatableLoopBody(iterationEnv);
+    defineIntBinding(iterationEnv, name, value);
+    const next = yield* runSequence(children, iterationEnv, state);
+    out.events.push(...next.events);
+    if (next.completion.kind === 'break') return out;
+    if (next.completion.kind === 'continue') continue;
+    if (next.completion.kind === 'return' || next.completion.kind === 'throw') {
+      out.completion = next.completion;
+      return out;
+    }
+  }
+  return out;
+}
+
 function* runWhile(
   node: IRNode,
   env: SemanticEnv,
+  state: InternalEffectMachineState,
 ): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
   const out = emptyTrace();
   let iterations = 0;
   while (evaluateMachineWhileCondition(node, env)) {
+    consumeIterationBudget(state, node);
     if (iterations >= WHILE_MAX_ITERATIONS) {
       throw new InternalEffectMachineError(
         `while: exceeded ${WHILE_MAX_ITERATIONS} iterations — non-terminating fixture`,
@@ -234,7 +297,7 @@ function* runWhile(
     iterations += 1;
     const iterationEnv = childEnv(env);
     markRepeatableLoopBody(iterationEnv);
-    const next = yield* runSequence(node.children ?? [], iterationEnv);
+    const next = yield* runSequence(node.children ?? [], iterationEnv, state);
     out.events.push(...next.events);
     if (next.completion.kind === 'break') return out;
     if (next.completion.kind === 'continue') continue;
@@ -249,16 +312,18 @@ function* runWhile(
 function* runBranch(
   node: IRNode,
   env: SemanticEnv,
+  state: InternalEffectMachineState,
 ): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
   const selected = selectMachineBranch(node, env);
   if (!selected) return emptyTrace();
   const branchEnv = childEnv(env);
-  return yield* runSequence(selected.children ?? [], branchEnv);
+  return yield* runSequence(selected.children ?? [], branchEnv, state);
 }
 
 function* runSequence(
   nodes: readonly IRNode[],
   env: SemanticEnv,
+  state: InternalEffectMachineState,
 ): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
   const out = emptyTrace();
   for (let index = 0; index < nodes.length; index += 1) {
@@ -272,11 +337,13 @@ function* runSequence(
     }
     let next: Trace;
     if (node.type === 'if') {
-      next = yield* runIf(node, elseNode, env);
+      next = yield* runIf(node, elseNode, env, state);
     } else if (node.type === 'branch') {
-      next = yield* runBranch(node, env);
+      next = yield* runBranch(node, env, state);
+    } else if (node.type === 'for') {
+      next = yield* runFor(node, env, state);
     } else if (node.type === 'while') {
-      next = yield* runWhile(node, env);
+      next = yield* runWhile(node, env, state);
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     } else if (node.type === 'capability') {
@@ -298,6 +365,7 @@ function* runSequence(
 function* runMachine(
   nodes: readonly IRNode[],
   env: SemanticEnv,
+  state: InternalEffectMachineState,
 ): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
   if (!isInternalEffectMachineEligible(nodes, env)) {
     throw new InternalEffectMachineError(
@@ -306,11 +374,15 @@ function* runMachine(
     );
   }
   assertMachineStructureSupported(nodes);
-  return yield* runSequence(nodes, env);
+  return yield* runSequence(nodes, env, state);
 }
 
-export function runInternalEffectMachineSync(nodes: readonly IRNode[], env: SemanticEnv): Trace {
-  const machine = runMachine(nodes, env);
+export function runInternalEffectMachineSync(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  options: InternalEffectMachineSyncOptions = {},
+): Trace {
+  const machine = runMachine(nodes, env, { remainingIterations: options.iterationBudget });
   let step = machine.next();
   while (!step.done) {
     const result = invokeInternalRuntimeCapabilitySync(env, step.value.prepared.call);
@@ -324,7 +396,7 @@ export async function runInternalEffectMachineAsync(
   env: SemanticEnv,
   options: InternalEffectMachineAsyncOptions = {},
 ): Promise<Trace> {
-  const machine = runMachine(nodes, env);
+  const machine = runMachine(nodes, env, { remainingIterations: options.iterationBudget });
   let step = machine.next();
   while (!step.done) {
     const call = step.value.prepared.call;

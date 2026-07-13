@@ -258,6 +258,15 @@ trusted-publishing/provenance configuration is inspected.
     and terminal 3/3 Agon review passed with zero findings on 2026-07-13; nested
     loop control, repeated capability parity, fresh scope, and pre-effect
     structural closure are regression-covered.
+  - [x] M3.10 private effect-machine counted `for` frames: evaluated-once safe
+    integer ranges execute with half-open positive/negative steps, canonical
+    iteration events, fresh integer-provenanced bindings, resumable capability
+    effects, consumed loop control, and propagated abrupt completions. `each`,
+    try/unwind, linking, value symmetry, and public ABI promotion remain
+    deferred. The full fitness wall and terminal 3/3 Agon review passed with
+    zero findings on 2026-07-13; range direction, evaluated-once bounds, fresh
+    induction scope, repeated capability parity, loop control, and pre-effect
+    structural closure are regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

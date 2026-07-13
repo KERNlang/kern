@@ -12,6 +12,8 @@ import type { IRNode } from '../types.js';
 
 export type { AsyncReferenceRunnerOptions } from '../ir/semantics/async-reference-runner.js';
 
+export type InternalRuntimeEngineOptions = AsyncReferenceRunnerOptions & { readonly iterationBudget?: number };
+
 export type InternalRuntimeEngineDisposition = typeof INTERNAL_EFFECT_MACHINE_FORMAT | 'legacy';
 
 export function selectInternalRuntimeEngine(
@@ -21,16 +23,20 @@ export function selectInternalRuntimeEngine(
   return isInternalEffectMachineEligible(nodes, env) ? INTERNAL_EFFECT_MACHINE_FORMAT : 'legacy';
 }
 
-export function runInternalRuntimeEngineSync(nodes: readonly IRNode[], env: SemanticEnv): Trace {
+export function runInternalRuntimeEngineSync(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  iterationBudget?: number,
+): Trace {
   return selectInternalRuntimeEngine(nodes, env) === INTERNAL_EFFECT_MACHINE_FORMAT
-    ? runInternalEffectMachineSync(nodes, env)
+    ? runInternalEffectMachineSync(nodes, env, { iterationBudget })
     : referenceRunSequence(nodes, env);
 }
 
 export async function runInternalRuntimeEngineAsync(
   nodes: readonly IRNode[],
   env: SemanticEnv,
-  options: AsyncReferenceRunnerOptions,
+  options: InternalRuntimeEngineOptions,
 ): Promise<Trace> {
   return selectInternalRuntimeEngine(nodes, env) === INTERNAL_EFFECT_MACHINE_FORMAT
     ? runInternalEffectMachineAsync(nodes, env, options)

@@ -47,7 +47,7 @@ describe('private internal effect machine', () => {
       each: 'legacy',
       'expression-v1': 'legacy',
       fmt: 'unified',
-      for: 'legacy',
+      for: 'unified',
       if: 'unified',
       lambda: 'legacy',
       let: 'unified',
