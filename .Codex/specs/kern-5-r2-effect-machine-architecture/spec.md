@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.12 Private Effect-Machine Architecture Boundary
 
-**Status:** IN REVIEW
+**Status:** COMPLETE
 **Date:** 2026-07-13
 **Confidence:** 0.94
 
@@ -59,6 +59,10 @@ create a forbidden continuation bridge into a legacy runner.
 | File size | every handwritten source remains below 500 lines; driver target below 300 | repository rule and current 464-line pressure | VERIFIED |
 | Dependency direction | driver -> sequence/structure/types; sequence -> types/semantic leaves; structure -> types/shape leaves; types -> leaf types only | tribunal + brainstorm design | VERIFIED |
 | Future unwind | M3.13 manifest is live, unique, complete, and records either root legacy routing or nested machine-preflight rejection | M3.12 acceptance below | PLANNED |
+
+The manifest's current evidence is explicitly routing-only. It does not claim
+or duplicate current legacy completion semantics; M3.13 owns the executable
+semantic acceptance named by each future case.
 
 ## Selected Design
 
@@ -175,9 +179,9 @@ failing tests. M3.13 will turn one manifest case at a time RED and then green.
   500 lines.
 - [x] The M3.13 manifest is live, categorized, unique, skip-free, and all cases
   match their current legacy or machine-preflight-reject disposition.
-- [ ] Focused architecture/runtime-envelope tests and `pnpm fitness:kern-5`
+- [x] Focused architecture/runtime-envelope tests and `pnpm fitness:kern-5`
   pass.
-- [ ] Terminal `agon review` with `claude,codex,agy` passes.
+- [x] Terminal `agon review` with `claude,codex,agy` passes.
 
 ## Out of Scope
 
@@ -199,3 +203,15 @@ runtime format, disposition, public export, or semantic result changes.
 | Own finally-only first. | A single try node cannot cross between machine and legacy runners without a forbidden continuation bridge. | Keep all try shapes legacy until full ownership. |
 | Extract and implement full try in one milestone. | The extraction is mandatory and independently risky; combining it with unwind weakens the rollback boundary. | M3.12 extracts; M3.13 owns the full existing portable contract. |
 | Ship failing RED tests or unrelated linking/value work. | Release branches require green gates, and unrelated behavior dilutes the architecture slice. | Use green architecture/routing tests plus a live future-contract manifest. |
+| The first dependency guard checked `internal-effect-machine.ts`. | TypeScript sources in this package import emitted `.js` specifiers, so a forbidden driver edge could bypass the guard. | Guard and regression now bind `internal-effect-machine.js`. |
+| The first manifest named all three loop placements but omitted `try` inside `while`. | `loop-in-try` does not prove `try-in-loop`, and route selection alone does not prove pre-effect rejection. | Add all three try-in-loop fixtures with leading capabilities and assert failure with zero provider calls and trace events. |
+
+## Completion Receipt
+
+- Focused gate: `pnpm test:kern-runtime-envelope` passed with 112 tests and
+  the family guard.
+- Full gate: `pnpm fitness:kern-5` passed on 2026-07-13 after the terminal
+  review fixes.
+- Terminal review:
+  `/Users/nicolascukas/.agon/runs/review-1783931915739-1yh0lk-kern5-m3-12-review-fixes`
+  completed 3/3 with zero findings.

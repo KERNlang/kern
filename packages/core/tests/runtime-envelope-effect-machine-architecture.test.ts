@@ -9,6 +9,7 @@ import {
 import { INTERNAL_EFFECT_MACHINE_DISPOSITION } from '../src/ir/semantics/internal-effect-machine-types.js';
 
 const sourceDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../src/ir/semantics');
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('private effect-machine architecture boundary', () => {
   test('splits the stable driver from structure and sequence internals', () => {
@@ -19,5 +20,10 @@ describe('private effect-machine architecture boundary', () => {
 
     const driver = readFileSync(resolve(sourceDirectory, 'internal-effect-machine.ts'), 'utf8');
     expect(driver.trimEnd().split('\n').length).toBeLessThan(300);
+  });
+
+  test('guards the emitted JavaScript import specifier used by TypeScript sources', () => {
+    const guard = readFileSync(resolve(repositoryRoot, 'scripts/check-runtime-envelope.mjs'), 'utf8');
+    expect(guard).toContain("'internal-effect-machine.js'");
   });
 });

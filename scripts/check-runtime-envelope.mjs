@@ -139,17 +139,21 @@ for (const [path, source] of effectMachineSources) {
 if (effectMachine.trimEnd().split('\n').length >= 300) {
   fail('effect-machine stable driver must remain below 300 lines');
 }
-for (const forbidden of ['internal-effect-machine-sequence', 'internal-effect-machine.ts', 'runtime-envelope']) {
+for (const forbidden of ['internal-effect-machine-sequence', 'internal-effect-machine.js', 'runtime-envelope']) {
   if (effectMachineStructure.includes(forbidden)) {
     fail(`effect-machine structure imports forbidden dependency ${forbidden}`);
   }
 }
-for (const forbidden of ['internal-effect-machine.ts', 'runtime-envelope']) {
+for (const forbidden of ['internal-effect-machine.js', 'runtime-envelope']) {
   if (effectMachineSequence.includes(forbidden)) {
     fail(`effect-machine sequence imports forbidden dependency ${forbidden}`);
   }
 }
-for (const forbidden of ['internal-effect-machine-sequence', 'internal-effect-machine-structure', 'internal-effect-machine.ts']) {
+for (const forbidden of [
+  'internal-effect-machine-sequence',
+  'internal-effect-machine-structure',
+  'internal-effect-machine.js',
+]) {
   if (effectMachineTypes.includes(forbidden)) {
     fail(`effect-machine types import forbidden dependency ${forbidden}`);
   }

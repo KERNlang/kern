@@ -278,14 +278,16 @@ trusted-publishing/provenance configuration is inspected.
     findings; its single nit concerns unchanged, deferred legacy entry shapes.
     Review-discovered non-array diagnostics and pre-read budget containment are
     regression-covered.
-  - [ ] M3.12 private effect-machine architecture boundary: the monolithic
+  - [x] M3.12 private effect-machine architecture boundary: the monolithic
     machine is split into an 80-line stable driver, 80-line contract/type
     owner, 107-line structural preflight owner, and 230-line sequence/frame
     owner with a guarded acyclic dependency direction. Runtime behavior,
     stable internal imports, and `try: 'legacy'` remain unchanged. A live,
     skip-free M3.13 manifest records the complete portable unwind acceptance
-    surface. The focused runtime-envelope gate passes; full fitness and
-    terminal Agon review remain pending.
+    surface. The full KERN 5 fitness wall and terminal 3/3 Agon review passed
+    with zero findings on 2026-07-13. Review-discovered emitted-`.js`
+    dependency guarding, complete while/for/each try-in-loop coverage, and
+    pre-effect rejection evidence are regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

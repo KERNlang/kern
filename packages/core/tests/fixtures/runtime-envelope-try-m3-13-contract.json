@@ -1,5 +1,6 @@
 {
   "format": "kern.runtime.try-m3-13-contract.internal.r0",
+  "currentEvidence": "routing-only",
   "cases": [
     {
       "id": "preflight-body-before-capability",
@@ -16,7 +17,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "error-outside-portable-domain",
       "m3_13Acceptance": "Reject before provider calls or trace events."
     },
     {
@@ -33,7 +33,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "normal-when-provider-does-not-throw",
       "m3_13Acceptance": "Reject before provider calls even when catch would be unselected."
     },
     {
@@ -50,7 +49,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "error-outside-portable-domain",
       "m3_13Acceptance": "Reject before provider calls or trace events."
     },
     {
@@ -67,7 +65,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "normal",
       "m3_13Acceptance": "Catch observes the canonical error and no caught binding leaks."
     },
     {
@@ -84,7 +81,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "normal",
       "m3_13Acceptance": "Trace order is work then cleanup."
     },
     {
@@ -101,7 +97,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "return:7",
       "m3_13Acceptance": "Cleanup precedes propagation of return 7."
     },
     {
@@ -118,7 +113,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "throw:Error",
       "m3_13Acceptance": "Cleanup precedes propagation of the canonical throw."
     },
     {
@@ -136,7 +130,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "normal",
       "m3_13Acceptance": "Trace order is caught then cleanup."
     },
     {
@@ -153,7 +146,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "error-abrupt-finally",
       "m3_13Acceptance": "Reject cleanup return instead of replacing the body completion."
     },
     {
@@ -172,7 +164,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "normal",
       "m3_13Acceptance": "Sync and async raw traces are byte-identical in body, catch, and finally order."
     },
     {
@@ -184,10 +175,12 @@
         {
           "type": "for",
           "props": { "name": "index", "from": "0", "to": "1" },
-          "children": [{ "type": "try", "children": [{ "type": "print", "props": { "value": "index" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }]
+          "children": [
+            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
+            { "type": "try", "children": [{ "type": "print", "props": { "value": "index" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }
+          ]
         }
       ],
-      "expectedLegacyCompletion": "not-applicable",
       "m3_13Acceptance": "The nested try executes without leaving the machine."
     },
     {
@@ -199,10 +192,29 @@
         {
           "type": "each",
           "props": { "in": "items", "name": "item" },
-          "children": [{ "type": "try", "children": [{ "type": "print", "props": { "value": "item" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }]
+          "children": [
+            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
+            { "type": "try", "children": [{ "type": "print", "props": { "value": "item" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }
+          ]
         }
       ],
-      "expectedLegacyCompletion": "not-applicable",
+      "m3_13Acceptance": "The nested try executes without leaving the machine."
+    },
+    {
+      "id": "try-inside-while",
+      "category": "try-in-loop",
+      "description": "A try nested in a machine-owned while loop is structurally rejected until M3.13.",
+      "currentDisposition": "machine-preflight-reject",
+      "nodes": [
+        {
+          "type": "while",
+          "props": { "cond": "true" },
+          "children": [
+            { "type": "capability", "props": { "namespace": "storage", "operation": "get" } },
+            { "type": "try", "children": [{ "type": "print", "props": { "value": "\"work\"" } }, { "type": "finally", "children": [{ "type": "print", "props": { "value": "\"cleanup\"" } }] }] }
+          ]
+        }
+      ],
       "m3_13Acceptance": "The nested try executes without leaving the machine."
     },
     {
@@ -220,7 +232,6 @@
           ]
         }
       ],
-      "expectedLegacyCompletion": "normal",
       "m3_13Acceptance": "All nested loops share the caller budget and remain in the machine."
     }
   ]
