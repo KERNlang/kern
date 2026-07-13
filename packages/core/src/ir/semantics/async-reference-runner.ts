@@ -4,7 +4,7 @@ import {
   type KernRunnerAsyncCapabilities,
   type RuntimeCapabilityValue,
 } from '../../runner-capabilities.js';
-import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES, CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
+import { ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES } from '../../runner-capability-plan.js';
 import type { IRNode } from '../../types.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
@@ -14,6 +14,7 @@ import {
 } from './async-portable-scalar.js';
 import { branchPreconditions, selectBranchPath } from './branch.js';
 import { isCapabilityToken } from './capability.js';
+import { isAsyncPlannedCapabilityNode } from './capability-lane.js';
 import { eachPreconditions, eachRuntimeSteps } from './each.js';
 import { forPreconditions, forRuntimeRange } from './for.js';
 import {
@@ -885,16 +886,6 @@ function unsupportedAsyncContainer(root: IRNode): IRNode | undefined {
 
 function unsupportedAsyncContainerInSequence(nodes: readonly IRNode[]): IRNode | undefined {
   return unsupportedAsyncContainer({ type: '__block', children: [...nodes] });
-}
-
-function isAsyncPlannedCapabilityNode(node: IRNode): boolean {
-  const namespace = node.props?.namespace;
-  const operation = node.props?.operation;
-  if (typeof namespace !== 'string' || typeof operation !== 'string') return false;
-  return (
-    CAPABILITY_DESCRIPTORS[`${namespace}.${operation}` as keyof typeof CAPABILITY_DESCRIPTORS]?.syncBoundary ===
-    'async-planned'
-  );
 }
 
 function isElseNode(value: unknown): value is IRNode {

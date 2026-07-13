@@ -1,3 +1,4 @@
+import { InternalEffectMachineError } from '../ir/semantics/internal-effect-machine.js';
 import { ReferenceRunnerError } from '../ir/semantics/reference-runner.js';
 import type { Trace, TraceEvent } from '../ir/semantics/trace.js';
 import { KernCapabilityError } from '../runner-capabilities.js';
@@ -143,6 +144,7 @@ export function normalizeInternalRuntimeTrace(
 export function normalizeInternalRuntimeFailure(error: unknown): InternalRuntimeEnvelope {
   if (error instanceof InternalRuntimeSchedulerError) return internalRuntimeFailure(error.code);
   if (error instanceof KernCapabilityError) return internalRuntimeFailure('capability-error');
+  if (error instanceof InternalEffectMachineError) return internalRuntimeFailure('unsupported-runtime-input');
   if (error instanceof ReferenceRunnerError) return internalRuntimeFailure('unsupported-runtime-input');
   if (error instanceof InternalRuntimeEnvelopeError) {
     return internalRuntimeFailure(error.code === 'limit-exceeded' ? 'non-portable-value' : 'internal-runner-error');

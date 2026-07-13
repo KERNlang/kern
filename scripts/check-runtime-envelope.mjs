@@ -5,12 +5,16 @@ const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
 const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
+const EFFECT_MACHINE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine.ts');
+const ENVELOPE_EXECUTE = join(INTERNAL_DIRECTORY, 'execute.ts');
+const INTERNAL_ENGINE = join(INTERNAL_DIRECTORY, 'internal-engine.ts');
 const INTERNAL_SCHEDULER = join(INTERNAL_DIRECTORY, 'internal-scheduler.ts');
 const RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS = new Set([CAPABILITY_SEAM]);
 const CAPABILITY_SEAM_IMPORTERS = new Set([
   CAPABILITY_SEAM,
   join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts'),
   join(CORE_SOURCE, 'ir/semantics/capability.ts'),
+  EFFECT_MACHINE,
 ]);
 
 function fail(message) {
@@ -44,6 +48,27 @@ const internalScheduler = readFileSync(INTERNAL_SCHEDULER, 'utf8');
 for (const witness of ['execution-cancelled', 'execution-timeout', 'removeEventListener', 'clearTimeout']) {
   if (!internalScheduler.includes(witness)) fail(`internal scheduler is missing ${witness}`);
 }
+const effectMachine = readFileSync(EFFECT_MACHINE, 'utf8');
+if (!effectMachine.includes('kern.runtime.effect-machine.internal.r0')) {
+  fail('effect machine format must remain exact and internal');
+}
+for (const forbidden of ['referenceRun(', 'referenceRunSequence(', 'asyncReferenceRun(', 'asyncReferenceRunSequence(']) {
+  if (effectMachine.includes(forbidden)) fail(`effect machine must not call legacy runner ${forbidden}`);
+}
+for (const witness of ['INTERNAL_EFFECT_MACHINE_DISPOSITION', "kind: 'capability'", 'yield Object.freeze']) {
+  if (!effectMachine.includes(witness)) fail(`effect machine is missing ${witness}`);
+}
+const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
+for (const witness of ['runInternalRuntimeEngineSync', 'runInternalRuntimeEngineAsync']) {
+  if (!envelopeExecute.includes(witness)) fail(`envelope execution is missing ${witness}`);
+}
+for (const forbidden of ['referenceRunSequence', 'asyncReferenceRunSequence']) {
+  if (envelopeExecute.includes(forbidden)) fail(`envelope execution bypasses the internal engine via ${forbidden}`);
+}
+const internalEngine = readFileSync(INTERNAL_ENGINE, 'utf8');
+for (const witness of ['selectInternalRuntimeEngine', 'runInternalEffectMachineSync', 'runInternalEffectMachineAsync']) {
+  if (!internalEngine.includes(witness)) fail(`internal engine is missing ${witness}`);
+}
 
 const corePackage = JSON.parse(readFileSync(join(ROOT, 'packages/core/package.json'), 'utf8'));
 for (const [name, target] of Object.entries(corePackage.exports ?? {})) {
@@ -69,6 +94,10 @@ if (capabilityOwnership?.status !== 'internal-oracle') {
 const schedulerOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-scheduler-control');
 if (schedulerOwnership?.status !== 'internal-oracle') {
   fail('internal runtime scheduler control must remain an internal oracle');
+}
+const effectMachineOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-effect-machine');
+if (effectMachineOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime effect machine must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));

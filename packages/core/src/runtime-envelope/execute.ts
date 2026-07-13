@@ -1,8 +1,11 @@
-import { type AsyncReferenceRunnerOptions, asyncReferenceRunSequence } from '../ir/semantics/async-reference-runner.js';
 import type { SemanticEnv } from '../ir/semantics/index.js';
-import { referenceRunSequence } from '../ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../ir/semantics/register-all.js';
 import type { IRNode } from '../types.js';
+import {
+  type AsyncReferenceRunnerOptions,
+  runInternalRuntimeEngineAsync,
+  runInternalRuntimeEngineSync,
+} from './internal-engine.js';
 import {
   installInternalRuntimeScheduler,
   throwIfInternalRuntimeSchedulerTerminated,
@@ -35,7 +38,7 @@ export function executeInternalRuntimeEnvelopeSync(
     disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
     throwIfInternalRuntimeSchedulerTerminated(env);
     registerAllContracts();
-    const trace = referenceRunSequence(nodes, env);
+    const trace = runInternalRuntimeEngineSync(nodes, env);
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {
@@ -57,7 +60,9 @@ export async function executeInternalRuntimeEnvelopeAsync(
     disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
     throwIfInternalRuntimeSchedulerTerminated(env);
     registerAllContracts();
-    const trace = await waitForInternalRuntimeScheduler(env, () => asyncReferenceRunSequence(nodes, env, asyncOptions));
+    const trace = await waitForInternalRuntimeScheduler(env, () =>
+      runInternalRuntimeEngineAsync(nodes, env, asyncOptions),
+    );
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {

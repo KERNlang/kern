@@ -148,7 +148,7 @@
     },
     {
       "id": "internal-runtime-envelope",
-      "label": "Internal runtime envelope, handler entry, source link, capability seam, and scheduler control",
+      "label": "Internal runtime envelope, handler entry, source link, capability seam, scheduler control, and private effect machine",
       "status": "current",
       "argv": ["pnpm", "test:kern-runtime-envelope"]
     },
@@ -331,6 +331,12 @@
     {
       "id": "internal-runtime-scheduler-control",
       "label": "Default-off cancellation and timeout control",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
+      "id": "internal-runtime-effect-machine",
+      "label": "Private sync and async effect-machine convergence",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-runtime-envelope"
     },

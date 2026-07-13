@@ -230,6 +230,12 @@ trusted-publishing/provenance configuration is inspected.
     linking, value symmetry, and public ABI promotion remain deferred. The full
     fitness wall and final 3/3 Agon review passed with zero verified findings on
     2026-07-13.
+  - [x] M3.6 private effect-machine convergence: one closed flat-statement
+    corpus routes sync and async internal envelope execution through a shared
+    resumable machine with explicit capability effects and raw-trace parity.
+    Control-flow expansion, legacy async-mirror removal, linking, value
+    symmetry, and public ABI promotion remain deferred. The full fitness wall
+    and final 3/3 Agon review passed with zero findings on 2026-07-13.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
