@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.8 Private Effect-Machine Branch Frames
 
-**Status:** IN PROGRESS
+**Status:** DONE
 **Date:** 2026-07-13
 **Confidence:** 0.97
 
@@ -104,13 +104,18 @@ the current bounded-root eligibility contract. They remain later slices.
 
 ## Completion Evidence
 
-- `pnpm test:kern-runtime-envelope`: 60 tests and containment passed.
+- `pnpm test:kern-runtime-envelope`: 64 tests and containment passed.
 - `pnpm fitness:kern-5`: full aggregate wall passed on 2026-07-13;
-  browser budget remained 75 modules and 290,674 gzip bytes.
+  browser budget remained 75 modules and 290,786 gzip bytes on exact commit
+  `64a5b6d7`.
 - Initial full-roster review:
   `/Users/nicolascukas/.agon/runs/review-1783907739191-hjqq5y-kern5-m3-8-effect-machine-branch`
   completed 3/3 with zero verified findings. Its sole needs-check claim that
   `.Codex/specs` must not be committed was disproven by the tracked spec history.
+- Exact-commit terminal review:
+  `/Users/nicolascukas/.agon/runs/review-1783914511885-qzvau1-kern5-m3-8-exact-commit-final`
+  completed 3/3 with zero verified code findings. Its one verified metadata
+  finding—the still-open release-train checkbox—is closed by this receipt.
 
 ## Out of Scope
 

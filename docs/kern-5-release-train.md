@@ -243,10 +243,13 @@ trusted-publishing/provenance configuration is inspected.
     fitness wall and terminal 3/3 Agon review passed with zero findings on
     2026-07-13; unselected else-if evaluation and smuggled pairing metadata are
     regression-covered.
-  - [ ] M3.8 private effect-machine `branch` frames: strict first-match/default
+  - [x] M3.8 private effect-machine `branch` frames: strict first-match/default
     selection executes only the selected path through the shared resumable
     machine in a child lexical environment. Loops, try/unwind, linking, value
-    symmetry, and public ABI promotion remain deferred.
+    symmetry, and public ABI promotion remain deferred. The exact commit
+    `64a5b6d7` passed the full fitness wall and terminal 3/3 Agon review on
+    2026-07-13; review-discovered pre-effect structural closure and valid
+    capability-to-format dataflow are regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
