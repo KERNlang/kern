@@ -48,7 +48,7 @@ describe('private internal effect machine', () => {
       'expression-v1': 'legacy',
       fmt: 'unified',
       for: 'legacy',
-      if: 'legacy',
+      if: 'unified',
       lambda: 'legacy',
       let: 'unified',
       print: 'unified',
@@ -63,8 +63,11 @@ describe('private internal effect machine', () => {
     const root = makeEnv();
     expect(isInternalEffectMachineEligible(unifiedNodes, root)).toBe(true);
     expect(selectInternalRuntimeEngine(unifiedNodes, root)).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
-    expect(isInternalEffectMachineEligible([...unifiedNodes, { type: 'if' }], makeEnv())).toBe(false);
-    expect(selectInternalRuntimeEngine([...unifiedNodes, { type: 'if' }], makeEnv())).toBe('legacy');
+    expect(isInternalEffectMachineEligible([...unifiedNodes, { type: 'if' }], makeEnv())).toBe(true);
+    expect(selectInternalRuntimeEngine([...unifiedNodes, { type: 'if' }], makeEnv())).toBe(
+      INTERNAL_EFFECT_MACHINE_FORMAT,
+    );
+    expect(isInternalEffectMachineEligible([{ type: 'else', children: [] }], makeEnv())).toBe(false);
     expect(isInternalEffectMachineEligible([{ type: 'print', children: [{ type: 'return' }] }], makeEnv())).toBe(false);
     expect(
       isInternalEffectMachineEligible(unifiedNodes, makeEnv({ runnerFunctions: new Map([['f', {} as never]]) })),
@@ -114,6 +117,154 @@ describe('private internal effect machine', () => {
     });
     expect(asyncEnvelope).toEqual(sync);
     expect(sync).toMatchObject({ completion: { kind: 'return' }, outcome: 'success' });
+  });
+
+  test('selected if branch uses one nested machine frame with raw sync/async parity', async () => {
+    const nodes: IRNode[] = [
+      { type: 'let', props: { name: 'flag', value: 'true' } },
+      {
+        type: 'if',
+        props: { cond: 'flag' },
+        children: [
+          {
+            type: 'capability',
+            props: { input: '"selected"', name: 'answer', namespace: 'llm', operation: 'complete' },
+          },
+          { type: 'print', props: { value: 'answer' } },
+          { type: 'return', props: { value: 'answer' } },
+        ],
+      },
+      {
+        type: 'else',
+        children: [
+          {
+            type: 'capability',
+            props: { input: '"unselected"', name: 'answer', namespace: 'llm', operation: 'complete' },
+          },
+          { type: 'return', props: { value: 'answer' } },
+        ],
+      },
+    ];
+    const syncTrace = runInternalEffectMachineSync(
+      nodes,
+      makeEnv({ capabilities: { llm: { complete: ({ input }) => `sync:${input}` } } }),
+    );
+    const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
+      asyncCapabilities: { llm: { complete: async ({ input }) => `sync:${input}` } },
+    });
+
+    expect(tracesEqual(syncTrace, asyncTrace)).toBe(true);
+    expect(syncTrace).toEqual({
+      completion: { kind: 'return', value: 'sync:selected' },
+      events: [
+        { op: 'assign', target: 'flag', value: true },
+        {
+          input: 'selected',
+          namespace: 'llm',
+          op: 'capability',
+          operation: 'complete',
+          result: 'sync:selected',
+        },
+        { op: 'assign', target: 'answer', value: 'sync:selected' },
+        { op: 'stdout', text: 'sync:selected' },
+      ],
+    });
+  });
+
+  test('false condition runs only the paired else and nested else-if keeps nearest pairing', () => {
+    const calls: unknown[] = [];
+    const nodes: IRNode[] = [
+      {
+        type: 'if',
+        props: { cond: 'false' },
+        children: [{ type: 'capability', props: { namespace: 'storage', operation: 'get' } }],
+      },
+      {
+        type: 'else',
+        children: [
+          { type: 'if', props: { cond: 'true' }, children: [{ type: 'return', props: { value: '"middle"' } }] },
+          { type: 'else', children: [{ type: 'return', props: { value: '"fallback"' } }] },
+        ],
+      },
+    ];
+    const trace = runInternalEffectMachineSync(
+      nodes,
+      makeEnv({ capabilities: { storage: { get: (call) => calls.push(call) } } }),
+    );
+    expect(calls).toEqual([]);
+    expect(trace).toEqual({ completion: { kind: 'return', value: 'middle' }, events: [] });
+  });
+
+  test('a selected true arm never evaluates an unavailable else-if condition', async () => {
+    const nodes: IRNode[] = [
+      { type: 'if', props: { cond: 'true' }, children: [{ type: 'return', props: { value: '"selected"' } }] },
+      {
+        type: 'else',
+        children: [
+          {
+            type: 'if',
+            props: { cond: 'unavailable' },
+            children: [{ type: 'return', props: { value: '"wrong"' } }],
+          },
+        ],
+      },
+    ];
+    const sync = executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), enabled);
+    const asyncEnvelope = await executeInternalRuntimeEnvelopeAsync(nodes, makeEnv(), enabled);
+    expect(asyncEnvelope).toEqual(sync);
+    expect(sync).toMatchObject({ outcome: 'success', result: { value: { tag: 'text', value: 'selected' } } });
+  });
+
+  test('pairing ignores smuggled metadata and trusts only the immediate else sibling', () => {
+    let calls = 0;
+    const smuggledElse: IRNode = {
+      type: 'else',
+      children: [{ type: 'capability', props: { namespace: 'storage', operation: 'get' } }],
+    };
+    const withoutSibling: IRNode[] = [
+      { type: 'if', props: { __pairedElse: smuggledElse, cond: 'false' }, children: [] },
+    ];
+    const env = makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } });
+    expect(runInternalEffectMachineSync(withoutSibling, env)).toEqual({ completion: { kind: 'normal' }, events: [] });
+    expect(calls).toBe(0);
+
+    const withSibling: IRNode[] = [
+      {
+        type: 'if',
+        props: {
+          __pairedElse: { type: 'else', children: [{ type: 'return', props: { value: '"wrong"' } }] },
+          cond: 'false',
+        },
+        children: [],
+      },
+      { type: 'else', children: [{ type: 'return', props: { value: '"real"' } }] },
+    ];
+    expect(runInternalEffectMachineSync(withSibling, makeEnv())).toEqual({
+      completion: { kind: 'return', value: 'real' },
+      events: [],
+    });
+  });
+
+  test('unsupported selected nested nodes fail inside the claimed machine without provider dispatch', () => {
+    let calls = 0;
+    const nodes: IRNode[] = [
+      {
+        type: 'if',
+        props: { cond: 'true' },
+        children: [{ type: 'branch' }, { type: 'capability', props: { namespace: 'storage', operation: 'get' } }],
+      },
+    ];
+    const env = makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } });
+    expect(selectInternalRuntimeEngine(nodes, env)).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
+    expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toEqual({
+      completion: { kind: 'error' },
+      diagnostics: [{ category: 'runtime', code: 'unsupported-runtime-input', phase: 'execution' }],
+      events: [],
+      format: 'kern.runtime.internal.r0',
+      outcome: 'failure',
+      result: { presence: 'absent' },
+    });
+    expect(calls).toBe(0);
   });
 
   test('a Promise-returning sync provider fails closed inside the machine lane', () => {

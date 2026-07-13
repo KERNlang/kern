@@ -6,6 +6,7 @@ import {
   resumeInternalCapabilityEffect,
 } from './capability.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
+import { evaluateIfCondition } from './if.js';
 import { CONTRACT_REGISTRY, type SemanticEnv } from './index.js';
 import {
   invokeInternalRuntimeCapabilityAsync,
@@ -25,7 +26,7 @@ export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   'expression-v1': 'legacy',
   fmt: 'unified',
   for: 'legacy',
-  if: 'legacy',
+  if: 'unified',
   lambda: 'legacy',
   let: 'unified',
   print: 'unified',
@@ -83,7 +84,19 @@ function hasBoundedRootEnvironment(env: SemanticEnv): boolean {
 }
 
 export function isInternalEffectMachineEligible(nodes: readonly IRNode[], env: SemanticEnv): boolean {
-  return hasBoundedRootEnvironment(env) && nodes.every((node) => isUnifiedNodeType(node.type) && hasNoBody(node));
+  return hasBoundedRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
+}
+
+function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node.type === 'if') {
+      if (nodes[index + 1]?.type === 'else') index += 1;
+      continue;
+    }
+    if (node.type === 'else' || !isUnifiedNodeType(node.type) || !hasNoBody(node)) return false;
+  }
+  return true;
 }
 
 function runRegisteredNode(node: IRNode, env: SemanticEnv): Trace {
@@ -109,20 +122,40 @@ function appendTrace(out: Trace, next: Trace): boolean {
   return true;
 }
 
-function* runMachine(
+function* runIf(
+  node: IRNode,
+  elseNode: IRNode | undefined,
+  env: SemanticEnv,
+): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
+  let selected: readonly IRNode[];
+  try {
+    selected = evaluateIfCondition(node, env) ? (node.children ?? []) : (elseNode?.children ?? []);
+  } catch {
+    throw new InternalEffectMachineError('effect machine rejected if node', node);
+  }
+  return yield* runSequence(selected, env);
+}
+
+function* runSequence(
   nodes: readonly IRNode[],
   env: SemanticEnv,
 ): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
-  if (!isInternalEffectMachineEligible(nodes, env)) {
-    throw new InternalEffectMachineError(
-      'input is outside the internal effect-machine corpus',
-      nodes[0] ?? { type: '__block' },
-    );
-  }
   const out = emptyTrace();
-  for (const node of nodes) {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    let elseNode: IRNode | undefined;
+    if (node.type === 'if') {
+      elseNode = nodes[index + 1]?.type === 'else' ? nodes[index + 1] : undefined;
+      if (elseNode) index += 1;
+    } else if (node.type === 'else') {
+      throw new InternalEffectMachineError('else must immediately follow an if sibling', node);
+    }
     let next: Trace;
-    if (node.type === 'capability') {
+    if (node.type === 'if') {
+      next = yield* runIf(node, elseNode, env);
+    } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
+      throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
+    } else if (node.type === 'capability') {
       const prepared = prepareCapability(node, env);
       const result = yield Object.freeze({
         format: INTERNAL_EFFECT_MACHINE_FORMAT,
@@ -136,6 +169,19 @@ function* runMachine(
     if (appendTrace(out, next)) return out;
   }
   return out;
+}
+
+function* runMachine(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
+  if (!isInternalEffectMachineEligible(nodes, env)) {
+    throw new InternalEffectMachineError(
+      'input is outside the internal effect-machine corpus',
+      nodes[0] ?? { type: '__block' },
+    );
+  }
+  return yield* runSequence(nodes, env);
 }
 
 export function runInternalEffectMachineSync(nodes: readonly IRNode[], env: SemanticEnv): Trace {

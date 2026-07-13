@@ -236,6 +236,13 @@ trusted-publishing/provenance configuration is inspected.
     Control-flow expansion, legacy async-mirror removal, linking, value
     symmetry, and public ABI promotion remain deferred. The full fitness wall
     and final 3/3 Agon review passed with zero findings on 2026-07-13.
+  - [x] M3.7 private effect-machine `if`/`else` frames: immediate sibling
+    pairing and selected nested bodies run through the shared resumable machine
+    with raw-trace parity and no nested legacy fallback. Branch, try, loops,
+    linking, value symmetry, and public ABI promotion remain deferred. The full
+    fitness wall and terminal 3/3 Agon review passed with zero findings on
+    2026-07-13; unselected else-if evaluation and smuggled pairing metadata are
+    regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

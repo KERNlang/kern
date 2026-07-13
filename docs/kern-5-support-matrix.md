@@ -86,6 +86,7 @@ wall and must remain absent until promoted.
 | internal-runtime-capability-seam | Default-off capability interception seam | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-scheduler-control | Default-off cancellation and timeout control | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine | Private sync and async effect-machine convergence | internal-oracle | `pnpm test:kern-runtime-envelope` |
+| internal-runtime-effect-machine-if | Private effect-machine if and else frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
 | typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
