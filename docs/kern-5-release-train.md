@@ -304,7 +304,11 @@ trusted-publishing/provenance configuration is inspected.
     new try executor itself legacy-free; M3.14 closes the older helper debt
     before public runtime ABI promotion. This is a static machine/evaluator
     ownership boundary, not an executable-envelope cutover: global contract
-    registration and legacy fallback remain explicit M3.15 debt.
+    registration and legacy fallback remain explicit M3.15 debt. The complete
+    KERN 5 fitness wall passed on 2026-07-13. Review-discovered computed
+    Decimal-pow parity, signed-zero, evaluator-gate selection, bare-alias, and
+    peer-dependency closure gaps are regression-covered; terminal clean review
+    evidence remains the final closure gate.
   - [ ] M3.15 executable-envelope isolation: make the direct sync/async
     internal envelope route fail closed outside the machine corpus, replace
     global-registry leaf dispatch with machine-owned evaluator-injected leaves,

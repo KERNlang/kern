@@ -180,6 +180,25 @@ export function assertPortableDecimalLiteral(raw: string): void {
 export const DECIMAL_DIV_ZERO_FAILCLOSE = 'KERN Decimal division by zero';
 /** The byte-identical diagnostic a zero modulus raises. */
 export const DECIMAL_MOD_ZERO_FAILCLOSE = 'KERN Decimal modulo by zero';
+export const DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE =
+  'Decimal.pow supports only an integer exponent on a non-negative base';
+
+export function decimalPowFailMessage(reason: string): string {
+  return (
+    `${DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE}: ${reason}. ` +
+    `KERN's certified Decimal pow is INTEGER-exponent only (0**0=1, positive, and negative int like 2**-1) ` +
+    `on a non-negative base — these are byte-exact across decimal.js and Python's stdlib decimal. ` +
+    `A non-integer exponent or a negative base is correctly-rounded TRANSCENDENTAL on the TS leg ` +
+    `(decimal.js) and can diverge from the Python leg by ~1 ulp, so KERN cannot guarantee byte-exact ` +
+    `cross-target parity and refuses it at compile time. Pass an integer-literal exponent and a ` +
+    `non-negative base (e.g. Decimal.pow(Decimal.of("2"), Decimal.of("3"))). ` +
+    `Fractional/transcendental pow is deferred to a later correctly-rounded slice.`
+  );
+}
+
+/** Byte-identical runtime refusal for a negative base hidden behind a computed
+ *  expression. Direct negative literals are still rejected by the static probe. */
+export const DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE = `${DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE}: the evaluated base is negative`;
 /** `0 ** negative` is a zero-divide in disguise; the pow helper preflights it to
  *  this byte-identical zero-error so the surface never yields a non-finite value. */
 export const DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE = 'KERN Decimal 0 raised to a negative power (division by zero)';
@@ -203,10 +222,11 @@ export function kDecimalMod(a: KDecimalValue, b: KDecimalValue): KDecimalValue {
 /** Integer-power LOGIC mirroring the emitted `__k_decimal_pow_int`: special-cases
  *  `0**0 → 1` (so both legs agree even though Python's `**` raises that input under
  *  the default context) and preflights `0**neg` to the byte-identical zero-divide
- *  error. `KDecimal` is the local pinned constructor (so `new KDecimal(1)` carries
- *  the same context). The compile-time fail-close already guarantees the exponent
- *  is an integer literal and the base non-negative, so no further validation here. */
+ *  error. A computed negative base is rejected here because the static probe can
+ *  only prove direct literal signs. `KDecimal` is the local pinned constructor (so
+ *  `new KDecimal(1)` carries the same context). */
 export function kDecimalPowInt(KDecimal: KDecimalCtor, a: KDecimalValue, b: KDecimalValue): KDecimalValue {
+  if (!a.isZero() && a.isNegative()) throw new Error(DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE);
   if (a.isZero() && b.lt(0)) throw new Error(DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE);
   if (a.isZero() && b.isZero()) return new KDecimal(1);
   return a.pow(b);
