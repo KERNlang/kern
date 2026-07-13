@@ -288,13 +288,15 @@ trusted-publishing/provenance configuration is inspected.
     with zero findings on 2026-07-13. Review-discovered emitted-`.js`
     dependency guarding, complete while/for/each try-in-loop coverage, and
     pre-effect rejection evidence are regression-covered.
-  - [ ] M3.13 private effect-machine `try`/`catch`/`finally` frames: root and
+  - [x] M3.13 private effect-machine `try`/`catch`/`finally` frames: root and
     nested portable try shapes route through the resumable machine, with
     completion-aware whole-tree preflight, cleanup-only finally, canonical
     catch values, mandatory catch tombstoning, provider-error/cancellation
     unwind, and sync/immediate-async parity. The executable skip-free manifest
-    and import-closure mutation oracle are implemented; the full fitness wall
-    and terminal Agon review remain required before this checkbox closes.
+    and import-closure mutation oracle are implemented. The full KERN 5
+    fitness wall passed, followed by a terminal 3/3 Agon review with zero
+    verified or needs-check findings on 2026-07-13
+    (`review-1783937376907-jxblxa-m3-13-terminal`).
   - [ ] M3.14 legacy-free shared evaluator boundary: split runtime-only
     branch/for/if/while and portable scalar evaluator leaves so the stable
     effect-machine import closure no longer instantiates

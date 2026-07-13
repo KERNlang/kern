@@ -1,8 +1,8 @@
 # KERN 5 R2 M3.13 Private Effect-Machine Try Ownership
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Date:** 2026-07-13
-**Confidence:** 0.94
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -281,34 +281,38 @@ is insufficient.
 
 ## Acceptance Criteria
 
-- [ ] Pure helper extraction leaves all existing sync/async reference try tests
+- [x] Pure helper extraction leaves all existing sync/async reference try tests
   byte-equivalent and green.
-- [ ] Root and nested portable try nodes select and remain in the effect
+- [x] Root and nested portable try nodes select and remain in the effect
   machine; the try executor closure cannot reach a legacy runner, and the
   stable machine closure cannot reach legacy `try.ts`.
-- [ ] Unsupported nodes anywhere in body, catch, or finally fail before provider
+- [x] Unsupported nodes anywhere in body, catch, or finally fail before provider
   calls and before trace events.
-- [ ] Body return with catch rejects during preflight for direct, if/else,
+- [x] Body return with catch rejects during preflight for direct, if/else,
   branch, while, for, array-each, and nested-try placements.
-- [ ] Cleanup-only finally rejects every possible unconsumed return, throw,
+- [x] Cleanup-only finally rejects every possible unconsumed return, throw,
   break, or continue before effects, while allowing loop-consumed control and
   a normal-completing nested caught throw.
-- [ ] Catch observes a literal canonical error message, replaces the throw
+- [x] Catch observes a literal canonical error message, replaces the throw
   completion, and tombstones its name on normal, abrupt, sync-provider-error,
   and async-provider-error exits without restoring an outer binding.
-- [ ] Finally preserves normal, return, uncaught throw, caught-throw, break, and
+- [x] Finally preserves normal, return, uncaught throw, caught-throw, break, and
   continue completions and emits events in body/catch then finally order.
-- [ ] Capabilities suspend and resume in body, catch, and finally with byte-equal
+- [x] Capabilities suspend and resume in body, catch, and finally with byte-equal
   raw sync/immediate-async traces.
-- [ ] Try inside while, counted for, and array each shares the caller iteration
+- [x] Try inside while, counted for, and array each shares the caller iteration
   budget; loops inside body, catch, and finally remain machine-owned.
-- [ ] Nested try works in body, catch, and normal finally without fallback.
-- [ ] Every manifest ID has exactly one executable acceptance handler; the
+- [x] Nested try works in body, catch, and normal finally without fallback.
+- [x] Every manifest ID has exactly one executable acceptance handler; the
   manifest is unique, categorized, and contains no skip/todo/only/disabled key.
-- [ ] Import mutation tests fail forbidden direct and transitive legacy edges.
-- [ ] Focused try/core/runtime-envelope tests and `pnpm fitness:kern-5` pass.
-- [ ] Terminal `agon review` with `claude,codex,agy` passes with no unresolved
+- [x] Import mutation tests fail forbidden direct and transitive legacy edges.
+- [x] Focused try/core/runtime-envelope tests and `pnpm fitness:kern-5` pass.
+- [x] Terminal `agon review` with `claude,codex,agy` passes with no unresolved
   verified or needs-check finding.
+
+Terminal review evidence:
+`/Users/nicolascukas/.agon/runs/review-1783937376907-jxblxa-m3-13-terminal`
+(`3/3`, zero verified or needs-check findings).
 
 ## Out of Scope
 
