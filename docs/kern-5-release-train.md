@@ -302,7 +302,17 @@ trusted-publishing/provenance configuration is inspected.
     effect-machine import closure no longer instantiates
     `reference-runner.ts`. M3.13 already severs legacy `try.ts` and keeps the
     new try executor itself legacy-free; M3.14 closes the older helper debt
-    before public runtime ABI promotion.
+    before public runtime ABI promotion. This is a static machine/evaluator
+    ownership boundary, not an executable-envelope cutover: global contract
+    registration and legacy fallback remain explicit M3.15 debt.
+  - [ ] M3.15 executable-envelope isolation: make the direct sync/async
+    internal envelope route fail closed outside the machine corpus, replace
+    global-registry leaf dispatch with machine-owned evaluator-injected leaves,
+    and prove the complete `execute.ts`/`internal-engine.ts` runtime import
+    closure excludes both reference runners, reference evaluator hosts,
+    compatibility fallback, and global contract registration. Preserve the
+    old fallback only behind a separately named compatibility entry until the
+    handler root is isolated in the following slice.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

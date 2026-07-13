@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.14 Legacy-Free Shared Evaluator Boundary
 
-**Status:** READY TO BUILD
+**Status:** IN PROGRESS
 **Date:** 2026-07-13
 **Confidence:** 0.90
 
@@ -118,7 +118,7 @@ configuration. It is rejected.
 | `portable-eval-types.ts` | evaluator and extension-host types/sentinels | No |
 | `portable-core-evaluator.ts` | recursive pure evaluator dispatcher and operators | No |
 | `portable-record-evaluator.ts` | record/nested-array reads and literal helpers | No |
-| `portable-member-index.ts` | machine-safe member/index evaluation | No |
+| `portable-core-evaluator.ts` / `portable-record-evaluator.ts` | machine-safe member/index evaluation | No |
 | `portable-decimal-evaluator.ts` | Decimal recognition/evaluation | No |
 | `portable-reference-evaluator.ts` | sync runner function/class construction and body execution | Yes, sync only |
 | `portable-machine-evaluator.ts` | core instance with fail-closed function/class host | No |
@@ -200,29 +200,31 @@ and call signatures during the migration.
 
 ## Acceptance Criteria
 
-- [ ] Stable `internal-effect-machine.ts` runtime import closure excludes
+- [x] Stable `internal-effect-machine.ts` runtime import closure excludes
   `reference-runner.ts`, `async-reference-runner.ts`, `portable-scalar.ts`,
   `portable-reference-evaluator.ts`, and legacy branch/for/if/while/try/each
   contract modules.
-- [ ] Import mutation tests fail for direct runner imports, a runtime-leaf to
+- [x] Import mutation tests fail for direct runner imports, a runtime-leaf to
   legacy-contract edge, and a core-evaluator to legacy-facade edge.
-- [ ] Branch/for/if/while machine traces, completions, child scopes, and error
+- [x] Branch/for/if/while machine traces, completions, child scopes, and error
   behavior remain byte-equivalent to their pre-extraction acceptance cases.
-- [ ] Machine scalar evaluation covers literal/unary/binary/conditional,
+- [x] Machine scalar evaluation covers literal/unary/binary/conditional,
   member/index, record/array, Decimal, List, Map, and Text shapes already
   admitted by the M3 corpus.
-- [ ] A nonempty runner-function/class environment is ineligible before machine
+- [x] A nonempty runner-function/class environment is ineligible before machine
   execution, and direct function/class calls against the machine evaluator fail
   closed without loading or invoking a reference runner.
-- [ ] Existing sync and async reference function/class construction, method,
+- [x] Existing sync and async reference function/class construction, method,
   getter, recursion, caching, capability, and error behavior remains green.
-- [ ] The `portable-scalar.ts` compatibility facade preserves every prior
+- [x] The `portable-scalar.ts` compatibility facade preserves every prior
   exported name and source call signature.
-- [ ] No duplicated scalar dispatcher, global registry, dynamic fallback, build
-  alias, or conditional import selects legacy execution.
-- [ ] Every new handwritten source file is below 500 lines and the existing
+- [x] No duplicated scalar dispatcher, dynamic fallback, build alias, or
+  conditional import selects a reference evaluator inside the scalar boundary.
+  The pre-existing global contract registry remains executable-envelope debt
+  and is explicitly assigned to M3.15.
+- [x] Every new handwritten source file is below 500 lines and the existing
   1,823-line evaluator shrinks to a facade.
-- [ ] Focused core/reference/effect-machine tests and
+- [x] Focused core/reference/effect-machine tests and
   `pnpm test:kern-runtime-envelope` pass.
 - [ ] `pnpm fitness:kern-5` passes on the final implementation.
 - [ ] Terminal `agon review` with `claude,codex,agy` has zero unresolved
@@ -231,6 +233,8 @@ and call signatures during the migration.
 ## Out of Scope
 
 - Public runtime/handler ABI promotion.
+- Executable-envelope isolation from global contract registration and legacy
+  fallback; that is the separately guarded M3.15 slice.
 - Async reference-runner ownership changes beyond preserving current behavior.
 - Adding runner functions/classes to the machine-eligible corpus.
 - Removing reference runners or changing their role as parity oracles.
@@ -257,3 +261,7 @@ implementation continues.
 | Extracting only branch/for/if/while leaves closes M3.14. | `capability.ts` reaches `portable-scalar.ts`, which imports and invokes the sync reference runner. | The scalar evaluator boundary is mandatory. |
 | A sync callback inside the existing evaluator is the smallest honest fix. | It removes a static edge but leaves machine code importing a legacy-aware 1,823-line evaluator and relies on runtime discipline. | Use a construction-level core/reference/machine split. |
 | The scalar core can be moved as one file. | Array/map/string helpers import the evaluator back, and a monolithic core would violate the 500-line rule. | Break recursive edges explicitly and split core responsibilities. |
+| The planned `portable-member-index.ts` module is required. | Member/index ownership fits below the line limit inside `portable-core-evaluator.ts` and `portable-record-evaluator.ts`. | Keep the smaller acyclic module graph and correct the module inventory. |
+| A static machine closure proves the executable envelope is legacy-free. | `execute.ts` still registers global contracts and `internal-engine.ts` still owns legacy fallback; runtime registry state can dispatch reference-owned leaves. | Close M3.14 only as the stable machine/evaluator import boundary and require a distinct M3.15 executable-envelope isolation oracle. |
+| TypeScript import parsing covered every runtime edge. | `import x = require('./x.js')` was initially missed and inline type-only exports were over-counted. | Extend the AST walker and mutation suite before accepting the closure proof. |
+| A Decimal value-producing call must be returned by the scalar machine evaluator. | Decimal objects are intentionally outside `PortableScalar`; comparator calls evaluate nested Decimal producer trees and return a scalar. | Add explicit nested-producer, top-level rejection, zero-divisor, and canonical string-coercion regressions. |

@@ -147,6 +147,10 @@ export function evalRunnerNativeDecimalScalarCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
 ): PortableScalar | undefined {
+  // Value-producing Decimal calls are intentionally operands only: Decimal
+  // values are tagged runtime objects, not PortableScalar results. A scalar
+  // comparator evaluates those producer trees through evalDecimalNode below;
+  // a top-level producer therefore remains outside this evaluator's contract.
   if (hasBinding(env, 'Decimal')) return undefined;
   const method = decimalNamespaceMethod(node);
   if (method === null || !COMPARATOR_METHODS.has(method)) return undefined;

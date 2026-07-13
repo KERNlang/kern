@@ -23,16 +23,36 @@ describe('portable machine evaluator', () => {
     expect(evaluate('record.items[1]', bindings)).toBe(8);
   });
 
-  test('owns Decimal comparators and List, Map, and Text reads without a reference host', () => {
+  test('owns scalar Decimal comparisons, including nested value producers, without returning Decimal objects', () => {
     const bindings = new Map<string, unknown>([
       ['d', makeDecimalValue('2')],
       ['xs', Object.freeze([1, 2, 3])],
       ['m', new Map([['answer', 42]])],
     ]);
     expect(evaluate('Decimal.gt(d, Decimal.of("1"))', bindings)).toBe(true);
+    expect(evaluate('Decimal.eq(Decimal.add(Decimal.of("1"), Decimal.of("2")), Decimal.of("3"))', bindings)).toBe(true);
+    expect(() => evaluate('Decimal.add(Decimal.of("1"), Decimal.of("2"))', bindings)).toThrow(
+      'unsupported non-identifier call',
+    );
+  });
+
+  test('owns List, Map, and Text reads without a reference host', () => {
+    const bindings = new Map<string, unknown>([
+      ['xs', Object.freeze([1, 2, 3])],
+      ['m', new Map([['answer', 42]])],
+    ]);
     expect(evaluate('List.length(xs)', bindings)).toBe(3);
     expect(evaluate('Map.get(m, "answer")', bindings)).toBe(42);
     expect(evaluate('Text.charAt("A😀B", 1)', bindings)).toBe('😀');
+  });
+
+  test('fails closed on zero divisors and uses canonical scalar string coercion', () => {
+    expect(() => evaluate('1 / 0')).toThrow('must evaluate to a portable scalar');
+    expect(() => evaluate('1 % 0')).toThrow('must evaluate to a portable scalar');
+    expect(evaluate('String(true)')).toBe('true');
+    expect(evaluate('String(false)')).toBe('false');
+    expect(evaluate('String(null)')).toBe('null');
+    expect(evaluate('`${true}/${false}/${null}`')).toBe('true/false/null');
   });
 
   test('fails closed on direct function and class execution', () => {
