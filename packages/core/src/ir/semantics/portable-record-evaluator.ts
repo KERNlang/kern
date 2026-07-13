@@ -1,4 +1,5 @@
 import { isParenthesized, isValueIR, type ValueIR } from '../../value-ir.js';
+import { isCaughtErrorValue } from './caught-error.js';
 import {
   captureFreshArrayBinding,
   capturesFreshArrayAcrossRepeatableLoop,
@@ -21,7 +22,6 @@ import {
   type PortableScalar,
   type RunnerPortableArrayValue,
 } from './portable-scalar-domain.js';
-import { isCaughtErrorValue } from './caught-error.js';
 
 const RESERVED_RECORD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 

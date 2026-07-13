@@ -35,8 +35,8 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
-import { referenceRunSequence } from './reference-runner.js';
 import { evalPortableValue } from './portable-scalar.js';
+import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 import {
   evaluateWhileConditionWithEvaluator,

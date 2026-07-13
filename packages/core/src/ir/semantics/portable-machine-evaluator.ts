@@ -15,13 +15,13 @@ export const evalPortableValue = machineEvaluator.evalPortableValue;
 export const evalPortableBinary = machineEvaluator.evalPortableBinary;
 
 export {
-  assertPortableScalar,
-  isPortableBindingName,
-  isPortableScalar,
-  portableTruthy,
-  type PortableScalar,
-} from './portable-scalar-domain.js';
-export {
   evalRecordArrayFieldReferenceValue,
   isRecordLiteralExpression,
 } from './portable-record-evaluator.js';
+export {
+  assertPortableScalar,
+  isPortableBindingName,
+  isPortableScalar,
+  type PortableScalar,
+  portableTruthy,
+} from './portable-scalar-domain.js';

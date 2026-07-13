@@ -15,6 +15,12 @@ function importHasRuntimeValue(node) {
   return clause.namedBindings?.elements.some((element) => !element.isTypeOnly) ?? false;
 }
 
+function exportHasRuntimeValue(node) {
+  if (node.isTypeOnly) return false;
+  if (!node.exportClause || ts.isNamespaceExport(node.exportClause)) return true;
+  return node.exportClause.elements.some((element) => !element.isTypeOnly);
+}
+
 export function runtimeModuleSpecifiers(source, sourcePath) {
   const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   if ((sourceFile.parseDiagnostics ?? []).length > 0) fail(`cannot parse ${sourcePath}`);
@@ -23,7 +29,15 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
     if (ts.isImportDeclaration(node) && importHasRuntimeValue(node)) {
       if (!ts.isStringLiteral(node.moduleSpecifier)) fail(`non-literal import in ${sourcePath}`);
       specifiers.push(node.moduleSpecifier.text);
-    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && !node.isTypeOnly) {
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      !node.isTypeOnly &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
+      const specifier = node.moduleReference.expression;
+      if (!specifier || !ts.isStringLiteral(specifier)) fail(`non-literal import-equals in ${sourcePath}`);
+      specifiers.push(specifier.text);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && exportHasRuntimeValue(node)) {
       if (!ts.isStringLiteral(node.moduleSpecifier)) fail(`non-literal export in ${sourcePath}`);
       specifiers.push(node.moduleSpecifier.text);
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {

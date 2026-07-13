@@ -25,11 +25,7 @@ export function evaluateWhileConditionWithEvaluator(
   return value;
 }
 
-export function whilePreconditionsWithEvaluator(
-  ir: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): boolean {
+export function whilePreconditionsWithEvaluator(ir: IRNode, env: SemanticEnv, evaluate: EvalPortableValue): boolean {
   if (!Array.isArray(ir.children)) return false;
   try {
     evaluateWhileConditionWithEvaluator(ir, env, evaluate);

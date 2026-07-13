@@ -31,8 +31,8 @@ import { childEnv, type NodeContract, type NodeFixture, registerContract, type S
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
-export { branchPreconditions, branchShapePreconditions, selectBranchPath } from './branch-runtime.js';
 export type { BranchProps } from './branch-runtime.js';
+export { branchPreconditions, branchShapePreconditions, selectBranchPath } from './branch-runtime.js';
 
 function branchEffects(ir: IRNode, env: SemanticEnv): Trace {
   const selected = selectBranchPath(ir, env);

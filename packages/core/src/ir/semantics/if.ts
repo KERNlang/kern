@@ -21,18 +21,17 @@
 import type { IRNode } from '../../types.js';
 import {
   evaluateIfConditionWithEvaluator,
-  ifPreconditionsWithEvaluator,
-  portableTruthy,
-  validateIfNodeWithEvaluator,
   type IfProps,
+  ifPreconditionsWithEvaluator,
+  validateIfNodeWithEvaluator,
 } from './if-runtime.js';
 import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
 import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
-export { portableTruthy } from './if-runtime.js';
 export type { IfProps } from './if-runtime.js';
+export { portableTruthy } from './if-runtime.js';
 
 export function evaluateIfCondition(ir: IRNode, env: SemanticEnv): boolean {
   return evaluateIfConditionWithEvaluator(ir, env, evalPortableValue);

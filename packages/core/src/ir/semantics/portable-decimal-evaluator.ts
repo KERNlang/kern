@@ -67,9 +67,7 @@ export function isDecimalNamespaceCall(node: ValueIR): node is Extract<ValueIR, 
 
 export function decimalNamespaceMethod(node: ValueIR): string | null {
   const inner = unwrapTransparent(node);
-  return isDecimalNamespaceCall(inner)
-    ? (inner.callee as Extract<ValueIR, { kind: 'member' }>).property
-    : null;
+  return isDecimalNamespaceCall(inner) ? (inner.callee as Extract<ValueIR, { kind: 'member' }>).property : null;
 }
 
 export function isCanonicalDecimalLiteralFailure(error: unknown): boolean {
@@ -128,13 +126,20 @@ function evalDecimalNode(node: ValueIR, env: SemanticEnv, KDecimal: KDecimalCtor
   const left = evalDecimalNode(inner.args[0], env, KDecimal);
   const right = evalDecimalNode(inner.args[1], env, KDecimal);
   switch (method) {
-    case 'add': return left.plus(right);
-    case 'sub': return left.minus(right);
-    case 'mul': return left.times(right);
-    case 'div': return kDecimalDiv(left, right);
-    case 'mod': return kDecimalMod(left, right);
-    case 'pow': return kDecimalPowInt(KDecimal, left, right);
-    default: throw new Error(`portable-decimal: unsupported Decimal value method "${method}"`);
+    case 'add':
+      return left.plus(right);
+    case 'sub':
+      return left.minus(right);
+    case 'mul':
+      return left.times(right);
+    case 'div':
+      return kDecimalDiv(left, right);
+    case 'mod':
+      return kDecimalMod(left, right);
+    case 'pow':
+      return kDecimalPowInt(KDecimal, left, right);
+    default:
+      throw new Error(`portable-decimal: unsupported Decimal value method "${method}"`);
   }
 }
 
@@ -152,14 +157,22 @@ export function evalRunnerNativeDecimalScalarCall(
   const left = evalDecimalNode(node.args[0], env, KDecimal);
   const right = evalDecimalNode(node.args[1], env, KDecimal);
   switch (method) {
-    case 'eq': return left.eq(right);
-    case 'ne': return !left.eq(right);
-    case 'lt': return left.lt(right);
-    case 'lte': return left.lte(right);
-    case 'gt': return left.gt(right);
-    case 'gte': return left.gte(right);
-    case 'cmp': return left.cmp(right);
-    default: throw new Error(`portable-decimal: unsupported Decimal scalar method "${method}"`);
+    case 'eq':
+      return left.eq(right);
+    case 'ne':
+      return !left.eq(right);
+    case 'lt':
+      return left.lt(right);
+    case 'lte':
+      return left.lte(right);
+    case 'gt':
+      return left.gt(right);
+    case 'gte':
+      return left.gte(right);
+    case 'cmp':
+      return left.cmp(right);
+    default:
+      throw new Error(`portable-decimal: unsupported Decimal scalar method "${method}"`);
   }
 }
 
@@ -176,7 +189,9 @@ export function isDecimalExpression(node: ValueIR): boolean {
     if (method === 'neg' || method === 'abs') return inner.args.length === 1 && isOperand(inner.args[0]);
     return inner.args.length === 2 && isOperand(inner.args[0]) && isOperand(inner.args[1]);
   }
-  return COMPARATOR_METHODS.has(method) && inner.args.length === 2 && isOperand(inner.args[0]) && isOperand(inner.args[1]);
+  return (
+    COMPARATOR_METHODS.has(method) && inner.args.length === 2 && isOperand(inner.args[0]) && isOperand(inner.args[1])
+  );
 }
 
 export function isDecimalValueExpression(node: ValueIR): boolean {

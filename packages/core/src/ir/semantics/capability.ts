@@ -1,24 +1,18 @@
 import type { RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import {
-  type NodeContract,
-  type NodeFixture,
-  registerContract,
-  type SemanticEnv,
-} from './index.js';
-import { invokeInternalRuntimeCapabilitySync } from './internal-capability-interceptor.js';
-import {
   capabilityInputWithEvaluator,
-  isCapabilityToken,
+  type PreparedInternalCapabilityEffect,
   prepareInternalCapabilityEffectWithEvaluator,
   resumeInternalCapabilityEffect,
-  type PreparedInternalCapabilityEffect,
 } from './capability-runtime.js';
+import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import { invokeInternalRuntimeCapabilitySync } from './internal-capability-interceptor.js';
 import { evalPortableValue } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
-export { isCapabilityToken, resumeInternalCapabilityEffect } from './capability-runtime.js';
 export type { PreparedInternalCapabilityEffect } from './capability-runtime.js';
+export { isCapabilityToken, resumeInternalCapabilityEffect } from './capability-runtime.js';
 
 export function capabilityInput(ir: IRNode, env: SemanticEnv): RuntimeCapabilityValue | undefined {
   return capabilityInputWithEvaluator(ir, env, evalPortableValue);

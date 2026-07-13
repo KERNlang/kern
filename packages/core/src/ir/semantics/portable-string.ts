@@ -136,12 +136,7 @@ export function evalStringOpCall(
   }
 }
 
-function requireSafeIntegerArg(
-  node: ValueIR,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-  label: string,
-): number {
+function requireSafeIntegerArg(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue, label: string): number {
   // Float/int fence escape hatch (see `SemanticEnv`): bounds-checked, never printed.
   const value = evaluate(node, { ...env, intIndexCtx: true });
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {

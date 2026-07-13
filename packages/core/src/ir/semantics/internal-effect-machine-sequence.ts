@@ -25,8 +25,8 @@ import {
   type InternalEffectMachineState,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
-import { emptyTrace, type Trace } from './trace.js';
 import { evalPortableValue as evalMachinePortableValue } from './portable-machine-evaluator.js';
+import { emptyTrace, type Trace } from './trace.js';
 import { evaluateWhileConditionWithEvaluator, WHILE_MAX_ITERATIONS } from './while-runtime.js';
 
 function runRegisteredNode(node: IRNode, env: SemanticEnv): Trace {

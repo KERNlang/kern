@@ -7,15 +7,9 @@ import {
 } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import {
-  defineBinding,
-  getBinding,
-  hasBinding,
-  hasOwnBinding,
-  type SemanticEnv,
-} from './index.js';
-import type { EvalPortableValue } from './portable-eval-types.js';
+import { defineBinding, getBinding, hasBinding, hasOwnBinding, type SemanticEnv } from './index.js';
 import { isArrayLiteralExpression } from './portable-array.js';
+import type { EvalPortableValue } from './portable-eval-types.js';
 import { isRecordLiteralExpression } from './portable-record-evaluator.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
 import type { Trace } from './trace.js';
@@ -92,7 +86,9 @@ function evalCapabilityInputArray(
     if (!(index in node.items)) {
       throw new Error('capability input: array literal items must not contain sparse holes');
     }
-    out.push(assertRuntimeCapabilityValue(evalCapabilityInputValue(node.items[index], env, evaluate), 'capability input'));
+    out.push(
+      assertRuntimeCapabilityValue(evalCapabilityInputValue(node.items[index], env, evaluate), 'capability input'),
+    );
   }
   return Object.freeze(out);
 }

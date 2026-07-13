@@ -23,12 +23,12 @@ import {
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
+export type { ForProps, ForRuntimeRange } from './for-runtime.js';
 export {
   forPreconditions,
   forRuntimeRange,
   forShapePreconditions,
 } from './for-runtime.js';
-export type { ForProps, ForRuntimeRange } from './for-runtime.js';
 
 function forEffects(ir: IRNode, env: SemanticEnv): Trace {
   const { name, from, to, step, children } = forRuntimeRange(ir, env);

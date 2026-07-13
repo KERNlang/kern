@@ -31,10 +31,17 @@ function reader(entries) {
 test('runtime import parser excludes erased type-only edges', () => {
   assert.deepEqual(
     runtimeModuleSpecifiers(
-      "import type { A } from './a.js'; import { type B } from './b.js'; import { C, type D } from './c.js';",
+      "import type { A } from './a.js'; import { type B } from './b.js'; import { C, type D } from './c.js'; export { type E } from './e.js'; export { F, type G } from './f.js';",
       entry,
     ),
-    ['./c.js'],
+    ['./c.js', './f.js'],
+  );
+});
+
+test('runtime import parser includes TypeScript import-equals require edges', () => {
+  assert.deepEqual(
+    runtimeModuleSpecifiers("import runner = require('./reference-runner.js'); void runner;", entry),
+    ['./reference-runner.js'],
   );
 });
 
@@ -100,6 +107,16 @@ test('production policy rejects a direct stable-machine edge to the sync referen
   );
 });
 
+test('production policy rejects a TypeScript import-equals edge to the sync reference runner', () => {
+  const machine = resolve(semantics, 'internal-effect-machine.ts');
+  const source = readFileSync(machine, 'utf8');
+  const mutation = `${source}\nimport runner = require('./reference-runner.js');\nvoid runner;\n`;
+  assert.throws(
+    () => assertStableEffectMachineClosure(coreSource, productionReader(new Map([[machine, mutation]]))),
+    /reference-runner\.ts is reachable/u,
+  );
+});
+
 test('production policy rejects a runtime-leaf edge to a legacy control contract', () => {
   const leaf = resolve(semantics, 'if-runtime.ts');
   const source = readFileSync(leaf, 'utf8');
@@ -122,6 +139,25 @@ test('production policy rejects a core-evaluator edge to the compatibility facad
     ),
     /portable-scalar\.ts is reachable/u,
   );
+});
+
+test('production policy rejects core-evaluator edges to reference implementation modules', () => {
+  const core = resolve(semantics, 'portable-core-evaluator.ts');
+  const source = readFileSync(core, 'utf8');
+  for (const moduleName of ['portable-reference-evaluator', 'portable-reference-body']) {
+    const target = resolve(semantics, `${moduleName}.ts`);
+    const mutation = `${source}\nimport './${moduleName}.js';\n`;
+    assert.throws(
+      () => assertPortableMachineEvaluatorClosure(
+        coreSource,
+        productionReader(new Map([
+          [core, mutation],
+          [target, 'export {};'],
+        ])),
+      ),
+      new RegExp(`${moduleName}\\.ts is reachable`, 'u'),
+    );
+  }
 });
 
 test('production policy rejects reintroducing the deleted ambient sequence bridge', () => {

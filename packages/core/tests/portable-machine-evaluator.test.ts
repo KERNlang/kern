@@ -1,7 +1,7 @@
-import { parseExpression } from '../src/parser-expression.js';
 import { makeEnv } from '../src/ir/semantics/index.js';
 import { evalPortableValue } from '../src/ir/semantics/portable-machine-evaluator.js';
 import { makeDecimalValue } from '../src/ir/semantics/portable-scalar-domain.js';
+import { parseExpression } from '../src/parser-expression.js';
 
 function evaluate(source: string, bindings: ReadonlyMap<string, unknown> = new Map()): unknown {
   const env = makeEnv();

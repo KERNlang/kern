@@ -17,20 +17,17 @@ import {
 import {
   assertArithmeticResultNotFloatCollapsed,
   assertPortableScalar,
-  isPortableBindingName,
   isIntProvenancedExpr,
+  isPortableBindingName,
   isSafeIntegerLiteralIndex,
+  type PortableScalar,
   portableTruthy,
   sameType,
-  type PortableScalar,
 } from './portable-scalar-domain.js';
 import { evalStringOpCall } from './portable-string.js';
 
 export interface PortableEvaluator {
-  readonly evalPortableBinary: (
-    node: Extract<ValueIR, { kind: 'binary' }>,
-    env: SemanticEnv,
-  ) => PortableScalar;
+  readonly evalPortableBinary: (node: Extract<ValueIR, { kind: 'binary' }>, env: SemanticEnv) => PortableScalar;
   readonly evalPortableValue: EvalPortableValue;
 }
 
@@ -44,9 +41,12 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
         }
         return node.value;
       }
-      case 'strLit': return node.value;
-      case 'boolLit': return node.value;
-      case 'nullLit': return null;
+      case 'strLit':
+        return node.value;
+      case 'boolLit':
+        return node.value;
+      case 'nullLit':
+        return null;
       case 'ident': {
         if (!hasBinding(env, node.name)) throw new Error(`portable: binding "${node.name}" not found`);
         return assertPortableScalar(getBinding(env, node.name), `binding "${node.name}"`);
@@ -60,15 +60,19 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
         }
         throw new Error(`portable: unsupported unary op "${node.op}"`);
       }
-      case 'binary': return evalBinary(node, env);
+      case 'binary':
+        return evalBinary(node, env);
       case 'conditional':
         return portableTruthy(evaluate(node.test, env))
           ? evaluate(node.consequent, env)
           : evaluate(node.alternate, env);
-      case 'member': return evalMember(node, env);
-      case 'index': return evalIndex(node, env);
+      case 'member':
+        return evalMember(node, env);
+      case 'index':
+        return evalIndex(node, env);
       case 'typeAssert':
-      case 'nonNull': return evaluate(node.expression, env);
+      case 'nonNull':
+        return evaluate(node.expression, env);
       case 'tmplLit': {
         let result = '';
         for (let index = 0; index < node.quasis.length; index += 1) {
@@ -96,7 +100,8 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
         if (node.callee.kind === 'ident') return host.functionCall(node.callee.name, node.args, env, evaluate);
         throw new Error('portable: unsupported non-identifier call');
       }
-      default: throw new Error(`portable: expression kind "${node.kind}" is outside the portable scalar domain`);
+      default:
+        throw new Error(`portable: expression kind "${node.kind}" is outside the portable scalar domain`);
     }
   };
 
@@ -147,10 +152,7 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
         throw new Error('portable: nested array index must be an in-bounds non-negative safe integer');
       }
       if (!(index in nested.value)) throw new Error('portable: nested array index must point at an existing element');
-      return assertPortableScalar(
-        nested.value[index],
-        `element "${nested.recordName}.${nested.fieldName}[${index}]"`,
-      );
+      return assertPortableScalar(nested.value[index], `element "${nested.recordName}.${nested.fieldName}[${index}]"`);
     }
     if (!isValueIR(node.object) || node.object.kind !== 'ident') {
       throw new Error('portable: index access is only admitted on an array-binding identifier');
@@ -208,28 +210,35 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
     const left = evaluate(node.left, env);
     const right = evaluate(node.right, env);
     switch (node.op) {
-      case '+': return evalPlusOperator(left, right, env);
+      case '+':
+        return evalPlusOperator(left, right, env);
       case '-':
       case '*':
       case '/':
-      case '%': return evalNumberBinary(node.op, left, right, env);
+      case '%':
+        return evalNumberBinary(node.op, left, right, env);
       case '===':
-      case '==': return sameType(left, right) ? left === right : false;
+      case '==':
+        return sameType(left, right) ? left === right : false;
       case '!==':
-      case '!=': return sameType(left, right) ? left !== right : true;
+      case '!=':
+        return sameType(left, right) ? left !== right : true;
       case '<':
       case '<=':
       case '>':
       case '>=':
         if (
           !sameType(left, right) ||
-          !((typeof left === 'number' && typeof right === 'number') ||
-            (typeof left === 'string' && typeof right === 'string'))
+          !(
+            (typeof left === 'number' && typeof right === 'number') ||
+            (typeof left === 'string' && typeof right === 'string')
+          )
         ) {
           throw new Error(`portable: ${node.op} requires same-typed number or string operands`);
         }
         return evalOrderedComparison(node.op, left, right);
-      default: throw new Error(`portable: unsupported binary op "${node.op}"`);
+      default:
+        throw new Error(`portable: unsupported binary op "${node.op}"`);
     }
   }
 

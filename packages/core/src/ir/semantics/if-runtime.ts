@@ -12,19 +12,11 @@ function asIfProps(ir: IRNode): IfProps {
   return (ir.props ?? {}) as IfProps;
 }
 
-export function ifPreconditionsWithEvaluator(
-  ir: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): boolean {
+export function ifPreconditionsWithEvaluator(ir: IRNode, env: SemanticEnv, evaluate: EvalPortableValue): boolean {
   return validateIfNodeWithEvaluator(ir, env, evaluate);
 }
 
-export function validateIfNodeWithEvaluator(
-  ir: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): boolean {
+export function validateIfNodeWithEvaluator(ir: IRNode, env: SemanticEnv, evaluate: EvalPortableValue): boolean {
   const props = asIfProps(ir);
   if (typeof props.cond !== 'string' || props.cond.trim().length === 0) return false;
   try {
@@ -87,11 +79,7 @@ export function portableTruthy(value: unknown): boolean {
   throw new Error('if: condition value is outside the portable truthiness domain');
 }
 
-export function evaluateIfConditionWithEvaluator(
-  ir: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): boolean {
+export function evaluateIfConditionWithEvaluator(ir: IRNode, env: SemanticEnv, evaluate: EvalPortableValue): boolean {
   const props = asIfProps(ir);
   if (typeof props.cond !== 'string' || props.cond.trim().length === 0) {
     throw new Error('if: cond= must be a non-empty string expression');
