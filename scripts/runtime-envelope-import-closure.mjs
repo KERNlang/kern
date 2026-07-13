@@ -42,6 +42,9 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
 }
 
 function resolveTypeScriptImport(fromPath, specifier) {
+  if (specifier === '@kernlang/core' || specifier.startsWith('@kernlang/core/')) {
+    fail(`own-package import ${specifier} in ${fromPath} is forbidden inside a checked runtime closure`);
+  }
   if (!specifier.startsWith('.')) return null;
   const resolved = resolve(dirname(fromPath), specifier);
   if (resolved.endsWith('.js') || resolved.endsWith('.mjs')) return resolved.replace(/\.m?js$/u, '.ts');
@@ -74,4 +77,56 @@ export function assertRuntimeImportClosureExcludes(
     if (reachable.has(forbidden)) fail(`${forbidden} is reachable from ${entryPaths.join(', ')}`);
   }
   return reachable;
+}
+
+function semanticPath(coreSourceRoot, file) {
+  return resolve(coreSourceRoot, 'ir/semantics', file);
+}
+
+/** One production policy for both the runtime checker and its mutation tests. */
+export function assertStableEffectMachineClosure(
+  coreSourceRoot,
+  readText = (path) => readFileSync(path, 'utf8'),
+) {
+  const forbidden = [
+    'async-reference-runner.ts',
+    'branch.ts',
+    'each.ts',
+    'for.ts',
+    'if.ts',
+    'portable-scalar.ts',
+    'portable-reference-body.ts',
+    'portable-reference-evaluator.ts',
+    'portable-reference-host.ts',
+    'reference-runner.ts',
+    'semantic-sequence-runtime.ts',
+    'try.ts',
+    'while.ts',
+  ].map((file) => semanticPath(coreSourceRoot, file));
+  return assertRuntimeImportClosureExcludes(
+    [semanticPath(coreSourceRoot, 'internal-effect-machine.ts')],
+    forbidden,
+    readText,
+  );
+}
+
+/** The scalar machine host itself must remain independent of every reference host. */
+export function assertPortableMachineEvaluatorClosure(
+  coreSourceRoot,
+  readText = (path) => readFileSync(path, 'utf8'),
+) {
+  const forbidden = [
+    'async-reference-runner.ts',
+    'portable-scalar.ts',
+    'portable-reference-body.ts',
+    'portable-reference-evaluator.ts',
+    'portable-reference-host.ts',
+    'reference-runner.ts',
+    'semantic-sequence-runtime.ts',
+  ].map((file) => semanticPath(coreSourceRoot, file));
+  return assertRuntimeImportClosureExcludes(
+    [semanticPath(coreSourceRoot, 'portable-machine-evaluator.ts')],
+    forbidden,
+    readText,
+  );
 }

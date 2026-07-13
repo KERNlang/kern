@@ -32,6 +32,7 @@
 
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
 import { evalArrayLiteralValue } from '../src/ir/semantics/portable-array.js';
+import { evalPortableValue } from '../src/ir/semantics/portable-scalar.js';
 import type { IRNode } from '../src/types.js';
 import type { ValueIR } from '../src/value-ir.js';
 
@@ -146,20 +147,20 @@ describe('runner array values — fail-close fences (abstain, never a value)', (
 
   it('malformed arrayLit items fail with a controlled portable-array error', () => {
     const malformed = { kind: 'arrayLit', items: undefined } as unknown as ValueIR;
-    expect(() => evalArrayLiteralValue(malformed, makeEnv())).toThrow(
+    expect(() => evalArrayLiteralValue(malformed, makeEnv(), evalPortableValue)).toThrow(
       'portable-array: array literal items must be an array',
     );
   });
 
   it('malformed arrayLit item entries fail with a controlled portable-array error', () => {
     const nullItem = { kind: 'arrayLit', items: [null] } as unknown as ValueIR;
-    expect(() => evalArrayLiteralValue(nullItem, makeEnv())).toThrow(
+    expect(() => evalArrayLiteralValue(nullItem, makeEnv(), evalPortableValue)).toThrow(
       'portable-array: array literal items must be value IR nodes',
     );
 
     const sparseItems = Array(1) as unknown as ValueIR[];
     const sparseItem = { kind: 'arrayLit', items: sparseItems } as unknown as ValueIR;
-    expect(() => evalArrayLiteralValue(sparseItem, makeEnv())).toThrow(
+    expect(() => evalArrayLiteralValue(sparseItem, makeEnv(), evalPortableValue)).toThrow(
       'portable-array: array literal items must not contain sparse holes',
     );
   });

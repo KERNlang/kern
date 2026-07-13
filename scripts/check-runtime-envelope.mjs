@@ -1,6 +1,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { assertRuntimeImportClosureExcludes } from './runtime-envelope-import-closure.mjs';
+import {
+  assertPortableMachineEvaluatorClosure,
+  assertRuntimeImportClosureExcludes,
+  assertStableEffectMachineClosure,
+} from './runtime-envelope-import-closure.mjs';
 
 const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
@@ -16,6 +20,10 @@ const EFFECT_MACHINE_TYPES = join(CORE_SOURCE, 'ir/semantics/internal-effect-mac
 const EFFECT_MACHINE_TRY = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-try.ts');
 const TRY_RUNTIME = join(CORE_SOURCE, 'ir/semantics/try-runtime.ts');
 const LEGACY_TRY = join(CORE_SOURCE, 'ir/semantics/try.ts');
+const LEGACY_BRANCH = join(CORE_SOURCE, 'ir/semantics/branch.ts');
+const LEGACY_FOR = join(CORE_SOURCE, 'ir/semantics/for.ts');
+const LEGACY_IF = join(CORE_SOURCE, 'ir/semantics/if.ts');
+const LEGACY_WHILE = join(CORE_SOURCE, 'ir/semantics/while.ts');
 const REFERENCE_RUNNER = join(CORE_SOURCE, 'ir/semantics/reference-runner.ts');
 const ASYNC_REFERENCE_RUNNER = join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts');
 const EFFECT_MACHINE_FILES = [
@@ -196,10 +204,8 @@ for (const forbidden of [
 for (const forbidden of ['internal-effect-machine', "from './try.js'", 'reference-runner', 'async-reference-runner']) {
   if (tryRuntime.includes(forbidden)) fail(`try runtime leaf imports forbidden dependency ${forbidden}`);
 }
-assertRuntimeImportClosureExcludes(
-  [EFFECT_MACHINE],
-  [LEGACY_TRY, ASYNC_REFERENCE_RUNNER],
-);
+assertStableEffectMachineClosure(CORE_SOURCE);
+assertPortableMachineEvaluatorClosure(CORE_SOURCE);
 assertRuntimeImportClosureExcludes(
   [EFFECT_MACHINE_TRY],
   [

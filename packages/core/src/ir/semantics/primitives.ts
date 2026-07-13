@@ -104,7 +104,7 @@ function resolveReturnValue(
   const value = ir.props?.value;
   if (typeof value !== 'string') return value;
   const parsed = parseExpression(value);
-  if (isArrayLiteralExpression(parsed)) return evalArrayLiteralValue(parsed, env);
+  if (isArrayLiteralExpression(parsed)) return evalArrayLiteralValue(parsed, env, evalPortableValue);
   if (isRecordLiteralExpression(parsed))
     return evalRecordLiteralValue(parsed, env, {
       captureFreshArrayBindings: options.captureFreshArrayBindings ?? true,

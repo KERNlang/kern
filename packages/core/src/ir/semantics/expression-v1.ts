@@ -206,7 +206,7 @@ function expressionV1Preconditions(ir: IRNode, env: SemanticEnv): boolean {
       }
     }
     if (isArrayLiteralExpression(parsed)) {
-      evalArrayLiteralValue(parsed, env);
+      evalArrayLiteralValue(parsed, env, evalPortableValue);
       return true;
     }
     if (isRecordLiteralExpression(parsed)) {
@@ -299,7 +299,7 @@ function expressionV1Effects(ir: IRNode, env: SemanticEnv): Trace {
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
   if (isArrayLiteralExpression(parsed)) {
-    const value = evalArrayLiteralValue(parsed, env);
+    const value = evalArrayLiteralValue(parsed, env, evalPortableValue);
     defineFreshArrayBinding(env, name, value);
     return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
   }
