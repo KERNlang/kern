@@ -111,6 +111,8 @@ Neither is the single counted-frame slice.
   `return`/`throw` propagate unchanged.
 - [x] Complete-tree structural verification rejects unsupported descendants
   before provider calls or trace events.
+- [x] Sync and async envelopes enforce one shared caller-configured iteration
+  budget across nested loop frames before raw `iter-next` trace growth.
 - [x] The machine calls `forRuntimeRange` and contains no copied range evaluator
   or legacy sync/async reference-runner call.
 - [x] Public exports and ABI are unchanged; callable environments stay
@@ -120,12 +122,14 @@ Neither is the single counted-frame slice.
 
 ## Completion Evidence
 
-- `pnpm test:kern-runtime-envelope`: 87 tests and containment passed.
-- `pnpm fitness:kern-5`: the full aggregate wall passed on 2026-07-13;
+- Focused counted-for tests passed 17/17, while tests passed 10/10, and
+  `pnpm test:kern-runtime-envelope` passed 91/91 plus containment.
+- `pnpm fitness:kern-5`: the repaired full aggregate wall passed on 2026-07-13;
   browser budget remained 75 modules and 290,799 gzip bytes.
 - Full-roster review:
-  `/Users/nicolascukas/.agon/runs/review-1783919080792-a0hjcd-kern5-m3-10-effect-machine-for`
-  completed 3/3 with zero findings.
+  `/Users/nicolascukas/.agon/runs/review-1783921094865-osg7xv-kern5-m3-10-iteration-budget-clo`
+  completed 3/3 with zero verified findings. Its two needs-check items were the
+  intentionally open spec and release-train checkboxes closed by this receipt.
 
 ## Out of Scope
 
@@ -149,3 +153,4 @@ containment deferral witness.
 | Original Claim | Reality | Impact |
 |---|---|---|
 | Existing `for` contract coverage could imply machine ownership. | Both sync and async contract paths still delegate the body to a reference runner. | The red oracle must call the private machine directly and prove pre-effect rejection of a nested legacy frame. |
+| Normalized `maxEvents` bounded counted-loop execution. | Raw `iter-next` events are filtered during normalization, so a large or nested range could exhaust CPU and memory before the normalized event limit. | The effect machine now consumes one shared budget derived from caller-configured `maxCollectionLength`; direct loop callers must supply it, and sync/async envelope regressions bind the plumbing. |

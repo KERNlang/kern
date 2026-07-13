@@ -87,8 +87,10 @@ for (const witness of [
 }
 for (const witness of [
   "for: 'unified'",
+  'consumeIterationBudget',
   'forRuntimeRange',
   'forShapePreconditions',
+  'iterationBudget',
   'defineIntBinding',
   'yield* runFor',
 ]) {
@@ -98,7 +100,11 @@ for (const witness of ["each: 'legacy'", "try: 'legacy'"]) {
   if (!effectMachine.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
 }
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
-for (const witness of ['runInternalRuntimeEngineSync', 'runInternalRuntimeEngineAsync']) {
+for (const witness of [
+  'accepted.limits.maxCollectionLength',
+  'runInternalRuntimeEngineSync',
+  'runInternalRuntimeEngineAsync',
+]) {
   if (!envelopeExecute.includes(witness)) fail(`envelope execution is missing ${witness}`);
 }
 for (const forbidden of ['referenceRunSequence', 'asyncReferenceRunSequence']) {

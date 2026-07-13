@@ -264,9 +264,10 @@ trusted-publishing/provenance configuration is inspected.
     effects, consumed loop control, and propagated abrupt completions. `each`,
     try/unwind, linking, value symmetry, and public ABI promotion remain
     deferred. The full fitness wall and terminal 3/3 Agon review passed with
-    zero findings on 2026-07-13; range direction, evaluated-once bounds, fresh
-    induction scope, repeated capability parity, loop control, and pre-effect
-    structural closure are regression-covered.
+    zero verified findings on 2026-07-13; range direction, evaluated-once
+    bounds, fresh induction scope, repeated capability parity, loop control,
+    pre-effect structural closure, and a caller-configured shared sync/async
+    iteration budget are regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -7,7 +7,10 @@ import {
 } from '../src/ir/semantics/internal-effect-machine.js';
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
-import { executeInternalRuntimeEnvelopeSync } from '../src/runtime-envelope/execute.js';
+import {
+  executeInternalRuntimeEnvelopeAsync,
+  executeInternalRuntimeEnvelopeSync,
+} from '../src/runtime-envelope/execute.js';
 import { selectInternalRuntimeEngine } from '../src/runtime-envelope/internal-engine.js';
 import type { InternalRuntimeEnvelopeLimits } from '../src/runtime-envelope/types.js';
 import type { IRNode } from '../src/types.js';
@@ -213,6 +216,21 @@ describe('private effect-machine counted for frames', () => {
       events: [],
       outcome: 'failure',
     });
+  });
+
+  test('enforces the same caller-configured iteration budget in the async envelope', async () => {
+    const bounded = { ...enabled, limits: { ...limits, maxCollectionLength: 2 } } as const;
+    const nodes: IRNode[] = [{ type: 'for', props: { from: '0', name: 'i', to: '3' }, children: [] }];
+    const result = await executeInternalRuntimeEnvelopeAsync(nodes, makeEnv(), bounded);
+    expect(result).toMatchObject({
+      events: [],
+      outcome: 'failure',
+    });
+  });
+
+  test('requires direct machine callers to provide an iteration budget', () => {
+    const nodes: IRNode[] = [{ type: 'for', props: { from: '0', name: 'i', to: '1' }, children: [] }];
+    expect(() => runInternalEffectMachineSync(nodes, makeEnv())).toThrow(/iteration budget/u);
   });
 
   test('shares one iteration budget across nested loop frames', () => {
