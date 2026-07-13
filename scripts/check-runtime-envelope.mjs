@@ -73,7 +73,19 @@ for (const witness of [
 ]) {
   if (!effectMachine.includes(witness)) fail(`effect-machine branch expansion is missing ${witness}`);
 }
-for (const witness of ["try: 'legacy'", "while: 'legacy'"]) {
+for (const witness of [
+  "break: 'unified'",
+  "continue: 'unified'",
+  "while: 'unified'",
+  'evaluateWhileCondition',
+  'WHILE_MAX_ITERATIONS',
+  'markRepeatableLoopBody',
+  'loopDepth',
+  'yield* runWhile',
+]) {
+  if (!effectMachine.includes(witness)) fail(`effect-machine while expansion is missing ${witness}`);
+}
+for (const witness of ["try: 'legacy'"]) {
   if (!effectMachine.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
 }
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
@@ -126,6 +138,12 @@ const effectMachineBranchOwnership = policy.ownership.find(
 );
 if (effectMachineBranchOwnership?.status !== 'internal-oracle') {
   fail('internal runtime effect-machine branch expansion must remain an internal oracle');
+}
+const effectMachineWhileOwnership = policy.ownership.find(
+  (entry) => entry.id === 'internal-runtime-effect-machine-while',
+);
+if (effectMachineWhileOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime effect-machine while expansion must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));

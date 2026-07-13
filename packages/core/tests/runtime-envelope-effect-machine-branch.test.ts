@@ -45,7 +45,7 @@ describe('private effect-machine structural preflight', () => {
     ).toMatchObject({ completion: { kind: 'return', value: 'value=dynamic' } });
   });
 
-  test('selected if frames reject later unsupported nodes before capability dispatch', () => {
+  test('selected if frames reject a later try before capability dispatch', () => {
     let calls = 0;
     const nodes: IRNode[] = [
       {
@@ -53,7 +53,7 @@ describe('private effect-machine structural preflight', () => {
         props: { cond: 'true' },
         children: [
           { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-          { type: 'while', children: [] },
+          { type: 'try', children: [{ type: 'finally', children: [] }] },
         ],
       },
     ];

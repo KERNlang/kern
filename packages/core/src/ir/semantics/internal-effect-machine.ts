@@ -8,20 +8,23 @@ import {
 } from './capability.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
 import { evaluateIfCondition } from './if.js';
-import { CONTRACT_REGISTRY, childEnv, type SemanticEnv } from './index.js';
+import { CONTRACT_REGISTRY, childEnv, markRepeatableLoopBody, type SemanticEnv } from './index.js';
 import {
   invokeInternalRuntimeCapabilityAsync,
   invokeInternalRuntimeCapabilitySync,
   invokeInternalRuntimeSyncCapabilityAsync,
 } from './internal-capability-interceptor.js';
 import { emptyTrace, type Trace } from './trace.js';
+import { evaluateWhileCondition, WHILE_MAX_ITERATIONS } from './while.js';
 
 export const INTERNAL_EFFECT_MACHINE_FORMAT = 'kern.runtime.effect-machine.internal.r0' as const;
 
 export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   assign: 'unified',
   branch: 'unified',
+  break: 'unified',
   capability: 'unified',
+  continue: 'unified',
   do: 'legacy',
   each: 'legacy',
   'expression-v1': 'legacy',
@@ -34,7 +37,7 @@ export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   return: 'unified',
   throw: 'unified',
   try: 'legacy',
-  while: 'legacy',
+  while: 'unified',
 } as const);
 
 type UnifiedNodeType = {
@@ -91,12 +94,20 @@ export function isInternalEffectMachineEligible(nodes: readonly IRNode[], env: S
 function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node.type === 'branch') continue;
+    if (node.type === 'branch' || node.type === 'while') continue;
     if (node.type === 'if') {
       if (nodes[index + 1]?.type === 'else') index += 1;
       continue;
     }
-    if (node.type === 'else' || !isUnifiedNodeType(node.type) || !hasNoBody(node)) return false;
+    if (
+      node.type === 'break' ||
+      node.type === 'continue' ||
+      node.type === 'else' ||
+      !isUnifiedNodeType(node.type) ||
+      !hasNoBody(node)
+    ) {
+      return false;
+    }
   }
   return true;
 }
@@ -150,16 +161,16 @@ function selectMachineBranch(node: IRNode, env: SemanticEnv): IRNode | undefined
   }
 }
 
-function assertBranchFrameSupported(node: IRNode): void {
+function assertBranchFrameSupported(node: IRNode, loopDepth: number): void {
   if (!branchShapePreconditions(node)) {
     throw new InternalEffectMachineError('effect machine rejected branch node', node);
   }
   for (const path of node.children ?? []) {
-    assertMachineStructureSupported(path.children ?? []);
+    assertMachineStructureSupported(path.children ?? [], loopDepth);
   }
 }
 
-function assertMachineStructureSupported(nodes: readonly IRNode[]): void {
+function assertMachineStructureSupported(nodes: readonly IRNode[], loopDepth = 0): void {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
     let elseNode: IRNode | undefined;
@@ -169,21 +180,70 @@ function assertMachineStructureSupported(nodes: readonly IRNode[]): void {
       }
       elseNode = nodes[index + 1]?.type === 'else' ? nodes[index + 1] : undefined;
       if (elseNode) index += 1;
-      assertMachineStructureSupported(node.children ?? []);
-      if (elseNode) assertMachineStructureSupported(elseNode.children ?? []);
+      assertMachineStructureSupported(node.children ?? [], loopDepth);
+      if (elseNode) assertMachineStructureSupported(elseNode.children ?? [], loopDepth);
       continue;
     }
     if (node.type === 'else') {
       throw new InternalEffectMachineError('else must immediately follow an if sibling', node);
     }
     if (node.type === 'branch') {
-      assertBranchFrameSupported(node);
+      assertBranchFrameSupported(node, loopDepth);
+      continue;
+    }
+    if (node.type === 'while') {
+      if (typeof node.props?.cond !== 'string' || node.props.cond.trim() === '' || !Array.isArray(node.children)) {
+        throw new InternalEffectMachineError('effect machine rejected while node', node);
+      }
+      assertMachineStructureSupported(node.children, loopDepth + 1);
+      continue;
+    }
+    if (node.type === 'break' || node.type === 'continue') {
+      if (loopDepth === 0 || node.props?.label !== undefined || !hasNoBody(node)) {
+        throw new InternalEffectMachineError(`effect machine rejected ${node.type} node`, node);
+      }
       continue;
     }
     if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     }
   }
+}
+
+function evaluateMachineWhileCondition(node: IRNode, env: SemanticEnv): boolean {
+  try {
+    return evaluateWhileCondition(node, env);
+  } catch {
+    throw new InternalEffectMachineError('effect machine rejected while node', node);
+  }
+}
+
+function* runWhile(
+  node: IRNode,
+  env: SemanticEnv,
+): Generator<InternalCapabilityEffectRequest, Trace, RuntimeCapabilityValue | undefined> {
+  const out = emptyTrace();
+  let iterations = 0;
+  while (evaluateMachineWhileCondition(node, env)) {
+    if (iterations >= WHILE_MAX_ITERATIONS) {
+      throw new InternalEffectMachineError(
+        `while: exceeded ${WHILE_MAX_ITERATIONS} iterations — non-terminating fixture`,
+        node,
+      );
+    }
+    iterations += 1;
+    const iterationEnv = childEnv(env);
+    markRepeatableLoopBody(iterationEnv);
+    const next = yield* runSequence(node.children ?? [], iterationEnv);
+    out.events.push(...next.events);
+    if (next.completion.kind === 'break') return out;
+    if (next.completion.kind === 'continue') continue;
+    if (next.completion.kind === 'return' || next.completion.kind === 'throw') {
+      out.completion = next.completion;
+      return out;
+    }
+  }
+  return out;
 }
 
 function* runBranch(
@@ -215,6 +275,8 @@ function* runSequence(
       next = yield* runIf(node, elseNode, env);
     } else if (node.type === 'branch') {
       next = yield* runBranch(node, env);
+    } else if (node.type === 'while') {
+      next = yield* runWhile(node, env);
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     } else if (node.type === 'capability') {

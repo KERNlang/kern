@@ -26,7 +26,6 @@ const limits: InternalRuntimeEnvelopeLimits = {
   maxStringBytes: 4_096,
 };
 const enabled = { enabled: true, limits } as const;
-
 const unifiedNodes: IRNode[] = [
   { type: 'let', props: { name: 'x', value: '1' } },
   { type: 'assign', props: { op: '+=', target: 'x', value: '1' } },
@@ -34,7 +33,6 @@ const unifiedNodes: IRNode[] = [
   { type: 'print', props: { value: 'answer' } },
   { type: 'return', props: { value: 'answer' } },
 ];
-
 describe('private internal effect machine', () => {
   beforeAll(() => registerAllContracts());
 
@@ -42,7 +40,9 @@ describe('private internal effect machine', () => {
     expect(INTERNAL_EFFECT_MACHINE_DISPOSITION).toEqual({
       assign: 'unified',
       branch: 'unified',
+      break: 'unified',
       capability: 'unified',
+      continue: 'unified',
       do: 'legacy',
       each: 'legacy',
       'expression-v1': 'legacy',
@@ -55,7 +55,7 @@ describe('private internal effect machine', () => {
       return: 'unified',
       throw: 'unified',
       try: 'legacy',
-      while: 'legacy',
+      while: 'unified',
     });
   });
 

@@ -250,6 +250,14 @@ trusted-publishing/provenance configuration is inspected.
     `64a5b6d7` passed the full fitness wall and terminal 3/3 Agon review on
     2026-07-13; review-discovered pre-effect structural closure and valid
     capability-to-format dataflow are regression-covered.
+  - [x] M3.9 private effect-machine `while` frames: strict-boolean conditions
+    re-evaluate around fresh iteration scopes, repeated capabilities resume
+    through the shared machine, loop-local `break`/`continue` are consumed, and
+    `return`/`throw` propagate. `for`, `each`, try/unwind, linking, value
+    symmetry, and public ABI promotion remain deferred. The full fitness wall
+    and terminal 3/3 Agon review passed with zero findings on 2026-07-13; nested
+    loop control, repeated capability parity, fresh scope, and pre-effect
+    structural closure are regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
