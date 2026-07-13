@@ -203,7 +203,9 @@ describe('private effect-machine while frames', () => {
       },
     ];
     expect(
-      runInternalEffectMachineSync(nodes, makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } })),
+      runInternalEffectMachineSync(nodes, makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } }), {
+        iterationBudget: limits.maxCollectionLength,
+      }),
     ).toEqual({ completion: { kind: 'normal' }, events: [] });
     expect(calls).toBe(0);
   });
