@@ -102,14 +102,14 @@ export function capabilityInputWithEvaluator(
   const raw = asCapabilityProps(ir).input;
   if (typeof raw !== 'string') return assertRuntimeCapabilityValue(raw, 'capability input');
   const parsed = parseExpression(raw);
+  if (parsed.kind === 'ident') {
+    return assertRuntimeCapabilityValue(capabilityInputBinding(parsed.name, env), 'capability input');
+  }
   if (isArrayLiteralExpression(parsed)) {
     return assertRuntimeCapabilityValue(evalCapabilityInputArray(parsed, env, evaluate), 'capability input');
   }
   if (isRecordLiteralExpression(parsed)) {
     return assertRuntimeCapabilityValue(evalCapabilityInputRecord(parsed, env, evaluate), 'capability input');
-  }
-  if (parsed.kind === 'ident') {
-    return assertRuntimeCapabilityValue(capabilityInputBinding(parsed.name, env), 'capability input');
   }
   if (!isValueIR(parsed)) throw new Error('capability: input must be a portable value expression');
   return assertRuntimeCapabilityValue(evaluate(parsed, env), 'capability input');
