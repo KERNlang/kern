@@ -7,6 +7,15 @@ const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
 const EACH_RUNTIME = join(CORE_SOURCE, 'ir/semantics/each-runtime.ts');
 const EFFECT_MACHINE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine.ts');
+const EFFECT_MACHINE_SEQUENCE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-sequence.ts');
+const EFFECT_MACHINE_STRUCTURE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-structure.ts');
+const EFFECT_MACHINE_TYPES = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-types.ts');
+const EFFECT_MACHINE_FILES = [
+  EFFECT_MACHINE,
+  EFFECT_MACHINE_SEQUENCE,
+  EFFECT_MACHINE_STRUCTURE,
+  EFFECT_MACHINE_TYPES,
+];
 const ENVELOPE_EXECUTE = join(INTERNAL_DIRECTORY, 'execute.ts');
 const INTERNAL_ENGINE = join(INTERNAL_DIRECTORY, 'internal-engine.ts');
 const INTERNAL_SCHEDULER = join(INTERNAL_DIRECTORY, 'internal-scheduler.ts');
@@ -49,30 +58,39 @@ const internalScheduler = readFileSync(INTERNAL_SCHEDULER, 'utf8');
 for (const witness of ['execution-cancelled', 'execution-timeout', 'removeEventListener', 'clearTimeout']) {
   if (!internalScheduler.includes(witness)) fail(`internal scheduler is missing ${witness}`);
 }
-const effectMachine = readFileSync(EFFECT_MACHINE, 'utf8');
-if (!effectMachine.includes('kern.runtime.effect-machine.internal.r0')) {
+const effectMachineSources = new Map(EFFECT_MACHINE_FILES.map((path) => [path, readFileSync(path, 'utf8')]));
+const effectMachine = effectMachineSources.get(EFFECT_MACHINE);
+const effectMachineSequence = effectMachineSources.get(EFFECT_MACHINE_SEQUENCE);
+const effectMachineStructure = effectMachineSources.get(EFFECT_MACHINE_STRUCTURE);
+const effectMachineTypes = effectMachineSources.get(EFFECT_MACHINE_TYPES);
+const effectMachineFamily = [...effectMachineSources.values()].join('\n');
+if (!effectMachineTypes.includes('kern.runtime.effect-machine.internal.r0')) {
   fail('effect machine format must remain exact and internal');
 }
 for (const forbidden of ['referenceRun(', 'referenceRunSequence(', 'asyncReferenceRun(', 'asyncReferenceRunSequence(']) {
-  if (effectMachine.includes(forbidden)) fail(`effect machine must not call legacy runner ${forbidden}`);
+  for (const [path, source] of effectMachineSources) {
+    if (source.includes(forbidden)) {
+      fail(`effect machine must not call legacy runner ${forbidden}: ${relative(ROOT, path)}`);
+    }
+  }
 }
 for (const witness of ['INTERNAL_EFFECT_MACHINE_DISPOSITION', "kind: 'capability'", 'yield Object.freeze']) {
-  if (!effectMachine.includes(witness)) fail(`effect machine is missing ${witness}`);
+  if (!effectMachineFamily.includes(witness)) fail(`effect machine is missing ${witness}`);
 }
 for (const witness of ["if: 'unified'", 'evaluateIfCondition', 'yield* runIf']) {
-  if (!effectMachine.includes(witness)) fail(`effect-machine if expansion is missing ${witness}`);
+  if (!effectMachineFamily.includes(witness)) fail(`effect-machine if expansion is missing ${witness}`);
 }
 for (const witness of [
   "branch: 'unified'",
   'assertBranchFrameSupported',
-  'assertMachineStructureSupported',
+  'assertInternalEffectMachineStructureSupported',
   'branchPreconditions',
   'branchShapePreconditions',
   'selectBranchPath',
   'childEnv(env)',
   'yield* runBranch',
 ]) {
-  if (!effectMachine.includes(witness)) fail(`effect-machine branch expansion is missing ${witness}`);
+  if (!effectMachineFamily.includes(witness)) fail(`effect-machine branch expansion is missing ${witness}`);
 }
 for (const witness of [
   "break: 'unified'",
@@ -84,7 +102,7 @@ for (const witness of [
   'loopDepth',
   'yield* runWhile',
 ]) {
-  if (!effectMachine.includes(witness)) fail(`effect-machine while expansion is missing ${witness}`);
+  if (!effectMachineFamily.includes(witness)) fail(`effect-machine while expansion is missing ${witness}`);
 }
 for (const witness of [
   "for: 'unified'",
@@ -95,7 +113,7 @@ for (const witness of [
   'defineIntBinding',
   'yield* runFor',
 ]) {
-  if (!effectMachine.includes(witness)) fail(`effect-machine for expansion is missing ${witness}`);
+  if (!effectMachineFamily.includes(witness)) fail(`effect-machine for expansion is missing ${witness}`);
 }
 for (const witness of [
   "each: 'partial'",
@@ -104,14 +122,37 @@ for (const witness of [
   'yield* runEach',
   'defineBinding',
 ]) {
-  if (!effectMachine.includes(witness)) fail(`effect-machine each expansion is missing ${witness}`);
+  if (!effectMachineFamily.includes(witness)) fail(`effect-machine each expansion is missing ${witness}`);
 }
 const eachRuntime = readFileSync(EACH_RUNTIME, 'utf8');
 for (const witness of ['function* iterateEachRuntimeSteps', 'yield* iterateCollection', 'Array.from(iterateEachRuntimeSteps']) {
   if (!eachRuntime.includes(witness)) fail(`effect-machine each runtime is missing ${witness}`);
 }
 for (const witness of ["try: 'legacy'"]) {
-  if (!effectMachine.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
+  if (!effectMachineTypes.includes(witness)) fail(`effect-machine deferral is missing ${witness}`);
+}
+for (const [path, source] of effectMachineSources) {
+  if (source.trimEnd().split('\n').length >= 500) {
+    fail(`effect-machine source exceeds the handwritten line limit: ${relative(ROOT, path)}`);
+  }
+}
+if (effectMachine.trimEnd().split('\n').length >= 300) {
+  fail('effect-machine stable driver must remain below 300 lines');
+}
+for (const forbidden of ['internal-effect-machine-sequence', 'internal-effect-machine.ts', 'runtime-envelope']) {
+  if (effectMachineStructure.includes(forbidden)) {
+    fail(`effect-machine structure imports forbidden dependency ${forbidden}`);
+  }
+}
+for (const forbidden of ['internal-effect-machine.ts', 'runtime-envelope']) {
+  if (effectMachineSequence.includes(forbidden)) {
+    fail(`effect-machine sequence imports forbidden dependency ${forbidden}`);
+  }
+}
+for (const forbidden of ['internal-effect-machine-sequence', 'internal-effect-machine-structure', 'internal-effect-machine.ts']) {
+  if (effectMachineTypes.includes(forbidden)) {
+    fail(`effect-machine types import forbidden dependency ${forbidden}`);
+  }
 }
 const envelopeExecute = readFileSync(ENVELOPE_EXECUTE, 'utf8');
 for (const witness of [
@@ -185,6 +226,12 @@ const effectMachineEachOwnership = policy.ownership.find(
 );
 if (effectMachineEachOwnership?.status !== 'internal-oracle') {
   fail('internal runtime effect-machine array each expansion must remain an internal oracle');
+}
+const effectMachineArchitectureOwnership = policy.ownership.find(
+  (entry) => entry.id === 'internal-runtime-effect-machine-architecture',
+);
+if (effectMachineArchitectureOwnership?.status !== 'internal-oracle') {
+  fail('internal runtime effect-machine architecture boundary must remain an internal oracle');
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));

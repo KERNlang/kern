@@ -371,6 +371,12 @@
       "evidence": "pnpm test:kern-runtime-envelope"
     },
     {
+      "id": "internal-runtime-effect-machine-architecture",
+      "label": "Private effect-machine architecture boundary",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-runtime-envelope"
+    },
+    {
       "id": "versioned-kir-v1",
       "label": "Versioned canonical KIR v1",
       "status": "not-shipped",

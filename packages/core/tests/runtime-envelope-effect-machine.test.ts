@@ -74,6 +74,19 @@ describe('private internal effect machine', () => {
     ).toBe(false);
   });
 
+  test('keeps root try on the legacy engine until complete unwind ownership lands', () => {
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          { type: 'print', props: { value: '"work"' } },
+          { type: 'finally', children: [{ type: 'print', props: { value: '"cleanup"' } }] },
+        ],
+      },
+    ];
+    expect(selectInternalRuntimeEngine(nodes, makeEnv())).toBe('legacy');
+  });
+
   test('sync and immediate async drivers produce the same raw trace before normalization', async () => {
     const syncTrace = runInternalEffectMachineSync(
       unifiedNodes,
