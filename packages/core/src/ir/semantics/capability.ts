@@ -137,7 +137,7 @@ export function prepareInternalCapabilityEffect(ir: IRNode, env: SemanticEnv): P
   const input = capabilityInput(ir, env);
   let resultBinding: string | undefined;
   if (props.name !== undefined && props.name !== '') {
-    if (!isPortableBindingName(props.name) || hasOwnBinding(env, props.name)) {
+    if (typeof props.name !== 'string' || !isPortableBindingName(props.name) || hasOwnBinding(env, props.name)) {
       throw new KernCapabilityError(namespace, operation, 'capability result binding is invalid');
     }
     resultBinding = props.name;

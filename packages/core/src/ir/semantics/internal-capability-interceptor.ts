@@ -116,7 +116,10 @@ function syncDecision(
   try {
     const value = state.interceptor(request);
     if (isPromiseLike(value)) {
-      void Promise.resolve(value).catch(() => {});
+      void Promise.resolve(value).catch(() => {
+        // Discarded on purpose: sync mode fails the request below; swallowing
+        // the stray promise's rejection only prevents an unhandled-rejection crash.
+      });
       fail(request, 'returned a Promise in sync mode');
     }
     return inspectDecision(value, request);
