@@ -39,8 +39,8 @@ import { referenceRunSequence } from './reference-runner.js';
 import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
 import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 
-export { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 export type { TryParts } from './try-runtime.js';
+export { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 
 function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
   const { body, catchNode, finallyNode } = tryRuntimeParts(ir.children ?? []);

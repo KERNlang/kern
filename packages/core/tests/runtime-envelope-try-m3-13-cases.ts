@@ -8,7 +8,7 @@ interface FailureAcceptanceCase {
 
 interface ProviderFailureAcceptanceCase {
   readonly kind: 'provider-failure-tombstone';
-  readonly mode: 'async' | 'sync';
+  readonly mode: 'async' | 'cancel' | 'sync';
   readonly nodes: readonly IRNode[];
 }
 
@@ -55,7 +55,7 @@ const preflight = (children: IRNode[]): FailureAcceptanceCase => ({
 const returnWithCatch = (placement: IRNode[]): FailureAcceptanceCase =>
   preflight([...placement, catchNode([print('"caught"')])]);
 const abruptFinally = (abrupt: IRNode): FailureAcceptanceCase => preflight([finallyNode([abrupt])]);
-const providerFailure = (mode: 'async' | 'sync'): ProviderFailureAcceptanceCase => ({
+const providerFailure = (mode: 'async' | 'cancel' | 'sync'): ProviderFailureAcceptanceCase => ({
   kind: 'provider-failure-tombstone',
   mode,
   nodes: [tryNode([throwError(), catchNode([llm()])])],
@@ -79,12 +79,8 @@ export const M3_13_ACCEPTANCE_CASES: Readonly<Record<string, M313AcceptanceCase>
     { type: 'lambda', props: { name: 'unsupported' } },
     finallyNode([print('"cleanup"')]),
   ]),
-  'preflight-catch-before-capability': preflight([
-    catchNode([{ type: 'lambda', props: { name: 'unsupported' } }]),
-  ]),
-  'preflight-finally-before-capability': preflight([
-    finallyNode([{ type: 'lambda', props: { name: 'unsupported' } }]),
-  ]),
+  'preflight-catch-before-capability': preflight([catchNode([{ type: 'lambda', props: { name: 'unsupported' } }])]),
+  'preflight-finally-before-capability': preflight([finallyNode([{ type: 'lambda', props: { name: 'unsupported' } }])]),
   'catch-binding-replaces-throw-and-tombstones': success(
     [tryNode([throwError(), catchNode([print('error.message')])])],
     ['boom'],
@@ -112,7 +108,14 @@ export const M3_13_ACCEPTANCE_CASES: Readonly<Record<string, M313AcceptanceCase>
   'abrupt-finally-break-rejects': abruptFinally({ type: 'break' }),
   'abrupt-finally-continue-rejects': abruptFinally({ type: 'continue' }),
   'capabilities-in-body-catch-finally': success(
-    [tryNode([llm(), throwError(), catchNode([llm(), print('error.message')]), finallyNode([llm(), print('"cleanup"')])])],
+    [
+      tryNode([
+        llm(),
+        throwError(),
+        catchNode([llm(), print('error.message')]),
+        finallyNode([llm(), print('"cleanup"')]),
+      ]),
+    ],
     ['boom', 'cleanup'],
     { providerCalls: 3, tombstone: true },
   ),
@@ -236,9 +239,7 @@ export const M3_13_ACCEPTANCE_CASES: Readonly<Record<string, M313AcceptanceCase>
   'return-with-catch-each-rejects': returnWithCatch([
     { type: 'each', props: { in: 'items', name: 'item' }, children: [ret()] },
   ]),
-  'return-with-catch-while-rejects': returnWithCatch([
-    { type: 'while', props: { cond: 'false' }, children: [ret()] },
-  ]),
+  'return-with-catch-while-rejects': returnWithCatch([{ type: 'while', props: { cond: 'false' }, children: [ret()] }]),
   'return-with-catch-nested-try-rejects': returnWithCatch([tryNode([ret(), finallyNode([])])]),
   'finally-loop-consumes-break': success(
     [
@@ -254,4 +255,5 @@ export const M3_13_ACCEPTANCE_CASES: Readonly<Record<string, M313AcceptanceCase>
   ),
   'provider-failure-tombstones-sync-catch': providerFailure('sync'),
   'provider-failure-tombstones-async-catch': providerFailure('async'),
+  'scheduler-cancellation-tombstones-async-catch': providerFailure('cancel'),
 });

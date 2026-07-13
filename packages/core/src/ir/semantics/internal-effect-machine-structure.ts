@@ -87,7 +87,10 @@ function analyzeTry(node: IRNode, loopDepth: number): CompletionSet {
   if (finallyNode) {
     const finallyCompletions = analyzeSequence(finallyNode.children ?? [], 0);
     if (finallyCompletions.size !== 1 || !finallyCompletions.has('normal')) {
-      throw new InternalEffectMachineError('try: finally must complete normally (cleanup-only this slice)', finallyNode);
+      throw new InternalEffectMachineError(
+        'try: finally must complete normally (cleanup-only this slice)',
+        finallyNode,
+      );
     }
   }
   const possible = new Set(bodyCompletions);

@@ -42,7 +42,7 @@ const EXPECTED_CANONICAL_PATH = Object.freeze([
 const EXPECTED_WITNESSES = Object.freeze({
   'sync-runtime-to-reference-runner': [
     'ts-source-runtime', 'reference-runner', 'packages/core/src/runner.ts',
-    'assigned-imported-call:referenceRunSequence:referenceRunSequence:./ir/semantics/index.js:executeParsedKernHandler:trace',
+    'assigned-imported-call:referenceRunSequence:referenceRunSequence:./ir/semantics/reference-runner.js:executeParsedKernHandler:trace',
   ],
   'async-runtime-to-async-reference-runner': [
     'ts-async-source-runtime', 'async-reference-runner', 'packages/core/src/runner.ts',

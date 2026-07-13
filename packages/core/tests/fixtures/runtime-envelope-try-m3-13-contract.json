@@ -36,6 +36,7 @@
     { "id": "return-with-catch-nested-try-rejects", "category": "return-with-catch", "description": "Protected return through nested try with catch rejects before effects." },
     { "id": "finally-loop-consumes-break", "category": "cleanup-analysis", "description": "A loop inside finally may consume break and leave cleanup normal." },
     { "id": "provider-failure-tombstones-sync-catch", "category": "provider-cleanup", "description": "Sync provider failure remains uncaught while catch binding is tombstoned." },
-    { "id": "provider-failure-tombstones-async-catch", "category": "provider-cleanup", "description": "Async provider rejection remains uncaught while catch binding is tombstoned." }
+    { "id": "provider-failure-tombstones-async-catch", "category": "provider-cleanup", "description": "Async provider rejection remains uncaught while catch binding is tombstoned." },
+    { "id": "scheduler-cancellation-tombstones-async-catch", "category": "provider-cleanup", "description": "In-flight scheduler cancellation unwinds the suspended catch and tombstones its binding." }
   ]
 }

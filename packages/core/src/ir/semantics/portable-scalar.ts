@@ -23,6 +23,7 @@ import {
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { isParenthesized, isValueIR, type ValueIR } from '../../value-ir.js';
+import { isCaughtErrorValue } from './caught-error.js';
 import {
   captureFreshArrayBinding,
   capturesFreshArrayAcrossRepeatableLoop,
@@ -126,32 +127,11 @@ export function makeDecimalValue(canonical: string): DecimalValue {
 // `assertPortableScalar` and throws → the precondition catches it → the runner
 // ABSTAINS (the fail-close fence: a bare `return e`, `e.name`, `e.stack` never
 // produce a divergent value). Only the `member` case below reads through the
-// tag, and ONLY for `.message`. The tag + recognition helpers live in
-// `portable-error.ts`; the VALUE shape lives here so the `member` case can read
-// it without a module cycle.
+// tag, and ONLY for `.message`. The data-only tag + recognition helpers live in
+// `caught-error.ts` so the effect machine can bind caught values without
+// importing this legacy evaluator.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** Brand symbol marking a runtime CAUGHT-ERROR value (see `portable-error.ts`). */
-export const CAUGHT_ERROR_TAG: unique symbol = Symbol('kern.caughtError');
-
-/** The runner's tagged caught-error value: a frozen object carrying the brand,
- *  the canonical error `kind`, and the evaluated literal `message`. NOT a
- *  portable scalar. */
-export interface CaughtErrorValue {
-  readonly [CAUGHT_ERROR_TAG]: true;
-  readonly kind: string;
-  readonly message: string;
-}
-
-/** True iff `value` is a tagged caught-error value. */
-export function isCaughtErrorValue(value: unknown): value is CaughtErrorValue {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { [CAUGHT_ERROR_TAG]?: unknown })[CAUGHT_ERROR_TAG] === true &&
-    typeof (value as { message?: unknown }).message === 'string'
-  );
-}
+export { CAUGHT_ERROR_TAG, type CaughtErrorValue, isCaughtErrorValue } from './caught-error.js';
 
 /** True iff `value` is a tagged runtime Decimal value produced by
  *  {@link makeDecimalValue}. */

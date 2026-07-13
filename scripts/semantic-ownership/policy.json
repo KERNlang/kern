@@ -42,7 +42,7 @@
       "from": "ts-source-runtime",
       "to": "reference-runner",
       "path": "packages/core/src/runner.ts",
-      "evidence": "assigned-imported-call:referenceRunSequence:referenceRunSequence:./ir/semantics/index.js:executeParsedKernHandler:trace"
+      "evidence": "assigned-imported-call:referenceRunSequence:referenceRunSequence:./ir/semantics/reference-runner.js:executeParsedKernHandler:trace"
     },
     {
       "id": "async-runtime-to-async-reference-runner",

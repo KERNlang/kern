@@ -288,6 +288,19 @@ trusted-publishing/provenance configuration is inspected.
     with zero findings on 2026-07-13. Review-discovered emitted-`.js`
     dependency guarding, complete while/for/each try-in-loop coverage, and
     pre-effect rejection evidence are regression-covered.
+  - [ ] M3.13 private effect-machine `try`/`catch`/`finally` frames: root and
+    nested portable try shapes route through the resumable machine, with
+    completion-aware whole-tree preflight, cleanup-only finally, canonical
+    catch values, mandatory catch tombstoning, provider-error/cancellation
+    unwind, and sync/immediate-async parity. The executable skip-free manifest
+    and import-closure mutation oracle are implemented; the full fitness wall
+    and terminal Agon review remain required before this checkbox closes.
+  - [ ] M3.14 legacy-free shared evaluator boundary: split runtime-only
+    branch/for/if/while and portable scalar evaluator leaves so the stable
+    effect-machine import closure no longer instantiates
+    `reference-runner.ts`. M3.13 already severs legacy `try.ts` and keeps the
+    new try executor itself legacy-free; M3.14 closes the older helper debt
+    before public runtime ABI promotion.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

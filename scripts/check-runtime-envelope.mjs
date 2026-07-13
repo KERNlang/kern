@@ -6,6 +6,8 @@ const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
 const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
+const CAPABILITY_LANE = join(CORE_SOURCE, 'ir/semantics/capability-lane.ts');
+const CAPABILITY_PLAN = join(CORE_SOURCE, 'runner-capability-plan.ts');
 const EACH_RUNTIME = join(CORE_SOURCE, 'ir/semantics/each-runtime.ts');
 const EFFECT_MACHINE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine.ts');
 const EFFECT_MACHINE_SEQUENCE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-sequence.ts');
@@ -91,7 +93,7 @@ for (const witness of ["if: 'unified'", 'evaluateIfCondition', 'yield* runIf']) 
 }
 for (const witness of [
   "branch: 'unified'",
-  'assertBranchFrameSupported',
+  'analyzeBranchFrame',
   'assertInternalEffectMachineStructureSupported',
   'branchPreconditions',
   'branchShapePreconditions',
@@ -196,7 +198,22 @@ for (const forbidden of ['internal-effect-machine', "from './try.js'", 'referenc
 }
 assertRuntimeImportClosureExcludes(
   [EFFECT_MACHINE],
-  [LEGACY_TRY, REFERENCE_RUNNER, ASYNC_REFERENCE_RUNNER],
+  [LEGACY_TRY, ASYNC_REFERENCE_RUNNER],
+);
+assertRuntimeImportClosureExcludes(
+  [EFFECT_MACHINE_TRY],
+  [
+    LEGACY_TRY,
+    REFERENCE_RUNNER,
+    ASYNC_REFERENCE_RUNNER,
+    EFFECT_MACHINE,
+    EFFECT_MACHINE_SEQUENCE,
+    EFFECT_MACHINE_STRUCTURE,
+  ],
+);
+assertRuntimeImportClosureExcludes(
+  [CAPABILITY_LANE],
+  [CAPABILITY_PLAN, LEGACY_TRY, REFERENCE_RUNNER, ASYNC_REFERENCE_RUNNER],
 );
 assertRuntimeImportClosureExcludes(
   [TRY_RUNTIME],

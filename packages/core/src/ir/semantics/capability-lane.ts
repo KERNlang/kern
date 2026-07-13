@@ -1,4 +1,4 @@
-import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
+import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-catalog.js';
 import type { IRNode } from '../../types.js';
 
 export function isAsyncPlannedCapability(namespace: string, operation: string): boolean {

@@ -53,7 +53,7 @@ describe('private effect-machine structural preflight', () => {
         props: { cond: 'true' },
         children: [
           { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-          { type: 'try', children: [{ type: 'finally', children: [] }] },
+          { type: 'try', children: [{ type: 'finally', children: [{ type: 'do' }] }] },
         ],
       },
     ];

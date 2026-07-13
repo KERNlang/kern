@@ -187,7 +187,7 @@ describe('private effect-machine counted for frames', () => {
         props: { from: '0', name: 'i', to: '1' },
         children: [
           { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-          { type: 'try', children: [{ type: 'finally', children: [] }] },
+          { type: 'try', children: [{ type: 'finally', children: [{ type: 'do' }] }] },
         ],
       },
     ];

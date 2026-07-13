@@ -16,7 +16,7 @@ describe('private effect-machine architecture boundary', () => {
     expect(typeof isInternalEffectMachineEligible).toBe('function');
     expect(typeof assertInternalEffectMachineStructureSupported).toBe('function');
     expect(typeof runInternalEffectMachineSequence).toBe('function');
-    expect(INTERNAL_EFFECT_MACHINE_DISPOSITION.try).toBe('legacy');
+    expect(INTERNAL_EFFECT_MACHINE_DISPOSITION.try).toBe('unified');
 
     const driver = readFileSync(resolve(sourceDirectory, 'internal-effect-machine.ts'), 'utf8');
     expect(driver.trimEnd().split('\n').length).toBeLessThan(300);

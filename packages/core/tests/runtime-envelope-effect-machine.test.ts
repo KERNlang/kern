@@ -54,7 +54,7 @@ describe('private internal effect machine', () => {
       print: 'unified',
       return: 'unified',
       throw: 'unified',
-      try: 'legacy',
+      try: 'unified',
       while: 'unified',
     });
   });
@@ -74,7 +74,7 @@ describe('private internal effect machine', () => {
     ).toBe(false);
   });
 
-  test('keeps root try on the legacy engine until complete unwind ownership lands', () => {
+  test('routes root try through the unified effect machine', () => {
     const nodes: IRNode[] = [
       {
         type: 'try',
@@ -84,7 +84,7 @@ describe('private internal effect machine', () => {
         ],
       },
     ];
-    expect(selectInternalRuntimeEngine(nodes, makeEnv())).toBe('legacy');
+    expect(selectInternalRuntimeEngine(nodes, makeEnv())).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
   });
 
   test('sync and immediate async drivers produce the same raw trace before normalization', async () => {

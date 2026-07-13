@@ -268,7 +268,7 @@ describe('private effect-machine array each frames', () => {
         props: { in: 'items', name: 'item' },
         children: [
           { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-          { type: 'try', children: [{ type: 'finally', children: [] }] },
+          { type: 'try', children: [{ type: 'finally', children: [{ type: 'do' }] }] },
         ],
       },
     ];

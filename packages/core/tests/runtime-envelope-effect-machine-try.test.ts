@@ -56,10 +56,7 @@ describe('private effect-machine try ownership', () => {
         ],
       },
     ];
-    const sync = runInternalEffectMachineSync(
-      nodes,
-      makeEnv({ capabilities: { llm: { complete: () => 'ok' } } }),
-    );
+    const sync = runInternalEffectMachineSync(nodes, makeEnv({ capabilities: { llm: { complete: () => 'ok' } } }));
     const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
       asyncCapabilities: { llm: { complete: async () => 'ok' } },
     });
@@ -85,11 +82,10 @@ describe('private effect-machine try ownership', () => {
       },
     ];
     expect(
-      executeInternalRuntimeEnvelopeSync(
-        nodes,
-        makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } }),
-        { enabled: true, limits },
-      ),
+      executeInternalRuntimeEnvelopeSync(nodes, makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } }), {
+        enabled: true,
+        limits,
+      }),
     ).toMatchObject({ diagnostics: [{ code: 'unsupported-runtime-input' }], events: [], outcome: 'failure' });
     expect(calls).toBe(0);
   });
@@ -126,7 +122,13 @@ describe('private effect-machine try ownership', () => {
   test('tombstones the caught name when a sync provider aborts catch execution', () => {
     const env = makeEnv({
       bindings: new Map([['error', 'outer']]),
-      capabilities: { llm: { complete: () => { throw new Error('provider failed'); } } },
+      capabilities: {
+        llm: {
+          complete: () => {
+            throw new Error('provider failed');
+          },
+        },
+      },
     });
     const nodes: IRNode[] = [
       {
@@ -148,7 +150,13 @@ describe('private effect-machine try ownership', () => {
     ];
     await expect(
       runInternalEffectMachineAsync(nodes, env, {
-        asyncCapabilities: { llm: { complete: async () => { throw new Error('provider failed'); } } },
+        asyncCapabilities: {
+          llm: {
+            complete: async () => {
+              throw new Error('provider failed');
+            },
+          },
+        },
       }),
     ).rejects.toThrow(/provider failed/);
     expect(env.bindings.get('error')).not.toBe('outer');

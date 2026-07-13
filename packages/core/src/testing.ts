@@ -16,10 +16,8 @@
 export {
   CONTRACT_REGISTRY,
   makeEnv,
-  ReferenceRunnerError,
-  referenceRun,
-  referenceRunSequence,
-  registerAllContracts,
   registerContract,
 } from './ir/semantics/index.js';
+export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './ir/semantics/reference-runner.js';
+export { registerAllContracts } from './ir/semantics/register-all.js';
 export { type DifferentialResult, runAllContracts, runDifferential, type Verdict } from './ir/semantics/testing.js';

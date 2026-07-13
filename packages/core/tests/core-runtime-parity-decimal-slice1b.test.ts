@@ -45,10 +45,11 @@ import {
   evalCoreExpression,
 } from '../src/index.js';
 import { _resetExpressionV1ContractForTest, registerExpressionV1Contract } from '../src/ir/semantics/expression-v1.js';
-import { CONTRACT_REGISTRY, deepEqual, referenceRun } from '../src/ir/semantics/index.js';
+import { CONTRACT_REGISTRY, deepEqual } from '../src/ir/semantics/index.js';
 import { type Observed, observeCore, observeReference } from '../src/ir/semantics/parity-probe.js';
 import { makeDecimalValue } from '../src/ir/semantics/portable-scalar.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
+import { referenceRun } from '../src/ir/semantics/reference-runner.js';
 
 beforeEach(() => {
   CONTRACT_REGISTRY.clear();

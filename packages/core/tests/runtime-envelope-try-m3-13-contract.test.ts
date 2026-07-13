@@ -9,13 +9,13 @@ import {
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
 import { UNAVAILABLE_CAUGHT_ERROR } from '../src/ir/semantics/try-runtime.js';
-import { executeInternalRuntimeEnvelopeSync } from '../src/runtime-envelope/execute.js';
+import {
+  executeInternalRuntimeEnvelopeAsync,
+  executeInternalRuntimeEnvelopeSync,
+} from '../src/runtime-envelope/execute.js';
 import { selectInternalRuntimeEngine } from '../src/runtime-envelope/internal-engine.js';
 import type { InternalRuntimeEnvelopeLimits } from '../src/runtime-envelope/types.js';
-import {
-  M3_13_ACCEPTANCE_CASES,
-  type M313AcceptanceCase,
-} from './runtime-envelope-try-m3-13-cases.js';
+import { M3_13_ACCEPTANCE_CASES, type M313AcceptanceCase } from './runtime-envelope-try-m3-13-cases.js';
 
 interface TryContractManifestEntry {
   readonly id: string;
@@ -75,8 +75,18 @@ function runtimeEnv(onProviderCall: () => void): SemanticEnv {
       ['items', [1]],
     ]),
     capabilities: {
-      llm: { complete: () => { onProviderCall(); return 'ok'; } },
-      storage: { get: () => { onProviderCall(); return 'ok'; } },
+      llm: {
+        complete: () => {
+          onProviderCall();
+          return 'ok';
+        },
+      },
+      storage: {
+        get: () => {
+          onProviderCall();
+          return 'ok';
+        },
+      },
     },
   });
 }
@@ -87,13 +97,24 @@ function stdout(trace: ReturnType<typeof runInternalEffectMachineSync>): string[
 
 async function runSuccess(acceptance: Extract<M313AcceptanceCase, { kind: 'success' }>): Promise<void> {
   let syncCalls = 0;
-  const syncEnv = runtimeEnv(() => { syncCalls += 1; });
+  const syncEnv = runtimeEnv(() => {
+    syncCalls += 1;
+  });
   const syncTrace = runInternalEffectMachineSync(acceptance.nodes, syncEnv, { iterationBudget: 64 });
 
   let asyncCalls = 0;
-  const asyncEnv = runtimeEnv(() => { asyncCalls += 1; });
+  const asyncEnv = runtimeEnv(() => {
+    asyncCalls += 1;
+  });
   const asyncTrace = await runInternalEffectMachineAsync(acceptance.nodes, asyncEnv, {
-    asyncCapabilities: { llm: { complete: async () => { asyncCalls += 1; return 'ok'; } } },
+    asyncCapabilities: {
+      llm: {
+        complete: async () => {
+          asyncCalls += 1;
+          return 'ok';
+        },
+      },
+    },
     iterationBudget: 64,
   });
 
@@ -112,10 +133,16 @@ async function runSuccess(acceptance: Extract<M313AcceptanceCase, { kind: 'succe
 
 function runPreflightFailure(acceptance: Extract<M313AcceptanceCase, { kind: 'preflight-failure' }>): void {
   let calls = 0;
-  const envelope = executeInternalRuntimeEnvelopeSync(acceptance.nodes, runtimeEnv(() => { calls += 1; }), {
-    enabled: true,
-    limits,
-  });
+  const envelope = executeInternalRuntimeEnvelopeSync(
+    acceptance.nodes,
+    runtimeEnv(() => {
+      calls += 1;
+    }),
+    {
+      enabled: true,
+      limits,
+    },
+  );
   expect(envelope).toMatchObject({
     diagnostics: [{ code: 'unsupported-runtime-input' }],
     events: [],
@@ -129,20 +156,71 @@ async function runProviderFailure(
 ): Promise<void> {
   const env = makeEnv({ bindings: new Map([['error', 'outer']]) });
   if (acceptance.mode === 'sync') {
-    env.capabilities = { llm: { complete: () => { throw new Error('provider failed'); } } };
+    env.capabilities = {
+      llm: {
+        complete: () => {
+          throw new Error('provider failed');
+        },
+      },
+    };
     expect(() => runInternalEffectMachineSync(acceptance.nodes, env)).toThrow(/provider failed/);
-  } else {
+  } else if (acceptance.mode === 'async') {
     await expect(
       runInternalEffectMachineAsync(acceptance.nodes, env, {
-        asyncCapabilities: { llm: { complete: async () => { throw new Error('provider failed'); } } },
+        asyncCapabilities: {
+          llm: {
+            complete: async () => {
+              throw new Error('provider failed');
+            },
+          },
+        },
       }),
     ).rejects.toThrow(/provider failed/);
+  } else {
+    const controller = new AbortController();
+    let entered: (() => void) | undefined;
+    let release: ((value: string) => void) | undefined;
+    const providerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const providerWait = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    const running = executeInternalRuntimeEnvelopeAsync(
+      acceptance.nodes,
+      env,
+      { enabled: true, limits, scheduler: { signal: controller.signal } },
+      {
+        asyncCapabilities: {
+          llm: {
+            complete: async () => {
+              entered?.();
+              return providerWait;
+            },
+          },
+        },
+      },
+    );
+    await providerEntered;
+    controller.abort();
+    expect(await running).toMatchObject({
+      diagnostics: [{ code: 'execution-cancelled' }],
+      events: [],
+      outcome: 'failure',
+    });
+    release?.('late');
+    await Promise.resolve();
   }
   expect(env.bindings.get('error')).toBe(UNAVAILABLE_CAUGHT_ERROR);
 }
 
 async function runAcceptance(acceptance: M313AcceptanceCase): Promise<void> {
-  expect(selectInternalRuntimeEngine(acceptance.nodes, runtimeEnv(() => {}))).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
+  expect(
+    selectInternalRuntimeEngine(
+      acceptance.nodes,
+      runtimeEnv(() => {}),
+    ),
+  ).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
   if (acceptance.kind === 'success') return runSuccess(acceptance);
   if (acceptance.kind === 'preflight-failure') return runPreflightFailure(acceptance);
   return runProviderFailure(acceptance);

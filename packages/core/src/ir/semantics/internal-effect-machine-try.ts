@@ -1,4 +1,5 @@
 import type { IRNode } from '../../types.js';
+import { makeCaughtErrorValue } from './caught-error.js';
 import { defineBinding, type SemanticEnv } from './index.js';
 import {
   type InternalEffectMachineChildSequenceRunner,
@@ -6,7 +7,6 @@ import {
   type InternalEffectMachineGenerator,
   type InternalEffectMachineState,
 } from './internal-effect-machine-types.js';
-import { makeCaughtErrorValue } from './portable-error.js';
 import { type CompletionRecord, emptyTrace } from './trace.js';
 import { tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 
@@ -47,7 +47,10 @@ export function* runInternalEffectMachineTry(
     const finallyTrace = yield* runChildSequence(finallyNode.children ?? [], env, state);
     out.events.push(...finallyTrace.events);
     if (finallyTrace.completion.kind !== 'normal') {
-      throw new InternalEffectMachineError('try: finally must complete normally (cleanup-only this slice)', finallyNode);
+      throw new InternalEffectMachineError(
+        'try: finally must complete normally (cleanup-only this slice)',
+        finallyNode,
+      );
     }
   }
 

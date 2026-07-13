@@ -479,10 +479,6 @@ export {
   emptyTrace,
   eventsEqual,
   makeEnv,
-  ReferenceRunnerError,
-  referenceRun,
-  referenceRunSequence,
-  registerAllContracts,
   registerContract,
   serializeJson,
   serializeMarkdown,
@@ -507,6 +503,8 @@ export {
   isDecimalExpression,
   isSafeIntegerLiteralIndex,
 } from './ir/semantics/portable-scalar.js';
+export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './ir/semantics/reference-runner.js';
+export { registerAllContracts } from './ir/semantics/register-all.js';
 // Harness symbols stay on `.` for backward compatibility, but are now sourced
 // from the test-only `./ir/semantics/testing.js` barrel (NOT the runtime
 // `./ir/semantics/index.js`), so the runtime barrel no longer re-exports the

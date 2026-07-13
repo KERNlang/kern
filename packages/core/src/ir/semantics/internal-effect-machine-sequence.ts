@@ -16,6 +16,7 @@ import {
   markRepeatableLoopBody,
   type SemanticEnv,
 } from './index.js';
+import { runInternalEffectMachineTry } from './internal-effect-machine-try.js';
 import {
   hasNoBody,
   INTERNAL_EFFECT_MACHINE_FORMAT,
@@ -24,7 +25,6 @@ import {
   type InternalEffectMachineState,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
-import { runInternalEffectMachineTry } from './internal-effect-machine-try.js';
 import { emptyTrace, type Trace } from './trace.js';
 import { evaluateWhileCondition, WHILE_MAX_ITERATIONS } from './while.js';
 

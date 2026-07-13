@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.13 Private Effect-Machine Try Ownership
 
-**Status:** READY TO BUILD
+**Status:** IN PROGRESS
 **Date:** 2026-07-13
 **Confidence:** 0.94
 
@@ -20,6 +20,15 @@ brainstorm:
 
 - `/Users/nicolascukas/.agon/runs/tribunal-1783932718572-lyyrpe`
 - `/Users/nicolascukas/.agon/runs/brainstorm-1783932956590-jy907c`
+- `/Users/nicolascukas/.agon/runs/brainstorm-1783934452025-xcs0w6`
+
+The second brainstorm was required after the first transitive import-closure
+run exposed pre-existing machine dependencies outside the try frame. It chose
+an honest hybrid boundary: sever the newly exposed wide-machine path to legacy
+`try.ts` now, prove the new try executor and pure try leaf are fully
+legacy-free, and record the older shared-evaluator path to
+`reference-runner.ts` as the immediately following architecture slice rather
+than hiding it or expanding M3.13 into an unreviewable evaluator rewrite.
 
 ## Current State / Root Cause
 
@@ -231,6 +240,8 @@ The machine closure may reach `try-runtime.ts`; it may not reach `try.ts`,
 Extend the guard from literal direct-call scanning to a small static relative
 import-closure walk over the machine-family TypeScript sources. It must prove:
 
+- the stable machine does not directly or transitively reach legacy `try.ts`
+  or the async reference runner;
 - the new try machine module does not directly or transitively reach `try.ts`,
   either reference runner, the sequence module, stable driver, or runtime
   envelope;
@@ -240,6 +251,13 @@ import-closure walk over the machine-family TypeScript sources. It must prove:
   `referenceRunSequence`;
 - every machine-family handwritten file remains below 500 lines;
 - stable driver imports and exports remain unchanged.
+
+The stable machine still statically instantiates `reference-runner.ts` through
+pre-existing shared branch/for/if/while evaluator modules. M3.13 forbids direct
+legacy calls and proves the try executor cannot reach that module, but does not
+claim the entire older helper graph is isolated. A named M3.14 slice must split
+runtime-only evaluator leaves and then strengthen the stable-machine closure
+to exclude `reference-runner.ts` as well.
 
 Mutation tests must demonstrate that adding a forbidden `.js` import edge to
 the analyzed graph fails the closure oracle; checking only for a source literal
@@ -265,8 +283,9 @@ is insufficient.
 
 - [ ] Pure helper extraction leaves all existing sync/async reference try tests
   byte-equivalent and green.
-- [ ] Root and nested portable try nodes select and remain in the effect machine;
-  no machine execution path can reach a legacy runner.
+- [ ] Root and nested portable try nodes select and remain in the effect
+  machine; the try executor closure cannot reach a legacy runner, and the
+  stable machine closure cannot reach legacy `try.ts`.
 - [ ] Unsupported nodes anywhere in body, catch, or finally fail before provider
   calls and before trace events.
 - [ ] Body return with catch rejects during preflight for direct, if/else,
@@ -320,3 +339,4 @@ window. Rollback is one commit and returns static try routing to legacy.
 | Reject every abrupt descendant anywhere in finally. | Loop-local break/continue may be consumed, and a nested caught throw may complete normally. | Use completion-aware analysis and require finally's resulting set to be exactly normal. |
 | A callback creates serialized frame indirection. | Current machine state contains only the shared iteration budget, and every existing frame already delegates via `yield*`. | Callback-driven module split is non-circular generator delegation. |
 | Provider rejection automatically unwinds generator cleanup. | Drivers invoke providers while the generator is suspended and currently abandon it on throw. | Inject the error with `machine.throw` solely to run host cleanup, then preserve envelope failure. |
+| The stable machine closure was already isolated except for the new try frame. | `capability-lane.ts` imported the parser-heavy capability planner, which reaches `runner.ts`, registration, and legacy `try.ts`; shared evaluator modules also instantiate `reference-runner.ts`. | Extract a data-only capability catalog in M3.13, scope the try-frame closure exactly, and make full shared-evaluator isolation the named M3.14 slice. |

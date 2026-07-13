@@ -1,5 +1,5 @@
-import type { IRNode } from '../../types.js';
 import type { RuntimeCapabilityValue } from '../../runner-capabilities.js';
+import type { IRNode } from '../../types.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
 import type { SemanticEnv } from './index.js';
 import {
