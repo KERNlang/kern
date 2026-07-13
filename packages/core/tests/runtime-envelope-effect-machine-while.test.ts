@@ -56,8 +56,10 @@ describe('private effect-machine while frames', () => {
           },
         },
       }),
+      { iterationBudget: limits.maxCollectionLength },
     );
     const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
+      iterationBudget: limits.maxCollectionLength,
       asyncCapabilities: {
         llm: {
           complete: async ({ input }) => {
@@ -98,7 +100,7 @@ describe('private effect-machine while frames', () => {
       { type: 'return', props: { value: 'n' } },
     ];
 
-    expect(runInternalEffectMachineSync(nodes, makeEnv())).toEqual({
+    expect(runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength })).toEqual({
       completion: { kind: 'return', value: 3 },
       events: [
         { op: 'assign', target: 'n', value: 0 },
@@ -124,7 +126,9 @@ describe('private effect-machine while frames', () => {
       { type: 'return', props: { value: 'total' } },
     ];
 
-    expect(runInternalEffectMachineSync(nodes, makeEnv())).toMatchObject({
+    expect(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }),
+    ).toMatchObject({
       completion: { kind: 'return', value: 2 },
     });
   });
@@ -146,7 +150,9 @@ describe('private effect-machine while frames', () => {
       },
     ];
 
-    expect(runInternalEffectMachineSync(nodes, makeEnv()).completion).toEqual({ kind: 'return', value: 2 });
+    expect(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).completion,
+    ).toEqual({ kind: 'return', value: 2 });
   });
 
   test.each([
@@ -154,7 +160,9 @@ describe('private effect-machine while frames', () => {
     [{ type: 'throw', props: { errorKind: 'Error' } } as IRNode, { error: { kind: 'Error' }, kind: 'throw' }],
   ])('propagates %s completion out of the loop', (abrupt, completion) => {
     const nodes: IRNode[] = [{ type: 'while', props: { cond: 'true' }, children: [abrupt] }];
-    expect(runInternalEffectMachineSync(nodes, makeEnv()).completion).toEqual(completion);
+    expect(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).completion,
+    ).toEqual(completion);
   });
 
   test('rejects an unsupported descendant before capability dispatch', () => {

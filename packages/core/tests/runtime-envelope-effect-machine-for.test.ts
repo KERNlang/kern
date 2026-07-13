@@ -53,8 +53,10 @@ describe('private effect-machine counted for frames', () => {
           },
         },
       }),
+      { iterationBudget: limits.maxCollectionLength },
     );
     const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), {
+      iterationBudget: limits.maxCollectionLength,
       asyncCapabilities: {
         llm: {
           complete: async ({ input }) => {
@@ -86,7 +88,7 @@ describe('private effect-machine counted for frames', () => {
         children: [{ type: 'assign', props: { op: '=', target: 'limit', value: '0' } }],
       },
     ];
-    const trace = runInternalEffectMachineSync(nodes, makeEnv());
+    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength });
     expect(trace.events.filter((event) => event.op === 'iter-next')).toEqual([
       { binding: 'i', op: 'iter-next', value: 0 },
       { binding: 'i', op: 'iter-next', value: 1 },
@@ -99,7 +101,9 @@ describe('private effect-machine counted for frames', () => {
     [{ from: '0', name: 'i', to: '0' }, []],
     [{ from: '0', name: 'i', step: '-1', to: '3' }, []],
   ])('preserves half-open range semantics for %o', (props, values) => {
-    const trace = runInternalEffectMachineSync([{ type: 'for', props, children: [] }], makeEnv());
+    const trace = runInternalEffectMachineSync([{ type: 'for', props, children: [] }], makeEnv(), {
+      iterationBudget: limits.maxCollectionLength,
+    });
     expect(trace.events.filter((event) => event.op === 'iter-next').map((event) => event.value)).toEqual(values);
   });
 
@@ -114,7 +118,11 @@ describe('private effect-machine counted for frames', () => {
         ],
       },
     ];
-    expect(runInternalEffectMachineSync(nodes, makeEnv()).events.filter((event) => event.op === 'iter-next')).toEqual([
+    expect(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).events.filter(
+        (event) => event.op === 'iter-next',
+      ),
+    ).toEqual([
       { binding: 'i', op: 'iter-next', value: 0 },
       { binding: 'i', op: 'iter-next', value: 1 },
       { binding: 'i', op: 'iter-next', value: 2 },
@@ -133,7 +141,7 @@ describe('private effect-machine counted for frames', () => {
         ],
       },
     ];
-    const trace = runInternalEffectMachineSync(nodes, makeEnv());
+    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength });
     expect(trace.events.filter((event) => event.op === 'iter-next').map((event) => event.value)).toEqual([0, 1, 2, 3]);
     expect(trace.events.filter((event) => event.op === 'stdout')).toEqual([
       { op: 'stdout', text: '0' },
@@ -147,7 +155,9 @@ describe('private effect-machine counted for frames', () => {
     [{ type: 'throw', props: { errorKind: 'Error' } } as IRNode, { error: { kind: 'Error' }, kind: 'throw' }],
   ])('propagates %s completion out of the loop', (abrupt, completion) => {
     const nodes: IRNode[] = [{ type: 'for', props: { from: '0', name: 'i', to: '1' }, children: [abrupt] }];
-    expect(runInternalEffectMachineSync(nodes, makeEnv()).completion).toEqual(completion);
+    expect(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).completion,
+    ).toEqual(completion);
   });
 
   test('runs a for frame nested inside an if without legacy fallback', () => {
@@ -158,7 +168,9 @@ describe('private effect-machine counted for frames', () => {
         children: [{ type: 'for', props: { from: '0', name: 'i', to: '2' }, children: [] }],
       },
     ];
-    expect(runInternalEffectMachineSync(nodes, makeEnv()).events).toEqual([
+    expect(
+      runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: limits.maxCollectionLength }).events,
+    ).toEqual([
       { binding: 'i', op: 'iter-next', value: 0 },
       { binding: 'i', op: 'iter-next', value: 1 },
     ]);
