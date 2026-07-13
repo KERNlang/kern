@@ -88,6 +88,9 @@ export function isRunnerNativeDecimalFailClose(error: unknown): boolean {
 function evalDecimalNode(node: ValueIR, env: SemanticEnv, KDecimal: KDecimalCtor): KDecimalValue {
   const inner = unwrapTransparent(node);
   if (inner.kind === 'ident') {
+    if (!hasBinding(env, inner.name)) {
+      throw new Error(`portable-decimal: binding "${inner.name}" not found`);
+    }
     const bound = getBinding(env, inner.name);
     if (!isDecimalValue(bound)) {
       throw new Error(`portable-decimal: binding "${inner.name}" is not a Decimal value`);
@@ -184,7 +187,7 @@ export function isDecimalExpression(node: ValueIR): boolean {
   const inner = unwrapTransparent(node);
   const isOperand = (operand: ValueIR): boolean => {
     const unwrapped = unwrapTransparent(operand);
-    return unwrapped.kind === 'ident' || isDecimalExpression(unwrapped);
+    return unwrapped.kind === 'ident' || isDecimalValueExpression(unwrapped);
   };
   if (!isDecimalNamespaceCall(inner)) return false;
   const method = (inner.callee as Extract<ValueIR, { kind: 'member' }>).property;

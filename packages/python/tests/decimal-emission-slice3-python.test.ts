@@ -29,6 +29,7 @@ import {
   DECIMAL_DIV_ZERO_FAILCLOSE,
   DECIMAL_MOD_ZERO_FAILCLOSE,
   DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
+  DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE,
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_UNARY_OPERAND_FAILCLOSE,
@@ -555,6 +556,7 @@ execDescribe('Decimal Slice 3 — DIFFERENTIAL fail-close (byte-identical runtim
     [`Decimal.div(Decimal.of("1"), ${dynZero})`, DECIMAL_DIV_ZERO_FAILCLOSE],
     [`Decimal.mod(Decimal.of("7"), ${dynZero})`, DECIMAL_MOD_ZERO_FAILCLOSE],
     ['Decimal.pow(Decimal.of("0"), Decimal.of("-1"))', DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE],
+    ['Decimal.pow(Decimal.neg(Decimal.of("2")), Decimal.of("2"))', DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE],
   ];
 
   for (const [src, expected] of cases) {
@@ -574,6 +576,13 @@ execDescribe('Decimal Slice 3 — DIFFERENTIAL fail-close (byte-identical runtim
   test('the guarded helper, not the engine, produces the diagnostic (sanity)', () => {
     expect(runTsErr(`Decimal.div(Decimal.of("1"), ${dynZero})`)).toBe(DECIMAL_DIV_ZERO_FAILCLOSE);
     expect(runTsErr(`Decimal.div(Decimal.of("1"), ${dynZero})`)).not.toContain('Infinity');
+  });
+
+  test('computed signed zero remains an admissible non-negative pow base', () => {
+    const signedZero = 'Decimal.neg(Decimal.sub(Decimal.of("1"), Decimal.of("1")))';
+    const src = `Decimal.pow(${signedZero}, Decimal.of("2"))`;
+    expect(runTsErr(src)).toBe('NO_THROW');
+    expect(runPyErr(src)).toBe('NO_THROW');
   });
 });
 

@@ -55,17 +55,29 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
   return specifiers;
 }
 
-function resolveTypeScriptImport(fromPath, specifier) {
+function barePackageName(specifier) {
+  if (specifier.startsWith('@')) return specifier.split('/').slice(0, 2).join('/');
+  return specifier.split('/')[0];
+}
+
+function resolveTypeScriptImport(fromPath, specifier, allowedBareSpecifiers) {
   if (specifier === '@kernlang/core' || specifier.startsWith('@kernlang/core/')) {
     fail(`own-package import ${specifier} in ${fromPath} is forbidden inside a checked runtime closure`);
   }
-  if (!specifier.startsWith('.')) return null;
+  if (!specifier.startsWith('.')) {
+    if (specifier.startsWith('node:') || allowedBareSpecifiers.has(barePackageName(specifier))) return null;
+    fail(`unapproved bare import ${specifier} in ${fromPath}`);
+  }
   const resolved = resolve(dirname(fromPath), specifier);
   if (resolved.endsWith('.js') || resolved.endsWith('.mjs')) return resolved.replace(/\.m?js$/u, '.ts');
   return extname(resolved) ? resolved : `${resolved}.ts`;
 }
 
-export function runtimeImportClosure(entryPaths, readText = (path) => readFileSync(path, 'utf8')) {
+export function runtimeImportClosure(
+  entryPaths,
+  readText = (path) => readFileSync(path, 'utf8'),
+  allowedBareSpecifiers = new Set(),
+) {
   const visited = new Set();
   const pending = [...entryPaths];
   while (pending.length > 0) {
@@ -74,7 +86,7 @@ export function runtimeImportClosure(entryPaths, readText = (path) => readFileSy
     visited.add(path);
     const source = readText(path);
     for (const specifier of runtimeModuleSpecifiers(source, path)) {
-      const target = resolveTypeScriptImport(path, specifier);
+      const target = resolveTypeScriptImport(path, specifier, allowedBareSpecifiers);
       if (target && !visited.has(target)) pending.push(target);
     }
   }
@@ -85,8 +97,9 @@ export function assertRuntimeImportClosureExcludes(
   entryPaths,
   forbiddenPaths,
   readText = (path) => readFileSync(path, 'utf8'),
+  allowedBareSpecifiers = new Set(),
 ) {
-  const reachable = runtimeImportClosure(entryPaths, readText);
+  const reachable = runtimeImportClosure(entryPaths, readText, allowedBareSpecifiers);
   for (const forbidden of forbiddenPaths) {
     if (reachable.has(forbidden)) fail(`${forbidden} is reachable from ${entryPaths.join(', ')}`);
   }
@@ -95,6 +108,14 @@ export function assertRuntimeImportClosureExcludes(
 
 function semanticPath(coreSourceRoot, file) {
   return resolve(coreSourceRoot, 'ir/semantics', file);
+}
+
+function runtimeDependencies(coreSourceRoot) {
+  const manifest = JSON.parse(readFileSync(resolve(coreSourceRoot, '../package.json'), 'utf8'));
+  return new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.optionalDependencies ?? {}),
+  ]);
 }
 
 /** One production policy for both the runtime checker and its mutation tests. */
@@ -121,6 +142,7 @@ export function assertStableEffectMachineClosure(
     [semanticPath(coreSourceRoot, 'internal-effect-machine.ts')],
     forbidden,
     readText,
+    runtimeDependencies(coreSourceRoot),
   );
 }
 
@@ -142,5 +164,6 @@ export function assertPortableMachineEvaluatorClosure(
     [semanticPath(coreSourceRoot, 'portable-machine-evaluator.ts')],
     forbidden,
     readText,
+    runtimeDependencies(coreSourceRoot),
   );
 }

@@ -183,3 +183,21 @@ test('own-package imports fail closed instead of bypassing source closure resolu
     /own-package import @kernlang\/core/u,
   );
 });
+
+test('unapproved bare specifiers fail closed instead of bypassing source closure resolution', () => {
+  const sources = new Map([[entry, "import '#legacy-alias';"]]);
+  assert.throws(
+    () => assertRuntimeImportClosureExcludes([entry], [legacy], reader(sources)),
+    /unapproved bare import #legacy-alias/u,
+  );
+});
+
+test('production policy does not exempt peer dependencies from the runtime closure', () => {
+  const core = resolve(semantics, 'portable-core-evaluator.ts');
+  const source = readFileSync(core, 'utf8');
+  const mutation = `${source}\nimport ts from 'typescript';\nvoid ts;\n`;
+  assert.throws(
+    () => assertPortableMachineEvaluatorClosure(coreSource, productionReader(new Map([[core, mutation]]))),
+    /unapproved bare import typescript/u,
+  );
+});

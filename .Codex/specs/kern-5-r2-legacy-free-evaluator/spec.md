@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS
 **Date:** 2026-07-13
-**Confidence:** 0.90
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -226,7 +226,7 @@ and call signatures during the migration.
   1,823-line evaluator shrinks to a facade.
 - [x] Focused core/reference/effect-machine tests and
   `pnpm test:kern-runtime-envelope` pass.
-- [ ] `pnpm fitness:kern-5` passes on the final implementation.
+- [x] `pnpm fitness:kern-5` passes on the final implementation.
 - [ ] Terminal `agon review` with `claude,codex,agy` has zero unresolved
   verified or needs-check findings.
 
@@ -265,3 +265,16 @@ implementation continues.
 | A static machine closure proves the executable envelope is legacy-free. | `execute.ts` still registers global contracts and `internal-engine.ts` still owns legacy fallback; runtime registry state can dispatch reference-owned leaves. | Close M3.14 only as the stable machine/evaluator import boundary and require a distinct M3.15 executable-envelope isolation oracle. |
 | TypeScript import parsing covered every runtime edge. | `import x = require('./x.js')` was initially missed and inline type-only exports were over-counted. | Extend the AST walker and mutation suite before accepting the closure proof. |
 | A Decimal value-producing call must be returned by the scalar machine evaluator. | Decimal objects are intentionally outside `PortableScalar`; comparator calls evaluate nested Decimal producer trees and return a scalar. | Add explicit nested-producer, top-level rejection, zero-divisor, and canonical string-coercion regressions. |
+| `test:kern-runtime-envelope` exercised the new machine evaluator. | Its path filter selected only `runtime-envelope` tests and omitted `portable-machine-evaluator.test.ts`. | Bind both suites into the named fitness-policy command. |
+| Ignoring unknown bare imports was safe because the production graph had no aliases. | An arbitrary build alias could hide a forbidden source edge, and treating peer dependencies as external would also exempt `typescript`. | Fail closed on every undeclared bare import; exempt only runtime dependencies and mutation-test aliases plus peer dependencies. |
+| The static Decimal pow probe made every accepted base non-negative. | Computed and bound negative bases bypassed the literal-only probe, while decimal.js reports computed signed zero as negative too. | Add the same nonzero-negative runtime guard to machine, TS, and Python helpers with one target-neutral diagnostic and signed-zero regressions. |
+
+## Completion Evidence
+
+- Full wall: `pnpm fitness:kern-5` passed on 2026-07-13, including workspace
+  tests, cross-target/app conformance, native KERN tests, browser budget, KIR
+  proofs, and `test:kern-runtime-envelope`.
+- Review remediation: `review-1783951516688-cbxqcr-m3-14-terminal-fixes`
+  identified the peer-dependency exemption and imprecise Decimal assertion;
+  both were fixed and the affected gates rerun.
+- Terminal review: pending a clean post-documentation 3/3 pass.

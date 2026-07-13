@@ -1,20 +1,6 @@
-import { DECIMAL_DIV_ZERO_FAILCLOSE, DECIMAL_MOD_ZERO_FAILCLOSE } from './contract.js';
+import { DECIMAL_DIV_ZERO_FAILCLOSE, DECIMAL_MOD_ZERO_FAILCLOSE, decimalPowFailMessage } from './contract.js';
 
-export const DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE =
-  'Decimal.pow supports only an integer exponent on a non-negative base';
-
-export function decimalPowFailMessage(reason: string): string {
-  return (
-    `${DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE}: ${reason}. ` +
-    `KERN's certified Decimal pow is INTEGER-exponent only (0**0=1, positive, and negative int like 2**-1) ` +
-    `on a non-negative base — these are byte-exact across decimal.js and Python's stdlib decimal. ` +
-    `A non-integer exponent or a negative base is correctly-rounded TRANSCENDENTAL on the TS leg ` +
-    `(decimal.js) and can diverge from the Python leg by ~1 ulp, so KERN cannot guarantee byte-exact ` +
-    `cross-target parity and refuses it at compile time. Pass an integer-literal exponent and a ` +
-    `non-negative base (e.g. Decimal.pow(Decimal.of("2"), Decimal.of("3"))). ` +
-    `Fractional/transcendental pow is deferred to a later correctly-rounded slice.`
-  );
-}
+export { DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE, decimalPowFailMessage } from './contract.js';
 
 export function decimalZeroDivisorFailMessage(op: 'div' | 'mod'): string {
   return op === 'div' ? DECIMAL_DIV_ZERO_FAILCLOSE : DECIMAL_MOD_ZERO_FAILCLOSE;
