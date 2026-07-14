@@ -38,12 +38,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { kernValueToCoreFixtureValue } from '../src/core-runtime/contract-adapter.js';
-import {
-  createCoreRuntimeEnv,
-  DECIMAL_DIV_ZERO_FAILCLOSE,
-  DECIMAL_SCALE_FAILCLOSE,
-  evalCoreExpression,
-} from '../src/index.js';
+import { createCoreRuntimeEnv, evalCoreExpression } from '../src/core-runtime/index.js';
+import { DECIMAL_DIV_ZERO_FAILCLOSE, DECIMAL_SCALE_FAILCLOSE } from '../src/index.js';
 import { _resetExpressionV1ContractForTest, registerExpressionV1Contract } from '../src/ir/semantics/expression-v1.js';
 import { CONTRACT_REGISTRY, deepEqual } from '../src/ir/semantics/index.js';
 import { type Observed, observeCore, observeReference } from '../src/ir/semantics/parity-probe.js';

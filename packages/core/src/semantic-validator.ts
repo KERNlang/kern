@@ -17,11 +17,7 @@
 
 import { analysisClosureClassifier } from './closure-classifier.js';
 import { hasDirectSuperCtorCall } from './constructor-super.js';
-import {
-  type CoreShapeDiagnostic,
-  type CoreShapeInterfaceFact,
-  collectCoreShapeFacts,
-} from './core-runtime/shape-validator.js';
+import { type CoreShapeDiagnostic, type CoreShapeInterfaceFact, collectCoreShapeFacts } from './core-shape-facts.js';
 import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
 import { importRegistryOf } from './import-metadata.js';
 import { parseExpression } from './parser-expression.js';

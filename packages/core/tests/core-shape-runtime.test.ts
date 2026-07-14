@@ -1,14 +1,13 @@
 import {
-  assertCoreShape,
-  collectCoreShapeFacts,
   createCoreRuntimeEnv,
   evalCoreExpression,
   fromHostValue,
   type KernValue,
   runCoreRuntime,
   toHostValue,
-  validateCoreShape,
-} from '../src/index.js';
+} from '../src/core-runtime/index.js';
+import { assertCoreShape, validateCoreShape } from '../src/core-runtime/shape-validator.js';
+import { collectCoreShapeFacts } from '../src/core-shape-facts.js';
 import { parse } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 

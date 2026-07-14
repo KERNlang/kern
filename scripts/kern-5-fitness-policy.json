@@ -17,7 +17,8 @@
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
     "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-envelope|portable-machine-evaluator' && node --test ./scripts/runtime-envelope-import-closure.test.mjs ./scripts/runtime-envelope-handler-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
-    "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
+    "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
+    "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs"
   },
   "gates": [
     {
@@ -169,6 +170,12 @@
       "label": "Default-off public typed runtime handler ABI",
       "status": "current",
       "argv": ["pnpm", "test:runtime-abi"]
+    },
+    {
+      "id": "core-runtime-internalization",
+      "label": "CoreRuntime public-ABI quarantine and internalization",
+      "status": "current",
+      "argv": ["pnpm", "test:core-runtime-internalization"]
     },
     {
       "id": "kern-frontend",
@@ -399,6 +406,12 @@
       "label": "Default-off public typed runtime handler ABI",
       "status": "internal-oracle",
       "evidence": "pnpm test:runtime-abi"
+    },
+    {
+      "id": "core-runtime-internalization",
+      "label": "CoreRuntime public-ABI quarantine and internalization",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:core-runtime-internalization"
     },
     {
       "id": "kern-formatter",

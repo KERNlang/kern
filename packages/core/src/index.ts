@@ -341,37 +341,8 @@ export {
   STRING_CONTRACT,
   UNDEFINED_CONTRACT,
 } from './core-contracts/index.js';
-export {
-  CoreRuntimeContractAdapterError,
-  coreFixtureValueToKernValue,
-  kernValueToCoreFixtureValue,
-  roundTripKernContractDataValue,
-} from './core-runtime/contract-adapter.js';
-export type {
-  CoreCompletion,
-  CoreRuntimeResult,
-  CreateCoreRuntimeEnvOptions,
-  KernBuiltinValue,
-  KernFunctionValue,
-  KernValue,
-  RuntimeParam,
-} from './core-runtime/index.js';
-// KERN Core Runtime
-export {
-  CoreRuntimeEnv,
-  callCoreFunction,
-  createCoreRuntimeEnv,
-  evalCoreExpression,
-  fromHostValue,
-  kBoolean,
-  kernTruthy,
-  kNull,
-  kNumber,
-  kString,
-  kUndefined,
-  runCoreRuntime,
-  toHostValue,
-} from './core-runtime/index.js';
+// Runtime-neutral declared-shape analysis. Value execution and runtime shape
+// validation stay quarantined inside core-runtime.
 export type {
   CoreShapeDiagnostic,
   CoreShapeDiagnosticCode,
@@ -380,8 +351,8 @@ export type {
   CoreShapeIndexerFact,
   CoreShapeInterfaceFact,
   CoreShapeValidationResult,
-} from './core-runtime/shape-validator.js';
-export { assertCoreShape, collectCoreShapeFacts, validateCoreShape } from './core-runtime/shape-validator.js';
+} from './core-shape-facts.js';
+export { collectCoreShapeFacts } from './core-shape-facts.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
