@@ -13,7 +13,7 @@
  */
 
 import { emitExpression } from '../src/codegen-expression.js';
-import { createCoreRuntimeEnv, evalCoreExpression, toHostValue } from '../src/index.js';
+import { createCoreRuntimeEnv, evalCoreExpression, toHostValue } from '../src/core-runtime/index.js';
 import { parseExpression, tokenizeExpression } from '../src/parser-expression.js';
 
 function kinds(src: string): string[] {

@@ -5,6 +5,7 @@ import {
   type CoreFixtureValue,
   evaluateCoreContractOperation,
 } from '../core-contracts/index.js';
+import { collectCoreShapeFacts } from '../core-shape-facts.js';
 import type { SemanticEnv } from '../ir/semantics/index.js';
 import {
   decimalNamespaceMethod,
@@ -23,7 +24,7 @@ import {
   coreFixtureValueToKernValue,
   kernValueToCoreFixtureValue,
 } from './contract-adapter.js';
-import { collectCoreShapeFacts, validateCoreShape } from './shape-validator.js';
+import { validateCoreShape } from './shape-validator.js';
 import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;

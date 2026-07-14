@@ -376,6 +376,17 @@ trusted-publishing/provenance configuration is inspected.
     public runtime ABI/closure gates, preview smoke, and app-behavior
     conformance. The final six-engine terminal review completed 6/6 with zero
     verified findings (`review-1784029943644-crvryy-m3-18-preview-typed-handler-fina`).
+  - [x] M3.19 CoreRuntime public-ABI quarantine: removed the runtime-coupled
+    `core-runtime` module family from both `@kernlang/core` and `kern-lang`
+    public graphs, retained static shape facts in a runtime-neutral module, and
+    kept CoreRuntime only as an internal reference implementation. The packed
+    graph gate passes for both packages with 47 adversarial tests covering
+    direct, transitive, namespace, alias, wildcard, JavaScript, declaration,
+    renamed, and default-export restoration paths. `pnpm fitness:kern-5`
+    passed twice end-to-end after the extraction; full-roster Agon review found
+    and drove closure of each verified bypass. R2 M3 remains open until the
+    active `executeKernSource*` compatibility runners migrate onto the
+    canonical machine.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

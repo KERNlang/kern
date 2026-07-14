@@ -1,24 +1,25 @@
 import {
-  CORE_FIXTURE_FUNCTION,
-  CORE_FIXTURE_UNDEFINED,
   CoreRuntimeContractAdapterError,
+  coreFixtureValueToKernValue,
+  kernValueToCoreFixtureValue,
+  roundTripKernContractDataValue,
+} from '../src/core-runtime/contract-adapter.js';
+import {
   CoreRuntimeEnv,
   callCoreFunction,
-  coreFixtureValueToKernValue,
   createCoreRuntimeEnv,
   evalCoreExpression,
   fromHostValue,
   kBoolean,
   kernTruthy,
-  kernValueToCoreFixtureValue,
   kNull,
   kNumber,
   kString,
   kUndefined,
-  roundTripKernContractDataValue,
   runCoreRuntime,
   toHostValue,
-} from '../src/index.js';
+} from '../src/core-runtime/index.js';
+import { CORE_FIXTURE_FUNCTION, CORE_FIXTURE_UNDEFINED } from '../src/index.js';
 import { parse } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
