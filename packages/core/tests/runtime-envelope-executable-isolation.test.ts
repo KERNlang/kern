@@ -54,8 +54,8 @@ describe('M3.15 executable-envelope isolation', () => {
   test('direct sync/async fail closed on legacy-only input while explicit compat preserves fallback', async () => {
     const nodes: IRNode[] = [
       { type: 'let', props: { name: 'xs', value: '[1]' } },
-      { type: 'do', props: { value: 'xs.push(2)' } },
-      { type: 'return', props: { value: 'List.length(xs)' } },
+      { type: 'expression-v1', props: { name: 'res', expr: '1 + 2' } },
+      { type: 'return', props: { value: 'res' } },
     ];
 
     const directSync = executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), enabled);
@@ -73,7 +73,7 @@ describe('M3.15 executable-envelope isolation', () => {
     expect(compatSync).toMatchObject({
       completion: { kind: 'return' },
       outcome: 'success',
-      result: { presence: 'value', value: { tag: 'integer', value: '2' } },
+      result: { presence: 'value', value: { tag: 'integer', value: '3' } },
     });
     expect(compatAsync).toEqual(compatSync);
   });
@@ -722,7 +722,7 @@ describe('M3.15 executable-envelope isolation', () => {
   test('handler and source-handler roots fail closed on legacy-only sync/async input', async () => {
     const body: IRNode[] = [
       { type: 'let', props: { name: 'xs', value: '[1]' } },
-      { type: 'do', props: { value: 'xs.push(2)' } },
+      { type: 'expression-v1', props: { name: 'res', expr: '1 + 2' } },
       { type: 'return', props: { value: 'List.length(xs)' } },
     ];
     const entry = { body, parameters: [] };
@@ -739,7 +739,7 @@ describe('M3.15 executable-envelope isolation', () => {
       'fn name=append returns=number',
       '  handler lang="kern"',
       '    let name=xs value="[1]"',
-      '    do value="xs.push(2)"',
+      '    expression-v1 name=res expr="1 + 2"',
       '    return value="List.length(xs)"',
     ].join('\n');
     const identity = { handlerName: 'append', sourcePath: 'app/main.kern' } as const;

@@ -1,6 +1,4 @@
-import { asyncReferenceRunSequence } from './ir/semantics/async-reference-runner.js';
 import {
-  CONTRACT_REGISTRY,
   makeEnv,
   type RunnerClassBinding,
   type RunnerClassFieldBinding,
@@ -8,10 +6,12 @@ import {
   type RunnerFunctionBinding,
   type RunnerModuleScope,
   type SemanticEnv,
+  type Trace,
 } from './ir/semantics/index.js';
+import { InternalEffectMachineError } from './ir/semantics/internal-effect-machine-types.js';
 import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
 import { ReferenceRunnerError, referenceRunSequence } from './ir/semantics/reference-runner.js';
-import { registerAllContracts, resetAllContractRegistration } from './ir/semantics/register-all.js';
+import { registerAllContracts } from './ir/semantics/register-all.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { parseExpression } from './parser-expression.js';
@@ -29,6 +29,11 @@ import {
   type UnknownCapabilityRequirement,
 } from './runner-capability-plan.js';
 import { moduleLinkErrors } from './runner-module-link.js';
+import {
+  executeSourceRunnerAsync,
+  executeSourceRunnerSync,
+  SourceRunnerLegacyError,
+} from './runtime-envelope/source-runner-engine.js';
 import type { IRNode } from './types.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -181,62 +186,6 @@ interface RunnerLinkedImport {
   readonly kind?: string;
   readonly targetPath: string;
   readonly exportOnly: boolean;
-}
-
-const REQUIRED_RUNNER_CONTRACTS = [
-  'assign',
-  'branch',
-  'capability',
-  'do',
-  'each',
-  'expression-v1',
-  'fmt',
-  'for',
-  'if',
-  'lambda',
-  'let',
-  'print',
-  'return',
-  'throw',
-  'try',
-  'while',
-] as const;
-const REQUIRED_RUNNER_CONTRACT_SET = new Set<string>(REQUIRED_RUNNER_CONTRACTS);
-
-function runnerContractsRegistered(): boolean {
-  return REQUIRED_RUNNER_CONTRACTS.every((type) => CONTRACT_REGISTRY.has(type));
-}
-
-function rebuildRunnerContracts(): void {
-  const extraContracts = Array.from(CONTRACT_REGISTRY.entries()).filter(
-    ([type]) => !REQUIRED_RUNNER_CONTRACT_SET.has(type),
-  );
-  CONTRACT_REGISTRY.clear();
-  resetAllContractRegistration();
-  registerAllContracts();
-  for (const [type, contract] of extraContracts) {
-    if (!CONTRACT_REGISTRY.has(type)) CONTRACT_REGISTRY.set(type, contract);
-  }
-}
-
-function ensureRunnerContractsRegistered(): void {
-  if (runnerContractsRegistered()) return;
-  let registrationError: unknown;
-  try {
-    registerAllContracts();
-  } catch (error) {
-    registrationError = error;
-  }
-  if (runnerContractsRegistered()) return;
-  try {
-    rebuildRunnerContracts();
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new KernRunnerError(`runner contract registry is partially initialized: ${reason}`);
-  }
-  if (runnerContractsRegistered()) return;
-  const reason = registrationError instanceof Error ? `: ${registrationError.message}` : '';
-  throw new KernRunnerError(`runner contract registry is partially initialized${reason}`);
 }
 
 function topLevelNodes(root: IRNode): readonly IRNode[] {
@@ -1068,7 +1017,7 @@ function missingAsyncCapabilityHandlers(
   });
 }
 
-function stdoutFromTrace(trace: ReturnType<typeof referenceRunSequence>): string {
+function stdoutFromTrace(trace: Trace): string {
   const kind = trace.completion.kind;
   if (kind === 'normal' || (kind === 'return' && trace.completion.value === undefined)) {
     let out = '';
@@ -1121,9 +1070,7 @@ function executeParsedKernHandler(
   const rootScope = linkedRootScope(records, rootRecord);
   const runnerFunctions = rootScope.functions;
   const runnerClasses = rootScope.classes;
-  ensureRunnerContractsRegistered();
-
-  let trace: ReturnType<typeof referenceRunSequence>;
+  let trace: Trace;
   try {
     const env = makeEnv({
       ...options.env,
@@ -1132,13 +1079,17 @@ function executeParsedKernHandler(
         ...(options.env?.capabilityContext ?? {}),
         ...(options.capabilityContext ?? {}),
       },
+      runnerFunctions,
+      runnerClasses,
+      runnerCallStack: [],
+      runnerCallCache: new Map(),
     });
-    env.runnerFunctions = runnerFunctions;
-    env.runnerClasses = runnerClasses;
-    env.runnerCallStack = [];
-    env.runnerCallCache = new Map();
-    trace = referenceRunSequence(handler.children ?? [], env);
+    trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });
   } catch (err) {
+    if (err instanceof SourceRunnerLegacyError) throw new KernRunnerError(err.message);
+    if (err instanceof InternalEffectMachineError) {
+      throw new KernRunnerError(`${errorPrefix}: cannot execute - non-portable operation (${err.message})`);
+    }
     if (err instanceof ReferenceRunnerError) {
       throw new KernRunnerError(
         `${errorPrefix}: cannot execute - non-portable operation (${referenceRunnerErrorMessage(err)})`,
@@ -1290,9 +1241,7 @@ async function executeKernSourceAsyncWithEntry(
         `kern run async: async source execution for node type "${unsupportedContainer.type}" is unsupported in this preview`,
       );
     }
-    ensureRunnerContractsRegistered();
-
-    let trace: Awaited<ReturnType<typeof asyncReferenceRunSequence>>;
+    let trace: Trace;
     try {
       const env = makeEnv({
         ...options.env,
@@ -1301,16 +1250,23 @@ async function executeKernSourceAsyncWithEntry(
           ...(options.env?.capabilityContext ?? {}),
           ...(options.capabilityContext ?? {}),
         },
+        runnerFunctions,
+        runnerClasses,
+        runnerCallStack: [],
+        runnerCallCache: new Map(),
       });
-      env.runnerFunctions = runnerFunctions;
-      env.runnerClasses = runnerClasses;
-      env.runnerCallStack = [];
-      env.runnerCallCache = new Map();
-      trace = await asyncReferenceRunSequence(handler.children ?? [], env, {
+      trace = await executeSourceRunnerAsync(handler.children ?? [], env, {
+        policy: 'compatible',
         asyncCapabilities: options.asyncCapabilities,
         capabilityTimeoutMs: options.capabilityTimeoutMs,
       });
     } catch (err) {
+      if (err instanceof SourceRunnerLegacyError) throw new KernRunnerError(err.message);
+      if (err instanceof InternalEffectMachineError) {
+        throw new KernRunnerError(
+          `kern run async${entry ? ` ${entryLabel(entry)}` : ''}: cannot execute - non-portable operation (${err.message})`,
+        );
+      }
       if (err instanceof ReferenceRunnerError) {
         throw new KernRunnerError(
           `kern run async${

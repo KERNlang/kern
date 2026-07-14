@@ -129,10 +129,20 @@ export function resolveMapSetCall(
   if (!isValueIR(mapArg) || mapArg.kind !== 'ident' || !isPortableBindingName(mapArg.name)) {
     throw new Error('portable: Map.set first argument must be a bare map-binding identifier');
   }
-  const current = requirePortableMapBinding(mapArg.name, env, 'Map.set');
-  const key = requireStringKey(node.args[1], env, evaluate, 'Map.set');
-  const value = evaluate(node.args[2], env);
+  return resolveParsedMapSet(mapArg.name, node.args[1], node.args[2], env, evaluate);
+}
+
+export function resolveParsedMapSet(
+  targetName: string,
+  keyNode: ValueIR,
+  valueNode: ValueIR,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+): { targetName: string; newMap: PortableMapValue } {
+  const current = requirePortableMapBinding(targetName, env, 'Map.set');
+  const key = requireStringKey(keyNode, env, evaluate, 'Map.set');
+  const value = evaluate(valueNode, env);
   const newMap = new Map(current);
   newMap.set(key, value);
-  return { targetName: mapArg.name, newMap };
+  return { targetName, newMap };
 }

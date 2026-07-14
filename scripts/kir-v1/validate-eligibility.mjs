@@ -312,7 +312,10 @@ export function validateKirV1Eligibility(policy, options = {}) {
   );
   const runnerIds = validateCatalog(
     policy.runnerCatalog,
-    { path: 'packages/core/src/runner.ts', constant: 'REQUIRED_RUNNER_CONTRACTS' },
+    {
+      path: 'packages/core/src/runtime-envelope/source-runner-legacy.ts',
+      constant: 'REQUIRED_RUNNER_CONTRACTS',
+    },
     'contracts',
     readText,
   );

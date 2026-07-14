@@ -387,6 +387,20 @@ trusted-publishing/provenance configuration is inspected.
     and drove closure of each verified bypass. R2 M3 remains open until the
     active `executeKernSource*` compatibility runners migrate onto the
     canonical machine.
+  - [x] M3.20 source-runner convergence bridge: promoted the exact portable
+    `do` contract to unified effect-machine ownership and routed all four
+    public source-runner APIs through one pre-execution selector. Eligible
+    programs now execute on the canonical machine; explicitly deferred shapes
+    use an isolated legacy adapter, with no catch-and-retry path after machine
+    selection. An executable manifest keeps `expression-v1`, `lambda`,
+    pair/entry `each`, helper functions, class state, non-root environments,
+    and implicit loop budgets visible as follow-up debt. The browser-safe graph
+    is measured and policy-bound at 1,310,717 raw / 294,834 gzip bytes across
+    110 modules, with an automatic ceiling-rollback failure when the legacy
+    adapter leaves the graph. `pnpm fitness:kern-5` passed end-to-end on
+    2026-07-14. The terminal `claude,codex,agy` review completed 3/3 with zero
+    verified findings (`review-1784058369015-oomdka`). R2 M3 remains open until
+    the deferred ledger is empty and compatibility selection is removable.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

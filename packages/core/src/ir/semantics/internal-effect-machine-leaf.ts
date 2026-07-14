@@ -3,6 +3,11 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
 import { assertDeferredMachineLeafKnownValues } from './deferred-expression-preflight.js';
+import {
+  internalMachineDoTargetName,
+  parseInternalMachineDo,
+  runInternalMachineDo,
+} from './internal-effect-machine-do.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import {
@@ -44,6 +49,7 @@ export const INTERNAL_EFFECT_MACHINE_LEAF_TYPES = Object.freeze([
   'assign',
   'break',
   'continue',
+  'do',
   'fmt',
   'let',
   'print',
@@ -65,7 +71,8 @@ export function assertInternalEffectMachineLeafShape(node: IRNode): void {
   if (node.type === 'assign') validateAssignShape(node);
   else if (node.type === 'break' || node.type === 'continue') {
     if (node.props?.label !== undefined) throw new Error(`${node.type}: labels are outside the machine domain`);
-  } else if (node.type === 'fmt') validateFmtShape(node);
+  } else if (node.type === 'do') parseInternalMachineDo(node);
+  else if (node.type === 'fmt') validateFmtShape(node);
   else if (node.type === 'let') validateLetShape(node);
   else if (node.type === 'print') assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'));
   else if (node.type === 'return') validateReturnShape(node);
@@ -204,12 +211,25 @@ function leafOutputName(node: IRNode): string | undefined {
       ? node.props?.target
       : node.type === 'fmt' || node.type === 'let'
         ? node.props?.name
-        : undefined;
+        : node.type === 'do'
+          ? internalMachineDoTargetName(node)
+          : undefined;
   return typeof name === 'string' ? name : undefined;
 }
 
 function leafExpressionBindings(node: IRNode): Set<string> {
   const out = new Set<string>();
+  if (node.type === 'do') {
+    const parsed = parseInternalMachineDo(node);
+    if (parsed.kind === 'noop') return out;
+    out.add(parsed.targetName);
+    if (parsed.kind === 'push') expressionBindings(parsed.element, out);
+    else {
+      expressionBindings(parsed.key, out);
+      expressionBindings(parsed.value, out);
+    }
+    return out;
+  }
   if (node.type === 'fmt') {
     const parsed = parseExpression(`\`${String(node.props?.template)}\``);
     if (parsed.kind === 'tmplLit') {
@@ -268,6 +288,7 @@ export function runInternalEffectMachineLeaf(node: IRNode, env: SemanticEnv): Tr
   if (node.type === 'let') return runLet(node, env);
   if (node.type === 'print') return runPrint(node, env);
   if (node.type === 'return') return runReturn(node, env);
+  if (node.type === 'do') return runInternalMachineDo(node, env);
   return runThrow(node, env);
 }
 

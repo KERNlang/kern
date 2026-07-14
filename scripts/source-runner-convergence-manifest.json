@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "milestone": "KERN-5-R2-M3.20",
+  "owned": [
+    {
+      "id": "do",
+      "kind": "node",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-do.test.ts"
+    }
+  ],
+  "deferred": [
+    {
+      "id": "expression-v1",
+      "kind": "node",
+      "status": "legacy",
+      "followUp": "unassigned"
+    },
+    {
+      "id": "lambda",
+      "kind": "node",
+      "status": "legacy",
+      "followUp": "unassigned"
+    },
+    {
+      "id": "each-pair-entry",
+      "kind": "node",
+      "status": "partial",
+      "followUp": "unassigned"
+    },
+    {
+      "id": "helper-functions",
+      "kind": "environment",
+      "status": "legacy",
+      "followUp": "unassigned"
+    },
+    {
+      "id": "runner-classes-state",
+      "kind": "environment",
+      "status": "legacy",
+      "followUp": "unassigned"
+    },
+    {
+      "id": "non-root-environment",
+      "kind": "environment",
+      "status": "legacy",
+      "followUp": "unassigned"
+    },
+    {
+      "id": "iteration-budget",
+      "kind": "configuration",
+      "status": "compatibility",
+      "followUp": "unassigned"
+    }
+  ]
+}

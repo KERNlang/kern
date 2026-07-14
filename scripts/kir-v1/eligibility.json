@@ -312,7 +312,7 @@
     ]
   },
   "runnerCatalog": {
-    "path": "packages/core/src/runner.ts",
+    "path": "packages/core/src/runtime-envelope/source-runner-legacy.ts",
     "constant": "REQUIRED_RUNNER_CONTRACTS",
     "contracts": [
       "assign",

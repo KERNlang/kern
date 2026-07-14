@@ -43,7 +43,7 @@ describe('private internal effect machine', () => {
       break: 'unified',
       capability: 'unified',
       continue: 'unified',
-      do: 'legacy',
+      do: 'unified',
       each: 'partial',
       'expression-v1': 'legacy',
       fmt: 'unified',
