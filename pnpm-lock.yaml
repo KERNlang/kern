@@ -329,6 +329,9 @@ importers:
       ts-morph:
         specifier: ^28.0.0
         version: 28.0.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
   packages/review-mcp:
     dependencies:
