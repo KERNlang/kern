@@ -5,6 +5,7 @@ import {
   loadKernAppDescriptor,
   normalizeKernHmacAlgorithm,
 } from '../src/runtime.js';
+import { KERN_RUNTIME_HANDLER_ABI } from '../src/runtime-handler.js';
 
 function manifest(lines: string[]): string {
   return lines.join('\n');
@@ -14,8 +15,13 @@ function source(bodyLines: string[]): string {
   return ['fn name=main returns=void', '  handler lang="kern"', ...bodyLines.map((line) => `    ${line}`)].join('\n');
 }
 
-async function load(manifestSource: string, files: Readonly<Record<string, string>> = {}) {
+async function load(
+  manifestSource: string,
+  files: Readonly<Record<string, string>> = {},
+  options: { readonly runtimeHandlerAbi?: string } = {},
+) {
   return loadKernAppDescriptor(manifestSource, {
+    ...options,
     appRoot: '/app',
     canonicalizePath(path) {
       return path;
@@ -27,6 +33,98 @@ async function load(manifestSource: string, files: Readonly<Record<string, strin
 }
 
 describe('@kernlang/core/runtime app descriptor', () => {
+  test('admits only the exact public handler ABI without weakening legacy void entries', async () => {
+    const typedSource = [
+      'fn name=answer params="question:string" returns="string[]"',
+      '  handler lang="kern"',
+      "    return value=\"[question, 'grounded', 'docs/refunds.md']\"",
+    ].join('\n');
+    const descriptor = await load(
+      manifest([
+        'app name=SupportApp',
+        '  route name=Answer method=get path="/api/answer" source="./answer.kern" handler=answer',
+      ]),
+      { '/app/answer.kern': typedSource },
+      { runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI },
+    );
+    expect(descriptor.routes[0]).toEqual(expect.objectContaining({ handler: 'answer' }));
+
+    const legacySource = source(['return']);
+    await expect(
+      load(
+        manifest(['app name=SupportApp', '  view name=Home path="/" source="./ui.kern" handler=main']),
+        { '/app/ui.kern': legacySource },
+        { runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ views: [expect.objectContaining({ handler: 'main' })] }));
+
+    const typedViewSource = [
+      'fn name=main returns=string',
+      '  handler lang="kern"',
+      '    return value="\'typed view\'"',
+    ].join('\n');
+    await expect(
+      load(
+        manifest(['app name=SupportApp', '  view name=Home path="/" source="./ui.kern" handler=main']),
+        { '/app/ui.kern': typedViewSource },
+        { runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI },
+      ),
+    ).rejects.toThrow(/must declare returns=void/);
+
+    for (const unsupportedRoute of [
+      'fn name=answer params="question:string" returns="string[]" async=true\n  handler lang="kern"\n    return value="[]"',
+      'use path="./helper.kern"\nfn name=answer params="question:string" returns="string[]"\n  handler lang="kern"\n    return value="[]"',
+    ]) {
+      await expect(
+        load(
+          manifest([
+            'app name=SupportApp',
+            '  route name=Answer method=get path="/api/answer" source="./answer.kern" handler=answer',
+          ]),
+          { '/app/answer.kern': unsupportedRoute },
+          { runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI },
+        ),
+      ).rejects.toThrow(/async is unsupported|cannot use top-level module syntax/);
+    }
+
+    for (const unsupported of [
+      'fn name=answer params="question:Query" returns="string[]"\n  handler lang="kern"\n    return value="[]"',
+      'fn name=answer params="question:string" returns=Answer\n  handler lang="kern"\n    return value="question"',
+      'fn name=answer params="question:string=\'x\'" returns="string[]"\n  handler lang="kern"\n    return value="[]"',
+    ]) {
+      await expect(
+        load(
+          manifest([
+            'app name=SupportApp',
+            '  route name=Answer method=get path="/api/answer" source="./answer.kern" handler=answer',
+          ]),
+          { '/app/answer.kern': unsupported },
+          { runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI },
+        ),
+      ).rejects.toThrow(/signature is unsupported/);
+    }
+
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          '  route name=Answer method=get path="/api/answer" source="./answer.kern" handler=answer',
+        ]),
+        { '/app/answer.kern': typedSource },
+        { runtimeHandlerAbi: 'unknown' },
+      ),
+    ).rejects.toThrow(/unsupported runtimeHandlerAbi/);
+    await expect(
+      load(
+        manifest([
+          'app name=SupportApp',
+          '  route name=Answer method=get path="/api/answer" source="./answer.kern" handler=answer',
+        ]),
+        { '/app/answer.kern': typedSource },
+      ),
+    ).rejects.toThrow(/must declare returns=void/);
+  });
+
   test('loads views, routes, policies, paths, and capability requirements', async () => {
     const descriptor = await load(
       manifest([

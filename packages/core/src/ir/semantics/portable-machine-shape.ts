@@ -175,6 +175,13 @@ function assertArrayShape(node: Extract<ValueIR, { kind: 'arrayLit' }>, allowFin
   }
 }
 
+function assertReturnArrayShape(node: Extract<ValueIR, { kind: 'arrayLit' }>): void {
+  for (const item of node.items) {
+    if (item.kind === 'arrayLit') assertArrayShape(item, false);
+    else assertPortableMachineScalarShape(item);
+  }
+}
+
 function assertRecordShape(node: Extract<ValueIR, { kind: 'objectLit' }>): void {
   const keys: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const rawEntry of node.entries) {
@@ -211,7 +218,7 @@ export function assertPortableMachineLetShape(node: ValueIR): void {
 
 export function assertPortableMachineReturnShape(node: ValueIR): void {
   if (node.kind === 'arrayLit') {
-    assertArrayShape(node, false);
+    assertReturnArrayShape(node);
     return;
   }
   if (node.kind === 'objectLit') {

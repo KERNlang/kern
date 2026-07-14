@@ -14,9 +14,11 @@ stays at the host boundary:
   response mode, and required host capabilities.
 - `answer-route.kern` authors the backend route behavior, RAG query path, and
   grounding guard.
-- `server.mjs` is the thin host adapter for HTTP, request query parameters, local RAG
-  adapter wiring, and deterministic LLM wiring; it reads `app.kern` and fails
-  closed if the route source uses undeclared capabilities.
+- `server.mjs` is the thin host adapter for HTTP, typed argument/result
+  projection, local RAG adapter wiring, and deterministic LLM wiring; it reads
+  `app.kern` and fails closed if the route source uses undeclared capabilities.
+- `runtime-handler-config.json` owns the preview's explicit runtime limits and
+  timeouts instead of embedding them in host code.
 
 The route's async capabilities (`rag.retrieveAsync`, `llm.complete`) run
 through the promoted default async lane — no `--async-preview` flag is
@@ -58,22 +60,23 @@ app.kern
 ui.kern
   -> native runner emits browser HTML
   -> browser fetches /api/answer?question=...
-  -> server.mjs exposes request input through app-http.queryParam
-  -> answer-route.kern runs through executeKernSourceAsync
+  -> server.mjs passes the normalized question through kern.runtime.handler.v1
+  -> answer-route.kern runs through executeKernRuntimeHandlerAsync
   -> rag.retrieveAsync finds local corpus chunks
   -> rag.promptContext builds prompt context with safeText instruction boundaries
   -> llm.complete host adapter returns deterministic preview text
   -> rag.checkAnswer enforces citation and grounding policy
-  -> server.mjs returns structured JSON
+  -> answer-route.kern returns [answer, status, source] as a typed string[]
+  -> server.mjs validates the closed envelope and projects unchanged HTTP JSON
 ```
 
 ## Boundary
 
 | Area | Demo status |
 | --- | --- |
-| KERN-authored | App manifest in `app.kern`; browser markup in `ui.kern`; backend route flow in `answer-route.kern`; RAG declaration, retrieval selection, safe prompt-context handoff, answer check, and printed route result sections. |
-| Runtime capability | `app.kern` declares `app-http.queryParam`, `rag.retrieveAsync`, `rag.promptContext`, `llm.complete`, and `rag.checkAnswer`; `answer-route.kern` calls those explicit named operations. Missing, undeclared, or failed capabilities fail closed. |
-| Thin host adapter | `server.mjs` owns HTTP, filesystem reads for `.kern` sources, request query parameter injection, local corpus/vector adapter wiring, deterministic LLM preview output, and JSON shaping. It must honor the route, view, policy, response, and capability contract declared in `app.kern`. |
+| KERN-authored | App manifest in `app.kern`; browser markup in `ui.kern`; backend route flow in `answer-route.kern`; RAG declaration, retrieval selection, safe prompt-context handoff, answer check, and typed answer/status/source result. |
+| Runtime capability | `app.kern` declares `rag.retrieveAsync`, `rag.promptContext`, `llm.complete`, and `rag.checkAnswer`; `answer-route.kern` calls those explicit named operations. Missing, undeclared, or failed capabilities fail closed. |
+| Thin host adapter | `server.mjs` owns HTTP, filesystem reads for `.kern` sources, normalized typed request input, local corpus/vector adapter wiring, deterministic LLM preview output, strict handler-envelope validation, and positional projection to the existing JSON schema. It must honor the route, view, policy, response, and capability contract declared in `app.kern`. |
 | Outside the 5.0 matrix | The browser script is still host bootstrap JavaScript, the LLM is deterministic unless a host swaps in a provider, broad async KERN semantics remain outside the supported matrix, and linked multi-file KERN app packages are minimal manifest wiring rather than a full package system. |
 
 ## API Shape
@@ -123,19 +126,19 @@ These return safe JSON errors instead of partial answers:
 }
 ```
 
-Unsupported async execution shapes are fail-closed in the runner before app code
-can leak partial output. The focused contract example lives in
-`packages/cli/tests/run.test.ts` under "async preview execution fails closed for
-unsupported async helper expression slots"; the broader `pnpm test:runner-smoke`
-gate keeps that preview boundary separate from this app's happy path.
+Unsupported handler shapes and result types fail closed before the HTTP adapter
+can expose partial output. `pnpm test:runtime-abi` owns the public typed-handler
+contract, while `pnpm test:app-demo` proves this maintained consumer.
 
 ## What This Proves
 
 KERN-authored app behavior can declare the app surface, drive a browser UI, run
-an HTTP answer route, perform local RAG retrieval, synthesize a deterministic
-answer, and enforce grounding guards through the native runner preview. Host
-code cannot be reached implicitly; every host effect crosses a named capability
-declared by the app manifest and supplied by the adapter.
+an HTTP answer route with typed arguments/results, perform local RAG retrieval,
+synthesize a deterministic answer, and enforce grounding guards through its own
+handler runtime. Host code cannot be reached implicitly; every host effect
+crosses a named capability declared by the app manifest and supplied by the
+adapter. No application-specific stdout marker or JSON-in-text protocol becomes
+the HTTP response.
 
 ## Matrix Boundary
 

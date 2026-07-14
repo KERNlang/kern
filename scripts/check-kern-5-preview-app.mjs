@@ -1,6 +1,11 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { createPreviewAppServer, loadPreviewAppManifest } from '../examples/kern-5-preview-app/server.mjs';
+import {
+  createPreviewAppServer,
+  loadPreviewAppManifest,
+  parseRuntimeHandlerConfig,
+} from '../examples/kern-5-preview-app/server.mjs';
 
 class DemoSmokeFailure extends Error {}
 
@@ -29,6 +34,34 @@ async function fetchJsonResponse(url) {
 }
 
 try {
+  const validRuntimeHandlerConfig = JSON.stringify({
+    format: 'kern.preview.runtime-handler.config.v1',
+    capabilityTimeoutMs: 1,
+    schedulerTimeoutMs: 1,
+    limits: {
+      maxBytes: 1,
+      maxCollectionLength: 1,
+      maxDepth: 1,
+      maxDiagnostics: 1,
+      maxEvents: 1,
+      maxStringBytes: 1,
+    },
+  });
+  parseRuntimeHandlerConfig(validRuntimeHandlerConfig);
+  for (const invalidConfig of [
+    validRuntimeHandlerConfig.replace('"capabilityTimeoutMs":1', '"capabilityTimeoutMs":0'),
+    validRuntimeHandlerConfig.replace('"schedulerTimeoutMs":1', '"schedulerTimeoutMs":"1"'),
+    validRuntimeHandlerConfig.replace('"maxBytes":1', '"maxBytes":1.5'),
+    validRuntimeHandlerConfig.replace('"maxStringBytes":1', '"unexpected":1'),
+  ]) {
+    try {
+      parseRuntimeHandlerConfig(invalidConfig);
+      throw new DemoSmokeFailure('runtime handler config admitted invalid limits or timeout data');
+    } catch (error) {
+      if (error instanceof DemoSmokeFailure) throw error;
+    }
+  }
+
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -55,8 +88,43 @@ try {
   if (Number(manifest.answerRoute.policies[0]?.props?.failureStatus) !== 422) {
     throw new DemoSmokeFailure(`app manifest did not declare the answer grounding failure status`);
   }
+  const serverSource = await readFile(new URL('../examples/kern-5-preview-app/server.mjs', import.meta.url), 'utf8');
+  const routeSource = await readFile(
+    new URL('../examples/kern-5-preview-app/answer-route.kern', import.meta.url),
+    'utf8',
+  );
+  const appSource = await readFile(new URL('../examples/kern-5-preview-app/app.kern', import.meta.url), 'utf8');
+  const runtimeHandlerConfig = JSON.parse(
+    await readFile(new URL('../examples/kern-5-preview-app/runtime-handler-config.json', import.meta.url), 'utf8'),
+  );
+  if (serverSource.includes('executeKernEntrySourceAsync')) {
+    throw new DemoSmokeFailure('answer route still imports the legacy async runner entry');
+  }
+  if (!serverSource.includes('executeKernRuntimeHandlerAsync')) {
+    throw new DemoSmokeFailure('answer route does not invoke the public typed handler');
+  }
+  for (const required of ['KERN_RUNTIME_HANDLER_ABI', 'runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI']) {
+    if (!serverSource.includes(required)) throw new DemoSmokeFailure(`server omits typed handler guard ${required}`);
+  }
+  for (const forbidden of ['parseAnswerRouteOutput', '__KERN_ANSWER_START__', '__KERN_SOURCES_START__']) {
+    if (serverSource.includes(forbidden)) throw new DemoSmokeFailure(`server retains stdout protocol token ${forbidden}`);
+  }
+  if (!routeSource.includes('fn name=answerQuestion params="question:string" returns="string[]"')) {
+    throw new DemoSmokeFailure('answerQuestion does not expose the exact typed handler signature');
+  }
+  if (!routeSource.includes('return value="[answer, check.status, check.sources[0]]"')) {
+    throw new DemoSmokeFailure('answerQuestion does not return the fixed typed result projection');
+  }
+  for (const forbidden of ['app-http', '__KERN_', 'print value=']) {
+    if (routeSource.includes(forbidden)) throw new DemoSmokeFailure(`answer route retains legacy token ${forbidden}`);
+  }
+  if (appSource.includes('app-http.queryParam')) {
+    throw new DemoSmokeFailure('app manifest still declares the legacy query capability');
+  }
+  if (runtimeHandlerConfig.format !== 'kern.preview.runtime-handler.config.v1') {
+    throw new DemoSmokeFailure('runtime handler config has an unexpected format');
+  }
   for (const capability of [
-    'app-http.queryParam',
     'rag.retrieveAsync',
     'rag.promptContext',
     'llm.complete',

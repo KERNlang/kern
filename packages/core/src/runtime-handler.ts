@@ -5,16 +5,14 @@ import {
 } from './runtime-envelope/handler-entry.js';
 import { inspectInternalRuntimeSchedulerControl } from './runtime-envelope/internal-scheduler.js';
 import { internalRuntimeFailure, internalRuntimeLinkFailure } from './runtime-envelope/normalize.js';
-import {
-  type InternalRuntimeHandlerSignature,
-  resolveInternalRuntimeSourceHandler,
-} from './runtime-envelope/source-handler.js';
+import { resolveInternalRuntimeSourceHandler } from './runtime-envelope/source-handler.js';
 import type {
   InternalRuntimeEnvelope,
   InternalRuntimeEnvelopeLimits,
   InternalRuntimeValue,
 } from './runtime-envelope/types.js';
 import { normalizeInternalRuntimeValues, validateInternalRuntimeLimits } from './runtime-envelope/value.js';
+import { admitKernRuntimeHandlerSignature, type KernRuntimeHandlerAdmittedType } from './runtime-handler-contract.js';
 
 export const KERN_RUNTIME_HANDLER_ABI = 'kern.runtime.handler.v1' as const;
 
@@ -160,11 +158,6 @@ export class KernRuntimeHandlerError extends TypeError {
     this.code = code;
   }
 }
-
-type AdmittedType =
-  | { readonly kind: 'boolean' | 'integer' | 'text' }
-  | { readonly element: 'boolean' | 'integer' | 'text'; readonly kind: 'list' }
-  | { readonly kind: 'void' };
 
 const SYNC_OPTION_KEYS = ['capabilities', 'capabilityContext', 'enabled', 'limits', 'scheduler'] as const;
 const ASYNC_OPTION_KEYS = [...SYNC_OPTION_KEYS, 'asyncCapabilities', 'capabilityTimeoutMs'] as const;
@@ -327,24 +320,7 @@ function acceptedOptions(
   };
 }
 
-function admittedAnnotation(annotation: string | undefined, returns: boolean): AdmittedType | null {
-  if (annotation === undefined) return null;
-  const value = annotation.trim();
-  if (returns && value === 'void') return { kind: 'void' };
-  const scalar = value.endsWith('[]') ? value.slice(0, -2) : value;
-  const kind = scalar === 'string' ? 'text' : scalar === 'number' ? 'integer' : scalar === 'boolean' ? 'boolean' : null;
-  if (kind === null) return null;
-  return value.endsWith('[]') ? { element: kind, kind: 'list' } : { kind };
-}
-
-function admittedSignature(signature: InternalRuntimeHandlerSignature): readonly AdmittedType[] | null {
-  const parameters = signature.parameters.map(({ annotation }) => admittedAnnotation(annotation, false));
-  const returns = admittedAnnotation(signature.returns, true);
-  if (parameters.some((type) => type === null) || returns === null) return null;
-  return [...(parameters as AdmittedType[]), returns];
-}
-
-function matchesType(value: InternalRuntimeValue, type: AdmittedType): boolean {
+function matchesType(value: InternalRuntimeValue, type: KernRuntimeHandlerAdmittedType): boolean {
   if (type.kind === 'void') return false;
   if (type.kind !== 'list') return value.tag === type.kind;
   return value.tag === 'list' && value.value.every((item) => item.tag === type.element);
@@ -366,7 +342,7 @@ function inspectedArgumentValues(args: readonly unknown[]): readonly unknown[] {
 
 function validateArguments(
   args: readonly unknown[],
-  signature: readonly AdmittedType[],
+  signature: readonly KernRuntimeHandlerAdmittedType[],
   limits: InternalRuntimeEnvelopeLimits,
 ): boolean {
   try {
@@ -381,7 +357,10 @@ function validateArguments(
   }
 }
 
-function validateResult(envelope: InternalRuntimeEnvelope, returns: AdmittedType): InternalRuntimeEnvelope {
+function validateResult(
+  envelope: InternalRuntimeEnvelope,
+  returns: KernRuntimeHandlerAdmittedType,
+): InternalRuntimeEnvelope {
   if (envelope.outcome === 'failure') return envelope;
   if (returns.kind === 'void') {
     return envelope.result.presence === 'absent' ? envelope : internalRuntimeFailure('invalid-handler-result');
@@ -408,7 +387,7 @@ function linkedRequest(
 ):
   | {
       readonly entry: Exclude<ReturnType<typeof resolveInternalRuntimeSourceHandler>, InternalRuntimeEnvelope>;
-      readonly signature: readonly AdmittedType[];
+      readonly signature: readonly KernRuntimeHandlerAdmittedType[];
     }
   | InternalRuntimeEnvelope {
   const linked = resolveInternalRuntimeSourceHandler(request.source, request.identity, {
@@ -417,7 +396,7 @@ function linkedRequest(
     scheduler: options.scheduler,
   });
   if ('format' in linked) return linked;
-  const signature = admittedSignature(linked.signature);
+  const signature = admitKernRuntimeHandlerSignature(linked.signature);
   if (signature === null) return internalRuntimeLinkFailure('handler-entry-unsupported');
   if (!validateArguments(request.arguments, signature, options.limits)) {
     return internalRuntimeFailure('invalid-handler-arguments');

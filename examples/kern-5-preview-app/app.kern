@@ -1,4 +1,4 @@
 app name=Kern5Preview version=5.0 target=node
   view name=SupportHome path="/" source="./ui.kern" handler=renderHome
-  route name=AnswerQuestion method=get path="/api/answer" source="./answer-route.kern" handler=answerQuestion response=json policy=GroundedAnswerPolicy requires="app-http.queryParam,rag.retrieveAsync,rag.promptContext,llm.complete,rag.checkAnswer"
+  route name=AnswerQuestion method=get path="/api/answer" source="./answer-route.kern" handler=answerQuestion response=json policy=GroundedAnswerPolicy requires="rag.retrieveAsync,rag.promptContext,llm.complete,rag.checkAnswer"
   policy name=GroundedAnswerPolicy kind=rag-grounding failureStatus=422 requires="rag.checkAnswer"
