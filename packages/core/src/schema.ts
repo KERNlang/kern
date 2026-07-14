@@ -1939,6 +1939,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'objectMerge',
       'objectOmit',
       'objectPick',
+      'capability',
+      'print',
       'return',
       'if',
       'else',

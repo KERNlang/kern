@@ -342,6 +342,8 @@
         "objectMerge",
         "objectOmit",
         "objectPick",
+        "capability",
+        "print",
         "return",
         "if",
         "else",

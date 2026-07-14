@@ -49,6 +49,7 @@ export type InternalRuntimeDiagnosticCode =
   | 'handler-entry-unsupported'
   | 'handler-link-error'
   | 'invalid-handler-arguments'
+  | 'invalid-handler-result'
   | 'internal-runner-error'
   | 'non-portable-value'
   | 'uncaught-throw'
