@@ -75,6 +75,10 @@ describe('private internal effect machine', () => {
     expect(
       isInternalEffectMachineEligible(unifiedNodes, makeEnv({ runnerClasses: new Map([['C', {} as never]]) })),
     ).toBe(false);
+    expect(isInternalEffectMachineEligible(unifiedNodes, makeEnv({ runnerFunctions: { size: 0 } as never }))).toBe(
+      false,
+    );
+    expect(isInternalEffectMachineEligible(unifiedNodes, makeEnv({ runnerClasses: { size: 0 } as never }))).toBe(false);
   });
 
   test('routes root try through the unified effect machine', () => {

@@ -149,6 +149,35 @@ describe('internal runtime capability interception seam', () => {
     }
   });
 
+  test('preserves interceptor failure causes without exposing them in the envelope', () => {
+    const host = makeEnv();
+    const cause = new Error('local interceptor detail');
+    installInternalRuntimeCapabilityInterceptor(host, () => {
+      throw cause;
+    });
+
+    let thrown: unknown;
+    try {
+      invokeInternalRuntimeCapabilitySync(host, { namespace: 'storage', operation: 'get' });
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as Error & { cause?: unknown }).cause).toBe(cause);
+
+    const envelope = executeInternalRuntimeHandlerSync(
+      entry,
+      [],
+      host,
+      options(() => Promise.reject(cause)),
+    );
+    expect(envelope).toMatchObject({
+      diagnostics: [{ code: 'capability-error', phase: 'execution' }],
+      events: [],
+      outcome: 'failure',
+    });
+    expect(JSON.stringify(envelope)).not.toContain('local interceptor detail');
+  });
+
   test('async interceptors may settle before a sync provider dispatch', async () => {
     let calls = 0;
     const interceptor: InternalRuntimeCapabilityInterceptor = async () => ({ kind: 'proceed' });

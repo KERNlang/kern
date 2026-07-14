@@ -7,6 +7,7 @@ import {
 } from '../src/ir/semantics/internal-effect-machine.js';
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
+import { UNAVAILABLE_CAUGHT_ERROR } from '../src/ir/semantics/try-runtime.js';
 import { executeInternalRuntimeEnvelopeSync } from '../src/runtime-envelope/execute.js';
 import { selectInternalRuntimeEngine } from '../src/runtime-envelope/internal-engine.js';
 import type { InternalRuntimeEnvelopeLimits } from '../src/runtime-envelope/types.js';
@@ -88,6 +89,158 @@ describe('private effect-machine try ownership', () => {
       }),
     ).toMatchObject({ diagnostics: [{ code: 'unsupported-runtime-input' }], events: [], outcome: 'failure' });
     expect(calls).toBe(0);
+  });
+
+  test('finally observes a body binding created before return', () => {
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          { type: 'let', props: { name: 'answer', value: '7' } },
+          { type: 'return', props: { value: 'answer' } },
+          { type: 'finally', children: [{ type: 'print', props: { value: 'answer' } }] },
+        ],
+      },
+    ];
+
+    expect(executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), { enabled: true, limits })).toMatchObject({
+      completion: { kind: 'return' },
+      events: [{ op: 'stdout', text: '7' }],
+      outcome: 'success',
+      result: { presence: 'value', value: { tag: 'integer', value: '7' } },
+    });
+  });
+
+  test('catch and finally observe bindings guaranteed before their entry', () => {
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          { type: 'let', props: { name: 'bodyValue', value: '7' } },
+          canonicalThrow(),
+          {
+            type: 'catch',
+            props: { name: 'error' },
+            children: [
+              { type: 'print', props: { value: 'bodyValue' } },
+              { type: 'let', props: { name: 'caughtValue', value: '9' } },
+            ],
+          },
+          { type: 'finally', children: [{ type: 'print', props: { value: 'caughtValue' } }] },
+        ],
+      },
+    ];
+
+    expect(executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), { enabled: true, limits })).toMatchObject({
+      events: [
+        { op: 'stdout', text: '7' },
+        { op: 'stdout', text: '9' },
+      ],
+      outcome: 'success',
+    });
+  });
+
+  test('admits caught-error message as a capability input while keeping the raw object closed', () => {
+    const inputs: unknown[] = [];
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          canonicalThrow(),
+          {
+            type: 'catch',
+            props: { name: 'error' },
+            children: [
+              {
+                type: 'capability',
+                props: { input: 'error.message', name: 'answer', namespace: 'storage', operation: 'echo' },
+              },
+            ],
+          },
+        ],
+      },
+      { type: 'return', props: { value: 'answer' } },
+    ];
+    const env = makeEnv({
+      capabilities: {
+        storage: {
+          echo: ({ input }) => {
+            inputs.push(input);
+            return input;
+          },
+        },
+      },
+    });
+
+    expect(executeInternalRuntimeEnvelopeSync(nodes, env, { enabled: true, limits })).toMatchObject({
+      outcome: 'success',
+      result: { presence: 'value', value: { tag: 'text', value: 'boom' } },
+    });
+    expect(inputs).toEqual(['boom']);
+  });
+
+  test('normal catch completion preserves the frozen same-env tombstone contract', () => {
+    const env = makeEnv({ bindings: new Map([['error', 'outer']]) });
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [canonicalThrow(), { type: 'catch', props: { name: 'error' }, children: [] }],
+      },
+    ];
+
+    expect(runInternalEffectMachineSync(nodes, env)).toMatchObject({ completion: { kind: 'normal' } });
+    expect(env.bindings.get('error')).toBe(UNAVAILABLE_CAUGHT_ERROR);
+  });
+
+  test('rejects a finally read declared only after return before an earlier provider runs', () => {
+    let calls = 0;
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+          { type: 'return', props: { value: '1' } },
+          { type: 'let', props: { name: 'late', value: '2' } },
+          { type: 'finally', children: [{ type: 'print', props: { value: 'late' } }] },
+        ],
+      },
+    ];
+    const env = makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } });
+
+    expect(executeInternalRuntimeEnvelopeSync(nodes, env, { enabled: true, limits })).toMatchObject({
+      diagnostics: [{ code: 'unsupported-runtime-input' }],
+      events: [],
+      outcome: 'failure',
+    });
+    expect(calls).toBe(0);
+  });
+
+  test('preserves an outer same-name binding when the catch path is unreachable', () => {
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          { type: 'print', props: { value: '"body"' } },
+          { type: 'catch', props: { name: 'error' }, children: [] },
+        ],
+      },
+      { type: 'print', props: { value: 'error' } },
+      { type: 'return', props: { value: 'error' } },
+    ];
+
+    expect(
+      executeInternalRuntimeEnvelopeSync(nodes, makeEnv({ bindings: new Map([['error', 42]]) }), {
+        enabled: true,
+        limits,
+      }),
+    ).toMatchObject({
+      events: [
+        { op: 'stdout', text: 'body' },
+        { op: 'stdout', text: '42' },
+      ],
+      outcome: 'success',
+      result: { presence: 'value', value: { tag: 'integer', value: '42' } },
+    });
   });
 
   test('propagates loop control through normal finally and consumes it in the owning loop', () => {

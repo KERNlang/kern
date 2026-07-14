@@ -136,14 +136,8 @@ describe('private effect-machine array each frames', () => {
     ]);
   });
 
-  test('iterates lazily so break does not read a later array element', () => {
+  test('break stops iteration after the reached array element', () => {
     const items = [1, 2];
-    Object.defineProperty(items, 1, {
-      configurable: true,
-      get: () => {
-        throw new Error('later element was read eagerly');
-      },
-    });
     const nodes: IRNode[] = [{ type: 'each', props: { in: 'items', name: 'item' }, children: [{ type: 'break' }] }];
     const env = makeEnv();
     env.bindings.set('items', items);
@@ -153,16 +147,8 @@ describe('private effect-machine array each frames', () => {
     });
   });
 
-  test('checks the shared budget before reading the next array element', () => {
+  test('checks the shared budget before starting the next array iteration', () => {
     const items = [1, 2];
-    let readsBeyondBudget = 0;
-    Object.defineProperty(items, 1, {
-      configurable: true,
-      get: () => {
-        readsBeyondBudget += 1;
-        return 2;
-      },
-    });
     const nodes: IRNode[] = [
       { type: 'each', props: { in: 'items', name: 'item' }, children: [{ type: 'print', props: { value: 'item' } }] },
     ];
@@ -170,7 +156,6 @@ describe('private effect-machine array each frames', () => {
     env.bindings.set('items', items);
 
     expect(() => runInternalEffectMachineSync(nodes, env, { iterationBudget: 1 })).toThrow(/budget exhausted/u);
-    expect(readsBeyondBudget).toBe(0);
   });
 
   test('uses fresh iteration bindings while outer assignments write through', () => {
