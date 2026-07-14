@@ -359,6 +359,23 @@ trusted-publishing/provenance configuration is inspected.
     zero verified findings after source adjudication, and one external Claude
     session-limit failure (`review-1784022774682-988gs0`). Review-discovered
     limits and argument accessor boundaries are regression-covered.
+  - [x] M3.18 maintained-preview typed-handler adoption: cut the answer route
+    from `executeKernEntrySourceAsync`, `app-http.queryParam`, and five stdout
+    markers to `kern.runtime.handler.v1` with exact `question:string ->
+    string[]` ingress/egress. The KERN handler owns the fixed
+    `[answer, status, source]` result, while the host validates the closed
+    envelope and projects the unchanged HTTP JSON. A return-only effect-machine
+    evaluator admits portable scalar expressions at the top level of returned
+    arrays; computed `let` arrays, computed nested arrays, and public ABI type
+    mismatches remain fail-closed. Exact route descriptor ABI opt-in leaves
+    legacy view validation unchanged and rejects unsupported signatures,
+    async/stream handlers, and module syntax at load time. App-owned JSON
+    limits and timeouts are validated before execution. `pnpm fitness:kern-5`
+    passed end-to-end on 2026-07-14, including 432/432 cross-target fixtures,
+    109/109 class fixtures, 233 native KERN assertions at 100% coverage, the
+    public runtime ABI/closure gates, preview smoke, and app-behavior
+    conformance. The final six-engine terminal review completed 6/6 with zero
+    verified findings (`review-1784029943644-crvryy-m3-18-preview-typed-handler-fina`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
