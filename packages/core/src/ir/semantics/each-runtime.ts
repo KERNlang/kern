@@ -1,9 +1,9 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import { isParenthesized, isValueIR } from '../../value-ir.js';
-import { getBinding, hasBinding, recordArrayFieldsForBinding, type SemanticEnv } from './index.js';
 import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
 import { isPortableScalar } from './portable-scalar-domain.js';
+import { getBinding, hasBinding, recordArrayFieldsForBinding, type SemanticEnv } from './semantic-env.js';
 
 export type EachShape = 'array' | 'array-indexed' | 'pair-sync' | 'pair-async' | 'entry-key' | 'entry-value';
 
@@ -72,6 +72,19 @@ export function isInternalEffectMachineArrayEach(ir: IRNode): boolean {
   if (!eachShapePreconditions(ir)) return false;
   const shape = detectEachShape(asEachProps(ir));
   return shape === 'array' || shape === 'array-indexed';
+}
+
+export function assertInternalEffectMachineArrayEachControl(ir: IRNode, env: SemanticEnv): void {
+  internalEffectMachineArrayEachLength(ir, env);
+}
+
+export function internalEffectMachineArrayEachLength(ir: IRNode, env: SemanticEnv): number {
+  if (!isInternalEffectMachineArrayEach(ir)) {
+    throw new Error('each: node is outside the internal array-each domain');
+  }
+  const collection = resolveEachCollection(asEachProps(ir).in as string, env);
+  if (!Array.isArray(collection)) throw new Error('each array mode: `in=` must resolve to an array');
+  return collection.length;
 }
 
 function assertPlainObject(collection: unknown, shape: string): void {

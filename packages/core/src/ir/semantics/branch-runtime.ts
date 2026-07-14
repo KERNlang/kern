@@ -1,5 +1,5 @@
 import type { IRNode } from '../../types.js';
-import { getBinding, hasBinding, type SemanticEnv } from './index.js';
+import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export interface BranchProps {
   on?: string;
@@ -35,6 +35,8 @@ function assertPortableValue(value: unknown, label: string): BranchValue {
 }
 
 function evalExpressionInContractDomain(raw: unknown, env: SemanticEnv, label: string): BranchValue {
+  // Branch equality intentionally uses a narrower grammar than `if` truthiness;
+  // quoted source props arrive through `__quotedProps`, not single-quote syntax.
   if (typeof raw === 'number') return assertPortableValue(raw, label);
   if (typeof raw !== 'string') {
     throw new Error(`branch: ${label} must be a string/number literal or identifier`);

@@ -1,19 +1,11 @@
 import { isParenthesized, isValueIR, type ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
-import {
-  captureFreshArrayBinding,
-  capturesFreshArrayAcrossRepeatableLoop,
-  getBinding,
-  hasBinding,
-  isCapturedArrayBinding,
-  isFreshArrayBinding,
-  type SemanticEnv,
-} from './index.js';
 import { evalArrayLiteralValue } from './portable-array.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import {
   type EvalRecordLiteralOptions,
   isDecimalValue,
+  isPortableRecordKey,
   isPortableRecordValue,
   isPortableScalar,
   isRunnerClassInstanceValue,
@@ -22,8 +14,15 @@ import {
   type PortableScalar,
   type RunnerPortableArrayValue,
 } from './portable-scalar-domain.js';
-
-const RESERVED_RECORD_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+import {
+  captureFreshArrayBinding,
+  capturesFreshArrayAcrossRepeatableLoop,
+  getBinding,
+  hasBinding,
+  isCapturedArrayBinding,
+  isFreshArrayBinding,
+  type SemanticEnv,
+} from './semantic-env.js';
 
 export function isRecordLiteralExpression(node: ValueIR): node is Extract<ValueIR, { kind: 'objectLit' }> {
   return node.kind === 'objectLit';
@@ -42,7 +41,7 @@ export function assertPortableRecordEntry(
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
     throw new Error('portable-record: record keys must be identifier-like strings');
   }
-  if (RESERVED_RECORD_KEYS.has(entry.key)) {
+  if (!isPortableRecordKey(entry.key)) {
     throw new Error(`portable-record: reserved key "${entry.key}" is outside the portable record domain`);
   }
   if (Object.hasOwn(out, entry.key)) {

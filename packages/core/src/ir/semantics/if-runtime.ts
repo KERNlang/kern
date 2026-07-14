@@ -1,7 +1,7 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { getBinding, hasBinding, type SemanticEnv } from './index.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
+import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export interface IfProps {
   cond?: string;
@@ -52,6 +52,8 @@ function parseStringLiteral(text: string): string {
 }
 
 function conditionValue(cond: string, env: SemanticEnv, evaluate: EvalPortableValue): unknown {
+  // `if` owns portable expression truthiness, so both source quote styles are
+  // intentional here; `branch` separately owns a narrower equality grammar.
   const trimmed = cond.trim();
   if (trimmed === 'true' || trimmed === 'True') return true;
   if (trimmed === 'false' || trimmed === 'False') return false;

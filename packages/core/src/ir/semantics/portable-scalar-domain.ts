@@ -1,6 +1,12 @@
 import type { ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
-import { isIntProvenanced, type RunnerClassInstanceValue, type SemanticEnv } from './index.js';
+import { isOwnedSemanticAtomicValue, ownSemanticAtomicValue } from './semantic-atomic-ownership.js';
+import {
+  isIntProvenanced,
+  isOwnedSemanticComposite,
+  type RunnerClassInstanceValue,
+  type SemanticEnv,
+} from './semantic-env.js';
 
 export type PortableScalar = string | number | boolean | null;
 
@@ -67,7 +73,12 @@ export interface DecimalValue {
 }
 
 export function makeDecimalValue(canonical: string): DecimalValue {
-  return Object.freeze({ [DECIMAL_VALUE_TAG]: true as const, canonical });
+  const value = { [DECIMAL_VALUE_TAG]: true as const, canonical };
+  return ownSemanticAtomicValue(Object.freeze(value));
+}
+
+export function isOwnedDecimalValue(value: unknown): value is DecimalValue {
+  return isOwnedSemanticAtomicValue(value) && hasExactDecimalDescriptors(value);
 }
 
 export function isDecimalValue(value: unknown): value is DecimalValue {
@@ -76,6 +87,37 @@ export function isDecimalValue(value: unknown): value is DecimalValue {
     value !== null &&
     (value as { [DECIMAL_VALUE_TAG]?: unknown })[DECIMAL_VALUE_TAG] === true &&
     typeof (value as { canonical?: unknown }).canonical === 'string'
+  );
+}
+
+/** Recognize the canonical Decimal carrier without reading an accessor. */
+export function isInspectableDecimalValue(value: unknown): value is DecimalValue {
+  return isOwnedDecimalValue(value);
+}
+
+function hasExactDecimalDescriptors(value: object): value is DecimalValue {
+  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== 2 || !keys.includes('canonical') || !keys.includes(DECIMAL_VALUE_TAG)) return false;
+  const canonical = Object.getOwnPropertyDescriptor(value, 'canonical');
+  const tag = Object.getOwnPropertyDescriptor(value, DECIMAL_VALUE_TAG);
+  return Boolean(
+    canonical &&
+      !canonical.get &&
+      !canonical.set &&
+      'value' in canonical &&
+      typeof canonical.value === 'string' &&
+      canonical.writable === false &&
+      canonical.enumerable === true &&
+      canonical.configurable === false &&
+      tag &&
+      !tag.get &&
+      !tag.set &&
+      'value' in tag &&
+      tag.value === true &&
+      tag.writable === false &&
+      tag.enumerable === true &&
+      tag.configurable === false,
   );
 }
 
@@ -96,10 +138,26 @@ export function sameType(a: PortableScalar, b: PortableScalar): boolean {
   return typeof a === typeof b;
 }
 
+// Records are deliberately one level deep; only scalar/array fields belong to
+// the frozen runner domain. Nested records remain outside this machine slice.
 export type PortableRecord = Readonly<Record<string, PortableScalar | RunnerPortableArrayValue>>;
 export type RunnerPortableArrayValue = ReadonlyArray<PortableScalar | RunnerPortableArrayValue>;
 export type RunnerPortableValue = PortableScalar | PortableRecord | RunnerPortableArrayValue;
 export type RunnerFunctionValue = RunnerPortableValue | RunnerClassInstanceValue;
+
+const FORBIDDEN_PORTABLE_RECORD_KEYS = new Set([
+  '__proto__',
+  'prototype',
+  'constructor',
+  '__defineGetter__',
+  '__defineSetter__',
+  '__lookupGetter__',
+  '__lookupSetter__',
+]);
+
+export function isPortableRecordKey(key: string): boolean {
+  return !FORBIDDEN_PORTABLE_RECORD_KEYS.has(key);
+}
 
 export interface EvalRecordLiteralOptions {
   readonly captureFreshArrayBindings?: boolean;
@@ -137,6 +195,89 @@ export function isRunnerPortableArrayValue(
   } finally {
     seen.delete(value);
   }
+}
+
+/**
+ * Descriptor-only portable-value check for untrusted direct-envelope input.
+ * `seen` is deliberately graph-global: the wire normalizer rejects shared
+ * references as well as cycles, so preflight must reject both before effects.
+ */
+export function isInspectableRunnerPortableValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): value is RunnerPortableValue {
+  return isInspectableRunnerPortableValueInner(value, seen, false);
+}
+
+export function isOwnedInspectableRunnerPortableValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): value is RunnerPortableValue {
+  return isInspectableRunnerPortableValueInner(value, seen, true);
+}
+
+function isInspectableRunnerPortableValueInner(value: unknown, seen: WeakSet<object>, requireOwned: boolean): boolean {
+  if (isPortableScalar(value)) return true;
+  // Decimal is an owned root evaluator atom, not a RunnerPortableValue member;
+  // nested Decimal admission is a later contract expansion, not transport parity.
+  if (typeof value !== 'object' || value === null || seen.has(value)) return false;
+  if (requireOwned && !isOwnedSemanticComposite(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return isInspectablePortableArray(value, seen, requireOwned);
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  if (Object.getOwnPropertySymbols(value).length > 0) return false;
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (
+      !isPortableRecordKey(key) ||
+      descriptor.get ||
+      descriptor.set ||
+      !descriptor.enumerable ||
+      !('value' in descriptor) ||
+      !(isPortableScalar(descriptor.value) || isInspectablePortableArrayValue(descriptor.value, seen, requireOwned))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isInspectablePortableArrayValue(value: unknown, seen: WeakSet<object>, requireOwned: boolean): boolean {
+  if (isPortableScalar(value)) return true;
+  if (!Array.isArray(value) || seen.has(value)) return false;
+  if (requireOwned && !isOwnedSemanticComposite(value)) return false;
+  seen.add(value);
+  return isInspectablePortableArray(value, seen, requireOwned);
+}
+
+function isInspectablePortableArray(value: unknown[], seen: WeakSet<object>, requireOwned: boolean): boolean {
+  if (Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length > 0) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value) as Record<string, PropertyDescriptor>;
+  const length = descriptors.length?.value;
+  const keys = Object.keys(descriptors);
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || keys.length !== length + 1) {
+    return false;
+  }
+  for (const key of keys) {
+    if (key === 'length') continue;
+    const index = Number(key);
+    const descriptor = descriptors[key];
+    if (
+      !Number.isSafeInteger(index) ||
+      index < 0 ||
+      index >= length ||
+      String(index) !== key ||
+      !descriptor ||
+      descriptor.get ||
+      descriptor.set ||
+      !descriptor.enumerable ||
+      !('value' in descriptor) ||
+      !(isPortableScalar(descriptor.value) || isInspectablePortableArrayValue(descriptor.value, seen, requireOwned))
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function assertRunnerPortableValue(value: unknown, label: string): RunnerPortableValue {

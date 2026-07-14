@@ -1,7 +1,7 @@
 import type { KernRunnerAsyncCapabilities, RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
-import type { PreparedInternalCapabilityEffect } from './capability.js';
-import type { SemanticEnv } from './index.js';
+import type { PreparedInternalCapabilityEffect } from './capability-runtime.js';
+import type { SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
 export const INTERNAL_EFFECT_MACHINE_FORMAT = 'kern.runtime.effect-machine.internal.r0' as const;

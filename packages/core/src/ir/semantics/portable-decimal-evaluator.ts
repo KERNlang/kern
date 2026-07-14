@@ -19,8 +19,8 @@ import {
   type DecimalProbeAccessor,
 } from '../../decimal/probe-gates.js';
 import type { ValueIR } from '../../value-ir.js';
-import { getBinding, hasBinding, type SemanticEnv } from './index.js';
 import { isDecimalValue, type PortableScalar } from './portable-scalar-domain.js';
+import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 const VALUE_METHODS = new Set(['of', 'add', 'mul', 'sub', 'neg', 'abs', 'div', 'mod', 'pow']);
 const COMPARATOR_METHODS = new Set(['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'cmp']);

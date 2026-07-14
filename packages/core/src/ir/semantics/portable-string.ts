@@ -46,9 +46,9 @@ import {
   textMalformedSurrogateFailMessage,
 } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { hasBinding, type SemanticEnv } from './index.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
+import { hasBinding, type SemanticEnv } from './semantic-env.js';
 
 function requireWellFormedString(value: PortableScalar, label: string): string {
   if (typeof value !== 'string') throw new Error(`portable: ${label} requires a string`);

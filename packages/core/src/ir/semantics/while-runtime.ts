@@ -1,7 +1,7 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import type { SemanticEnv } from './index.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
+import type { SemanticEnv } from './semantic-env.js';
 
 export const WHILE_MAX_ITERATIONS = 100_000;
 

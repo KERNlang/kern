@@ -1,6 +1,6 @@
 import type { ValueIR } from '../../value-ir.js';
-import type { SemanticEnv } from './index.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
+import type { SemanticEnv } from './semantic-env.js';
 
 export type EvalPortableValue = (node: ValueIR, env: SemanticEnv) => PortableScalar;
 

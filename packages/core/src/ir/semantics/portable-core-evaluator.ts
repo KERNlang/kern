@@ -1,6 +1,5 @@
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
-import { getBinding, hasBinding, type SemanticEnv } from './index.js';
 import { evalRunnerNativeDecimalScalarCall } from './portable-decimal-evaluator.js';
 import {
   type EvalPortableValue,
@@ -25,6 +24,7 @@ import {
   sameType,
 } from './portable-scalar-domain.js';
 import { evalStringOpCall } from './portable-string.js';
+import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export interface PortableEvaluator {
   readonly evalPortableBinary: (node: Extract<ValueIR, { kind: 'binary' }>, env: SemanticEnv) => PortableScalar;

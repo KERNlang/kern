@@ -17,9 +17,9 @@
  * print, index access, and `.length` are deferred (they keep abstaining).
  */
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import type { SemanticEnv } from './index.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
+import type { SemanticEnv } from './semantic-env.js';
 
 export type PortableArrayElement = PortableScalar | ReadonlyArray<PortableArrayElement>;
 

@@ -35,9 +35,9 @@
  */
 
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { getBinding, hasBinding, type SemanticEnv } from './index.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { isPortableBindingName, type PortableScalar } from './portable-scalar-domain.js';
+import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export type PortableMapValue = ReadonlyMap<string, PortableScalar>;
 

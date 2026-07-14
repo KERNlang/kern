@@ -1,12 +1,12 @@
 import type { IRNode } from '../../types.js';
 import { makeCaughtErrorValue } from './caught-error.js';
-import { defineBinding, type SemanticEnv } from './index.js';
 import {
   type InternalEffectMachineChildSequenceRunner,
   InternalEffectMachineError,
   type InternalEffectMachineGenerator,
   type InternalEffectMachineState,
 } from './internal-effect-machine-types.js';
+import { defineBinding, type SemanticEnv } from './semantic-env.js';
 import { type CompletionRecord, emptyTrace } from './trace.js';
 import { tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 
@@ -31,6 +31,8 @@ export function* runInternalEffectMachineTry(
     if (typeof caught !== 'string' || caught === '') {
       throw new InternalEffectMachineError('effect machine rejected catch binding', catchNode);
     }
+    // Frozen M3.13 semantics deliberately use the shared try env: the catch
+    // parameter replaces any same-named binding and remains tombstoned after.
     const caughtValue = completion.error ? makeCaughtErrorValue(completion.error) : null;
     defineBinding(env, caught, caughtValue ?? UNAVAILABLE_CAUGHT_ERROR);
     let catchTrace;
