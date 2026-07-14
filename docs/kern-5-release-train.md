@@ -341,6 +341,24 @@ trusted-publishing/provenance configuration is inspected.
     suite passed 36/36 cases. The terminal `claude,codex,agy` review completed 3/3
     with zero findings after both review nits were fixed
     (`review-1784011660440-0jp6lw-m3-16-handler-root-isolation-ter`).
+  - [x] M3.17 default-off public typed handler ABI: add the exact versioned
+    `@kernlang/core/runtime/handler` source-only facade over the M3.16
+    machine-only root. Request `abi` and envelope `format` are both
+    `kern.runtime.handler.v1`; public declarations expose handler-owned
+    operation-map capability types, never raw IR, `SemanticEnv`, runner-branded
+    types, or private formats. Source admission enforces the executable
+    `string | boolean | integer-only number | void` scalar/one-dimensional-list
+    subset, with argument mismatch rejected before effects and result mismatch
+    suppressing the public result/events without claiming host-effect rollback.
+    The additive subpath remains explicitly enabled with caller-supplied limits
+    and async capability timeout. `pnpm test:runtime-abi` is now a current
+    fitness gate. `pnpm fitness:kern-5` passed end-to-end on 2026-07-14 after
+    the promoted gate's exact policy expectation and the historical KIR-
+    evidence no-promotion guard were aligned with M3 ownership. The resolved
+    six-engine terminal review completed with five usable structured reviewers,
+    zero verified findings after source adjudication, and one external Claude
+    session-limit failure (`review-1784022774682-988gs0`). Review-discovered
+    limits and argument accessor boundaries are regression-covered.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

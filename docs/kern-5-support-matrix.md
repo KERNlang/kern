@@ -45,7 +45,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | internal-runtime-envelope | Internal runtime envelope, handler entry, source link, capability seam, scheduler control, and private effect machine | current | `pnpm test:kern-runtime-envelope` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
-| runtime-handler-abi | Runtime and handler ABI | planned | `pnpm test:runtime-abi` |
+| runtime-handler-abi | Default-off public typed runtime handler ABI | current | `pnpm test:runtime-abi` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -95,7 +95,7 @@ wall and must remain absent until promoted.
 | internal-runtime-effect-machine-try | Private effect-machine try, catch, and finally frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine-evaluator-boundary | Legacy-free stable machine and scalar-evaluator import boundary | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
-| typed-runtime-handler-abi | Typed runtime and handler ABI | not-shipped | R2 M3 planned |
+| typed-runtime-handler-abi | Default-off public typed runtime handler ABI | internal-oracle | `pnpm test:runtime-abi` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
