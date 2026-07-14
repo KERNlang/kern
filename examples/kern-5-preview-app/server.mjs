@@ -1,13 +1,17 @@
 import { createServer } from 'node:http';
 import { readFile, realpath } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   executeKernAppEntryPolicySlot,
   findMissingKernAppEntryCapability,
   loadKernAppDescriptor,
 } from '../../packages/core/dist/runtime.js';
-import { executeKernEntrySource, executeKernEntrySourceAsync } from '../../packages/core/dist/runner.js';
+import { executeKernEntrySource } from '../../packages/core/dist/runner.js';
+import {
+  executeKernRuntimeHandlerAsync,
+  KERN_RUNTIME_HANDLER_ABI,
+} from '../../packages/core/dist/runtime-handler.js';
 import {
   createAsyncLocalRagRetrieveCapability,
   createLocalRagCapability,
@@ -16,15 +20,21 @@ import {
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const APP_MANIFEST_PATH = resolve(APP_DIR, 'app.kern');
+const RUNTIME_HANDLER_CONFIG_PATH = resolve(APP_DIR, 'runtime-handler-config.json');
+const RUNTIME_HANDLER_CONFIG_FORMAT = 'kern.preview.runtime-handler.config.v1';
+const RUNTIME_HANDLER_LIMIT_KEYS = Object.freeze([
+  'maxBytes',
+  'maxCollectionLength',
+  'maxDepth',
+  'maxDiagnostics',
+  'maxEvents',
+  'maxStringBytes',
+]);
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
-const HOST_SYNC_CAPABILITIES = Object.freeze(['app-http.queryParam', 'rag.promptContext', 'rag.checkAnswer']);
+const HOST_SYNC_CAPABILITIES = Object.freeze(['rag.promptContext', 'rag.checkAnswer']);
 const HOST_ASYNC_CAPABILITIES = Object.freeze(['rag.retrieveAsync', 'llm.complete']);
 const DEMO_RAG_SESSION = createLocalRagCapabilitySession();
-const ANSWER_START = '__KERN_ANSWER_START__';
-const ANSWER_END = '__KERN_ANSWER_END__';
-const STATUS_MARKER = '__KERN_STATUS__';
-const SOURCES_START = '__KERN_SOURCES_START__';
-const SOURCES_END = '__KERN_SOURCES_END__';
 const DEMO_FAILURES = new Set(['missing-llm', 'ungrounded']);
 
 class DemoInputError extends Error {}
@@ -32,6 +42,13 @@ class DemoMissingCapabilityError extends Error {
   constructor(capability) {
     super(`missing required host capability: ${capability}`);
     this.capability = capability;
+  }
+}
+class DemoRuntimeHandlerFailure extends Error {
+  constructor(envelope, knownGroundingFailure = false) {
+    super('typed runtime handler failed');
+    this.diagnosticCodes = envelope.diagnostics.map(({ code }) => code);
+    this.knownGroundingFailure = knownGroundingFailure;
   }
 }
 
@@ -42,22 +59,64 @@ function normalizeQuestion(question) {
   return question.trim();
 }
 
-function createAppHttpCapability(query) {
-  return {
-    queryParam(call) {
-      const input = call.input;
-      if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.name !== 'string') {
-        throw new Error('app-http.queryParam input must declare name');
-      }
-      return query[input.name] ?? null;
-    },
-  };
-}
-
 function policyFailureStatus(entry, fallback) {
   const rawStatus = entry.policies?.[0]?.props?.failureStatus;
   const status = typeof rawStatus === 'number' ? rawStatus : Number(rawStatus);
   return Number.isInteger(status) && status >= 400 && status <= 599 ? status : fallback;
+}
+
+function positiveSafeInteger(value, label, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw new Error(`${label} must be a positive safe integer no greater than ${maximum}`);
+  }
+  return value;
+}
+
+function runtimeHandlerLimits(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('runtime handler config limits must be an object');
+  }
+  const actualKeys = Object.keys(value).sort();
+  if (
+    actualKeys.length !== RUNTIME_HANDLER_LIMIT_KEYS.length ||
+    actualKeys.some((key, index) => key !== RUNTIME_HANDLER_LIMIT_KEYS[index])
+  ) {
+    throw new Error(`runtime handler config limits must contain exactly ${RUNTIME_HANDLER_LIMIT_KEYS.join(',')}`);
+  }
+  return Object.freeze(
+    Object.fromEntries(
+      RUNTIME_HANDLER_LIMIT_KEYS.map((key) => [key, positiveSafeInteger(value[key], `runtime handler config ${key}`)]),
+    ),
+  );
+}
+
+export function parseRuntimeHandlerConfig(source) {
+  let value;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    throw new Error('runtime handler config must be valid JSON');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('runtime handler config must be an object');
+  }
+  const expectedKeys = ['capabilityTimeoutMs', 'format', 'limits', 'schedulerTimeoutMs'];
+  const actualKeys = Object.keys(value).sort();
+  if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    throw new Error(`runtime handler config must contain exactly ${expectedKeys.join(',')}`);
+  }
+  if (value.format !== RUNTIME_HANDLER_CONFIG_FORMAT) {
+    throw new Error('runtime handler config format is unsupported');
+  }
+  return Object.freeze({
+    capabilityTimeoutMs: positiveSafeInteger(value.capabilityTimeoutMs, 'runtime handler config capabilityTimeoutMs'),
+    limits: runtimeHandlerLimits(value.limits),
+    schedulerTimeoutMs: positiveSafeInteger(
+      value.schedulerTimeoutMs,
+      'runtime handler config schedulerTimeoutMs',
+      MAX_TIMER_DELAY_MS,
+    ),
+  });
 }
 
 function singleEntry(entries, label, predicate) {
@@ -81,7 +140,11 @@ function assertHostSupportsEntry(entry) {
 export async function loadPreviewAppManifest() {
   if (!appManifestPromise) {
     appManifestPromise = (async () => {
-      const source = await readFile(APP_MANIFEST_PATH, 'utf-8');
+      const [source, runtimeHandlerConfigSource] = await Promise.all([
+        readFile(APP_MANIFEST_PATH, 'utf-8'),
+        readFile(RUNTIME_HANDLER_CONFIG_PATH, 'utf-8'),
+      ]);
+      const runtimeHandlerConfig = parseRuntimeHandlerConfig(runtimeHandlerConfigSource);
       const descriptor = await loadKernAppDescriptor(source, {
         appRoot: APP_DIR,
         canonicalizePath(path) {
@@ -90,6 +153,7 @@ export async function loadPreviewAppManifest() {
         readSource(sourcePath) {
           return readFile(sourcePath, 'utf-8');
         },
+        runtimeHandlerAbi: KERN_RUNTIME_HANDLER_ABI,
       });
       const homeView = singleEntry(descriptor.views, 'view for path "/"', (view) => view.path === '/');
       const answerRoute = singleEntry(
@@ -102,7 +166,7 @@ export async function loadPreviewAppManifest() {
       }
       assertHostSupportsEntry(homeView);
       assertHostSupportsEntry(answerRoute);
-      return Object.freeze({ ...descriptor, homeView, answerRoute });
+      return Object.freeze({ ...descriptor, homeView, answerRoute, runtimeHandlerConfig });
     })().catch((error) => {
       appManifestPromise = undefined;
       throw error;
@@ -121,33 +185,21 @@ function normalizeDemoFailure(value) {
   throw new DemoInputError('unsupported failure mode');
 }
 
-function markerIndex(lines, marker) {
-  const matches = lines.flatMap((line, index) => (line === marker ? [index] : []));
-  if (matches.length !== 1) throw new Error(`answer route printed ${matches.length} copies of ${marker}`);
-  return matches[0];
-}
-
-function parseAnswerRouteOutput(stdout) {
-  const lines = stdout.trimEnd().split(/\r?\n/u);
-  const answerStart = markerIndex(lines, ANSWER_START);
-  const answerEnd = markerIndex(lines, ANSWER_END);
-  const statusMarker = markerIndex(lines, STATUS_MARKER);
-  const sourcesStart = markerIndex(lines, SOURCES_START);
-  const sourcesEnd = markerIndex(lines, SOURCES_END);
-  if (
-    answerStart >= answerEnd ||
-    answerEnd + 1 !== statusMarker ||
-    statusMarker + 2 !== sourcesStart ||
-    sourcesStart > sourcesEnd
-  ) {
-    throw new Error('answer route printed malformed output sections');
+function projectAnswerRouteEnvelope(envelope, knownGroundingFailure) {
+  if (envelope.outcome !== 'success') throw new DemoRuntimeHandlerFailure(envelope, knownGroundingFailure);
+  if (envelope.completion.kind !== 'return' || envelope.result.presence !== 'value') {
+    throw new DemoRuntimeHandlerFailure(envelope);
   }
-  const answer = lines.slice(answerStart + 1, answerEnd).join('\n');
-  const status = lines[statusMarker + 1];
-  if (!answer || !status) {
-    throw new Error('answer route printed invalid output fields');
+  if (envelope.events.some(({ op }) => op === 'stdout' || op === 'stderr')) {
+    throw new DemoRuntimeHandlerFailure(envelope);
   }
-  const sources = lines.slice(sourcesStart + 1, sourcesEnd);
+  const value = envelope.result.value;
+  if (value.tag !== 'list' || value.value.length < 3) throw new DemoRuntimeHandlerFailure(envelope);
+  const fields = value.value.map((field) => {
+    if (field.tag !== 'text' || field.value.length === 0) throw new DemoRuntimeHandlerFailure(envelope);
+    return field.value;
+  });
+  const [answer, status, ...sources] = fields;
   const citations = sources.map((source, index) => ({
     label: `[${index + 1}]`,
     source,
@@ -172,11 +224,11 @@ function parseAnswerRouteOutput(stdout) {
 }
 
 function isGroundingFailure(error) {
-  return error instanceof Error && error.message.includes('RAG answer check failed:');
-}
-
-function isUnsupportedQuestion(error) {
-  return error instanceof Error && error.message.includes('KERN_DEMO_UNSUPPORTED_QUERY');
+  return (
+    error instanceof DemoRuntimeHandlerFailure &&
+    error.knownGroundingFailure &&
+    error.diagnosticCodes.includes('capability-error')
+  );
 }
 
 export async function renderUiHtml() {
@@ -201,6 +253,7 @@ export async function renderUiHtml() {
 export async function answerQuestion(question, options = {}) {
   const normalized = normalizeQuestion(question);
   const failure = options.failure;
+  let knownGroundingFailure = false;
   const manifest = await loadPreviewAppManifest();
   const source = await readFile(manifest.answerRoute.sourcePath, 'utf-8');
   const asyncCapabilities = {
@@ -227,7 +280,10 @@ export async function answerQuestion(question, options = {}) {
             ? input.question
             : '';
         if (failure === 'ungrounded') return 'Refunds are approved by manager preference without evidence.';
-        if (!isRefundQuestion(question)) throw new Error('KERN_DEMO_UNSUPPORTED_QUERY');
+        if (!isRefundQuestion(question)) {
+          knownGroundingFailure = true;
+          throw new Error('KERN_DEMO_UNSUPPORTED_QUERY');
+        }
         return 'Refunds are available within thirty days when the customer includes the receipt [1].\nSupport should cite the refund policy before promising money back [1].';
       },
     };
@@ -242,18 +298,47 @@ export async function answerQuestion(question, options = {}) {
   // route handler and post-slot policies after it. Today only passthrough
   // policies exist; 5.3 guard kinds slot into these same two hook points.
   await executeKernAppEntryPolicySlot(manifest.answerRoute, 'pre');
-  const stdout = await executeKernEntrySourceAsync(source, manifest.answerRoute, {
-    capabilities: {
-      'app-http': createAppHttpCapability({ question: normalized }),
-      rag: createLocalRagCapability(source, { sourcePath: manifest.answerRoute.sourcePath, session: DEMO_RAG_SESSION }),
-    },
-    providedCapabilities,
-    asyncCapabilities,
-    providedAsyncCapabilities,
-    capabilityContext: { sourceName: manifest.answerRoute.sourcePath },
+  const ragCapabilities = createLocalRagCapability(source, {
+    sourcePath: manifest.answerRoute.sourcePath,
+    session: DEMO_RAG_SESSION,
   });
+  const envelope = await executeKernRuntimeHandlerAsync(
+    {
+      abi: KERN_RUNTIME_HANDLER_ABI,
+      arguments: [normalized],
+      identity: {
+        handlerName: manifest.answerRoute.handler,
+        sourcePath: relative(APP_DIR, manifest.answerRoute.sourcePath),
+      },
+      source,
+    },
+    {
+      asyncCapabilities,
+      capabilities: {
+        rag: {
+          checkAnswer(call) {
+            try {
+              return ragCapabilities.checkAnswer(call);
+            } catch (error) {
+              if (error instanceof Error && error.message.startsWith('RAG answer check failed:')) {
+                knownGroundingFailure = true;
+              }
+              throw error;
+            }
+          },
+          promptContext: ragCapabilities.promptContext,
+        },
+      },
+      capabilityContext: { sourceName: manifest.answerRoute.sourcePath },
+      capabilityTimeoutMs: manifest.runtimeHandlerConfig.capabilityTimeoutMs,
+      enabled: true,
+      limits: manifest.runtimeHandlerConfig.limits,
+      scheduler: { timeoutMs: manifest.runtimeHandlerConfig.schedulerTimeoutMs },
+    },
+  );
+  const result = projectAnswerRouteEnvelope(envelope, knownGroundingFailure);
   await executeKernAppEntryPolicySlot(manifest.answerRoute, 'post');
-  return parseAnswerRouteOutput(stdout);
+  return result;
 }
 
 export function createPreviewAppServer() {
@@ -284,7 +369,7 @@ export function createPreviewAppServer() {
             response.end(JSON.stringify({ error: message }));
             return;
           }
-          if (isGroundingFailure(error) || isUnsupportedQuestion(error)) {
+          if (isGroundingFailure(error)) {
             response.writeHead(policyFailureStatus(manifest.answerRoute, 422), {
               'content-type': 'application/json; charset=utf-8',
             });

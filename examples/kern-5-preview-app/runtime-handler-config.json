@@ -1,0 +1,13 @@
+{
+  "format": "kern.preview.runtime-handler.config.v1",
+  "capabilityTimeoutMs": 30000,
+  "schedulerTimeoutMs": 60000,
+  "limits": {
+    "maxBytes": 262144,
+    "maxCollectionLength": 256,
+    "maxDepth": 32,
+    "maxDiagnostics": 16,
+    "maxEvents": 32,
+    "maxStringBytes": 65536
+  }
+}
