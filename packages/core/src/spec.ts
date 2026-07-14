@@ -376,7 +376,7 @@ export type IRNodeType = (typeof NODE_TYPES)[number];
 // ── Dynamic Node Types (Evolve v4 — graduated nodes) ────────────────────
 // Evolved nodes register here at startup. Checked by parser alongside NODE_TYPES.
 
-import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime-state.js';
 
 /** Register an evolved node type (called at startup from .kern/evolved/). */
 export function registerEvolvedType(keyword: string): void {

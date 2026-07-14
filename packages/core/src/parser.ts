@@ -12,8 +12,8 @@
 
 import { KernParseError } from './errors.js';
 import { type ParseOptions, parseInternal } from './parser-core.js';
-import type { ParserHintsConfig } from './runtime.js';
-import { defaultRuntime, type KernRuntime } from './runtime.js';
+import type { ParserHintsConfig } from './runtime-state.js';
+import { defaultRuntime, type KernRuntime } from './runtime-state.js';
 import { validateSchema } from './schema.js';
 import type { IRNode, ParseDiagnostic, ParseResult } from './types.js';
 
