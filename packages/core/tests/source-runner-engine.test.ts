@@ -60,19 +60,31 @@ describe('source runner pre-execution engine selection', () => {
     );
   });
 
-  test('moves expression-v1 to the machine while keeping manifest-deferred blockers on compatibility', () => {
+  test('moves expression-v1 and bounded pair each to the machine while keeping remaining blockers on compatibility', () => {
     const expression: readonly IRNode[] = [{ type: 'expression-v1', props: { expr: '1', name: 'value' } }];
     const lambda: readonly IRNode[] = [{ type: 'lambda', props: { expr: 'List.map(xs, x => x)' } }];
     const pairEach: readonly IRNode[] = [
-      { type: 'each', props: { in: 'pairs', pairKey: 'key', pairValue: 'value' }, children: [] },
+      {
+        type: 'each',
+        props: { in: 'pairs', pairKey: 'key', pairValue: 'value' },
+        children: [{ type: 'print', props: { value: 'value' } }],
+      },
     ];
+    const pairEnv = () => makeEnv({ bindings: new Map([['pairs', [['a', 1]]]]) });
     expect(selectSourceRunnerEngine(expression, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.machine);
     expect(executeSourceRunnerSync(expression, makeEnv(), { policy: 'machine-only' })).toEqual({
       completion: { kind: 'normal' },
       events: [{ op: 'assign', target: 'value', value: 1 }],
     });
     expect(selectSourceRunnerEngine(lambda, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(selectSourceRunnerEngine(pairEach, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(selectSourceRunnerEngine(pairEach, pairEnv(), { iterationBudget: 1 })).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(pairEach, pairEnv(), { iterationBudget: 1, policy: 'machine-only' })).toEqual({
+      completion: { kind: 'normal' },
+      events: [
+        { binding: 'value', op: 'iter-next', value: 1 },
+        { op: 'stdout', text: '1' },
+      ],
+    });
     expect(selectSourceRunnerEngine(simple, makeEnv({ runnerFunctions: new Map([['helper', {}]]) as never }), {})).toBe(
       SOURCE_RUNNER_ENGINE.legacy,
     );

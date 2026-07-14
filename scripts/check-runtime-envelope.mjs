@@ -140,8 +140,9 @@ for (const witness of [
   if (!effectMachineFamily.includes(witness)) fail(`effect-machine for expansion is missing ${witness}`);
 }
 for (const witness of [
-  "each: 'partial'",
-  'isInternalEffectMachineArrayEach',
+  "each: 'unified'",
+  'isInternalEffectMachineEach',
+  'internalEffectMachineEachIterationCount',
   'iterateEachRuntimeSteps',
   'yield* runEach',
   'defineBinding',

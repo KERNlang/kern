@@ -103,6 +103,16 @@ test('rejects blocker deletion and owned-node regressions', () => {
     ),
   );
   assert.ok(expressionErrors.some((error) => error.includes('disposition for')));
+
+  const eachErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
+      "each: 'unified'",
+      "each: 'partial'",
+    ),
+  );
+  assert.ok(eachErrors.some((error) => error.includes('disposition for each')));
 });
 
 test('ignores forbidden-token text in comments while rejecting executable escapes', () => {

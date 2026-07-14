@@ -6,7 +6,7 @@ import {
   reserveInternalCapabilityEffectShape,
 } from './capability-runtime.js';
 import { PREFLIGHT_CAUGHT_ERROR } from './caught-error.js';
-import { internalEffectMachineArrayEachLength, isInternalEffectMachineArrayEach } from './each-runtime.js';
+import { internalEffectMachineEachIterationCount, isInternalEffectMachineEach } from './each-runtime.js';
 import { forRuntimeRange, forShapePreconditions } from './for-runtime.js';
 import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
 import { hasBoundedRootEnvironment, hasOwnedDirectRootEnvironment } from './internal-effect-machine-admission.js';
@@ -42,7 +42,7 @@ function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
     const node = nodes[index];
     if (node.type === 'branch' || node.type === 'for' || node.type === 'try' || node.type === 'while') continue;
     if (node.type === 'each') {
-      if (!isInternalEffectMachineArrayEach(node)) return false;
+      if (!isInternalEffectMachineEach(node)) return false;
       continue;
     }
     if (node.type === 'if') {
@@ -351,13 +351,13 @@ function analyzeSequence(
         bodyExecution,
       );
     } else if (node.type === 'each') {
-      if (!isInternalEffectMachineArrayEach(node)) {
+      if (!isInternalEffectMachineEach(node)) {
         throw new InternalEffectMachineError('effect machine rejected each node', node);
       }
       let bodyExecution: boolean | undefined;
       if (evaluateNode && !controlExpressionIsDeferred(node.props?.in, unstableBindings)) {
         try {
-          bodyExecution = internalEffectMachineArrayEachLength(node, env) > 0;
+          bodyExecution = internalEffectMachineEachIterationCount(node, env) > 0;
         } catch {
           throw new InternalEffectMachineError('effect machine rejected each node', node);
         }

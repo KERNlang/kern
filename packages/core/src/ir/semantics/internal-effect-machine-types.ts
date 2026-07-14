@@ -13,7 +13,7 @@ export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   capability: 'unified',
   continue: 'unified',
   do: 'unified',
-  each: 'partial',
+  each: 'unified',
   'expression-v1': 'unified',
   fmt: 'unified',
   for: 'unified',

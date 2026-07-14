@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.21",
+  "milestone": "KERN-5-R2-M3.22",
   "owned": [
     {
       "id": "do",
@@ -13,6 +13,12 @@
       "kind": "node",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-expression-v1.test.ts"
+    },
+    {
+      "id": "each-pair-entry",
+      "kind": "node",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-each.test.ts"
     }
   ],
   "deferred": [
@@ -20,12 +26,6 @@
       "id": "lambda",
       "kind": "node",
       "status": "legacy",
-      "followUp": "unassigned"
-    },
-    {
-      "id": "each-pair-entry",
-      "kind": "node",
-      "status": "partial",
       "followUp": "unassigned"
     },
     {

@@ -416,6 +416,20 @@ trusted-publishing/provenance configuration is inspected.
     verified findings (`review-1784062012773-h9ch34`); its sole performance nit
     was adjudicated as deferred optimization because admission, precondition,
     and execution intentionally retain separate fail-closed validation points.
+  - [x] M3.22 pair/entry `each` machine ownership: promoted all six bounded
+    array, indexed-array, pair-sync, pair-async, entry-key, and entry-value
+    shapes to one unified iterator contract. Whole-tree preflight validates the
+    complete pair tuple array or plain-record receiver before any capability
+    effect, and every emitted step consumes the caller-owned shared iteration
+    budget before its body. Pair/entry execution uses captured Map/Object
+    intrinsics, so an earlier capability cannot redirect host iteration after
+    admission. Source selection and the executable convergence manifest now
+    record `each` as unified. `lambda`, helper functions, runner class state,
+    non-root environments, and implicit iteration budgets remain explicit
+    blockers. `pnpm fitness:kern-5` passed end-to-end on 2026-07-14 after the
+    review-discovered host-global poisoning regression was fixed. The terminal
+    `claude,codex,agy` review completed 3/3 with zero verified, needs-check, or
+    speculative findings (`review-1784066250344-bzqds0`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

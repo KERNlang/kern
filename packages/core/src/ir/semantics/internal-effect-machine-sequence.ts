@@ -93,9 +93,9 @@ function machineForRange(node: IRNode, env: SemanticEnv) {
   }
 }
 
-function* machineEachSteps(node: IRNode, env: SemanticEnv, beforeArrayElementRead: () => void) {
+function* machineEachSteps(node: IRNode, env: SemanticEnv, beforeIteration: () => void) {
   try {
-    yield* iterateEachRuntimeSteps(node, env, beforeArrayElementRead);
+    yield* iterateEachRuntimeSteps(node, env, beforeIteration);
   } catch (error) {
     if (error instanceof InternalEffectMachineError) throw error;
     throw new InternalEffectMachineError('effect machine rejected each node', node);

@@ -44,7 +44,7 @@ describe('private internal effect machine', () => {
       capability: 'unified',
       continue: 'unified',
       do: 'unified',
-      each: 'partial',
+      each: 'unified',
       'expression-v1': 'unified',
       fmt: 'unified',
       for: 'unified',
