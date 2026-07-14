@@ -1,5 +1,5 @@
 import { isPortableDecimalLiteral } from '../decimal/contract.js';
-import { isDecimalValue } from '../ir/semantics/portable-scalar.js';
+import { isDecimalValue, isPortableRecordKey } from '../ir/semantics/portable-scalar-domain.js';
 import {
   InternalRuntimeEnvelopeError,
   type InternalRuntimeEnvelopeLimits,
@@ -7,15 +7,6 @@ import {
   type InternalRuntimeValue,
 } from './types.js';
 
-const FORBIDDEN_RECORD_KEYS = new Set([
-  '__proto__',
-  'prototype',
-  'constructor',
-  '__defineGetter__',
-  '__defineSetter__',
-  '__lookupGetter__',
-  '__lookupSetter__',
-]);
 const textEncoder = new TextEncoder();
 
 function compareCodePoints(left: string, right: string): number {
@@ -120,7 +111,7 @@ function normalize(
   if (keys.length > limits.maxCollectionLength) fail('limit-exceeded', `${path} exceeds maxCollectionLength`);
   if (Object.getOwnPropertySymbols(value).length > 0) fail('invalid-value', `${path} contains symbol keys`);
   const entries = keys.map((key) => {
-    if (FORBIDDEN_RECORD_KEYS.has(key)) fail('invalid-value', `${path} contains forbidden key ${key}`);
+    if (!isPortableRecordKey(key)) fail('invalid-value', `${path} contains forbidden key ${key}`);
     text(key, limits, `${path}.key`);
     const descriptor = descriptors[key];
     if (!descriptor || descriptor.get || descriptor.set || !descriptor.enumerable) {

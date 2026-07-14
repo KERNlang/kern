@@ -13,6 +13,13 @@ export interface CaughtErrorValue {
   readonly message: string;
 }
 
+/** Shape witness used only while preflighting a deferred catch parameter. */
+export const PREFLIGHT_CAUGHT_ERROR: CaughtErrorValue = Object.freeze({
+  [CAUGHT_ERROR_TAG]: true as const,
+  kind: 'Error',
+  message: '',
+});
+
 export function isCaughtErrorValue(value: unknown): value is CaughtErrorValue {
   return (
     typeof value === 'object' &&

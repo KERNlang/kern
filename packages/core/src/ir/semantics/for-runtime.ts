@@ -1,8 +1,8 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
-import { getBinding, hasBinding, isIntProvenanced, type SemanticEnv } from './index.js';
 import { isSafeIntegerLiteralIndex } from './portable-scalar-domain.js';
+import { getBinding, hasBinding, isIntProvenanced, type SemanticEnv } from './semantic-env.js';
 
 export interface ForProps {
   name?: string;

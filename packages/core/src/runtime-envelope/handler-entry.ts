@@ -1,4 +1,3 @@
-import type { AsyncReferenceRunnerOptions } from '../ir/semantics/async-reference-runner.js';
 import {
   defineBinding,
   defineFreshArrayBinding,
@@ -11,7 +10,11 @@ import { installInternalRuntimeCapabilityInterceptor } from '../ir/semantics/int
 import { recordArrayFieldsFromValue } from '../ir/semantics/let.js';
 import { isPortableBindingName } from '../ir/semantics/portable-scalar.js';
 import type { IRNode } from '../types.js';
-import { executeInternalRuntimeEnvelopeAsync, executeInternalRuntimeEnvelopeSync } from './execute.js';
+import {
+  executeInternalRuntimeEnvelopeCompatAsync,
+  executeInternalRuntimeEnvelopeCompatSync,
+  type InternalRuntimeCompatAsyncOptions,
+} from './execute-compat.js';
 import { internalRuntimeFailure, normalizeInternalRuntimeFailure } from './normalize.js';
 import {
   type InternalRuntimeEnvelope,
@@ -160,7 +163,7 @@ export function executeInternalRuntimeHandlerSync(
   options?: InternalRuntimeEnvelopeOptions,
 ): InternalRuntimeEnvelope {
   const env = preparedEnvironment(entry, args, host, options);
-  return 'format' in env ? env : executeInternalRuntimeEnvelopeSync(entry.body, env, options);
+  return 'format' in env ? env : executeInternalRuntimeEnvelopeCompatSync(entry.body, env, options);
 }
 
 export async function executeInternalRuntimeHandlerAsync(
@@ -168,8 +171,8 @@ export async function executeInternalRuntimeHandlerAsync(
   args: readonly unknown[],
   host: SemanticEnv,
   options?: InternalRuntimeEnvelopeOptions,
-  asyncOptions: AsyncReferenceRunnerOptions = {},
+  asyncOptions: InternalRuntimeCompatAsyncOptions = {},
 ): Promise<InternalRuntimeEnvelope> {
   const env = preparedEnvironment(entry, args, host, options);
-  return 'format' in env ? env : executeInternalRuntimeEnvelopeAsync(entry.body, env, options, asyncOptions);
+  return 'format' in env ? env : executeInternalRuntimeEnvelopeCompatAsync(entry.body, env, options, asyncOptions);
 }

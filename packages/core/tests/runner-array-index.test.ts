@@ -250,6 +250,31 @@ describe('runner array index — fail-close fences (abstain, never a value)', ()
     expect(() => evalPortableValue(expr, env)).toThrow('portable: array index must point at an existing element');
   });
 
+  it('sparse binding holes cannot fall through to poisoned Array.prototype indices', () => {
+    const index = 777;
+    let getterCalls = 0;
+    Object.defineProperty(Array.prototype, String(index), {
+      configurable: true,
+      get() {
+        getterCalls += 1;
+        return 42;
+      },
+    });
+    try {
+      const env = makeEnv({ bindings: new Map<string, unknown>([['xs', Array(index + 1)]]) });
+      const expr: ValueIR = {
+        kind: 'index',
+        object: { kind: 'ident', name: 'xs' },
+        index: { kind: 'numLit', raw: String(index), value: index },
+        optional: false,
+      };
+      expect(() => evalPortableValue(expr, env)).toThrow('portable: array index must point at an existing element');
+      expect(getterCalls).toBe(0);
+    } finally {
+      delete Array.prototype[index];
+    }
+  });
+
   it('malformed index object and index subnodes fail with controlled portable errors', () => {
     expect(() =>
       evalPortableValue(

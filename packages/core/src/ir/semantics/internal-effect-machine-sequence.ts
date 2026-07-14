@@ -8,14 +8,7 @@ import {
 import { iterateEachRuntimeSteps } from './each-runtime.js';
 import { forRuntimeRange } from './for-runtime.js';
 import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
-import {
-  CONTRACT_REGISTRY,
-  childEnv,
-  defineBinding,
-  defineIntBinding,
-  markRepeatableLoopBody,
-  type SemanticEnv,
-} from './index.js';
+import { runInternalEffectMachineLeaf } from './internal-effect-machine-leaf.js';
 import { runInternalEffectMachineTry } from './internal-effect-machine-try.js';
 import {
   hasNoBody,
@@ -26,16 +19,9 @@ import {
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
 import { evalPortableValue as evalMachinePortableValue } from './portable-machine-evaluator.js';
+import { childEnv, defineBinding, defineIntBinding, markRepeatableLoopBody, type SemanticEnv } from './semantic-env.js';
 import { emptyTrace, type Trace } from './trace.js';
 import { evaluateWhileConditionWithEvaluator, WHILE_MAX_ITERATIONS } from './while-runtime.js';
-
-function runRegisteredNode(node: IRNode, env: SemanticEnv): Trace {
-  const contract = CONTRACT_REGISTRY.get(node.type);
-  if (!contract?.preconditions(node, env)) {
-    throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node);
-  }
-  return contract.effects(node, env);
-}
 
 function prepareCapability(node: IRNode, env: SemanticEnv): PreparedInternalCapabilityEffect {
   try {
@@ -228,7 +214,11 @@ export function* runInternalEffectMachineSequence(
       });
       next = resumeInternalCapabilityEffect(prepared, result, env);
     } else {
-      next = runRegisteredNode(node, env);
+      try {
+        next = runInternalEffectMachineLeaf(node, env);
+      } catch (cause) {
+        throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node, cause);
+      }
     }
     if (appendTrace(out, next)) return out;
   }

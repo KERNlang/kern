@@ -70,6 +70,36 @@ describe('private effect-machine structural preflight', () => {
     expect(calls).toBe(0);
   });
 
+  test('if truthiness and branch equality retain their intentional quote domains', () => {
+    expect(
+      executeInternalRuntimeEnvelopeSync(
+        [
+          {
+            type: 'if',
+            props: { cond: "'selected'" },
+            children: [{ type: 'return', props: { value: 'true' } }],
+          },
+        ],
+        makeEnv(),
+        enabled,
+      ),
+    ).toMatchObject({ outcome: 'success', result: { value: { tag: 'boolean', value: true } } });
+
+    expect(
+      executeInternalRuntimeEnvelopeSync(
+        [
+          {
+            type: 'branch',
+            props: { on: "'selected'" },
+            children: [{ type: 'path', props: { value: 'selected' }, __quotedProps: ['value'], children: [] }],
+          },
+        ],
+        makeEnv(),
+        enabled,
+      ),
+    ).toMatchObject({ diagnostics: [{ code: 'unsupported-runtime-input' }], outcome: 'failure' });
+  });
+
   test('malformed nested branch values reject before capability dispatch', () => {
     let calls = 0;
     const nodes: IRNode[] = [

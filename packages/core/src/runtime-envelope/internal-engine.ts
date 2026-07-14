@@ -1,26 +1,40 @@
-import { type AsyncReferenceRunnerOptions, asyncReferenceRunSequence } from '../ir/semantics/async-reference-runner.js';
-import type { SemanticEnv } from '../ir/semantics/index.js';
 import {
   INTERNAL_EFFECT_MACHINE_FORMAT,
-  isInternalEffectMachineEligible,
+  type InternalEffectMachineAsyncOptions,
+  InternalEffectMachineError,
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../ir/semantics/internal-effect-machine.js';
-import { referenceRunSequence } from '../ir/semantics/reference-runner.js';
+import { isInternalEffectMachineDirectEligible } from '../ir/semantics/internal-effect-machine-structure.js';
+import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
 import type { Trace } from '../ir/semantics/trace.js';
 import type { IRNode } from '../types.js';
 
-export type { AsyncReferenceRunnerOptions } from '../ir/semantics/async-reference-runner.js';
+export const INTERNAL_RUNTIME_ENGINE_UNSUPPORTED = 'unsupported' as const;
 
-export type InternalRuntimeEngineOptions = AsyncReferenceRunnerOptions & { readonly iterationBudget?: number };
+export type InternalRuntimeEngineDisposition =
+  | typeof INTERNAL_EFFECT_MACHINE_FORMAT
+  | typeof INTERNAL_RUNTIME_ENGINE_UNSUPPORTED;
 
-export type InternalRuntimeEngineDisposition = typeof INTERNAL_EFFECT_MACHINE_FORMAT | 'legacy';
+export interface InternalRuntimeAsyncOptions extends Omit<InternalEffectMachineAsyncOptions, 'iterationBudget'> {}
+
+export type InternalRuntimeEngineOptions = InternalRuntimeAsyncOptions & { readonly iterationBudget?: number };
 
 export function selectInternalRuntimeEngine(
   nodes: readonly IRNode[],
   env: SemanticEnv,
 ): InternalRuntimeEngineDisposition {
-  return isInternalEffectMachineEligible(nodes, env) ? INTERNAL_EFFECT_MACHINE_FORMAT : 'legacy';
+  return isInternalEffectMachineDirectEligible(nodes, env)
+    ? INTERNAL_EFFECT_MACHINE_FORMAT
+    : INTERNAL_RUNTIME_ENGINE_UNSUPPORTED;
+}
+
+export function assertInternalRuntimeEngineSupported(nodes: readonly IRNode[], env: SemanticEnv): void {
+  if (selectInternalRuntimeEngine(nodes, env) === INTERNAL_EFFECT_MACHINE_FORMAT) return;
+  throw new InternalEffectMachineError(
+    'input is outside the direct internal runtime envelope corpus',
+    nodes[0] ?? { type: '__block' },
+  );
 }
 
 export function runInternalRuntimeEngineSync(
@@ -28,9 +42,8 @@ export function runInternalRuntimeEngineSync(
   env: SemanticEnv,
   iterationBudget?: number,
 ): Trace {
-  return selectInternalRuntimeEngine(nodes, env) === INTERNAL_EFFECT_MACHINE_FORMAT
-    ? runInternalEffectMachineSync(nodes, env, { iterationBudget })
-    : referenceRunSequence(nodes, env);
+  // execute.ts owns direct admission before scheduler installation.
+  return runInternalEffectMachineSync(nodes, env, { iterationBudget });
 }
 
 export async function runInternalRuntimeEngineAsync(
@@ -38,7 +51,6 @@ export async function runInternalRuntimeEngineAsync(
   env: SemanticEnv,
   options: InternalRuntimeEngineOptions,
 ): Promise<Trace> {
-  return selectInternalRuntimeEngine(nodes, env) === INTERNAL_EFFECT_MACHINE_FORMAT
-    ? runInternalEffectMachineAsync(nodes, env, options)
-    : asyncReferenceRunSequence(nodes, env, options);
+  // execute.ts owns direct admission before scheduler installation.
+  return runInternalEffectMachineAsync(nodes, env, options);
 }

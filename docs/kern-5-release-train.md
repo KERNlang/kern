@@ -297,7 +297,7 @@ trusted-publishing/provenance configuration is inspected.
     fitness wall passed, followed by a terminal 3/3 Agon review with zero
     verified or needs-check findings on 2026-07-13
     (`review-1783937376907-jxblxa-m3-13-terminal`).
-  - [ ] M3.14 legacy-free shared evaluator boundary: split runtime-only
+  - [x] M3.14 legacy-free shared evaluator boundary: split runtime-only
     branch/for/if/while and portable scalar evaluator leaves so the stable
     effect-machine import closure no longer instantiates
     `reference-runner.ts`. M3.13 already severs legacy `try.ts` and keeps the
@@ -307,16 +307,30 @@ trusted-publishing/provenance configuration is inspected.
     registration and legacy fallback remain explicit M3.15 debt. The complete
     KERN 5 fitness wall passed on 2026-07-13. Review-discovered computed
     Decimal-pow parity, signed-zero, evaluator-gate selection, bare-alias, and
-    peer-dependency closure gaps are regression-covered; terminal clean review
-    evidence remains the final closure gate.
-  - [ ] M3.15 executable-envelope isolation: make the direct sync/async
+    peer-dependency closure gaps are regression-covered. The terminal
+    `claude,codex,agy` review completed 3/3 with zero verified or needs-check
+    findings (`review-1783984093881-cj5xgv-m3-14-terminal-review`), and the
+    completion tribunal approved the scoped static-boundary claim
+    (`tribunal-1783984246816-s1ysxv-m3-14-completion-adjudication`). The M3.15
+    descendant fitness wall is regression evidence, not an isolated clean
+    checkout fitness run of `d6634f1d`.
+  - [x] M3.15 executable-envelope isolation: make the direct sync/async
     internal envelope route fail closed outside the machine corpus, replace
     global-registry leaf dispatch with machine-owned evaluator-injected leaves,
     and prove the complete `execute.ts`/`internal-engine.ts` runtime import
     closure excludes both reference runners, reference evaluator hosts,
     compatibility fallback, and global contract registration. Preserve the
     old fallback only behind a separately named compatibility entry until the
-    handler root is isolated in the following slice.
+    handler root is isolated in the following slice. `pnpm fitness:kern-5`
+    passed end-to-end on 2026-07-14; `pnpm test:kern-runtime-envelope` passed
+    the complete focused runtime-envelope/evaluator suite plus the 29-case
+    closure suite. The terminal `claude,codex,agy` review completed 3/3 with zero
+    verified findings after adjudicating every candidate against the current
+    contracts
+    (`review-1783989797752-hnsl4k-m3-15-envelope-isolation-r36-fin`). Deferred
+    expression atomicity and dynamic short-circuit behavior are regression-
+    covered following
+    `tribunal-1783981922640-sbxioy-m3-15-r32-deferred-expression-ad`.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

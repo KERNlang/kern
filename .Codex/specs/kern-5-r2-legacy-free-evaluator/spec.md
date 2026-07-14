@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.14 Legacy-Free Shared Evaluator Boundary
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE (SCOPED)
 **Date:** 2026-07-13
 **Confidence:** 0.99
 
@@ -227,7 +227,7 @@ and call signatures during the migration.
 - [x] Focused core/reference/effect-machine tests and
   `pnpm test:kern-runtime-envelope` pass.
 - [x] `pnpm fitness:kern-5` passes on the final implementation.
-- [ ] Terminal `agon review` with `claude,codex,agy` has zero unresolved
+- [x] Terminal `agon review` with `claude,codex,agy` has zero unresolved
   verified or needs-check findings.
 
 ## Out of Scope
@@ -271,10 +271,24 @@ implementation continues.
 
 ## Completion Evidence
 
-- Full wall: `pnpm fitness:kern-5` passed on 2026-07-13, including workspace
-  tests, cross-target/app conformance, native KERN tests, browser budget, KIR
-  proofs, and `test:kern-runtime-envelope`.
+- Terminal implementation: commit `d6634f1d` closes the private stable-machine
+  and portable-machine static runtime import boundary. This is not an
+  executable-envelope or public-ABI cutover.
+- Implementation wall: `pnpm fitness:kern-5` passed on the final M3.14
+  implementation tree on 2026-07-13, including workspace tests,
+  cross-target/app conformance, native KERN tests, browser budget, KIR proofs,
+  and `test:kern-runtime-envelope`.
+- Descendant regression wall: `pnpm fitness:kern-5` passed again on the M3.15
+  descendant worktree on 2026-07-14. This proves no regression but is not an
+  isolated clean-checkout fitness run of `d6634f1d`.
 - Review remediation: `review-1783951516688-cbxqcr-m3-14-terminal-fixes`
   identified the peer-dependency exemption and imprecise Decimal assertion;
   both were fixed and the affected gates rerun.
-- Terminal review: pending a clean post-documentation 3/3 pass.
+- Terminal review: full roster `claude,codex,agy` completed 3/3 with zero
+  verified or needs-check findings at
+  `/Users/nicolascukas/.agon/runs/review-1783984093881-cj5xgv-m3-14-terminal-review`.
+  Its sole nit is future-proofing for control characters absent from every
+  current Decimal diagnostic and is nonblocking.
+- Completion tribunal: full roster `claude,codex,agy` approved this scoped
+  completion and the evidence-attribution caveat at
+  `/Users/nicolascukas/.agon/runs/tribunal-1783984246816-s1ysxv-m3-14-completion-adjudication`.

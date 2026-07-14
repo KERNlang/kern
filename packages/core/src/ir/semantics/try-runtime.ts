@@ -1,5 +1,5 @@
 import type { IRNode } from '../../types.js';
-import type { SemanticEnv } from './index.js';
+import type { SemanticEnv } from './semantic-env.js';
 
 export const UNAVAILABLE_CAUGHT_ERROR = Object.freeze({ message: Object.freeze({}) });
 

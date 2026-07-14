@@ -48,6 +48,12 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
       const [argument] = node.arguments;
       if (!argument || !ts.isStringLiteral(argument)) fail(`non-literal require in ${sourcePath}`);
       specifiers.push(argument.text);
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === 'require' &&
+      !(ts.isCallExpression(node.parent) && node.parent.expression === node)
+    ) {
+      fail(`indirect require in ${sourcePath}`);
     }
     ts.forEachChild(node, visit);
   }
@@ -65,7 +71,7 @@ function resolveTypeScriptImport(fromPath, specifier, allowedBareSpecifiers) {
     fail(`own-package import ${specifier} in ${fromPath} is forbidden inside a checked runtime closure`);
   }
   if (!specifier.startsWith('.')) {
-    if (specifier.startsWith('node:') || allowedBareSpecifiers.has(barePackageName(specifier))) return null;
+    if (allowedBareSpecifiers.has(barePackageName(specifier))) return null;
     fail(`unapproved bare import ${specifier} in ${fromPath}`);
   }
   const resolved = resolve(dirname(fromPath), specifier);
@@ -109,6 +115,12 @@ export function assertRuntimeImportClosureExcludes(
 function semanticPath(coreSourceRoot, file) {
   return resolve(coreSourceRoot, 'ir/semantics', file);
 }
+
+function runtimeEnvelopePath(coreSourceRoot, file) {
+  return resolve(coreSourceRoot, 'runtime-envelope', file);
+}
+
+const EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS = new Set(['decimal.js']);
 
 function runtimeDependencies(coreSourceRoot) {
   const manifest = JSON.parse(readFileSync(resolve(coreSourceRoot, '../package.json'), 'utf8'));
@@ -165,5 +177,53 @@ export function assertPortableMachineEvaluatorClosure(
     forbidden,
     readText,
     runtimeDependencies(coreSourceRoot),
+  );
+}
+
+/** The direct executable envelope is a machine-only production boundary. */
+export function assertExecutableEnvelopeDirectClosure(
+  coreSourceRoot,
+  readText = (path) => readFileSync(path, 'utf8'),
+) {
+  const forbidden = [
+    runtimeEnvelopePath(coreSourceRoot, 'execute-compat.ts'),
+    runtimeEnvelopePath(coreSourceRoot, 'internal-legacy-engine.ts'),
+    runtimeEnvelopePath(coreSourceRoot, 'normalize-compat.ts'),
+    semanticPath(coreSourceRoot, 'index.ts'),
+    semanticPath(coreSourceRoot, 'doc-generator.ts'),
+    semanticPath(coreSourceRoot, 'register-all.ts'),
+    semanticPath(coreSourceRoot, 'async-reference-runner.ts'),
+    semanticPath(coreSourceRoot, 'reference-runner.ts'),
+    semanticPath(coreSourceRoot, 'portable-scalar.ts'),
+    semanticPath(coreSourceRoot, 'async-portable-scalar.ts'),
+    semanticPath(coreSourceRoot, 'portable-reference-body.ts'),
+    semanticPath(coreSourceRoot, 'portable-reference-evaluator.ts'),
+    semanticPath(coreSourceRoot, 'portable-reference-host.ts'),
+    semanticPath(coreSourceRoot, 'semantic-sequence-runtime.ts'),
+    semanticPath(coreSourceRoot, 'assign.ts'),
+    semanticPath(coreSourceRoot, 'branch.ts'),
+    semanticPath(coreSourceRoot, 'capability.ts'),
+    semanticPath(coreSourceRoot, 'do.ts'),
+    semanticPath(coreSourceRoot, 'each.ts'),
+    semanticPath(coreSourceRoot, 'expression-v1.ts'),
+    semanticPath(coreSourceRoot, 'fmt.ts'),
+    semanticPath(coreSourceRoot, 'for.ts'),
+    semanticPath(coreSourceRoot, 'if.ts'),
+    semanticPath(coreSourceRoot, 'lambda.ts'),
+    semanticPath(coreSourceRoot, 'let.ts'),
+    semanticPath(coreSourceRoot, 'primitives.ts'),
+    semanticPath(coreSourceRoot, 'print.ts'),
+    semanticPath(coreSourceRoot, 'try.ts'),
+    semanticPath(coreSourceRoot, 'while.ts'),
+    resolve(coreSourceRoot, 'runner.ts'),
+  ];
+  return assertRuntimeImportClosureExcludes(
+    [
+      runtimeEnvelopePath(coreSourceRoot, 'execute.ts'),
+      runtimeEnvelopePath(coreSourceRoot, 'internal-engine.ts'),
+    ],
+    forbidden,
+    readText,
+    EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
   );
 }

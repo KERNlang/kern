@@ -1,7 +1,6 @@
 import type { RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { isAsyncPlannedCapability } from './capability-lane.js';
-import type { SemanticEnv } from './index.js';
 import {
   invokeInternalRuntimeCapabilityAsync,
   invokeInternalRuntimeCapabilitySync,
@@ -19,6 +18,7 @@ import {
   type InternalEffectMachineState,
   type InternalEffectMachineSyncOptions,
 } from './internal-effect-machine-types.js';
+import type { SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
 function unwindMachineAfterProviderError(machine: InternalEffectMachineGenerator, error: unknown): never {
@@ -53,7 +53,7 @@ function* runMachine(
       nodes[0] ?? { type: '__block' },
     );
   }
-  assertInternalEffectMachineStructureSupported(nodes);
+  assertInternalEffectMachineStructureSupported(nodes, env);
   return yield* runInternalEffectMachineSequence(nodes, env, state);
 }
 

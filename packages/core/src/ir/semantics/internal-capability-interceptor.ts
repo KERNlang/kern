@@ -12,7 +12,7 @@ import {
   InternalRuntimeSchedulerError,
   waitForInternalRuntimeScheduler,
 } from '../../runtime-envelope/internal-scheduler.js';
-import type { SemanticEnv } from './index.js';
+import type { SemanticEnv } from './semantic-env.js';
 
 export const INTERNAL_RUNTIME_CAPABILITY_REQUEST_FORMAT = 'kern.capability.request.internal.r0' as const;
 
@@ -43,8 +43,16 @@ function stateKey(env: SemanticEnv): object {
   return env.runnerCallCache ?? env;
 }
 
-function fail(request: InternalRuntimeCapabilityRequest, message: string): never {
-  throw new KernCapabilityError(request.namespace, request.operation, `internal capability interceptor ${message}`);
+function fail(request: InternalRuntimeCapabilityRequest, message: string, cause?: unknown): never {
+  const failure = new KernCapabilityError(
+    request.namespace,
+    request.operation,
+    `internal capability interceptor ${message}`,
+  );
+  if (cause !== undefined) {
+    Object.defineProperty(failure, 'cause', { configurable: true, value: cause });
+  }
+  throw failure;
 }
 
 function stateFor(env: SemanticEnv): InterceptorState | undefined {
@@ -125,7 +133,7 @@ function syncDecision(
     return inspectDecision(value, request);
   } catch (error) {
     if (error instanceof KernCapabilityError) throw error;
-    fail(request, 'failed');
+    fail(request, 'failed', error);
   }
 }
 
@@ -139,7 +147,7 @@ async function asyncDecision(
   } catch (error) {
     if (error instanceof InternalRuntimeSchedulerError) throw error;
     if (error instanceof KernCapabilityError) throw error;
-    fail(request, 'failed');
+    fail(request, 'failed', error);
   }
 }
 
