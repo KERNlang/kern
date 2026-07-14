@@ -117,6 +117,69 @@ describe('@kernlang/core/runtime/handler public ABI', () => {
     ).toMatchObject({ diagnostics: [{ code: 'invalid-handler-arguments' }], outcome: 'failure' });
   });
 
+  test('constructs a typed list from top-level portable return expressions only', () => {
+    const computed = request(
+      source(['name=question type=string'], '"string[]"', [
+        'capability namespace=demo operation=answer input="{ question: question }" name=answer',
+        'capability namespace=demo operation=check input="{ answer: answer }" name=check',
+        'capability namespace=demo operation=retrieval input="{ question: question }" name=retrieval',
+        'return value="[answer, check.status, retrieval.sources[0]]"',
+      ]),
+      ['refund policy'],
+    );
+    const capabilities = {
+      demo: {
+        answer: () => 'Refunds require a receipt.',
+        check: () => ({ status: 'grounded' }),
+        retrieval: () => ({ sources: ['refund-policy.kern'] }),
+      },
+    } as const;
+    expect(executeKernRuntimeHandlerSync(computed, { ...syncOptions, capabilities })).toMatchObject({
+      diagnostics: [],
+      outcome: 'success',
+      result: {
+        presence: 'value',
+        value: {
+          tag: 'list',
+          value: [
+            { tag: 'text', value: 'Refunds require a receipt.' },
+            { tag: 'text', value: 'grounded' },
+            { tag: 'text', value: 'refund-policy.kern' },
+          ],
+        },
+      },
+    });
+
+    const guardedBodies = [
+      [
+        'capability namespace=demo operation=answer name=answer',
+        'let name=result value="[answer]"',
+        'return value="result"',
+      ],
+      ['capability namespace=demo operation=answer name=answer', 'return value="[[answer]]"'],
+    ];
+    for (const body of guardedBodies) {
+      expect(
+        executeKernRuntimeHandlerSync(request(source([], '"string[]"', body)), {
+          ...syncOptions,
+          capabilities,
+        }),
+      ).toMatchObject({ diagnostics: [{ code: 'unsupported-runtime-input' }], outcome: 'failure' });
+    }
+
+    expect(
+      executeKernRuntimeHandlerSync(
+        request(
+          source([], '"string[]"', [
+            'capability namespace=demo operation=answer name=answer',
+            'return value="[answer, 1]"',
+          ]),
+        ),
+        { ...syncOptions, capabilities },
+      ),
+    ).toMatchObject({ diagnostics: [{ code: 'invalid-handler-result' }], outcome: 'failure' });
+  });
+
   test('rejects accessor arguments without invoking them during public preflight', () => {
     let getterCalls = 0;
     const args: unknown[] = [];

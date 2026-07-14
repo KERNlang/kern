@@ -1,6 +1,8 @@
 import { parseDocumentWithDiagnostics } from './parser.js';
 import { resolveKernEntryHandler } from './runner.js';
 import { analyzeKernSourceCapabilities, CAPABILITY_DESCRIPTORS, type CapabilityId } from './runner-capability-plan.js';
+import { KERN_RUNTIME_HANDLER_ABI } from './runtime-handler.js';
+import { admitKernRuntimeHandlerSignature, inspectKernRuntimeHandlerSignature } from './runtime-handler-contract.js';
 import { validateSchema } from './schema.js';
 import type { IRNode } from './types.js';
 
@@ -28,6 +30,11 @@ export interface LoadKernAppDescriptorOptions {
    * Hosts that provide readSource must also provide canonicalizePath.
    */
   readonly allowLexicalSourcePaths?: boolean;
+  /**
+   * Optional exact public runtime-handler ABI used to validate typed entry
+   * sources after the legacy void-entry resolver declines them.
+   */
+  readonly runtimeHandlerAbi?: string;
   readonly readSource?: (
     sourcePath: string,
     context: KernAppDescriptorSourceLoaderContext,
@@ -530,17 +537,56 @@ function normalizeManifestEntry(
   };
 }
 
-async function assertEntrySourceContract(entry: KernAppEntryDescriptor, source: string): Promise<void> {
+function assertRuntimeHandlerEntry(root: IRNode, entry: KernAppEntryDescriptor): void {
+  const topLevel = root.type === 'document' ? (root.children ?? []) : [];
+  if (topLevel.some((node) => node.type === 'use' || node.type === 'import' || node.type === 'export')) {
+    throw new KernAppDescriptorError(
+      `${entry.label} handler ${entry.handler} cannot use top-level module syntax under ${KERN_RUNTIME_HANDLER_ABI}`,
+    );
+  }
+  const matches = topLevel.filter((node) => node.type === 'fn' && node.props?.name === entry.handler);
+  if (matches.length === 0)
+    throw new KernAppDescriptorError(`${entry.label} references missing handler ${entry.handler}`);
+  if (matches.length > 1)
+    throw new KernAppDescriptorError(`${entry.label} references duplicate handler ${entry.handler}`);
+  const fn = matches[0];
+  if (fn.props?.async === true || fn.props?.async === 'true') {
+    throw new KernAppDescriptorError(`${entry.label} handler ${entry.handler} async is unsupported`);
+  }
+  if (fn.props?.stream === true || fn.props?.stream === 'true') {
+    throw new KernAppDescriptorError(`${entry.label} handler ${entry.handler} stream=true is unsupported`);
+  }
+  const handlers = (fn.children ?? []).filter((node) => node.type === 'handler');
+  if (handlers.length !== 1 || handlers[0].props?.lang !== 'kern' || handlers[0].props?.code !== undefined) {
+    throw new KernAppDescriptorError(
+      `${entry.label} handler ${entry.handler} must contain exactly one structural handler lang="kern"`,
+    );
+  }
+  const signature = inspectKernRuntimeHandlerSignature(fn);
+  if (signature === undefined || admitKernRuntimeHandlerSignature(signature) === null) {
+    throw new KernAppDescriptorError(
+      `${entry.label} handler ${entry.handler} signature is unsupported by ${KERN_RUNTIME_HANDLER_ABI}`,
+    );
+  }
+}
+
+async function assertEntrySourceContract(
+  entry: KernAppEntryDescriptor,
+  source: string,
+  runtimeHandlerAbi: string | undefined,
+): Promise<void> {
   const { root, diagnostics } = parseDocumentWithDiagnostics(source);
   const firstParseError = diagnostics.find((diagnostic) => diagnostic.severity === 'error');
   if (firstParseError || !root) {
     throw new KernAppDescriptorError(firstParseError?.message ?? `${entry.label} source has parse errors`);
   }
-  try {
-    resolveKernEntryHandler(root, entry);
-  } catch (error) {
-    throw new KernAppDescriptorError(error instanceof Error ? error.message : String(error));
-  }
+  if (runtimeHandlerAbi === undefined || entry.kind === 'view') {
+    try {
+      resolveKernEntryHandler(root, entry);
+    } catch (error) {
+      throw new KernAppDescriptorError(error instanceof Error ? error.message : String(error));
+    }
+  } else assertRuntimeHandlerEntry(root, entry);
   const analysis = analyzeKernSourceCapabilities(source, {
     entryHandlerName: entry.handler,
     providedCapabilities: entry.requiredSyncCapabilities,
@@ -746,6 +792,7 @@ function headerNameFromCapabilityLine(line: string | undefined): string | undefi
 async function validateEntrySources(
   entries: readonly KernAppEntryDescriptor[],
   readSource: LoadKernAppDescriptorOptions['readSource'],
+  runtimeHandlerAbi: string | undefined,
 ): Promise<void> {
   if (!readSource) return;
   for (const entry of entries) {
@@ -756,7 +803,7 @@ async function validateEntrySources(
       throw new KernAppDescriptorError(`${entry.label} source does not exist`);
     }
     if (source === undefined) throw new KernAppDescriptorError(`${entry.label} source does not exist`);
-    await assertEntrySourceContract(entry, source);
+    await assertEntrySourceContract(entry, source, runtimeHandlerAbi);
   }
   await validatePolicySlotSources(entries, readSource, new Map(entries.map((entry) => [entry.label, entry])));
 }
@@ -765,6 +812,9 @@ export async function loadKernAppDescriptor(
   manifestSource: string,
   options: LoadKernAppDescriptorOptions = {},
 ): Promise<KernAppDescriptor> {
+  if (options.runtimeHandlerAbi !== undefined && options.runtimeHandlerAbi !== KERN_RUNTIME_HANDLER_ABI) {
+    throw new KernAppDescriptorError(`unsupported runtimeHandlerAbi '${options.runtimeHandlerAbi}'`);
+  }
   const appRoot = normalizeAppRoot(options.appRoot);
   if (options.readSource && !options.canonicalizePath) {
     throw new KernAppDescriptorError('readSource requires canonicalizePath');
@@ -825,7 +875,7 @@ export async function loadKernAppDescriptor(
   const canonicalEntries = await canonicalizeEntries([...views, ...routes], appRoot, options.canonicalizePath);
   const canonicalViews = canonicalEntries.filter((entry): entry is KernAppViewDescriptor => entry.kind === 'view');
   const canonicalRoutes = canonicalEntries.filter((entry): entry is KernAppRouteDescriptor => entry.kind === 'route');
-  await validateEntrySources(canonicalEntries, options.readSource);
+  await validateEntrySources(canonicalEntries, options.readSource, options.runtimeHandlerAbi);
   return Object.freeze({ app, policies, views: canonicalViews, routes: canonicalRoutes });
 }
 

@@ -16,6 +16,7 @@ import {
   evalRecordLiteralValue,
   isRecordLiteralExpression,
 } from './portable-record-evaluator.js';
+import { evalPortableReturnArrayValue } from './portable-return-array.js';
 import {
   assertRunnerPortableValue,
   isInspectableRunnerPortableValue,
@@ -436,7 +437,7 @@ function evaluateReturnValue(node: IRNode, env: SemanticEnv): unknown {
   const raw = node.props?.value;
   if (typeof raw !== 'string') return raw;
   const parsed = parseExpression(raw);
-  if (isArrayLiteralExpression(parsed)) return evalArrayLiteralValue(parsed, env, evalPortableValue);
+  if (isArrayLiteralExpression(parsed)) return evalPortableReturnArrayValue(parsed, env, evalPortableValue);
   if (isRecordLiteralExpression(parsed)) return evalRecordLiteralValue(parsed, env, evalPortableValue);
   const recordArrayField = evalRecordArrayFieldReferenceValue(parsed, env);
   if (recordArrayField !== undefined) return recordArrayField;
