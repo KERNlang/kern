@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { test } from 'node:test';
 import {
+  assertExecutableEnvelopeDirectClosure,
   assertPortableMachineEvaluatorClosure,
   assertRuntimeImportClosureExcludes,
   assertStableEffectMachineClosure,
@@ -16,6 +17,11 @@ const legacyContract = '/repo/if.ts';
 const legacyFacade = '/repo/portable-scalar.ts';
 const coreSource = resolve(process.cwd(), 'packages/core/src');
 const semantics = resolve(coreSource, 'ir/semantics');
+const syntheticCoreSource = '/repo/core';
+const syntheticEnvelope = resolve(syntheticCoreSource, 'runtime-envelope');
+const syntheticSemantics = resolve(syntheticCoreSource, 'ir/semantics');
+const syntheticExecute = resolve(syntheticEnvelope, 'execute.ts');
+const syntheticEngine = resolve(syntheticEnvelope, 'internal-engine.ts');
 
 function productionReader(mutations = new Map()) {
   return (path) => mutations.get(path) ?? readFileSync(path, 'utf8');
@@ -26,6 +32,17 @@ function reader(entries) {
     if (!entries.has(path)) throw new Error(`missing synthetic source ${path}`);
     return entries.get(path);
   };
+}
+
+function syntheticExecutableSources(executeSource = 'export {};', engineSource = 'export {};') {
+  return new Map([
+    [syntheticExecute, executeSource],
+    [syntheticEngine, engineSource],
+  ]);
+}
+
+function emittedTypeScriptPath(fromPath, specifier) {
+  return resolve(dirname(fromPath), specifier).replace(/\.js$/u, '.ts');
 }
 
 test('runtime import parser excludes erased type-only edges', () => {
@@ -93,6 +110,152 @@ test('non-literal dynamic imports fail closed', () => {
 test('production stable-machine and scalar-machine closures satisfy the shared quarantine policy', () => {
   assert.ok(assertStableEffectMachineClosure(coreSource).size > 0);
   assert.ok(assertPortableMachineEvaluatorClosure(coreSource).size > 0);
+});
+
+test('production direct executable-envelope closure satisfies the machine-only policy', () => {
+  assert.ok(assertExecutableEnvelopeDirectClosure(coreSource).size > 0);
+});
+
+test('production runtime-envelope checker invokes the direct executable closure policy', () => {
+  const checker = readFileSync(resolve(process.cwd(), 'scripts/check-runtime-envelope.mjs'), 'utf8');
+  assert.match(checker, /assertExecutableEnvelopeDirectClosure\(CORE_SOURCE\)/u);
+});
+
+test('direct executable-envelope policy rejects every compatibility, registry, reference, and legacy owner', () => {
+  const forbiddenSpecifiers = [
+    './execute-compat.js',
+    './internal-legacy-engine.js',
+    './normalize-compat.js',
+    '../ir/semantics/index.js',
+    '../ir/semantics/doc-generator.js',
+    '../ir/semantics/register-all.js',
+    '../ir/semantics/async-reference-runner.js',
+    '../ir/semantics/reference-runner.js',
+    '../ir/semantics/portable-scalar.js',
+    '../ir/semantics/async-portable-scalar.js',
+    '../ir/semantics/portable-reference-body.js',
+    '../ir/semantics/portable-reference-evaluator.js',
+    '../ir/semantics/portable-reference-host.js',
+    '../ir/semantics/semantic-sequence-runtime.js',
+    '../ir/semantics/assign.js',
+    '../ir/semantics/branch.js',
+    '../ir/semantics/capability.js',
+    '../ir/semantics/do.js',
+    '../ir/semantics/each.js',
+    '../ir/semantics/expression-v1.js',
+    '../ir/semantics/fmt.js',
+    '../ir/semantics/for.js',
+    '../ir/semantics/if.js',
+    '../ir/semantics/lambda.js',
+    '../ir/semantics/let.js',
+    '../ir/semantics/primitives.js',
+    '../ir/semantics/print.js',
+    '../ir/semantics/try.js',
+    '../ir/semantics/while.js',
+    '../runner.js',
+  ];
+  for (const specifier of forbiddenSpecifiers) {
+    const target = emittedTypeScriptPath(syntheticExecute, specifier);
+    const sources = syntheticExecutableSources(`import '${specifier}';`);
+    sources.set(target, 'export {};');
+    assert.throws(
+      () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+      /is reachable/u,
+      specifier,
+    );
+  }
+});
+
+test('direct executable-envelope policy rejects a transitive reference edge', () => {
+  const bridgePath = resolve(syntheticEnvelope, 'bridge.ts');
+  const target = resolve(syntheticSemantics, 'reference-runner.ts');
+  const sources = syntheticExecutableSources("import './bridge.js';");
+  sources.set(bridgePath, "import '../ir/semantics/reference-runner.js';");
+  sources.set(target, 'export {};');
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /reference-runner\.ts is reachable/u,
+  );
+});
+
+test('direct executable-envelope policy rejects a runtime re-export edge', () => {
+  const bridgePath = resolve(syntheticEnvelope, 'bridge.ts');
+  const target = resolve(syntheticSemantics, 'reference-runner.ts');
+  const sources = syntheticExecutableSources("import './bridge.js';");
+  sources.set(bridgePath, "export { run } from '../ir/semantics/reference-runner.js';");
+  sources.set(target, 'export const run = () => {};');
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /reference-runner\.ts is reachable/u,
+  );
+});
+
+test('direct executable-envelope policy rejects an import-equals reference edge', () => {
+  const target = resolve(syntheticSemantics, 'reference-runner.ts');
+  const sources = syntheticExecutableSources(
+    "import runner = require('../ir/semantics/reference-runner.js'); void runner;",
+  );
+  sources.set(target, 'export {};');
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /reference-runner\.ts is reachable/u,
+  );
+});
+
+test('direct executable-envelope policy rejects literal and non-literal dynamic imports', () => {
+  const target = resolve(syntheticSemantics, 'reference-runner.ts');
+  const literalSources = syntheticExecutableSources("void import('../ir/semantics/reference-runner.js');");
+  literalSources.set(target, 'export {};');
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(literalSources)),
+    /reference-runner\.ts is reachable/u,
+  );
+  const nonLiteralSources = syntheticExecutableSources(
+    "const moduleName = '../ir/semantics/reference-runner.js'; void import(moduleName);",
+  );
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(nonLiteralSources)),
+    /non-literal dynamic import/u,
+  );
+});
+
+test('direct executable-envelope policy rejects a require reference edge', () => {
+  const target = resolve(syntheticSemantics, 'reference-runner.ts');
+  const sources = syntheticExecutableSources("require('../ir/semantics/reference-runner.js');");
+  sources.set(target, 'export {};');
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /reference-runner\.ts is reachable/u,
+  );
+});
+
+test('direct executable-envelope policy rejects own-package imports', () => {
+  const sources = syntheticExecutableSources("import '@kernlang/core/runner';");
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /own-package import @kernlang\/core\/runner/u,
+  );
+});
+
+test('direct executable-envelope policy rejects unapproved bare aliases', () => {
+  const sources = syntheticExecutableSources("import '#reference-runner';");
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /unapproved bare import #reference-runner/u,
+  );
+});
+
+test('direct executable-envelope policy rejects peer-dependency bypasses', () => {
+  const sources = syntheticExecutableSources("import ts from 'typescript'; void ts;");
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /unapproved bare import typescript/u,
+  );
+});
+
+test('direct executable-envelope policy admits only its literal runtime dependency allowlist', () => {
+  const sources = syntheticExecutableSources("import Decimal from 'decimal.js'; void Decimal;");
+  assert.equal(assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)).size, 2);
 });
 
 test('production policy rejects a direct stable-machine edge to the sync reference runner', () => {
