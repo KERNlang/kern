@@ -206,15 +206,22 @@ function inspectedRecord(
   return value as Record<string, unknown>;
 }
 
-function inspectedOperationMaps(value: unknown, label: string): void {
+function acceptedOperationMaps<T>(value: unknown, label: string): T | undefined {
+  if (value === undefined) return undefined;
   const namespaces = inspectedRecord(value, label, null);
+  const accepted: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [namespace, provider] of Object.entries(namespaces)) {
-    if (provider === undefined) continue;
+    if (provider === undefined) {
+      accepted[namespace] = undefined;
+      continue;
+    }
     const operations = inspectedRecord(provider, `${label}.${namespace}`, null);
     if (Object.values(operations).some((operation) => operation !== undefined && typeof operation !== 'function')) {
       throw new KernRuntimeHandlerError('invalid-options', `${label}.${namespace} values must be functions`);
     }
+    accepted[namespace] = Object.freeze({ ...operations });
   }
+  return Object.freeze(accepted) as T;
 }
 
 function inspectedRequest(request: KernRuntimeHandlerRequest): KernRuntimeHandlerRequest {
@@ -248,11 +255,17 @@ function inspectedRequest(request: KernRuntimeHandlerRequest): KernRuntimeHandle
   return value as unknown as KernRuntimeHandlerRequest;
 }
 
-function acceptedOptions<T extends KernRuntimeHandlerOptions>(options: T, async: boolean): T {
+function acceptedOptions(options: KernRuntimeHandlerOptions, async: false): KernRuntimeHandlerOptions;
+function acceptedOptions(options: KernRuntimeHandlerAsyncOptions, async: true): KernRuntimeHandlerAsyncOptions;
+function acceptedOptions(
+  options: KernRuntimeHandlerOptions | KernRuntimeHandlerAsyncOptions,
+  async: boolean,
+): KernRuntimeHandlerOptions | KernRuntimeHandlerAsyncOptions {
   const value = inspectedRecord(options, 'options', async ? ASYNC_OPTION_KEYS : SYNC_OPTION_KEYS);
   if (value.enabled !== true) throw new KernRuntimeHandlerError('disabled', 'runtime handler is default-off');
+  let limits: Record<string, unknown>;
   try {
-    const limits = inspectedRecord(value.limits, 'limits', LIMIT_KEYS);
+    limits = inspectedRecord(value.limits, 'limits', LIMIT_KEYS);
     validateInternalRuntimeLimits(limits as unknown as InternalRuntimeEnvelopeLimits);
   } catch {
     throw new KernRuntimeHandlerError('invalid-limits', 'runtime handler limits are invalid');
@@ -260,24 +273,58 @@ function acceptedOptions<T extends KernRuntimeHandlerOptions>(options: T, async:
   if (async && (!Number.isSafeInteger(value.capabilityTimeoutMs) || (value.capabilityTimeoutMs as number) <= 0)) {
     throw new KernRuntimeHandlerError('invalid-options', 'capabilityTimeoutMs must be a positive safe integer');
   }
-  if (value.capabilityContext !== undefined) {
-    const context = inspectedRecord(value.capabilityContext, 'capabilityContext', ['runId', 'sourceName']);
+  const capabilityContext =
+    value.capabilityContext === undefined
+      ? undefined
+      : inspectedRecord(value.capabilityContext, 'capabilityContext', ['runId', 'sourceName']);
+  if (capabilityContext !== undefined) {
+    const context = capabilityContext;
     if (Object.values(context).some((item) => typeof item !== 'string')) {
       throw new KernRuntimeHandlerError('invalid-options', 'capabilityContext values must be strings');
     }
   }
+  let scheduler: ReturnType<typeof inspectInternalRuntimeSchedulerControl> | undefined;
   if (value.scheduler !== undefined) {
     try {
-      inspectInternalRuntimeSchedulerControl(value.scheduler as NonNullable<KernRuntimeHandlerOptions['scheduler']>);
+      scheduler = inspectInternalRuntimeSchedulerControl(
+        value.scheduler as NonNullable<KernRuntimeHandlerOptions['scheduler']>,
+      );
     } catch {
       throw new KernRuntimeHandlerError('invalid-options', 'runtime handler scheduler is invalid');
     }
   }
-  if (value.capabilities !== undefined) inspectedOperationMaps(value.capabilities, 'capabilities');
-  if (async && value.asyncCapabilities !== undefined) {
-    inspectedOperationMaps(value.asyncCapabilities, 'asyncCapabilities');
-  }
-  return options;
+  const capabilities = acceptedOperationMaps<KernRuntimeHandlerCapabilities>(value.capabilities, 'capabilities');
+  const asyncCapabilities = async
+    ? acceptedOperationMaps<KernRuntimeHandlerAsyncCapabilities>(value.asyncCapabilities, 'asyncCapabilities')
+    : undefined;
+  const acceptedLimits: KernRuntimeHandlerLimits = Object.freeze({
+    maxBytes: limits.maxBytes as number,
+    maxCollectionLength: limits.maxCollectionLength as number,
+    maxDepth: limits.maxDepth as number,
+    maxDiagnostics: limits.maxDiagnostics as number,
+    maxEvents: limits.maxEvents as number,
+    maxStringBytes: limits.maxStringBytes as number,
+  });
+  const acceptedContext: KernRuntimeHandlerCapabilityContext | undefined =
+    capabilityContext === undefined
+      ? undefined
+      : Object.freeze({
+          ...(capabilityContext.runId === undefined ? {} : { runId: capabilityContext.runId as string }),
+          ...(capabilityContext.sourceName === undefined ? {} : { sourceName: capabilityContext.sourceName as string }),
+        });
+  const accepted: KernRuntimeHandlerOptions = {
+    capabilities,
+    capabilityContext: acceptedContext,
+    enabled: true,
+    limits: acceptedLimits,
+    scheduler: scheduler === undefined ? undefined : Object.freeze(scheduler),
+  };
+  if (!async) return accepted;
+  return {
+    ...accepted,
+    asyncCapabilities,
+    capabilityTimeoutMs: value.capabilityTimeoutMs as number,
+  };
 }
 
 function admittedAnnotation(annotation: string | undefined, returns: boolean): AdmittedType | null {

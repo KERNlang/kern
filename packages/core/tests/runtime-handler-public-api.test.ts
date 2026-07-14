@@ -334,4 +334,38 @@ describe('@kernlang/core/runtime/handler public ABI', () => {
       expect((error as KernRuntimeHandlerError).code).toBe('invalid-options');
     }
   });
+
+  test('snapshots accepted limits and operation maps before capability execution', () => {
+    const invocation = request(
+      source([], 'string', [
+        'capability namespace=storage operation=get name=first',
+        'capability namespace=storage operation=get name=second',
+        'return value="second"',
+      ]),
+    );
+    const mutableLimits = { ...limits, maxEvents: 1 };
+    const capabilities: Record<string, unknown> = {};
+    let operationCalls = 0;
+    capabilities.storage = {
+      get() {
+        operationCalls += 1;
+        capabilities.storage = () => 'namespace-bypass';
+        mutableLimits.maxEvents = 2;
+        return 'operation-map';
+      },
+    };
+
+    const envelope = executeKernRuntimeHandlerSync(invocation, {
+      capabilities,
+      enabled: true,
+      limits: mutableLimits,
+    } as never);
+
+    expect(operationCalls).toBe(2);
+    expect(envelope).toMatchObject({
+      diagnostics: [{ code: 'non-portable-value' }],
+      events: [],
+      outcome: 'failure',
+    });
+  });
 });
