@@ -38,6 +38,10 @@
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"
     },
+    "./runtime/handler": {
+      "types": "./dist/runtime-handler.d.ts",
+      "default": "./dist/runtime-handler.js"
+    },
     "./config": {
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"

@@ -25,6 +25,17 @@ export interface InternalRuntimeSourceHandlerIdentity {
 
 export interface InternalRuntimeLinkedHandlerEntry extends InternalRuntimeHandlerEntry {
   readonly identity: InternalRuntimeSourceHandlerIdentity;
+  readonly signature: InternalRuntimeHandlerSignature;
+}
+
+export interface InternalRuntimeHandlerParameter {
+  readonly annotation?: string;
+  readonly name: string;
+}
+
+export interface InternalRuntimeHandlerSignature {
+  readonly parameters: readonly InternalRuntimeHandlerParameter[];
+  readonly returns?: string;
 }
 
 type LinkCode = Extract<
@@ -73,20 +84,23 @@ function trueProp(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
-function legacyParameterNames(raw: string): readonly string[] {
+function legacyParameters(raw: string): readonly InternalRuntimeHandlerParameter[] {
   if (raw.trim() === '') return [];
   return raw.split(',').map((part) => {
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)?$/.exec(part.trim());
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:\[\])?))?$/.exec(part.trim());
     if (!match) fail('handler-entry-unsupported');
-    return portableName(match[1]);
+    return {
+      ...(match[2] === undefined ? {} : { annotation: match[2] }),
+      name: portableName(match[1]),
+    };
   });
 }
 
-function parameterNames(fn: IRNode): readonly string[] {
+function handlerSignature(fn: IRNode): InternalRuntimeHandlerSignature {
   const children = (fn.children ?? []).filter((node) => node.type === 'param');
   const legacy = typeof fn.props?.params === 'string' ? fn.props.params : '';
   if (children.length > 0 && legacy.trim() !== '') fail('handler-entry-unsupported');
-  const names =
+  const parameters =
     children.length > 0
       ? children.map((parameter) => {
           if ((parameter.children ?? []).length > 0) fail('handler-entry-unsupported');
@@ -96,11 +110,19 @@ function parameterNames(fn: IRNode): readonly string[] {
           if (trueProp(parameter.props?.optional) || trueProp(parameter.props?.variadic)) {
             fail('handler-entry-unsupported');
           }
-          return portableName(parameter.props?.name);
+          const annotation = parameter.props?.type;
+          return {
+            ...(typeof annotation === 'string' ? { annotation } : {}),
+            name: portableName(parameter.props?.name),
+          };
         })
-      : legacyParameterNames(legacy);
-  if (new Set(names).size !== names.length) fail('handler-entry-unsupported');
-  return names;
+      : legacyParameters(legacy);
+  if (new Set(parameters.map(({ name }) => name)).size !== parameters.length) fail('handler-entry-unsupported');
+  const returns = fn.props?.returns;
+  return {
+    parameters,
+    ...(typeof returns === 'string' ? { returns } : {}),
+  };
 }
 
 function linkedEntry(
@@ -127,7 +149,13 @@ function linkedEntry(
   if (handler?.props?.lang !== 'kern' || handler.props?.code !== undefined) {
     fail('handler-entry-unsupported');
   }
-  return { body: handler.children ?? [], identity, parameters: parameterNames(fn) };
+  const signature = handlerSignature(fn);
+  return {
+    body: handler.children ?? [],
+    identity,
+    parameters: signature.parameters.map(({ name }) => name),
+    signature,
+  };
 }
 
 export function resolveInternalRuntimeSourceHandler(

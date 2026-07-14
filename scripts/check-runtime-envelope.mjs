@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import {
   assertExecutableEnvelopeDirectClosure,
   assertHandlerEnvelopeDirectClosure,
+  assertPublicHandlerAbiClosure,
   assertPortableMachineEvaluatorClosure,
   assertRuntimeImportClosureExcludes,
   assertStableEffectMachineClosure,
@@ -11,6 +12,7 @@ import {
 const ROOT = process.cwd();
 const CORE_SOURCE = join(ROOT, 'packages/core/src');
 const INTERNAL_DIRECTORY = join(CORE_SOURCE, 'runtime-envelope');
+const PUBLIC_HANDLER = join(CORE_SOURCE, 'runtime-handler.ts');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
 const CAPABILITY_LANE = join(CORE_SOURCE, 'ir/semantics/capability-lane.ts');
 const CAPABILITY_PLAN = join(CORE_SOURCE, 'runner-capability-plan.ts');
@@ -38,7 +40,7 @@ const EFFECT_MACHINE_FILES = [
 const ENVELOPE_EXECUTE = join(INTERNAL_DIRECTORY, 'execute.ts');
 const INTERNAL_ENGINE = join(INTERNAL_DIRECTORY, 'internal-engine.ts');
 const INTERNAL_SCHEDULER = join(INTERNAL_DIRECTORY, 'internal-scheduler.ts');
-const RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS = new Set([CAPABILITY_SEAM]);
+const RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS = new Set([CAPABILITY_SEAM, PUBLIC_HANDLER]);
 const CAPABILITY_SEAM_IMPORTERS = new Set([
   CAPABILITY_SEAM,
   join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts'),
@@ -210,6 +212,7 @@ assertStableEffectMachineClosure(CORE_SOURCE);
 assertPortableMachineEvaluatorClosure(CORE_SOURCE);
 assertExecutableEnvelopeDirectClosure(CORE_SOURCE);
 assertHandlerEnvelopeDirectClosure(CORE_SOURCE);
+assertPublicHandlerAbiClosure(CORE_SOURCE);
 assertRuntimeImportClosureExcludes(
   [EFFECT_MACHINE_TRY],
   [
@@ -260,16 +263,38 @@ for (const [name, target] of Object.entries(corePackage.exports ?? {})) {
     fail(`package export ${name} exposes the internal module`);
   }
 }
+const publicHandlerExport = corePackage.exports?.['./runtime/handler'];
+if (
+  publicHandlerExport?.types !== './dist/runtime-handler.d.ts' ||
+  publicHandlerExport?.default !== './dist/runtime-handler.js'
+) {
+  fail('package must expose the exact additive ./runtime/handler entry');
+}
+const publicHandler = readFileSync(PUBLIC_HANDLER, 'utf8');
+if (!publicHandler.includes("'kern.runtime.handler.v1'")) {
+  fail('public handler ABI format must remain exact');
+}
+if (publicHandler.trimEnd().split('\n').length >= 500) {
+  fail('public runtime handler source exceeds the handwritten line limit');
+}
+const publicDeclaration = readFileSync(join(ROOT, 'packages/core/dist/runtime-handler.d.ts'), 'utf8');
+for (const forbidden of ['Internal', 'SemanticEnv', 'KernRunner', 'runner-capabilities', 'kern.runtime.internal.r0']) {
+  if (publicDeclaration.includes(forbidden)) fail(`public handler declaration exposes ${forbidden}`);
+}
 
 const rootPackage = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-if (Object.hasOwn(rootPackage.scripts ?? {}, 'test:runtime-abi')) {
-  fail('test:runtime-abi must remain absent until the public ABI gate is promoted');
+if (rootPackage.scripts?.['test:runtime-abi'] === undefined) {
+  fail('test:runtime-abi must exist after public ABI promotion');
 }
 
 const policy = JSON.parse(readFileSync(join(ROOT, 'scripts/kern-5-fitness-policy.json'), 'utf8'));
 const publicGate = policy.gates.find((gate) => gate.id === 'runtime-handler-abi');
-if (publicGate?.status !== 'planned') {
-  fail('runtime-handler-abi must remain planned during the internal envelope slice');
+if (publicGate?.status !== 'current') {
+  fail('runtime-handler-abi must be a current fitness gate after public promotion');
+}
+const publicHandlerOwnership = policy.ownership.find((entry) => entry.id === 'typed-runtime-handler-abi');
+if (publicHandlerOwnership?.status !== 'internal-oracle' || publicHandlerOwnership.evidence !== 'pnpm test:runtime-abi') {
+  fail('typed runtime handler ABI must be a default-off internal oracle with an executable gate');
 }
 const capabilityOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-capability-seam');
 if (capabilityOwnership?.status !== 'internal-oracle') {
@@ -328,4 +353,4 @@ for (const id of ['trace-abi', 'handler-abi', 'capability-abi']) {
   }
 }
 
-process.stdout.write('internal runtime envelope: PASS (default-off containment; public ABI remains deferred)\n');
+process.stdout.write('runtime handler ABI: PASS (default-off public facade; machine-only containment)\n');

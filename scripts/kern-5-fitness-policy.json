@@ -166,8 +166,8 @@
     },
     {
       "id": "runtime-handler-abi",
-      "label": "Runtime and handler ABI",
-      "status": "planned",
+      "label": "Default-off public typed runtime handler ABI",
+      "status": "current",
       "argv": ["pnpm", "test:runtime-abi"]
     },
     {
@@ -396,9 +396,9 @@
     },
     {
       "id": "typed-runtime-handler-abi",
-      "label": "Typed runtime and handler ABI",
-      "status": "not-shipped",
-      "evidence": "R2 M3 planned"
+      "label": "Default-off public typed runtime handler ABI",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:runtime-abi"
     },
     {
       "id": "kern-formatter",

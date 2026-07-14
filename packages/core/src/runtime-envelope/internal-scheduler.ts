@@ -40,7 +40,7 @@ function releaseIfIdle(state: SchedulerState): void {
   if (state.disposed && state.pendingWork === 0 && states.get(state.key) === state) states.delete(state.key);
 }
 
-function inspectedControl(control: SchedulerControl): {
+export function inspectInternalRuntimeSchedulerControl(control: SchedulerControl): {
   readonly signal: AbortSignal | undefined;
   readonly timeoutMs: number | undefined;
 } {
@@ -93,7 +93,7 @@ function inspectedControl(control: SchedulerControl): {
 
 export function installInternalRuntimeScheduler(env: SemanticEnv, control: SchedulerControl | undefined): () => void {
   if (control === undefined) return () => {};
-  const accepted = inspectedControl(control);
+  const accepted = inspectInternalRuntimeSchedulerControl(control);
   const key = stateKey(env);
   if (states.has(key)) throw new TypeError('internal runtime scheduler is already installed');
 

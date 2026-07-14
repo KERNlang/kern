@@ -981,6 +981,8 @@ export const STRUCTURAL_KIR_NODE_CATALOG = new Map(
         "objectMerge",
         "objectOmit",
         "objectPick",
+        "capability",
+        "print",
         "return",
         "if",
         "else",

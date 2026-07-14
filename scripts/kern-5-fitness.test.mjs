@@ -49,6 +49,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kir-alpha-receipt',
       'internal-runtime-envelope',
       'diff-hygiene',
+      'runtime-handler-abi',
     ],
   );
 });

@@ -101,7 +101,7 @@ export function runKirEvidenceCheck() {
     }
   }
   const rootPackage = JSON.parse(readFileSync('package.json', 'utf8'));
-  for (const forbidden of ['test:kern-ir', 'test:runtime-abi']) {
+  for (const forbidden of ['test:kern-ir']) {
     if (Object.hasOwn(rootPackage.scripts, forbidden)) throw new Error(`KIR evidence cannot promote ${forbidden}`);
   }
 
