@@ -257,6 +257,7 @@ export function assertExecutableEnvelopeDirectClosure(
     executableEnvelopeForbiddenPaths(coreSourceRoot),
     readText,
     EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
+    false,
   );
 }
 
