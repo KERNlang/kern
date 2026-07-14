@@ -66,11 +66,15 @@ function barePackageName(specifier) {
   return specifier.split('/')[0];
 }
 
-function resolveTypeScriptImport(fromPath, specifier, allowedBareSpecifiers) {
+function resolveTypeScriptImport(fromPath, specifier, allowedBareSpecifiers, allowNodeBuiltins) {
   if (specifier === '@kernlang/core' || specifier.startsWith('@kernlang/core/')) {
     fail(`own-package import ${specifier} in ${fromPath} is forbidden inside a checked runtime closure`);
   }
   if (!specifier.startsWith('.')) {
+    if (specifier.startsWith('node:')) {
+      if (allowNodeBuiltins) return null;
+      fail(`unapproved Node builtin ${specifier} in ${fromPath}`);
+    }
     if (allowedBareSpecifiers.has(barePackageName(specifier))) return null;
     fail(`unapproved bare import ${specifier} in ${fromPath}`);
   }
@@ -83,6 +87,7 @@ export function runtimeImportClosure(
   entryPaths,
   readText = (path) => readFileSync(path, 'utf8'),
   allowedBareSpecifiers = new Set(),
+  allowNodeBuiltins = true,
 ) {
   const visited = new Set();
   const pending = [...entryPaths];
@@ -92,7 +97,7 @@ export function runtimeImportClosure(
     visited.add(path);
     const source = readText(path);
     for (const specifier of runtimeModuleSpecifiers(source, path)) {
-      const target = resolveTypeScriptImport(path, specifier, allowedBareSpecifiers);
+      const target = resolveTypeScriptImport(path, specifier, allowedBareSpecifiers, allowNodeBuiltins);
       if (target && !visited.has(target)) pending.push(target);
     }
   }
@@ -104,8 +109,9 @@ export function assertRuntimeImportClosureExcludes(
   forbiddenPaths,
   readText = (path) => readFileSync(path, 'utf8'),
   allowedBareSpecifiers = new Set(),
+  allowNodeBuiltins = true,
 ) {
-  const reachable = runtimeImportClosure(entryPaths, readText, allowedBareSpecifiers);
+  const reachable = runtimeImportClosure(entryPaths, readText, allowedBareSpecifiers, allowNodeBuiltins);
   for (const forbidden of forbiddenPaths) {
     if (reachable.has(forbidden)) fail(`${forbidden} is reachable from ${entryPaths.join(', ')}`);
   }
@@ -169,6 +175,15 @@ function executableEnvelopeForbiddenPaths(coreSourceRoot) {
   return EXECUTABLE_ENVELOPE_FORBIDDEN_SPECIFIERS.map((specifier) =>
     emittedPolicyPath(coreSourceRoot, specifier),
   );
+}
+
+export function handlerEnvelopeForbiddenPaths(coreSourceRoot) {
+  return [
+    ...executableEnvelopeForbiddenPaths(coreSourceRoot),
+    ...HANDLER_ENVELOPE_ADDITIONAL_FORBIDDEN_SPECIFIERS.map((specifier) =>
+      emittedPolicyPath(coreSourceRoot, specifier),
+    ),
+  ];
 }
 
 function runtimeDependencies(coreSourceRoot) {
@@ -255,13 +270,23 @@ export function assertHandlerEnvelopeDirectClosure(
       runtimeEnvelopePath(coreSourceRoot, 'handler-entry.ts'),
       runtimeEnvelopePath(coreSourceRoot, 'source-handler.ts'),
     ],
-    [
-      ...executableEnvelopeForbiddenPaths(coreSourceRoot),
-      ...HANDLER_ENVELOPE_ADDITIONAL_FORBIDDEN_SPECIFIERS.map((specifier) =>
-        emittedPolicyPath(coreSourceRoot, specifier),
-      ),
-    ],
+    handlerEnvelopeForbiddenPaths(coreSourceRoot),
     readText,
     EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
+    false,
+  );
+}
+
+/** The public source-handler ABI stays on the same machine-only production closure. */
+export function assertPublicHandlerAbiClosure(
+  coreSourceRoot,
+  readText = (path) => readFileSync(path, 'utf8'),
+) {
+  return assertRuntimeImportClosureExcludes(
+    [resolve(coreSourceRoot, 'runtime-handler.ts')],
+    handlerEnvelopeForbiddenPaths(coreSourceRoot),
+    readText,
+    EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
+    false,
   );
 }

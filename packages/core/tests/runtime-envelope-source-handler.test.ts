@@ -215,7 +215,11 @@ describe('internal source handler identity and link', () => {
       '    return value="\\"duplicate\\""',
     ].join('\n');
     const sync = executeInternalRuntimeSourceHandlerSync(ambiguous, identity, [], host, enabled);
-    expect(sync).toMatchObject({ diagnostics: [{ code: 'handler-link-error' }], events: [], outcome: 'failure' });
+    expect(sync).toMatchObject({
+      diagnostics: [{ code: 'handler-entry-ambiguous' }],
+      events: [],
+      outcome: 'failure',
+    });
     await expect(executeInternalRuntimeSourceHandlerAsync(ambiguous, identity, [], host, enabled)).resolves.toEqual(
       sync,
     );
