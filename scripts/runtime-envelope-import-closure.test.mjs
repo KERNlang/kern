@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { test } from 'node:test';
 import {
   assertExecutableEnvelopeDirectClosure,
+  EXECUTABLE_ENVELOPE_FORBIDDEN_SPECIFIERS,
   assertPortableMachineEvaluatorClosure,
   assertRuntimeImportClosureExcludes,
   assertStableEffectMachineClosure,
@@ -122,39 +123,7 @@ test('production runtime-envelope checker invokes the direct executable closure 
 });
 
 test('direct executable-envelope policy rejects every compatibility, registry, reference, and legacy owner', () => {
-  const forbiddenSpecifiers = [
-    './execute-compat.js',
-    './internal-legacy-engine.js',
-    './normalize-compat.js',
-    '../ir/semantics/index.js',
-    '../ir/semantics/doc-generator.js',
-    '../ir/semantics/register-all.js',
-    '../ir/semantics/async-reference-runner.js',
-    '../ir/semantics/reference-runner.js',
-    '../ir/semantics/portable-scalar.js',
-    '../ir/semantics/async-portable-scalar.js',
-    '../ir/semantics/portable-reference-body.js',
-    '../ir/semantics/portable-reference-evaluator.js',
-    '../ir/semantics/portable-reference-host.js',
-    '../ir/semantics/semantic-sequence-runtime.js',
-    '../ir/semantics/assign.js',
-    '../ir/semantics/branch.js',
-    '../ir/semantics/capability.js',
-    '../ir/semantics/do.js',
-    '../ir/semantics/each.js',
-    '../ir/semantics/expression-v1.js',
-    '../ir/semantics/fmt.js',
-    '../ir/semantics/for.js',
-    '../ir/semantics/if.js',
-    '../ir/semantics/lambda.js',
-    '../ir/semantics/let.js',
-    '../ir/semantics/primitives.js',
-    '../ir/semantics/print.js',
-    '../ir/semantics/try.js',
-    '../ir/semantics/while.js',
-    '../runner.js',
-  ];
-  for (const specifier of forbiddenSpecifiers) {
+  for (const specifier of EXECUTABLE_ENVELOPE_FORBIDDEN_SPECIFIERS) {
     const target = emittedTypeScriptPath(syntheticExecute, specifier);
     const sources = syntheticExecutableSources(`import '${specifier}';`);
     sources.set(target, 'export {};');

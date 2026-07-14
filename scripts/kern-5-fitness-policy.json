@@ -16,7 +16,7 @@
     "test:kern-kir-coverage-closure": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/coverage-ledger.test.mjs && node ./scripts/check-kir-coverage-closure.mjs",
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
-    "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-envelope|portable-machine-evaluator' && node --test ./scripts/runtime-envelope-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
+    "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-envelope|portable-machine-evaluator' && node --test ./scripts/runtime-envelope-import-closure.test.mjs ./scripts/runtime-envelope-handler-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs"
   },
   "gates": [
