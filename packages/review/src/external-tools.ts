@@ -7,6 +7,7 @@
  * Phase 3 of the review pipeline.
  */
 
+import { createRequire } from 'node:module';
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
@@ -16,6 +17,8 @@ import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
 import { isTestLikeFilePath, isTestRunnerGlobalCannotFindName } from './test-runner-noise.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
+
+const packageRequire = createRequire(import.meta.url);
 
 function optionalPackageName(...parts: string[]): string {
   return parts.join('');
@@ -1026,7 +1029,13 @@ function normalizeDiagnosticPath(filePath: string): string {
 function findTscBin(startDir: string): string | undefined {
   const fromStart = findTscBinFrom(startDir);
   if (fromStart) return fromStart;
-  return findTscBinFrom(process.cwd());
+  const fromCwd = findTscBinFrom(process.cwd());
+  if (fromCwd) return fromCwd;
+  try {
+    return packageRequire.resolve('typescript/bin/tsc');
+  } catch {
+    return undefined;
+  }
 }
 
 function findTscBinFrom(startDir: string): string | undefined {

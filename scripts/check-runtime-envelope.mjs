@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
   assertExecutableEnvelopeDirectClosure,
+  assertHandlerEnvelopeDirectClosure,
   assertPortableMachineEvaluatorClosure,
   assertRuntimeImportClosureExcludes,
   assertStableEffectMachineClosure,
@@ -208,6 +209,7 @@ for (const forbidden of ['internal-effect-machine', "from './try.js'", 'referenc
 assertStableEffectMachineClosure(CORE_SOURCE);
 assertPortableMachineEvaluatorClosure(CORE_SOURCE);
 assertExecutableEnvelopeDirectClosure(CORE_SOURCE);
+assertHandlerEnvelopeDirectClosure(CORE_SOURCE);
 assertRuntimeImportClosureExcludes(
   [EFFECT_MACHINE_TRY],
   [

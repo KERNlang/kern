@@ -122,6 +122,55 @@ function runtimeEnvelopePath(coreSourceRoot, file) {
 
 const EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS = new Set(['decimal.js']);
 
+export const EXECUTABLE_ENVELOPE_FORBIDDEN_SPECIFIERS = Object.freeze([
+  './execute-compat.js',
+  './internal-legacy-engine.js',
+  './normalize-compat.js',
+  '../ir/semantics/index.js',
+  '../ir/semantics/doc-generator.js',
+  '../ir/semantics/register-all.js',
+  '../ir/semantics/async-reference-runner.js',
+  '../ir/semantics/reference-runner.js',
+  '../ir/semantics/portable-scalar.js',
+  '../ir/semantics/async-portable-scalar.js',
+  '../ir/semantics/portable-reference-body.js',
+  '../ir/semantics/portable-reference-evaluator.js',
+  '../ir/semantics/portable-reference-host.js',
+  '../ir/semantics/semantic-sequence-runtime.js',
+  '../ir/semantics/assign.js',
+  '../ir/semantics/branch.js',
+  '../ir/semantics/capability.js',
+  '../ir/semantics/do.js',
+  '../ir/semantics/each.js',
+  '../ir/semantics/expression-v1.js',
+  '../ir/semantics/fmt.js',
+  '../ir/semantics/for.js',
+  '../ir/semantics/if.js',
+  '../ir/semantics/lambda.js',
+  '../ir/semantics/let.js',
+  '../ir/semantics/primitives.js',
+  '../ir/semantics/print.js',
+  '../ir/semantics/try.js',
+  '../ir/semantics/while.js',
+  '../runner.js',
+]);
+
+export const HANDLER_ENVELOPE_ADDITIONAL_FORBIDDEN_SPECIFIERS = Object.freeze([
+  '../runtime.js',
+  '../app-descriptor.js',
+  '../runner-capability-plan.js',
+]);
+
+function emittedPolicyPath(coreSourceRoot, specifier) {
+  return resolve(coreSourceRoot, 'runtime-envelope', specifier).replace(/\.js$/u, '.ts');
+}
+
+function executableEnvelopeForbiddenPaths(coreSourceRoot) {
+  return EXECUTABLE_ENVELOPE_FORBIDDEN_SPECIFIERS.map((specifier) =>
+    emittedPolicyPath(coreSourceRoot, specifier),
+  );
+}
+
 function runtimeDependencies(coreSourceRoot) {
   const manifest = JSON.parse(readFileSync(resolve(coreSourceRoot, '../package.json'), 'utf8'));
   return new Set([
@@ -185,44 +234,33 @@ export function assertExecutableEnvelopeDirectClosure(
   coreSourceRoot,
   readText = (path) => readFileSync(path, 'utf8'),
 ) {
-  const forbidden = [
-    runtimeEnvelopePath(coreSourceRoot, 'execute-compat.ts'),
-    runtimeEnvelopePath(coreSourceRoot, 'internal-legacy-engine.ts'),
-    runtimeEnvelopePath(coreSourceRoot, 'normalize-compat.ts'),
-    semanticPath(coreSourceRoot, 'index.ts'),
-    semanticPath(coreSourceRoot, 'doc-generator.ts'),
-    semanticPath(coreSourceRoot, 'register-all.ts'),
-    semanticPath(coreSourceRoot, 'async-reference-runner.ts'),
-    semanticPath(coreSourceRoot, 'reference-runner.ts'),
-    semanticPath(coreSourceRoot, 'portable-scalar.ts'),
-    semanticPath(coreSourceRoot, 'async-portable-scalar.ts'),
-    semanticPath(coreSourceRoot, 'portable-reference-body.ts'),
-    semanticPath(coreSourceRoot, 'portable-reference-evaluator.ts'),
-    semanticPath(coreSourceRoot, 'portable-reference-host.ts'),
-    semanticPath(coreSourceRoot, 'semantic-sequence-runtime.ts'),
-    semanticPath(coreSourceRoot, 'assign.ts'),
-    semanticPath(coreSourceRoot, 'branch.ts'),
-    semanticPath(coreSourceRoot, 'capability.ts'),
-    semanticPath(coreSourceRoot, 'do.ts'),
-    semanticPath(coreSourceRoot, 'each.ts'),
-    semanticPath(coreSourceRoot, 'expression-v1.ts'),
-    semanticPath(coreSourceRoot, 'fmt.ts'),
-    semanticPath(coreSourceRoot, 'for.ts'),
-    semanticPath(coreSourceRoot, 'if.ts'),
-    semanticPath(coreSourceRoot, 'lambda.ts'),
-    semanticPath(coreSourceRoot, 'let.ts'),
-    semanticPath(coreSourceRoot, 'primitives.ts'),
-    semanticPath(coreSourceRoot, 'print.ts'),
-    semanticPath(coreSourceRoot, 'try.ts'),
-    semanticPath(coreSourceRoot, 'while.ts'),
-    resolve(coreSourceRoot, 'runner.ts'),
-  ];
   return assertRuntimeImportClosureExcludes(
     [
       runtimeEnvelopePath(coreSourceRoot, 'execute.ts'),
       runtimeEnvelopePath(coreSourceRoot, 'internal-engine.ts'),
     ],
-    forbidden,
+    executableEnvelopeForbiddenPaths(coreSourceRoot),
+    readText,
+    EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
+  );
+}
+
+/** Existing typed handler and source-handler entries are machine-only roots. */
+export function assertHandlerEnvelopeDirectClosure(
+  coreSourceRoot,
+  readText = (path) => readFileSync(path, 'utf8'),
+) {
+  return assertRuntimeImportClosureExcludes(
+    [
+      runtimeEnvelopePath(coreSourceRoot, 'handler-entry.ts'),
+      runtimeEnvelopePath(coreSourceRoot, 'source-handler.ts'),
+    ],
+    [
+      ...executableEnvelopeForbiddenPaths(coreSourceRoot),
+      ...HANDLER_ENVELOPE_ADDITIONAL_FORBIDDEN_SPECIFIERS.map((specifier) =>
+        emittedPolicyPath(coreSourceRoot, specifier),
+      ),
+    ],
     readText,
     EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
   );

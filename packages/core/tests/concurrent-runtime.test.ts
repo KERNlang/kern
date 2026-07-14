@@ -7,9 +7,14 @@
 
 import { generateCoreNode } from '../src/codegen-core.js';
 import { parse } from '../src/parser.js';
-import { KernRuntime } from '../src/runtime.js';
+import { defaultRuntime, KernRuntime } from '../src/runtime.js';
+import { defaultRuntime as internalDefaultRuntime } from '../src/runtime-state.js';
 
 describe('KernRuntime isolation', () => {
+  it('public and parser-internal modules share one default runtime', () => {
+    expect(defaultRuntime).toBe(internalDefaultRuntime);
+  });
+
   it('separate runtimes have independent evolved types', () => {
     const a = new KernRuntime();
     const b = new KernRuntime();

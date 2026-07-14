@@ -719,7 +719,7 @@ describe('M3.15 executable-envelope isolation', () => {
     }
   });
 
-  test('handler and source-handler roots preserve legacy-only sync/async behavior through compat', async () => {
+  test('handler and source-handler roots fail closed on legacy-only sync/async input', async () => {
     const body: IRNode[] = [
       { type: 'let', props: { name: 'xs', value: '[1]' } },
       { type: 'do', props: { value: 'xs.push(2)' } },
@@ -729,8 +729,9 @@ describe('M3.15 executable-envelope isolation', () => {
     const handlerSync = executeInternalRuntimeHandlerSync(entry, [], makeEnv(), enabled);
     const handlerAsync = await executeInternalRuntimeHandlerAsync(entry, [], makeEnv(), enabled);
     expect(handlerSync).toMatchObject({
-      outcome: 'success',
-      result: { presence: 'value', value: { tag: 'integer', value: '2' } },
+      diagnostics: [{ code: 'unsupported-runtime-input' }],
+      events: [],
+      outcome: 'failure',
     });
     expect(handlerAsync).toEqual(handlerSync);
 
@@ -745,8 +746,9 @@ describe('M3.15 executable-envelope isolation', () => {
     const sourceSync = executeInternalRuntimeSourceHandlerSync(source, identity, [], makeEnv(), enabled);
     const sourceAsync = await executeInternalRuntimeSourceHandlerAsync(source, identity, [], makeEnv(), enabled);
     expect(sourceSync).toMatchObject({
-      outcome: 'success',
-      result: { presence: 'value', value: { tag: 'integer', value: '2' } },
+      diagnostics: [{ code: 'unsupported-runtime-input' }],
+      events: [],
+      outcome: 'failure',
     });
     expect(sourceAsync).toEqual(sourceSync);
   });
@@ -757,8 +759,9 @@ describe('M3.15 executable-envelope isolation', () => {
     const handlerSource = readFileSync(new URL('../src/runtime-envelope/handler-entry.ts', import.meta.url), 'utf8');
     expect(executeSource).not.toContain('AsyncReferenceRunnerOptions');
     expect(engineSource).not.toContain('AsyncReferenceRunnerOptions');
-    expect(handlerSource).toContain("from './execute-compat.js'");
-    expect(handlerSource).not.toContain("from './execute.js'");
+    expect(handlerSource).toContain("from './execute.js'");
+    expect(handlerSource).not.toContain("from './execute-compat.js'");
+    expect(handlerSource).not.toContain('InternalRuntimeCompatAsyncOptions');
   });
 
   test('capability-produced class-shaped records remain data and cannot activate class semantics', () => {

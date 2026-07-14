@@ -13,7 +13,7 @@ import { validateExpressions } from './parser-validate-expressions.js';
 import { validateNativeEligible } from './parser-validate-native-eligible.js';
 import { validateAndRewritePropagation } from './parser-validate-propagation.js';
 import { validateUnionKind } from './parser-validate-union-kind.js';
-import { defaultRuntime, type KernRuntime, type ParserHintsConfig } from './runtime.js';
+import { defaultRuntime, type KernRuntime, type ParserHintsConfig } from './runtime-state.js';
 import { isKnownNodeType } from './spec.js';
 import type { IRNode, IRSourceLocation, ParseResult } from './types.js';
 

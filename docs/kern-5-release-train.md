@@ -331,6 +331,16 @@ trusted-publishing/provenance configuration is inspected.
     expression atomicity and dynamic short-circuit behavior are regression-
     covered following
     `tribunal-1783981922640-sbxioy-m3-15-r32-deferred-expression-ad`.
+  - [x] M3.16 handler-root isolation: switch the existing typed handler and
+    source-handler sync/async roots from explicit compatibility fallback to the
+    direct machine-only envelope, with no new compat handler ABI or public package
+    export. Extract parser/runtime state from the public app/runner barrel and
+    prove the complete handler/source emitted-runtime closure excludes compat,
+    registry, reference, legacy-owner, app-descriptor, and runner modules.
+    `pnpm fitness:kern-5` passed end-to-end on 2026-07-14; the combined closure
+    suite passed 36/36 cases. The terminal `claude,codex,agy` review completed 3/3
+    with zero findings after both review nits were fixed
+    (`review-1784011660440-0jp6lw-m3-16-handler-root-isolation-ter`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

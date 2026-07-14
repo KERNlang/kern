@@ -1,3 +1,5 @@
+import { installInternalRuntimeCapabilityInterceptor } from '../ir/semantics/internal-capability-interceptor.js';
+import { isPortableBindingName, isPortableScalar } from '../ir/semantics/portable-scalar-domain.js';
 import {
   defineBinding,
   defineFreshArrayBinding,
@@ -5,16 +7,10 @@ import {
   defineRecordBinding,
   makeEnv,
   type SemanticEnv,
-} from '../ir/semantics/index.js';
-import { installInternalRuntimeCapabilityInterceptor } from '../ir/semantics/internal-capability-interceptor.js';
-import { recordArrayFieldsFromValue } from '../ir/semantics/let.js';
-import { isPortableBindingName } from '../ir/semantics/portable-scalar.js';
+} from '../ir/semantics/semantic-env.js';
 import type { IRNode } from '../types.js';
-import {
-  executeInternalRuntimeEnvelopeCompatAsync,
-  executeInternalRuntimeEnvelopeCompatSync,
-  type InternalRuntimeCompatAsyncOptions,
-} from './execute-compat.js';
+import { executeInternalRuntimeEnvelopeAsync, executeInternalRuntimeEnvelopeSync } from './execute.js';
+import type { InternalRuntimeAsyncOptions } from './internal-engine.js';
 import { internalRuntimeFailure, normalizeInternalRuntimeFailure } from './normalize.js';
 import {
   type InternalRuntimeEnvelope,
@@ -31,6 +27,15 @@ import {
 export interface InternalRuntimeHandlerEntry {
   readonly body: readonly IRNode[];
   readonly parameters: readonly string[];
+}
+
+function recordArrayFieldsFromArgument(value: unknown): Set<string> {
+  const fields = new Set<string>();
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return fields;
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (Array.isArray(fieldValue) && fieldValue.every((item) => isPortableScalar(item))) fields.add(key);
+  }
+  return fields;
 }
 
 function inspectArray<T>(value: readonly T[], label: string, maxLength: number): readonly T[] {
@@ -135,7 +140,7 @@ function handlerEnvironment(
     else if (argument.normalized.tag === 'list')
       defineFreshArrayBinding(env, name, argument.decoded as readonly unknown[]);
     else if (argument.normalized.tag === 'record')
-      defineRecordBinding(env, name, argument.decoded, recordArrayFieldsFromValue(argument.decoded));
+      defineRecordBinding(env, name, argument.decoded, recordArrayFieldsFromArgument(argument.decoded));
     else defineBinding(env, name, argument.decoded);
   }
   return env;
@@ -163,7 +168,7 @@ export function executeInternalRuntimeHandlerSync(
   options?: InternalRuntimeEnvelopeOptions,
 ): InternalRuntimeEnvelope {
   const env = preparedEnvironment(entry, args, host, options);
-  return 'format' in env ? env : executeInternalRuntimeEnvelopeCompatSync(entry.body, env, options);
+  return 'format' in env ? env : executeInternalRuntimeEnvelopeSync(entry.body, env, options);
 }
 
 export async function executeInternalRuntimeHandlerAsync(
@@ -171,8 +176,8 @@ export async function executeInternalRuntimeHandlerAsync(
   args: readonly unknown[],
   host: SemanticEnv,
   options?: InternalRuntimeEnvelopeOptions,
-  asyncOptions: InternalRuntimeCompatAsyncOptions = {},
+  asyncOptions: InternalRuntimeAsyncOptions = {},
 ): Promise<InternalRuntimeEnvelope> {
   const env = preparedEnvironment(entry, args, host, options);
-  return 'format' in env ? env : executeInternalRuntimeEnvelopeCompatAsync(entry.body, env, options, asyncOptions);
+  return 'format' in env ? env : executeInternalRuntimeEnvelopeAsync(entry.body, env, options, asyncOptions);
 }
