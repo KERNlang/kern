@@ -459,13 +459,13 @@ export {
 } from './ir/semantics/index.js';
 export type { RegExpValue } from './ir/semantics/portable-regex.js';
 export {
-  evalRegexTestExpression,
   isRegExpValue,
   isRegexTestExpression,
   isRunnerNativeRegexFailClose,
   makeRegExpValue,
   REGEXP_VALUE_TAG,
 } from './ir/semantics/portable-regex.js';
+export { evalRegexTestExpression } from './ir/semantics/portable-regex-reference.js';
 // Runner-native Decimal (Slice 1) — the ReferenceRunner executes `Decimal.of/add/
 // mul` natively as a third "leg" of the decimal differential oracle, computing on a
 // local pinned decimal.js constructor and rendering through the canonical

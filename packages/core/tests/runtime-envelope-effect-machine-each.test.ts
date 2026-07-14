@@ -255,7 +255,7 @@ describe('private effect-machine array each frames', () => {
           { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
           {
             type: 'try',
-            children: [{ type: 'finally', children: [{ type: 'expression-v1', props: { name: 'res', expr: '1' } }] }],
+            children: [{ type: 'finally', children: [{ type: 'lambda', props: { expr: 'List.map(xs, x => x)' } }] }],
           },
         ],
       },

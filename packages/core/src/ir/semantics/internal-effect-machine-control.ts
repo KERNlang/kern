@@ -1,5 +1,5 @@
 import type { IRNode } from '../../types.js';
-import { internalMachineExpressionBindings } from './internal-effect-machine-leaf.js';
+import { internalMachineExpressionBindings } from './internal-effect-machine-expression-bindings.js';
 import { defineBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export function clonePreflightEnvironment(env: SemanticEnv): SemanticEnv {
@@ -90,7 +90,9 @@ function addFrameBindingNames(node: IRNode, bindings: Set<string>): void {
 }
 
 function addDeclaredBinding(node: IRNode, bindings: Set<string>): void {
-  if (node.type !== 'let' && node.type !== 'fmt' && node.type !== 'capability') return;
+  if (node.type !== 'let' && node.type !== 'fmt' && node.type !== 'expression-v1' && node.type !== 'capability') {
+    return;
+  }
   const name = node.props?.name;
   if (typeof name === 'string' && name !== '') bindings.add(name);
 }

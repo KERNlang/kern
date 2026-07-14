@@ -8,6 +8,7 @@
 
 import {
   CONTRACT_REGISTRY,
+  evalRegexTestExpression,
   makeEnv,
   ReferenceRunnerError,
   referenceRun,
@@ -20,6 +21,7 @@ import {
   registerExpressionV1Contract,
 } from '../src/ir/semantics/expression-v1.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
+import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
 
 beforeEach(() => {
@@ -37,6 +39,10 @@ afterEach(() => {
 });
 
 describe('expression-v1 contract — positive fixtures', () => {
+  it('preserves the public two-argument regex evaluator adapter', () => {
+    expect(evalRegexTestExpression(parseExpression('/a/.test("cat")'), makeEnv())).toBe(true);
+  });
+
   it('exposes scalar, equality, truthiness, and string coercion coverage', () => {
     expect(expressionV1Contract.fixtures.length).toBeGreaterThanOrEqual(10);
     expect(expressionV1Contract.fixtures.map((f) => f.description)).toEqual(

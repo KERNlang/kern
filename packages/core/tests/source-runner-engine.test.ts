@@ -60,13 +60,17 @@ describe('source runner pre-execution engine selection', () => {
     );
   });
 
-  test('keeps every manifest-deferred node and environment blocker on compatibility', () => {
+  test('moves expression-v1 to the machine while keeping manifest-deferred blockers on compatibility', () => {
     const expression: readonly IRNode[] = [{ type: 'expression-v1', props: { expr: '1', name: 'value' } }];
     const lambda: readonly IRNode[] = [{ type: 'lambda', props: { expr: 'List.map(xs, x => x)' } }];
     const pairEach: readonly IRNode[] = [
       { type: 'each', props: { in: 'pairs', pairKey: 'key', pairValue: 'value' }, children: [] },
     ];
-    expect(selectSourceRunnerEngine(expression, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(selectSourceRunnerEngine(expression, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(expression, makeEnv(), { policy: 'machine-only' })).toEqual({
+      completion: { kind: 'normal' },
+      events: [{ op: 'assign', target: 'value', value: 1 }],
+    });
     expect(selectSourceRunnerEngine(lambda, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(selectSourceRunnerEngine(pairEach, makeEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(selectSourceRunnerEngine(simple, makeEnv({ runnerFunctions: new Map([['helper', {}]]) as never }), {})).toBe(

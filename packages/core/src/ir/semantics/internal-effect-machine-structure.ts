@@ -21,11 +21,11 @@ import {
   guaranteedFinallyEntryPrefix,
   recordEscapingBindingWrites,
 } from './internal-effect-machine-control.js';
+import { internalMachineExpressionBindings } from './internal-effect-machine-expression-bindings.js';
 import {
   assertInternalEffectMachineLeafPreflight,
   assertInternalEffectMachineLeafShapePreflight,
   assertInternalMachineDeferredCaughtExpression,
-  internalMachineExpressionBindings,
   isInternalEffectMachineLeafType,
 } from './internal-effect-machine-leaf.js';
 import { hasNoBody, InternalEffectMachineError, isUnifiedNodeType } from './internal-effect-machine-types.js';
