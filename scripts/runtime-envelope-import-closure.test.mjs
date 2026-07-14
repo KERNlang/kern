@@ -198,6 +198,13 @@ test('direct executable-envelope policy rejects a require reference edge', () =>
   );
 });
 
+test('runtime import parser fails closed on aliased require calls', () => {
+  assert.throws(
+    () => runtimeModuleSpecifiers("const load = require; load('./reference-runner.js');", entry),
+    /indirect require/u,
+  );
+});
+
 test('direct executable-envelope policy rejects own-package imports', () => {
   const sources = syntheticExecutableSources("import '@kernlang/core/runner';");
   assert.throws(
@@ -219,6 +226,16 @@ test('direct executable-envelope policy rejects peer-dependency bypasses', () =>
   assert.throws(
     () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
     /unapproved bare import typescript/u,
+  );
+});
+
+test('direct executable-envelope policy rejects createRequire loader bypasses', () => {
+  const sources = syntheticExecutableSources(
+    "import { createRequire } from 'node:module'; const load = createRequire(import.meta.url); load('../ir/semantics/reference-runner.js');",
+  );
+  assert.throws(
+    () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
+    /unapproved bare import node:module/u,
   );
 });
 

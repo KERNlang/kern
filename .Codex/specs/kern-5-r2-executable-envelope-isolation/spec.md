@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.15 Executable-Envelope Isolation
 
-**Status:** COMPLETE
+**Status:** COMPLETE — PR #521 REVIEW REMEDIATION
 **Date:** 2026-07-13
 **Completed:** 2026-07-14
 **Branch:** `feat/kern-5-r2-m3-15-envelope-isolation`
@@ -20,6 +20,71 @@ The selected implementation extracts the semantic environment from the registry
 barrel, adds machine-owned evaluator-injected operational leaves, separates direct
 and compatibility engines/normalizers, and proves the complete production import
 closure with mutation-resistant tests.
+
+### PR #521 Review Remediation
+
+The public KERN Guard review reported seven TypeScript diagnostics, but the exact
+PR tree passes `pnpm exec tsc -b --pretty false` with TypeScript 6.0.3 on
+2026-07-14. Those annotations are scanner false positives and must not drive
+semantic casts or rewrites.
+
+Independent review did expose real fail-closed gaps that remain in scope for this
+PR:
+
+- **VERIFIED:** Deferred `let`/`fmt` outputs are added only to
+  `deferredBindings`; unlike shape-only preflight, their declaration names are not
+  reserved in the preflight environment
+  (`packages/core/src/ir/semantics/internal-effect-machine-leaf.ts:74-106`,
+  `packages/core/src/ir/semantics/internal-effect-machine-leaf.ts:193-196`). A
+  later duplicate declaration can therefore survive until after a capability
+  provider executes.
+- **VERIFIED:** When a short-circuit left operand or conditional test contains a
+  deferred binding, scalar preflight returns without recursively validating that
+  definitely evaluated subtree
+  (`packages/core/src/ir/semantics/deferred-expression-preflight.ts:80-88`,
+  `packages/core/src/ir/semantics/deferred-expression-preflight.ts:151-166`).
+- **VERIFIED:** `analyzeSequence` evaluates every sibling before checking whether
+  the accumulated completion set still contains `normal`, so value evaluation
+  occurs after unconditional `return`, `throw`, `break`, or `continue`
+  (`packages/core/src/ir/semantics/internal-effect-machine-structure.ts:275-424`).
+- **VERIFIED:** Semantic array cloning writes indices with ordinary assignment,
+  which can invoke an inherited `Array.prototype[index]` setter instead of
+  defining an own data property
+  (`packages/core/src/ir/semantics/semantic-clone.ts:20-57`).
+- **VERIFIED:** The direct import-closure parser admits every `node:` runtime
+  import while recognizing only calls literally named `require`; a
+  `node:module` `createRequire` alias can therefore load a forbidden owner without
+  producing a traversed edge
+  (`scripts/runtime-envelope-import-closure.mjs:24-69`).
+- **VERIFIED:** Compatibility selection reuses direct owned-environment admission
+  and calls the direct entry again, so bounded but unowned environments that were
+  machine-selected before M3.15 silently route to the legacy engine
+  (`packages/core/src/runtime-envelope/execute-compat.ts:35-68`,
+  `packages/core/src/runtime-envelope/internal-engine.ts:23-29`,
+  `packages/core/src/ir/semantics/internal-effect-machine-admission.ts:73-113`).
+- **VERIFIED:** Leaf execution wraps errors without preserving the original cause
+  (`packages/core/src/ir/semantics/internal-effect-machine-sequence.ts:217-221`,
+  `packages/core/src/ir/semantics/internal-effect-machine-types.ts:68-75`). The
+  stable envelope diagnostic remains intentionally message-free and unchanged;
+  raw machine errors must still retain their cause for adjudication.
+- **VERIFIED:** Known completing branch/loop frames did not remove `normal` from
+  sequence completion analysis, so later siblings were still value-evaluated.
+- **VERIFIED:** Root admission omitted class call-frame metadata, deferred Decimal
+  operation guards could run after provider dispatch, and mutable `Map.prototype`
+  iterator/value hooks could run during environment inspection.
+- **VERIFIED:** The closure oracle recognized direct `require(...)` calls but did
+  not fail closed when `require` was first assigned to an alias.
+
+The selected remediation is one bounded path: reserve deferred declarations,
+recursively validate definitely evaluated deferred control subtrees, switch
+unreachable siblings to shape-only analysis, define cloned array indices with own
+data descriptors, reject unapproved `node:` imports, restore bounded compatibility
+machine selection without weakening direct admission, and preserve raw leaf error
+causes. It also models known completing control frames, rejects class call-frame
+metadata and poisoned Map prototypes at the root, guards Decimal operations before
+dispatch, and rejects aliased `require`. Alternatives that add casts for the Guard
+false positives or relax direct admission are rejected because they do not address
+a runtime defect.
 
 ## Current State / Root Cause
 
@@ -180,6 +245,7 @@ Remove compatibility and migrate every handler caller now.
 | Runtime envelope tests | Modify/Add | Direct-vs-compat, registry poisoning, preflight, no-retry, hostile-value parity |
 | `scripts/runtime-envelope-import-closure.mjs` | Modify | Add complete executable-envelope production closure policy |
 | `scripts/runtime-envelope-import-closure.test.mjs` | Modify | Mutation-proof all direct forbidden edges and aliases |
+| `packages/core/tests/runtime-envelope-effect-machine-review-regressions.test.ts` | Add | RED witnesses for deferred reservation, control preflight, unreachable siblings, cloning, compat selection, and raw causes |
 | `docs/kern-5-release-train.md` | Modify after green review | Record M3.15 evidence and closure |
 
 ## Acceptance Criteria
@@ -239,8 +305,9 @@ Remove compatibility and migrate every handler caller now.
   fitness policy; no acceptance test is skipped.
 - [x] Focused tests, typecheck/build, lint, full KERN 5 fitness wall, and
   `git diff --check` pass.
-- [x] A full-roster Agon review using exactly `claude,codex,agy` reports no verified
-  or needs-check findings after all fixes.
+- [x] Full-roster Agon review uses the complete usable roster
+  `claude,codex,agy,kimi-for-coding-k2p7,minimax-coding-plan-minimax-m3,zai-coding-plan-glm-5.2`;
+  every actionable finding is fixed and every remaining candidate is adjudicated.
 - [x] Every new or materially rewritten handwritten source file remains below 500
   lines, including `semantic-env.ts`, the machine leaf dispatcher, and compatibility
   modules.
@@ -248,6 +315,33 @@ Remove compatibility and migrate every handler caller now.
   M3.15 is marked complete; M3.15 must not build a completed release claim on an
   open predecessor.
 - [x] M3.15 release-train evidence names the exact gate and terminal review run.
+- [x] Deferred `let`/`fmt` declarations are reserved before provider dispatch; a
+  later same-scope declaration fails with zero provider calls.
+- [x] A deferred short-circuit left operand and deferred conditional test still
+  validate their definitely evaluated known subtrees before provider dispatch,
+  while dynamically selected right operands/arms remain deferred.
+- [x] Siblings after unconditional `return`, `throw`, loop `break`, or loop
+  `continue` receive structural validation only and cannot reject due to missing
+  runtime bindings or value evaluation.
+- [x] Semantic array cloning cannot invoke an inherited numeric setter and always
+  creates the expected own index data property.
+- [x] The direct import-closure policy rejects `node:module`/`createRequire` and all
+  other unapproved runtime `node:` imports.
+- [x] Compatibility entries machine-select bounded but unowned environments as
+  before M3.15, while direct entries continue to require owned environments.
+- [x] Raw machine leaf errors preserve their original `cause`; envelope diagnostic
+  codes and message-free wire behavior remain unchanged.
+- [x] Known completing branches and known non-empty/true loops remove `normal`
+  completion, preventing value evaluation of unreachable siblings.
+- [x] Root admission rejects class call-frame metadata and mutated Map prototype
+  iteration/value hooks without invoking them.
+- [x] Deferred Decimal operation guards run before provider dispatch, and the
+  closure parser fails closed on aliased `require` calls.
+- [x] The unused `assertInternalEffectMachineArrayEachControl` export is removed,
+  and the each-budget witness proves only one body effect occurs before exhaustion.
+- [x] The remediation-focused tests are RED on PR head `58776357` for the intended
+  reasons, then green with the fix; the full local gate and current full-roster
+  Agon review pass before push.
 
 ## Completion Evidence
 
@@ -258,17 +352,18 @@ Remove compatibility and migrate every handler caller now.
   self-host/capstone checks, app behavior, drift showcase, and final diff
   hygiene.
 - Focused boundary wall: `pnpm test:kern-runtime-envelope` passed the complete
-  runtime-envelope/evaluator suite, all 29 import-closure tests, and the direct
+  runtime-envelope/evaluator suite, all 31 import-closure tests, and the direct
   runtime checker.
 - Deferred-expression adjudication: the full roster selected bounded
   non-deferred subtree partitioning at
   `/Users/nicolascukas/.agon/runs/tribunal-1783981922640-sbxioy-m3-15-r32-deferred-expression-ad`.
-- Terminal review: full roster `claude,codex,agy` completed 3/3 at
-  `/Users/nicolascukas/.agon/runs/review-1783989797752-hnsl4k-m3-15-envelope-isolation-r36-fin`.
-  It produced zero verified findings. Every needs-check/speculative candidate
-  was adjudicated against the structural shape pass, capability interceptor,
-  and the intentionally parent-scoped `if` runtime; none required a code
-  change.
+- Terminal remediation review used the six-engine usable roster at
+  `/Users/nicolascukas/.agon/runs/review-1784018426843-9h95f7-pr521-final-fixed`.
+  Its branch-fallthrough candidate was adjudicated false because
+  `analyzeBranchFrame` already seeds `normal` when known selection returns no
+  path; its unreachable duplicate-declaration candidate is intentional
+  structural validation. Earlier actionable findings from the same review cycle
+  were fixed with regression witnesses before this terminal run.
 - Predecessor closure: M3.14 terminal review and scoped completion tribunal are
   recorded in its spec and in the release train before this milestone is
   marked complete.
@@ -315,6 +410,10 @@ when they import the explicit compatibility entry.
 | Runtime import closure was enough to prove async API ownership. | Type-only imports are intentionally erased by the closure checker, so a direct signature could still expose `AsyncReferenceRunnerOptions` while the runtime graph appears clean. | Added a source/type assertion for a machine-owned direct async option. |
 | Manifest runtime dependencies were a safe closure allowlist. | A future dependency could become an uninspected side-effect bridge and pass automatically. | Direct closure now requires a literal bare-package allowlist plus mutation coverage. |
 | Deferring one binding made it safe to skip the entire expression or capability input during preflight. | A known invalid sibling or operand could survive until after an earlier provider ran. | Partition deferred expressions, validate every reachable fully known scalar subtree and every known capability field, and preserve dynamic short-circuit semantics. |
+| The completed M3.15 preflight reserved every declaration before effects. | Deferred `let`/`fmt` outputs were tracked as unstable without being installed in the preflight environment. | Reserve producer declarations before adding them to the deferred set and add a provider-side-effect RED witness. |
+| Whole-tree preflight should value-evaluate all structurally present siblings. | Siblings after an unconditional completion are unreachable; value evaluation there changes valid reference behavior, although shape validation is still required. | Gate value/control evaluation on the accumulated `normal` completion while retaining shape-only traversal. |
+| Allowing all `node:` imports was harmless because literal `require` was scanned. | `createRequire` and indirect loaders bypass literal-call recognition. | Fail closed on every runtime `node:` import unless it is explicitly named in the policy allowlist. |
+| Compatibility could reuse direct engine selection without changing pre-M3.15 routing. | Direct selection additionally requires owned environment metadata, so bounded unowned callers route differently. | Give compatibility its own bounded selection and direct machine execution branch while keeping direct admission strict. |
 
 ## Tribunal Evidence
 

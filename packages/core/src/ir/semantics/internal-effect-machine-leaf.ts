@@ -103,7 +103,7 @@ export function assertInternalEffectMachineLeafPreflight(
     // Producers reserve deferred declarations in env before adding their names;
     // loop-frame names are the sole exception because runtime installs them per
     // iteration. A blanket hasBinding check here would reject valid counter writes.
-    deferLeafOutput(node, deferredBindings);
+    deferLeafOutput(node, env, deferredBindings);
     return;
   }
   runInternalEffectMachineLeaf(node, env);
@@ -190,9 +190,11 @@ function assertDeferredCaughtUses(node: ValueIR, env: SemanticEnv, deferredBindi
   } else if (node.kind === 'new') assertDeferredCaughtUses(node.argument, env, deferredBindings);
 }
 
-function deferLeafOutput(node: IRNode, deferredBindings: Set<string>): void {
+function deferLeafOutput(node: IRNode, env: SemanticEnv, deferredBindings: Set<string>): void {
   const name = leafOutputName(node);
-  if (typeof name === 'string') deferredBindings.add(name);
+  if (typeof name !== 'string') return;
+  if (node.type === 'let' || node.type === 'fmt') defineBinding(env, name, null);
+  deferredBindings.add(name);
 }
 
 function leafOutputName(node: IRNode): string | undefined {

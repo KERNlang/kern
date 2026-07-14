@@ -330,7 +330,10 @@ export function assignBinding(env: SemanticEnv, name: string, value: unknown): v
 }
 
 export function assignPushBuiltFreshArrayBinding(env: SemanticEnv, name: string, value: readonly unknown[]): void {
-  ownSemanticValueGraph(value);
+  // The freshness-preserving push path only appends portable scalars to an
+  // already-owned array. Own the newly materialized array without rescanning
+  // its entire prefix on every push.
+  ownSemanticComposite(value);
   const scope = declaringScope(env, name) ?? env;
   scope.bindings.set(name, value);
   scope.intProvenance?.delete(name);
