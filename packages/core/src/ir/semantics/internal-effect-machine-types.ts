@@ -68,8 +68,8 @@ export type InternalEffectMachineChildSequenceRunner = (
 export class InternalEffectMachineError extends Error {
   readonly node: IRNode;
 
-  constructor(message: string, node: IRNode) {
-    super(message);
+  constructor(message: string, node: IRNode, cause?: unknown) {
+    super(message, { cause });
     this.name = 'InternalEffectMachineError';
     this.node = node;
   }

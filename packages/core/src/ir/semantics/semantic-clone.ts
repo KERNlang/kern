@@ -51,8 +51,20 @@ function cloneExactArray(source: unknown[], memo: Map<object, unknown>, own: Own
   if (indexKeys.length === length.value) own(clone);
   else Object.setPrototypeOf(clone, null);
   memo.set(source, clone);
-  for (const key of indexKeys) {
-    clone[Number(key)] = cloneSemanticBindingValue(descriptors[key].value, memo, own);
+  const hasDefaultIndexDescriptors = indexKeys.every(
+    (key) => descriptors[key].configurable === true && descriptors[key].writable === true,
+  );
+  if (hasDefaultIndexDescriptors && Object.getPrototypeOf(clone) === Array.prototype) {
+    Object.setPrototypeOf(clone, null);
+    for (const key of indexKeys) clone[Number(key)] = cloneSemanticBindingValue(descriptors[key].value, memo, own);
+    Object.setPrototypeOf(clone, Array.prototype);
+  } else {
+    for (const key of indexKeys) {
+      Object.defineProperty(clone, key, {
+        ...descriptors[key],
+        value: cloneSemanticBindingValue(descriptors[key].value, memo, own),
+      });
+    }
   }
   return clone;
 }

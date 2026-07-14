@@ -1,8 +1,10 @@
 import { isWellFormedText } from '../../codegen/text-contract.js';
+import { DECIMAL_DIV_ZERO_FAILCLOSE, DECIMAL_MOD_ZERO_FAILCLOSE } from '../../decimal/contract.js';
+import { assertPortableDecimalPow } from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
-import { evalDecimalExpression } from './portable-decimal-evaluator.js';
+import { evalDecimalExpression, isDecimalExpression } from './portable-decimal-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableMapValue } from './portable-map.js';
@@ -78,7 +80,10 @@ export function assertDeferredMachineScalarPreflight(
     return;
   }
   if (node.kind === 'conditional') {
-    if (expressionHasDeferredBinding(node.test, deferredBindings)) return;
+    if (expressionHasDeferredBinding(node.test, deferredBindings)) {
+      assertDeferredMachineScalarPreflight(node.test, env, deferredBindings);
+      return;
+    }
     const test = evalPortableValue(node.test, env);
     assertDeferredMachineScalarPreflight(
       portableTruthy(test) ? node.consequent : node.alternate,
@@ -154,7 +159,10 @@ function assertDeferredBinary(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.op === '&&' || node.op === '||' || node.op === '??') {
-    if (expressionHasDeferredBinding(node.left, deferredBindings)) return;
+    if (expressionHasDeferredBinding(node.left, deferredBindings)) {
+      assertDeferredMachineScalarPreflight(node.left, env, deferredBindings);
+      return;
+    }
     const left = evalPortableValue(node.left, env);
     const reachesRight =
       node.op === '&&' ? portableTruthy(left) : node.op === '||' ? !portableTruthy(left) : left === null;
@@ -254,8 +262,19 @@ function assertDeferredDecimalOperand(node: ValueIR, env: SemanticEnv, deferredB
     assertDeferredDecimalOperand(node.expression, env, deferredBindings);
     return;
   }
-  if (node.kind !== 'call') throw new Error('portable-decimal: invalid deferred operand');
+  if (node.kind !== 'call' || !isDecimalExpression(node) || node.callee.kind !== 'member') {
+    throw new Error('portable-decimal: invalid deferred operand');
+  }
   for (const argument of node.args) assertDeferredDecimalOperand(argument, env, deferredBindings);
+  const method = node.callee.property;
+  if (
+    (method === 'div' || method === 'mod') &&
+    !expressionHasDeferredBinding(node.args[1], deferredBindings) &&
+    evalDecimalExpression(node.args[1], env) === '0'
+  ) {
+    throw new Error(method === 'div' ? DECIMAL_DIV_ZERO_FAILCLOSE : DECIMAL_MOD_ZERO_FAILCLOSE);
+  }
+  if (method === 'pow') assertPortableDecimalPow(node.args[0], node.args[1]);
 }
 
 function assertDeferredTextCall(

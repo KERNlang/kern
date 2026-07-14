@@ -74,10 +74,6 @@ export function isInternalEffectMachineArrayEach(ir: IRNode): boolean {
   return shape === 'array' || shape === 'array-indexed';
 }
 
-export function assertInternalEffectMachineArrayEachControl(ir: IRNode, env: SemanticEnv): void {
-  internalEffectMachineArrayEachLength(ir, env);
-}
-
 export function internalEffectMachineArrayEachLength(ir: IRNode, env: SemanticEnv): number {
   if (!isInternalEffectMachineArrayEach(ir)) {
     throw new Error('each: node is outside the internal array-each domain');

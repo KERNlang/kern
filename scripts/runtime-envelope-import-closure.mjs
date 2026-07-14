@@ -48,6 +48,12 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
       const [argument] = node.arguments;
       if (!argument || !ts.isStringLiteral(argument)) fail(`non-literal require in ${sourcePath}`);
       specifiers.push(argument.text);
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === 'require' &&
+      !(ts.isCallExpression(node.parent) && node.parent.expression === node)
+    ) {
+      fail(`indirect require in ${sourcePath}`);
     }
     ts.forEachChild(node, visit);
   }
@@ -65,7 +71,7 @@ function resolveTypeScriptImport(fromPath, specifier, allowedBareSpecifiers) {
     fail(`own-package import ${specifier} in ${fromPath} is forbidden inside a checked runtime closure`);
   }
   if (!specifier.startsWith('.')) {
-    if (specifier.startsWith('node:') || allowedBareSpecifiers.has(barePackageName(specifier))) return null;
+    if (allowedBareSpecifiers.has(barePackageName(specifier))) return null;
     fail(`unapproved bare import ${specifier} in ${fromPath}`);
   }
   const resolved = resolve(dirname(fromPath), specifier);

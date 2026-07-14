@@ -1,8 +1,7 @@
 import type { SemanticEnv } from '../ir/semantics/index.js';
-import { INTERNAL_EFFECT_MACHINE_FORMAT } from '../ir/semantics/internal-effect-machine.js';
+import { isInternalEffectMachineEligible } from '../ir/semantics/internal-effect-machine.js';
 import type { IRNode } from '../types.js';
-import { executeInternalRuntimeEnvelopeAsync, executeInternalRuntimeEnvelopeSync } from './execute.js';
-import { selectInternalRuntimeEngine } from './internal-engine.js';
+import { runInternalRuntimeEngineAsync, runInternalRuntimeEngineSync } from './internal-engine.js';
 import {
   type InternalLegacyAsyncOptions,
   runInternalLegacyEngineAsync,
@@ -38,15 +37,14 @@ export function executeInternalRuntimeEnvelopeCompatSync(
   options?: InternalRuntimeEnvelopeOptions,
 ): InternalRuntimeEnvelope {
   const accepted = enabled(options);
-  const disposition = selectInternalRuntimeEngine(nodes, env);
-  if (disposition === INTERNAL_EFFECT_MACHINE_FORMAT) {
-    return executeInternalRuntimeEnvelopeSync(nodes, env, accepted);
-  }
+  const useMachine = isInternalEffectMachineEligible(nodes, env);
   let disposeScheduler = () => {};
   try {
     disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
     throwIfInternalRuntimeSchedulerTerminated(env);
-    const trace = runInternalLegacyEngineSync(nodes, env);
+    const trace = useMachine
+      ? runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength)
+      : runInternalLegacyEngineSync(nodes, env);
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {
@@ -63,16 +61,18 @@ export async function executeInternalRuntimeEnvelopeCompatAsync(
   asyncOptions: InternalRuntimeCompatAsyncOptions = {},
 ): Promise<InternalRuntimeEnvelope> {
   const accepted = enabled(options);
-  const disposition = selectInternalRuntimeEngine(nodes, env);
-  if (disposition === INTERNAL_EFFECT_MACHINE_FORMAT) {
-    return executeInternalRuntimeEnvelopeAsync(nodes, env, accepted, asyncOptions);
-  }
+  const useMachine = isInternalEffectMachineEligible(nodes, env);
   let disposeScheduler = () => {};
   try {
     disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
     throwIfInternalRuntimeSchedulerTerminated(env);
     const trace = await waitForInternalRuntimeScheduler(env, () =>
-      runInternalLegacyEngineAsync(nodes, env, asyncOptions),
+      useMachine
+        ? runInternalRuntimeEngineAsync(nodes, env, {
+            ...asyncOptions,
+            iterationBudget: accepted.limits.maxCollectionLength,
+          })
+        : runInternalLegacyEngineAsync(nodes, env, asyncOptions),
     );
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);

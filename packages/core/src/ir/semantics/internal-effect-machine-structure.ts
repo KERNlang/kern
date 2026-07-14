@@ -98,7 +98,7 @@ function analyzeBranchFrame(
       throw new InternalEffectMachineError('effect machine rejected branch node', node);
     }
   }
-  const possible = normalCompletion();
+  const possible = hasKnownSelection && selectedPath !== undefined ? new Set<CompletionKind>() : normalCompletion();
   const frameBindings = new Set(unstableBindings);
   const frameWrites = new Set<string>();
   for (const path of node.children ?? []) {
@@ -126,8 +126,10 @@ function analyzeLoop(
   unstableBindings: Set<string>,
   frameNode?: IRNode,
   evaluateControls = true,
-  bodyCanExecute = true,
+  bodyExecution?: boolean,
 ): CompletionSet {
+  const bodyCanExecute = evaluateControls && bodyExecution !== false;
+  const bodyMustExecute = bodyExecution === true;
   const loopEnv = childEnv(clonePreflightEnvironment(env));
   const loopBindings = new Set(unstableBindings);
   const loopLocals = new Set<string>();
@@ -143,7 +145,10 @@ function analyzeLoop(
     bodyCanExecute ? evaluateControls : false,
   );
   if (bodyCanExecute) recordEscapingBindingWrites(children, unstableBindings, loopLocals);
-  const possible = normalCompletion();
+  const possible = new Set<CompletionKind>();
+  if (!bodyMustExecute || body.has('normal') || body.has('continue') || body.has('break')) {
+    possible.add('normal');
+  }
   if (body.has('return')) possible.add('return');
   if (body.has('throw')) possible.add('throw');
   return possible;
@@ -161,8 +166,6 @@ function analyzeTry(
   }
   const { body, catchNode, finallyNode } = tryRuntimeParts(node.children ?? []);
   // Only bindings guaranteed before every canonical exit flow into catch/finally.
-  // Later assign values may vary, but assign preserves scalar kind and every
-  // control arm is still shape-checked, so value instability cannot alter support.
   const bodyPrefix = guaranteedFinallyEntryPrefix(body);
   const bodyCompletions = analyzeSequence(
     body,
@@ -231,8 +234,7 @@ function analyzeTry(
     installCaughtTombstone(catchNode, env, unstableBindings);
   }
   const possible = new Set(bodyCompletions);
-  // Machine catches consume only canonical KERN `throw` completions. Provider
-  // and scheduler failures escape the generator as capability/runtime errors.
+  // Machine catches consume only canonical KERN `throw` completions.
   if (catchNode && possible.delete('throw')) addCompletions(possible, catchCompletions);
   return possible;
 }
@@ -240,9 +242,7 @@ function analyzeTry(
 function installCaughtTombstone(catchNode: IRNode, env: SemanticEnv, deferredBindings: Set<string>): void {
   const caught = catchNode.props?.name;
   if (typeof caught !== 'string' || caught === '') return;
-  // Frozen runtime semantics execute catch in the same env, then overwrite its
-  // parameter with this non-portable sentinel. Removing deferral forces any
-  // finally/outer read to fail preflight; this is deliberately not a live leak.
+  // Frozen runtime semantics overwrite catch parameters with an unavailable sentinel.
   defineBinding(env, caught, UNAVAILABLE_CAUGHT_ERROR);
   deferredBindings.delete(caught);
 }
@@ -282,6 +282,7 @@ function analyzeSequence(
   let possible = normalCompletion();
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
+    const evaluateNode = evaluateControls && possible.has('normal');
     let nodeCompletions: CompletionSet;
     let elseNode: IRNode | undefined;
     if (node.type === 'if') {
@@ -289,7 +290,7 @@ function analyzeSequence(
         throw new InternalEffectMachineError('effect machine rejected if node', node);
       }
       let knownCondition: boolean | undefined;
-      if (evaluateControls && !controlExpressionIsDeferred(node.props.cond, unstableBindings)) {
+      if (evaluateNode && !controlExpressionIsDeferred(node.props.cond, unstableBindings)) {
         try {
           knownCondition = evaluateIfConditionWithEvaluator(node, env, evalPortableValue);
         } catch {
@@ -305,7 +306,7 @@ function analyzeSequence(
         const selectedNodes = knownCondition ? thenNodes : elseNodes;
         const unselectedNodes = knownCondition ? elseNodes : thenNodes;
         const unselectedEnv = clonePreflightEnvironment(env);
-        nodeCompletions = analyzeSequence(selectedNodes, loopDepth, env, unstableBindings, evaluateControls);
+        nodeCompletions = analyzeSequence(selectedNodes, loopDepth, env, unstableBindings, evaluateNode);
         analyzeSequence(unselectedNodes, loopDepth, unselectedEnv, new Set(frameBindings), false);
       } else {
         nodeCompletions = analyzeSequence(
@@ -313,18 +314,12 @@ function analyzeSequence(
           loopDepth,
           clonePreflightEnvironment(env),
           new Set(frameBindings),
-          evaluateControls,
+          evaluateNode,
         );
         if (elseNode) {
           addCompletions(
             nodeCompletions,
-            analyzeSequence(
-              elseNodes,
-              loopDepth,
-              clonePreflightEnvironment(env),
-              new Set(frameBindings),
-              evaluateControls,
-            ),
+            analyzeSequence(elseNodes, loopDepth, clonePreflightEnvironment(env), new Set(frameBindings), evaluateNode),
           );
         } else nodeCompletions.add('normal');
         applyConditionalBindingEffects([{ nodes: thenNodes }, { nodes: elseNodes }], env, unstableBindings);
@@ -332,16 +327,16 @@ function analyzeSequence(
     } else if (node.type === 'else') {
       throw new InternalEffectMachineError('else must immediately follow an if sibling', node);
     } else if (node.type === 'branch') {
-      nodeCompletions = analyzeBranchFrame(node, loopDepth, env, unstableBindings, evaluateControls);
+      nodeCompletions = analyzeBranchFrame(node, loopDepth, env, unstableBindings, evaluateNode);
     } else if (node.type === 'for') {
       if (!forShapePreconditions(node)) {
         throw new InternalEffectMachineError('effect machine rejected for node', node);
       }
-      let bodyCanExecute = evaluateControls;
-      if (evaluateControls && !forControlIsDeferred(node, unstableBindings)) {
+      let bodyExecution: boolean | undefined;
+      if (evaluateNode && !forControlIsDeferred(node, unstableBindings)) {
         try {
           const range = forRuntimeRange(node, env);
-          bodyCanExecute = range.step > 0 ? range.from < range.to : range.from > range.to;
+          bodyExecution = range.step > 0 ? range.from < range.to : range.from > range.to;
         } catch {
           throw new InternalEffectMachineError('effect machine rejected for node', node);
         }
@@ -352,17 +347,17 @@ function analyzeSequence(
         env,
         unstableBindings,
         node,
-        evaluateControls,
-        bodyCanExecute,
+        evaluateNode,
+        bodyExecution,
       );
     } else if (node.type === 'each') {
       if (!isInternalEffectMachineArrayEach(node)) {
         throw new InternalEffectMachineError('effect machine rejected each node', node);
       }
-      let bodyCanExecute = evaluateControls;
-      if (evaluateControls && !controlExpressionIsDeferred(node.props?.in, unstableBindings)) {
+      let bodyExecution: boolean | undefined;
+      if (evaluateNode && !controlExpressionIsDeferred(node.props?.in, unstableBindings)) {
         try {
-          bodyCanExecute = internalEffectMachineArrayEachLength(node, env) > 0;
+          bodyExecution = internalEffectMachineArrayEachLength(node, env) > 0;
         } catch {
           throw new InternalEffectMachineError('effect machine rejected each node', node);
         }
@@ -373,17 +368,17 @@ function analyzeSequence(
         env,
         unstableBindings,
         node,
-        evaluateControls,
-        bodyCanExecute,
+        evaluateNode,
+        bodyExecution,
       );
     } else if (node.type === 'while') {
       if (typeof node.props?.cond !== 'string' || node.props.cond.trim() === '' || !Array.isArray(node.children)) {
         throw new InternalEffectMachineError('effect machine rejected while node', node);
       }
-      let bodyCanExecute = evaluateControls;
-      if (evaluateControls && !controlExpressionIsDeferred(node.props.cond, unstableBindings)) {
+      let bodyExecution: boolean | undefined;
+      if (evaluateNode && !controlExpressionIsDeferred(node.props.cond, unstableBindings)) {
         try {
-          bodyCanExecute = evaluateWhileConditionWithEvaluator(node, env, evalPortableValue);
+          bodyExecution = evaluateWhileConditionWithEvaluator(node, env, evalPortableValue);
         } catch {
           throw new InternalEffectMachineError('effect machine rejected while node', node);
         }
@@ -394,25 +389,25 @@ function analyzeSequence(
         env,
         unstableBindings,
         undefined,
-        evaluateControls,
-        bodyCanExecute,
+        evaluateNode,
+        bodyExecution,
       );
     } else if (node.type === 'try') {
-      nodeCompletions = analyzeTry(node, loopDepth, env, unstableBindings, evaluateControls);
+      nodeCompletions = analyzeTry(node, loopDepth, env, unstableBindings, evaluateNode);
     } else if (node.type === 'capability') {
-      if (evaluateControls) assertMachineCapability(node, env, unstableBindings);
+      if (evaluateNode) assertMachineCapability(node, env, unstableBindings);
       else assertMachineCapabilityShape(node, env);
       nodeCompletions = normalCompletion();
     } else if (node.type === 'break' || node.type === 'continue') {
       if (loopDepth === 0 || node.props?.label !== undefined || !hasNoBody(node)) {
         throw new InternalEffectMachineError(`effect machine rejected ${node.type} node`, node);
       }
-      assertMachineLeaf(node, env, unstableBindings, evaluateControls);
+      assertMachineLeaf(node, env, unstableBindings, evaluateNode);
       nodeCompletions = new Set<CompletionKind>([node.type === 'break' ? 'break' : 'continue']);
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     } else if (isInternalEffectMachineLeafType(node.type)) {
-      assertMachineLeaf(node, env, unstableBindings, evaluateControls);
+      assertMachineLeaf(node, env, unstableBindings, evaluateNode);
       if (node.type === 'return' || node.type === 'throw') {
         nodeCompletions = new Set<CompletionKind>([node.type === 'return' ? 'return' : 'throw']);
       } else nodeCompletions = normalCompletion();

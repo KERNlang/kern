@@ -216,8 +216,8 @@ export function* runInternalEffectMachineSequence(
     } else {
       try {
         next = runInternalEffectMachineLeaf(node, env);
-      } catch {
-        throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node);
+      } catch (cause) {
+        throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node, cause);
       }
     }
     if (appendTrace(out, next)) return out;
