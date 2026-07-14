@@ -1,14 +1,14 @@
-import type { SemanticEnv } from '../ir/semantics/index.js';
-import { isPortableBindingName } from '../ir/semantics/portable-scalar.js';
+import { isPortableBindingName } from '../ir/semantics/portable-scalar-domain.js';
+import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
 import { parseDocumentWithDiagnostics } from '../parser.js';
 import { validateSchema } from '../schema.js';
 import type { IRNode } from '../types.js';
-import type { InternalRuntimeCompatAsyncOptions } from './execute-compat.js';
 import {
   executeInternalRuntimeHandlerAsync,
   executeInternalRuntimeHandlerSync,
   type InternalRuntimeHandlerEntry,
 } from './handler-entry.js';
+import type { InternalRuntimeAsyncOptions } from './internal-engine.js';
 import { internalRuntimeLinkFailure } from './normalize.js';
 import {
   type InternalRuntimeDiagnosticCode,
@@ -167,7 +167,7 @@ export async function executeInternalRuntimeSourceHandlerAsync(
   args: readonly unknown[],
   host: SemanticEnv,
   options?: InternalRuntimeEnvelopeOptions,
-  asyncOptions: InternalRuntimeCompatAsyncOptions = {},
+  asyncOptions: InternalRuntimeAsyncOptions = {},
 ): Promise<InternalRuntimeEnvelope> {
   const entry = resolveInternalRuntimeSourceHandler(source, identity, options);
   return 'format' in entry ? entry : executeInternalRuntimeHandlerAsync(entry, args, host, options, asyncOptions);
