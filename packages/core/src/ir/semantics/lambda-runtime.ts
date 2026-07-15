@@ -2,6 +2,10 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { copyLambdaOwnedEnumerableProperties, readLambdaOwnedProperty } from './lambda-owned-property.js';
+import {
+  assertLambdaPrimitiveBinaryOperands,
+  assertLambdaPrimitiveUnaryOperand,
+} from './lambda-primitive-operators.js';
 import type { SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
@@ -132,30 +136,48 @@ function makePrivateClosure(body: ValueIR, params: readonly { readonly name: str
 
 function evalBinary(op: string, left: unknown, right: unknown): unknown {
   switch (op) {
-    case '+':
+    case '+': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) + (right as number);
-    case '-':
+    }
+    case '-': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) - (right as number);
-    case '*':
+    }
+    case '*': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) * (right as number);
-    case '/':
+    }
+    case '/': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) / (right as number);
-    case '%':
+    }
+    case '%': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) % (right as number);
+    }
     case '==':
     case '===':
       return left === right;
     case '!=':
     case '!==':
       return left !== right;
-    case '<':
+    case '<': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) < (right as number);
-    case '<=':
+    }
+    case '<=': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) <= (right as number);
-    case '>':
+    }
+    case '>': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) > (right as number);
-    case '>=':
+    }
+    case '>=': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) >= (right as number);
+    }
     default:
       throw new Error(`lambda: unsupported binary op "${op}"`);
   }
@@ -256,8 +278,10 @@ function evalValue(node: ValueIR, scope: EvalScope): unknown {
     case 'unary': {
       const argument = evalValue(node.argument, scope);
       if (node.op === '!') return !argument;
-      if (node.op === '-') return -(argument as number);
-      if (node.op === '+') return +(argument as number);
+      if (node.op === '-' || node.op === '+') {
+        assertLambdaPrimitiveUnaryOperand(node.op, argument);
+        return node.op === '-' ? -(argument as number) : +(argument as number);
+      }
       if (node.op === 'typeof') return typeof argument;
       if (node.op === 'void') return undefined;
       throw new Error(`lambda: unsupported unary op "${node.op}"`);

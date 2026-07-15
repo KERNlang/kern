@@ -242,9 +242,9 @@ export function assertLambdaPreflight(
     return (node.kind === 'ident' && callableParameters.has(node.name)) || classifyLocal(node).kind === 'closure';
   }
 
-  function validateCallableReady(node: ValueIR, checkValues: boolean): void {
-    const fact = classifyLocal(node);
-    if (fact.kind !== 'closure' || !fact.closures || readyClosures.has(fact)) return;
+  function validateClosureFactReady(fact: LocalFact, checkValues: boolean): void {
+    if (fact.kind !== 'closure' || !fact.closures) return;
+    if (readyClosures.has(fact)) throw new Error('lambda preflight: recursive setup closure is not supported');
     readyClosures.add(fact);
     try {
       for (const closure of fact.closures) {
@@ -253,6 +253,10 @@ export function assertLambdaPreflight(
     } finally {
       readyClosures.delete(fact);
     }
+  }
+
+  function validateCallableReady(node: ValueIR, checkValues: boolean): void {
+    validateClosureFactReady(classifyLocal(node), checkValues);
   }
 
   function validateCall(
@@ -423,6 +427,7 @@ export function assertLambdaPreflight(
       localKinds.set(target, classifyLocal(value));
     }
   }
+  for (const fact of localKinds.values()) validateClosureFactReady(fact, evaluateValues);
   validate(parseExpression(ir.props?.expr as string), new Set());
 }
 

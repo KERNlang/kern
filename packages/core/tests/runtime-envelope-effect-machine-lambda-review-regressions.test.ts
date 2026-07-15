@@ -251,6 +251,42 @@ describe('M3.23 lambda review regressions', () => {
     expect(coercionCalls).toBe(0);
   });
 
+  test('does not invoke object coercion hooks in deferred arithmetic', () => {
+    let coercionCalls = 0;
+    const nodes = [
+      { type: 'capability', props: { namespace: 'poisoner', operation: 'infect' } },
+      { type: 'lambda', props: { expr: 'value + 1' } },
+    ];
+    const originalValueOf = Object.prototype.valueOf;
+    let thrown: unknown;
+    try {
+      const env = makeEnv({
+        bindings: new Map([['value', { safe: true }]]),
+        capabilities: {
+          poisoner: {
+            infect: () => {
+              Object.prototype.valueOf = () => {
+                coercionCalls += 1;
+                return 7;
+              };
+              return 1;
+            },
+          },
+        },
+      });
+      runInternalEffectMachineSync(nodes, env);
+    } catch (error) {
+      thrown = error;
+    } finally {
+      Object.prototype.valueOf = originalValueOf;
+    }
+    expect(thrown).toBeInstanceOf(InternalEffectMachineError);
+    expect(String((thrown as Error & { cause?: unknown }).cause)).toBe(
+      'Error: lambda: binary operator "+" does not accept non-primitive operands',
+    );
+    expect(coercionCalls).toBe(0);
+  });
+
   test('uses captured identifier validation after an earlier capability', () => {
     const originalTest = RegExp.prototype.test;
     try {

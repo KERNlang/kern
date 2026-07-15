@@ -1,5 +1,9 @@
 import type { ValueIR } from '../../value-ir.js';
 import { copyLambdaOwnedEnumerableProperties, readLambdaOwnedProperty } from './lambda-owned-property.js';
+import {
+  assertLambdaPrimitiveBinaryOperands,
+  assertLambdaPrimitiveUnaryOperand,
+} from './lambda-primitive-operators.js';
 import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 const OBJECT_CREATE = Object.create;
@@ -14,6 +18,9 @@ const unknown = (...values: StableValue[]): StableValue => ({
 });
 
 function stableBinary(operator: string, left: unknown, right: unknown): unknown {
+  if (operator !== '==' && operator !== '===' && operator !== '!=' && operator !== '!==') {
+    assertLambdaPrimitiveBinaryOperands(operator, left, right);
+  }
   if (operator === '+') return (left as number) + (right as number);
   if (operator === '-') return (left as number) - (right as number);
   if (operator === '*') return (left as number) * (right as number);
@@ -127,8 +134,10 @@ export function stableValue(
     );
     if (!argument.known) return argument;
     if (node.op === '!') return { known: true, value: !argument.value };
-    if (node.op === '-') return { known: true, value: -(argument.value as number) };
-    if (node.op === '+') return { known: true, value: +(argument.value as number) };
+    if (node.op === '-' || node.op === '+') {
+      assertLambdaPrimitiveUnaryOperand(node.op, argument.value);
+      return { known: true, value: node.op === '-' ? -(argument.value as number) : +(argument.value as number) };
+    }
     if (node.op === 'typeof') return { known: true, value: typeof argument.value };
     if (node.op === 'void') return { known: true, value: undefined };
   }
