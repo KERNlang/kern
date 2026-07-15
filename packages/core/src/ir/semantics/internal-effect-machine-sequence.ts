@@ -18,6 +18,7 @@ import {
   type InternalEffectMachineState,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
+import { evaluateLambdaEffects } from './lambda-runtime.js';
 import { evalPortableValue as evalMachinePortableValue } from './portable-machine-evaluator.js';
 import { childEnv, defineBinding, defineIntBinding, markRepeatableLoopBody, type SemanticEnv } from './semantic-env.js';
 import { emptyTrace, type Trace } from './trace.js';
@@ -203,6 +204,13 @@ export function* runInternalEffectMachineSequence(
       next = yield* runWhile(node, env, state);
     } else if (node.type === 'try') {
       next = yield* runInternalEffectMachineTry(node, env, state, runInternalEffectMachineSequence);
+    } else if (node.type === 'lambda') {
+      try {
+        next = evaluateLambdaEffects(node, env, () => consumeIterationBudget(state, node));
+      } catch (cause) {
+        if (cause instanceof InternalEffectMachineError) throw cause;
+        throw new InternalEffectMachineError('effect machine rejected lambda node', node, cause);
+      }
     } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
       throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
     } else if (node.type === 'capability') {

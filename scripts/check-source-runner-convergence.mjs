@@ -13,7 +13,6 @@ const FILES = Object.freeze({
 const REQUIRED_DEFERRED = Object.freeze({
   'helper-functions': ['environment', 'legacy'],
   'iteration-budget': ['configuration', 'compatibility'],
-  lambda: ['node', 'legacy'],
   'non-root-environment': ['environment', 'legacy'],
   'runner-classes-state': ['environment', 'legacy'],
 });
@@ -90,7 +89,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.22') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.23') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -130,6 +129,18 @@ function validateManifest(text, errors) {
   }
   if (manifest.owned.filter((item) => item?.id === 'each-pair-entry').length !== 1) {
     errors.push('manifest pair/entry each owner is duplicated');
+  }
+  const ownedLambda = manifest.owned.find((item) => item?.id === 'lambda');
+  if (
+    !exactKeys(ownedLambda, ['id', 'kind', 'status', 'evidence']) ||
+    ownedLambda.kind !== 'node' ||
+    ownedLambda.status !== 'unified' ||
+    ownedLambda.evidence !== 'packages/core/tests/runtime-envelope-effect-machine-lambda.test.ts'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified lambda owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'lambda').length !== 1) {
+    errors.push('manifest lambda owner is duplicated');
   }
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
@@ -235,7 +246,7 @@ function validateDisposition(text, errors) {
     ['do', 'unified'],
     ['each', 'unified'],
     ["'expression-v1'", 'unified'],
-    ['lambda', 'legacy'],
+    ['lambda', 'unified'],
   ]) {
     const pattern = new RegExp(`${node.replaceAll('-', '\\-')}\\s*:\\s*['\"]${status}['\"]`);
     if (!pattern.test(text)) errors.push(`machine disposition for ${node} must remain ${status}`);

@@ -1,5 +1,6 @@
 import { assertInternalEffectMachineStructureSupported } from '../ir/semantics/internal-effect-machine-structure.js';
 import { INTERNAL_EFFECT_MACHINE_FORMAT } from '../ir/semantics/internal-effect-machine-types.js';
+import { lambdaRequiresIterationBudget } from '../ir/semantics/lambda-preflight.js';
 import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
 import type { Trace } from '../ir/semantics/trace.js';
 import type { IRNode } from '../types.js';
@@ -9,7 +10,11 @@ import {
   runInternalRuntimeEngineSync,
   selectInternalRuntimeEngine,
 } from './internal-engine.js';
-import { runSourceRunnerLegacyAsync, runSourceRunnerLegacySync } from './source-runner-legacy.js';
+import {
+  ensureSourceRunnerContractsRegistered,
+  runSourceRunnerLegacyAsync,
+  runSourceRunnerLegacySync,
+} from './source-runner-legacy.js';
 
 export { SourceRunnerLegacyError } from './source-runner-legacy.js';
 
@@ -38,7 +43,13 @@ function requiresIterationBudget(nodes: readonly IRNode[]): boolean {
   while (pending.length > 0) {
     const node = pending.pop();
     if (!node) continue;
-    if (node.type === 'each' || node.type === 'for' || node.type === 'while') return true;
+    if (
+      node.type === 'each' ||
+      node.type === 'for' ||
+      node.type === 'while' ||
+      (node.type === 'lambda' && lambdaRequiresIterationBudget(node))
+    )
+      return true;
     for (const child of node.children ?? []) pending.push(child);
   }
   return false;
@@ -80,6 +91,7 @@ export function executeSourceRunnerSync(
   env: SemanticEnv,
   options: SourceRunnerEngineOptions,
 ): Trace {
+  ensureSourceRunnerContractsRegistered();
   if (selectedEngine(nodes, env, options) === SOURCE_RUNNER_ENGINE.machine) {
     return runInternalRuntimeEngineSync(nodes, env, options.iterationBudget);
   }
@@ -91,6 +103,7 @@ export async function executeSourceRunnerAsync(
   env: SemanticEnv,
   options: SourceRunnerEngineOptions,
 ): Promise<Trace> {
+  ensureSourceRunnerContractsRegistered();
   if (selectedEngine(nodes, env, options) === SOURCE_RUNNER_ENGINE.machine) {
     return runInternalRuntimeEngineAsync(nodes, env, options);
   }

@@ -113,6 +113,16 @@ test('rejects blocker deletion and owned-node regressions', () => {
     ),
   );
   assert.ok(eachErrors.some((error) => error.includes('disposition for each')));
+
+  const lambdaErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
+      "lambda: 'unified'",
+      "lambda: 'legacy'",
+    ),
+  );
+  assert.ok(lambdaErrors.some((error) => error.includes('disposition for lambda')));
 });
 
 test('ignores forbidden-token text in comments while rejecting executable escapes', () => {

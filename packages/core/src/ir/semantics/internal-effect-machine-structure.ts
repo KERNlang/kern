@@ -29,6 +29,7 @@ import {
   isInternalEffectMachineLeafType,
 } from './internal-effect-machine-leaf.js';
 import { hasNoBody, InternalEffectMachineError, isUnifiedNodeType } from './internal-effect-machine-types.js';
+import { assertLambdaPreflight } from './lambda-preflight.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { childEnv, defineBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 import type { CompletionKind } from './trace.js';
@@ -36,20 +37,22 @@ import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './t
 import { evaluateWhileConditionWithEvaluator } from './while-runtime.js';
 
 type CompletionSet = Set<CompletionKind>;
-
 function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
   for (let index = 0; index < nodes.length; index += 1) {
     const node = nodes[index];
-    if (node.type === 'branch' || node.type === 'for' || node.type === 'try' || node.type === 'while') continue;
+    if (
+      node.type === 'branch' ||
+      node.type === 'for' ||
+      node.type === 'try' ||
+      node.type === 'while' ||
+      node.type === 'lambda'
+    )
+      continue;
     if (node.type === 'each') {
       if (!isInternalEffectMachineEach(node)) return false;
-      continue;
-    }
-    if (node.type === 'if') {
+    } else if (node.type === 'if') {
       if (nodes[index + 1]?.type === 'else') index += 1;
-      continue;
-    }
-    if (
+    } else if (
       node.type === 'break' ||
       node.type === 'continue' ||
       node.type === 'else' ||
@@ -61,15 +64,10 @@ function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
   }
   return true;
 }
-
-export function isInternalEffectMachineEligible(nodes: readonly IRNode[], env: SemanticEnv): boolean {
-  return hasBoundedRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
-}
-
-export function isInternalEffectMachineDirectEligible(nodes: readonly IRNode[], env: SemanticEnv): boolean {
-  return hasOwnedDirectRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
-}
-
+export const isInternalEffectMachineEligible = (nodes: readonly IRNode[], env: SemanticEnv): boolean =>
+  hasBoundedRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
+export const isInternalEffectMachineDirectEligible = (nodes: readonly IRNode[], env: SemanticEnv): boolean =>
+  hasOwnedDirectRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
 function normalCompletion(): CompletionSet {
   return new Set(['normal']);
 }
@@ -394,6 +392,13 @@ function analyzeSequence(
       );
     } else if (node.type === 'try') {
       nodeCompletions = analyzeTry(node, loopDepth, env, unstableBindings, evaluateNode);
+    } else if (node.type === 'lambda') {
+      try {
+        assertLambdaPreflight(node, env, unstableBindings, evaluateNode);
+      } catch (cause) {
+        throw new InternalEffectMachineError('effect machine rejected lambda node', node, cause);
+      }
+      nodeCompletions = normalCompletion();
     } else if (node.type === 'capability') {
       if (evaluateNode) assertMachineCapability(node, env, unstableBindings);
       else assertMachineCapabilityShape(node, env);

@@ -99,6 +99,14 @@ describe('lambda contract — malformed fixtures', () => {
       'unsupported child',
     );
   });
+
+  it.each([
+    [{ type: 'let', props: { name: '', value: '1' } }, 'empty setup let name'],
+    [{ type: 'assign', props: { target: 'not.valid', value: '1' } }, 'invalid setup assign target'],
+    [{ type: 'assign', props: { target: 'value' } }, 'missing setup assign value'],
+  ] as const)('rejects malformed setup at runtime: %s', async (child, label) => {
+    await mustReject({ type: 'lambda', props: { expr: '1' }, children: [child] }, label);
+  });
 });
 
 describe('lambda contract — forbidden rewrites surface', () => {
