@@ -6,9 +6,10 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { expressionV1Parsed } from './expression-v1-runtime.js';
 import { assertInternalMachineDoNamespaceAvailable, parseInternalMachineDo } from './internal-effect-machine-do.js';
+import { internalMachineHelperCallInValue } from './internal-effect-machine-helper-graph.js';
 import { evalDecimalExpression, isDecimalExpression, isDecimalValueExpression } from './portable-decimal-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
-import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
+import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableMapValue } from './portable-map.js';
 import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
 import {
@@ -19,7 +20,7 @@ import {
   isRegexSplitExpression,
   isRegexTestExpression,
 } from './portable-regex.js';
-import { isIntProvenancedExpr, portableTruthy } from './portable-scalar-domain.js';
+import { assertRunnerPortableValue, isIntProvenancedExpr, portableTruthy } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
 
 export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: ReadonlySet<string>): boolean {
@@ -70,13 +71,21 @@ export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: Re
   return false;
 }
 
+export function expressionRequiresDeferredMachinePreflight(
+  node: ValueIR,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): boolean {
+  return expressionHasDeferredBinding(node, deferredBindings) || internalMachineHelperCallInValue(node, env);
+}
+
 export function assertDeferredMachineScalarPreflight(
   node: ValueIR,
   env: SemanticEnv,
   deferredBindings: ReadonlySet<string>,
 ): void {
-  assertPortableMachineScalarShape(node);
-  if (!expressionHasDeferredBinding(node, deferredBindings)) {
+  assertPortableMachineScalarShape(node, env);
+  if (!expressionRequiresDeferredMachinePreflight(node, env, deferredBindings)) {
     evalPortableValue(node, env);
     return;
   }
@@ -90,7 +99,7 @@ export function assertDeferredMachineScalarPreflight(
     return;
   }
   if (node.kind === 'conditional') {
-    if (expressionHasDeferredBinding(node.test, deferredBindings)) {
+    if (expressionRequiresDeferredMachinePreflight(node.test, env, deferredBindings)) {
       assertDeferredMachineScalarPreflight(node.test, env, deferredBindings);
       return;
     }
@@ -202,7 +211,7 @@ function assertDeferredExpressionV1(node: IRNode, env: SemanticEnv, deferredBind
 }
 
 function assertDeferredDo(node: IRNode, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
-  const parsed = parseInternalMachineDo(node);
+  const parsed = parseInternalMachineDo(node, env);
   if (parsed.kind === 'noop') return;
   assertInternalMachineDoNamespaceAvailable(parsed, env);
   if (!hasBinding(env, parsed.targetName)) throw new Error(`do: target "${parsed.targetName}" must be a known binding`);
@@ -217,7 +226,7 @@ function assertDeferredDo(node: IRNode, env: SemanticEnv, deferredBindings: Read
     return;
   }
   if (!isPortableMapValue(target)) throw new Error(`portable: "${parsed.targetName}" is not a Map binding`);
-  if (expressionHasDeferredBinding(parsed.key, deferredBindings)) {
+  if (expressionRequiresDeferredMachinePreflight(parsed.key, env, deferredBindings)) {
     throw new Error('portable: Map key must be a known string before deferred input');
   }
   assertDeferredMachineScalarPreflight(parsed.key, env, deferredBindings);
@@ -242,7 +251,7 @@ function assertDeferredBinary(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.op === '&&' || node.op === '||' || node.op === '??') {
-    if (expressionHasDeferredBinding(node.left, deferredBindings)) {
+    if (expressionRequiresDeferredMachinePreflight(node.left, env, deferredBindings)) {
       assertDeferredMachineScalarPreflight(node.left, env, deferredBindings);
       return;
     }
@@ -261,8 +270,10 @@ function assertDeferredIndex(
   env: SemanticEnv,
   deferredBindings: ReadonlySet<string>,
 ): void {
-  if (!expressionHasDeferredBinding(node.object, deferredBindings)) assertKnownIndexReceiver(node.object, env);
-  if (!expressionHasDeferredBinding(node.index, deferredBindings)) {
+  if (!expressionRequiresDeferredMachinePreflight(node.object, env, deferredBindings)) {
+    assertKnownIndexReceiver(node.object, env);
+  }
+  if (!expressionRequiresDeferredMachinePreflight(node.index, env, deferredBindings)) {
     if (!isIntProvenancedExpr(node.index, env)) throw new Error('portable: array index is not integer-provenanced');
     const index = evalPortableValue(node.index, { ...env, intIndexCtx: true });
     if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0) {
@@ -289,7 +300,31 @@ function assertDeferredCall(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.callee.kind === 'ident') {
-    if (node.callee.name !== 'String') throw new Error('portable machine: unsupported deferred function call');
+    const helper = env.runnerFunctions?.get(node.callee.name);
+    if (helper) {
+      if (node.args.length !== helper.params.length) {
+        throw new Error(
+          `portable: function "${node.callee.name}" expects ${helper.params.length} arguments, got ${node.args.length}`,
+        );
+      }
+      for (const argument of node.args) {
+        if (argument.kind === 'arrayLit' || argument.kind === 'objectLit') {
+          assertPortableMachineLetShape(argument, env);
+        } else if (expressionRequiresDeferredMachinePreflight(argument, env, deferredBindings)) {
+          assertDeferredMachineScalarPreflight(argument, env, deferredBindings);
+        } else {
+          const value =
+            argument.kind === 'ident' && hasBinding(env, argument.name)
+              ? getBinding(env, argument.name)
+              : evalPortableValue(argument, env);
+          assertRunnerPortableValue(value, 'function argument');
+        }
+      }
+      return;
+    }
+    if (node.callee.name !== 'String' || node.args.length !== 1) {
+      throw new Error('portable machine: unsupported deferred function call');
+    }
     assertDeferredMachineScalarPreflight(node.args[0], env, deferredBindings);
     return;
   }
@@ -320,7 +355,7 @@ function assertDeferredMapCall(
   deferredBindings: ReadonlySet<string>,
 ): void {
   const receiver = node.args[0];
-  if (!expressionHasDeferredBinding(receiver, deferredBindings)) {
+  if (!expressionRequiresDeferredMachinePreflight(receiver, env, deferredBindings)) {
     if (receiver.kind !== 'ident' || !hasBinding(env, receiver.name)) {
       throw new Error('portable: Map receiver binding is missing');
     }
@@ -330,13 +365,16 @@ function assertDeferredMapCall(
   }
   const key = node.args[1];
   assertDeferredMachineScalarPreflight(key, env, deferredBindings);
-  if (!expressionHasDeferredBinding(key, deferredBindings) && typeof evalPortableValue(key, env) !== 'string') {
+  if (
+    !expressionRequiresDeferredMachinePreflight(key, env, deferredBindings) &&
+    typeof evalPortableValue(key, env) !== 'string'
+  ) {
     throw new Error('portable: Map key must be a string');
   }
 }
 
 function assertDeferredDecimalOperand(node: ValueIR, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
-  if (!expressionHasDeferredBinding(node, deferredBindings)) {
+  if (!expressionRequiresDeferredMachinePreflight(node, env, deferredBindings)) {
     evalDecimalExpression(node, env);
     return;
   }
@@ -352,7 +390,7 @@ function assertDeferredDecimalOperand(node: ValueIR, env: SemanticEnv, deferredB
   const method = node.callee.property;
   if (
     (method === 'div' || method === 'mod') &&
-    !expressionHasDeferredBinding(node.args[1], deferredBindings) &&
+    !expressionRequiresDeferredMachinePreflight(node.args[1], env, deferredBindings) &&
     evalDecimalExpression(node.args[1], env) === '0'
   ) {
     throw new Error(method === 'div' ? DECIMAL_DIV_ZERO_FAILCLOSE : DECIMAL_MOD_ZERO_FAILCLOSE);
@@ -368,7 +406,7 @@ function assertDeferredTextCall(
   for (let index = 0; index < node.args.length; index += 1) {
     const argument = node.args[index];
     assertDeferredMachineScalarPreflight(argument, env, deferredBindings);
-    if (expressionHasDeferredBinding(argument, deferredBindings)) continue;
+    if (expressionRequiresDeferredMachinePreflight(argument, env, deferredBindings)) continue;
     const value = evalPortableValue(argument, index > 0 ? { ...env, intIndexCtx: true } : env);
     const method = node.callee.kind === 'member' ? node.callee.property : '';
     const stringArgument = index === 0 || method === 'indexOf' || method === 'startsWith';

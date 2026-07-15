@@ -46,7 +46,7 @@ const FORBIDDEN_BARE_SPECIFIERS = new Set([
   'https',
 ]);
 
-// M3.20 intentionally makes the canonical and legacy compatibility engines
+// M3.24 measures the canonical helper-machine and legacy compatibility engines
 // both reachable through static ESM. The checked-in policy records the measured
 // transition closure and a fixed 5% accidental-bloat margin. When the legacy
 // module exits this graph, the lifecycle check below forces the ceilings back

@@ -17,6 +17,12 @@ import {
   assertInternalMachineExpressionV1Shape,
   runInternalMachineExpressionV1,
 } from './internal-effect-machine-expression-v1.js';
+import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
+import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
+import {
+  INTERNAL_EFFECT_MACHINE_LEAF_TYPES,
+  isInternalEffectMachineLeafType,
+} from './internal-effect-machine-leaf-types.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import {
@@ -54,44 +60,27 @@ import {
 } from './semantic-env.js';
 import type { CanonicalError, Trace } from './trace.js';
 
-export const INTERNAL_EFFECT_MACHINE_LEAF_TYPES = Object.freeze([
-  'assign',
-  'break',
-  'continue',
-  'do',
-  'expression-v1',
-  'fmt',
-  'let',
-  'print',
-  'return',
-  'throw',
-] as const);
+export { INTERNAL_EFFECT_MACHINE_LEAF_TYPES, isInternalEffectMachineLeafType };
 
-type MachineLeafType = (typeof INTERNAL_EFFECT_MACHINE_LEAF_TYPES)[number];
-
-export function isInternalEffectMachineLeafType(type: string): type is MachineLeafType {
-  return (INTERNAL_EFFECT_MACHINE_LEAF_TYPES as readonly string[]).includes(type);
-}
-
-export function assertInternalEffectMachineLeafShape(node: IRNode): void {
+export function assertInternalEffectMachineLeafShape(node: IRNode, env?: SemanticEnv): void {
   if (!isInternalEffectMachineLeafType(node.type)) throw new Error(`unsupported machine leaf "${node.type}"`);
   if (node.children !== undefined && (!Array.isArray(node.children) || node.children.length > 0)) {
     throw new Error(`${node.type}: machine leaf must not contain a body`);
   }
-  if (node.type === 'assign') validateAssignShape(node);
+  if (node.type === 'assign') validateAssignShape(node, env);
   else if (node.type === 'break' || node.type === 'continue') {
     if (node.props?.label !== undefined) throw new Error(`${node.type}: labels are outside the machine domain`);
-  } else if (node.type === 'do') parseInternalMachineDo(node);
-  else if (node.type === 'expression-v1') assertInternalMachineExpressionV1Shape(node);
-  else if (node.type === 'fmt') validateFmtShape(node);
-  else if (node.type === 'let') validateLetShape(node);
-  else if (node.type === 'print') assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'));
-  else if (node.type === 'return') validateReturnShape(node);
-  else validateThrowShape(node);
+  } else if (node.type === 'do') parseInternalMachineDo(node, env);
+  else if (node.type === 'expression-v1') assertInternalMachineExpressionV1Shape(node, env);
+  else if (node.type === 'fmt') validateFmtShape(node, env);
+  else if (node.type === 'let') validateLetShape(node, env);
+  else if (node.type === 'print') assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'), env);
+  else if (node.type === 'return') validateReturnShape(node, env);
+  else validateThrowShape(node, env);
 }
 
 export function assertInternalEffectMachineLeafShapePreflight(node: IRNode, env: SemanticEnv): void {
-  assertInternalEffectMachineLeafShape(node);
+  assertInternalEffectMachineLeafShape(node, env);
   const output =
     node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1' ? node.props?.name : undefined;
   if (typeof output !== 'string') return;
@@ -104,9 +93,9 @@ export function assertInternalEffectMachineLeafPreflight(
   env: SemanticEnv,
   deferredBindings: Set<string>,
 ): void {
-  assertInternalEffectMachineLeafShape(node);
-  const references = leafExpressionBindings(node);
-  const output = leafOutputName(node);
+  assertInternalEffectMachineLeafShape(node, env);
+  const references = leafExpressionBindings(node, env);
+  const output = leafOutputName(node, env);
   assertLeafDeferredCaughtUses(node, env, deferredBindings);
   if (
     (node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1') &&
@@ -116,6 +105,7 @@ export function assertInternalEffectMachineLeafPreflight(
     throw new Error(`${node.type}: binding "${output}" already exists`);
   }
   if (
+    internalMachineHelperCallInNode(node, env) ||
     (output !== undefined && deferredBindings.has(output)) ||
     [...references].some((name) => deferredBindings.has(name))
   ) {
@@ -219,28 +209,28 @@ function assertDeferredCaughtUses(node: ValueIR, env: SemanticEnv, deferredBindi
 }
 
 function deferLeafOutput(node: IRNode, env: SemanticEnv, deferredBindings: Set<string>): void {
-  const name = leafOutputName(node);
+  const name = leafOutputName(node, env);
   if (typeof name !== 'string') return;
   if (node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1') defineBinding(env, name, null);
   deferredBindings.add(name);
 }
 
-function leafOutputName(node: IRNode): string | undefined {
+function leafOutputName(node: IRNode, env?: SemanticEnv): string | undefined {
   const name =
     node.type === 'assign'
       ? node.props?.target
       : node.type === 'fmt' || node.type === 'let' || node.type === 'expression-v1'
         ? node.props?.name
         : node.type === 'do'
-          ? internalMachineDoTargetName(node)
+          ? internalMachineDoTargetName(node, env)
           : undefined;
   return typeof name === 'string' ? name : undefined;
 }
 
-function leafExpressionBindings(node: IRNode): Set<string> {
+function leafExpressionBindings(node: IRNode, env?: SemanticEnv): Set<string> {
   const out = new Set<string>();
   if (node.type === 'do') {
-    const parsed = parseInternalMachineDo(node);
+    const parsed = parseInternalMachineDo(node, env);
     if (parsed.kind === 'noop') return out;
     out.add(parsed.targetName);
     if (parsed.kind === 'push') addInternalMachineExpressionBindings(out, parsed.element);
@@ -265,7 +255,7 @@ function leafExpressionBindings(node: IRNode): Set<string> {
 }
 
 export function runInternalEffectMachineLeaf(node: IRNode, env: SemanticEnv): Trace {
-  assertInternalEffectMachineLeafShape(node);
+  assertInternalEffectMachineLeafShape(node, env);
   if (node.type === 'assign') return runAssign(node, env);
   if (node.type === 'break') return { completion: { kind: 'break' }, events: [] };
   if (node.type === 'continue') return { completion: { kind: 'continue' }, events: [] };
@@ -284,11 +274,11 @@ function parseRequiredExpression(node: IRNode, prop: string): ValueIR {
   return parseExpression(value);
 }
 
-function validateAssignShape(node: IRNode): void {
+function validateAssignShape(node: IRNode, env?: SemanticEnv): void {
   if (!isPortableBindingName(node.props?.target)) throw new Error('assign: target must be a portable identifier');
   const op = node.props?.op;
   if (op !== undefined && op !== '' && op !== '=' && op !== '+=') throw new Error('assign: unsupported operator');
-  assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'));
+  assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'), env);
 }
 
 function runAssign(node: IRNode, env: SemanticEnv): Trace {
@@ -313,13 +303,13 @@ function runAssign(node: IRNode, env: SemanticEnv): Trace {
   return { completion: { kind: 'normal' }, events: [{ op: 'assign', target, value }] };
 }
 
-function validateLetShape(node: IRNode): void {
+function validateLetShape(node: IRNode, env?: SemanticEnv): void {
   if (!isPortableBindingName(node.props?.name)) throw new Error('let: name must be a portable identifier');
   const kind = node.props?.kind;
   if (kind !== undefined && kind !== '' && kind !== 'let' && kind !== 'const') {
     throw new Error('let: unsupported declaration kind');
   }
-  assertPortableMachineLetShape(parseRequiredExpression(node, 'value'));
+  assertPortableMachineLetShape(parseRequiredExpression(node, 'value'), env);
 }
 
 type MachineLetSource = 'array' | 'map' | 'other' | 'record' | 'record-field';
@@ -352,6 +342,13 @@ function evaluateLetValue(
       value: assertRunnerPortableValue(getBinding(env, parsed.name), `binding "${parsed.name}"`),
     };
   }
+  if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && env.runnerFunctions?.has(parsed.callee.name)) {
+    return {
+      parsed,
+      source: 'other',
+      value: evalInternalMachineHelperValue(parsed.callee.name, parsed.args, env, evalPortableValue),
+    };
+  }
   return { parsed, source: 'other', value: evalPortableValue(parsed, env) };
 }
 
@@ -378,7 +375,7 @@ function recordArrayFields(value: unknown): Set<string> {
   return fields;
 }
 
-function validateFmtShape(node: IRNode): void {
+function validateFmtShape(node: IRNode, env?: SemanticEnv): void {
   if (!isPortableBindingName(node.props?.name)) throw new Error('fmt: name must be a portable identifier');
   if (node.props?.return === true || node.props?.return === 'true') throw new Error('fmt: return form is unsupported');
   const template = node.props?.template;
@@ -387,7 +384,7 @@ function validateFmtShape(node: IRNode): void {
   if (parsed.kind !== 'tmplLit' || parsed.quasis.some((quasi) => quasi.includes('\\'))) {
     throw new Error('fmt: invalid machine template');
   }
-  for (const expression of parsed.expressions) assertPortableMachineScalarShape(expression);
+  for (const expression of parsed.expressions) assertPortableMachineScalarShape(expression, env);
 }
 
 function canonicalFmt(value: PortableScalar): string {
@@ -431,11 +428,11 @@ function runPrint(node: IRNode, env: SemanticEnv): Trace {
   return { completion: { kind: 'normal' }, events: [{ op: 'stdout', text }] };
 }
 
-function validateReturnShape(node: IRNode): void {
+function validateReturnShape(node: IRNode, env?: SemanticEnv): void {
   if (!Object.hasOwn(node.props ?? {}, 'value')) return;
   const value = node.props?.value;
   if (value === undefined) return;
-  if (typeof value === 'string') assertPortableMachineReturnShape(parseExpression(value));
+  if (typeof value === 'string') assertPortableMachineReturnShape(parseExpression(value), env);
   else if (!isInspectableRunnerPortableValue(value)) throw new Error('return: raw value is outside the machine domain');
 }
 
@@ -452,6 +449,9 @@ function evaluateReturnValue(node: IRNode, env: SemanticEnv): unknown {
   if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
     return assertRunnerPortableValue(getBinding(env, parsed.name), `binding "${parsed.name}"`);
   }
+  if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && env.runnerFunctions?.has(parsed.callee.name)) {
+    return evalInternalMachineHelperValue(parsed.callee.name, parsed.args, env, evalPortableValue);
+  }
   return evalPortableValue(parsed, env);
 }
 
@@ -459,12 +459,12 @@ function runReturn(node: IRNode, env: SemanticEnv): Trace {
   return { completion: { kind: 'return', value: evaluateReturnValue(node, env) }, events: [] };
 }
 
-function validateThrowShape(node: IRNode): void {
+function validateThrowShape(node: IRNode, env?: SemanticEnv): void {
   if (typeof node.props?.errorKind === 'string') return;
   const parsed = parseRequiredExpression(node, 'value');
   const argument = explicitErrorArgument(parsed);
   if (!argument) throw new Error('throw: only new Error(message) is supported');
-  assertPortableMachineScalarShape(argument);
+  assertPortableMachineScalarShape(argument, env);
 }
 
 function explicitErrorArgument(node: ValueIR): ValueIR | undefined {

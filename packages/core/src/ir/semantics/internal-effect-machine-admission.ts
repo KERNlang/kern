@@ -134,12 +134,12 @@ export function hasBoundedRootEnvironment(env: SemanticEnv): boolean {
   }
 }
 
-export function hasOwnedDirectRootEnvironment(env: SemanticEnv): boolean {
+export function hasOwnedDirectRootEnvironment(env: SemanticEnv, allowRunnerFunctions = false): boolean {
   if (!hasStableMapPrototype()) return false;
   if (!isOwnedSemanticEnvironment(env) || !hasOwnedMachineMetadata(env)) return false;
   if (
     env.parent !== undefined ||
-    (env.runnerFunctions !== undefined && mapSize(env.runnerFunctions) !== 0) ||
+    (!allowRunnerFunctions && env.runnerFunctions !== undefined && mapSize(env.runnerFunctions) !== 0) ||
     (env.runnerClasses !== undefined && mapSize(env.runnerClasses) !== 0) ||
     env.runnerThis !== undefined ||
     env.runnerSuperClass !== undefined ||

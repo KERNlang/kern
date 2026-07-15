@@ -18,7 +18,7 @@ function policyCopy() {
 
 test('checked-in runner browser budget policy is valid', () => {
   const policy = loadRunnerBrowserBudgetPolicy(POLICY_PATH);
-  assert.equal(policy.baseline.milestone, 'KERN-5-R2-M3.20');
+  assert.equal(policy.baseline.milestone, 'KERN-5-R2-M3.24');
 });
 
 test('transition ceiling remains valid only while the legacy module is reachable', () => {

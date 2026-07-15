@@ -1,7 +1,7 @@
 import type { KernRunnerAsyncCapabilities, RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import type { PreparedInternalCapabilityEffect } from './capability-runtime.js';
-import type { SemanticEnv } from './semantic-env.js';
+import type { RunnerFunctionBinding, SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
 export const INTERNAL_EFFECT_MACHINE_FORMAT = 'kern.runtime.effect-machine.internal.r0' as const;
@@ -50,6 +50,9 @@ export interface InternalCapabilityEffectRequest {
 }
 
 export interface InternalEffectMachineState {
+  helperBodyRunner?: InternalEffectMachineChildSequenceRunner;
+  helperEvaluationDepth?: number;
+  helperRegistry?: ReadonlyMap<string, RunnerFunctionBinding>;
   remainingIterations: number | undefined;
 }
 
@@ -64,6 +67,14 @@ export type InternalEffectMachineChildSequenceRunner = (
   env: SemanticEnv,
   state: InternalEffectMachineState,
 ) => InternalEffectMachineGenerator;
+
+/** Private control transfer used to trampoline nested pure-helper calls. */
+export class InternalEffectMachineHelperPending extends Error {
+  constructor(readonly request: unknown) {
+    super('internal effect machine helper call pending');
+    this.name = 'InternalEffectMachineHelperPending';
+  }
+}
 
 export class InternalEffectMachineError extends Error {
   readonly node: IRNode;

@@ -6,6 +6,8 @@ import {
   invokeInternalRuntimeCapabilitySync,
   invokeInternalRuntimeSyncCapabilityAsync,
 } from './internal-capability-interceptor.js';
+import { assertInternalMachineHelperGraph } from './internal-effect-machine-helper-graph.js';
+import { bindInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { runInternalEffectMachineSequence } from './internal-effect-machine-sequence.js';
 import {
   assertInternalEffectMachineStructureSupported,
@@ -54,7 +56,14 @@ function* runMachine(
     );
   }
   assertInternalEffectMachineStructureSupported(nodes, env);
-  return yield* runInternalEffectMachineSequence(nodes, env, state);
+  state.helperRegistry = assertInternalMachineHelperGraph(nodes, env).functions;
+  state.helperBodyRunner = runInternalEffectMachineSequence;
+  const restore = bindInternalEffectMachineState(env, state);
+  try {
+    return yield* runInternalEffectMachineSequence(nodes, env, state);
+  } finally {
+    restore();
+  }
 }
 
 export function runInternalEffectMachineSync(

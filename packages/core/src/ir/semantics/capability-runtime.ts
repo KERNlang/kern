@@ -7,7 +7,12 @@ import {
 } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { assertDeferredMachineScalarPreflight, expressionHasDeferredBinding } from './deferred-expression-preflight.js';
+import {
+  assertDeferredMachineScalarPreflight,
+  expressionRequiresDeferredMachinePreflight,
+} from './deferred-expression-preflight.js';
+import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
+import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
@@ -43,6 +48,13 @@ function evalCapabilityInputValue(node: ValueIR, env: SemanticEnv, evaluate: Eva
   if (isRecordLiteralExpression(node)) return evalCapabilityInputRecord(node, env, evaluate);
   if (isArrayLiteralExpression(node)) return evalCapabilityInputArray(node, env, evaluate);
   if (node.kind === 'ident') return capabilityInputBinding(node.name, env);
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'ident' &&
+    isInternalMachineHelperCall(node.callee.name, node.args.length, env)
+  ) {
+    return evalInternalMachineHelperValue(node.callee.name, node.args, env, evaluate);
+  }
   return evaluate(node, env);
 }
 
@@ -93,7 +105,7 @@ function evalCapabilityInputArray(
   return Object.freeze(out);
 }
 
-function assertCapabilityInputValueShape(node: ValueIR): void {
+function assertCapabilityInputValueShape(node: ValueIR, env?: SemanticEnv): void {
   if (isRecordLiteralExpression(node)) {
     const keys = new Set<string>();
     for (const entry of node.entries) {
@@ -112,7 +124,7 @@ function assertCapabilityInputValueShape(node: ValueIR): void {
         );
       }
       keys.add(entry.key);
-      assertCapabilityInputValueShape(entry.value);
+      assertCapabilityInputValueShape(entry.value, env);
     }
     return;
   }
@@ -121,17 +133,17 @@ function assertCapabilityInputValueShape(node: ValueIR): void {
       if (!(index in node.items)) {
         throw new Error('capability input: array literal items must not contain sparse holes');
       }
-      assertCapabilityInputValueShape(node.items[index]);
+      assertCapabilityInputValueShape(node.items[index], env);
     }
     return;
   }
   if (node.kind === 'ident' && !isPortableBindingName(node.name)) {
     throw new Error(`capability input: binding "${node.name}" is outside the portable capability input domain`);
   }
-  assertPortableMachineScalarShape(node);
+  assertPortableMachineScalarShape(node, env);
 }
 
-function assertCapabilityInputShape(ir: IRNode): void {
+function assertCapabilityInputShape(ir: IRNode, env?: SemanticEnv): void {
   if (!Object.hasOwn(ir.props ?? {}, 'input')) return;
   const raw = asCapabilityProps(ir).input;
   if (typeof raw !== 'string') {
@@ -140,11 +152,11 @@ function assertCapabilityInputShape(ir: IRNode): void {
   }
   const parsed = parseExpression(raw);
   if (!isValueIR(parsed)) throw new Error('capability: input must be a portable value expression');
-  assertCapabilityInputValueShape(parsed);
+  assertCapabilityInputValueShape(parsed, env);
 }
 
 /** Validate a capability node without resolving inputs or consulting runtime bindings. */
-export function assertInternalCapabilityEffectShape(ir: IRNode): string | undefined {
+export function assertInternalCapabilityEffectShape(ir: IRNode, env?: SemanticEnv): string | undefined {
   const props = asCapabilityProps(ir);
   if (!isCapabilityToken(props.namespace) || !isCapabilityToken(props.operation)) {
     throw new KernCapabilityError(
@@ -153,7 +165,7 @@ export function assertInternalCapabilityEffectShape(ir: IRNode): string | undefi
       'capability node is malformed',
     );
   }
-  assertCapabilityInputShape(ir);
+  assertCapabilityInputShape(ir, env);
   if (props.name === undefined || props.name === '') return undefined;
   if (typeof props.name !== 'string' || !isPortableBindingName(props.name)) {
     throw new KernCapabilityError(props.namespace, props.operation, 'capability result binding is invalid');
@@ -162,7 +174,7 @@ export function assertInternalCapabilityEffectShape(ir: IRNode): string | undefi
 }
 
 export function reserveInternalCapabilityEffectShape(ir: IRNode, env: SemanticEnv): void {
-  const resultBinding = assertInternalCapabilityEffectShape(ir);
+  const resultBinding = assertInternalCapabilityEffectShape(ir, env);
   if (resultBinding === undefined) return;
   if (hasOwnBinding(env, resultBinding)) throw new Error('capability result binding is already reserved');
   defineBinding(env, resultBinding, null);
@@ -185,7 +197,7 @@ function assertDeferredCapabilityValue(
   evaluate: EvalPortableValue,
   deferredBindings: ReadonlySet<string>,
 ): void {
-  if (!expressionHasDeferredBinding(node, deferredBindings)) {
+  if (!expressionRequiresDeferredMachinePreflight(node, env, deferredBindings)) {
     assertRuntimeCapabilityValue(evalCapabilityInputValue(node, env, evaluate), 'capability input');
     return;
   }
@@ -221,7 +233,7 @@ export function capabilityInputWithEvaluator(
     return assertRuntimeCapabilityValue(evalCapabilityInputRecord(parsed, env, evaluate), 'capability input');
   }
   if (!isValueIR(parsed)) throw new Error('capability: input must be a portable value expression');
-  return assertRuntimeCapabilityValue(evaluate(parsed, env), 'capability input');
+  return assertRuntimeCapabilityValue(evalCapabilityInputValue(parsed, env, evaluate), 'capability input');
 }
 
 export interface PreparedInternalCapabilityEffect {
@@ -246,7 +258,7 @@ export function prepareInternalCapabilityEffectWithEvaluator(
   const namespace = props.namespace;
   const operation = props.operation;
   let input: RuntimeCapabilityValue | undefined;
-  if (options.shapeOnlyInput === true) assertCapabilityInputShape(ir);
+  if (options.shapeOnlyInput === true) assertCapabilityInputShape(ir, env);
   else input = capabilityInputWithEvaluator(ir, env, evaluate);
   let resultBinding: string | undefined;
   if (props.name !== undefined && props.name !== '') {

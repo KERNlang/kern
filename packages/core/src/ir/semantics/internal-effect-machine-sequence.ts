@@ -15,6 +15,7 @@ import {
   INTERNAL_EFFECT_MACHINE_FORMAT,
   InternalEffectMachineError,
   type InternalEffectMachineGenerator,
+  InternalEffectMachineHelperPending,
   type InternalEffectMachineState,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
@@ -60,7 +61,8 @@ function* runIf(
     selected = evaluateIfConditionWithEvaluator(node, env, evalMachinePortableValue)
       ? (node.children ?? [])
       : (elseNode?.children ?? []);
-  } catch {
+  } catch (error) {
+    if (error instanceof InternalEffectMachineHelperPending) throw error;
     throw new InternalEffectMachineError('effect machine rejected if node', node);
   }
   return yield* runInternalEffectMachineSequence(selected, env, state);
@@ -81,7 +83,8 @@ function selectMachineBranch(node: IRNode, env: SemanticEnv): IRNode | undefined
 function evaluateMachineWhileCondition(node: IRNode, env: SemanticEnv): boolean {
   try {
     return evaluateWhileConditionWithEvaluator(node, env, evalMachinePortableValue);
-  } catch {
+  } catch (error) {
+    if (error instanceof InternalEffectMachineHelperPending) throw error;
     throw new InternalEffectMachineError('effect machine rejected while node', node);
   }
 }
@@ -225,6 +228,7 @@ export function* runInternalEffectMachineSequence(
       try {
         next = runInternalEffectMachineLeaf(node, env);
       } catch (cause) {
+        if (cause instanceof InternalEffectMachineHelperPending) throw cause;
         throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node, cause);
       }
     }

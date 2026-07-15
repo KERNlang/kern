@@ -123,6 +123,13 @@ test('rejects blocker deletion and owned-node regressions', () => {
     ),
   );
   assert.ok(lambdaErrors.some((error) => error.includes('disposition for lambda')));
+
+  const helperErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'helper-functions');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(helperErrors.some((error) => error.includes('helper-functions owner')));
 });
 
 test('ignores forbidden-token text in comments while rejecting executable escapes', () => {

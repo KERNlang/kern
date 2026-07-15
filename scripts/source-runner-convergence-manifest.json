@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.23",
+  "milestone": "KERN-5-R2-M3.24",
   "owned": [
     {
       "id": "do",
@@ -25,15 +25,15 @@
       "kind": "node",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-lambda.test.ts"
-    }
-  ],
-  "deferred": [
+    },
     {
       "id": "helper-functions",
       "kind": "environment",
-      "status": "legacy",
-      "followUp": "unassigned"
-    },
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-helper.test.ts"
+    }
+  ],
+  "deferred": [
     {
       "id": "runner-classes-state",
       "kind": "environment",

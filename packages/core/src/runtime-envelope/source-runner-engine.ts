@@ -1,4 +1,12 @@
-import { assertInternalEffectMachineStructureSupported } from '../ir/semantics/internal-effect-machine-structure.js';
+import {
+  internalMachineHelperGraphHasReachableFunctions,
+  internalMachineHelperGraphRequiresIterationBudget,
+} from '../ir/semantics/internal-effect-machine-helper-graph.js';
+import {
+  assertInternalEffectMachineHelperStructureSupported,
+  assertInternalEffectMachineRootStructureSupported,
+  assertInternalEffectMachineStructureSupported,
+} from '../ir/semantics/internal-effect-machine-structure.js';
 import { INTERNAL_EFFECT_MACHINE_FORMAT } from '../ir/semantics/internal-effect-machine-types.js';
 import { lambdaRequiresIterationBudget } from '../ir/semantics/lambda-preflight.js';
 import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
@@ -38,7 +46,7 @@ export class SourceRunnerEngineError extends Error {
   }
 }
 
-function requiresIterationBudget(nodes: readonly IRNode[]): boolean {
+function requiresIterationBudget(nodes: readonly IRNode[], env: SemanticEnv): boolean {
   const pending = [...nodes];
   while (pending.length > 0) {
     const node = pending.pop();
@@ -52,7 +60,7 @@ function requiresIterationBudget(nodes: readonly IRNode[]): boolean {
       return true;
     for (const child of node.children ?? []) pending.push(child);
   }
-  return false;
+  return internalMachineHelperGraphRequiresIterationBudget(nodes, env);
 }
 
 function validateIterationBudget(value: number | undefined): void {
@@ -68,9 +76,17 @@ export function selectSourceRunnerEngine(
   options: Pick<SourceRunnerEngineOptions, 'iterationBudget'>,
 ): SourceRunnerEngine {
   validateIterationBudget(options.iterationBudget);
-  if (requiresIterationBudget(nodes) && options.iterationBudget === undefined) return SOURCE_RUNNER_ENGINE.legacy;
+  if (requiresIterationBudget(nodes, env) && options.iterationBudget === undefined) return SOURCE_RUNNER_ENGINE.legacy;
   if (selectInternalRuntimeEngine(nodes, env) !== INTERNAL_EFFECT_MACHINE_FORMAT) return SOURCE_RUNNER_ENGINE.legacy;
-  assertInternalEffectMachineStructureSupported(nodes, env);
+  if (internalMachineHelperGraphHasReachableFunctions(nodes, env)) {
+    // Pre-execution admission only: a machine execution failure never retries on compatibility.
+    try {
+      assertInternalEffectMachineHelperStructureSupported(nodes, env);
+    } catch {
+      return SOURCE_RUNNER_ENGINE.legacy;
+    }
+    assertInternalEffectMachineRootStructureSupported(nodes, env);
+  } else assertInternalEffectMachineStructureSupported(nodes, env);
   return SOURCE_RUNNER_ENGINE.machine;
 }
 

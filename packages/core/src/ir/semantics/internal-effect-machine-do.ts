@@ -52,37 +52,37 @@ function mapSetCallTarget(node: ValueIR): { key: ValueIR; targetName: string; va
   return { key: node.args[1], targetName: target.name, value: node.args[2] };
 }
 
-function assertPushElementShape(node: ValueIR): void {
+function assertPushElementShape(node: ValueIR, env?: SemanticEnv): void {
   if (isArrayLiteralExpression(node)) {
     assertPortableMachineLetShape(node);
     return;
   }
-  assertPortableMachineScalarShape(node);
+  assertPortableMachineScalarShape(node, env);
   if (node.kind === 'numLit' && isIntegerValuedFloatLiteral(node)) {
     throw new Error('portable: float literal has an integer value (float/int divergence)');
   }
 }
 
-export function parseInternalMachineDo(node: IRNode): ParsedInternalMachineDo {
+export function parseInternalMachineDo(node: IRNode, env?: SemanticEnv): ParsedInternalMachineDo {
   const raw = node.props?.value;
   if (raw === undefined || raw === '') return { kind: 'noop' };
   const parsed = parseExpression(String(raw));
   const push = pushCallTarget(parsed);
   if (push) {
-    assertPushElementShape(push.element);
+    assertPushElementShape(push.element, env);
     return { element: push.element, kind: 'push', targetName: push.targetName };
   }
   const mapSet = mapSetCallTarget(parsed);
   if (mapSet) {
-    assertPortableMachineScalarShape(mapSet.key);
-    assertPortableMachineScalarShape(mapSet.value);
+    assertPortableMachineScalarShape(mapSet.key, env);
+    assertPortableMachineScalarShape(mapSet.value, env);
     return { ...mapSet, kind: 'map-set' };
   }
   throw new Error('do: only "<array>.push(<element>)" and "Map.set(<map>, <key>, <value>)" are supported');
 }
 
-export function internalMachineDoTargetName(node: IRNode): string | undefined {
-  const parsed = parseInternalMachineDo(node);
+export function internalMachineDoTargetName(node: IRNode, env?: SemanticEnv): string | undefined {
+  const parsed = parseInternalMachineDo(node, env);
   return parsed.kind === 'noop' ? undefined : parsed.targetName;
 }
 
@@ -113,7 +113,7 @@ function isFreshnessPreservingPushElement(node: ValueIR): boolean {
 }
 
 export function runInternalMachineDo(node: IRNode, env: SemanticEnv): Trace {
-  const parsed = parseInternalMachineDo(node);
+  const parsed = parseInternalMachineDo(node, env);
   if (parsed.kind === 'noop') return emptyTrace();
   assertInternalMachineDoNamespaceAvailable(parsed, env);
   if (!hasBinding(env, parsed.targetName)) throw new Error(`do: binding "${parsed.targetName}" not found`);
