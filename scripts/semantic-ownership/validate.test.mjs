@@ -56,8 +56,8 @@ test('current authority witness cannot drift', () => {
 test('comments cannot spoof a current authority witness', () => {
   const runner = readFileSync('packages/core/src/runner.ts', 'utf8');
   const withoutSyncCall = runner.replace(
-    'trace = referenceRunSequence(handler.children ?? [], env);',
-    'trace = emptyTrace(); // referenceRunSequence(handler.children ?? [], env)',
+    "trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
+    "trace = emptyTrace(); // executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' })",
   );
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
@@ -65,46 +65,46 @@ test('comments cannot spoof a current authority witness', () => {
         return sourcePath === 'packages/core/src/runner.ts' ? withoutSyncCall : readFileSync(sourcePath, 'utf8');
       },
     }),
-    /sync-runtime-to-reference-runner source evidence drifted/u,
+    /sync-runtime-to-source-selector source evidence drifted/u,
   );
 });
 
 test('dead same-named call outside runtime function cannot spoof authority witness', () => {
   const runner = readFileSync('packages/core/src/runner.ts', 'utf8')
-    .replace('trace = referenceRunSequence(handler.children ?? [], env);', 'trace = emptyTrace();')
-    .concat('\nfunction deadWitnessProbe(env){ return referenceRunSequence([], env); }\n');
+    .replace("trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });", 'trace = emptyTrace();')
+    .concat("\nfunction deadWitnessProbe(env){ return executeSourceRunnerSync([], env, { policy: 'compatible' }); }\n");
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
       readText(sourcePath) {
         return sourcePath === 'packages/core/src/runner.ts' ? runner : readFileSync(sourcePath, 'utf8');
       },
     }),
-    /sync-runtime-to-reference-runner source evidence drifted/u,
+    /sync-runtime-to-source-selector source evidence drifted/u,
   );
 });
 
 test('local same-name function cannot spoof an imported authority witness', () => {
   const runner = readFileSync('packages/core/src/runner.ts', 'utf8')
-    .replace(/\s*referenceRunSequence,\n/u, '\n')
+    .replace(/\s*executeSourceRunnerSync,\n/u, '\n')
     .replace(
-      'trace = referenceRunSequence(handler.children ?? [], env);',
-      'trace = localReferenceRunSequence(handler.children ?? [], env);',
+      "trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
+      "trace = localSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
     )
-    .concat('\nfunction referenceRunSequence(){ return undefined; }\n');
+    .concat('\nfunction executeSourceRunnerSync(){ return undefined; }\n');
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
       readText(sourcePath) {
         return sourcePath === 'packages/core/src/runner.ts' ? runner : readFileSync(sourcePath, 'utf8');
       },
     }),
-    /sync-runtime-to-reference-runner source evidence drifted/u,
+    /sync-runtime-to-source-selector source evidence drifted/u,
   );
 });
 
 test('nested local shadow cannot spoof an imported authority witness', () => {
   const runner = readFileSync('packages/core/src/runner.ts', 'utf8').replace(
-    'trace = referenceRunSequence(handler.children ?? [], env);',
-    'trace = (() => { const referenceRunSequence = emptyTrace; return referenceRunSequence(); })();',
+    "trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
+    'trace = (() => { const executeSourceRunnerSync = emptyTrace; return executeSourceRunnerSync(); })();',
   );
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
@@ -112,7 +112,7 @@ test('nested local shadow cannot spoof an imported authority witness', () => {
         return sourcePath === 'packages/core/src/runner.ts' ? runner : readFileSync(sourcePath, 'utf8');
       },
     }),
-    /sync-runtime-to-reference-runner source evidence drifted/u,
+    /sync-runtime-to-source-selector source evidence drifted/u,
   );
 });
 

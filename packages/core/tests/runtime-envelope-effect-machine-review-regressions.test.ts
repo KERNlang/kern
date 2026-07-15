@@ -201,7 +201,7 @@ describe('M3.15 PR review regressions', () => {
   });
 
   test('still shape-validates unreachable siblings', () => {
-    const nodes: IRNode[] = [{ type: 'return', props: { value: '1' } }, { type: 'do' }];
+    const nodes: IRNode[] = [{ type: 'return', props: { value: '1' } }, { type: 'expression-v1' }];
     expect(() => runInternalEffectMachineSync(nodes, makeEnv(), machineOptions)).toThrow(InternalEffectMachineError);
   });
 

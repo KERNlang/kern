@@ -18,6 +18,9 @@
     { "id": "host-capability-boundary", "role": "host-boundary", "status": "planned" },
     { "id": "ts-source-runtime", "role": "bootstrap-authority", "status": "current" },
     { "id": "ts-async-source-runtime", "role": "bootstrap-authority", "status": "current" },
+    { "id": "source-runner-selector", "role": "bootstrap-authority", "status": "current" },
+    { "id": "source-runner-legacy", "role": "bootstrap-authority", "status": "current" },
+    { "id": "internal-runtime-engine", "role": "internal-oracle", "status": "current" },
     { "id": "reference-runner", "role": "differential-oracle", "status": "current" },
     { "id": "async-reference-runner", "role": "differential-oracle", "status": "current" },
     { "id": "cli-run", "role": "bootstrap-authority", "status": "current" },
@@ -38,18 +41,60 @@
   ],
   "currentWitnesses": [
     {
-      "id": "sync-runtime-to-reference-runner",
+      "id": "sync-runtime-to-source-selector",
       "from": "ts-source-runtime",
-      "to": "reference-runner",
+      "to": "source-runner-selector",
       "path": "packages/core/src/runner.ts",
-      "evidence": "assigned-imported-call:referenceRunSequence:referenceRunSequence:./ir/semantics/reference-runner.js:executeParsedKernHandler:trace"
+      "evidence": "assigned-imported-call:executeSourceRunnerSync:executeSourceRunnerSync:./runtime-envelope/source-runner-engine.js:executeParsedKernHandler:trace"
     },
     {
-      "id": "async-runtime-to-async-reference-runner",
+      "id": "async-runtime-to-source-selector",
       "from": "ts-async-source-runtime",
-      "to": "async-reference-runner",
+      "to": "source-runner-selector",
       "path": "packages/core/src/runner.ts",
-      "evidence": "assigned-imported-call:asyncReferenceRunSequence:asyncReferenceRunSequence:./ir/semantics/async-reference-runner.js:executeKernSourceAsyncWithEntry:trace"
+      "evidence": "assigned-imported-call:executeSourceRunnerAsync:executeSourceRunnerAsync:./runtime-envelope/source-runner-engine.js:executeKernSourceAsyncWithEntry:trace"
+    },
+    {
+      "id": "selector-sync-to-internal-runtime",
+      "from": "source-runner-selector",
+      "to": "internal-runtime-engine",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runInternalRuntimeEngineSync:runInternalRuntimeEngineSync:./internal-engine.js:executeSourceRunnerSync"
+    },
+    {
+      "id": "selector-sync-to-legacy",
+      "from": "source-runner-selector",
+      "to": "source-runner-legacy",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runSourceRunnerLegacySync:runSourceRunnerLegacySync:./source-runner-legacy.js:executeSourceRunnerSync"
+    },
+    {
+      "id": "selector-async-to-internal-runtime",
+      "from": "source-runner-selector",
+      "to": "internal-runtime-engine",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runInternalRuntimeEngineAsync:runInternalRuntimeEngineAsync:./internal-engine.js:executeSourceRunnerAsync"
+    },
+    {
+      "id": "selector-async-to-legacy",
+      "from": "source-runner-selector",
+      "to": "source-runner-legacy",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runSourceRunnerLegacyAsync:runSourceRunnerLegacyAsync:./source-runner-legacy.js:executeSourceRunnerAsync"
+    },
+    {
+      "id": "legacy-sync-to-reference-runner",
+      "from": "source-runner-legacy",
+      "to": "reference-runner",
+      "path": "packages/core/src/runtime-envelope/source-runner-legacy.ts",
+      "evidence": "returned-imported-call:referenceRunSequence:referenceRunSequence:../ir/semantics/reference-runner.js:runSourceRunnerLegacySync"
+    },
+    {
+      "id": "legacy-async-to-async-reference-runner",
+      "from": "source-runner-legacy",
+      "to": "async-reference-runner",
+      "path": "packages/core/src/runtime-envelope/source-runner-legacy.ts",
+      "evidence": "returned-imported-call:asyncReferenceRunSequence:asyncReferenceRunSequence:../ir/semantics/async-reference-runner.js:runSourceRunnerLegacyAsync"
     },
     {
       "id": "async-fallback-to-reference-runner",

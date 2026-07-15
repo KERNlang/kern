@@ -18,7 +18,9 @@
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
     "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-envelope|portable-machine-evaluator' && node --test ./scripts/runtime-envelope-import-closure.test.mjs ./scripts/runtime-envelope-handler-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
-    "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs"
+    "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs",
+    "check:source-runner-convergence": "node ./scripts/check-source-runner-convergence.mjs",
+    "test:source-runner-convergence": "pnpm --filter @kernlang/core build && node ./scripts/run-node-tests.mjs \"packages/core/tests/source-runner-engine.test.ts\" \"packages/core/tests/runtime-envelope-effect-machine-do.test.ts\" && node --test ./scripts/source-runner-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs"
   },
   "gates": [
     {
@@ -176,6 +178,12 @@
       "label": "CoreRuntime public-ABI quarantine and internalization",
       "status": "current",
       "argv": ["pnpm", "test:core-runtime-internalization"]
+    },
+    {
+      "id": "source-runner-convergence",
+      "label": "Source runner convergence, call-site isolation, and blocker non-growth",
+      "status": "current",
+      "argv": ["pnpm", "test:source-runner-convergence"]
     },
     {
       "id": "kern-frontend",
@@ -412,6 +420,12 @@
       "label": "CoreRuntime public-ABI quarantine and internalization",
       "status": "internal-oracle",
       "evidence": "pnpm test:core-runtime-internalization"
+    },
+    {
+      "id": "source-runner-convergence",
+      "label": "Sync/async source-runner convergence and pre-execution selector",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:source-runner-convergence"
     },
     {
       "id": "kern-formatter",

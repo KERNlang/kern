@@ -4,13 +4,14 @@ import { assertPortableDecimalPow } from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { assertInternalMachineDoNamespaceAvailable, parseInternalMachineDo } from './internal-effect-machine-do.js';
 import { evalDecimalExpression, isDecimalExpression } from './portable-decimal-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableMapValue } from './portable-map.js';
 import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
 import { isIntProvenancedExpr, portableTruthy } from './portable-scalar-domain.js';
-import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
+import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
 
 export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: ReadonlySet<string>): boolean {
   if (node.kind === 'ident') return deferredBindings.has(node.name);
@@ -120,6 +121,10 @@ export function assertDeferredMachineLeafKnownValues(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.type === 'break' || node.type === 'continue') return;
+  if (node.type === 'do') {
+    assertDeferredDo(node, env, deferredBindings);
+    return;
+  }
   if (node.type === 'fmt') {
     const parsed = parseExpression(`\`${String(node.props?.template)}\``);
     if (parsed.kind !== 'tmplLit') throw new Error('fmt: invalid template');
@@ -142,6 +147,32 @@ export function assertDeferredMachineLeafKnownValues(
   }
   const expression = node.type === 'throw' ? explicitErrorArgument(parsed) : parsed;
   if (expression) assertDeferredMachineScalarPreflight(expression, env, deferredBindings);
+}
+
+function assertDeferredDo(node: IRNode, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+  const parsed = parseInternalMachineDo(node);
+  if (parsed.kind === 'noop') return;
+  assertInternalMachineDoNamespaceAvailable(parsed, env);
+  if (!hasBinding(env, parsed.targetName)) throw new Error(`do: target "${parsed.targetName}" must be a known binding`);
+  const target = getBinding(env, parsed.targetName);
+  if (parsed.kind === 'push') {
+    if (!Array.isArray(target)) throw new Error(`do: "${parsed.targetName}.push(...)" requires an array binding`);
+    if (isCapturedArrayBinding(env, parsed.targetName)) {
+      throw new Error(`fresh array binding "${parsed.targetName}" was already captured by a record field`);
+    }
+    if (parsed.element.kind === 'arrayLit') return;
+    assertDeferredMachineScalarPreflight(parsed.element, env, deferredBindings);
+    return;
+  }
+  if (!isPortableMapValue(target)) throw new Error(`portable: "${parsed.targetName}" is not a Map binding`);
+  if (expressionHasDeferredBinding(parsed.key, deferredBindings)) {
+    throw new Error('portable: Map key must be a known string before deferred input');
+  }
+  assertDeferredMachineScalarPreflight(parsed.key, env, deferredBindings);
+  if (typeof evalPortableValue(parsed.key, env) !== 'string') {
+    throw new Error('portable: Map key must be a string');
+  }
+  assertDeferredMachineScalarPreflight(parsed.value, env, deferredBindings);
 }
 
 function explicitErrorArgument(node: ValueIR): ValueIR | undefined {

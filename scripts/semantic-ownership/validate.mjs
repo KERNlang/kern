@@ -20,6 +20,9 @@ const EXPECTED_COMPONENTS = Object.freeze({
   'host-capability-boundary': ['host-boundary', 'planned'],
   'ts-source-runtime': ['bootstrap-authority', 'current'],
   'ts-async-source-runtime': ['bootstrap-authority', 'current'],
+  'source-runner-selector': ['bootstrap-authority', 'current'],
+  'source-runner-legacy': ['bootstrap-authority', 'current'],
+  'internal-runtime-engine': ['internal-oracle', 'current'],
   'reference-runner': ['differential-oracle', 'current'],
   'async-reference-runner': ['differential-oracle', 'current'],
   'cli-run': ['bootstrap-authority', 'current'],
@@ -40,13 +43,43 @@ const EXPECTED_CANONICAL_PATH = Object.freeze([
   'host-capability-boundary',
 ]);
 const EXPECTED_WITNESSES = Object.freeze({
-  'sync-runtime-to-reference-runner': [
-    'ts-source-runtime', 'reference-runner', 'packages/core/src/runner.ts',
-    'assigned-imported-call:referenceRunSequence:referenceRunSequence:./ir/semantics/reference-runner.js:executeParsedKernHandler:trace',
+  'sync-runtime-to-source-selector': [
+    'ts-source-runtime', 'source-runner-selector', 'packages/core/src/runner.ts',
+    'assigned-imported-call:executeSourceRunnerSync:executeSourceRunnerSync:./runtime-envelope/source-runner-engine.js:executeParsedKernHandler:trace',
   ],
-  'async-runtime-to-async-reference-runner': [
-    'ts-async-source-runtime', 'async-reference-runner', 'packages/core/src/runner.ts',
-    'assigned-imported-call:asyncReferenceRunSequence:asyncReferenceRunSequence:./ir/semantics/async-reference-runner.js:executeKernSourceAsyncWithEntry:trace',
+  'async-runtime-to-source-selector': [
+    'ts-async-source-runtime', 'source-runner-selector', 'packages/core/src/runner.ts',
+    'assigned-imported-call:executeSourceRunnerAsync:executeSourceRunnerAsync:./runtime-envelope/source-runner-engine.js:executeKernSourceAsyncWithEntry:trace',
+  ],
+  'selector-sync-to-internal-runtime': [
+    'source-runner-selector', 'internal-runtime-engine',
+    'packages/core/src/runtime-envelope/source-runner-engine.ts',
+    'returned-imported-call:runInternalRuntimeEngineSync:runInternalRuntimeEngineSync:./internal-engine.js:executeSourceRunnerSync',
+  ],
+  'selector-sync-to-legacy': [
+    'source-runner-selector', 'source-runner-legacy',
+    'packages/core/src/runtime-envelope/source-runner-engine.ts',
+    'returned-imported-call:runSourceRunnerLegacySync:runSourceRunnerLegacySync:./source-runner-legacy.js:executeSourceRunnerSync',
+  ],
+  'selector-async-to-internal-runtime': [
+    'source-runner-selector', 'internal-runtime-engine',
+    'packages/core/src/runtime-envelope/source-runner-engine.ts',
+    'returned-imported-call:runInternalRuntimeEngineAsync:runInternalRuntimeEngineAsync:./internal-engine.js:executeSourceRunnerAsync',
+  ],
+  'selector-async-to-legacy': [
+    'source-runner-selector', 'source-runner-legacy',
+    'packages/core/src/runtime-envelope/source-runner-engine.ts',
+    'returned-imported-call:runSourceRunnerLegacyAsync:runSourceRunnerLegacyAsync:./source-runner-legacy.js:executeSourceRunnerAsync',
+  ],
+  'legacy-sync-to-reference-runner': [
+    'source-runner-legacy', 'reference-runner',
+    'packages/core/src/runtime-envelope/source-runner-legacy.ts',
+    'returned-imported-call:referenceRunSequence:referenceRunSequence:../ir/semantics/reference-runner.js:runSourceRunnerLegacySync',
+  ],
+  'legacy-async-to-async-reference-runner': [
+    'source-runner-legacy', 'async-reference-runner',
+    'packages/core/src/runtime-envelope/source-runner-legacy.ts',
+    'returned-imported-call:asyncReferenceRunSequence:asyncReferenceRunSequence:../ir/semantics/async-reference-runner.js:runSourceRunnerLegacyAsync',
   ],
   'async-fallback-to-reference-runner': [
     'async-reference-runner', 'reference-runner',

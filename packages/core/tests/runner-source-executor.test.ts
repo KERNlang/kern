@@ -3995,7 +3995,8 @@ describe('@kernlang/core/runner source executor', () => {
   test('recovers if an embedder clears the public contract registry between runs', () => {
     expect(executeKernSource(mainProgram(['print value="1"']))).toBe('1\n');
     CONTRACT_REGISTRY.clear();
-    expect(executeKernSource(mainProgram(['print value="2"']))).toBe('2\n');
+    expect(executeKernSource(mainProgram(['expression-v1 name=value expr="2"', 'print value=value']))).toBe('2\n');
+    expect(CONTRACT_REGISTRY.has('print')).toBe(true);
   });
 
   test('recovers if an embedder leaves the public contract registry partially populated', () => {
@@ -4012,8 +4013,9 @@ describe('@kernlang/core/runner source executor', () => {
     CONTRACT_REGISTRY.set(custom.nodeType, custom);
 
     try {
-      expect(executeKernSource(mainProgram(['print value="2"']))).toBe('2\n');
+      expect(executeKernSource(mainProgram(['expression-v1 name=value expr="2"', 'print value=value']))).toBe('2\n');
       expect(CONTRACT_REGISTRY.get(custom.nodeType)).toBe(custom);
+      expect(CONTRACT_REGISTRY.has('print')).toBe(true);
     } finally {
       CONTRACT_REGISTRY.delete(custom.nodeType);
     }

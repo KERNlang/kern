@@ -16,6 +16,7 @@ const PUBLIC_HANDLER = join(CORE_SOURCE, 'runtime-handler.ts');
 const CAPABILITY_SEAM = join(CORE_SOURCE, 'ir/semantics/internal-capability-interceptor.ts');
 const CAPABILITY_LANE = join(CORE_SOURCE, 'ir/semantics/capability-lane.ts');
 const CAPABILITY_PLAN = join(CORE_SOURCE, 'runner-capability-plan.ts');
+const SOURCE_RUNNER = join(CORE_SOURCE, 'runner.ts');
 const EACH_RUNTIME = join(CORE_SOURCE, 'ir/semantics/each-runtime.ts');
 const EFFECT_MACHINE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine.ts');
 const EFFECT_MACHINE_SEQUENCE = join(CORE_SOURCE, 'ir/semantics/internal-effect-machine-sequence.ts');
@@ -40,7 +41,7 @@ const EFFECT_MACHINE_FILES = [
 const ENVELOPE_EXECUTE = join(INTERNAL_DIRECTORY, 'execute.ts');
 const INTERNAL_ENGINE = join(INTERNAL_DIRECTORY, 'internal-engine.ts');
 const INTERNAL_SCHEDULER = join(INTERNAL_DIRECTORY, 'internal-scheduler.ts');
-const RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS = new Set([CAPABILITY_SEAM, PUBLIC_HANDLER]);
+const RUNTIME_ENVELOPE_EXTERNAL_IMPORTERS = new Set([CAPABILITY_SEAM, PUBLIC_HANDLER, SOURCE_RUNNER]);
 const CAPABILITY_SEAM_IMPORTERS = new Set([
   CAPABILITY_SEAM,
   join(CORE_SOURCE, 'ir/semantics/async-reference-runner.ts'),
