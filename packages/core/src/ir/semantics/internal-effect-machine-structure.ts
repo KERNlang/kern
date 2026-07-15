@@ -9,7 +9,6 @@ import { PREFLIGHT_CAUGHT_ERROR } from './caught-error.js';
 import { internalEffectMachineEachIterationCount, isInternalEffectMachineEach } from './each-runtime.js';
 import { forRuntimeRange, forShapePreconditions } from './for-runtime.js';
 import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
-import { hasBoundedRootEnvironment, hasOwnedDirectRootEnvironment } from './internal-effect-machine-admission.js';
 import {
   applyConditionalBindingEffects,
   branchControlIsDeferred,
@@ -22,6 +21,8 @@ import {
   recordEscapingBindingWrites,
 } from './internal-effect-machine-control.js';
 import { internalMachineExpressionBindings } from './internal-effect-machine-expression-bindings.js';
+import { internalMachineHelperCallInRaw } from './internal-effect-machine-helper-graph.js';
+import { assertInternalMachineHelperPreflight } from './internal-effect-machine-helper-preflight.js';
 import {
   assertInternalEffectMachineLeafPreflight,
   assertInternalEffectMachineLeafShapePreflight,
@@ -36,38 +37,12 @@ import type { CompletionKind } from './trace.js';
 import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 import { evaluateWhileConditionWithEvaluator } from './while-runtime.js';
 
+export {
+  isInternalEffectMachineDirectEligible,
+  isInternalEffectMachineEligible,
+} from './internal-effect-machine-eligibility.js';
+
 type CompletionSet = Set<CompletionKind>;
-function rootSequenceClaimsMachine(nodes: readonly IRNode[]): boolean {
-  for (let index = 0; index < nodes.length; index += 1) {
-    const node = nodes[index];
-    if (
-      node.type === 'branch' ||
-      node.type === 'for' ||
-      node.type === 'try' ||
-      node.type === 'while' ||
-      node.type === 'lambda'
-    )
-      continue;
-    if (node.type === 'each') {
-      if (!isInternalEffectMachineEach(node)) return false;
-    } else if (node.type === 'if') {
-      if (nodes[index + 1]?.type === 'else') index += 1;
-    } else if (
-      node.type === 'break' ||
-      node.type === 'continue' ||
-      node.type === 'else' ||
-      !isUnifiedNodeType(node.type) ||
-      !hasNoBody(node)
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-export const isInternalEffectMachineEligible = (nodes: readonly IRNode[], env: SemanticEnv): boolean =>
-  hasBoundedRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
-export const isInternalEffectMachineDirectEligible = (nodes: readonly IRNode[], env: SemanticEnv): boolean =>
-  hasOwnedDirectRootEnvironment(env) && rootSequenceClaimsMachine(nodes);
 function normalCompletion(): CompletionSet {
   return new Set(['normal']);
 }
@@ -84,11 +59,11 @@ function analyzeBranchFrame(
   if (!branchShapePreconditions(node)) {
     throw new InternalEffectMachineError('effect machine rejected branch node', node);
   }
-  if (evaluateControls && !branchControlIsDeferred(node, unstableBindings) && !branchPreconditions(node, env)) {
+  if (evaluateControls && !branchControlIsDeferred(node, unstableBindings, env) && !branchPreconditions(node, env)) {
     throw new InternalEffectMachineError('effect machine rejected branch node', node);
   }
   let selectedPath: IRNode | undefined;
-  const hasKnownSelection = evaluateControls && !branchControlIsDeferred(node, unstableBindings);
+  const hasKnownSelection = evaluateControls && !branchControlIsDeferred(node, unstableBindings, env);
   if (hasKnownSelection) {
     try {
       selectedPath = selectBranchPath(node, env);
@@ -288,7 +263,7 @@ function analyzeSequence(
         throw new InternalEffectMachineError('effect machine rejected if node', node);
       }
       let knownCondition: boolean | undefined;
-      if (evaluateNode && !controlExpressionIsDeferred(node.props.cond, unstableBindings)) {
+      if (evaluateNode && !controlExpressionIsDeferred(node.props.cond, unstableBindings, env)) {
         try {
           knownCondition = evaluateIfConditionWithEvaluator(node, env, evalPortableValue);
         } catch {
@@ -331,7 +306,7 @@ function analyzeSequence(
         throw new InternalEffectMachineError('effect machine rejected for node', node);
       }
       let bodyExecution: boolean | undefined;
-      if (evaluateNode && !forControlIsDeferred(node, unstableBindings)) {
+      if (evaluateNode && !forControlIsDeferred(node, unstableBindings, env)) {
         try {
           const range = forRuntimeRange(node, env);
           bodyExecution = range.step > 0 ? range.from < range.to : range.from > range.to;
@@ -353,7 +328,7 @@ function analyzeSequence(
         throw new InternalEffectMachineError('effect machine rejected each node', node);
       }
       let bodyExecution: boolean | undefined;
-      if (evaluateNode && !controlExpressionIsDeferred(node.props?.in, unstableBindings)) {
+      if (evaluateNode && !controlExpressionIsDeferred(node.props?.in, unstableBindings, env)) {
         try {
           bodyExecution = internalEffectMachineEachIterationCount(node, env) > 0;
         } catch {
@@ -374,7 +349,7 @@ function analyzeSequence(
         throw new InternalEffectMachineError('effect machine rejected while node', node);
       }
       let bodyExecution: boolean | undefined;
-      if (evaluateNode && !controlExpressionIsDeferred(node.props.cond, unstableBindings)) {
+      if (evaluateNode && !controlExpressionIsDeferred(node.props.cond, unstableBindings, env)) {
         try {
           bodyExecution = evaluateWhileConditionWithEvaluator(node, env, evalPortableValue);
         } catch {
@@ -451,7 +426,7 @@ function assertMachineCapability(node: IRNode, env: SemanticEnv, deferredBinding
   try {
     const capabilityEnv = clonePreflightEnvironment(env);
     const input = node.props?.input;
-    let shapeOnlyInput = false;
+    let shapeOnlyInput = internalMachineHelperCallInRaw(input, capabilityEnv);
     if (typeof input === 'string') {
       assertInternalMachineDeferredCaughtExpression(input, capabilityEnv, deferredBindings);
       for (const name of internalMachineExpressionBindings(input)) {
@@ -494,5 +469,18 @@ export function assertInternalEffectMachineStructureSupported(
   env: SemanticEnv,
   loopDepth = 0,
 ): void {
+  assertInternalEffectMachineHelperStructureSupported(nodes, env);
+  assertInternalEffectMachineRootStructureSupported(nodes, env, loopDepth);
+}
+
+export function assertInternalEffectMachineRootStructureSupported(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  loopDepth = 0,
+): void {
   analyzeSequence(nodes, loopDepth, clonePreflightEnvironment(env), new Set());
+}
+
+export function assertInternalEffectMachineHelperStructureSupported(nodes: readonly IRNode[], env: SemanticEnv): void {
+  assertInternalMachineHelperPreflight(nodes, env, analyzeSequence);
 }

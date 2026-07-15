@@ -25,18 +25,18 @@ function isNativeRegexShape(parsed: ReturnType<typeof assertExpressionV1BasicSha
   );
 }
 
-export function assertInternalMachineExpressionV1Shape(node: IRNode): void {
+export function assertInternalMachineExpressionV1Shape(node: IRNode, env?: SemanticEnv): void {
   const parsed = assertExpressionV1BasicShape(node);
   if (isDecimalValueExpression(parsed) || isNativeRegexShape(parsed)) return;
   if (parsed.kind === 'arrayLit' || parsed.kind === 'objectLit') {
-    assertPortableMachineLetShape(parsed);
+    assertPortableMachineLetShape(parsed, env);
     return;
   }
-  assertPortableMachineScalarShape(parsed);
+  assertPortableMachineScalarShape(parsed, env);
 }
 
 export function runInternalMachineExpressionV1(node: IRNode, env: SemanticEnv): Trace {
-  assertInternalMachineExpressionV1Shape(node);
+  assertInternalMachineExpressionV1Shape(node, env);
   if (!expressionV1Preconditions(node, env, evalPortableValue)) {
     throw new Error('expression-v1: preconditions failed');
   }

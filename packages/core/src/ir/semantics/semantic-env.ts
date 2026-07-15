@@ -1,5 +1,6 @@
 import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
+import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { cloneSemanticBindingValue } from './semantic-clone.js';
 
 /** Runtime state shared by semantic evaluators without importing registry ownership. */
@@ -218,7 +219,7 @@ function cloneRecordArrayFields(fields: Map<string, Set<string> | null>): Map<st
 }
 
 export function childEnv(parent: SemanticEnv): SemanticEnv {
-  return ownSemanticEnvironment({
+  const child = ownSemanticEnvironment({
     bindings: ownSemanticComposite(new Map()),
     intProvenance: ownSemanticComposite(new Set()),
     freshArrayBindings: ownSemanticComposite(new Set()),
@@ -239,6 +240,8 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     seed: parent.seed,
     now: parent.now,
   });
+  copyInternalEffectMachineState(parent, child);
+  return child;
 }
 
 function declaringScope(env: SemanticEnv, name: string): SemanticEnv | undefined {

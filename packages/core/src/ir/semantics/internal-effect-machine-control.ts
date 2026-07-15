@@ -1,9 +1,11 @@
 import type { IRNode } from '../../types.js';
 import { internalMachineExpressionBindings } from './internal-effect-machine-expression-bindings.js';
+import { internalMachineHelperCallInRaw } from './internal-effect-machine-helper-graph.js';
+import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { defineBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export function clonePreflightEnvironment(env: SemanticEnv): SemanticEnv {
-  return {
+  const clone = {
     ...env,
     bindings: new Map(env.bindings),
     capturedArrayBindings: env.capturedArrayBindings ? new Set(env.capturedArrayBindings) : undefined,
@@ -15,10 +17,17 @@ export function clonePreflightEnvironment(env: SemanticEnv): SemanticEnv {
       ? new Map([...env.recordArrayFields].map(([name, fields]) => [name, fields === null ? null : new Set(fields)]))
       : undefined,
   };
+  copyInternalEffectMachineState(env, clone);
+  return clone;
 }
 
-export function controlExpressionIsDeferred(raw: unknown, deferredBindings: ReadonlySet<string>): boolean {
+export function controlExpressionIsDeferred(
+  raw: unknown,
+  deferredBindings: ReadonlySet<string>,
+  env?: SemanticEnv,
+): boolean {
   if (typeof raw !== 'string') return false;
+  if (env && internalMachineHelperCallInRaw(raw, env)) return true;
   try {
     for (const name of internalMachineExpressionBindings(raw)) {
       if (deferredBindings.has(name)) return true;
@@ -30,14 +39,18 @@ export function controlExpressionIsDeferred(raw: unknown, deferredBindings: Read
   return false;
 }
 
-export function branchControlIsDeferred(node: IRNode, deferredBindings: ReadonlySet<string>): boolean {
-  if (controlExpressionIsDeferred(node.props?.on, deferredBindings)) return true;
+export function branchControlIsDeferred(
+  node: IRNode,
+  deferredBindings: ReadonlySet<string>,
+  env?: SemanticEnv,
+): boolean {
+  if (controlExpressionIsDeferred(node.props?.on, deferredBindings, env)) return true;
   for (const path of node.children ?? []) {
     if (
       path.props?.default !== true &&
       path.props?.default !== 'true' &&
       path.__quotedProps?.includes('value') !== true &&
-      controlExpressionIsDeferred(path.props?.value, deferredBindings)
+      controlExpressionIsDeferred(path.props?.value, deferredBindings, env)
     ) {
       return true;
     }
@@ -45,9 +58,9 @@ export function branchControlIsDeferred(node: IRNode, deferredBindings: Readonly
   return false;
 }
 
-export function forControlIsDeferred(node: IRNode, deferredBindings: ReadonlySet<string>): boolean {
+export function forControlIsDeferred(node: IRNode, deferredBindings: ReadonlySet<string>, env?: SemanticEnv): boolean {
   return (['from', 'to', 'step'] as const).some((prop) =>
-    controlExpressionIsDeferred(node.props?.[prop], deferredBindings),
+    controlExpressionIsDeferred(node.props?.[prop], deferredBindings, env),
   );
 }
 

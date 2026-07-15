@@ -11,7 +11,6 @@ const FILES = Object.freeze({
 });
 
 const REQUIRED_DEFERRED = Object.freeze({
-  'helper-functions': ['environment', 'legacy'],
   'iteration-budget': ['configuration', 'compatibility'],
   'non-root-environment': ['environment', 'legacy'],
   'runner-classes-state': ['environment', 'legacy'],
@@ -89,7 +88,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.23') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.24') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -141,6 +140,18 @@ function validateManifest(text, errors) {
   }
   if (manifest.owned.filter((item) => item?.id === 'lambda').length !== 1) {
     errors.push('manifest lambda owner is duplicated');
+  }
+  const ownedHelpers = manifest.owned.find((item) => item?.id === 'helper-functions');
+  if (
+    !exactKeys(ownedHelpers, ['id', 'kind', 'status', 'evidence']) ||
+    ownedHelpers.kind !== 'environment' ||
+    ownedHelpers.status !== 'unified' ||
+    ownedHelpers.evidence !== 'packages/core/tests/runtime-envelope-effect-machine-helper.test.ts'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified helper-functions owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'helper-functions').length !== 1) {
+    errors.push('manifest helper-functions owner is duplicated');
   }
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
