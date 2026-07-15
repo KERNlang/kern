@@ -475,6 +475,22 @@ trusted-publishing/provenance configuration is inspected.
     run and one focused timeout retry with zero findings
     (`review-1784141350527-jna9fu-kern-5-r2-m3-25-iteration-budget`,
     `review-1784141541689-hzqupd-kern-5-r2-m3-25-iteration-budget`).
+  - [x] M3.26 same-root state-only class ownership: the canonical machine now
+    owns linker-admitted local class allocation, scalar field initialization,
+    restricted direct-assignment constructors, own-field reads/writes, and
+    receiver identity across async suspension. Each run snapshots its admitted
+    class registry; overlapping runs and caller replacement cannot share or
+    alter instance state. Deferred constructor arguments and field writes use
+    shape-only synthetic preflight, and unowned class metadata rejects before
+    accessor invocation. Methods, getters, inheritance, imported classes,
+    helper/class mixing, nested allocation/mutation, and non-root environments
+    remain explicit compatibility paths. `pnpm fitness:kern-5` passed
+    end-to-end on 2026-07-15 with 432/432 conformance, 109/109 class, 233 native
+    core assertions, 48/48 checker fixtures, 39/39 validator verdicts, and a
+    browser wall of 131 modules / 1,402,747 raw / 309,088 gzip bytes / 79 ms
+    median execution. The terminal `claude,codex,agy` review completed 3/3;
+    every verified blocker was fixed with focused regressions
+    (`review-1784148530820-cgm3zg-kern-5-r2-m3-26-class-state`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
