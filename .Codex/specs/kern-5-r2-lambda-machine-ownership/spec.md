@@ -1,8 +1,8 @@
 # KERN 5 R2 M3.23 Lambda Machine Ownership
 
-**Status:** READY TO BUILD
-**Date:** 2026-07-14
-**Confidence:** 0.92
+**Status:** DONE
+**Date:** 2026-07-15
+**Confidence:** 0.99
 **Design challenge:** Agon tribunal
 `tribunal-1784066461235-77kln0-m3-23-next-slice` (3/3 current engines
 completed)
@@ -114,30 +114,46 @@ independent evaluator nor lambda-specific admission/preflight/dispatch hooks.
 
 ## Acceptance Criteria
 
-- [ ] Every existing `lambdaContract` fixture produces an identical reference,
+- [x] Every existing `lambdaContract` fixture produces an identical reference,
   sync-machine, and immediate-async-machine trace.
-- [ ] `List.map`/`List.filter` preserve order, exact current truthiness, and
+- [x] `List.map`/`List.filter` preserve order, exact current truthiness, and
   fresh parameter scope without invoking mutable host collection methods.
-- [ ] Closures observe later writes in their captured local setup scope, while
+- [x] Closures observe later writes in their captured local setup scope, while
   separate closures and callback iterations do not share parameter bindings.
-- [ ] Direct calls execute only private lambda-runtime closures; root host
+- [x] Direct calls execute only private lambda-runtime closures; root host
   functions and helper registries remain inadmissible.
-- [ ] Missing/empty expressions, unsupported setup children/targets, block-
+- [x] Missing/empty expressions, unsupported setup children/targets, block-
   bodied closures, unsupported expression kinds/operators/calls, missing
   bindings, and wrong collection types fail before any earlier capability.
-- [ ] A lambda consuming a deferred capability result receives the runtime
+- [x] A lambda consuming a deferred capability result receives the runtime
   value without allowing preflight to invoke or trust an unknown callable.
-- [ ] A preceding capability cannot redirect Array/Map/Object iteration or
+- [x] A preceding capability cannot redirect Array/Map/Object iteration or
   lambda call behavior by poisoning mutable host globals/prototypes.
-- [ ] Valid root lambda programs select the machine in sync and immediate-async
+- [x] Valid root lambda programs select the machine in sync and immediate-async
   source APIs with no catch-and-retry path.
-- [ ] Incoming `env.parent`, runner functions, runner classes, `this`/`super`,
+- [x] Incoming `env.parent`, runner functions, runner classes, `this`/`super`,
   and protected class state continue selecting compatibility.
-- [ ] `lambda` becomes `unified`; helper-functions, runner-classes-state,
+- [x] `lambda` becomes `unified`; helper-functions, runner-classes-state,
   non-root-environment, and iteration-budget remain exact deferred blockers.
-- [ ] Every touched handwritten source/test file remains below 500 lines.
-- [ ] Focused tests, complete core tests, lint/build, `pnpm fitness:kern-5`, and
+- [x] Every touched handwritten source/test file remains below 500 lines.
+- [x] Focused tests, complete core tests, lint/build, `pnpm fitness:kern-5`, and
   full current-roster `agon review` pass before commit and push.
+
+## Completion Evidence
+
+- `pnpm fitness:kern-5` passed end-to-end after the final blocker fixes on
+  2026-07-15, including workspace, conformance, native KERN, runner smoke,
+  self-host, ownership, ABI, and source-runner convergence gates.
+- The terminal `claude,codex,agy` review completed 3/3 with zero verified,
+  needs-check, or speculative findings
+  (`review-1784097336473-jyos4c-m3-23-lambda-terminal-7`).
+- Review-discovered deferred callback facts, deterministic nullish/bare
+  namespace failures, and recursive setup closures are covered by executable
+  regression tests and reject before earlier capability effects where
+  applicable.
+- The largest touched handwritten source files are
+  `internal-effect-machine-structure.ts` at 498 lines and
+  `lambda-preflight.ts` at 482 lines.
 
 ## RED Oracles
 
