@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const FILES = Object.freeze({
+  classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
+  classGraph: 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+  classRuntime: 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+  classTests: 'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
   cli: 'packages/cli/src/commands/run.ts',
   cliOptions: 'packages/cli/src/commands/run-options.ts',
   disposition: 'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
@@ -89,7 +93,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.25') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.26') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -182,6 +186,54 @@ function validateManifest(text, errors) {
     ) {
       errors.push(`manifest blocker ${id} has invalid kind, status, or follow-up`);
     }
+  }
+  const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
+  if (classState?.followUp !== 'M3.27-class-behavior-ownership') {
+    errors.push('manifest must keep class behavior as the exact M3.27 follow-up');
+  }
+  const nonRoot = manifest.deferred.find((item) => item?.id === 'non-root-environment');
+  if (nonRoot?.followUp !== 'M3.28-non-root-environment-ownership') {
+    errors.push('manifest must keep non-root transaction ownership as the exact M3.28 follow-up');
+  }
+}
+
+function validateClassStateSlice(eligibilityText, graphText, runtimeText, testsText, engineText, errors) {
+  const eligibility = parseSource(FILES.classEligibility, eligibilityText);
+  const eligibilityCalls = descendants(
+    eligibility,
+    (node) => ts.isCallExpression(node) && node.expression.getText() === 'internalMachineClassGraphClaims',
+  );
+  if (eligibilityCalls.length !== 2) {
+    errors.push('direct and source eligibility must both require the exact class graph claim');
+  }
+  for (const forbidden of ['portable-reference-body', 'portable-reference-evaluator', 'async-reference-runner']) {
+    if (graphText.includes(forbidden) || runtimeText.includes(forbidden)) {
+      errors.push(`machine class ownership imports forbidden compatibility owner ${forbidden}`);
+    }
+  }
+  for (const required of [
+    'assertInternalMachineClassGraph',
+    'assertInternalMachineClassUsage',
+    'allocation must occur in the root sequence',
+    'field mutation must occur in the root sequence',
+    'helper/class mixing is outside this slice',
+    'has behavior outside the state-only domain',
+  ]) {
+    if (!graphText.includes(required)) errors.push(`machine class graph is missing ${required}`);
+  }
+  for (const required of ['classInstanceOwner', 'state?.classRegistry', 'helperBodyRunner']) {
+    if (!runtimeText.includes(required)) errors.push(`machine class runtime is missing ${required}`);
+  }
+  if (!engineText.includes('internalMachineClassGraphHasClasses')) {
+    errors.push('source selector does not preflight the admitted class slice before execution');
+  }
+  for (const oracle of [
+    'selects and executes construction plus own-field read/write on the machine',
+    'routes %s to compatibility before provider dispatch',
+    'preserves receiver state across async suspension and isolates parallel runs',
+    'routes nested class mutation to compatibility before provider dispatch',
+  ]) {
+    if (!testsText.includes(oracle)) errors.push(`machine class oracle is missing: ${oracle}`);
   }
 }
 
@@ -376,6 +428,16 @@ export function validateSourceRunnerConvergence(readText) {
     }
   }
   if (contents.manifest) validateManifest(contents.manifest, errors);
+  if (contents.classEligibility && contents.classGraph && contents.classRuntime && contents.classTests && contents.engine) {
+    validateClassStateSlice(
+      contents.classEligibility,
+      contents.classGraph,
+      contents.classRuntime,
+      contents.classTests,
+      contents.engine,
+      errors,
+    );
+  }
   if (contents.runner) validateRunner(contents.runner, errors);
   if (contents.cli && contents.cliOptions) validateCli(contents.cli, contents.cliOptions, errors);
   if (contents.engine) validateEngine(contents.engine, errors);

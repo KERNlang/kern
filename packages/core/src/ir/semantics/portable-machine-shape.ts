@@ -1,4 +1,5 @@
 import type { BinaryOp, UnaryOp, ValueIR } from '../../value-ir.js';
+import { internalMachineClassForNew } from './internal-effect-machine-class-graph.js';
 import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
 import { isDecimalExpression } from './portable-decimal-evaluator.js';
 import { assertPortableRecordEntry } from './portable-record-evaluator.js';
@@ -209,6 +210,16 @@ function isEmptyMapConstructor(node: ValueIR): boolean {
   );
 }
 
+function assertClassConstructionShape(node: ValueIR, env?: SemanticEnv): boolean {
+  if (!env) return false;
+  const cls = internalMachineClassForNew(node, env);
+  if (!cls || node.kind !== 'new' || node.argument.kind !== 'call') return false;
+  const params = cls.constructor?.params ?? [];
+  if (node.argument.args.length !== params.length) fail('class constructor arity');
+  for (const argument of node.argument.args) assertPortableMachineScalarShape(argument, env);
+  return true;
+}
+
 export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv): void {
   if (node.kind === 'arrayLit') {
     assertArrayShape(node, false);
@@ -219,6 +230,7 @@ export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv):
     return;
   }
   if (isEmptyMapConstructor(node)) return;
+  if (assertClassConstructionShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }
 

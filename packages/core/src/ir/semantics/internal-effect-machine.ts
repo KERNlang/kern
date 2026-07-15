@@ -6,6 +6,10 @@ import {
   invokeInternalRuntimeCapabilitySync,
   invokeInternalRuntimeSyncCapabilityAsync,
 } from './internal-capability-interceptor.js';
+import {
+  assertInternalMachineClassGraph,
+  assertInternalMachineClassUsage,
+} from './internal-effect-machine-class-graph.js';
 import { assertInternalMachineHelperGraph } from './internal-effect-machine-helper-graph.js';
 import { bindInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { runInternalEffectMachineSequence } from './internal-effect-machine-sequence.js';
@@ -69,9 +73,11 @@ function* runMachine(
       nodes[0] ?? { type: '__block' },
     );
   }
+  state.classRegistry = assertInternalMachineClassGraph(env).classes;
+  assertInternalMachineClassUsage(nodes, env);
+  state.helperBodyRunner = runInternalEffectMachineSequence;
   assertInternalEffectMachineStructureSupported(nodes, env);
   state.helperRegistry = assertInternalMachineHelperGraph(nodes, env).functions;
-  state.helperBodyRunner = runInternalEffectMachineSequence;
   return yield* runInternalEffectMachineSequence(nodes, env, state);
 }
 

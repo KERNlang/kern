@@ -9,9 +9,13 @@ const files = new Map(
   [
     'packages/cli/src/commands/run-options.ts',
     'packages/cli/src/commands/run.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
 );
@@ -139,6 +143,38 @@ test('rejects blocker deletion and owned-node regressions', () => {
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(helperErrors.some((error) => error.includes('helper-functions owner')));
+});
+
+test('rejects state-only class ownership regressions', () => {
+  const eligibilityErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
+      'internalMachineClassGraphClaims(nodes, env) &&',
+      'true &&',
+    ),
+  );
+  assert.ok(eligibilityErrors.some((error) => error.includes('class graph claim')));
+
+  const ownershipErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+      'state?.classRegistry',
+      'undefined',
+    ),
+  );
+  assert.ok(ownershipErrors.some((error) => error.includes('state?.classRegistry')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+      'preserves receiver state across async suspension and isolates parallel runs',
+      'removed async class oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('machine class oracle')));
 });
 
 test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {

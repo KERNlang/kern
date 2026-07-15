@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.25",
+  "milestone": "KERN-5-R2-M3.26",
   "owned": [
     {
       "id": "do",
@@ -44,13 +44,13 @@
       "id": "runner-classes-state",
       "kind": "environment",
       "status": "legacy",
-      "followUp": "unassigned"
+      "followUp": "M3.27-class-behavior-ownership"
     },
     {
       "id": "non-root-environment",
       "kind": "environment",
       "status": "legacy",
-      "followUp": "unassigned"
+      "followUp": "M3.28-non-root-environment-ownership"
     }
   ]
 }

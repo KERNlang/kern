@@ -5,6 +5,11 @@ import { isCaughtErrorValue } from './caught-error.js';
 import { assertDeferredMachineLeafKnownValues } from './deferred-expression-preflight.js';
 import { expressionV1Source } from './expression-v1-runtime.js';
 import {
+  assignInternalMachineClassField,
+  evalInternalMachineClassNew,
+  preflightInternalMachineClassLet,
+} from './internal-effect-machine-class-runtime.js';
+import {
   internalMachineDoTargetName,
   parseInternalMachineDo,
   runInternalMachineDo,
@@ -19,6 +24,7 @@ import {
 } from './internal-effect-machine-expression-v1.js';
 import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
 import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
+import { internalMachineRecordArrayFields } from './internal-effect-machine-leaf-record.js';
 import {
   INTERNAL_EFFECT_MACHINE_LEAF_TYPES,
   isInternalEffectMachineLeafType,
@@ -41,9 +47,6 @@ import {
   assertRunnerPortableValue,
   isInspectableRunnerPortableValue,
   isPortableBindingName,
-  isPortableRecordValue,
-  isPortableScalar,
-  isRunnerPortableArrayValue,
   type PortableScalar,
 } from './portable-scalar-domain.js';
 import {
@@ -85,6 +88,7 @@ export function assertInternalEffectMachineLeafShapePreflight(node: IRNode, env:
     node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1' ? node.props?.name : undefined;
   if (typeof output !== 'string') return;
   if (hasOwnBinding(env, output)) throw new Error(`binding "${output}" already exists`);
+  if (node.type === 'let' && preflightInternalMachineClassLet(node, env, evalPortableValue, false)) return;
   defineBinding(env, output, null);
 }
 
@@ -109,6 +113,10 @@ export function assertInternalEffectMachineLeafPreflight(
     (output !== undefined && deferredBindings.has(output)) ||
     [...references].some((name) => deferredBindings.has(name))
   ) {
+    if (node.type === 'let' && preflightInternalMachineClassLet(node, env, evalPortableValue, false)) {
+      if (output !== undefined) deferredBindings.add(output);
+      return;
+    }
     assertDeferredAssignTarget(node, output, env, deferredBindings);
     for (const name of references) {
       if (!deferredBindings.has(name) && !hasBinding(env, name)) throw new Error(`binding "${name}" not found`);
@@ -120,6 +128,7 @@ export function assertInternalEffectMachineLeafPreflight(
     deferLeafOutput(node, env, deferredBindings);
     return;
   }
+  if (node.type === 'let' && preflightInternalMachineClassLet(node, env, evalPortableValue)) return;
   runInternalEffectMachineLeaf(node, env);
 }
 
@@ -130,6 +139,7 @@ function assertDeferredAssignTarget(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.type !== 'assign' || target === undefined || deferredBindings.has(target)) return;
+  if (assignInternalMachineClassField(node, env, evalPortableValue, false)) return;
   if (!hasBinding(env, target)) throw new Error(`assign: binding "${target}" does not exist`);
   const current = getBinding(env, target);
   if (typeof current !== 'number' && typeof current !== 'string' && typeof current !== 'boolean') {
@@ -275,6 +285,7 @@ function parseRequiredExpression(node: IRNode, prop: string): ValueIR {
 }
 
 function validateAssignShape(node: IRNode, env?: SemanticEnv): void {
+  if (env && assignInternalMachineClassField(node, env, evalPortableValue, false)) return;
   if (!isPortableBindingName(node.props?.target)) throw new Error('assign: target must be a portable identifier');
   const op = node.props?.op;
   if (op !== undefined && op !== '' && op !== '=' && op !== '+=') throw new Error('assign: unsupported operator');
@@ -282,6 +293,8 @@ function validateAssignShape(node: IRNode, env?: SemanticEnv): void {
 }
 
 function runAssign(node: IRNode, env: SemanticEnv): Trace {
+  const classAssignment = assignInternalMachineClassField(node, env, evalPortableValue);
+  if (classAssignment) return classAssignment;
   const target = node.props?.target as string;
   if (!hasBinding(env, target)) throw new Error(`assign: binding "${target}" does not exist`);
   const current = getBinding(env, target);
@@ -312,7 +325,7 @@ function validateLetShape(node: IRNode, env?: SemanticEnv): void {
   assertPortableMachineLetShape(parseRequiredExpression(node, 'value'), env);
 }
 
-type MachineLetSource = 'array' | 'map' | 'other' | 'record' | 'record-field';
+type MachineLetSource = 'array' | 'class' | 'map' | 'other' | 'record' | 'record-field';
 
 function evaluateLetValue(
   node: IRNode,
@@ -334,6 +347,8 @@ function evaluateLetValue(
   if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
     return { parsed, source: 'map', value: new Map() };
   }
+  const classValue = evalInternalMachineClassNew(node, env, evalPortableValue);
+  if (classValue) return { parsed, source: 'class', value: classValue };
   if (parsed.kind === 'new') throw new Error('let: class construction is outside the machine domain');
   if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
     return {
@@ -357,22 +372,13 @@ function runLet(node: IRNode, env: SemanticEnv): Trace {
   if (hasOwnBinding(env, name)) throw new Error(`let: binding "${name}" already exists`);
   const { parsed, source, value } = evaluateLetValue(node, env);
   if (source === 'array') defineFreshArrayBinding(env, name, value as readonly unknown[]);
-  else if (source === 'record') defineRecordBinding(env, name, value, recordArrayFields(value));
+  else if (source === 'record') defineRecordBinding(env, name, value, internalMachineRecordArrayFields(value));
   else if (source === 'record-field') {
     defineCapturedArrayBinding(env, name, value as readonly unknown[]);
   } else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
     // Alias metadata is handled by defineArrayAliasBinding.
   } else defineBinding(env, name, value);
   return { completion: { kind: 'normal' }, events: [{ op: 'assign', target: name, value }] };
-}
-
-function recordArrayFields(value: unknown): Set<string> {
-  const fields = new Set<string>();
-  if (!isPortableRecordValue(value)) return fields;
-  for (const [name, item] of Object.entries(value)) {
-    if (isRunnerPortableArrayValue(item) && item.every((entry) => isPortableScalar(entry))) fields.add(name);
-  }
-  return fields;
 }
 
 function validateFmtShape(node: IRNode, env?: SemanticEnv): void {
