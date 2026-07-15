@@ -6,6 +6,7 @@ import {
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../src/ir/semantics/internal-effect-machine.js';
+import { referenceRunSequence } from '../src/ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
 import { executeInternalRuntimeEnvelopeSync } from '../src/runtime-envelope/execute.js';
@@ -28,40 +29,250 @@ function arrayEnv(name: string, values: unknown[]) {
   return makeEnv({ bindings: new Map([[name, values]]) });
 }
 
-describe('private effect-machine array each frames', () => {
+describe('private effect-machine each frames', () => {
   beforeAll(() => registerAllContracts());
 
-  test('claims array and indexed-array shapes but leaves pair and entry shapes legacy', () => {
-    const body: IRNode[] = [{ type: 'print', props: { value: 'item' } }];
-    const arrayEach: IRNode = { type: 'each', props: { in: 'items', name: 'item' }, children: body };
-    const indexedEach: IRNode = {
-      type: 'each',
-      props: { in: 'items', index: 'index', name: 'item' },
-      children: body,
-    };
-    const pairEach: IRNode = {
-      type: 'each',
-      props: { in: 'items', pairKey: 'key', pairValue: 'item' },
-      children: body,
-    };
-    const asyncPairEach: IRNode = {
-      type: 'each',
-      props: { await: true, in: 'items', pairKey: 'key', pairValue: 'item' },
-      children: body,
-    };
-    const entryEach: IRNode = {
-      type: 'each',
-      props: { entries: true, entryValue: 'item', in: 'items' },
-      children: body,
-    };
-    const env = arrayEnv('items', [1]);
+  test('claims all six bounded each shapes', () => {
+    const cases: Array<{ env: ReturnType<typeof makeEnv>; node: IRNode }> = [
+      {
+        env: arrayEnv('items', [1]),
+        node: {
+          type: 'each',
+          props: { in: 'items', name: 'item' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: arrayEnv('items', [1]),
+        node: {
+          type: 'each',
+          props: { in: 'items', index: 'index', name: 'item' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: makeEnv({ bindings: new Map([['items', new Map([['a', 1]])]]) }),
+        node: {
+          type: 'each',
+          props: { in: 'items', pairKey: 'key', pairValue: 'item' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: makeEnv({ bindings: new Map([['items', new Map([['a', 1]])]]) }),
+        node: {
+          type: 'each',
+          props: { await: true, in: 'items', pairKey: 'key', pairValue: 'item' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: makeEnv({ bindings: new Map([['items', { a: 1 }]]) }),
+        node: {
+          type: 'each',
+          props: { entries: true, entryKey: 'item', in: 'items' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: makeEnv({ bindings: new Map([['items', { a: 1 }]]) }),
+        node: {
+          type: 'each',
+          props: { entries: true, entryValue: 'item', in: 'items' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+    ];
 
-    expect(isInternalEffectMachineEligible([arrayEach], env)).toBe(true);
-    expect(isInternalEffectMachineEligible([indexedEach], env)).toBe(true);
-    expect(selectInternalRuntimeEngine([arrayEach], env)).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
-    expect(isInternalEffectMachineEligible([pairEach], env)).toBe(false);
-    expect(isInternalEffectMachineEligible([asyncPairEach], env)).toBe(false);
-    expect(isInternalEffectMachineEligible([entryEach], env)).toBe(false);
+    for (const { env, node } of cases) expect(isInternalEffectMachineEligible([node], env)).toBe(true);
+    expect(selectInternalRuntimeEngine([cases[0].node], cases[0].env)).toBe(INTERNAL_EFFECT_MACHINE_FORMAT);
+  });
+
+  test('matches reference traces for bounded pair and entry shapes', async () => {
+    const cases: Array<{ env: () => ReturnType<typeof makeEnv>; node: IRNode }> = [
+      {
+        env: () =>
+          makeEnv({
+            bindings: new Map([
+              [
+                'items',
+                new Map([
+                  ['a', 1],
+                  ['b', 2],
+                ]),
+              ],
+            ]),
+          }),
+        node: {
+          type: 'each',
+          props: { in: 'items', pairKey: 'key', pairValue: 'item' },
+          children: [
+            { type: 'print', props: { value: 'key' } },
+            { type: 'print', props: { value: 'item' } },
+          ],
+        },
+      },
+      {
+        env: () =>
+          makeEnv({
+            bindings: new Map([
+              [
+                'items',
+                [
+                  ['a', 1],
+                  ['b', 2],
+                ],
+              ],
+            ]),
+          }),
+        node: {
+          type: 'each',
+          props: { await: true, in: 'items', pairKey: 'key', pairValue: 'item' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: () => makeEnv({ bindings: new Map([['items', { a: 1, b: 2 }]]) }),
+        node: {
+          type: 'each',
+          props: { entries: true, entryKey: 'item', in: 'items' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+      {
+        env: () => makeEnv({ bindings: new Map([['items', { a: 1, b: 2 }]]) }),
+        node: {
+          type: 'each',
+          props: { entries: true, entryValue: 'item', in: 'items' },
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      },
+    ];
+
+    for (const { env, node } of cases) {
+      const reference = referenceRunSequence([node], env());
+      const sync = runInternalEffectMachineSync([node], env(), machineOptions);
+      const asyncTrace = await runInternalEffectMachineAsync([node], env(), machineOptions);
+      expect(tracesEqual(sync, reference)).toBe(true);
+      expect(tracesEqual(asyncTrace, reference)).toBe(true);
+    }
+  });
+
+  test('rejects malformed pair and entry collections before an earlier capability effect', () => {
+    const cases = [
+      {
+        bindings: new Map<string, unknown>([['items', [['a', 1], ['malformed']]]]),
+        props: { in: 'items', pairKey: 'key', pairValue: 'item' },
+      },
+      {
+        bindings: new Map<string, unknown>([['items', [1, 2]]]),
+        props: { entries: true, entryValue: 'item', in: 'items' },
+      },
+    ];
+    for (const { bindings, props } of cases) {
+      let calls = 0;
+      const nodes: IRNode[] = [
+        { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+        {
+          type: 'each',
+          props,
+          children: [{ type: 'print', props: { value: 'item' } }],
+        },
+      ];
+      const env = makeEnv({ bindings, capabilities: { storage: { get: () => (calls += 1) } } });
+      expect(() => runInternalEffectMachineSync(nodes, env, machineOptions)).toThrow(/rejected each node/u);
+      expect(calls).toBe(0);
+    }
+  });
+
+  test('checks the shared budget before the next pair or entry iteration', () => {
+    const cases = [
+      {
+        bindings: new Map<string, unknown>([
+          [
+            'items',
+            new Map([
+              ['a', 1],
+              ['b', 2],
+            ]),
+          ],
+        ]),
+        props: { in: 'items', pairKey: 'key', pairValue: 'item' },
+      },
+      {
+        bindings: new Map<string, unknown>([['items', { a: 1, b: 2 }]]),
+        props: { entries: true, entryValue: 'item', in: 'items' },
+      },
+    ];
+    for (const { bindings, props } of cases) {
+      let calls = 0;
+      const node: IRNode = {
+        type: 'each',
+        props,
+        children: [{ type: 'capability', props: { input: 'item', namespace: 'test', operation: 'hit' } }],
+      };
+      const env = makeEnv({ bindings, capabilities: { test: { hit: () => (calls += 1) } } });
+      expect(() => runInternalEffectMachineSync([node], env, { iterationBudget: 1 })).toThrow(/budget exhausted/u);
+      expect(calls).toBe(1);
+    }
+  });
+
+  test('uses captured iteration intrinsics after an earlier capability poisons host globals', () => {
+    const cases: Array<{ binding: unknown; key: PropertyKey; owner: object; props: Record<string, unknown> }> = [
+      {
+        binding: new Map([['a', 1]]),
+        key: Symbol.iterator,
+        owner: Map.prototype,
+        props: { in: 'items', pairKey: 'key', pairValue: 'item' },
+      },
+      {
+        binding: { a: 1 },
+        key: 'keys',
+        owner: Object,
+        props: { entries: true, entryKey: 'item', in: 'items' },
+      },
+      {
+        binding: { a: 1 },
+        key: 'values',
+        owner: Object,
+        props: { entries: true, entryValue: 'item', in: 'items' },
+      },
+    ];
+    for (const { binding, key, owner, props } of cases) {
+      const original = Object.getOwnPropertyDescriptor(owner, key);
+      if (!original || !('value' in original) || typeof original.value !== 'function') {
+        throw new Error('expected a host iteration data method');
+      }
+      const method = original.value as (...args: unknown[]) => unknown;
+      let touches = 0;
+      const env = makeEnv({
+        bindings: new Map([['items', binding]]),
+        capabilities: {
+          test: {
+            poison: () => {
+              Object.defineProperty(owner, key, {
+                ...original,
+                value: function replacement(this: unknown, ...args: unknown[]) {
+                  touches += 1;
+                  return Reflect.apply(method, this, args);
+                },
+              });
+              return null;
+            },
+          },
+        },
+      });
+      const nodes: IRNode[] = [
+        { type: 'capability', props: { namespace: 'test', operation: 'poison' } },
+        { type: 'each', props, children: [{ type: 'print', props: { value: 'item' } }] },
+      ];
+      try {
+        expect(runInternalEffectMachineSync(nodes, env, machineOptions).completion).toEqual({ kind: 'normal' });
+        expect(touches).toBe(0);
+      } finally {
+        Object.defineProperty(owner, key, original);
+      }
+    }
   });
 
   test('rejects a non-array binding with an explicit array-shape diagnostic', () => {

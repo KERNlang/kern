@@ -5,6 +5,19 @@ import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.
 import { isPortableScalar } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, recordArrayFieldsForBinding, type SemanticEnv } from './semantic-env.js';
 
+const ARRAY_IS_ARRAY = Array.isArray;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
+const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
+const OBJECT_KEYS = Object.keys;
+const OBJECT_VALUES = Object.values;
+const REFLECT_APPLY = Reflect.apply;
+const MAP_ENTRIES = Map.prototype.entries;
+const MAP_SIZE_GETTER = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(Map.prototype, 'size')?.get;
+const SET_SIZE_GETTER = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(Set.prototype, 'size')?.get;
+const MAP_ITERATOR_NEXT = OBJECT_GET_PROTOTYPE_OF(
+  REFLECT_APPLY(MAP_ENTRIES, new Map(), []) as MapIterator<[unknown, unknown]>,
+).next as (this: MapIterator<[unknown, unknown]>) => IteratorResult<[unknown, unknown]>;
+
 export type EachShape = 'array' | 'array-indexed' | 'pair-sync' | 'pair-async' | 'entry-key' | 'entry-value';
 
 export interface EachProps {
@@ -68,28 +81,55 @@ export function eachPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
   return eachShapePreconditions(ir);
 }
 
-export function isInternalEffectMachineArrayEach(ir: IRNode): boolean {
-  if (!eachShapePreconditions(ir)) return false;
-  const shape = detectEachShape(asEachProps(ir));
-  return shape === 'array' || shape === 'array-indexed';
+export function isInternalEffectMachineEach(ir: IRNode): boolean {
+  return eachShapePreconditions(ir);
 }
 
-export function internalEffectMachineArrayEachLength(ir: IRNode, env: SemanticEnv): number {
-  if (!isInternalEffectMachineArrayEach(ir)) {
-    throw new Error('each: node is outside the internal array-each domain');
+export function internalEffectMachineEachIterationCount(ir: IRNode, env: SemanticEnv): number {
+  if (!isInternalEffectMachineEach(ir)) {
+    throw new Error('each: node is outside the internal effect-machine domain');
   }
-  const collection = resolveEachCollection(asEachProps(ir).in as string, env);
-  if (!Array.isArray(collection)) throw new Error('each array mode: `in=` must resolve to an array');
-  return collection.length;
+  const props = asEachProps(ir);
+  const shape = detectEachShape(props) as EachShape;
+  const collection = resolveEachCollection(props.in as string, env);
+  if (shape === 'array' || shape === 'array-indexed') {
+    if (!ARRAY_IS_ARRAY(collection)) throw new Error('each array mode: `in=` must resolve to an array');
+    return collection.length;
+  }
+  if (shape === 'pair-sync' || shape === 'pair-async') {
+    const size = collectionSize(MAP_SIZE_GETTER, collection);
+    if (size !== undefined) return size;
+    if (!ARRAY_IS_ARRAY(collection)) {
+      throw new Error('each pair-mode `in=` must resolve to a Map or array of [k, v] pairs');
+    }
+    for (let index = 0; index < collection.length; index += 1) {
+      const pair = collection[index];
+      if (!ARRAY_IS_ARRAY(pair) || pair.length !== 2) {
+        throw new Error('each pair-mode array element is not a [k, v] tuple');
+      }
+    }
+    return collection.length;
+  }
+  assertPlainObject(collection, shape);
+  return OBJECT_KEYS(collection as Record<string, unknown>).length;
+}
+
+function collectionSize(getter: (() => number) | undefined, collection: unknown): number | undefined {
+  if (!getter) return undefined;
+  try {
+    return REFLECT_APPLY(getter, collection, []) as number;
+  } catch {
+    return undefined;
+  }
 }
 
 function assertPlainObject(collection: unknown, shape: string): void {
   if (
     typeof collection !== 'object' ||
     collection === null ||
-    Array.isArray(collection) ||
-    collection instanceof Map ||
-    collection instanceof Set
+    ARRAY_IS_ARRAY(collection) ||
+    collectionSize(MAP_SIZE_GETTER, collection) !== undefined ||
+    collectionSize(SET_SIZE_GETTER, collection) !== undefined
   ) {
     throw new Error(`each ${shape} mode: \`in=\` must resolve to a plain object`);
   }
@@ -142,9 +182,9 @@ function* iterateCollection(
   shape: EachShape,
   collection: unknown,
   p: EachProps,
-  beforeArrayElementRead?: () => void,
+  beforeIteration?: () => void,
 ): Generator<EachIterationStep, void, unknown> {
-  if ((shape === 'array' || shape === 'array-indexed') && !Array.isArray(collection)) {
+  if ((shape === 'array' || shape === 'array-indexed') && !ARRAY_IS_ARRAY(collection)) {
     throw new Error('each array mode: `in=` must resolve to an array');
   }
   switch (shape) {
@@ -152,7 +192,7 @@ function* iterateCollection(
       const name = p.name as string;
       const values = collection as unknown[];
       for (let index = 0; index < values.length; index += 1) {
-        beforeArrayElementRead?.();
+        beforeIteration?.();
         const value = values[index];
         yield { bindings: [[name, value]], primary: [name, value] };
       }
@@ -163,7 +203,7 @@ function* iterateCollection(
       const index = p.index as string;
       const values = collection as unknown[];
       for (let valueIndex = 0; valueIndex < values.length; valueIndex += 1) {
-        beforeArrayElementRead?.();
+        beforeIteration?.();
         const value = values[valueIndex];
         yield {
           bindings: [
@@ -179,8 +219,14 @@ function* iterateCollection(
     case 'pair-async': {
       const keyName = p.pairKey as string;
       const valueName = p.pairValue as string;
-      if (collection instanceof Map) {
-        for (const [key, value] of collection) {
+      if (collectionSize(MAP_SIZE_GETTER, collection) !== undefined) {
+        const iterator = REFLECT_APPLY(MAP_ENTRIES, collection, []) as MapIterator<[unknown, unknown]>;
+        while (true) {
+          const result = REFLECT_APPLY(MAP_ITERATOR_NEXT, iterator, []) as IteratorResult<[unknown, unknown]>;
+          if (result.done) return;
+          beforeIteration?.();
+          const key = result.value[0];
+          const value = result.value[1];
           yield {
             bindings: [
               [keyName, key],
@@ -189,12 +235,15 @@ function* iterateCollection(
             primary: [valueName, value],
           };
         }
-      } else if (Array.isArray(collection)) {
-        for (const pair of collection) {
-          if (!Array.isArray(pair) || pair.length !== 2) {
+      } else if (ARRAY_IS_ARRAY(collection)) {
+        for (let index = 0; index < collection.length; index += 1) {
+          const pair = collection[index];
+          if (!ARRAY_IS_ARRAY(pair) || pair.length !== 2) {
             throw new Error('each pair-mode array element is not a [k, v] tuple');
           }
-          const [key, value] = pair as [unknown, unknown];
+          beforeIteration?.();
+          const key = pair[0];
+          const value = pair[1];
           yield {
             bindings: [
               [keyName, key],
@@ -211,7 +260,10 @@ function* iterateCollection(
     case 'entry-key': {
       const name = p.entryKey as string;
       assertPlainObject(collection, 'entry-key');
-      for (const key of Object.keys(collection as Record<string, unknown>)) {
+      const keys = OBJECT_KEYS(collection as Record<string, unknown>);
+      for (let index = 0; index < keys.length; index += 1) {
+        const key = keys[index];
+        beforeIteration?.();
         yield { bindings: [[name, key]], primary: [name, key] };
       }
       return;
@@ -219,7 +271,10 @@ function* iterateCollection(
     case 'entry-value': {
       const name = p.entryValue as string;
       assertPlainObject(collection, 'entry-value');
-      for (const value of Object.values(collection as Record<string, unknown>)) {
+      const values = OBJECT_VALUES(collection as Record<string, unknown>);
+      for (let index = 0; index < values.length; index += 1) {
+        const value = values[index];
+        beforeIteration?.();
         yield { bindings: [[name, value]], primary: [name, value] };
       }
       return;
@@ -231,7 +286,7 @@ function* iterateCollection(
 export function* iterateEachRuntimeSteps(
   ir: IRNode,
   env: SemanticEnv,
-  beforeArrayElementRead?: () => void,
+  beforeIteration?: () => void,
 ): Generator<EachIterationStep, void, unknown> {
   const p = asEachProps(ir);
   const shape = detectEachShape(p);
@@ -239,7 +294,7 @@ export function* iterateEachRuntimeSteps(
     throw new Error('each: invariant violated — preconditions passed but shape is null');
   }
   const collection = resolveEachCollection(p.in as string, env);
-  yield* iterateCollection(shape, collection, p, beforeArrayElementRead);
+  yield* iterateCollection(shape, collection, p, beforeIteration);
 }
 
 /** Compatibility surface for legacy sync and async reference runners. */
