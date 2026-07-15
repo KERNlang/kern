@@ -459,6 +459,22 @@ trusted-publishing/provenance configuration is inspected.
     The terminal `claude,codex,agy` review completed 3/3 with zero verified,
     needs-check, or speculative findings
     (`review-1784133690272-jea8yz-kern-5-r2-m3-24-terminal-post-bl`).
+  - [x] M3.25 caller-owned iteration-budget configuration: added one optional,
+    positive safe-integer budget to all four public source-runner APIs and the
+    `kern run --iteration-budget` surface. The exact value now reaches sync,
+    real-async, entry, and async-to-sync execution without an embedded default;
+    omission preserves compatibility selection. Loop, bounded-lambda, and
+    reachable-helper programs prove exact admission and exhaustion, while
+    invalid values reject before provider execution. The executable manifest
+    now records `iteration-budget` as unified, leaving only class state and
+    non-root environments deferred. `pnpm fitness:kern-5` passed end-to-end on
+    2026-07-15 with 432/432 conformance fixtures, 109/109 class fixtures, 233
+    native assertions, 48/48 checker fixtures, 39/39 validator verdicts, and a
+    browser wall of 128 modules / 1,384,412 raw / 305,749 gzip bytes / 75 ms
+    median execution. The `claude,codex,agy` review completed across its main
+    run and one focused timeout retry with zero findings
+    (`review-1784141350527-jna9fu-kern-5-r2-m3-25-iteration-budget`,
+    `review-1784141541689-hzqupd-kern-5-r2-m3-25-iteration-budget`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
