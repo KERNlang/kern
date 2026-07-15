@@ -3,11 +3,20 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
 import { assertDeferredMachineLeafKnownValues } from './deferred-expression-preflight.js';
+import { expressionV1Source } from './expression-v1-runtime.js';
 import {
   internalMachineDoTargetName,
   parseInternalMachineDo,
   runInternalMachineDo,
 } from './internal-effect-machine-do.js';
+import {
+  addInternalMachineExpressionBindings,
+  internalMachineExpressionBindings,
+} from './internal-effect-machine-expression-bindings.js';
+import {
+  assertInternalMachineExpressionV1Shape,
+  runInternalMachineExpressionV1,
+} from './internal-effect-machine-expression-v1.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import {
@@ -50,6 +59,7 @@ export const INTERNAL_EFFECT_MACHINE_LEAF_TYPES = Object.freeze([
   'break',
   'continue',
   'do',
+  'expression-v1',
   'fmt',
   'let',
   'print',
@@ -72,6 +82,7 @@ export function assertInternalEffectMachineLeafShape(node: IRNode): void {
   else if (node.type === 'break' || node.type === 'continue') {
     if (node.props?.label !== undefined) throw new Error(`${node.type}: labels are outside the machine domain`);
   } else if (node.type === 'do') parseInternalMachineDo(node);
+  else if (node.type === 'expression-v1') assertInternalMachineExpressionV1Shape(node);
   else if (node.type === 'fmt') validateFmtShape(node);
   else if (node.type === 'let') validateLetShape(node);
   else if (node.type === 'print') assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'));
@@ -81,7 +92,8 @@ export function assertInternalEffectMachineLeafShape(node: IRNode): void {
 
 export function assertInternalEffectMachineLeafShapePreflight(node: IRNode, env: SemanticEnv): void {
   assertInternalEffectMachineLeafShape(node);
-  const output = node.type === 'let' || node.type === 'fmt' ? node.props?.name : undefined;
+  const output =
+    node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1' ? node.props?.name : undefined;
   if (typeof output !== 'string') return;
   if (hasOwnBinding(env, output)) throw new Error(`binding "${output}" already exists`);
   defineBinding(env, output, null);
@@ -96,7 +108,11 @@ export function assertInternalEffectMachineLeafPreflight(
   const references = leafExpressionBindings(node);
   const output = leafOutputName(node);
   assertLeafDeferredCaughtUses(node, env, deferredBindings);
-  if ((node.type === 'let' || node.type === 'fmt') && output !== undefined && hasOwnBinding(env, output)) {
+  if (
+    (node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1') &&
+    output !== undefined &&
+    hasOwnBinding(env, output)
+  ) {
     throw new Error(`${node.type}: binding "${output}" already exists`);
   }
   if (
@@ -148,7 +164,11 @@ function assertLeafDeferredCaughtUses(node: IRNode, env: SemanticEnv, deferredBi
     assertDeferredCaughtUses(parseExpression(`\`${String(node.props?.template)}\``), env, deferredBindings);
     return;
   }
-  assertInternalMachineDeferredCaughtExpression(node.props?.value, env, deferredBindings);
+  assertInternalMachineDeferredCaughtExpression(
+    node.type === 'expression-v1' ? expressionV1Source(node) : node.props?.value,
+    env,
+    deferredBindings,
+  );
 }
 
 function isDeferredCaughtBinding(name: string, env: SemanticEnv, deferredBindings: ReadonlySet<string>): boolean {
@@ -201,7 +221,7 @@ function assertDeferredCaughtUses(node: ValueIR, env: SemanticEnv, deferredBindi
 function deferLeafOutput(node: IRNode, env: SemanticEnv, deferredBindings: Set<string>): void {
   const name = leafOutputName(node);
   if (typeof name !== 'string') return;
-  if (node.type === 'let' || node.type === 'fmt') defineBinding(env, name, null);
+  if (node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1') defineBinding(env, name, null);
   deferredBindings.add(name);
 }
 
@@ -209,7 +229,7 @@ function leafOutputName(node: IRNode): string | undefined {
   const name =
     node.type === 'assign'
       ? node.props?.target
-      : node.type === 'fmt' || node.type === 'let'
+      : node.type === 'fmt' || node.type === 'let' || node.type === 'expression-v1'
         ? node.props?.name
         : node.type === 'do'
           ? internalMachineDoTargetName(node)
@@ -223,60 +243,25 @@ function leafExpressionBindings(node: IRNode): Set<string> {
     const parsed = parseInternalMachineDo(node);
     if (parsed.kind === 'noop') return out;
     out.add(parsed.targetName);
-    if (parsed.kind === 'push') expressionBindings(parsed.element, out);
+    if (parsed.kind === 'push') addInternalMachineExpressionBindings(out, parsed.element);
     else {
-      expressionBindings(parsed.key, out);
-      expressionBindings(parsed.value, out);
+      addInternalMachineExpressionBindings(out, parsed.key);
+      addInternalMachineExpressionBindings(out, parsed.value);
     }
     return out;
   }
   if (node.type === 'fmt') {
     const parsed = parseExpression(`\`${String(node.props?.template)}\``);
     if (parsed.kind === 'tmplLit') {
-      for (const expression of parsed.expressions) expressionBindings(expression, out);
+      for (const expression of parsed.expressions) addInternalMachineExpressionBindings(out, expression);
     }
     return out;
   }
-  const raw = node.props?.value;
-  if (typeof raw === 'string' && raw !== '') addBindings(out, internalMachineExpressionBindings(raw));
+  const raw = node.type === 'expression-v1' ? expressionV1Source(node) : node.props?.value;
+  if (typeof raw === 'string' && raw !== '') {
+    for (const name of internalMachineExpressionBindings(raw)) out.add(name);
+  }
   return out;
-}
-
-export function internalMachineExpressionBindings(raw: string): ReadonlySet<string> {
-  const out = new Set<string>();
-  expressionBindings(parseExpression(raw), out);
-  return out;
-}
-
-function addBindings(target: Set<string>, source: ReadonlySet<string>): void {
-  for (const name of source) target.add(name);
-}
-
-function expressionBindings(node: ValueIR, out: Set<string>): void {
-  if (node.kind === 'ident') out.add(node.name);
-  else if (node.kind === 'unary') expressionBindings(node.argument, out);
-  else if (node.kind === 'binary') {
-    expressionBindings(node.left, out);
-    expressionBindings(node.right, out);
-  } else if (node.kind === 'conditional') {
-    expressionBindings(node.test, out);
-    expressionBindings(node.consequent, out);
-    expressionBindings(node.alternate, out);
-  } else if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    expressionBindings(node.expression, out);
-  } else if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) expressionBindings(expression, out);
-  } else if (node.kind === 'member') expressionBindings(node.object, out);
-  else if (node.kind === 'index') {
-    expressionBindings(node.object, out);
-    expressionBindings(node.index, out);
-  } else if (node.kind === 'call') {
-    for (const argument of node.args) expressionBindings(argument, out);
-  } else if (node.kind === 'arrayLit') {
-    for (const item of node.items) expressionBindings(item, out);
-  } else if (node.kind === 'objectLit') {
-    for (const entry of node.entries) expressionBindings('kind' in entry ? entry.argument : entry.value, out);
-  } else if (node.kind === 'new') expressionBindings(node.argument, out);
 }
 
 export function runInternalEffectMachineLeaf(node: IRNode, env: SemanticEnv): Trace {
@@ -289,6 +274,7 @@ export function runInternalEffectMachineLeaf(node: IRNode, env: SemanticEnv): Tr
   if (node.type === 'print') return runPrint(node, env);
   if (node.type === 'return') return runReturn(node, env);
   if (node.type === 'do') return runInternalMachineDo(node, env);
+  if (node.type === 'expression-v1') return runInternalMachineExpressionV1(node, env);
   return runThrow(node, env);
 }
 

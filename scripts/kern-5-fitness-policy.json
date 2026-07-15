@@ -20,7 +20,7 @@
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
     "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs",
     "check:source-runner-convergence": "node ./scripts/check-source-runner-convergence.mjs",
-    "test:source-runner-convergence": "pnpm --filter @kernlang/core build && node ./scripts/run-node-tests.mjs \"packages/core/tests/source-runner-engine.test.ts\" \"packages/core/tests/runtime-envelope-effect-machine-do.test.ts\" && node --test ./scripts/source-runner-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs"
+    "test:source-runner-convergence": "pnpm --filter @kernlang/core build && node ./scripts/run-node-tests.mjs \"packages/core/tests/source-runner-engine.test.ts\" \"packages/core/tests/runtime-envelope-effect-machine-do.test.ts\" \"packages/core/tests/runtime-envelope-effect-machine-expression-v1.test.ts\" && node --test ./scripts/source-runner-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs"
   },
   "gates": [
     {

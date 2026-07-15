@@ -153,6 +153,16 @@ export function evalRecordLiteralValue(
   return Object.freeze(out);
 }
 
+/** Record fields proven safe for the machine's nested array iteration domain. */
+export function recordArrayFieldsFromValue(value: unknown): Set<string> {
+  const fields = new Set<string>();
+  if (!isPortableRecordValue(value)) return fields;
+  for (const [name, item] of Object.entries(value)) {
+    if (isRunnerPortableArrayValue(item) && item.every((entry) => isPortableScalar(entry))) fields.add(name);
+  }
+  return fields;
+}
+
 export const PORTABLE_RECORD_FIELD_MISSING: unique symbol = Symbol('portableRecordFieldMissing');
 
 export interface PortableNestedArrayField {

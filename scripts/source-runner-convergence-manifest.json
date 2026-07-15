@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.20",
+  "milestone": "KERN-5-R2-M3.21",
   "owned": [
     {
       "id": "do",
       "kind": "node",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-do.test.ts"
-    }
-  ],
-  "deferred": [
+    },
     {
       "id": "expression-v1",
       "kind": "node",
-      "status": "legacy",
-      "followUp": "unassigned"
-    },
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-expression-v1.test.ts"
+    }
+  ],
+  "deferred": [
     {
       "id": "lambda",
       "kind": "node",

@@ -401,6 +401,21 @@ trusted-publishing/provenance configuration is inspected.
     2026-07-14. The terminal `claude,codex,agy` review completed 3/3 with zero
     verified findings (`review-1784058369015-oomdka`). R2 M3 remains open until
     the deferred ledger is empty and compatibility selection is removable.
+  - [x] M3.21 `expression-v1` machine ownership: extracted the existing scalar,
+    array, record, Decimal, and regex semantics into one registry-independent
+    runtime owner shared by the semantic oracle adapter and canonical effect
+    machine. Whole-tree preflight now validates expression shapes and output
+    bindings before any earlier capability effect, while source-runner
+    selection admits supported expression-v1 programs without catch-and-retry
+    fallback. The historical public two-argument regex evaluator remains
+    available through a reference adapter. The executable convergence manifest
+    now records `expression-v1` as unified while `lambda`, pair/entry `each`,
+    helper functions, class state, non-root environments, and implicit loop
+    budgets remain explicit blockers. `pnpm fitness:kern-5` passed end-to-end on
+    2026-07-14. The terminal `claude,codex,agy` review completed 3/3 with zero
+    verified findings (`review-1784062012773-h9ch34`); its sole performance nit
+    was adjudicated as deferred optimization because admission, precondition,
+    and execution intentionally retain separate fail-closed validation points.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

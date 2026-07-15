@@ -51,6 +51,8 @@ function restoreRegistry(): void {
 describe('M3.15 executable-envelope isolation', () => {
   afterEach(restoreRegistry);
 
+  const legacyEnvironment = () => makeEnv({ runnerFunctions: new Map([['helper', {}]]) as never });
+
   test('direct sync/async fail closed on legacy-only input while explicit compat preserves fallback', async () => {
     const nodes: IRNode[] = [
       { type: 'let', props: { name: 'xs', value: '[1]' } },
@@ -58,8 +60,8 @@ describe('M3.15 executable-envelope isolation', () => {
       { type: 'return', props: { value: 'res' } },
     ];
 
-    const directSync = executeInternalRuntimeEnvelopeSync(nodes, makeEnv(), enabled);
-    const directAsync = await executeInternalRuntimeEnvelopeAsync(nodes, makeEnv(), enabled);
+    const directSync = executeInternalRuntimeEnvelopeSync(nodes, legacyEnvironment(), enabled);
+    const directAsync = await executeInternalRuntimeEnvelopeAsync(nodes, legacyEnvironment(), enabled);
     for (const direct of [directSync, directAsync]) {
       expect(direct).toMatchObject({
         diagnostics: [{ code: 'unsupported-runtime-input' }],
@@ -68,8 +70,8 @@ describe('M3.15 executable-envelope isolation', () => {
       });
     }
 
-    const compatSync = executeInternalRuntimeEnvelopeCompatSync(nodes, makeEnv(), enabled);
-    const compatAsync = await executeInternalRuntimeEnvelopeCompatAsync(nodes, makeEnv(), enabled);
+    const compatSync = executeInternalRuntimeEnvelopeCompatSync(nodes, legacyEnvironment(), enabled);
+    const compatAsync = await executeInternalRuntimeEnvelopeCompatAsync(nodes, legacyEnvironment(), enabled);
     expect(compatSync).toMatchObject({
       completion: { kind: 'return' },
       outcome: 'success',
@@ -721,9 +723,9 @@ describe('M3.15 executable-envelope isolation', () => {
 
   test('handler and source-handler roots fail closed on legacy-only sync/async input', async () => {
     const body: IRNode[] = [
-      { type: 'let', props: { name: 'xs', value: '[1]' } },
-      { type: 'expression-v1', props: { name: 'res', expr: '1 + 2' } },
-      { type: 'return', props: { value: 'List.length(xs)' } },
+      { type: 'let', props: { name: 'pairs', value: '[[1,2]]' } },
+      { type: 'each', props: { in: 'pairs', pairKey: 'key', pairValue: 'value' }, children: [] },
+      { type: 'return', props: { value: '1' } },
     ];
     const entry = { body, parameters: [] };
     const handlerSync = executeInternalRuntimeHandlerSync(entry, [], makeEnv(), enabled);
@@ -738,9 +740,9 @@ describe('M3.15 executable-envelope isolation', () => {
     const source = [
       'fn name=append returns=number',
       '  handler lang="kern"',
-      '    let name=xs value="[1]"',
-      '    expression-v1 name=res expr="1 + 2"',
-      '    return value="List.length(xs)"',
+      '    let name=pairs value="[[1,2]]"',
+      '    each pairKey=key pairValue=value in="pairs"',
+      '    return value="1"',
     ].join('\n');
     const identity = { handlerName: 'append', sourcePath: 'app/main.kern' } as const;
     const sourceSync = executeInternalRuntimeSourceHandlerSync(source, identity, [], makeEnv(), enabled);

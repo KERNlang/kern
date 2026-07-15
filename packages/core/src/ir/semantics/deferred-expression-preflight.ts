@@ -4,12 +4,21 @@ import { assertPortableDecimalPow } from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { expressionV1Parsed } from './expression-v1-runtime.js';
 import { assertInternalMachineDoNamespaceAvailable, parseInternalMachineDo } from './internal-effect-machine-do.js';
-import { evalDecimalExpression, isDecimalExpression } from './portable-decimal-evaluator.js';
+import { evalDecimalExpression, isDecimalExpression, isDecimalValueExpression } from './portable-decimal-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableMapValue } from './portable-map.js';
 import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
+import {
+  isRegexGlobalMatchExpression,
+  isRegexMatchAllExpression,
+  isRegexMatchExpression,
+  isRegexReplaceExpression,
+  isRegexSplitExpression,
+  isRegexTestExpression,
+} from './portable-regex.js';
 import { isIntProvenancedExpr, portableTruthy } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
 
@@ -125,6 +134,10 @@ export function assertDeferredMachineLeafKnownValues(
     assertDeferredDo(node, env, deferredBindings);
     return;
   }
+  if (node.type === 'expression-v1') {
+    assertDeferredExpressionV1(node, env, deferredBindings);
+    return;
+  }
   if (node.type === 'fmt') {
     const parsed = parseExpression(`\`${String(node.props?.template)}\``);
     if (parsed.kind !== 'tmplLit') throw new Error('fmt: invalid template');
@@ -147,6 +160,45 @@ export function assertDeferredMachineLeafKnownValues(
   }
   const expression = node.type === 'throw' ? explicitErrorArgument(parsed) : parsed;
   if (expression) assertDeferredMachineScalarPreflight(expression, env, deferredBindings);
+}
+
+function assertDeferredExpressionV1(node: IRNode, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+  const parsed = expressionV1Parsed(node);
+  if (isDecimalValueExpression(parsed)) {
+    if (hasBinding(env, 'Decimal')) throw new Error('portable machine: namespace "Decimal" is shadowed');
+    assertDeferredDecimalOperand(parsed, env, deferredBindings);
+    return;
+  }
+  if (isRegexTestExpression(parsed)) {
+    if (hasBinding(env, 'RegExp')) throw new Error('portable machine: namespace "RegExp" is shadowed');
+    if (parsed.kind !== 'call') throw new Error('portable machine: invalid deferred regex test');
+    assertDeferredMachineScalarPreflight(parsed.args[0], env, deferredBindings);
+    return;
+  }
+  if (
+    isRegexMatchExpression(parsed) ||
+    isRegexGlobalMatchExpression(parsed) ||
+    isRegexMatchAllExpression(parsed) ||
+    isRegexSplitExpression(parsed) ||
+    isRegexReplaceExpression(parsed)
+  ) {
+    if (hasBinding(env, 'RegExp')) throw new Error('portable machine: namespace "RegExp" is shadowed');
+    if (parsed.kind !== 'call' || parsed.callee.kind !== 'member') {
+      throw new Error('portable machine: invalid deferred regex expression');
+    }
+    assertDeferredMachineScalarPreflight(parsed.callee.object, env, deferredBindings);
+    return;
+  }
+  if (parsed.kind === 'arrayLit') return;
+  if (parsed.kind === 'objectLit') {
+    for (const entry of parsed.entries) {
+      if (!('kind' in entry) && entry.value.kind !== 'arrayLit') {
+        assertDeferredMachineScalarPreflight(entry.value, env, deferredBindings);
+      }
+    }
+    return;
+  }
+  assertDeferredMachineScalarPreflight(parsed, env, deferredBindings);
 }
 
 function assertDeferredDo(node: IRNode, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {

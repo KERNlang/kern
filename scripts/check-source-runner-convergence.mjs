@@ -12,7 +12,6 @@ const FILES = Object.freeze({
 
 const REQUIRED_DEFERRED = Object.freeze({
   'each-pair-entry': ['node', 'partial'],
-  'expression-v1': ['node', 'legacy'],
   'helper-functions': ['environment', 'legacy'],
   'iteration-budget': ['configuration', 'compatibility'],
   lambda: ['node', 'legacy'],
@@ -92,7 +91,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.20') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.21') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -109,6 +108,18 @@ function validateManifest(text, errors) {
     errors.push('manifest must contain exactly one evidenced unified do owner');
   }
   if (manifest.owned.filter((item) => item?.id === 'do').length !== 1) errors.push('manifest do owner is duplicated');
+  const ownedExpression = manifest.owned.find((item) => item?.id === 'expression-v1');
+  if (
+    !exactKeys(ownedExpression, ['id', 'kind', 'status', 'evidence']) ||
+    ownedExpression.kind !== 'node' ||
+    ownedExpression.status !== 'unified' ||
+    ownedExpression.evidence !== 'packages/core/tests/runtime-envelope-effect-machine-expression-v1.test.ts'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified expression-v1 owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'expression-v1').length !== 1) {
+    errors.push('manifest expression-v1 owner is duplicated');
+  }
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -212,7 +223,7 @@ function validateDisposition(text, errors) {
   for (const [node, status] of [
     ['do', 'unified'],
     ['each', 'partial'],
-    ["'expression-v1'", 'legacy'],
+    ["'expression-v1'", 'unified'],
     ['lambda', 'legacy'],
   ]) {
     const pattern = new RegExp(`${node.replaceAll('-', '\\-')}\\s*:\\s*['\"]${status}['\"]`);

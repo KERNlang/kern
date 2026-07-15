@@ -76,7 +76,7 @@ test('rejects post-construction metadata replacement', () => {
   }
 });
 
-test('rejects blocker deletion and do ownership regression', () => {
+test('rejects blocker deletion and owned-node regressions', () => {
   const blockerErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
     manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'iteration-budget');
@@ -93,6 +93,16 @@ test('rejects blocker deletion and do ownership regression', () => {
     ),
   );
   assert.ok(doErrors.some((error) => error.includes('disposition for do')));
+
+  const expressionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
+      "'expression-v1': 'unified'",
+      "'expression-v1': 'legacy'",
+    ),
+  );
+  assert.ok(expressionErrors.some((error) => error.includes('disposition for')));
 });
 
 test('ignores forbidden-token text in comments while rejecting executable escapes', () => {
