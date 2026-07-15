@@ -16,6 +16,10 @@ function isDefaultPath(path: IRNode): boolean {
   return path.props?.default === true || path.props?.default === 'true';
 }
 
+export function branchHasDefaultPath(ir: IRNode): boolean {
+  return (ir.children ?? []).some(isDefaultPath);
+}
+
 function hasQuotedValue(path: IRNode): boolean {
   return path.__quotedProps?.includes('value') === true;
 }
