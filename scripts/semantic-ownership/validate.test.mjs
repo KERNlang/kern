@@ -12,6 +12,22 @@ function mutate(change, options) {
   return () => validateSemanticOwnership(copy, options);
 }
 
+const SYNC_RUNTIME_WITNESS = `    trace = executeSourceRunnerSync(handler.children ?? [], env, {
+      policy: 'compatible',
+      iterationBudget: options.iterationBudget,
+    });`;
+
+function replaceSyncRuntimeWitness(source, replacement) {
+  const firstIndex = source.indexOf(SYNC_RUNTIME_WITNESS);
+  assert.notEqual(firstIndex, -1, 'sync runtime witness fixture must match runner source');
+  assert.equal(
+    source.indexOf(SYNC_RUNTIME_WITNESS, firstIndex + SYNC_RUNTIME_WITNESS.length),
+    -1,
+    'sync runtime witness fixture must be unique',
+  );
+  return source.replace(SYNC_RUNTIME_WITNESS, replacement);
+}
+
 test('repository ownership policy is a bootstrap-dependent proof', () => {
   assert.equal(validateSemanticOwnership(structuredClone(policy)).proofLabel, 'BOOTSTRAP-DEPENDENT');
 });
@@ -55,9 +71,9 @@ test('current authority witness cannot drift', () => {
 
 test('comments cannot spoof a current authority witness', () => {
   const runner = readFileSync('packages/core/src/runner.ts', 'utf8');
-  const withoutSyncCall = runner.replace(
-    "trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
-    "trace = emptyTrace(); // executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' })",
+  const withoutSyncCall = replaceSyncRuntimeWitness(
+    runner,
+    "    trace = emptyTrace(); // executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' })",
   );
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
@@ -70,8 +86,10 @@ test('comments cannot spoof a current authority witness', () => {
 });
 
 test('dead same-named call outside runtime function cannot spoof authority witness', () => {
-  const runner = readFileSync('packages/core/src/runner.ts', 'utf8')
-    .replace("trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });", 'trace = emptyTrace();')
+  const runner = replaceSyncRuntimeWitness(
+    readFileSync('packages/core/src/runner.ts', 'utf8'),
+    '    trace = emptyTrace();',
+  )
     .concat("\nfunction deadWitnessProbe(env){ return executeSourceRunnerSync([], env, { policy: 'compatible' }); }\n");
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
@@ -102,9 +120,9 @@ test('local same-name function cannot spoof an imported authority witness', () =
 });
 
 test('nested local shadow cannot spoof an imported authority witness', () => {
-  const runner = readFileSync('packages/core/src/runner.ts', 'utf8').replace(
-    "trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
-    'trace = (() => { const executeSourceRunnerSync = emptyTrace; return executeSourceRunnerSync(); })();',
+  const runner = replaceSyncRuntimeWitness(
+    readFileSync('packages/core/src/runner.ts', 'utf8'),
+    '    trace = (() => { const executeSourceRunnerSync = emptyTrace; return executeSourceRunnerSync(); })();',
   );
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {
