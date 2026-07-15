@@ -10,6 +10,8 @@ const files = new Map(
     'packages/cli/src/commands/run-options.ts',
     'packages/cli/src/commands/run.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
@@ -97,44 +99,16 @@ test('rejects blocker deletion and owned-node regressions', () => {
   });
   assert.ok(budgetErrors.some((error) => error.includes('iteration-budget owner')));
 
-  const doErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "do: 'unified'",
-      "do: 'legacy'",
-    ),
-  );
+  const doErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "do: 'unified'", "do: 'legacy'"));
   assert.ok(doErrors.some((error) => error.includes('disposition for do')));
 
-  const expressionErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "'expression-v1': 'unified'",
-      "'expression-v1': 'legacy'",
-    ),
-  );
+  const expressionErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "'expression-v1': 'unified'", "'expression-v1': 'legacy'"));
   assert.ok(expressionErrors.some((error) => error.includes('disposition for')));
 
-  const eachErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "each: 'unified'",
-      "each: 'partial'",
-    ),
-  );
+  const eachErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "each: 'unified'", "each: 'partial'"));
   assert.ok(eachErrors.some((error) => error.includes('disposition for each')));
 
-  const lambdaErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "lambda: 'unified'",
-      "lambda: 'legacy'",
-    ),
-  );
+  const lambdaErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "lambda: 'unified'", "lambda: 'legacy'"));
   assert.ok(lambdaErrors.some((error) => error.includes('disposition for lambda')));
 
   const helperErrors = validate((mutated) => {
@@ -147,24 +121,37 @@ test('rejects blocker deletion and owned-node regressions', () => {
 
 test('rejects state-only class ownership regressions', () => {
   const eligibilityErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
-      'internalMachineClassGraphClaims(nodes, env) &&',
-      'true &&',
-    ),
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts', 'internalMachineClassGraphClaims(nodes, env) &&', 'true &&'),
   );
   assert.ok(eligibilityErrors.some((error) => error.includes('class graph claim')));
 
-  const ownershipErrors = validate((mutated) =>
+  const ownershipErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts', 'state?.classRegistry', 'undefined'));
+  assert.ok(ownershipErrors.some((error) => error.includes('state?.classRegistry')));
+
+  const mixingErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts', 'reachable helper/class mixing is outside this slice', 'removed reachable mixing guard'),
+  );
+  assert.ok(mixingErrors.some((error) => error.includes('reachable helper/class mixing')));
+
+  const metadataExpressionErrors = validate((mutated) =>
     replace(
       mutated,
       'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
-      'state?.classRegistry',
-      'undefined',
+      'helper calls in class-owned expressions are outside this slice',
+      'removed class metadata expression guard',
     ),
   );
-  assert.ok(ownershipErrors.some((error) => error.includes('state?.classRegistry')));
+  assert.ok(metadataExpressionErrors.some((error) => error.includes('class-owned expressions')));
+
+  const deferredScalarErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
+      'assertDeferredMachineScalarPreflight);',
+      'removedDeferredScalarPreflight);',
+    ),
+  );
+  assert.ok(deferredScalarErrors.some((error) => error.includes('deferred scalar validation')));
 
   const oracleErrors = validate((mutated) =>
     replace(
@@ -175,37 +162,28 @@ test('rejects state-only class ownership regressions', () => {
     ),
   );
   assert.ok(oracleErrors.some((error) => error.includes('machine class oracle')));
+
+  const initializationOrderErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+      'rejects a deferred constructor read before own-field initialization',
+      'removed constructor initialization-order oracle',
+    ),
+  );
+  assert.ok(initializationOrderErrors.some((error) => error.includes('machine class oracle')));
 });
 
 test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {
-  const missingRunner = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/runner.ts',
-      'iterationBudget: options.iterationBudget,',
-      'iterationBudget: undefined,',
-    ),
-  );
+  const missingRunner = validate((mutated) => replace(mutated, 'packages/core/src/runner.ts', 'iterationBudget: options.iterationBudget,', 'iterationBudget: undefined,'));
   assert.ok(missingRunner.some((error) => error.includes('options.iterationBudget')));
 
   const defaultedParser = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/cli/src/commands/run-options.ts',
-      'return parsePositiveSafeInteger(value);',
-      'return parsePositiveSafeInteger(value) ?? 10000;',
-    ),
+    replace(mutated, 'packages/cli/src/commands/run-options.ts', 'return parsePositiveSafeInteger(value);', 'return parsePositiveSafeInteger(value) ?? 10000;'),
   );
   assert.ok(defaultedParser.some((error) => error.includes('without a default')));
 
-  const missingCli = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/cli/src/commands/run.ts',
-      'iterationBudget: parsed.iterationBudget,',
-      'iterationBudget: undefined,',
-    ),
-  );
+  const missingCli = validate((mutated) => replace(mutated, 'packages/cli/src/commands/run.ts', 'iterationBudget: parsed.iterationBudget,', 'iterationBudget: undefined,'));
   assert.ok(missingCli.some((error) => error.includes('parsed.iterationBudget')));
 });
 

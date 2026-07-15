@@ -1,8 +1,8 @@
 # KERN 5 R2 M3.26 Same-Root State-Only Class Ownership
 
 **Status:** COMPLETE
-**Date:** 2026-07-15
-**Confidence:** 0.93
+**Date:** 2026-07-16
+**Confidence:** 0.99
 **Design challenge:** `tribunal-1784145734073-rml02a-kern-5-r2-m3-26-sequencing`
 (3/3 requested engines completed)
 
@@ -226,17 +226,23 @@ no retry. Non-root environment ownership remains the final transaction slice.
 | The admitted registry could remain the root map reference. | A suspension oracle proved that caller replacement could change later construction in the selected run. | Snapshot class metadata into machine state and resolve runtime shapes from that snapshot. |
 | Generic deferred-leaf preflight covered `new Class(deferred)`. | It evaluated deferred constructor arguments before capability completion. | Install a synthetic owned instance during shape-only preflight and defer the output without evaluating its constructor or field RHS. |
 | Owned map identity was sufficient for hostile class metadata. | Map ownership does not prove that its binding records are linker-created. | Add a private linker class-binding fact and reject unowned records before any property read. |
+| Any linked root function map implied helper/class mixing. | The entry function may be present without a reachable helper call. | Reject only reachable helper/class mixing and keep linked entry roots machine-eligible. |
+| Shape-only deferred class preflight could treat every constructor-assigned field as initialized. | That erased constructor assignment order and admitted reads before initialization. | Initialize synthetic fields sequentially and reject missing, uninitialized, and nested-allocation constructor expressions before provider dispatch. |
 
 ## Completion Evidence
 
-- `pnpm fitness:kern-5` passed on 2026-07-15: 432/432 cross-target
+- `pnpm fitness:kern-5` passed on the final post-review runtime state on
+  2026-07-16: 432/432 cross-target
   conformance, 109/109 class conformance, 233 native core assertions, 48/48
   checker fixtures, 39/39 self-host validator verdicts, and the full workspace,
   ABI, import-closure, convergence, browser, and app-behavior walls.
 - The required browser wall passed at 131 modules, 1,402,747 raw bytes,
   309,088 gzip bytes, 48 ms cold execution, and 79 ms median browser execution.
-- The terminal `claude,codex,agy` review completed 3/3
-  (`review-1784148530820-cgm3zg-kern-5-r2-m3-26-class-state`). Verified
-  deferred-preflight and hostile-metadata findings were fixed and covered by
-  focused regressions; the claimed void-`main` helper-registry blocker was
-  rejected against the linker source.
+- The terminal `claude,codex,agy` review chain completed 3/3 throughout. The
+  final post-fix pass was
+  `review-1784157448784-n8yhbw-kern-5-r2-m3-26-class-state-post`; Codex had no
+  findings, Agy had only adjudicated nits, and Claude's claimed selector gap
+  was rejected against the direct-eligibility call chain plus the passing
+  nested-mutation oracle. Earlier verified deferred-preflight,
+  initialization-order, linked-root, and hostile-metadata gaps were fixed with
+  focused regressions.

@@ -70,11 +70,7 @@ function nodeExpressionSources(node: IRNode): readonly string[] {
   const props = node.props ?? {};
   const sources: string[] = [];
   for (const key of ['cond', 'expr', 'from', 'in', 'input', 'on', 'step', 'to', 'value'] as const) {
-    if (
-      key === 'value' &&
-      node.type === 'path' &&
-      (node.props?.default === true || node.props?.default === 'true' || node.__quotedProps?.includes('value') === true)
-    ) {
+    if (key === 'value' && node.type === 'path' && (node.props?.default === true || node.props?.default === 'true' || node.__quotedProps?.includes('value') === true)) {
       continue;
     }
     const value = props[key];
@@ -88,11 +84,7 @@ function directNodeCalls(node: IRNode, names: ReadonlyMap<string, RunnerFunction
   for (const source of nodeExpressionSources(node)) valueCalls(parseExpression(source), names, out);
 }
 
-function collectNodeCalls(
-  nodes: readonly IRNode[],
-  names: ReadonlyMap<string, RunnerFunctionBinding>,
-  out: Set<string>,
-): void {
+function collectNodeCalls(nodes: readonly IRNode[], names: ReadonlyMap<string, RunnerFunctionBinding>, out: Set<string>): void {
   for (const node of nodes) {
     directNodeCalls(node, names, out);
     if (node.children) collectNodeCalls(node.children, names, out);
@@ -148,22 +140,19 @@ function assertFunctionBinding(key: string, fn: RunnerFunctionBinding, scope: Ru
 
 function helperScope(env: SemanticEnv): RunnerModuleScope | undefined {
   if (!env.runnerFunctions || env.runnerFunctions.size === 0) return undefined;
-  if (env.runnerClasses !== undefined && env.runnerClasses.size !== 0) {
-    throw new Error('machine helper: runner class state is outside this slice');
-  }
   const scope = runnerMachineRootScope(env.runnerFunctions, env.runnerClasses);
   if (!scope) throw new Error('machine helper: root scope is not linker-owned');
   return scope;
 }
 
-export function assertInternalMachineHelperGraph(
-  nodes: readonly IRNode[],
-  env: SemanticEnv,
-): InternalMachineHelperGraph {
+export function assertInternalMachineHelperGraph(nodes: readonly IRNode[], env: SemanticEnv): InternalMachineHelperGraph {
   const scope = helperScope(env);
   if (!scope) return { functions: new Map(), requiresIterationBudget: false };
   const pending = new Set<string>();
   collectNodeCalls(nodes, scope.functions, pending);
+  if (pending.size > 0 && scope.classes.size > 0) {
+    throw new Error('machine helper: reachable helper/class mixing is outside this slice');
+  }
   const functions = new Map<string, RunnerFunctionBinding>();
   let requiresIterationBudget = false;
   while (pending.size > 0) {

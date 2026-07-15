@@ -485,12 +485,17 @@ trusted-publishing/provenance configuration is inspected.
     accessor invocation. Methods, getters, inheritance, imported classes,
     helper/class mixing, nested allocation/mutation, and non-root environments
     remain explicit compatibility paths. `pnpm fitness:kern-5` passed
-    end-to-end on 2026-07-15 with 432/432 conformance, 109/109 class, 233 native
+    end-to-end on the final post-review state on 2026-07-16 with 432/432
+    conformance, 109/109 class, 233 native
     core assertions, 48/48 checker fixtures, 39/39 validator verdicts, and a
     browser wall of 131 modules / 1,402,747 raw / 309,088 gzip bytes / 79 ms
-    median execution. The terminal `claude,codex,agy` review completed 3/3;
-    every verified blocker was fixed with focused regressions
-    (`review-1784148530820-cgm3zg-kern-5-r2-m3-26-class-state`).
+    median execution. Deferred metadata, linked-root selection, field-read,
+    and constructor initialization-order gaps found during review were fixed
+    with focused regressions. The final terminal `claude,codex,agy` pass
+    completed 3/3; Codex reported no findings, Agy only nits, and Claude's
+    selector claim was adjudicated against the direct-eligibility call chain
+    and passing nested-mutation oracle
+    (`review-1784157448784-n8yhbw-kern-5-r2-m3-26-class-state-post`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

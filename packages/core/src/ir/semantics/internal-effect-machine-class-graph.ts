@@ -23,7 +23,10 @@ function snapshotNode(node: IRNode): IRNode {
 function snapshotClassBinding(cls: RunnerClassBinding): RunnerClassBinding {
   return {
     name: cls.name,
-    fields: cls.fields.map((field) => ({ name: field.name, value: field.value })),
+    fields: cls.fields.map((field) => ({
+      name: field.name,
+      value: field.value,
+    })),
     constructor: cls.constructor
       ? {
           name: cls.constructor.name,
@@ -54,10 +57,7 @@ function assertConstructor(cls: RunnerClassBinding): void {
   }
   const fields = new Set(cls.fields.map((field) => field.name));
   for (const node of ctor.body) {
-    const match =
-      node.type === 'assign' && typeof node.props?.target === 'string'
-        ? /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(node.props.target)
-        : null;
+    const match = node.type === 'assign' && typeof node.props?.target === 'string' ? /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(node.props.target) : null;
     if (
       !match ||
       !fields.has(match[1]) ||
@@ -101,26 +101,19 @@ function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerM
 export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachineClassGraph {
   const classes = env.runnerClasses;
   if (!classes || classes.size === 0) return { classes: new Map() };
-  if (env.runnerFunctions !== undefined && env.runnerFunctions.size !== 0) {
-    throw new Error('machine class: helper/class mixing is outside this slice');
-  }
   if (!env.runnerFunctions) throw new Error('machine class: root function scope is missing');
   const scope = runnerMachineRootScope(env.runnerFunctions, classes);
   if (!scope) throw new Error('machine class: root scope is not linker-owned');
   for (const [key, cls] of classes) assertClassBinding(key, cls, scope);
-  return { classes: new Map([...classes].map(([name, cls]) => [name, snapshotClassBinding(cls)])) };
+  return {
+    classes: new Map([...classes].map(([name, cls]) => [name, snapshotClassBinding(cls)])),
+  };
 }
 
 function isClassConstruction(node: IRNode, env: SemanticEnv): boolean {
   if (node.type !== 'let' || typeof node.props?.value !== 'string') return false;
   const value = parseExpression(node.props.value);
-  return (
-    value.kind === 'new' &&
-    value.argument.kind === 'call' &&
-    !value.argument.optional &&
-    value.argument.callee.kind === 'ident' &&
-    env.runnerClasses?.has(value.argument.callee.name) === true
-  );
+  return value.kind === 'new' && value.argument.kind === 'call' && !value.argument.optional && value.argument.callee.kind === 'ident' && env.runnerClasses?.has(value.argument.callee.name) === true;
 }
 
 function assertRootClassUsage(nodes: readonly IRNode[], env: SemanticEnv, depth = 0): void {
@@ -159,12 +152,7 @@ export function internalMachineClassGraphHasClasses(env: SemanticEnv): boolean {
 }
 
 export function internalMachineClassForNew(node: ValueIR, env: SemanticEnv): RunnerClassBinding | undefined {
-  if (
-    node.kind !== 'new' ||
-    node.argument.kind !== 'call' ||
-    node.argument.optional ||
-    node.argument.callee.kind !== 'ident'
-  ) {
+  if (node.kind !== 'new' || node.argument.kind !== 'call' || node.argument.optional || node.argument.callee.kind !== 'ident') {
     return undefined;
   }
   const admitted = internalEffectMachineStateForEnv(env)?.classRegistry?.get(node.argument.callee.name);

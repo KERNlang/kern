@@ -2,27 +2,20 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { internalMachineClassForNew } from './internal-effect-machine-class-graph.js';
-import {
-  bindInternalEffectMachineState,
-  internalEffectMachineStateForEnv,
-} from './internal-effect-machine-helper-state.js';
+import { internalMachineHelperCallInValue } from './internal-effect-machine-helper-graph.js';
+import { bindInternalEffectMachineState, internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { assertPortableScalar, isRunnerClassInstanceValue, type PortableScalar } from './portable-scalar-domain.js';
-import {
-  defineBinding,
-  getBinding,
-  hasBinding,
-  makeEnv,
-  type RunnerClassBinding,
-  type RunnerClassInstanceValue,
-  type SemanticEnv,
-} from './semantic-env.js';
+import { defineBinding, getBinding, hasBinding, makeEnv, type RunnerClassBinding, type RunnerClassInstanceValue, type SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
 const classInstanceOwner = Symbol('internalMachineClassInstanceOwner');
 const preflightClassOwner = Object.freeze({ kind: 'preflight-class-owner' });
-type OwnedClassInstance = RunnerClassInstanceValue & { [classInstanceOwner]?: object };
+type OwnedClassInstance = RunnerClassInstanceValue & {
+  [classInstanceOwner]?: object;
+};
+type DeferredScalarPreflight = (node: ValueIR, env: SemanticEnv, deferredBindings: ReadonlySet<string>) => void;
 
 function ownClassInstance(instance: RunnerClassInstanceValue, owner: object): RunnerClassInstanceValue {
   Object.defineProperty(instance, classInstanceOwner, {
@@ -34,28 +27,18 @@ function ownClassInstance(instance: RunnerClassInstanceValue, owner: object): Ru
   return instance;
 }
 
-function classNew(
-  node: IRNode,
-  env: SemanticEnv,
-): { readonly cls: RunnerClassBinding; readonly value: ValueIR } | undefined {
+function classNew(node: IRNode, env: SemanticEnv): { readonly cls: RunnerClassBinding; readonly value: ValueIR } | undefined {
   if (node.type !== 'let' || typeof node.props?.value !== 'string') return undefined;
   const value = parseExpression(node.props.value);
   const cls = internalMachineClassForNew(value, env);
   return cls ? { cls, value } : undefined;
 }
 
-function constructorArguments(
-  value: ValueIR,
-  cls: RunnerClassBinding,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): readonly PortableScalar[] {
+function constructorArguments(value: ValueIR, cls: RunnerClassBinding, env: SemanticEnv, evaluate: EvalPortableValue): readonly PortableScalar[] {
   if (value.kind !== 'new' || value.argument.kind !== 'call') throw new Error('machine class: expected construction');
   const params = cls.constructor?.params ?? [];
   if (value.argument.args.length !== params.length) {
-    throw new Error(
-      `machine class: constructor "${cls.name}" expects ${params.length} arguments, got ${value.argument.args.length}`,
-    );
+    throw new Error(`machine class: constructor "${cls.name}" expects ${params.length} arguments, got ${value.argument.args.length}`);
   }
   return value.argument.args.map((argument) => {
     assertPortableMachineScalarShape(argument, env);
@@ -63,11 +46,7 @@ function constructorArguments(
   });
 }
 
-function initializeFields(
-  cls: RunnerClassBinding,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): Record<string, unknown> {
+function initializeFields(cls: RunnerClassBinding, env: SemanticEnv, evaluate: EvalPortableValue): Record<string, unknown> {
   const fields = Object.create(null) as Record<string, unknown>;
   for (const field of cls.fields) {
     if (typeof field.value === 'string' && field.value !== '') {
@@ -79,12 +58,7 @@ function initializeFields(
   return fields;
 }
 
-function makeConstructorEnv(
-  cls: RunnerClassBinding,
-  instance: RunnerClassInstanceValue,
-  values: readonly PortableScalar[],
-  env: SemanticEnv,
-): SemanticEnv {
+function makeConstructorEnv(cls: RunnerClassBinding, instance: RunnerClassInstanceValue, values: readonly PortableScalar[], env: SemanticEnv): SemanticEnv {
   const params = cls.constructor?.params ?? [];
   return makeEnv({
     bindings: new Map(params.map((param, index) => [param, values[index]])),
@@ -104,7 +78,10 @@ function prepareInstance(
   env: SemanticEnv,
   evaluate: EvalPortableValue,
   owner: object,
-): { readonly constructorEnv: SemanticEnv; readonly instance: RunnerClassInstanceValue } {
+): {
+  readonly constructorEnv: SemanticEnv;
+  readonly instance: RunnerClassInstanceValue;
+} {
   const values = constructorArguments(value, cls, env, evaluate);
   const instance = ownClassInstance(
     {
@@ -115,7 +92,10 @@ function prepareInstance(
     },
     owner,
   );
-  return { constructorEnv: makeConstructorEnv(cls, instance, values, env), instance };
+  return {
+    constructorEnv: makeConstructorEnv(cls, instance, values, env),
+    instance,
+  };
 }
 
 export function preflightInternalMachineClassLet(
@@ -123,9 +103,19 @@ export function preflightInternalMachineClassLet(
   env: SemanticEnv,
   evaluate: EvalPortableValue,
   evaluateValues = true,
+  deferredBindings?: ReadonlySet<string>,
+  deferredScalarPreflight?: DeferredScalarPreflight,
 ): boolean {
   const resolved = classNew(node, env);
   if (!resolved) return false;
+  const constructorExpressions = (resolved.cls.constructor?.body ?? []).map((statement) => parseExpression(String(statement.props?.value)));
+  const fieldExpressions = resolved.cls.fields.flatMap((field) => (typeof field.value === 'string' && field.value !== '' ? [parseExpression(field.value)] : []));
+  const argumentExpressions = resolved.value.kind === 'new' && resolved.value.argument.kind === 'call' ? resolved.value.argument.args : [];
+  for (const expression of [...argumentExpressions, ...fieldExpressions, ...constructorExpressions]) {
+    if (internalMachineHelperCallInValue(expression, env)) {
+      throw new Error('machine class: helper calls in class-owned expressions are outside this slice');
+    }
+  }
   const prepared = evaluateValues
     ? prepareInstance(resolved.value, resolved.cls, env, evaluate, preflightClassOwner)
     : (() => {
@@ -136,14 +126,22 @@ export function preflightInternalMachineClassLet(
         if (resolved.value.argument.args.length !== params.length) {
           throw new Error(`machine class: constructor "${resolved.cls.name}" has invalid arity`);
         }
-        for (const argument of resolved.value.argument.args) assertPortableMachineScalarShape(argument, env);
-        for (const field of resolved.cls.fields) {
-          if (typeof field.value === 'string' && field.value !== '') {
-            assertPortableMachineScalarShape(parseExpression(field.value), env);
+        for (const argument of argumentExpressions) {
+          assertPortableMachineScalarShape(argument, env);
+          if (deferredBindings && deferredScalarPreflight) {
+            deferredScalarPreflight(argument, env, deferredBindings);
+          }
+        }
+        for (const expression of fieldExpressions) {
+          assertPortableMachineScalarShape(expression, env);
+          if (deferredBindings && deferredScalarPreflight) {
+            deferredScalarPreflight(expression, env, deferredBindings);
           }
         }
         const fields = Object.create(null) as Record<string, unknown>;
-        for (const field of resolved.cls.fields) fields[field.name] = null;
+        for (const field of resolved.cls.fields) {
+          fields[field.name] = typeof field.value === 'string' && field.value !== '' ? null : undefined;
+        }
         const instance = ownClassInstance(
           {
             __kernRunnerClassInstance: true,
@@ -164,20 +162,24 @@ export function preflightInternalMachineClassLet(
         };
       })();
   const { constructorEnv, instance } = prepared;
-  for (const statement of resolved.cls.constructor?.body ?? []) {
-    const expression = parseExpression(String(statement.props?.value));
+  const constructorDeferredBindings = deferredBindings ? new Set([...deferredBindings, ...(resolved.cls.constructor?.params ?? [])]) : undefined;
+  for (const [index, statement] of (resolved.cls.constructor?.body ?? []).entries()) {
+    const expression = constructorExpressions[index];
     assertPortableMachineScalarShape(expression, constructorEnv);
+    if (!evaluateValues && constructorDeferredBindings && deferredScalarPreflight) {
+      deferredScalarPreflight(expression, constructorEnv, constructorDeferredBindings);
+    }
     if (evaluateValues) assignInternalMachineClassField(statement, constructorEnv, evaluate);
+    else {
+      const field = /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(String(statement.props?.target))?.[1];
+      if (field) instance.fields[field] = null;
+    }
   }
   defineBinding(env, String(node.props?.name), instance);
   return true;
 }
 
-export function evalInternalMachineClassNew(
-  node: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): RunnerClassInstanceValue | undefined {
+export function evalInternalMachineClassNew(node: IRNode, env: SemanticEnv, evaluate: EvalPortableValue): RunnerClassInstanceValue | undefined {
   const resolved = classNew(node, env);
   if (!resolved) return undefined;
   const state = internalEffectMachineStateForEnv(env);
@@ -208,10 +210,7 @@ function classReceiver(name: string, env: SemanticEnv): RunnerClassInstanceValue
   return owner === preflightClassOwner || (state !== undefined && owner === state) ? value : undefined;
 }
 
-export function evalInternalMachineClassMember(
-  node: Extract<ValueIR, { kind: 'member' }>,
-  env: SemanticEnv,
-): PortableScalar | undefined {
+export function evalInternalMachineClassMember(node: Extract<ValueIR, { kind: 'member' }>, env: SemanticEnv): PortableScalar | undefined {
   if (node.optional || node.object.kind !== 'ident') return undefined;
   const receiver = classReceiver(node.object.name, env);
   if (!receiver) return undefined;
@@ -221,12 +220,7 @@ export function evalInternalMachineClassMember(
   return assertPortableScalar(receiver.fields[node.property], `field "${node.property}"`);
 }
 
-export function assignInternalMachineClassField(
-  node: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-  mutate = true,
-): Trace | undefined {
+export function assignInternalMachineClassField(node: IRNode, env: SemanticEnv, evaluate: EvalPortableValue, mutate = true): Trace | undefined {
   const target = node.props?.target;
   const match = typeof target === 'string' ? /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(target) : null;
   if (!match) return undefined;
@@ -245,5 +239,8 @@ export function assignInternalMachineClassField(
   assertPortableMachineScalarShape(expression, env);
   const value = mutate ? evaluate(expression, env) : null;
   if (mutate) receiver.fields[match[2]] = value;
-  return { completion: { kind: 'normal' }, events: [{ op: 'assign', target: targetName, value }] };
+  return {
+    completion: { kind: 'normal' },
+    events: [{ op: 'assign', target: targetName, value }],
+  };
 }

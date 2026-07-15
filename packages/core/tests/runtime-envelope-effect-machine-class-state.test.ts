@@ -1,24 +1,10 @@
 import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
-import {
-  makeEnv,
-  type RunnerClassBinding,
-  type RunnerClassMemberBinding,
-  type RunnerModuleScope,
-  type SemanticEnv,
-} from '../src/ir/semantics/semantic-env.js';
+import { makeEnv, type RunnerClassBinding, type RunnerClassMemberBinding, type RunnerModuleScope, type SemanticEnv } from '../src/ir/semantics/semantic-env.js';
 import { executeKernSource } from '../src/runner.js';
-import {
-  executeSourceRunnerAsync,
-  executeSourceRunnerSync,
-  SOURCE_RUNNER_ENGINE,
-  selectSourceRunnerEngine,
-} from '../src/runtime-envelope/source-runner-engine.js';
+import { executeSourceRunnerAsync, executeSourceRunnerSync, SOURCE_RUNNER_ENGINE, selectSourceRunnerEngine } from '../src/runtime-envelope/source-runner-engine.js';
 import type { IRNode } from '../src/types.js';
 
-function stateClassEnv(
-  overrides: Partial<SemanticEnv> = {},
-  classOverrides: Partial<RunnerClassBinding> = {},
-): SemanticEnv {
+function stateClassEnv(overrides: Partial<SemanticEnv> = {}, classOverrides: Partial<RunnerClassBinding> = {}): SemanticEnv {
   const functions: RunnerModuleScope['functions'] = new Map();
   const classes: RunnerModuleScope['classes'] = new Map();
   const scope: RunnerModuleScope = { classes, functions };
@@ -82,6 +68,20 @@ describe('M3.26 same-root state-only class ownership', () => {
     expect(executeKernSource(source)).toBe('1\n2\n');
   });
 
+  test('selects machine when the linked root function map contains the entry function', () => {
+    const env = stateClassEnv();
+    const scope = env.runnerClasses?.get('Box')?.module;
+    scope?.functions.set('main', {
+      body: stateProgram,
+      module: scope,
+      name: 'main',
+      params: [],
+      returns: 'void',
+    });
+
+    expect(selectSourceRunnerEngine(stateProgram, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+  });
+
   test('selects and executes construction plus own-field read/write on the machine', () => {
     expect(selectSourceRunnerEngine(stateProgram, stateClassEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.machine);
     expect(stdout(stateProgram, stateClassEnv())).toEqual(['1', '2']);
@@ -108,13 +108,13 @@ describe('M3.26 same-root state-only class ownership', () => {
   ] as const)('routes %s to compatibility before provider dispatch', (_label, classOverrides) => {
     let providerCalls = 0;
     const nodes: readonly IRNode[] = [
-      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+      {
+        type: 'capability',
+        props: { namespace: 'storage', operation: 'get' },
+      },
       ...stateProgram,
     ];
-    const env = stateClassEnv(
-      { capabilities: { storage: { get: () => ++providerCalls } } },
-      classOverrides as Partial<RunnerClassBinding>,
-    );
+    const env = stateClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } }, classOverrides as Partial<RunnerClassBinding>);
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(providerCalls).toBe(0);
@@ -133,10 +133,7 @@ describe('M3.26 same-root state-only class ownership', () => {
         },
       },
     );
-    const nodes: readonly IRNode[] = [
-      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-      ...stateProgram,
-    ];
+    const nodes: readonly IRNode[] = [{ type: 'capability', props: { namespace: 'storage', operation: 'get' } }, ...stateProgram];
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(providerCalls).toBe(0);
@@ -147,7 +144,12 @@ describe('M3.26 same-root state-only class ownership', () => {
       { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
       {
         type: 'capability',
-        props: { input: '{ prompt: box.value }', name: 'answer', namespace: 'llm', operation: 'complete' },
+        props: {
+          input: '{ prompt: box.value }',
+          name: 'answer',
+          namespace: 'llm',
+          operation: 'complete',
+        },
       },
       { type: 'assign', props: { target: 'box.value', value: 'answer' } },
       { type: 'return', props: { value: 'box.value' } },
@@ -166,13 +168,27 @@ describe('M3.26 same-root state-only class ownership', () => {
   test('defers class construction and field writes that consume capability results', () => {
     const results = ['seed', 'changed'];
     const nodes: readonly IRNode[] = [
-      { type: 'capability', props: { name: 'initial', namespace: 'storage', operation: 'get' } },
-      { type: 'let', props: { name: 'box', value: 'new Box(Text.length(initial))' } },
-      { type: 'capability', props: { name: 'updated', namespace: 'storage', operation: 'get' } },
-      { type: 'assign', props: { target: 'box.value', value: 'Text.length(updated)' } },
+      {
+        type: 'capability',
+        props: { name: 'initial', namespace: 'storage', operation: 'get' },
+      },
+      {
+        type: 'let',
+        props: { name: 'box', value: 'new Box(Text.length(initial))' },
+      },
+      {
+        type: 'capability',
+        props: { name: 'updated', namespace: 'storage', operation: 'get' },
+      },
+      {
+        type: 'assign',
+        props: { target: 'box.value', value: 'Text.length(updated)' },
+      },
       { type: 'return', props: { value: 'box.value' } },
     ];
-    const env = stateClassEnv({ capabilities: { storage: { get: () => results.shift() } } });
+    const env = stateClassEnv({
+      capabilities: { storage: { get: () => results.shift() } },
+    });
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
     expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
@@ -204,7 +220,14 @@ describe('M3.26 same-root state-only class ownership', () => {
       releaseProvider = resolve;
     });
     const nodes: readonly IRNode[] = [
-      { type: 'capability', props: { input: '{ prompt: 0 }', namespace: 'llm', operation: 'complete' } },
+      {
+        type: 'capability',
+        props: {
+          input: '{ prompt: 0 }',
+          namespace: 'llm',
+          operation: 'complete',
+        },
+      },
       { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
       { type: 'return', props: { value: 'box.value' } },
     ];
@@ -234,7 +257,12 @@ describe('M3.26 same-root state-only class ownership', () => {
     const nodes: readonly IRNode[] = [
       {
         type: 'capability',
-        props: { input: '{ prompt: 0 }', name: 'answer', namespace: 'llm', operation: 'complete' },
+        props: {
+          input: '{ prompt: 0 }',
+          name: 'answer',
+          namespace: 'llm',
+          operation: 'complete',
+        },
       },
       { type: 'let', props: { name: 'box', value: 'new Box(answer + 1)' } },
       { type: 'assign', props: { target: 'box.value', value: 'answer + 2' } },
@@ -247,6 +275,99 @@ describe('M3.26 same-root state-only class ownership', () => {
     });
 
     expect(result.completion).toEqual({ kind: 'return', value: 4 });
+  });
+
+  test.each([
+    ['helper call', 'identity(value)'],
+    ['missing binding', 'missing'],
+    ['missing own field', 'this.other'],
+    ['nested class allocation', 'new Box(2)'],
+  ])('rejects deferred constructor %s before provider dispatch', (_label, value) => {
+    let providerCalls = 0;
+    const env = stateClassEnv(
+      { capabilities: { storage: { get: () => ++providerCalls } } },
+      {
+        constructor: {
+          body: [{ type: 'assign', props: { target: 'this.value', value } }],
+          name: 'constructor',
+          ownerClass: 'Box',
+          params: ['value'],
+        },
+      },
+    );
+    if (value === 'identity(value)') {
+      const scope = env.runnerClasses?.get('Box')?.module;
+      scope?.functions.set('identity', {
+        body: [{ type: 'return', props: { value: 'value' } }],
+        module: scope,
+        name: 'identity',
+        params: ['value'],
+        returns: 'number',
+      });
+    }
+    const nodes: readonly IRNode[] = [
+      {
+        type: 'capability',
+        props: { name: 'answer', namespace: 'storage', operation: 'get' },
+      },
+      { type: 'let', props: { name: 'box', value: 'new Box(answer)' } },
+      { type: 'return', props: { value: 'box.value' } },
+    ];
+
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(providerCalls).toBe(0);
+  });
+
+  test('rejects a deferred constructor read before own-field initialization', () => {
+    let providerCalls = 0;
+    const env = stateClassEnv(
+      { capabilities: { storage: { get: () => ++providerCalls } } },
+      {
+        constructor: {
+          body: [
+            {
+              type: 'assign',
+              props: { target: 'this.value', value: 'this.other' },
+            },
+            { type: 'assign', props: { target: 'this.other', value: 'value' } },
+          ],
+          name: 'constructor',
+          ownerClass: 'Box',
+          params: ['value'],
+        },
+        fields: [{ name: 'value' }, { name: 'other' }],
+      },
+    );
+    const nodes: readonly IRNode[] = [
+      {
+        type: 'capability',
+        props: { name: 'answer', namespace: 'storage', operation: 'get' },
+      },
+      { type: 'let', props: { name: 'box', value: 'new Box(answer)' } },
+      { type: 'return', props: { value: 'box.value' } },
+    ];
+
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(providerCalls).toBe(0);
+  });
+
+  test.each([
+    ['missing', 'other', {}],
+    ['uninitialized', 'other', { fields: [{ name: 'value' }, { name: 'other' }] }],
+  ])('rejects deferred %s class field reads before provider dispatch', (_label, field, classOverrides) => {
+    let providerCalls = 0;
+    const env = stateClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } }, classOverrides as Partial<RunnerClassBinding>);
+    const nodes: readonly IRNode[] = [
+      {
+        type: 'capability',
+        props: { name: 'answer', namespace: 'storage', operation: 'get' },
+      },
+      { type: 'let', props: { name: 'box', value: 'new Box(answer)' } },
+      { type: 'return', props: { value: `box.${field}` } },
+    ];
+
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(providerCalls).toBe(0);
   });
 
   test('rejects an unowned class binding without invoking its accessors', () => {
@@ -286,9 +407,7 @@ describe('M3.26 same-root state-only class ownership', () => {
       params: ['value'],
       returns: 'number',
     });
-    expect(selectSourceRunnerEngine([{ type: 'print', props: { value: 'identity(1)' } }], env, {})).toBe(
-      SOURCE_RUNNER_ENGINE.legacy,
-    );
+    expect(selectSourceRunnerEngine([{ type: 'print', props: { value: 'identity(1)' } }], env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
   });
 
   test('routes nested class mutation to compatibility before provider dispatch', () => {
@@ -302,7 +421,9 @@ describe('M3.26 same-root state-only class ownership', () => {
         children: [{ type: 'assign', props: { target: 'box.value', value: '2' } }],
       },
     ];
-    const env = stateClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
+    const env = stateClassEnv({
+      capabilities: { storage: { get: () => ++providerCalls } },
+    });
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(providerCalls).toBe(0);
