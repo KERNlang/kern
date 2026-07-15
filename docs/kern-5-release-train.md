@@ -445,6 +445,20 @@ trusted-publishing/provenance configuration is inspected.
     fitness:kern-5` passed end-to-end on 2026-07-15 after the current-roster
     review findings were fixed; five of six engines returned and Kimi timed out
     (`review-1784108789206-i2rjfh-m3-23-lambda-review-fixes-terminal`).
+  - [x] M3.24 same-root helper machine ownership: PR #530 moved reachable,
+    synchronous, pure KERN helpers onto canonical effect-machine sequence
+    re-entry with per-run registry, recursion, cache, and shared iteration
+    state. Unsupported graphs still select compatibility before execution;
+    imported/effectful/async helpers, runner classes, non-root environments,
+    and implicit iteration budgets remain deferred. Post-merge hardening
+    isolated overlapping async runs sharing one environment, required an
+    explicit portable return on every helper path, preserved machine state for
+    `Text` integer indexes, and proved exact nested-loop budget charging.
+    `pnpm fitness:kern-5` passed end-to-end on 2026-07-15 with 432/432
+    conformance, 109/109 class, 48/48 checker, and 39/39 self-host verdicts.
+    The terminal `claude,codex,agy` review completed 3/3 with zero verified,
+    needs-check, or speculative findings
+    (`review-1784133690272-jea8yz-kern-5-r2-m3-24-terminal-post-bl`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

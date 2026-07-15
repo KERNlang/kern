@@ -1,6 +1,6 @@
 # KERN 5 R2 M3.24 Same-Root Helper Machine Ownership
 
-**Status:** IMPLEMENTED — READY FOR PR
+**Status:** M3.24 MERGED — POST-MERGE HARDENING READY FOR PR
 **Date:** 2026-07-15
 **Confidence:** 0.99
 **Design challenges:** Agon tribunals
@@ -104,7 +104,7 @@ available at the expression leaf where a helper is invoked.
 | Body owner | `runInternalEffectMachineSequence`, sharing the caller's state | `internal-effect-machine-sequence.ts:179-233` | PROPOSED |
 | Preflight | every reachable body and call edge validates before root provider invocation | acceptance criteria | PROPOSED |
 | Reachability | unused unsupported helpers do not block an otherwise machine-owned program | existing executable-handler reachability pattern in `packages/core/src/runner.ts:832-849` | PROPOSED |
-| Arguments | owned portable scalar, array, record, map, and Decimal values; no class/host/function values | existing runner portable domain | PROPOSED |
+| Arguments | owned portable scalar, array, and plain-record values; Map, Decimal, class, host, and function values do not cross the helper boundary | machine helper portable domain | PROPOSED |
 | Return | explicit return of an owned portable value; scalar call positions additionally require scalar | existing reference assertions at `portable-reference-evaluator.ts:373-393` | PROPOSED |
 | Recursion | direct/mutual same-root recursion retains the existing depth contract and never falls back after selection | reference depth guard at `portable-reference-evaluator.ts:335-338` | PROPOSED |
 | Effects | helper `print` and `capability` nodes are outside the pure-helper graph | acceptance criteria | PROPOSED |
@@ -243,9 +243,8 @@ a catch-and-retry path.
 - `pnpm fitness:kern-5` passed the complete current fitness wall, including
   432/432 conformance fixtures, 109/109 class fixtures, 48/48 capstone checker
   fixtures, 39/39 self-host validator verdicts, and all app/drift checks.
-- The required browser budget passed at 128 modules, 1,383,753 raw bytes,
-  305,750 gzip bytes, 51 ms cold import+execute, and 79 ms median browser
-  import+execute.
+- The required browser budget passed at 128 modules, 1,384,642 raw bytes,
+  305,900 gzip bytes, and 77 ms import+execute.
 - Full-roster Agon review run
   `review-1784125207615-08sv17-kern-5-r2-m3-24-helper-machine-o` completed on
   four engines; Claude errored and agy timed out. The completed reviewers found
@@ -253,6 +252,20 @@ a catch-and-retry path.
   were reproduced and fixed.
 - Targeted post-fix Agon review
   `review-1784126406523-z3h7a8-kern-5-r2-m3-24-post-fix` returned no findings.
+- After PR #530 merged, post-merge review hardening moved helper call caches
+  into per-run machine state, limited private state binding to generator
+  advancement, required explicit portable returns on every helper path, and
+  preserved machine state during `Text.charAt`/`Text.slice` integer-index
+  evaluation. Regression coverage includes overlapping async runs sharing one
+  `SemanticEnv`, no-return and partial-return helpers, defaulted exhaustive
+  branches, nested helper-loop budget charging, and helper-derived text
+  indexes.
+- The post-hardening `pnpm fitness:kern-5` wall passed, including 432/432
+  conformance fixtures, 109/109 class fixtures, 48/48 checker fixtures, and
+  39/39 self-host validator verdicts. Terminal Agon review
+  `review-1784133690272-jea8yz-kern-5-r2-m3-24-terminal-post-bl` completed 3/3
+  on `claude,codex,agy` with zero verified, needs-check, or speculative
+  findings; its three nits did not identify correctness defects.
 
 ## Out of Scope
 
