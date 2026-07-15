@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const FILES = Object.freeze({
+  cli: 'packages/cli/src/commands/run.ts',
+  cliOptions: 'packages/cli/src/commands/run-options.ts',
   disposition: 'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
   engine: 'packages/core/src/runtime-envelope/source-runner-engine.ts',
   manifest: 'scripts/source-runner-convergence-manifest.json',
@@ -11,7 +13,6 @@ const FILES = Object.freeze({
 });
 
 const REQUIRED_DEFERRED = Object.freeze({
-  'iteration-budget': ['configuration', 'compatibility'],
   'non-root-environment': ['environment', 'legacy'],
   'runner-classes-state': ['environment', 'legacy'],
 });
@@ -88,7 +89,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.24') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.25') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -153,6 +154,18 @@ function validateManifest(text, errors) {
   if (manifest.owned.filter((item) => item?.id === 'helper-functions').length !== 1) {
     errors.push('manifest helper-functions owner is duplicated');
   }
+  const ownedBudget = manifest.owned.find((item) => item?.id === 'iteration-budget');
+  if (
+    !exactKeys(ownedBudget, ['id', 'kind', 'status', 'evidence']) ||
+    ownedBudget.kind !== 'configuration' ||
+    ownedBudget.status !== 'unified' ||
+    ownedBudget.evidence !== 'packages/core/tests/runner-iteration-budget.test.ts'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified iteration-budget owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'iteration-budget').length !== 1) {
+    errors.push('manifest iteration-budget owner is duplicated');
+  }
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -174,6 +187,21 @@ function validateManifest(text, errors) {
 
 function validateRunner(text, errors) {
   const source = parseSource(FILES.runner, text);
+  const runnerOptions = descendants(
+    source,
+    (node) => ts.isInterfaceDeclaration(node) && node.name.text === 'ExecuteKernSourceOptions',
+  )[0];
+  const budgetMembers = runnerOptions?.members.filter((member) => member.name?.getText() === 'iterationBudget') ?? [];
+  const budgetMember = budgetMembers[0];
+  if (
+    budgetMembers.length !== 1 ||
+    !ts.isPropertySignature(budgetMember) ||
+    budgetMember.questionToken === undefined ||
+    budgetMember.type?.kind !== ts.SyntaxKind.NumberKeyword ||
+    !budgetMember.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword)
+  ) {
+    errors.push('ExecuteKernSourceOptions must expose one readonly optional numeric iterationBudget');
+  }
   const contracts = [
     ['executeParsedKernHandler', 'executeSourceRunnerSync', 'referenceRunSequence'],
     ['executeKernSourceAsyncWithEntry', 'executeSourceRunnerAsync', 'asyncReferenceRunSequence'],
@@ -187,6 +215,21 @@ function validateRunner(text, errors) {
     const calls = callsIn(fn);
     if (calls.filter((name) => name === selectorCall).length !== 1) {
       errors.push(`${functionName} must call ${selectorCall} exactly once`);
+    }
+    const selectorCalls = descendants(
+      fn,
+      (node) => ts.isCallExpression(node) && node.expression.getText() === selectorCall,
+    );
+    const selectorOptions = selectorCalls[0]?.arguments[2];
+    const budgetProperties = selectorOptions && ts.isObjectLiteralExpression(selectorOptions)
+      ? selectorOptions.properties.filter((property) => property.name?.getText() === 'iterationBudget')
+      : [];
+    if (
+      budgetProperties.length !== 1 ||
+      !ts.isPropertyAssignment(budgetProperties[0]) ||
+      budgetProperties[0].initializer.getText() !== 'options.iterationBudget'
+    ) {
+      errors.push(`${functionName} must forward options.iterationBudget exactly once to ${selectorCall}`);
     }
     if (calls.includes(forbiddenCall)) errors.push(`${functionName} directly calls ${forbiddenCall}`);
     const makeEnvCalls = descendants(
@@ -215,6 +258,64 @@ function validateRunner(text, errors) {
         ['runnerFunctions', 'runnerClasses', 'runnerCallStack', 'runnerCallCache'].includes(propertyName(node.left)),
     );
     if (unsafeAssignment.length > 0) errors.push(`${functionName} replaces owned runner metadata after makeEnv`);
+  }
+  const asyncFn = findFunction(source, 'executeKernSourceAsyncWithEntry');
+  const syncOptions = asyncFn
+    ? descendants(
+        asyncFn,
+        (node) => ts.isVariableDeclaration(node) && node.name.getText() === 'syncOptions',
+      )[0]?.initializer
+    : undefined;
+  const delegatedBudget = syncOptions && ts.isObjectLiteralExpression(syncOptions)
+    ? syncOptions.properties.filter((property) => property.name?.getText() === 'iterationBudget')
+    : [];
+  if (
+    delegatedBudget.length !== 1 ||
+    !ts.isPropertyAssignment(delegatedBudget[0]) ||
+    delegatedBudget[0].initializer.getText() !== 'options.iterationBudget'
+  ) {
+    errors.push('executeKernSourceAsyncWithEntry must forward iterationBudget through sync delegation');
+  }
+}
+
+function validateCli(text, optionsText, errors) {
+  const source = parseSource(FILES.cli, text);
+  const optionsSource = parseSource(FILES.cliOptions, optionsText);
+  const contracts = [
+    ['executeKernSource', 'executeKernSourceFromRunner', 'options.iterationBudget'],
+    ['executeKernSourceAsync', 'executeKernSourceAsyncFromRunner', 'options.iterationBudget'],
+    ['runRun', 'executeKernSource', 'parsed.iterationBudget'],
+    ['runRun', 'executeKernSourceAsync', 'parsed.iterationBudget'],
+  ];
+  for (const [functionName, callName, expected] of contracts) {
+    const fn = findFunction(source, functionName);
+    const calls = fn
+      ? descendants(fn, (node) => ts.isCallExpression(node) && node.expression.getText() === callName)
+      : [];
+    const options = calls[0]?.arguments.at(-1);
+    const budgetProperties = options && ts.isObjectLiteralExpression(options)
+      ? options.properties.filter((property) => property.name?.getText() === 'iterationBudget')
+      : [];
+    if (
+      calls.length !== 1 ||
+      budgetProperties.length !== 1 ||
+      !ts.isPropertyAssignment(budgetProperties[0]) ||
+      budgetProperties[0].initializer.getText() !== expected
+    ) {
+      errors.push(`${functionName} must forward ${expected} exactly once to ${callName}`);
+    }
+  }
+  const parseFn = findFunction(source, 'parseRunArgs');
+  if (!parseFn || callsIn(parseFn).filter((call) => call === 'parseIterationBudget').length !== 1) {
+    errors.push('parseRunArgs must parse iterationBudget exactly once');
+  }
+  const budgetParser = findFunction(optionsSource, 'parseIterationBudget');
+  if (
+    !budgetParser ||
+    callsIn(budgetParser).filter((call) => call === 'parsePositiveSafeInteger').length !== 1 ||
+    descendants(budgetParser, ts.isNumericLiteral).length > 0
+  ) {
+    errors.push('parseIterationBudget must delegate to the positive-safe-integer parser without a default');
   }
 }
 
@@ -276,6 +377,7 @@ export function validateSourceRunnerConvergence(readText) {
   }
   if (contents.manifest) validateManifest(contents.manifest, errors);
   if (contents.runner) validateRunner(contents.runner, errors);
+  if (contents.cli && contents.cliOptions) validateCli(contents.cli, contents.cliOptions, errors);
   if (contents.engine) validateEngine(contents.engine, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;

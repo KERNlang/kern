@@ -110,6 +110,8 @@ export interface ExecuteKernSourceOptions {
   capabilities?: KernRunnerCapabilities;
   /** Opaque metadata passed to injected capability handlers. */
   capabilityContext?: KernRunnerCapabilityContext;
+  /** Caller-owned positive safe-integer budget for machine loop steps. */
+  readonly iterationBudget?: number;
   /**
    * Browser-safe module loading hooks for `use path="..."` linking. Callers
    * decide how paths are canonicalized and contained; the runner memoizes by
@@ -1037,13 +1039,7 @@ function stdoutFromTrace(trace: Trace): string {
   throw new KernRunnerError('control statement escaped main');
 }
 
-/**
- * Browser-safe source executor for the native runner preview.
- *
- * Parses a `.kern` source string, resolves the single void `main`, executes its
- * `handler lang="kern"` body through the reference runner, and returns replayed
- * stdout bytes. It performs no filesystem, process, or Node-only work.
- */
+/** Browser-safe native source execution through the source-runner selector. */
 export function executeKernSource(source: string, options: ExecuteKernSourceOptions = {}): string {
   const records = linkRunnerModules(source, options);
   const rootRecord = linkedRoot(records, options);
@@ -1086,7 +1082,10 @@ function executeParsedKernHandler(
       runnerCallStack: [],
       runnerCallCache: new Map(),
     });
-    trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });
+    trace = executeSourceRunnerSync(handler.children ?? [], env, {
+      policy: 'compatible',
+      iterationBudget: options.iterationBudget,
+    });
   } catch (err) {
     if (err instanceof SourceRunnerLegacyError) throw new KernRunnerError(err.message);
     if (err instanceof InternalEffectMachineError) {
@@ -1259,6 +1258,7 @@ async function executeKernSourceAsyncWithEntry(
       });
       trace = await executeSourceRunnerAsync(handler.children ?? [], env, {
         policy: 'compatible',
+        iterationBudget: options.iterationBudget,
         asyncCapabilities: options.asyncCapabilities,
         capabilityTimeoutMs: options.capabilityTimeoutMs,
       });
@@ -1283,15 +1283,13 @@ async function executeKernSourceAsyncWithEntry(
     return stdoutFromTrace(trace);
   }
 
-  // Async host adapters are intentionally not forwarded to the sync executor.
-  // The module loader and source path MUST forward, though: a sync-only
-  // multi-file program that passed async preflight would otherwise fail to
-  // link when delegated here.
+  // Async host adapters stay on the async lane; shared runner options forward.
   const syncOptions = {
     parseOptions: options.parseOptions,
     env: options.env,
     capabilities: options.capabilities,
     capabilityContext: options.capabilityContext,
+    iterationBudget: options.iterationBudget,
     moduleLoader: options.moduleLoader,
     sourcePath: options.sourcePath,
   };

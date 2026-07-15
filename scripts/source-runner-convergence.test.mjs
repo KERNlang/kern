@@ -7,6 +7,8 @@ import { validateSourceRunnerConvergence } from './check-source-runner-convergen
 const root = process.cwd();
 const files = new Map(
   [
+    'packages/cli/src/commands/run-options.ts',
+    'packages/cli/src/commands/run.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner.ts',
@@ -32,7 +34,7 @@ test('accepts the checked-in convergence contract', () => {
 
 test('rejects restored direct sync and async reference-runner calls', () => {
   for (const [selector, direct] of [
-    ['executeSourceRunnerSync(handler.children ?? [], env, { policy: \'compatible\' })', 'referenceRunSequence(handler.children ?? [], env)'],
+    ['executeSourceRunnerSync(handler.children ?? [], env, {', 'referenceRunSequence(handler.children ?? [], env, {'],
     ['executeSourceRunnerAsync(handler.children ?? [], env, {', 'asyncReferenceRunSequence(handler.children ?? [], env, {'],
   ]) {
     const errors = validate((mutated) => replace(mutated, 'packages/core/src/runner.ts', selector, direct));
@@ -68,8 +70,8 @@ test('rejects post-construction metadata replacement', () => {
       replace(
         mutated,
         'packages/core/src/runner.ts',
-        "trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });",
-        `${assignment}\n    trace = executeSourceRunnerSync(handler.children ?? [], env, { policy: 'compatible' });`,
+        'trace = executeSourceRunnerSync(handler.children ?? [], env, {',
+        `${assignment}\n    trace = executeSourceRunnerSync(handler.children ?? [], env, {`,
       ),
     );
     assert.ok(errors.some((error) => error.includes('replaces owned runner metadata')));
@@ -79,10 +81,17 @@ test('rejects post-construction metadata replacement', () => {
 test('rejects blocker deletion and owned-node regressions', () => {
   const blockerErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
-    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'iteration-budget');
+    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'non-root-environment');
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(blockerErrors.some((error) => error.includes('audited blocker set')));
+
+  const budgetErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'iteration-budget');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(budgetErrors.some((error) => error.includes('iteration-budget owner')));
 
   const doErrors = validate((mutated) =>
     replace(
@@ -130,6 +139,38 @@ test('rejects blocker deletion and owned-node regressions', () => {
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(helperErrors.some((error) => error.includes('helper-functions owner')));
+});
+
+test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {
+  const missingRunner = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runner.ts',
+      'iterationBudget: options.iterationBudget,',
+      'iterationBudget: undefined,',
+    ),
+  );
+  assert.ok(missingRunner.some((error) => error.includes('options.iterationBudget')));
+
+  const defaultedParser = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/cli/src/commands/run-options.ts',
+      'return parsePositiveSafeInteger(value);',
+      'return parsePositiveSafeInteger(value) ?? 10000;',
+    ),
+  );
+  assert.ok(defaultedParser.some((error) => error.includes('without a default')));
+
+  const missingCli = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/cli/src/commands/run.ts',
+      'iterationBudget: parsed.iterationBudget,',
+      'iterationBudget: undefined,',
+    ),
+  );
+  assert.ok(missingCli.some((error) => error.includes('parsed.iterationBudget')));
 });
 
 test('ignores forbidden-token text in comments while rejecting executable escapes', () => {

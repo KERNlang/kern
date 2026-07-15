@@ -50,14 +50,15 @@ import {
   createCliAsyncOpenAICompatibleLlmCapability,
   createCliAsyncRagAnswerCapability,
 } from './run-async-host.js';
+import {
+  type ParsedLlmProviderOptions,
+  type ParsedRunArgs,
+  parseCapabilityTimeoutMs,
+  parseIterationBudget,
+  RUN_USAGE,
+} from './run-options.js';
 
-const USAGE =
-  'Usage: kern run [--capabilities | --async-preview] [--fs-root <dir> [--fs-write-root <dir>]] [--allow-net <origin>] [--llm-response <text> | --llm-provider openai [--llm-model <model>] [--llm-base-url <url>]] [--capability-timeout-ms <ms>] <file.kern>\n' +
-  '  RAG async ops (rag.retrieveAsync, rag.answer, rag.ingest) and llm.complete run by default without --async-preview.\n' +
-  '  --async-preview is required only for fs.* and net.fetch.\n' +
-  '  --capability-timeout-ms bounds each async capability provider call (execute/async-preview only; 1..3600000, defaults to 30000).';
-const MIN_CAPABILITY_TIMEOUT_MS = 1;
-const MAX_CAPABILITY_TIMEOUT_MS = 3_600_000;
+const USAGE = RUN_USAGE;
 const RUN_PROVIDED_CAPABILITY_NAMESPACES = Object.freeze(['crypto', 'rag', 'storage'] as const);
 const RUN_ASYNC_PROVIDER_FLAGS = Object.freeze({
   'fs.list': ['--fs-root <dir>'],
@@ -90,12 +91,16 @@ const NODE_PARSE_CAPS = {
  * Atomicity: the runner returns the COMPLETE trace or throws, so stdout is built
  * only after the whole body succeeds; a body that abstains mid-way leaks nothing.
  */
-export function executeKernSource(source: string, options: { sourcePath?: string } = {}): string {
+export function executeKernSource(
+  source: string,
+  options: { sourcePath?: string; iterationBudget?: number } = {},
+): string {
   const capabilities = createRunCapabilities(source, options.sourcePath);
   return executeKernSourceFromRunner(source, {
     parseOptions: NODE_PARSE_CAPS,
     capabilities,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
+    iterationBudget: options.iterationBudget,
     sourcePath: options.sourcePath,
     moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
   });
@@ -112,6 +117,7 @@ export async function executeKernSourceAsync(
     llmProvider?: CliAsyncOpenAICompatibleLlmCapabilityOptions;
     /** Per-call async capability provider timeout, in milliseconds. See --capability-timeout-ms. */
     capabilityTimeoutMs?: number;
+    iterationBudget?: number;
   },
 ): Promise<string> {
   if (options.llmResponse !== undefined && options.llmProvider !== undefined) {
@@ -203,6 +209,7 @@ export async function executeKernSourceAsync(
     asyncCapabilities,
     providedAsyncCapabilities,
     capabilityTimeoutMs: options.capabilityTimeoutMs,
+    iterationBudget: options.iterationBudget,
     capabilityContext: options.sourcePath ? { sourceName: options.sourcePath } : undefined,
     sourcePath: options.sourcePath,
     moduleLoader: options.sourcePath ? createRunModuleLoader(options.sourcePath) : undefined,
@@ -212,40 +219,6 @@ export async function executeKernSourceAsync(
 interface LoadedRunSource {
   readonly filePath: string;
   readonly source: string;
-}
-
-type ParsedRunArgs =
-  | {
-      readonly mode: 'execute';
-      readonly fileArg: string;
-      readonly llmResponse?: string;
-      readonly llmProvider?: ParsedLlmProviderOptions;
-      readonly capabilityTimeoutMs?: number;
-    }
-  | {
-      readonly mode: 'capabilities';
-      readonly fileArg: string;
-      readonly fsRoot?: string;
-      readonly fsWriteRoot?: string;
-      readonly netAllowedOrigins: readonly string[];
-      readonly llmResponse?: string;
-      readonly llmProvider?: ParsedLlmProviderOptions;
-    }
-  | {
-      readonly mode: 'async-preview';
-      readonly fileArg: string;
-      readonly fsRoot?: string;
-      readonly fsWriteRoot?: string;
-      readonly netAllowedOrigins: readonly string[];
-      readonly llmResponse?: string;
-      readonly llmProvider?: ParsedLlmProviderOptions;
-      readonly capabilityTimeoutMs?: number;
-    };
-
-interface ParsedLlmProviderOptions {
-  readonly provider: 'openai';
-  readonly model?: string;
-  readonly baseUrl?: string;
 }
 
 type RunLlmProviderOptions = CliAsyncOpenAICompatibleLlmCapabilityOptions | ParsedLlmProviderOptions;
@@ -574,12 +547,16 @@ export async function runRun(args: string[]): Promise<void> {
               }
             : {}),
           llmResponse: parsed.llmResponse,
+          iterationBudget: parsed.iterationBudget,
           ...(llmProvider ? { llmProvider } : {}),
           ...(parsed.mode === 'async-preview' || parsed.mode === 'execute'
             ? { capabilityTimeoutMs: parsed.capabilityTimeoutMs }
             : {}),
         })
-      : executeKernSource(loaded.source, { sourcePath: loaded.filePath });
+      : executeKernSource(loaded.source, {
+          sourcePath: loaded.filePath,
+          iterationBudget: parsed.iterationBudget,
+        });
     // `process.exitCode` + a return (instead of `process.exit()`) lets Node flush
     // stdout/stderr naturally before exiting — no truncation on a pipe.
     if (output) process.stdout.write(output);
@@ -607,6 +584,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
   let llmModel: string | undefined;
   let llmBaseUrl: string | undefined;
   let capabilityTimeoutMs: number | undefined;
+  let iterationBudget: number | undefined;
   const files: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -675,20 +653,18 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       const value = rest[index + 1];
       if (!value || value.startsWith('--')) return undefined;
       if (capabilityTimeoutMs !== undefined) return undefined;
-      if (!/^[1-9]\d*$/.test(value)) return undefined;
-      const parsedTimeout = Number(value);
-      // Fail closed on out-of-range values: an overlong digit string would
-      // otherwise become Infinity (or lose integer precision), which the
-      // runtime timeout guard treats as DISABLED — silently removing the
-      // fail-closed bound the flag exists to provide.
-      if (
-        !Number.isSafeInteger(parsedTimeout) ||
-        parsedTimeout < MIN_CAPABILITY_TIMEOUT_MS ||
-        parsedTimeout > MAX_CAPABILITY_TIMEOUT_MS
-      ) {
-        return undefined;
-      }
+      const parsedTimeout = parseCapabilityTimeoutMs(value);
+      if (parsedTimeout === undefined) return undefined;
       capabilityTimeoutMs = parsedTimeout;
+      index += 1;
+      continue;
+    }
+    if (arg === '--iteration-budget') {
+      const value = rest[index + 1];
+      if (!value || value.startsWith('--') || iterationBudget !== undefined) return undefined;
+      const parsedBudget = parseIterationBudget(value);
+      if (parsedBudget === undefined) return undefined;
+      iterationBudget = parsedBudget;
       index += 1;
       continue;
     }
@@ -700,7 +676,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
   if (files.length !== 1 || !fileArg || (capabilityReportMode && asyncPreviewMode)) return undefined;
   // --capability-timeout-ms configures execution (sync-lane bypass through the
   // async boundary), not the --capabilities readiness report.
-  if (capabilityReportMode && capabilityTimeoutMs !== undefined) return undefined;
+  if (capabilityReportMode && (capabilityTimeoutMs !== undefined || iterationBudget !== undefined)) return undefined;
   if (llmResponse !== undefined && llmProvider !== undefined) return undefined;
   if ((llmModel !== undefined || llmBaseUrl !== undefined) && llmProvider === undefined) return undefined;
   const resolvedLlmProvider =
@@ -743,6 +719,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
       ...(llmResponse !== undefined ? { llmResponse } : {}),
       ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
       ...(capabilityTimeoutMs !== undefined ? { capabilityTimeoutMs } : {}),
+      ...(iterationBudget !== undefined ? { iterationBudget } : {}),
     };
   }
   return {
@@ -751,6 +728,7 @@ function parseRunArgs(args: readonly string[]): ParsedRunArgs | undefined {
     ...(llmResponse !== undefined ? { llmResponse } : {}),
     ...(resolvedLlmProvider !== undefined ? { llmProvider: resolvedLlmProvider } : {}),
     ...(capabilityTimeoutMs !== undefined ? { capabilityTimeoutMs } : {}),
+    ...(iterationBudget !== undefined ? { iterationBudget } : {}),
   };
 }
 
