@@ -438,11 +438,13 @@ trusted-publishing/provenance configuration is inspected.
     deterministic failure timing are now machine-owned. Source selection and
     the executable convergence manifest record `lambda` as unified; helper
     functions, runner class state, non-root environments, and implicit
-    iteration budgets remain explicit blockers. `pnpm fitness:kern-5` passed
-    end-to-end on 2026-07-15 after all review-discovered blockers were fixed.
-    The terminal `claude,codex,agy` review completed 3/3 with zero verified,
-    needs-check, or speculative findings
-    (`review-1784097336473-jyos4c-m3-23-lambda-terminal-7`).
+    iteration budgets remain explicit blockers. Runtime and stable preflight
+    now share non-primitive arithmetic guards, and identity-aware closure facts
+    reject alias/reassignment recursion before effects. `null` intentionally
+    remains distinct from `undefined` in the shared owner. `pnpm
+    fitness:kern-5` passed end-to-end on 2026-07-15 after the current-roster
+    review findings were fixed; five of six engines returned and Kimi timed out
+    (`review-1784108789206-i2rjfh-m3-23-lambda-review-fixes-terminal`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

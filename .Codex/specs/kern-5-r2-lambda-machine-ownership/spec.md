@@ -144,16 +144,21 @@ independent evaluator nor lambda-specific admission/preflight/dispatch hooks.
 - `pnpm fitness:kern-5` passed end-to-end after the final blocker fixes on
   2026-07-15, including workspace, conformance, native KERN, runner smoke,
   self-host, ownership, ABI, and source-runner convergence gates.
-- The terminal `claude,codex,agy` review completed 3/3 with zero verified,
-  needs-check, or speculative findings
-  (`review-1784097336473-jyos4c-m3-23-lambda-terminal-7`).
+- The current six-engine terminal review returned five reviews while Kimi
+  timed out. Its verified host-coercion finding and the reproduced
+  alias/reassignment recursion gap were fixed with focused RED/GREEN oracles
+  (`review-1784108789206-i2rjfh-m3-23-lambda-review-fixes-terminal`).
 - Review-discovered deferred callback facts, deterministic nullish/bare
-  namespace failures, and recursive setup closures are covered by executable
+  namespace failures, recursive setup closures, stable/runtime arithmetic
+  coercion, and alias-retained closure cycles are covered by executable
   regression tests and reject before earlier capability effects where
   applicable.
+- `null` remains distinct from `undefined` in the shared runtime owner. This is
+  an intentional correction of the deleted legacy evaluator's collapse, not
+  an accidental machine/reference divergence.
 - The largest touched handwritten source files are
   `internal-effect-machine-structure.ts` at 498 lines and
-  `lambda-preflight.ts` at 482 lines.
+  `lambda-preflight.ts` below 500 lines.
 
 ## RED Oracles
 
