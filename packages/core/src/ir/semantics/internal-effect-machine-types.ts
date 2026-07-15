@@ -18,7 +18,7 @@ export const INTERNAL_EFFECT_MACHINE_DISPOSITION = Object.freeze({
   fmt: 'unified',
   for: 'unified',
   if: 'unified',
-  lambda: 'legacy',
+  lambda: 'unified',
   let: 'unified',
   print: 'unified',
   return: 'unified',

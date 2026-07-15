@@ -49,7 +49,7 @@ describe('private internal effect machine', () => {
       fmt: 'unified',
       for: 'unified',
       if: 'unified',
-      lambda: 'legacy',
+      lambda: 'unified',
       let: 'unified',
       print: 'unified',
       return: 'unified',

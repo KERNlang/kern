@@ -430,6 +430,21 @@ trusted-publishing/provenance configuration is inspected.
     review-discovered host-global poisoning regression was fixed. The terminal
     `claude,codex,agy` review completed 3/3 with zero verified, needs-check, or
     speculative findings (`review-1784066250344-bzqds0`).
+  - [x] M3.23 lambda machine ownership: extracted the frozen single-expression
+    lambda evaluator into one registry-independent runtime owner shared by the
+    semantic adapter and canonical effect machine. Private closure values,
+    bounded `List.map`/`List.filter`, deferred callback facts, stable shape
+    preflight, captured host intrinsics, recursive setup-closure rejection, and
+    deterministic failure timing are now machine-owned. Source selection and
+    the executable convergence manifest record `lambda` as unified; helper
+    functions, runner class state, non-root environments, and implicit
+    iteration budgets remain explicit blockers. Runtime and stable preflight
+    now share non-primitive arithmetic guards, and identity-aware closure facts
+    reject alias/reassignment recursion before effects. `null` intentionally
+    remains distinct from `undefined` in the shared owner. `pnpm
+    fitness:kern-5` passed end-to-end on 2026-07-15 after the current-roster
+    review findings were fixed; five of six engines returned and Kimi timed out
+    (`review-1784108789206-i2rjfh-m3-23-lambda-review-fixes-terminal`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
