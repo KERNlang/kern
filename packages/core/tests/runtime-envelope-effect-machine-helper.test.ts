@@ -88,6 +88,43 @@ describe('M3.24 same-root helper machine ownership', () => {
     expect(providerCalls).toBe(0);
   });
 
+  test.each([
+    ['without an explicit return', [{ type: 'let', props: { name: 'value', value: '1' } }]],
+    [
+      'with a fallthrough branch',
+      [
+        {
+          type: 'if',
+          props: { cond: 'flag' },
+          children: [{ type: 'return', props: { value: '1' } }],
+        },
+      ],
+    ],
+  ] as const)('routes a reachable helper %s to compatibility before provider dispatch', (_label, body) => {
+    let providerCalls = 0;
+    const nodes: readonly IRNode[] = [
+      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+      { type: 'print', props: { value: 'incomplete(true)' } },
+    ];
+    const env = sameRootHelperEnv([{ body, name: 'incomplete', params: ['flag'] }], {
+      capabilities: { storage: { get: () => ++providerCalls } },
+    });
+
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(providerCalls).toBe(0);
+  });
+
+  test('preserves helper ownership in Text integer-index evaluation', () => {
+    const nodes: readonly IRNode[] = [{ type: 'print', props: { value: 'Text.charAt("abc", index())' } }];
+    const env = sameRootHelperEnv([
+      { body: [{ type: 'return', props: { value: '1' } }], name: 'index', returns: 'number' },
+    ]);
+
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).events).toEqual([
+      { op: 'stdout', text: 'b' },
+    ]);
+  });
+
   test('does not let a valid helper weaken root fail-closed structure errors', () => {
     let providerCalls = 0;
     const nodes: readonly IRNode[] = [
@@ -229,6 +266,49 @@ describe('M3.24 same-root helper machine ownership', () => {
     const [left, right] = await Promise.all([run('-left'), run('-right')]);
     expect(left.completion).toEqual({ kind: 'return', value: 'x-left' });
     expect(right.completion).toEqual({ kind: 'return', value: 'x-right' });
+  });
+
+  test('isolates helper state when async runs overlap on the same environment', async () => {
+    const nodes: readonly IRNode[] = [
+      { type: 'capability', props: { namespace: 'llm', operation: 'complete' } },
+      { type: 'print', props: { value: 'one()' } },
+    ];
+    const env = sameRootHelperEnv([
+      {
+        body: [
+          { type: 'let', props: { name: 'total', value: '0' } },
+          {
+            type: 'for',
+            props: { from: '0', name: 'i', to: '1' },
+            children: [{ type: 'assign', props: { op: '+=', target: 'total', value: '1' } }],
+          },
+          { type: 'return', props: { value: 'total' } },
+        ],
+        name: 'one',
+      },
+    ]);
+    let releaseLeft: (() => void) | undefined;
+    let releaseRight: (() => void) | undefined;
+    const leftGate = new Promise<void>((resolve) => {
+      releaseLeft = resolve;
+    });
+    const rightGate = new Promise<void>((resolve) => {
+      releaseRight = resolve;
+    });
+    const run = (gate: Promise<void>) =>
+      executeSourceRunnerAsync(nodes, env, {
+        asyncCapabilities: { llm: { complete: async () => gate } },
+        iterationBudget: 1,
+        policy: 'machine-only',
+      });
+
+    const left = run(leftGate);
+    const right = run(rightGate);
+    releaseLeft?.();
+    releaseRight?.();
+    const [leftTrace, rightTrace] = await Promise.all([left, right]);
+    expect(leftTrace.completion).toEqual({ kind: 'normal' });
+    expect(rightTrace.completion).toEqual({ kind: 'normal' });
   });
 
   test('passes composite helper returns to capability providers without scalar narrowing', () => {

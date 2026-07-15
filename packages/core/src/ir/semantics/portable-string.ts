@@ -46,6 +46,7 @@ import {
   textMalformedSurrogateFailMessage,
 } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
+import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
 import { hasBinding, type SemanticEnv } from './semantic-env.js';
@@ -138,7 +139,9 @@ export function evalStringOpCall(
 
 function requireSafeIntegerArg(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue, label: string): number {
   // Float/int fence escape hatch (see `SemanticEnv`): bounds-checked, never printed.
-  const value = evaluate(node, { ...env, intIndexCtx: true });
+  const indexEnv = { ...env, intIndexCtx: true };
+  copyInternalEffectMachineState(env, indexEnv);
+  const value = evaluate(node, indexEnv);
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
     throw new Error(`portable: ${label} index arguments must be safe integers`);
   }

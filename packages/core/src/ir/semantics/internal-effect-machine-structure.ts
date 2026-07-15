@@ -1,5 +1,10 @@
 import type { IRNode } from '../../types.js';
-import { branchPreconditions, branchShapePreconditions, selectBranchPath } from './branch-runtime.js';
+import {
+  branchHasDefaultPath,
+  branchPreconditions,
+  branchShapePreconditions,
+  selectBranchPath,
+} from './branch-runtime.js';
 import {
   assertDeferredCapabilityInputKnownValues,
   prepareInternalCapabilityEffectWithEvaluator,
@@ -71,7 +76,10 @@ function analyzeBranchFrame(
       throw new InternalEffectMachineError('effect machine rejected branch node', node);
     }
   }
-  const possible = hasKnownSelection && selectedPath !== undefined ? new Set<CompletionKind>() : normalCompletion();
+  const possible =
+    (hasKnownSelection && selectedPath !== undefined) || branchHasDefaultPath(node)
+      ? new Set<CompletionKind>()
+      : normalCompletion();
   const frameBindings = new Set(unstableBindings);
   const frameWrites = new Set<string>();
   for (const path of node.children ?? []) {

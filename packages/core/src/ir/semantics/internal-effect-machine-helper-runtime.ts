@@ -51,8 +51,8 @@ function evaluateArgument(node: ValueIR, env: SemanticEnv, evaluate: EvalPortabl
   return evaluate(node, env);
 }
 
-function helperCache(env: SemanticEnv): Map<string, unknown> {
-  return (env.runnerCallCache ??= new Map());
+function helperCache(state: InternalEffectMachineState): Map<string, unknown> {
+  return (state.helperCallCache ??= new Map());
 }
 
 interface PreparedHelperCall {
@@ -94,7 +94,7 @@ function prepareHelperCall(
     if (isInteger) intProvenance.add(fn.params[index]);
   }
   return {
-    cache: helperCache(env),
+    cache: helperCache(state),
     cacheKey: helperCacheKey(name, values, provenance),
     env,
     intProvenance,

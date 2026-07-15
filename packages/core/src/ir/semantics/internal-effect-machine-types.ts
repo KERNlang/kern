@@ -51,6 +51,7 @@ export interface InternalCapabilityEffectRequest {
 
 export interface InternalEffectMachineState {
   helperBodyRunner?: InternalEffectMachineChildSequenceRunner;
+  helperCallCache?: Map<string, unknown>;
   helperEvaluationDepth?: number;
   helperRegistry?: ReadonlyMap<string, RunnerFunctionBinding>;
   remainingIterations: number | undefined;

@@ -27,6 +27,9 @@ export function assertInternalMachineHelperPreflight(
       seed: env.seed,
       now: env.now,
     });
-    analyze(fn.body, 0, callEnv, new Set(fn.params), true);
+    const completions = analyze(fn.body, 0, callEnv, new Set(fn.params), true);
+    if (completions.size !== 1 || !completions.has('return')) {
+      throw new Error(`machine helper: "${fn.name}" must return a portable value on every path`);
+    }
   }
 }

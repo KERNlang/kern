@@ -23,9 +23,23 @@ import {
 import type { SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
-function unwindMachineAfterProviderError(machine: InternalEffectMachineGenerator, error: unknown): never {
+function withMachineState<T>(env: SemanticEnv, state: InternalEffectMachineState, advance: () => T): T {
+  const restore = bindInternalEffectMachineState(env, state);
   try {
-    machine.throw(error);
+    return advance();
+  } finally {
+    restore();
+  }
+}
+
+function unwindMachineAfterProviderError(
+  machine: InternalEffectMachineGenerator,
+  env: SemanticEnv,
+  state: InternalEffectMachineState,
+  error: unknown,
+): never {
+  try {
+    withMachineState(env, state, () => machine.throw(error));
   } catch {
     // Preserve the provider/scheduler failure. Injecting it only gives active
     // generator finally blocks a chance to release internal bindings.
@@ -58,12 +72,7 @@ function* runMachine(
   assertInternalEffectMachineStructureSupported(nodes, env);
   state.helperRegistry = assertInternalMachineHelperGraph(nodes, env).functions;
   state.helperBodyRunner = runInternalEffectMachineSequence;
-  const restore = bindInternalEffectMachineState(env, state);
-  try {
-    return yield* runInternalEffectMachineSequence(nodes, env, state);
-  } finally {
-    restore();
-  }
+  return yield* runInternalEffectMachineSequence(nodes, env, state);
 }
 
 export function runInternalEffectMachineSync(
@@ -71,16 +80,17 @@ export function runInternalEffectMachineSync(
   env: SemanticEnv,
   options: InternalEffectMachineSyncOptions = {},
 ): Trace {
-  const machine = runMachine(nodes, env, { remainingIterations: options.iterationBudget });
-  let step = machine.next();
+  const state: InternalEffectMachineState = { remainingIterations: options.iterationBudget };
+  const machine = runMachine(nodes, env, state);
+  let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {
     let result: RuntimeCapabilityValue | undefined;
     try {
       result = invokeInternalRuntimeCapabilitySync(env, step.value.prepared.call);
     } catch (error) {
-      unwindMachineAfterProviderError(machine, error);
+      unwindMachineAfterProviderError(machine, env, state, error);
     }
-    step = machine.next(result);
+    step = withMachineState(env, state, () => machine.next(result));
   }
   return step.value;
 }
@@ -90,8 +100,9 @@ export async function runInternalEffectMachineAsync(
   env: SemanticEnv,
   options: InternalEffectMachineAsyncOptions = {},
 ): Promise<Trace> {
-  const machine = runMachine(nodes, env, { remainingIterations: options.iterationBudget });
-  let step = machine.next();
+  const state: InternalEffectMachineState = { remainingIterations: options.iterationBudget };
+  const machine = runMachine(nodes, env, state);
+  let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {
     const call = step.value.prepared.call;
     let result: RuntimeCapabilityValue | undefined;
@@ -102,9 +113,9 @@ export async function runInternalEffectMachineAsync(
           })
         : await invokeInternalRuntimeSyncCapabilityAsync(env, call);
     } catch (error) {
-      unwindMachineAfterProviderError(machine, error);
+      unwindMachineAfterProviderError(machine, env, state, error);
     }
-    step = machine.next(result);
+    step = withMachineState(env, state, () => machine.next(result));
   }
   return step.value;
 }
