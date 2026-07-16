@@ -3,6 +3,7 @@ import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   internalMachineClassForNew,
+  internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
 import {
@@ -156,18 +157,18 @@ function assertPureMethodExpression(node: ValueIR, cls: RunnerClassBinding, para
   throw new Error(`machine class: method expression kind "${node.kind}" is outside the pure return domain`);
 }
 
-function assertClassMethodBodies(cls: RunnerClassBinding, instance: RunnerClassInstanceValue, env: SemanticEnv): void {
-  for (const method of cls.methods.values()) {
-    const expression = parseExpression(String(method.body[0]?.props?.value));
+function assertClassMemberBodies(cls: RunnerClassBinding, instance: RunnerClassInstanceValue, env: SemanticEnv): void {
+  for (const member of [...cls.methods.values(), ...cls.getters.values()]) {
+    const expression = parseExpression(String(member.body[0]?.props?.value));
     const methodEnv = makeMethodEnv(
       cls,
-      method,
+      member,
       instance,
-      method.params.map(() => null),
+      member.params.map(() => null),
       env,
     );
     assertPortableMachineScalarShape(expression, methodEnv);
-    assertPureMethodExpression(expression, cls, new Set(method.params));
+    assertPureMethodExpression(expression, cls, new Set(member.params));
   }
 }
 
@@ -266,7 +267,7 @@ export function preflightInternalMachineClassLet(
         };
       })();
   const { constructorEnv, instance } = prepared;
-  assertClassMethodBodies(resolved.cls, instance, env);
+  assertClassMemberBodies(resolved.cls, instance, env);
   const constructorDeferredBindings = deferredBindings
     ? new Set([...deferredBindings, ...(resolved.cls.constructor?.params ?? [])])
     : undefined;
@@ -316,14 +317,30 @@ export function evalInternalMachineClassNew(
 export function evalInternalMachineClassMember(
   node: Extract<ValueIR, { kind: 'member' }>,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
 ): PortableScalar | undefined {
   if (node.optional || node.object.kind !== 'ident') return undefined;
   const receiver = internalMachineClassReceiver(node.object.name, env);
   if (!receiver) return undefined;
-  if (!Object.hasOwn(receiver.fields, node.property)) {
-    throw new Error(`machine class: class "${receiver.className}" has no field "${node.property}"`);
+  if (Object.hasOwn(receiver.fields, node.property)) {
+    return assertPortableScalar(receiver.fields[node.property], `field "${node.property}"`);
   }
-  return assertPortableScalar(receiver.fields[node.property], `field "${node.property}"`);
+  const resolved = internalMachineClassGetterForRead(node, env);
+  if (!resolved) {
+    throw new Error(`machine class: class "${receiver.className}" has no field or getter "${node.property}"`);
+  }
+  const getterEnv = makeMethodEnv(resolved.cls, resolved.getter, receiver, [], env);
+  const expression = parseExpression(String(resolved.getter.body[0]?.props?.value));
+  const state = internalEffectMachineStateForEnv(env);
+  const restore = state ? bindInternalEffectMachineState(getterEnv, state) : undefined;
+  try {
+    return assertPortableScalar(
+      evaluate(expression, getterEnv),
+      `getter "${resolved.cls.name}.${resolved.getter.name}" return`,
+    );
+  } finally {
+    restore?.();
+  }
 }
 
 export function evalInternalMachineClassMethod(

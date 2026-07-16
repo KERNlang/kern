@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { CLASS_GETTER_FILES, validateClassGetterManifest, validateClassGetterSlice } from './source-runner-class-getter-convergence.mjs';
 import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
-
 const FILES = Object.freeze({
   ...NON_ROOT_FILES,
+  ...CLASS_GETTER_FILES,
   classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
   classEvaluator: 'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
   classGraph: 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
@@ -26,15 +27,12 @@ const FILES = Object.freeze({
   manifest: 'scripts/source-runner-convergence-manifest.json',
   runner: 'packages/core/src/runner.ts',
 });
-
 const REQUIRED_DEFERRED = Object.freeze({
   'runner-classes-state': ['environment', 'legacy'],
 });
-
 function parseSource(name, text) {
   return ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 }
-
 function findFunction(source, name) {
   let result;
   function visit(node) {
@@ -98,7 +96,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.28') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.29') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -199,6 +197,7 @@ function validateManifest(text, errors) {
   if (manifest.owned.filter((item) => item?.id === 'non-root-environment').length !== 1) {
     errors.push('manifest non-root-environment owner is duplicated');
   }
+  validateClassGetterManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -211,8 +210,8 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.29-class-getter-inheritance-ownership') {
-    errors.push('manifest must keep remaining class behavior as the exact M3.29 follow-up');
+  if (classState?.followUp !== 'M3.30-class-inheritance-super-module-ownership') {
+    errors.push('manifest must keep remaining class behavior as the exact M3.30 follow-up');
   }
 }
 
@@ -248,14 +247,14 @@ function validateClassStateSlice(
     'assertInternalMachineClassUsage',
     'allocation must occur in the root sequence',
     'field mutation must occur in the root sequence',
-    'has behavior outside the direct-method domain',
+    'has inheritance outside the direct-member domain',
   ]) {
     if (!graphText.includes(required)) errors.push(`machine class graph is missing ${required}`);
   }
   if (!helperGraphText.includes('reachable helper/class mixing is outside this slice')) {
     errors.push('machine helper graph must reject reachable helper/class mixing');
   }
-  for (const required of ['state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice', 'assertClassMethodBodies', 'evalInternalMachineClassMethod']) {
+  for (const required of ['state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice', 'assertClassMemberBodies', 'evalInternalMachineClassMethod']) {
     if (!runtimeText.includes(required)) errors.push(`machine class runtime is missing ${required}`);
   }
   for (const required of ['classInstanceOwner', 'owner === INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER', 'internalMachineClassReceiver']) {
@@ -481,6 +480,7 @@ export function validateSourceRunnerConvergence(readText) {
   if (contents.cli && contents.cliOptions) validateCli(contents.cli, contents.cliOptions, errors);
   if (contents.engine) validateEngine(contents.engine, errors);
   validateNonRootEnvironmentSlice(contents, errors);
+  validateClassGetterSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }

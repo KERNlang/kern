@@ -1,6 +1,7 @@
 import type { BinaryOp, UnaryOp, ValueIR } from '../../value-ir.js';
 import {
   internalMachineClassForNew,
+  internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
 import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
@@ -92,9 +93,12 @@ function assertScalarCallShape(node: Extract<ValueIR, { kind: 'call' }>, env?: S
   fail('namespace call');
 }
 
-function assertMemberShape(node: Extract<ValueIR, { kind: 'member' }>): void {
+function assertMemberShape(node: Extract<ValueIR, { kind: 'member' }>, env?: SemanticEnv): void {
   if (node.optional) fail('optional member');
-  if (node.object.kind === 'ident') return;
+  if (node.object.kind === 'ident') {
+    if (env && internalMachineClassGetterForRead(node, env)) fail('nested class getter');
+    return;
+  }
   if (
     node.property !== 'length' ||
     node.object.kind !== 'member' ||
@@ -153,7 +157,7 @@ export function assertPortableMachineScalarShape(node: ValueIR, env?: SemanticEn
     return;
   }
   if (node.kind === 'member') {
-    assertMemberShape(node);
+    assertMemberShape(node, env);
     return;
   }
   if (node.kind === 'index') {
@@ -232,6 +236,10 @@ export function assertPortableMachineClassMethodCallShape(node: ValueIR, env?: S
   return true;
 }
 
+export function assertPortableMachineClassGetterReadShape(node: ValueIR, env?: SemanticEnv): boolean {
+  return Boolean(env && node.kind === 'member' && internalMachineClassGetterForRead(node, env));
+}
+
 export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv): void {
   if (node.kind === 'arrayLit') {
     assertArrayShape(node, false);
@@ -244,6 +252,7 @@ export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv):
   if (isEmptyMapConstructor(node)) return;
   if (assertClassConstructionShape(node, env)) return;
   if (assertPortableMachineClassMethodCallShape(node, env)) return;
+  if (assertPortableMachineClassGetterReadShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }
 
@@ -257,5 +266,6 @@ export function assertPortableMachineReturnShape(node: ValueIR, env?: SemanticEn
     return;
   }
   if (assertPortableMachineClassMethodCallShape(node, env)) return;
+  if (assertPortableMachineClassGetterReadShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }

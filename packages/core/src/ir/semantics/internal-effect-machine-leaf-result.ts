@@ -4,6 +4,7 @@ import { evalInternalMachineHelperValue } from './internal-effect-machine-helper
 import { isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import {
+  assertPortableMachineClassGetterReadShape,
   assertPortableMachineClassMethodCallShape,
   assertPortableMachineReturnShape,
   assertPortableMachineScalarShape,
@@ -26,7 +27,10 @@ function requiredExpression(node: IRNode) {
 
 export function assertInternalMachinePrintShape(node: IRNode, env?: SemanticEnv): void {
   const value = requiredExpression(node);
-  if (!assertPortableMachineClassMethodCallShape(value, env)) {
+  if (
+    !assertPortableMachineClassMethodCallShape(value, env) &&
+    !assertPortableMachineClassGetterReadShape(value, env)
+  ) {
     assertPortableMachineScalarShape(value, env);
   }
 }

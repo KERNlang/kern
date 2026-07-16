@@ -29,6 +29,7 @@ const files = new Map(
     'packages/core/src/runner.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -117,6 +118,13 @@ test('rejects blocker deletion and owned-node regressions', () => {
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(classMethodErrors.some((error) => error.includes('runner-class-direct-methods owner')));
+
+  const classGetterErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-pure-getters');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(classGetterErrors.some((error) => error.includes('runner-class-pure-getters owner')));
 
   const nonRootErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
@@ -260,6 +268,23 @@ test('rejects direct class-method ownership regressions', () => {
     replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts', 'preserves direct method dispatch across async suspension', 'removed async method oracle'),
   );
   assert.ok(oracleErrors.some((error) => error.includes('machine class method oracle')));
+});
+
+test('rejects pure class-getter ownership regressions', () => {
+  const graphErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts', 'internalMachineClassGetterForRead', 'removedClassGetterForRead'),
+  );
+  assert.ok(graphErrors.some((error) => error.includes('getter graph')));
+
+  const shapeErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/portable-machine-shape.ts', 'assertPortableMachineClassGetterReadShape', 'removedClassGetterReadShape'),
+  );
+  assert.ok(shapeErrors.some((error) => error.includes('whole-leaf shape owner')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts', 'snapshots getter metadata across async suspension', 'removed async getter oracle'),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('machine class getter oracle')));
 });
 
 test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {

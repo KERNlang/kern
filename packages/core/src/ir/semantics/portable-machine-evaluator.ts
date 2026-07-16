@@ -13,8 +13,8 @@ import {
 import type { SemanticEnv } from './semantic-env.js';
 
 const machineHost: PortableEvaluatorHost = Object.freeze({
-  classMember(node: Extract<ValueIR, { kind: 'member' }>, env: SemanticEnv) {
-    const value = evalInternalMachineClassMember(node, env);
+  classMember(node: Extract<ValueIR, { kind: 'member' }>, env: SemanticEnv, evaluate: EvalPortableValue) {
+    const value = evalInternalMachineClassMember(node, env, evaluate);
     return value === undefined ? PORTABLE_EVAL_NOT_HANDLED : value;
   },
   classMethod(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv, evaluate: EvalPortableValue) {
