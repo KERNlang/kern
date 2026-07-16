@@ -2,6 +2,7 @@ import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../
 import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { cloneSemanticBindingValue } from './semantic-clone.js';
+import { markChildSemanticEnvironment, markRootSemanticEnvironment } from './semantic-env-ownership.js';
 
 /** Runtime state shared by semantic evaluators without importing registry ownership. */
 export interface SemanticEnv {
@@ -174,7 +175,7 @@ export interface RunnerClassInstanceValue {
 
 /** Build a fresh environment with deterministic defaults and cloned bindings. */
 export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
-  return ownSemanticEnvironment({
+  const env = ownSemanticEnvironment({
     bindings: overrides.bindings ? cloneBindings(overrides.bindings) : ownSemanticComposite(new Map()),
     intProvenance: ownSemanticComposite(overrides.intProvenance ? new Set(overrides.intProvenance) : new Set()),
     freshArrayBindings: ownSemanticComposite(
@@ -198,9 +199,14 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     runnerProtectedClassInstances: overrides.runnerProtectedClassInstances,
     capabilities: overrides.capabilities,
     capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
+    intIndexCtx: overrides.intIndexCtx,
+    parent: undefined,
+    repeatableLoopBody: false,
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   });
+  markRootSemanticEnvironment(env);
+  return env;
 }
 
 function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
@@ -235,12 +241,14 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     runnerProtectedClassInstances: parent.runnerProtectedClassInstances,
     capabilities: parent.capabilities,
     capabilityContext: parent.capabilityContext,
+    intIndexCtx: undefined,
     parent,
     repeatableLoopBody: false,
     seed: parent.seed,
     now: parent.now,
   });
   copyInternalEffectMachineState(parent, child);
+  markChildSemanticEnvironment(child, parent);
   return child;
 }
 

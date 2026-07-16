@@ -9,9 +9,28 @@ const files = new Map(
   [
     'packages/cli/src/commands/run-options.ts',
     'packages/cli/src/commands/run.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-admission.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
+    'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
+    'packages/core/src/ir/semantics/portable-machine-shape.ts',
+    'packages/core/src/ir/semantics/runner-machine-scope.ts',
+    'packages/core/src/ir/semantics/semantic-env-ownership.ts',
+    'packages/core/src/ir/semantics/semantic-env.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
 );
@@ -81,7 +100,7 @@ test('rejects post-construction metadata replacement', () => {
 test('rejects blocker deletion and owned-node regressions', () => {
   const blockerErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
-    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'non-root-environment');
+    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'runner-classes-state');
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(blockerErrors.some((error) => error.includes('audited blocker set')));
@@ -93,44 +112,37 @@ test('rejects blocker deletion and owned-node regressions', () => {
   });
   assert.ok(budgetErrors.some((error) => error.includes('iteration-budget owner')));
 
-  const doErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "do: 'unified'",
-      "do: 'legacy'",
-    ),
-  );
+  const classMethodErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-direct-methods');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(classMethodErrors.some((error) => error.includes('runner-class-direct-methods owner')));
+
+  const classGetterErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-pure-getters');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(classGetterErrors.some((error) => error.includes('runner-class-pure-getters owner')));
+
+  const nonRootErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'non-root-environment');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(nonRootErrors.some((error) => error.includes('non-root-environment owner')));
+
+  const doErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "do: 'unified'", "do: 'legacy'"));
   assert.ok(doErrors.some((error) => error.includes('disposition for do')));
 
-  const expressionErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "'expression-v1': 'unified'",
-      "'expression-v1': 'legacy'",
-    ),
-  );
+  const expressionErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "'expression-v1': 'unified'", "'expression-v1': 'legacy'"));
   assert.ok(expressionErrors.some((error) => error.includes('disposition for')));
 
-  const eachErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "each: 'unified'",
-      "each: 'partial'",
-    ),
-  );
+  const eachErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "each: 'unified'", "each: 'partial'"));
   assert.ok(eachErrors.some((error) => error.includes('disposition for each')));
 
-  const lambdaErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-      "lambda: 'unified'",
-      "lambda: 'legacy'",
-    ),
-  );
+  const lambdaErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "lambda: 'unified'", "lambda: 'legacy'"));
   assert.ok(lambdaErrors.some((error) => error.includes('disposition for lambda')));
 
   const helperErrors = validate((mutated) => {
@@ -141,35 +153,150 @@ test('rejects blocker deletion and owned-node regressions', () => {
   assert.ok(helperErrors.some((error) => error.includes('helper-functions owner')));
 });
 
-test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {
-  const missingRunner = validate((mutated) =>
+test('rejects non-root environment ownership regressions', () => {
+  const provenanceErrors = validate((mutated) =>
     replace(
       mutated,
-      'packages/core/src/runner.ts',
-      'iterationBudget: options.iterationBudget,',
-      'iterationBudget: undefined,',
+      'packages/core/src/ir/semantics/semantic-env.ts',
+      'markChildSemanticEnvironment(child, parent);',
+      'void child; void parent;',
     ),
   );
+  assert.ok(provenanceErrors.some((error) => error.includes('markChildSemanticEnvironment')));
+
+  const descriptorErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/semantic-env-ownership.ts',
+      'Object.getOwnPropertyDescriptor(env, key)',
+      'undefined',
+    ),
+  );
+  assert.ok(descriptorErrors.some((error) => error.includes('Object.getOwnPropertyDescriptor')));
+
+  const earlyAdmissionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runtime-envelope/source-runner-engine.ts',
+      'if (!hasOwnedDirectEnvironment(env, true, true)) return SOURCE_RUNNER_ENGINE.legacy;',
+      'void env;',
+    ),
+  );
+  assert.ok(earlyAdmissionErrors.some((error) => error.includes('before budget or graph discovery')));
+
+  const resumeErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine.ts',
+      'assertEnvironmentStillEligible(nodes, env);\n    step = withMachineState(env, state, () => machine.next(result));',
+      'step = withMachineState(env, state, () => machine.next(result));',
+    ),
+  );
+  assert.ok(resumeErrors.some((error) => error.includes('post-provider next or throw')));
+});
+
+test('rejects state-only class ownership regressions', () => {
+  const eligibilityErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts', 'internalMachineClassGraphClaims(nodes, env) &&', 'true &&'),
+  );
+  assert.ok(eligibilityErrors.some((error) => error.includes('class graph claim')));
+
+  const ownershipErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts', 'state?.classRegistry', 'undefined'));
+  assert.ok(ownershipErrors.some((error) => error.includes('state?.classRegistry')));
+
+  const mixingErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts', 'reachable helper/class mixing is outside this slice', 'removed reachable mixing guard'),
+  );
+  assert.ok(mixingErrors.some((error) => error.includes('reachable helper/class mixing')));
+
+  const metadataExpressionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+      'helper calls in class-owned expressions are outside this slice',
+      'removed class metadata expression guard',
+    ),
+  );
+  assert.ok(metadataExpressionErrors.some((error) => error.includes('class-owned expressions')));
+
+  const deferredScalarErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts', 'assertDeferredMachineScalarPreflight,', 'removedDeferredScalarPreflight,'),
+  );
+  assert.ok(deferredScalarErrors.some((error) => error.includes('deferred scalar validation')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+      'preserves receiver state across async suspension and isolates parallel runs',
+      'removed async class oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('machine class oracle')));
+
+  const initializationOrderErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+      'rejects a deferred constructor read before own-field initialization',
+      'removed constructor initialization-order oracle',
+    ),
+  );
+  assert.ok(initializationOrderErrors.some((error) => error.includes('machine class oracle')));
+});
+
+test('rejects direct class-method ownership regressions', () => {
+  const receiverErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts', 'owner === INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER', 'false'),
+  );
+  assert.ok(receiverErrors.some((error) => error.includes('instance ownership')));
+
+  const metadataErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/runner-machine-scope.ts', 'methodEntries: new Map(binding.methods)', 'methodSnapshot: new Map(binding.methods)'),
+  );
+  assert.ok(metadataErrors.some((error) => error.includes('method metadata ownership')));
+
+  const shapeErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/portable-machine-shape.ts', 'assertPortableMachineClassMethodCallShape', 'removedClassMethodCallShape'));
+  assert.ok(shapeErrors.some((error) => error.includes('whole-leaf shape owner')));
+
+  const evaluatorErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/portable-machine-evaluator.ts', 'evalInternalMachineClassMethod(node, env, evaluate)', 'PORTABLE_EVAL_NOT_HANDLED'),
+  );
+  assert.ok(evaluatorErrors.some((error) => error.includes('does not dispatch')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts', 'preserves direct method dispatch across async suspension', 'removed async method oracle'),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('machine class method oracle')));
+});
+
+test('rejects pure class-getter ownership regressions', () => {
+  const graphErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts', 'internalMachineClassGetterForRead', 'removedClassGetterForRead'),
+  );
+  assert.ok(graphErrors.some((error) => error.includes('getter graph')));
+
+  const shapeErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/portable-machine-shape.ts', 'assertPortableMachineClassGetterReadShape', 'removedClassGetterReadShape'),
+  );
+  assert.ok(shapeErrors.some((error) => error.includes('whole-leaf shape owner')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts', 'snapshots getter metadata across async suspension', 'removed async getter oracle'),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('machine class getter oracle')));
+});
+
+test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {
+  const missingRunner = validate((mutated) => replace(mutated, 'packages/core/src/runner.ts', 'iterationBudget: options.iterationBudget,', 'iterationBudget: undefined,'));
   assert.ok(missingRunner.some((error) => error.includes('options.iterationBudget')));
 
   const defaultedParser = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/cli/src/commands/run-options.ts',
-      'return parsePositiveSafeInteger(value);',
-      'return parsePositiveSafeInteger(value) ?? 10000;',
-    ),
+    replace(mutated, 'packages/cli/src/commands/run-options.ts', 'return parsePositiveSafeInteger(value);', 'return parsePositiveSafeInteger(value) ?? 10000;'),
   );
   assert.ok(defaultedParser.some((error) => error.includes('without a default')));
 
-  const missingCli = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/cli/src/commands/run.ts',
-      'iterationBudget: parsed.iterationBudget,',
-      'iterationBudget: undefined,',
-    ),
-  );
+  const missingCli = validate((mutated) => replace(mutated, 'packages/cli/src/commands/run.ts', 'iterationBudget: parsed.iterationBudget,', 'iterationBudget: undefined,'));
   assert.ok(missingCli.some((error) => error.includes('parsed.iterationBudget')));
 });
 

@@ -1,4 +1,9 @@
 import type { BinaryOp, UnaryOp, ValueIR } from '../../value-ir.js';
+import {
+  internalMachineClassForNew,
+  internalMachineClassGetterForRead,
+  internalMachineClassMethodForCall,
+} from './internal-effect-machine-class-graph.js';
 import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
 import { isDecimalExpression } from './portable-decimal-evaluator.js';
 import { assertPortableRecordEntry } from './portable-record-evaluator.js';
@@ -88,9 +93,12 @@ function assertScalarCallShape(node: Extract<ValueIR, { kind: 'call' }>, env?: S
   fail('namespace call');
 }
 
-function assertMemberShape(node: Extract<ValueIR, { kind: 'member' }>): void {
+function assertMemberShape(node: Extract<ValueIR, { kind: 'member' }>, env?: SemanticEnv): void {
   if (node.optional) fail('optional member');
-  if (node.object.kind === 'ident') return;
+  if (node.object.kind === 'ident') {
+    if (env && internalMachineClassGetterForRead(node, env)) fail('nested class getter');
+    return;
+  }
   if (
     node.property !== 'length' ||
     node.object.kind !== 'member' ||
@@ -149,7 +157,7 @@ export function assertPortableMachineScalarShape(node: ValueIR, env?: SemanticEn
     return;
   }
   if (node.kind === 'member') {
-    assertMemberShape(node);
+    assertMemberShape(node, env);
     return;
   }
   if (node.kind === 'index') {
@@ -209,6 +217,29 @@ function isEmptyMapConstructor(node: ValueIR): boolean {
   );
 }
 
+function assertClassConstructionShape(node: ValueIR, env?: SemanticEnv): boolean {
+  if (!env) return false;
+  const cls = internalMachineClassForNew(node, env);
+  if (!cls || node.kind !== 'new' || node.argument.kind !== 'call') return false;
+  const params = cls.constructor?.params ?? [];
+  if (node.argument.args.length !== params.length) fail('class constructor arity');
+  for (const argument of node.argument.args) assertPortableMachineScalarShape(argument, env);
+  return true;
+}
+
+export function assertPortableMachineClassMethodCallShape(node: ValueIR, env?: SemanticEnv): boolean {
+  if (!env) return false;
+  const resolved = internalMachineClassMethodForCall(node, env);
+  if (!resolved || node.kind !== 'call') return false;
+  if (node.args.length !== resolved.method.params.length) fail('class method arity');
+  for (const argument of node.args) assertPortableMachineScalarShape(argument, env);
+  return true;
+}
+
+export function assertPortableMachineClassGetterReadShape(node: ValueIR, env?: SemanticEnv): boolean {
+  return Boolean(env && node.kind === 'member' && internalMachineClassGetterForRead(node, env));
+}
+
 export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv): void {
   if (node.kind === 'arrayLit') {
     assertArrayShape(node, false);
@@ -219,6 +250,9 @@ export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv):
     return;
   }
   if (isEmptyMapConstructor(node)) return;
+  if (assertClassConstructionShape(node, env)) return;
+  if (assertPortableMachineClassMethodCallShape(node, env)) return;
+  if (assertPortableMachineClassGetterReadShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }
 
@@ -231,5 +265,7 @@ export function assertPortableMachineReturnShape(node: ValueIR, env?: SemanticEn
     assertRecordShape(node, env);
     return;
   }
+  if (assertPortableMachineClassMethodCallShape(node, env)) return;
+  if (assertPortableMachineClassGetterReadShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }

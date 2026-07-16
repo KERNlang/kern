@@ -12,7 +12,7 @@ import { InternalEffectMachineError } from './ir/semantics/internal-effect-machi
 import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
 import { ReferenceRunnerError, referenceRunSequence } from './ir/semantics/reference-runner.js';
 import { registerAllContracts } from './ir/semantics/register-all.js';
-import { markRunnerMachineRootScope } from './ir/semantics/runner-machine-scope.js';
+import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from './ir/semantics/runner-machine-scope.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { parseExpression } from './parser-expression.js';
@@ -509,7 +509,11 @@ function buildRunnerModuleScopes(records: readonly LinkedModuleRecord[]): Map<st
   for (const record of records) {
     const scope: RunnerModuleScope = { functions: new Map(), classes: new Map() };
     for (const [name, binding] of record.functions) scope.functions.set(name, { ...binding, module: scope });
-    for (const [name, binding] of record.classes) scope.classes.set(name, { ...binding, module: scope });
+    for (const [name, binding] of record.classes) {
+      const scopedBinding = { ...binding, module: scope };
+      markRunnerMachineClassBinding(scopedBinding);
+      scope.classes.set(name, scopedBinding);
+    }
     scopes.set(record.path, scope);
   }
 

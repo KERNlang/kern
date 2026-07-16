@@ -1,5 +1,5 @@
 import { markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
-import { makeEnv, type RunnerModuleScope, type SemanticEnv } from '../src/ir/semantics/semantic-env.js';
+import { childEnv, makeEnv, type RunnerModuleScope, type SemanticEnv } from '../src/ir/semantics/semantic-env.js';
 import {
   executeSourceRunnerAsync,
   executeSourceRunnerSync,
@@ -41,6 +41,24 @@ function sameRootHelperEnv(
 }
 
 describe('M3.24 same-root helper machine ownership', () => {
+  test('preserves same-root helper ownership through an authentic child environment', () => {
+    const root = sameRootHelperEnv([
+      {
+        body: [{ type: 'return', props: { value: 'x + 1' } }],
+        name: 'addOne',
+        params: ['x'],
+      },
+    ]);
+    const child = childEnv(root);
+    const nodes: readonly IRNode[] = [{ type: 'return', props: { value: 'addOne(2)' } }];
+
+    expect(selectSourceRunnerEngine(nodes, child, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, child, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 3,
+    });
+  });
+
   test('selects and executes a same-root pure scalar helper on the machine', () => {
     const nodes: readonly IRNode[] = [{ type: 'print', props: { value: 'addOne(2)' } }];
     const env = () =>

@@ -426,11 +426,14 @@ describe('M3.23 internal effect-machine lambda ownership', () => {
   });
 
   // 8. Non-root/helper/class environment selector guardrails
-  test('keeps incoming parent environments on compatibility', () => {
+  test('admits authentic incoming parent environments with an explicit budget', () => {
     const ir = { type: 'lambda', props: { expr: 'List.map(xs, x => x)' } };
     const root = makeEnv({ bindings: new Map([['xs', [1]]]) });
     const child = childEnv(root);
-    expect(selectSourceRunnerEngine([ir], child, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(selectSourceRunnerEngine([ir], child, { iterationBudget: 1 })).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync([ir], child, { iterationBudget: 1, policy: 'machine-only' }).events).toEqual([
+      { op: 'stdout', text: '1' },
+    ]);
   });
 
   test('keeps environments with helper functions on compatibility', () => {

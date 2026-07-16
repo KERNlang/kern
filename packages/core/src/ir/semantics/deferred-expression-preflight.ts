@@ -20,7 +20,12 @@ import {
   isRegexSplitExpression,
   isRegexTestExpression,
 } from './portable-regex.js';
-import { assertRunnerPortableValue, isIntProvenancedExpr, portableTruthy } from './portable-scalar-domain.js';
+import {
+  assertRunnerPortableValue,
+  isIntProvenancedExpr,
+  isRunnerClassInstanceValue,
+  portableTruthy,
+} from './portable-scalar-domain.js';
 import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
 
 export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: ReadonlySet<string>): boolean {
@@ -121,7 +126,20 @@ export function assertDeferredMachineScalarPreflight(
     }
     return;
   }
-  if (node.kind === 'member') return;
+  if (node.kind === 'member') {
+    if (node.object.kind === 'ident' && hasBinding(env, node.object.name)) {
+      const receiver = getBinding(env, node.object.name);
+      if (isRunnerClassInstanceValue(receiver)) {
+        if (!Object.hasOwn(receiver.fields, node.property)) {
+          throw new Error(`machine class: class "${receiver.className}" has no field "${node.property}"`);
+        }
+        if (receiver.fields[node.property] === undefined) {
+          throw new Error(`machine class: field "${node.property}" is uninitialized`);
+        }
+      }
+    }
+    return;
+  }
   if (node.kind === 'index') {
     assertDeferredIndex(node, env, deferredBindings);
     return;

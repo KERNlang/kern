@@ -148,9 +148,6 @@ function assertFunctionBinding(key: string, fn: RunnerFunctionBinding, scope: Ru
 
 function helperScope(env: SemanticEnv): RunnerModuleScope | undefined {
   if (!env.runnerFunctions || env.runnerFunctions.size === 0) return undefined;
-  if (env.runnerClasses !== undefined && env.runnerClasses.size !== 0) {
-    throw new Error('machine helper: runner class state is outside this slice');
-  }
   const scope = runnerMachineRootScope(env.runnerFunctions, env.runnerClasses);
   if (!scope) throw new Error('machine helper: root scope is not linker-owned');
   return scope;
@@ -164,6 +161,9 @@ export function assertInternalMachineHelperGraph(
   if (!scope) return { functions: new Map(), requiresIterationBudget: false };
   const pending = new Set<string>();
   collectNodeCalls(nodes, scope.functions, pending);
+  if (pending.size > 0 && scope.classes.size > 0) {
+    throw new Error('machine helper: reachable helper/class mixing is outside this slice');
+  }
   const functions = new Map<string, RunnerFunctionBinding>();
   let requiresIterationBudget = false;
   while (pending.size > 0) {

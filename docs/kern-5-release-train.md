@@ -475,6 +475,77 @@ trusted-publishing/provenance configuration is inspected.
     run and one focused timeout retry with zero findings
     (`review-1784141350527-jna9fu-kern-5-r2-m3-25-iteration-budget`,
     `review-1784141541689-hzqupd-kern-5-r2-m3-25-iteration-budget`).
+  - [x] M3.26 same-root state-only class ownership: the canonical machine now
+    owns linker-admitted local class allocation, scalar field initialization,
+    restricted direct-assignment constructors, own-field reads/writes, and
+    receiver identity across async suspension. Each run snapshots its admitted
+    class registry; overlapping runs and caller replacement cannot share or
+    alter instance state. Deferred constructor arguments and field writes use
+    shape-only synthetic preflight, and unowned class metadata rejects before
+    accessor invocation. Methods, getters, inheritance, imported classes,
+    helper/class mixing, nested allocation/mutation, and non-root environments
+    remain explicit compatibility paths. `pnpm fitness:kern-5` passed
+    end-to-end on the final post-review state on 2026-07-16 with 432/432
+    conformance, 109/109 class, 233 native
+    core assertions, 48/48 checker fixtures, 39/39 validator verdicts, and a
+    browser wall of 131 modules / 1,402,747 raw / 309,088 gzip bytes / 79 ms
+    median execution. Deferred metadata, linked-root selection, field-read,
+    and constructor initialization-order gaps found during review were fixed
+    with focused regressions. The final terminal `claude,codex,agy` pass
+    completed 3/3; Codex reported no findings, Agy only nits, and Claude's
+    selector claim was adjudicated against the direct-eligibility call chain
+    and passing nested-mutation oracle
+    (`review-1784157448784-n8yhbw-kern-5-r2-m3-26-class-state-post`).
+  - [x] M3.27 pure direct same-root class methods: the canonical machine now
+    snapshots and owns linker-admitted instance methods containing exactly one
+    portable scalar return. Calls require an exact private-owned identifier
+    receiver, exact scalar arity, and a complete root `let`, `print`, or
+    `return` value. Method metadata and bodies are immutable across async
+    suspension; aliases, optional/missing dispatch, nested calls, mutation,
+    helpers, deferred arguments, and invalid returns select compatibility
+    before provider dispatch. Getters, inheritance, `super`, imported classes,
+    and non-root environments remain deferred to M3.29 and M3.28 respectively.
+    The focused suite covers public source parity, sync and real-async dispatch,
+    metadata tamper, receiver forgery, and the complete negative admission
+    boundary. Final aggregate fitness and terminal review evidence are recorded
+    in the M3.27 completion spec.
+  - [x] M3.28 authentic non-root environment ownership: the canonical source
+    runner now admits exact lexical children created by `childEnv`, validates
+    the complete private parent chain without invoking accessors, preserves
+    nearest-scope reads and exact declaring-scope writes, and revalidates the
+    chain after every sync or async provider before generator resume. Forged,
+    reparented, spliced, cyclic, metadata-invalid, unowned, or active-call entry
+    frames remain compatibility paths. Resume validation preserves
+    machine-created aliases, normalized structured capability results, live
+    portable scalar updates, and the captured-intrinsics contract while
+    rejecting unowned or cyclic composites. `non-root-environment` is now
+    unified; `runner-classes-state` remains the sole exact M3.29 convergence
+    blocker. The final `pnpm fitness:kern-5` wall passed on 2026-07-16 with
+    432/432 conformance fixtures, 109/109 class cases, 233 native cases, 48/48
+    checker fixtures, 39/39 validator verdicts, and 40 application fixtures on
+    three legs plus whole-app boot. The browser wall passed at 135 modules /
+    1,432,650 raw / 313,744 gzip bytes / 49 ms cold / 76 ms median. The 3/3
+    `claude,codex,agy` review fixed ancestor-accessor ordering and falsy-input
+    hardening; its global-prototype proposal was adjudicated against the frozen
+    captured-intrinsics regression
+    (`review-1784167478723-wugqlu-kern-5-r2-m3-28-non-root-environ`).
+  - [x] M3.29 pure same-root class getters: the canonical source runner now
+    snapshots linker-owned zero-parameter getters containing exactly one pure
+    scalar return. Exact private instance reads preserve field precedence and
+    admit getters only as complete root `let`, `print`, or `return` values;
+    nested dispatch, mutation, allocation, calls, effects, optional access,
+    and invalid metadata reject before provider dispatch. Getter bodies remain
+    stable across async suspension. `runner-class-pure-getters` is unified,
+    while the full `runner-classes-state` row remains the sole exact M3.30
+    blocker for inheritance, overrides, `super`, module scopes, and effectful
+    class frames. The final `pnpm fitness:kern-5` wall passed on 2026-07-16
+    with 432/432 cross-target fixtures, 109/109 class fixtures, 233 native
+    cases, 48/48 checker fixtures, 39/39 validator verdicts, and 40 application
+    fixtures on three legs plus whole-app boot. The browser wall passed at 135
+    modules / 1,436,090 raw / 314,151 gzip bytes / 49 ms cold / 81 ms median.
+    The terminal `claude,codex,agy` review completed 3/3 with zero verified,
+    needs-check, or speculative findings and three nits
+    (`review-1784171484079-3dpyff-kern-5-r2-m3-29-pure-class-gette`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

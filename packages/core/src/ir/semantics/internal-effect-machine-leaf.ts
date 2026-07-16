@@ -4,6 +4,12 @@ import type { ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
 import { assertDeferredMachineLeafKnownValues } from './deferred-expression-preflight.js';
 import { expressionV1Source } from './expression-v1-runtime.js';
+import { preflightDeferredInternalMachineClassLet } from './internal-effect-machine-class-preflight.js';
+import {
+  assignInternalMachineClassField,
+  evalInternalMachineClassNew,
+  preflightInternalMachineClassLet,
+} from './internal-effect-machine-class-runtime.js';
 import {
   internalMachineDoTargetName,
   parseInternalMachineDo,
@@ -19,33 +25,27 @@ import {
 } from './internal-effect-machine-expression-v1.js';
 import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
 import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
+import { internalMachineRecordArrayFields } from './internal-effect-machine-leaf-record.js';
+import {
+  assertInternalMachinePrintShape,
+  assertInternalMachineReturnShape,
+  runInternalMachinePrint,
+  runInternalMachineReturn,
+} from './internal-effect-machine-leaf-result.js';
 import {
   INTERNAL_EFFECT_MACHINE_LEAF_TYPES,
   isInternalEffectMachineLeafType,
 } from './internal-effect-machine-leaf-types.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
-import {
-  assertPortableMachineLetShape,
-  assertPortableMachineReturnShape,
-  assertPortableMachineScalarShape,
-} from './portable-machine-shape.js';
+import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isEmptyMapConstructorCall } from './portable-map.js';
 import {
   evalRecordArrayFieldReferenceValue,
   evalRecordLiteralValue,
   isRecordLiteralExpression,
 } from './portable-record-evaluator.js';
-import { evalPortableReturnArrayValue } from './portable-return-array.js';
-import {
-  assertRunnerPortableValue,
-  isInspectableRunnerPortableValue,
-  isPortableBindingName,
-  isPortableRecordValue,
-  isPortableScalar,
-  isRunnerPortableArrayValue,
-  type PortableScalar,
-} from './portable-scalar-domain.js';
+import { assertRunnerPortableValue, isPortableBindingName, type PortableScalar } from './portable-scalar-domain.js';
 import {
   assignBinding,
   defineArrayAliasBinding,
@@ -74,8 +74,8 @@ export function assertInternalEffectMachineLeafShape(node: IRNode, env?: Semanti
   else if (node.type === 'expression-v1') assertInternalMachineExpressionV1Shape(node, env);
   else if (node.type === 'fmt') validateFmtShape(node, env);
   else if (node.type === 'let') validateLetShape(node, env);
-  else if (node.type === 'print') assertPortableMachineScalarShape(parseRequiredExpression(node, 'value'), env);
-  else if (node.type === 'return') validateReturnShape(node, env);
+  else if (node.type === 'print') assertInternalMachinePrintShape(node, env);
+  else if (node.type === 'return') assertInternalMachineReturnShape(node, env);
   else validateThrowShape(node, env);
 }
 
@@ -85,6 +85,7 @@ export function assertInternalEffectMachineLeafShapePreflight(node: IRNode, env:
     node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1' ? node.props?.name : undefined;
   if (typeof output !== 'string') return;
   if (hasOwnBinding(env, output)) throw new Error(`binding "${output}" already exists`);
+  if (node.type === 'let' && preflightInternalMachineClassLet(node, env, evalPortableValue, false)) return;
   defineBinding(env, output, null);
 }
 
@@ -109,17 +110,23 @@ export function assertInternalEffectMachineLeafPreflight(
     (output !== undefined && deferredBindings.has(output)) ||
     [...references].some((name) => deferredBindings.has(name))
   ) {
+    if (
+      node.type === 'let' &&
+      preflightDeferredInternalMachineClassLet(node, env, evalPortableValue, deferredBindings)
+    ) {
+      if (output !== undefined) deferredBindings.add(output);
+      return;
+    }
     assertDeferredAssignTarget(node, output, env, deferredBindings);
     for (const name of references) {
       if (!deferredBindings.has(name) && !hasBinding(env, name)) throw new Error(`binding "${name}" not found`);
     }
     assertDeferredMachineLeafKnownValues(node, env, deferredBindings);
-    // Producers reserve deferred declarations in env before adding their names;
-    // loop-frame names are the sole exception because runtime installs them per
-    // iteration. A blanket hasBinding check here would reject valid counter writes.
+    // Deferred producers reserve declarations; loop-frame bindings arrive at runtime.
     deferLeafOutput(node, env, deferredBindings);
     return;
   }
+  if (node.type === 'let' && preflightInternalMachineClassLet(node, env, evalPortableValue)) return;
   runInternalEffectMachineLeaf(node, env);
 }
 
@@ -130,6 +137,7 @@ function assertDeferredAssignTarget(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.type !== 'assign' || target === undefined || deferredBindings.has(target)) return;
+  if (assignInternalMachineClassField(node, env, evalPortableValue, false)) return;
   if (!hasBinding(env, target)) throw new Error(`assign: binding "${target}" does not exist`);
   const current = getBinding(env, target);
   if (typeof current !== 'number' && typeof current !== 'string' && typeof current !== 'boolean') {
@@ -261,8 +269,8 @@ export function runInternalEffectMachineLeaf(node: IRNode, env: SemanticEnv): Tr
   if (node.type === 'continue') return { completion: { kind: 'continue' }, events: [] };
   if (node.type === 'fmt') return runFmt(node, env);
   if (node.type === 'let') return runLet(node, env);
-  if (node.type === 'print') return runPrint(node, env);
-  if (node.type === 'return') return runReturn(node, env);
+  if (node.type === 'print') return runInternalMachinePrint(node, env);
+  if (node.type === 'return') return runInternalMachineReturn(node, env);
   if (node.type === 'do') return runInternalMachineDo(node, env);
   if (node.type === 'expression-v1') return runInternalMachineExpressionV1(node, env);
   return runThrow(node, env);
@@ -275,6 +283,7 @@ function parseRequiredExpression(node: IRNode, prop: string): ValueIR {
 }
 
 function validateAssignShape(node: IRNode, env?: SemanticEnv): void {
+  if (env && assignInternalMachineClassField(node, env, evalPortableValue, false)) return;
   if (!isPortableBindingName(node.props?.target)) throw new Error('assign: target must be a portable identifier');
   const op = node.props?.op;
   if (op !== undefined && op !== '' && op !== '=' && op !== '+=') throw new Error('assign: unsupported operator');
@@ -282,6 +291,8 @@ function validateAssignShape(node: IRNode, env?: SemanticEnv): void {
 }
 
 function runAssign(node: IRNode, env: SemanticEnv): Trace {
+  const classAssignment = assignInternalMachineClassField(node, env, evalPortableValue);
+  if (classAssignment) return classAssignment;
   const target = node.props?.target as string;
   if (!hasBinding(env, target)) throw new Error(`assign: binding "${target}" does not exist`);
   const current = getBinding(env, target);
@@ -300,7 +311,10 @@ function runAssign(node: IRNode, env: SemanticEnv): Trace {
   } else if (typeof current === 'string' && typeof right === 'string') value = current + right;
   else throw new Error('assign: += requires two numbers or two strings');
   assignBinding(env, target, value);
-  return { completion: { kind: 'normal' }, events: [{ op: 'assign', target, value }] };
+  return {
+    completion: { kind: 'normal' },
+    events: [{ op: 'assign', target, value }],
+  };
 }
 
 function validateLetShape(node: IRNode, env?: SemanticEnv): void {
@@ -312,7 +326,7 @@ function validateLetShape(node: IRNode, env?: SemanticEnv): void {
   assertPortableMachineLetShape(parseRequiredExpression(node, 'value'), env);
 }
 
-type MachineLetSource = 'array' | 'map' | 'other' | 'record' | 'record-field';
+type MachineLetSource = 'array' | 'class' | 'map' | 'other' | 'record' | 'record-field';
 
 function evaluateLetValue(
   node: IRNode,
@@ -320,13 +334,19 @@ function evaluateLetValue(
 ): { parsed: ValueIR; source: MachineLetSource; value: unknown } {
   const parsed = parseRequiredExpression(node, 'value');
   if (isArrayLiteralExpression(parsed)) {
-    return { parsed, source: 'array', value: evalArrayLiteralValue(parsed, env, evalPortableValue) };
+    return {
+      parsed,
+      source: 'array',
+      value: evalArrayLiteralValue(parsed, env, evalPortableValue),
+    };
   }
   if (isRecordLiteralExpression(parsed)) {
     return {
       parsed,
       source: 'record',
-      value: evalRecordLiteralValue(parsed, env, evalPortableValue, { captureFreshArrayBindings: true }),
+      value: evalRecordLiteralValue(parsed, env, evalPortableValue, {
+        captureFreshArrayBindings: true,
+      }),
     };
   }
   const recordArrayField = evalRecordArrayFieldReferenceValue(parsed, env);
@@ -334,6 +354,8 @@ function evaluateLetValue(
   if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
     return { parsed, source: 'map', value: new Map() };
   }
+  const classValue = evalInternalMachineClassNew(node, env, evalPortableValue);
+  if (classValue) return { parsed, source: 'class', value: classValue };
   if (parsed.kind === 'new') throw new Error('let: class construction is outside the machine domain');
   if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
     return {
@@ -357,22 +379,16 @@ function runLet(node: IRNode, env: SemanticEnv): Trace {
   if (hasOwnBinding(env, name)) throw new Error(`let: binding "${name}" already exists`);
   const { parsed, source, value } = evaluateLetValue(node, env);
   if (source === 'array') defineFreshArrayBinding(env, name, value as readonly unknown[]);
-  else if (source === 'record') defineRecordBinding(env, name, value, recordArrayFields(value));
+  else if (source === 'record') defineRecordBinding(env, name, value, internalMachineRecordArrayFields(value));
   else if (source === 'record-field') {
     defineCapturedArrayBinding(env, name, value as readonly unknown[]);
   } else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
     // Alias metadata is handled by defineArrayAliasBinding.
   } else defineBinding(env, name, value);
-  return { completion: { kind: 'normal' }, events: [{ op: 'assign', target: name, value }] };
-}
-
-function recordArrayFields(value: unknown): Set<string> {
-  const fields = new Set<string>();
-  if (!isPortableRecordValue(value)) return fields;
-  for (const [name, item] of Object.entries(value)) {
-    if (isRunnerPortableArrayValue(item) && item.every((entry) => isPortableScalar(entry))) fields.add(name);
-  }
-  return fields;
+  return {
+    completion: { kind: 'normal' },
+    events: [{ op: 'assign', target: name, value }],
+  };
 }
 
 function validateFmtShape(node: IRNode, env?: SemanticEnv): void {
@@ -406,57 +422,10 @@ function runFmt(node: IRNode, env: SemanticEnv): Trace {
     if (index < parsed.expressions.length) value += canonicalFmt(evalPortableValue(parsed.expressions[index], env));
   }
   defineBinding(env, name, value);
-  return { completion: { kind: 'normal' }, events: [{ op: 'assign', target: name, value }] };
-}
-
-function printText(value: unknown): string {
-  if (value === null) return 'null';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'string') return value;
-  if (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    (Number.isSafeInteger(value) || !Number.isInteger(value))
-  ) {
-    return String(value);
-  }
-  throw new Error('print: non-portable value');
-}
-
-function runPrint(node: IRNode, env: SemanticEnv): Trace {
-  const text = printText(evalPortableValue(parseRequiredExpression(node, 'value'), env));
-  return { completion: { kind: 'normal' }, events: [{ op: 'stdout', text }] };
-}
-
-function validateReturnShape(node: IRNode, env?: SemanticEnv): void {
-  if (!Object.hasOwn(node.props ?? {}, 'value')) return;
-  const value = node.props?.value;
-  if (value === undefined) return;
-  if (typeof value === 'string') assertPortableMachineReturnShape(parseExpression(value), env);
-  else if (!isInspectableRunnerPortableValue(value)) throw new Error('return: raw value is outside the machine domain');
-}
-
-function evaluateReturnValue(node: IRNode, env: SemanticEnv): unknown {
-  if (!Object.hasOwn(node.props ?? {}, 'value')) return undefined;
-  const raw = node.props?.value;
-  if (typeof raw !== 'string') return raw;
-  const parsed = parseExpression(raw);
-  if (isArrayLiteralExpression(parsed)) return evalPortableReturnArrayValue(parsed, env, evalPortableValue);
-  if (isRecordLiteralExpression(parsed)) return evalRecordLiteralValue(parsed, env, evalPortableValue);
-  const recordArrayField = evalRecordArrayFieldReferenceValue(parsed, env);
-  if (recordArrayField !== undefined) return recordArrayField;
-  if (parsed.kind === 'new') throw new Error('return: class construction is outside the machine domain');
-  if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
-    return assertRunnerPortableValue(getBinding(env, parsed.name), `binding "${parsed.name}"`);
-  }
-  if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && env.runnerFunctions?.has(parsed.callee.name)) {
-    return evalInternalMachineHelperValue(parsed.callee.name, parsed.args, env, evalPortableValue);
-  }
-  return evalPortableValue(parsed, env);
-}
-
-function runReturn(node: IRNode, env: SemanticEnv): Trace {
-  return { completion: { kind: 'return', value: evaluateReturnValue(node, env) }, events: [] };
+  return {
+    completion: { kind: 'normal' },
+    events: [{ op: 'assign', target: name, value }],
+  };
 }
 
 function validateThrowShape(node: IRNode, env?: SemanticEnv): void {
@@ -479,7 +448,10 @@ function explicitErrorArgument(node: ValueIR): ValueIR | undefined {
 function runThrow(node: IRNode, env: SemanticEnv): Trace {
   let error: CanonicalError;
   if (typeof node.props?.errorKind === 'string') {
-    error = { kind: node.props.errorKind, messagePattern: node.props?.messagePattern as RegExp | undefined };
+    error = {
+      kind: node.props.errorKind,
+      messagePattern: node.props?.messagePattern as RegExp | undefined,
+    };
   } else {
     const argument = explicitErrorArgument(parseRequiredExpression(node, 'value'));
     if (!argument) throw new Error('throw: invalid explicit Error');

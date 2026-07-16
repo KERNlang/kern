@@ -1,3 +1,5 @@
+import { hasOwnedDirectEnvironment } from '../ir/semantics/internal-effect-machine-admission.js';
+import { internalMachineClassGraphHasClasses } from '../ir/semantics/internal-effect-machine-class-graph.js';
 import {
   internalMachineHelperGraphHasReachableFunctions,
   internalMachineHelperGraphRequiresIterationBudget,
@@ -76,6 +78,7 @@ export function selectSourceRunnerEngine(
   options: Pick<SourceRunnerEngineOptions, 'iterationBudget'>,
 ): SourceRunnerEngine {
   validateIterationBudget(options.iterationBudget);
+  if (!hasOwnedDirectEnvironment(env, true, true)) return SOURCE_RUNNER_ENGINE.legacy;
   if (requiresIterationBudget(nodes, env) && options.iterationBudget === undefined) return SOURCE_RUNNER_ENGINE.legacy;
   if (selectInternalRuntimeEngine(nodes, env) !== INTERNAL_EFFECT_MACHINE_FORMAT) return SOURCE_RUNNER_ENGINE.legacy;
   if (internalMachineHelperGraphHasReachableFunctions(nodes, env)) {
@@ -86,6 +89,12 @@ export function selectSourceRunnerEngine(
       return SOURCE_RUNNER_ENGINE.legacy;
     }
     assertInternalEffectMachineRootStructureSupported(nodes, env);
+  } else if (internalMachineClassGraphHasClasses(env)) {
+    try {
+      assertInternalEffectMachineStructureSupported(nodes, env);
+    } catch {
+      return SOURCE_RUNNER_ENGINE.legacy;
+    }
   } else assertInternalEffectMachineStructureSupported(nodes, env);
   return SOURCE_RUNNER_ENGINE.machine;
 }
