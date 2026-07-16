@@ -509,6 +509,26 @@ trusted-publishing/provenance configuration is inspected.
     metadata tamper, receiver forgery, and the complete negative admission
     boundary. Final aggregate fitness and terminal review evidence are recorded
     in the M3.27 completion spec.
+  - [x] M3.28 authentic non-root environment ownership: the canonical source
+    runner now admits exact lexical children created by `childEnv`, validates
+    the complete private parent chain without invoking accessors, preserves
+    nearest-scope reads and exact declaring-scope writes, and revalidates the
+    chain after every sync or async provider before generator resume. Forged,
+    reparented, spliced, cyclic, metadata-invalid, unowned, or active-call entry
+    frames remain compatibility paths. Resume validation preserves
+    machine-created aliases, normalized structured capability results, live
+    portable scalar updates, and the captured-intrinsics contract while
+    rejecting unowned or cyclic composites. `non-root-environment` is now
+    unified; `runner-classes-state` remains the sole exact M3.29 convergence
+    blocker. The final `pnpm fitness:kern-5` wall passed on 2026-07-16 with
+    432/432 conformance fixtures, 109/109 class cases, 233 native cases, 48/48
+    checker fixtures, 39/39 validator verdicts, and 40 application fixtures on
+    three legs plus whole-app boot. The browser wall passed at 135 modules /
+    1,432,650 raw / 313,744 gzip bytes / 49 ms cold / 76 ms median. The 3/3
+    `claude,codex,agy` review fixed ancestor-accessor ordering and falsy-input
+    hardening; its global-prototype proposal was adjudicated against the frozen
+    captured-intrinsics regression
+    (`review-1784167478723-wugqlu-kern-5-r2-m3-28-non-root-environ`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
