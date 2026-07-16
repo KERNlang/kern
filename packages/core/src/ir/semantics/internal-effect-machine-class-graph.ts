@@ -407,11 +407,20 @@ export function internalMachineClassMethodForCall(
     node.optional ||
     node.callee.kind !== 'member' ||
     node.callee.optional ||
-    node.callee.object.kind !== 'ident' ||
-    node.callee.object.name === 'this'
+    node.callee.object.kind !== 'ident'
   ) {
     return undefined;
   }
+  if (node.callee.object.name === 'super') {
+    const receiver = internalMachineClassReceiver('this', env);
+    const baseName = env.runnerSuperClass;
+    if (!receiver || !baseName) return undefined;
+    const registry = internalMachineClassRegistryForEnv(env);
+    const base = registry.get(baseName);
+    const resolved = base ? internalMachineClassMemberFor(base, node.callee.property, 'method', registry) : undefined;
+    return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: 'this' } : undefined;
+  }
+  if (node.callee.object.name === 'this') return undefined;
   const receiver = internalMachineClassReceiver(node.callee.object.name, env);
   if (!receiver) return undefined;
   const registry = internalMachineClassRegistryForEnv(env);

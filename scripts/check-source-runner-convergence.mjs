@@ -5,6 +5,7 @@ import ts from 'typescript';
 import * as constructorSuper from './source-runner-class-constructor-super-convergence.mjs';
 import * as frames from './source-runner-class-frame-convergence.mjs';
 import * as inheritance from './source-runner-class-inheritance-convergence.mjs';
+import * as superMethod from './source-runner-class-super-method-convergence.mjs';
 import { CLASS_GETTER_FILES, validateClassGetterManifest, validateClassGetterSlice } from './source-runner-class-getter-convergence.mjs';
 import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
 const FILES = Object.freeze({
@@ -12,6 +13,7 @@ const FILES = Object.freeze({
   ...constructorSuper.CLASS_CONSTRUCTOR_SUPER_FILES,
   ...frames.CLASS_FRAME_FILES,
   ...inheritance.CLASS_INHERITANCE_FILES,
+  ...superMethod.CLASS_SUPER_METHOD_FILES,
   ...CLASS_GETTER_FILES,
   classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
   classEvaluator: 'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
@@ -95,7 +97,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b1') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2a') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -200,6 +202,7 @@ function validateManifest(text, errors) {
   inheritance.validateClassInheritanceManifest(manifest, errors);
   frames.validateClassFrameManifest(manifest, errors);
   constructorSuper.validateClassConstructorSuperManifest(manifest, errors);
+  superMethod.validateClassSuperMethodManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -212,7 +215,7 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.31b2-super-member-helper-effect-and-M3.31c-module-ownership') {
+  if (classState?.followUp !== 'M3.31b2b-helper-effect-virtual-pre-super-and-M3.31c-module-ownership') {
     errors.push('manifest must keep remaining class behavior as the exact M3.31b2/c follow-up');
   }
 }
@@ -490,6 +493,7 @@ export function validateSourceRunnerConvergence(readText) {
   inheritance.validateClassInheritanceSlice(contents, errors);
   frames.validateClassFrameSlice(contents, errors);
   constructorSuper.validateClassConstructorSuperSlice(contents, errors);
+  superMethod.validateClassSuperMethodSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }

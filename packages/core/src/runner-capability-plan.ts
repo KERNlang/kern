@@ -8,6 +8,10 @@ import {
   type CapabilityId,
 } from './runner-capability-catalog.js';
 import {
+  resolveRunnerCapabilityClassMember,
+  runnerCapabilityClassAncestry,
+} from './runner-capability-class-dispatch.js';
+import {
   collectExecutableRequirements,
   collectUnsupportedAsyncExecutionsAcrossModules,
 } from './runner-capability-requirement-reachability.js';
@@ -687,6 +691,7 @@ function findExecutableKernHandlers(
         classExtends,
         classFieldInitializers,
         ownsClassFrames,
+        item.ownerClass,
       ).map((ref) => (item.u ? { ...ref, u: true } : ref)),
     );
   }
@@ -696,6 +701,7 @@ function findExecutableKernHandlers(
 interface ExecutableHandlerRef {
   readonly key: string;
   readonly handler: IRNode;
+  readonly ownerClass?: string;
   readonly u?: boolean;
 }
 
@@ -708,6 +714,7 @@ function calledExecutableHandlers(
   classExtends: ReadonlyMap<string, string>,
   classFieldInitializers: ReadonlyMap<string, readonly ValueIR[]>,
   ownsClassFrames: boolean,
+  ownerClass?: string,
 ): ExecutableHandlerRef[] {
   const helperNames = new Set<string>();
   const methodKeys = new Set<string>();
@@ -715,6 +722,7 @@ function calledExecutableHandlers(
   const constructorNames = new Set<string>();
   const unsupportedHelperNames = new Set<string>();
   const classBindings = new Map<string, string>();
+  const superClassName = ownerClass ? classExtends.get(ownerClass) : undefined;
   for (const node of walkNodes({ type: '__block', children: [...nodes] })) {
     recordClassBinding(node, classBindings, helpers);
     for (const expr of supportedHelperCallExpressions(node)) {
@@ -727,6 +735,7 @@ function calledExecutableHandlers(
         constructorNames,
         classBindings,
         expr.mode,
+        superClassName,
       );
     }
   }
@@ -736,7 +745,7 @@ function calledExecutableHandlers(
     for (const name of [...constructorNames]) {
       if (expandedConstructorNames.has(name)) continue;
       expandedConstructorNames.add(name);
-      for (const className of classAncestry(name, classExtends)) {
+      for (const className of runnerCapabilityClassAncestry(name, classExtends)) {
         for (const initializer of classFieldInitializers.get(className) ?? []) {
           collectHelperCalls(
             initializer,
@@ -747,6 +756,7 @@ function calledExecutableHandlers(
             constructorNames,
             classBindings,
             'scalar',
+            undefined,
           );
         }
       }
@@ -765,9 +775,9 @@ function calledExecutableHandlers(
   for (const key of methodKeys) {
     const [className, methodName] = key.split('.', 2);
     if (!className || !methodName) continue;
-    const resolved = resolveClassMethodHandlers(className, methodName, classMethods, classExtends);
-    for (const [index, handler] of resolved.entries()) {
-      out.push({ key: `method:${key}:${index}`, handler, u: !ownsClassFrames });
+    const resolved = resolveRunnerCapabilityClassMember(className, methodName, classMethods, classExtends);
+    for (const [index, handler] of (resolved?.values ?? []).entries()) {
+      out.push({ key: `method:${key}:${index}`, handler, ownerClass: resolved?.ownerClass, u: !ownsClassFrames });
     }
   }
   for (const name of ambiguousMethodNames) {
@@ -776,42 +786,15 @@ function calledExecutableHandlers(
     }
   }
   for (const name of constructorNames) {
-    for (const className of classAncestry(name, classExtends)) {
+    for (const className of runnerCapabilityClassAncestry(name, classExtends)) {
       const handler = classConstructors.get(className);
-      if (handler) out.push({ key: `constructor:${className}`, handler, u: !ownsClassFrames });
+      if (handler) out.push({ key: `constructor:${className}`, handler, ownerClass: className, u: !ownsClassFrames });
     }
   }
   return out;
 }
 
 const AMBIGUOUS_CLASS_BINDING = '*';
-
-function resolveClassMethodHandlers(
-  className: string,
-  methodName: string,
-  classMethods: ReadonlyMap<string, readonly IRNode[]>,
-  classExtends: ReadonlyMap<string, string>,
-): readonly IRNode[] {
-  for (const current of classAncestry(className, classExtends)) {
-    const handlers = classMethods.get(`${current}.${methodName}`);
-    if (handlers && handlers.length > 0) return handlers;
-  }
-  return [];
-}
-
-function classAncestry(className: string, classExtends: ReadonlyMap<string, string>): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (
-    let current: string | undefined = className;
-    current && !seen.has(current);
-    current = classExtends.get(current)
-  ) {
-    seen.add(current);
-    out.push(current);
-  }
-  return out;
-}
 
 function recordClassBinding(
   node: IRNode,
@@ -894,12 +877,15 @@ function collectHelperCalls(
   constructorNames: Set<string>,
   classBindings: ReadonlyMap<string, string>,
   mode: HelperCallExpressionMode,
+  superClassName?: string,
 ): void {
   if (node.kind === 'call' && node.callee.kind === 'ident' && helpers.has(node.callee.name)) {
     helperNames.add(node.callee.name);
   }
   if (node.kind === 'call' && node.callee.kind === 'member') {
-    if (node.callee.object.kind === 'ident' && classBindings.has(node.callee.object.name)) {
+    if (node.callee.object.kind === 'ident' && node.callee.object.name === 'super' && superClassName) {
+      methodKeys.add(`${superClassName}.${node.callee.property}`);
+    } else if (node.callee.object.kind === 'ident' && classBindings.has(node.callee.object.name)) {
       const className = classBindings.get(node.callee.object.name);
       if (className === AMBIGUOUS_CLASS_BINDING) {
         ambiguousMethodNames.add(node.callee.property);
@@ -939,6 +925,7 @@ function collectHelperCalls(
       constructorNames,
       classBindings,
       child.mode,
+      superClassName,
     );
   }
 }

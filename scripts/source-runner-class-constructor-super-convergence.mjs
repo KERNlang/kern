@@ -71,7 +71,7 @@ export function validateClassConstructorSuperSlice(contents, errors) {
   for (const required of [
     'internalMachineClassConstructorPlan(cls, registry)',
     'for (const argument of plan.superArguments)',
-    'assertClassBodyExpressions(plan.body, visibleFields)',
+    'assertClassBodyExpressions(plan.body, visibleFields, constructorEnv)',
   ]) {
     if (!contents.classFramePreflight?.includes(required)) {
       errors.push(`constructor-super whole-graph preflight is missing ${required}`);

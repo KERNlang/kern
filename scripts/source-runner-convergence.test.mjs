@@ -36,6 +36,7 @@ const files = new Map(
     'packages/core/src/ir/semantics/source-runner-admission.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner-capability-plan.ts',
+    'packages/core/src/runner-capability-class-dispatch.ts',
     'packages/core/src/runner-capability-requirement-reachability.ts',
     'packages/core/src/runner-class-frame-capability-admission.ts',
     'packages/core/src/runner-error.ts',
@@ -50,6 +51,8 @@ const files = new Map(
     'packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super-admission.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-super-method-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -469,6 +472,45 @@ test('rejects constructor-super lifecycle ownership regressions', () => {
     ),
   );
   assert.ok(oracleErrors.some((error) => error.includes('constructor-super lifecycle oracle')));
+});
+
+test('rejects super-method dispatch ownership regressions', () => {
+  const manifestErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-super-method-dispatch');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(manifestErrors.some((error) => error.includes('runner-class-super-method-dispatch owner')));
+
+  const activationErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-activation.ts',
+      'runnerSuperClass: cls.extendsName,',
+      'runnerSuperClass: undefined,',
+    ),
+  );
+  assert.ok(activationErrors.some((error) => error.includes('declaring owner base')));
+
+  const plannerErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runner-capability-plan.ts',
+      "node.callee.object.name === 'super' && superClassName",
+      'false',
+    ),
+  );
+  assert.ok(plannerErrors.some((error) => error.includes('capability plan')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts',
+      'walks a three-level declaring-owner chain with independent locals',
+      'removed declaring-owner oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('super-method lifecycle oracle')));
 });
 
 test('rejects constructorless class-inheritance ownership regressions', () => {

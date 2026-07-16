@@ -6,12 +6,16 @@ import {
   makeInternalMachineClassMemberEnv,
 } from './internal-effect-machine-class-activation.js';
 import { internalMachineClassConstructorPlan } from './internal-effect-machine-class-construction.js';
-import { assertInternalMachineClassGraph } from './internal-effect-machine-class-graph.js';
+import {
+  assertInternalMachineClassGraph,
+  internalMachineClassMethodForCall,
+} from './internal-effect-machine-class-graph.js';
 import { INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER } from './internal-effect-machine-class-instance.js';
 import { internalMachineClassVisibleFields } from './internal-effect-machine-class-lineage.js';
 import { preflightInternalMachineClassLet } from './internal-effect-machine-class-runtime.js';
 import { classifyInternalMachineClassScalarValue } from './internal-effect-machine-class-value.js';
 import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
+import { bindInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
@@ -50,7 +54,12 @@ function assertScalarReturns(nodes: readonly IRNode[], env: SemanticEnv): void {
   }
 }
 
-function assertClassExpression(node: ReturnType<typeof parseExpression>, fields: ReadonlySet<string>): void {
+function assertClassExpression(
+  node: ReturnType<typeof parseExpression>,
+  fields: ReadonlySet<string>,
+  env: SemanticEnv,
+  allowSuperCall = false,
+): void {
   if (
     node.kind === 'numLit' ||
     node.kind === 'strLit' ||
@@ -67,42 +76,58 @@ function assertClassExpression(node: ReturnType<typeof parseExpression>, fields:
     return;
   }
   if (node.kind === 'unary') {
-    assertClassExpression(node.argument, fields);
+    assertClassExpression(node.argument, fields, env, allowSuperCall);
     return;
   }
   if (node.kind === 'binary') {
-    assertClassExpression(node.left, fields);
-    assertClassExpression(node.right, fields);
+    assertClassExpression(node.left, fields, env, allowSuperCall);
+    assertClassExpression(node.right, fields, env, allowSuperCall);
     return;
   }
   if (node.kind === 'conditional') {
-    assertClassExpression(node.test, fields);
-    assertClassExpression(node.consequent, fields);
-    assertClassExpression(node.alternate, fields);
+    assertClassExpression(node.test, fields, env, allowSuperCall);
+    assertClassExpression(node.consequent, fields, env, allowSuperCall);
+    assertClassExpression(node.alternate, fields, env, allowSuperCall);
     return;
   }
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    assertClassExpression(node.expression, fields);
+    assertClassExpression(node.expression, fields, env, allowSuperCall);
     return;
   }
   if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) assertClassExpression(expression, fields);
+    for (const expression of node.expressions) assertClassExpression(expression, fields, env, allowSuperCall);
     return;
   }
   if (node.kind === 'objectLit') {
     for (const entry of node.entries) {
-      assertClassExpression('kind' in entry ? entry.argument : entry.value, fields);
+      assertClassExpression('kind' in entry ? entry.argument : entry.value, fields, env, allowSuperCall);
     }
     return;
   }
   if (node.kind === 'arrayLit') {
-    for (const item of node.items) assertClassExpression(item, fields);
+    for (const item of node.items) assertClassExpression(item, fields, env, allowSuperCall);
+    return;
+  }
+  if (
+    node.kind === 'call' &&
+    !node.optional &&
+    node.callee.kind === 'member' &&
+    !node.callee.optional &&
+    node.callee.object.kind === 'ident' &&
+    node.callee.object.name === 'super' &&
+    allowSuperCall
+  ) {
+    const resolved = internalMachineClassMethodForCall(node, env);
+    if (!resolved || node.args.length !== resolved.method.params.length) {
+      throw new Error('machine class: super method call is unavailable');
+    }
+    for (const argument of node.args) assertClassExpression(argument, fields, env, allowSuperCall);
     return;
   }
   throw new Error(`machine class: expression kind "${node.kind}" is outside this frame slice`);
 }
 
-function assertClassBodyExpressions(nodes: readonly IRNode[], fields: ReadonlySet<string>): void {
+function assertClassBodyExpressions(nodes: readonly IRNode[], fields: ReadonlySet<string>, env: SemanticEnv): void {
   for (const node of nodes) {
     if (node.type === 'assign' && typeof node.props?.target === 'string' && node.props.target.startsWith('this.')) {
       const field = /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(node.props.target)?.[1];
@@ -121,12 +146,15 @@ function assertClassBodyExpressions(nodes: readonly IRNode[], fields: ReadonlySe
         continue;
       }
       const value = node.props?.[key];
-      if (typeof value === 'string' && value !== '') assertClassExpression(parseExpression(value), fields);
+      if (typeof value === 'string' && value !== '') {
+        const allowSuperCall = key === 'value' && ['let', 'print', 'return'].includes(node.type);
+        assertClassExpression(parseExpression(value), fields, env, allowSuperCall);
+      }
     }
     if (typeof node.props?.template === 'string') {
-      assertClassExpression(parseExpression(`\`${node.props.template}\``), fields);
+      assertClassExpression(parseExpression(`\`${node.props.template}\``), fields, env);
     }
-    if (node.children) assertClassBodyExpressions(node.children, fields);
+    if (node.children) assertClassBodyExpressions(node.children, fields, env);
   }
 }
 
@@ -146,6 +174,7 @@ function markDefiniteConstructorFieldAssignments(
 
 export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analyze: ClassBodyAnalyzer): void {
   const registry = assertInternalMachineClassGraph(env).classes;
+  const preflightState = { classRegistry: registry, remainingIterations: undefined };
   for (const cls of registry.values()) {
     const visibleFields = internalMachineClassVisibleFields(cls, registry);
     const constructorValues = (cls.constructor?.params ?? []).map(() => null);
@@ -158,17 +187,22 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
       registry,
     );
     if (cls.constructor) {
-      const plan = internalMachineClassConstructorPlan(cls, registry);
-      for (const argument of plan.superArguments) assertPortableMachineScalarShape(argument, constructorEnv);
-      assertClassBodyExpressions(plan.body, visibleFields);
-      if (bodyCallsHelper(plan.body, constructorEnv)) {
-        throw new Error(`machine class: constructor "${cls.name}" calls a helper`);
+      const restore = bindInternalEffectMachineState(constructorEnv, preflightState);
+      try {
+        const plan = internalMachineClassConstructorPlan(cls, registry);
+        for (const argument of plan.superArguments) assertPortableMachineScalarShape(argument, constructorEnv);
+        assertClassBodyExpressions(plan.body, visibleFields, constructorEnv);
+        if (bodyCallsHelper(plan.body, constructorEnv)) {
+          throw new Error(`machine class: constructor "${cls.name}" calls a helper`);
+        }
+        const completions = analyze(plan.body, 0, constructorEnv, new Set(cls.constructor.params), true);
+        if (completions.size !== 1 || !completions.has('normal')) {
+          throw new Error(`machine class: constructor "${cls.name}" must complete normally`);
+        }
+        markDefiniteConstructorFieldAssignments(plan.body, instance, visibleFields);
+      } finally {
+        restore();
       }
-      const completions = analyze(plan.body, 0, constructorEnv, new Set(cls.constructor.params), true);
-      if (completions.size !== 1 || !completions.has('normal')) {
-        throw new Error(`machine class: constructor "${cls.name}" must complete normally`);
-      }
-      markDefiniteConstructorFieldAssignments(plan.body, instance, visibleFields);
     }
     for (const member of [...cls.methods.values(), ...cls.getters.values()]) {
       const memberEnv = makeInternalMachineClassMemberEnv(
@@ -179,15 +213,20 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
         env,
         registry,
       );
-      if (bodyCallsHelper(member.body, memberEnv)) {
-        throw new Error(`machine class: member "${cls.name}.${member.name}" calls a helper`);
+      const restore = bindInternalEffectMachineState(memberEnv, preflightState);
+      try {
+        if (bodyCallsHelper(member.body, memberEnv)) {
+          throw new Error(`machine class: member "${cls.name}.${member.name}" calls a helper`);
+        }
+        assertClassBodyExpressions(member.body, visibleFields, memberEnv);
+        const completions = analyze(member.body, 0, memberEnv, new Set([...member.params, 'this']), true);
+        if (completions.size !== 1 || !completions.has('return')) {
+          throw new Error(`machine class: member "${cls.name}.${member.name}" must return on every path`);
+        }
+        assertScalarReturns(member.body, memberEnv);
+      } finally {
+        restore();
       }
-      assertClassBodyExpressions(member.body, visibleFields);
-      const completions = analyze(member.body, 0, memberEnv, new Set([...member.params, 'this']), true);
-      if (completions.size !== 1 || !completions.has('return')) {
-        throw new Error(`machine class: member "${cls.name}.${member.name}" must return on every path`);
-      }
-      assertScalarReturns(member.body, memberEnv);
     }
   }
 }

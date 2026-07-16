@@ -609,6 +609,26 @@ trusted-publishing/provenance configuration is inspected.
     returned findings were adjudicated against the current contract and tree
     (`review-1784220056869-n5svyh-kern-5-r2-m3-31b1-constructor-su`,
     `review-1784220336939-kraaju-kern-5-r2-m3-31b1-constructor-su`).
+  - [x] M3.31b2a declaring-owner super-method dispatch: generator-owned `let`,
+    `print`, and `return` scalar leaves in same-root constructors, methods, and
+    getters now resolve non-optional `super.method(...)` from the declaring
+    owner's immediate base, invoke the nearest method on the existing
+    most-derived private receiver, and reuse the M3.31a resumable method frame.
+    Three-level lookup, caller continuation, constructor/getter use, real-async
+    suspension, snapshot isolation, provider rejection, public-source parity,
+    capability-planner reachability, and fail-closed admission are executable
+    oracles. Helper/class composition, effectful fields, virtual
+    `this.method()`, non-leaf expression slots, pre-super statements, and
+    imported/module identity remain explicit M3.31b2b/c boundaries. The exact
+    `pnpm fitness:kern-5` wall passed with 432/432 cross-target fixtures,
+    109/109 class fixtures, 233 native cases, 48/48 checker fixtures, 39/39
+    validator verdicts, and 40 application fixtures on three legs plus
+    whole-app boot. The browser wall passed at 148 modules / 1,489,600 raw /
+    321,881 gzip bytes / 57 ms cold / 85 ms median. All six usable review
+    engines completed across the main run and a Claude-only retry; none found
+    a verified blocker, and the one valid `print`-site coverage nit was closed
+    (`review-1784226020031-rupwy5-kern-5-r2-m3-31b2a-super-method-`,
+    `review-1784226650868-o94yce-kern-5-r2-m3-31b2a-super-method-`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

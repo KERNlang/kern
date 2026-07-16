@@ -499,6 +499,32 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
+  test('owns async base methods reached through super dispatch in capability planning', () => {
+    const source = [
+      'class name=Base',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"base\\" }"',
+      '      return value="answer"',
+      'class name=Derived extends=Base',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="super.read()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=item value="new Derived()"',
+      '    print value="item.read()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
   test('treats class field initializers and super-call arguments as constructor reachability', () => {
     const source = [
       'fn name=loadMode returns=string',

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.31b1",
+  "milestone": "KERN-5-R2-M3.31b2a",
   "owned": [
     {
       "id": "do",
@@ -73,6 +73,12 @@
       "kind": "environment",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-constructor-super.test.ts"
+    },
+    {
+      "id": "runner-class-super-method-dispatch",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts"
     }
   ],
   "deferred": [
@@ -80,7 +86,7 @@
       "id": "runner-classes-state",
       "kind": "environment",
       "status": "legacy",
-      "followUp": "M3.31b2-super-member-helper-effect-and-M3.31c-module-ownership"
+      "followUp": "M3.31b2b-helper-effect-virtual-pre-super-and-M3.31c-module-ownership"
     }
   ]
 }
