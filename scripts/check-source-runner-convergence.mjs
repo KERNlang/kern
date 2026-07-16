@@ -5,11 +5,18 @@ import ts from 'typescript';
 
 const FILES = Object.freeze({
   classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
+  classEvaluator: 'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
   classGraph: 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
   classHelperGraph: 'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+  classInstance: 'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
+  classLeaf: 'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
+  classLeafResult: 'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
   classPreflight: 'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
   classRuntime: 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+  classScope: 'packages/core/src/ir/semantics/runner-machine-scope.ts',
+  classShape: 'packages/core/src/ir/semantics/portable-machine-shape.ts',
   classTests: 'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+  classMethodTests: 'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
   cli: 'packages/cli/src/commands/run.ts',
   cliOptions: 'packages/cli/src/commands/run-options.ts',
   disposition: 'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
@@ -90,7 +97,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.26') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.27') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -167,6 +174,18 @@ function validateManifest(text, errors) {
   if (manifest.owned.filter((item) => item?.id === 'iteration-budget').length !== 1) {
     errors.push('manifest iteration-budget owner is duplicated');
   }
+  const ownedClassMethods = manifest.owned.find((item) => item?.id === 'runner-class-direct-methods');
+  if (
+    !exactKeys(ownedClassMethods, ['id', 'kind', 'status', 'evidence']) ||
+    ownedClassMethods.kind !== 'environment' ||
+    ownedClassMethods.status !== 'unified' ||
+    ownedClassMethods.evidence !== 'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified runner-class-direct-methods owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'runner-class-direct-methods').length !== 1) {
+    errors.push('manifest runner-class-direct-methods owner is duplicated');
+  }
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -179,8 +198,8 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.27-class-behavior-ownership') {
-    errors.push('manifest must keep class behavior as the exact M3.27 follow-up');
+  if (classState?.followUp !== 'M3.29-class-getter-inheritance-ownership') {
+    errors.push('manifest must keep remaining class behavior as the exact M3.29 follow-up');
   }
   const nonRoot = manifest.deferred.find((item) => item?.id === 'non-root-environment');
   if (nonRoot?.followUp !== 'M3.28-non-root-environment-ownership') {
@@ -188,7 +207,23 @@ function validateManifest(text, errors) {
   }
 }
 
-function validateClassStateSlice(eligibilityText, graphText, helperGraphText, preflightText, runtimeText, testsText, engineText, errors) {
+function validateClassStateSlice(
+  eligibilityText,
+  evaluatorText,
+  graphText,
+  helperGraphText,
+  instanceText,
+  leafText,
+  leafResultText,
+  preflightText,
+  runtimeText,
+  scopeText,
+  shapeText,
+  testsText,
+  methodTestsText,
+  engineText,
+  errors,
+) {
   const eligibility = parseSource(FILES.classEligibility, eligibilityText);
   const eligibilityCalls = descendants(eligibility, (node) => ts.isCallExpression(node) && node.expression.getText() === 'internalMachineClassGraphClaims');
   if (eligibilityCalls.length !== 2) {
@@ -204,15 +239,36 @@ function validateClassStateSlice(eligibilityText, graphText, helperGraphText, pr
     'assertInternalMachineClassUsage',
     'allocation must occur in the root sequence',
     'field mutation must occur in the root sequence',
-    'has behavior outside the state-only domain',
+    'has behavior outside the direct-method domain',
   ]) {
     if (!graphText.includes(required)) errors.push(`machine class graph is missing ${required}`);
   }
   if (!helperGraphText.includes('reachable helper/class mixing is outside this slice')) {
     errors.push('machine helper graph must reject reachable helper/class mixing');
   }
-  for (const required of ['classInstanceOwner', 'state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice']) {
+  for (const required of ['state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice', 'assertClassMethodBodies', 'evalInternalMachineClassMethod']) {
     if (!runtimeText.includes(required)) errors.push(`machine class runtime is missing ${required}`);
+  }
+  for (const required of ['classInstanceOwner', 'owner === INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER', 'internalMachineClassReceiver']) {
+    if (!instanceText.includes(required)) errors.push(`machine class instance ownership is missing ${required}`);
+  }
+  for (const required of ['assertMethod', 'internalMachineClassMethodForCall']) {
+    if (!graphText.includes(required)) errors.push(`machine class method graph is missing ${required}`);
+  }
+  if (!shapeText.includes('export function assertPortableMachineClassMethodCallShape')) {
+    errors.push('machine class method calls are missing their whole-leaf shape owner');
+  }
+  if (!evaluatorText.includes('classMethod(node') || !evaluatorText.includes('evalInternalMachineClassMethod(node, env, evaluate)')) {
+    errors.push('portable machine evaluator does not dispatch the admitted class-method leaf');
+  }
+  if (
+    !leafText.includes('assertInternalMachinePrintShape(node, env)') ||
+    !leafResultText.includes('assertPortableMachineClassMethodCallShape(value, env)')
+  ) {
+    errors.push('machine print leaves do not admit exact direct class-method calls');
+  }
+  for (const required of ['methodEntries: new Map(binding.methods)', 'mapMatchesSnapshot', 'binding.methods.values()']) {
+    if (!scopeText.includes(required)) errors.push(`machine class method metadata ownership is missing ${required}`);
   }
   const preflight = parseSource(FILES.classPreflight, preflightText);
   const deferredClassPreflight = findFunction(preflight, 'preflightDeferredInternalMachineClassLet');
@@ -225,7 +281,7 @@ function validateClassStateSlice(eligibilityText, graphText, helperGraphText, pr
   }
   for (const oracle of [
     'selects and executes construction plus own-field read/write on the machine',
-    'routes %s to compatibility before provider dispatch',
+    'routes inheritance to compatibility before provider dispatch',
     'preserves receiver state across async suspension and isolates parallel runs',
     'selects machine when the linked root function map contains the entry function',
     'rejects deferred constructor %s before provider dispatch',
@@ -234,6 +290,18 @@ function validateClassStateSlice(eligibilityText, graphText, helperGraphText, pr
     'routes nested class mutation to compatibility before provider dispatch',
   ]) {
     if (!testsText.includes(oracle)) errors.push(`machine class oracle is missing: ${oracle}`);
+  }
+  for (const oracle of [
+    'selects and executes pure direct methods on the machine',
+    'owns the linked public source path without changing compatibility output',
+    'preserves direct method dispatch across async suspension',
+    'snapshots admitted direct method bodies before async suspension',
+    'routes %s to compatibility before provider dispatch',
+    'routes deferred method arguments to compatibility before provider dispatch',
+    'rejects a caller-forged receiver during admission',
+    'rejects method metadata changed after linker ownership',
+  ]) {
+    if (!methodTestsText.includes(oracle)) errors.push(`machine class method oracle is missing: ${oracle}`);
   }
 }
 
@@ -381,8 +449,24 @@ export function validateSourceRunnerConvergence(readText) {
     }
   }
   if (contents.manifest) validateManifest(contents.manifest, errors);
-  if (contents.classEligibility && contents.classGraph && contents.classHelperGraph && contents.classPreflight && contents.classRuntime && contents.classTests && contents.engine) {
-    validateClassStateSlice(contents.classEligibility, contents.classGraph, contents.classHelperGraph, contents.classPreflight, contents.classRuntime, contents.classTests, contents.engine, errors);
+  if (contents.classEligibility && contents.classEvaluator && contents.classGraph && contents.classHelperGraph && contents.classInstance && contents.classLeaf && contents.classLeafResult && contents.classPreflight && contents.classRuntime && contents.classScope && contents.classShape && contents.classTests && contents.classMethodTests && contents.engine) {
+    validateClassStateSlice(
+      contents.classEligibility,
+      contents.classEvaluator,
+      contents.classGraph,
+      contents.classHelperGraph,
+      contents.classInstance,
+      contents.classLeaf,
+      contents.classLeafResult,
+      contents.classPreflight,
+      contents.classRuntime,
+      contents.classScope,
+      contents.classShape,
+      contents.classTests,
+      contents.classMethodTests,
+      contents.engine,
+      errors,
+    );
   }
   if (contents.runner) validateRunner(contents.runner, errors);
   if (contents.cli && contents.cliOptions) validateCli(contents.cli, contents.cliOptions, errors);

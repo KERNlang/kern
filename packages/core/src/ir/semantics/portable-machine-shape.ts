@@ -1,5 +1,8 @@
 import type { BinaryOp, UnaryOp, ValueIR } from '../../value-ir.js';
-import { internalMachineClassForNew } from './internal-effect-machine-class-graph.js';
+import {
+  internalMachineClassForNew,
+  internalMachineClassMethodForCall,
+} from './internal-effect-machine-class-graph.js';
 import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
 import { isDecimalExpression } from './portable-decimal-evaluator.js';
 import { assertPortableRecordEntry } from './portable-record-evaluator.js';
@@ -220,6 +223,15 @@ function assertClassConstructionShape(node: ValueIR, env?: SemanticEnv): boolean
   return true;
 }
 
+export function assertPortableMachineClassMethodCallShape(node: ValueIR, env?: SemanticEnv): boolean {
+  if (!env) return false;
+  const resolved = internalMachineClassMethodForCall(node, env);
+  if (!resolved || node.kind !== 'call') return false;
+  if (node.args.length !== resolved.method.params.length) fail('class method arity');
+  for (const argument of node.args) assertPortableMachineScalarShape(argument, env);
+  return true;
+}
+
 export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv): void {
   if (node.kind === 'arrayLit') {
     assertArrayShape(node, false);
@@ -231,6 +243,7 @@ export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv):
   }
   if (isEmptyMapConstructor(node)) return;
   if (assertClassConstructionShape(node, env)) return;
+  if (assertPortableMachineClassMethodCallShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }
 
@@ -243,5 +256,6 @@ export function assertPortableMachineReturnShape(node: ValueIR, env?: SemanticEn
     assertRecordShape(node, env);
     return;
   }
+  if (assertPortableMachineClassMethodCallShape(node, env)) return;
   assertPortableMachineScalarShape(node, env);
 }

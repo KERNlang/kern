@@ -11,13 +11,20 @@ const files = new Map(
     'packages/cli/src/commands/run.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
+    'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
+    'packages/core/src/ir/semantics/portable-machine-shape.ts',
+    'packages/core/src/ir/semantics/runner-machine-scope.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
 );
@@ -99,6 +106,13 @@ test('rejects blocker deletion and owned-node regressions', () => {
   });
   assert.ok(budgetErrors.some((error) => error.includes('iteration-budget owner')));
 
+  const classMethodErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-direct-methods');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(classMethodErrors.some((error) => error.includes('runner-class-direct-methods owner')));
+
   const doErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "do: 'unified'", "do: 'legacy'"));
   assert.ok(doErrors.some((error) => error.includes('disposition for do')));
 
@@ -144,12 +158,7 @@ test('rejects state-only class ownership regressions', () => {
   assert.ok(metadataExpressionErrors.some((error) => error.includes('class-owned expressions')));
 
   const deferredScalarErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
-      'assertDeferredMachineScalarPreflight);',
-      'removedDeferredScalarPreflight);',
-    ),
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts', 'assertDeferredMachineScalarPreflight,', 'removedDeferredScalarPreflight,'),
   );
   assert.ok(deferredScalarErrors.some((error) => error.includes('deferred scalar validation')));
 
@@ -172,6 +181,31 @@ test('rejects state-only class ownership regressions', () => {
     ),
   );
   assert.ok(initializationOrderErrors.some((error) => error.includes('machine class oracle')));
+});
+
+test('rejects direct class-method ownership regressions', () => {
+  const receiverErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts', 'owner === INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER', 'false'),
+  );
+  assert.ok(receiverErrors.some((error) => error.includes('instance ownership')));
+
+  const metadataErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/runner-machine-scope.ts', 'methodEntries: new Map(binding.methods)', 'methodSnapshot: new Map(binding.methods)'),
+  );
+  assert.ok(metadataErrors.some((error) => error.includes('method metadata ownership')));
+
+  const shapeErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/portable-machine-shape.ts', 'assertPortableMachineClassMethodCallShape', 'removedClassMethodCallShape'));
+  assert.ok(shapeErrors.some((error) => error.includes('whole-leaf shape owner')));
+
+  const evaluatorErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/src/ir/semantics/portable-machine-evaluator.ts', 'evalInternalMachineClassMethod(node, env, evaluate)', 'PORTABLE_EVAL_NOT_HANDLED'),
+  );
+  assert.ok(evaluatorErrors.some((error) => error.includes('does not dispatch')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts', 'preserves direct method dispatch across async suspension', 'removed async method oracle'),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('machine class method oracle')));
 });
 
 test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {

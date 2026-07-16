@@ -1,10 +1,11 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { internalMachineClassReceiver } from './internal-effect-machine-class-instance.js';
 import { internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
 import { isRunnerMachineClassBinding, runnerMachineRootScope } from './runner-machine-scope.js';
-import type { RunnerClassBinding, RunnerModuleScope, SemanticEnv } from './semantic-env.js';
+import type { RunnerClassBinding, RunnerClassMemberBinding, RunnerModuleScope, SemanticEnv } from './semantic-env.js';
 
 export interface InternalMachineClassGraph {
   readonly classes: ReadonlyMap<string, RunnerClassBinding>;
@@ -21,6 +22,13 @@ function snapshotNode(node: IRNode): IRNode {
 }
 
 function snapshotClassBinding(cls: RunnerClassBinding): RunnerClassBinding {
+  const snapshotMember = (member: RunnerClassMemberBinding): RunnerClassMemberBinding => ({
+    body: member.body.map(snapshotNode),
+    ...(member.handler ? { handler: snapshotNode(member.handler) } : {}),
+    name: member.name,
+    ownerClass: member.ownerClass,
+    params: [...member.params],
+  });
   return {
     name: cls.name,
     fields: cls.fields.map((field) => ({
@@ -36,10 +44,32 @@ function snapshotClassBinding(cls: RunnerClassBinding): RunnerClassBinding {
           ...(cls.constructor.handler ? { handler: snapshotNode(cls.constructor.handler) } : {}),
         }
       : undefined,
-    methods: new Map(),
+    methods: new Map([...cls.methods].map(([name, member]) => [name, snapshotMember(member)])),
     getters: new Map(),
     module: cls.module,
   };
+}
+
+function assertMethod(key: string, method: RunnerClassMemberBinding, cls: RunnerClassBinding): void {
+  if (method.name !== key || method.ownerClass !== cls.name || !isPortableBindingName(key)) {
+    throw new Error(`machine class: invalid method "${cls.name}.${key}"`);
+  }
+  const params = new Set<string>();
+  for (const param of method.params) {
+    if (!isPortableBindingName(param) || params.has(param)) {
+      throw new Error(`machine class: invalid method parameters for "${cls.name}.${key}"`);
+    }
+    params.add(param);
+  }
+  const statement = method.body.length === 1 ? method.body[0] : undefined;
+  if (
+    statement?.type !== 'return' ||
+    typeof statement.props?.value !== 'string' ||
+    statement.props.value === '' ||
+    (statement.children !== undefined && statement.children.length > 0)
+  ) {
+    throw new Error(`machine class: method "${cls.name}.${key}" must contain exactly one scalar return`);
+  }
 }
 
 function assertConstructor(cls: RunnerClassBinding): void {
@@ -57,7 +87,10 @@ function assertConstructor(cls: RunnerClassBinding): void {
   }
   const fields = new Set(cls.fields.map((field) => field.name));
   for (const node of ctor.body) {
-    const match = node.type === 'assign' && typeof node.props?.target === 'string' ? /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(node.props.target) : null;
+    const match =
+      node.type === 'assign' && typeof node.props?.target === 'string'
+        ? /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(node.props.target)
+        : null;
     if (
       !match ||
       !fields.has(match[1]) ||
@@ -81,8 +114,8 @@ function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerM
   if (cls.module?.functions !== scope.functions || cls.module.classes !== scope.classes) {
     throw new Error(`machine class: "${key}" is not defined in the selected root module`);
   }
-  if (cls.extendsName !== undefined || cls.methods.size !== 0 || cls.getters.size !== 0) {
-    throw new Error(`machine class: "${key}" has behavior outside the state-only domain`);
+  if (cls.extendsName !== undefined || cls.getters.size !== 0) {
+    throw new Error(`machine class: "${key}" has behavior outside the direct-method domain`);
   }
   if (!Array.isArray(cls.fields)) throw new Error(`machine class: invalid fields for "${key}"`);
   const fields = new Set<string>();
@@ -96,6 +129,7 @@ function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerM
     fields.add(field.name);
   }
   assertConstructor(cls);
+  for (const [methodName, method] of cls.methods) assertMethod(methodName, method, cls);
 }
 
 export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachineClassGraph {
@@ -110,27 +144,67 @@ export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachi
   };
 }
 
-function isClassConstruction(node: IRNode, env: SemanticEnv): boolean {
-  if (node.type !== 'let' || typeof node.props?.value !== 'string') return false;
+function classForConstruction(node: IRNode, env: SemanticEnv): RunnerClassBinding | undefined {
+  if (node.type !== 'let' || typeof node.props?.value !== 'string') return undefined;
   const value = parseExpression(node.props.value);
-  return value.kind === 'new' && value.argument.kind === 'call' && !value.argument.optional && value.argument.callee.kind === 'ident' && env.runnerClasses?.has(value.argument.callee.name) === true;
+  if (
+    value.kind === 'new' &&
+    value.argument.kind === 'call' &&
+    !value.argument.optional &&
+    value.argument.callee.kind === 'ident'
+  ) {
+    return env.runnerClasses?.get(value.argument.callee.name);
+  }
+  return undefined;
 }
 
-function assertRootClassUsage(nodes: readonly IRNode[], env: SemanticEnv, depth = 0): void {
+function isDirectClassMethodLeaf(node: IRNode, rootInstances: ReadonlyMap<string, RunnerClassBinding>): boolean {
+  if (
+    (node.type !== 'let' && node.type !== 'print' && node.type !== 'return') ||
+    typeof node.props?.value !== 'string'
+  ) {
+    return false;
+  }
+  const value = parseExpression(node.props.value);
+  if (
+    value.kind !== 'call' ||
+    value.optional ||
+    value.callee.kind !== 'member' ||
+    value.callee.optional ||
+    value.callee.object.kind !== 'ident'
+  ) {
+    return false;
+  }
+  return rootInstances.get(value.callee.object.name)?.methods.has(value.callee.property) === true;
+}
+
+function assertRootClassUsage(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  rootInstances: Map<string, RunnerClassBinding>,
+  depth = 0,
+): void {
   for (const node of nodes) {
-    if (depth > 0 && isClassConstruction(node, env)) {
+    const constructedClass = classForConstruction(node, env);
+    if (depth > 0 && constructedClass) {
       throw new Error('machine class: allocation must occur in the root sequence');
+    }
+    if (depth === 0 && constructedClass && typeof node.props?.name === 'string') {
+      rootInstances.set(node.props.name, constructedClass);
     }
     if (depth > 0 && node.type === 'assign' && String(node.props?.target ?? '').includes('.')) {
       throw new Error('machine class: field mutation must occur in the root sequence');
     }
-    if (node.children) assertRootClassUsage(node.children, env, depth + 1);
+    if (depth > 0 && isDirectClassMethodLeaf(node, rootInstances)) {
+      throw new Error('machine class: method calls must occur in the root sequence');
+    }
+    if (node.children) assertRootClassUsage(node.children, env, rootInstances, depth + 1);
   }
 }
 
 export function assertInternalMachineClassUsage(nodes: readonly IRNode[], env: SemanticEnv): void {
   if ((env.runnerClasses?.size ?? 0) === 0) return;
-  assertRootClassUsage(nodes, env);
+  assertRootClassUsage(nodes, env, new Map());
 }
 
 export function internalMachineClassGraphClaims(nodes: readonly IRNode[], env: SemanticEnv): boolean {
@@ -152,7 +226,12 @@ export function internalMachineClassGraphHasClasses(env: SemanticEnv): boolean {
 }
 
 export function internalMachineClassForNew(node: ValueIR, env: SemanticEnv): RunnerClassBinding | undefined {
-  if (node.kind !== 'new' || node.argument.kind !== 'call' || node.argument.optional || node.argument.callee.kind !== 'ident') {
+  if (
+    node.kind !== 'new' ||
+    node.argument.kind !== 'call' ||
+    node.argument.optional ||
+    node.argument.callee.kind !== 'ident'
+  ) {
     return undefined;
   }
   const admitted = internalEffectMachineStateForEnv(env)?.classRegistry?.get(node.argument.callee.name);
@@ -161,4 +240,32 @@ export function internalMachineClassForNew(node: ValueIR, env: SemanticEnv): Run
   if (!cls) return undefined;
   const graph = assertInternalMachineClassGraph(env);
   return graph.classes.get(cls.name);
+}
+
+export interface InternalMachineClassMethodCall {
+  readonly cls: RunnerClassBinding;
+  readonly method: RunnerClassMemberBinding;
+  readonly receiverName: string;
+}
+
+export function internalMachineClassMethodForCall(
+  node: ValueIR,
+  env: SemanticEnv,
+): InternalMachineClassMethodCall | undefined {
+  if (
+    node.kind !== 'call' ||
+    node.optional ||
+    node.callee.kind !== 'member' ||
+    node.callee.optional ||
+    node.callee.object.kind !== 'ident' ||
+    node.callee.object.name === 'this'
+  ) {
+    return undefined;
+  }
+  const receiver = internalMachineClassReceiver(node.callee.object.name, env);
+  if (!receiver) return undefined;
+  const registry = internalEffectMachineStateForEnv(env)?.classRegistry ?? assertInternalMachineClassGraph(env).classes;
+  const cls = registry.get(receiver.className);
+  const method = cls?.methods.get(node.callee.property);
+  return cls && method ? { cls, method, receiverName: node.callee.object.name } : undefined;
 }

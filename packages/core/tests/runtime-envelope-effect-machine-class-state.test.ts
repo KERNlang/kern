@@ -1,10 +1,24 @@
 import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
-import { makeEnv, type RunnerClassBinding, type RunnerClassMemberBinding, type RunnerModuleScope, type SemanticEnv } from '../src/ir/semantics/semantic-env.js';
+import {
+  makeEnv,
+  type RunnerClassBinding,
+  type RunnerClassMemberBinding,
+  type RunnerModuleScope,
+  type SemanticEnv,
+} from '../src/ir/semantics/semantic-env.js';
 import { executeKernSource } from '../src/runner.js';
-import { executeSourceRunnerAsync, executeSourceRunnerSync, SOURCE_RUNNER_ENGINE, selectSourceRunnerEngine } from '../src/runtime-envelope/source-runner-engine.js';
+import {
+  executeSourceRunnerAsync,
+  executeSourceRunnerSync,
+  SOURCE_RUNNER_ENGINE,
+  selectSourceRunnerEngine,
+} from '../src/runtime-envelope/source-runner-engine.js';
 import type { IRNode } from '../src/types.js';
 
-function stateClassEnv(overrides: Partial<SemanticEnv> = {}, classOverrides: Partial<RunnerClassBinding> = {}): SemanticEnv {
+function stateClassEnv(
+  overrides: Partial<SemanticEnv> = {},
+  classOverrides: Partial<RunnerClassBinding> = {},
+): SemanticEnv {
   const functions: RunnerModuleScope['functions'] = new Map();
   const classes: RunnerModuleScope['classes'] = new Map();
   const scope: RunnerModuleScope = { classes, functions };
@@ -87,25 +101,7 @@ describe('M3.26 same-root state-only class ownership', () => {
     expect(stdout(stateProgram, stateClassEnv())).toEqual(['1', '2']);
   });
 
-  test.each([
-    [
-      'methods',
-      {
-        methods: new Map([
-          [
-            'read',
-            {
-              body: [{ type: 'return', props: { value: 'this.value' } }],
-              name: 'read',
-              ownerClass: 'Box',
-              params: [],
-            },
-          ],
-        ]),
-      },
-    ],
-    ['inheritance', { extendsName: 'Base' }],
-  ] as const)('routes %s to compatibility before provider dispatch', (_label, classOverrides) => {
+  test('routes inheritance to compatibility before provider dispatch', () => {
     let providerCalls = 0;
     const nodes: readonly IRNode[] = [
       {
@@ -114,7 +110,7 @@ describe('M3.26 same-root state-only class ownership', () => {
       },
       ...stateProgram,
     ];
-    const env = stateClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } }, classOverrides as Partial<RunnerClassBinding>);
+    const env = stateClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } }, { extendsName: 'Base' });
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(providerCalls).toBe(0);
@@ -133,7 +129,10 @@ describe('M3.26 same-root state-only class ownership', () => {
         },
       },
     );
-    const nodes: readonly IRNode[] = [{ type: 'capability', props: { namespace: 'storage', operation: 'get' } }, ...stateProgram];
+    const nodes: readonly IRNode[] = [
+      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+      ...stateProgram,
+    ];
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(providerCalls).toBe(0);
@@ -356,7 +355,10 @@ describe('M3.26 same-root state-only class ownership', () => {
     ['uninitialized', 'other', { fields: [{ name: 'value' }, { name: 'other' }] }],
   ])('rejects deferred %s class field reads before provider dispatch', (_label, field, classOverrides) => {
     let providerCalls = 0;
-    const env = stateClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } }, classOverrides as Partial<RunnerClassBinding>);
+    const env = stateClassEnv(
+      { capabilities: { storage: { get: () => ++providerCalls } } },
+      classOverrides as Partial<RunnerClassBinding>,
+    );
     const nodes: readonly IRNode[] = [
       {
         type: 'capability',
@@ -407,7 +409,9 @@ describe('M3.26 same-root state-only class ownership', () => {
       params: ['value'],
       returns: 'number',
     });
-    expect(selectSourceRunnerEngine([{ type: 'print', props: { value: 'identity(1)' } }], env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(selectSourceRunnerEngine([{ type: 'print', props: { value: 'identity(1)' } }], env, {})).toBe(
+      SOURCE_RUNNER_ENGINE.legacy,
+    );
   });
 
   test('routes nested class mutation to compatibility before provider dispatch', () => {

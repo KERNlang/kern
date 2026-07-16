@@ -70,7 +70,11 @@ function nodeExpressionSources(node: IRNode): readonly string[] {
   const props = node.props ?? {};
   const sources: string[] = [];
   for (const key of ['cond', 'expr', 'from', 'in', 'input', 'on', 'step', 'to', 'value'] as const) {
-    if (key === 'value' && node.type === 'path' && (node.props?.default === true || node.props?.default === 'true' || node.__quotedProps?.includes('value') === true)) {
+    if (
+      key === 'value' &&
+      node.type === 'path' &&
+      (node.props?.default === true || node.props?.default === 'true' || node.__quotedProps?.includes('value') === true)
+    ) {
       continue;
     }
     const value = props[key];
@@ -84,7 +88,11 @@ function directNodeCalls(node: IRNode, names: ReadonlyMap<string, RunnerFunction
   for (const source of nodeExpressionSources(node)) valueCalls(parseExpression(source), names, out);
 }
 
-function collectNodeCalls(nodes: readonly IRNode[], names: ReadonlyMap<string, RunnerFunctionBinding>, out: Set<string>): void {
+function collectNodeCalls(
+  nodes: readonly IRNode[],
+  names: ReadonlyMap<string, RunnerFunctionBinding>,
+  out: Set<string>,
+): void {
   for (const node of nodes) {
     directNodeCalls(node, names, out);
     if (node.children) collectNodeCalls(node.children, names, out);
@@ -145,7 +153,10 @@ function helperScope(env: SemanticEnv): RunnerModuleScope | undefined {
   return scope;
 }
 
-export function assertInternalMachineHelperGraph(nodes: readonly IRNode[], env: SemanticEnv): InternalMachineHelperGraph {
+export function assertInternalMachineHelperGraph(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+): InternalMachineHelperGraph {
   const scope = helperScope(env);
   if (!scope) return { functions: new Map(), requiresIterationBudget: false };
   const pending = new Set<string>();

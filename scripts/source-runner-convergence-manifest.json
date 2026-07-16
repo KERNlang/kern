@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.26",
+  "milestone": "KERN-5-R2-M3.27",
   "owned": [
     {
       "id": "do",
@@ -37,6 +37,12 @@
       "kind": "configuration",
       "status": "unified",
       "evidence": "packages/core/tests/runner-iteration-budget.test.ts"
+    },
+    {
+      "id": "runner-class-direct-methods",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts"
     }
   ],
   "deferred": [
@@ -44,7 +50,7 @@
       "id": "runner-classes-state",
       "kind": "environment",
       "status": "legacy",
-      "followUp": "M3.27-class-behavior-ownership"
+      "followUp": "M3.29-class-getter-inheritance-ownership"
     },
     {
       "id": "non-root-environment",

@@ -18,8 +18,14 @@ interface ObjectDescriptorSnapshot {
   readonly prototype: object | null;
 }
 
+interface ClassBindingOwnership {
+  readonly getterEntries: ReadonlyMap<string, unknown>;
+  readonly methodEntries: ReadonlyMap<string, unknown>;
+  readonly objects: readonly ObjectDescriptorSnapshot[];
+}
+
 const rootScopes = new WeakMap<RunnerModuleScope['functions'], RootScopeOwnership>();
-const linkerOwnedClassBindings = new WeakMap<RunnerClassBinding, readonly ObjectDescriptorSnapshot[]>();
+const linkerOwnedClassBindings = new WeakMap<RunnerClassBinding, ClassBindingOwnership>();
 
 function snapshotOwnedMetadata(binding: RunnerClassBinding): readonly ObjectDescriptorSnapshot[] {
   const snapshots: ObjectDescriptorSnapshot[] = [];
@@ -47,7 +53,15 @@ function snapshotOwnedMetadata(binding: RunnerClassBinding): readonly ObjectDesc
     snapshots.push({ descriptors, object, prototype: Object.getPrototypeOf(object) });
   };
   visit(binding);
+  for (const member of binding.methods.values()) visit(member);
+  for (const member of binding.getters.values()) visit(member);
   return snapshots;
+}
+
+function mapMatchesSnapshot(current: ReadonlyMap<string, unknown>, expected: ReadonlyMap<string, unknown>): boolean {
+  if (current.size !== expected.size) return false;
+  for (const [key, value] of expected) if (current.get(key) !== value) return false;
+  return true;
 }
 
 function metadataMatchesSnapshot(snapshots: readonly ObjectDescriptorSnapshot[]): boolean {
@@ -77,13 +91,22 @@ function metadataMatchesSnapshot(snapshots: readonly ObjectDescriptorSnapshot[])
 
 /** Mark a linker-created class binding before it becomes visible to machine admission. */
 export function markRunnerMachineClassBinding(binding: RunnerClassBinding): void {
-  linkerOwnedClassBindings.set(binding, snapshotOwnedMetadata(binding));
+  linkerOwnedClassBindings.set(binding, {
+    getterEntries: new Map(binding.getters),
+    methodEntries: new Map(binding.methods),
+    objects: snapshotOwnedMetadata(binding),
+  });
 }
 
 /** Caller-supplied class records never satisfy this private linker fact. */
 export function isRunnerMachineClassBinding(binding: RunnerClassBinding): boolean {
-  const snapshot = linkerOwnedClassBindings.get(binding);
-  return snapshot !== undefined && metadataMatchesSnapshot(snapshot);
+  const ownership = linkerOwnedClassBindings.get(binding);
+  return (
+    ownership !== undefined &&
+    mapMatchesSnapshot(binding.methods, ownership.methodEntries) &&
+    mapMatchesSnapshot(binding.getters, ownership.getterEntries) &&
+    metadataMatchesSnapshot(ownership.objects)
+  );
 }
 
 /** Mark the linker-created root scope as eligible for private machine admission. */

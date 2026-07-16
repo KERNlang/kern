@@ -12,8 +12,20 @@ import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableMapValue } from './portable-map.js';
 import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
-import { isRegexGlobalMatchExpression, isRegexMatchAllExpression, isRegexMatchExpression, isRegexReplaceExpression, isRegexSplitExpression, isRegexTestExpression } from './portable-regex.js';
-import { assertRunnerPortableValue, isIntProvenancedExpr, isRunnerClassInstanceValue, portableTruthy } from './portable-scalar-domain.js';
+import {
+  isRegexGlobalMatchExpression,
+  isRegexMatchAllExpression,
+  isRegexMatchExpression,
+  isRegexReplaceExpression,
+  isRegexSplitExpression,
+  isRegexTestExpression,
+} from './portable-regex.js';
+import {
+  assertRunnerPortableValue,
+  isIntProvenancedExpr,
+  isRunnerClassInstanceValue,
+  portableTruthy,
+} from './portable-scalar-domain.js';
 import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
 
 export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: ReadonlySet<string>): boolean {
@@ -22,11 +34,16 @@ export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: Re
     return expressionHasDeferredBinding(node.argument, deferredBindings);
   }
   if (node.kind === 'binary') {
-    return expressionHasDeferredBinding(node.left, deferredBindings) || expressionHasDeferredBinding(node.right, deferredBindings);
+    return (
+      expressionHasDeferredBinding(node.left, deferredBindings) ||
+      expressionHasDeferredBinding(node.right, deferredBindings)
+    );
   }
   if (node.kind === 'conditional') {
     return (
-      expressionHasDeferredBinding(node.test, deferredBindings) || expressionHasDeferredBinding(node.consequent, deferredBindings) || expressionHasDeferredBinding(node.alternate, deferredBindings)
+      expressionHasDeferredBinding(node.test, deferredBindings) ||
+      expressionHasDeferredBinding(node.consequent, deferredBindings) ||
+      expressionHasDeferredBinding(node.alternate, deferredBindings)
     );
   }
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
@@ -37,7 +54,10 @@ export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: Re
   }
   if (node.kind === 'member') return expressionHasDeferredBinding(node.object, deferredBindings);
   if (node.kind === 'index') {
-    return expressionHasDeferredBinding(node.object, deferredBindings) || expressionHasDeferredBinding(node.index, deferredBindings);
+    return (
+      expressionHasDeferredBinding(node.object, deferredBindings) ||
+      expressionHasDeferredBinding(node.index, deferredBindings)
+    );
   }
   if (node.kind === 'call') {
     return node.args.some((argument) => expressionHasDeferredBinding(argument, deferredBindings));
@@ -46,7 +66,9 @@ export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: Re
     return node.items.some((item) => expressionHasDeferredBinding(item, deferredBindings));
   }
   if (node.kind === 'objectLit') {
-    return node.entries.some((entry) => expressionHasDeferredBinding('kind' in entry ? entry.argument : entry.value, deferredBindings));
+    return node.entries.some((entry) =>
+      expressionHasDeferredBinding('kind' in entry ? entry.argument : entry.value, deferredBindings),
+    );
   }
   if (node.kind === 'spread' || node.kind === 'await' || node.kind === 'propagate') {
     return expressionHasDeferredBinding(node.argument, deferredBindings);
@@ -54,11 +76,19 @@ export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: Re
   return false;
 }
 
-export function expressionRequiresDeferredMachinePreflight(node: ValueIR, env: SemanticEnv, deferredBindings: ReadonlySet<string>): boolean {
+export function expressionRequiresDeferredMachinePreflight(
+  node: ValueIR,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): boolean {
   return expressionHasDeferredBinding(node, deferredBindings) || internalMachineHelperCallInValue(node, env);
 }
 
-export function assertDeferredMachineScalarPreflight(node: ValueIR, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+export function assertDeferredMachineScalarPreflight(
+  node: ValueIR,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   assertPortableMachineScalarShape(node, env);
   if (!expressionRequiresDeferredMachinePreflight(node, env, deferredBindings)) {
     evalPortableValue(node, env);
@@ -79,7 +109,11 @@ export function assertDeferredMachineScalarPreflight(node: ValueIR, env: Semanti
       return;
     }
     const test = evalPortableValue(node.test, env);
-    assertDeferredMachineScalarPreflight(portableTruthy(test) ? node.consequent : node.alternate, env, deferredBindings);
+    assertDeferredMachineScalarPreflight(
+      portableTruthy(test) ? node.consequent : node.alternate,
+      env,
+      deferredBindings,
+    );
     return;
   }
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
@@ -117,7 +151,11 @@ export function assertDeferredMachineScalarPreflight(node: ValueIR, env: Semanti
   throw new Error(`portable machine: deferred expression ${node.kind} is outside the scalar preflight domain`);
 }
 
-export function assertDeferredMachineLeafKnownValues(node: IRNode, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+export function assertDeferredMachineLeafKnownValues(
+  node: IRNode,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   if (node.type === 'break' || node.type === 'continue') return;
   if (node.type === 'do') {
     assertDeferredDo(node, env, deferredBindings);
@@ -164,7 +202,13 @@ function assertDeferredExpressionV1(node: IRNode, env: SemanticEnv, deferredBind
     assertDeferredMachineScalarPreflight(parsed.args[0], env, deferredBindings);
     return;
   }
-  if (isRegexMatchExpression(parsed) || isRegexGlobalMatchExpression(parsed) || isRegexMatchAllExpression(parsed) || isRegexSplitExpression(parsed) || isRegexReplaceExpression(parsed)) {
+  if (
+    isRegexMatchExpression(parsed) ||
+    isRegexGlobalMatchExpression(parsed) ||
+    isRegexMatchAllExpression(parsed) ||
+    isRegexSplitExpression(parsed) ||
+    isRegexReplaceExpression(parsed)
+  ) {
     if (hasBinding(env, 'RegExp')) throw new Error('portable machine: namespace "RegExp" is shadowed');
     if (parsed.kind !== 'call' || parsed.callee.kind !== 'member') {
       throw new Error('portable machine: invalid deferred regex expression');
@@ -219,14 +263,19 @@ function explicitErrorArgument(node: ValueIR): ValueIR | undefined {
   return call.args[0];
 }
 
-function assertDeferredBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+function assertDeferredBinary(
+  node: Extract<ValueIR, { kind: 'binary' }>,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   if (node.op === '&&' || node.op === '||' || node.op === '??') {
     if (expressionRequiresDeferredMachinePreflight(node.left, env, deferredBindings)) {
       assertDeferredMachineScalarPreflight(node.left, env, deferredBindings);
       return;
     }
     const left = evalPortableValue(node.left, env);
-    const reachesRight = node.op === '&&' ? portableTruthy(left) : node.op === '||' ? !portableTruthy(left) : left === null;
+    const reachesRight =
+      node.op === '&&' ? portableTruthy(left) : node.op === '||' ? !portableTruthy(left) : left === null;
     if (reachesRight) assertDeferredMachineScalarPreflight(node.right, env, deferredBindings);
     return;
   }
@@ -234,7 +283,11 @@ function assertDeferredBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: S
   assertDeferredMachineScalarPreflight(node.right, env, deferredBindings);
 }
 
-function assertDeferredIndex(node: Extract<ValueIR, { kind: 'index' }>, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+function assertDeferredIndex(
+  node: Extract<ValueIR, { kind: 'index' }>,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   if (!expressionRequiresDeferredMachinePreflight(node.object, env, deferredBindings)) {
     assertKnownIndexReceiver(node.object, env);
   }
@@ -259,12 +312,18 @@ function assertKnownIndexReceiver(node: ValueIR, env: SemanticEnv): void {
   if (!nested) throw new Error('portable: index receiver is outside the array domain');
 }
 
-function assertDeferredCall(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+function assertDeferredCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   if (node.callee.kind === 'ident') {
     const helper = env.runnerFunctions?.get(node.callee.name);
     if (helper) {
       if (node.args.length !== helper.params.length) {
-        throw new Error(`portable: function "${node.callee.name}" expects ${helper.params.length} arguments, got ${node.args.length}`);
+        throw new Error(
+          `portable: function "${node.callee.name}" expects ${helper.params.length} arguments, got ${node.args.length}`,
+        );
       }
       for (const argument of node.args) {
         if (argument.kind === 'arrayLit' || argument.kind === 'objectLit') {
@@ -272,7 +331,10 @@ function assertDeferredCall(node: Extract<ValueIR, { kind: 'call' }>, env: Seman
         } else if (expressionRequiresDeferredMachinePreflight(argument, env, deferredBindings)) {
           assertDeferredMachineScalarPreflight(argument, env, deferredBindings);
         } else {
-          const value = argument.kind === 'ident' && hasBinding(env, argument.name) ? getBinding(env, argument.name) : evalPortableValue(argument, env);
+          const value =
+            argument.kind === 'ident' && hasBinding(env, argument.name)
+              ? getBinding(env, argument.name)
+              : evalPortableValue(argument, env);
           assertRunnerPortableValue(value, 'function argument');
         }
       }
@@ -305,7 +367,11 @@ function assertDeferredCall(node: Extract<ValueIR, { kind: 'call' }>, env: Seman
   throw new Error(`portable machine: unsupported deferred namespace "${namespace}"`);
 }
 
-function assertDeferredMapCall(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+function assertDeferredMapCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   const receiver = node.args[0];
   if (!expressionRequiresDeferredMachinePreflight(receiver, env, deferredBindings)) {
     if (receiver.kind !== 'ident' || !hasBinding(env, receiver.name)) {
@@ -317,7 +383,10 @@ function assertDeferredMapCall(node: Extract<ValueIR, { kind: 'call' }>, env: Se
   }
   const key = node.args[1];
   assertDeferredMachineScalarPreflight(key, env, deferredBindings);
-  if (!expressionRequiresDeferredMachinePreflight(key, env, deferredBindings) && typeof evalPortableValue(key, env) !== 'string') {
+  if (
+    !expressionRequiresDeferredMachinePreflight(key, env, deferredBindings) &&
+    typeof evalPortableValue(key, env) !== 'string'
+  ) {
     throw new Error('portable: Map key must be a string');
   }
 }
@@ -337,13 +406,21 @@ function assertDeferredDecimalOperand(node: ValueIR, env: SemanticEnv, deferredB
   }
   for (const argument of node.args) assertDeferredDecimalOperand(argument, env, deferredBindings);
   const method = node.callee.property;
-  if ((method === 'div' || method === 'mod') && !expressionRequiresDeferredMachinePreflight(node.args[1], env, deferredBindings) && evalDecimalExpression(node.args[1], env) === '0') {
+  if (
+    (method === 'div' || method === 'mod') &&
+    !expressionRequiresDeferredMachinePreflight(node.args[1], env, deferredBindings) &&
+    evalDecimalExpression(node.args[1], env) === '0'
+  ) {
     throw new Error(method === 'div' ? DECIMAL_DIV_ZERO_FAILCLOSE : DECIMAL_MOD_ZERO_FAILCLOSE);
   }
   if (method === 'pow') assertPortableDecimalPow(node.args[0], node.args[1]);
 }
 
-function assertDeferredTextCall(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
+function assertDeferredTextCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
   for (let index = 0; index < node.args.length; index += 1) {
     const argument = node.args[index];
     assertDeferredMachineScalarPreflight(argument, env, deferredBindings);

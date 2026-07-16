@@ -4,6 +4,18 @@ import { preflightInternalMachineClassLet } from './internal-effect-machine-clas
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { SemanticEnv } from './semantic-env.js';
 
-export function preflightDeferredInternalMachineClassLet(node: IRNode, env: SemanticEnv, evaluate: EvalPortableValue, deferredBindings: ReadonlySet<string>): boolean {
-  return preflightInternalMachineClassLet(node, env, evaluate, false, deferredBindings, assertDeferredMachineScalarPreflight);
+export function preflightDeferredInternalMachineClassLet(
+  node: IRNode,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+  deferredBindings: ReadonlySet<string>,
+): boolean {
+  return preflightInternalMachineClassLet(
+    node,
+    env,
+    evaluate,
+    false,
+    deferredBindings,
+    assertDeferredMachineScalarPreflight,
+  );
 }
