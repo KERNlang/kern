@@ -5,6 +5,7 @@ import { internalMachineClassReceiver } from './internal-effect-machine-class-in
 import {
   assertInternalMachineClassInheritance,
   internalMachineClassMemberFor,
+  internalMachineClassVisibleFields,
 } from './internal-effect-machine-class-lineage.js';
 import { internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
@@ -35,7 +36,7 @@ function snapshotClassBinding(cls: RunnerClassBinding): RunnerClassBinding {
   });
   return {
     name: cls.name,
-    ...(cls.extendsName ? { extendsName: cls.extendsName } : {}),
+    ...(cls.extendsName !== undefined ? { extendsName: cls.extendsName } : {}),
     fields: cls.fields.map((field) => ({
       name: field.name,
       value: field.value,
@@ -139,6 +140,9 @@ function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerM
   if (cls.module?.functions !== scope.functions || cls.module.classes !== scope.classes) {
     throw new Error(`machine class: "${key}" is not defined in the selected root module`);
   }
+  if (cls.extendsName !== undefined && !isPortableBindingName(cls.extendsName)) {
+    throw new Error(`machine class: invalid base class name for "${key}"`);
+  }
   if (!Array.isArray(cls.fields)) throw new Error(`machine class: invalid fields for "${key}"`);
   const fields = new Set<string>();
   for (const field of cls.fields) {
@@ -168,7 +172,10 @@ export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachi
   };
 }
 
-function classForConstruction(node: IRNode, env: SemanticEnv): RunnerClassBinding | undefined {
+function classForConstruction(
+  node: IRNode,
+  registry: ReadonlyMap<string, RunnerClassBinding>,
+): RunnerClassBinding | undefined {
   if (node.type !== 'let' || typeof node.props?.value !== 'string') return undefined;
   const value = parseExpression(node.props.value);
   if (
@@ -177,7 +184,7 @@ function classForConstruction(node: IRNode, env: SemanticEnv): RunnerClassBindin
     !value.argument.optional &&
     value.argument.callee.kind === 'ident'
   ) {
-    return env.runnerClasses?.get(value.argument.callee.name);
+    return registry.get(value.argument.callee.name);
   }
   return undefined;
 }
@@ -224,14 +231,31 @@ function isDirectClassGetterLeaf(
   return Boolean(cls && internalMachineClassMemberFor(cls, value.property, 'getter', registry));
 }
 
+function isDirectClassFieldLeaf(
+  node: IRNode,
+  rootInstances: ReadonlyMap<string, RunnerClassBinding>,
+  registry: ReadonlyMap<string, RunnerClassBinding>,
+): boolean {
+  if (
+    (node.type !== 'let' && node.type !== 'print' && node.type !== 'return') ||
+    typeof node.props?.value !== 'string'
+  ) {
+    return false;
+  }
+  const value = parseExpression(node.props.value);
+  if (value.kind !== 'member' || value.optional || value.object.kind !== 'ident') return false;
+  const cls = rootInstances.get(value.object.name);
+  return Boolean(cls && internalMachineClassVisibleFields(cls, registry).has(value.property));
+}
+
 function assertRootClassUsage(
   nodes: readonly IRNode[],
-  env: SemanticEnv,
   rootInstances: Map<string, RunnerClassBinding>,
+  registry: ReadonlyMap<string, RunnerClassBinding>,
   depth = 0,
 ): void {
   for (const node of nodes) {
-    const constructedClass = classForConstruction(node, env);
+    const constructedClass = classForConstruction(node, registry);
     if (depth > 0 && constructedClass) {
       throw new Error('machine class: allocation must occur in the root sequence');
     }
@@ -241,26 +265,32 @@ function assertRootClassUsage(
     if (depth > 0 && node.type === 'assign' && String(node.props?.target ?? '').includes('.')) {
       throw new Error('machine class: field mutation must occur in the root sequence');
     }
-    const registry = env.runnerClasses ?? new Map();
+    if (depth > 0 && isDirectClassFieldLeaf(node, rootInstances, registry)) {
+      throw new Error('machine class: field reads must occur in the root sequence');
+    }
     if (depth > 0 && isDirectClassMethodLeaf(node, rootInstances, registry)) {
       throw new Error('machine class: method calls must occur in the root sequence');
     }
     if (depth > 0 && isDirectClassGetterLeaf(node, rootInstances, registry)) {
       throw new Error('machine class: getter reads must occur in the root sequence');
     }
-    if (node.children) assertRootClassUsage(node.children, env, rootInstances, depth + 1);
+    if (node.children) assertRootClassUsage(node.children, rootInstances, registry, depth + 1);
   }
 }
 
-export function assertInternalMachineClassUsage(nodes: readonly IRNode[], env: SemanticEnv): void {
-  if ((env.runnerClasses?.size ?? 0) === 0) return;
-  assertRootClassUsage(nodes, env, new Map());
+export function assertInternalMachineClassUsage(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  admittedRegistry = assertInternalMachineClassGraph(env).classes,
+): void {
+  if (admittedRegistry.size === 0) return;
+  assertRootClassUsage(nodes, new Map(), admittedRegistry);
 }
 
 export function internalMachineClassGraphClaims(nodes: readonly IRNode[], env: SemanticEnv): boolean {
   try {
-    assertInternalMachineClassGraph(env);
-    assertInternalMachineClassUsage(nodes, env);
+    const graph = assertInternalMachineClassGraph(env);
+    assertInternalMachineClassUsage(nodes, env, graph.classes);
     return true;
   } catch {
     return false;

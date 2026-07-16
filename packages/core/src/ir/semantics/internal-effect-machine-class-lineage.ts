@@ -23,7 +23,7 @@ export function internalMachineClassLineage(
     if (seen.has(current.name)) throw new Error(`machine class: cyclic inheritance at "${current.name}"`);
     seen.add(current.name);
     lineage.push(current);
-    if (!current.extendsName) break;
+    if (current.extendsName === undefined) break;
     const base = registry.get(current.extendsName);
     if (!base) throw new Error(`machine class: unknown base class "${current.extendsName}"`);
     if (

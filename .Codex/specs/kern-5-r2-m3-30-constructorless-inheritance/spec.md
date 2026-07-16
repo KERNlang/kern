@@ -16,23 +16,28 @@ members override base members. A derived field declaration overwrites the
 already-initialized base slot, aligning the source runner with the existing
 TS/Python conformance contract.
 
+Admission is deliberately graph-wide for the selected root module, matching
+source semantic validation: an unused malformed class component rejects the
+whole handler rather than allowing reachability to hide invalid class
+metadata. Runtime dispatch remains limited to the constructed receiver's
+snapshotted lineage.
+
 This slice does not claim the full `runner-classes-state` row. Constructor
 chaining, explicit `super`, imported/re-exported class scopes, and active
 effectful class frames remain one exact M3.31 blocker. That split preserves a
 testable lifecycle instead of mixing construction ordering, lexical module
 ownership, and resumable effects into one release card.
 
-## Current State / Root Cause
+## Historical Root Cause (Closed)
 
-- **VERIFIED:** machine graph admission rejects every non-empty `extendsName`
-  before snapshotting (`packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts:127-165`).
-- **VERIFIED:** the snapshot currently omits `extendsName`, so admitted lineage
-  identity could not survive async suspension even if the admission guard were
-  removed (`packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts:24-50`).
-- **VERIFIED:** machine instance preparation initializes only the selected
-  class's direct fields (`packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts:63-77,175-198`).
-- **VERIFIED:** machine getter and method lookup consult only the receiver's
-  exact class map (`packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts:297-330`).
+- **VERIFIED:** before M3.30, machine graph admission rejected every non-empty
+  `extendsName` before snapshotting.
+- **VERIFIED:** the pre-M3.30 snapshot omitted `extendsName`, so lineage identity
+  could not survive async suspension even if the admission guard were removed.
+- **VERIFIED:** pre-M3.30 machine instance preparation initialized only the
+  selected class's direct fields.
+- **VERIFIED:** pre-M3.30 machine getter and method lookup consulted only the
+  receiver's exact class map.
 - **VERIFIED:** compatibility semantics initialize bases recursively before
   derived fields and constructors (`packages/core/src/ir/semantics/portable-reference-body.ts:49-80`).
 - **VERIFIED:** compatibility member lookup walks derived-to-base and therefore
@@ -41,13 +46,13 @@ ownership, and resumable effects into one release card.
   (`packages/core/src/semantic-validator.ts:5772-5800`), and the
   release-blocking class fixture requires `Dog.sound` to replace
   `Animal.sound` (`scripts/class-conformance.mjs:287-304`).
-- **VERIFIED:** the source-runner compatibility initializer currently skips a
+- **VERIFIED:** the source-runner compatibility initializer previously skipped a
   derived field once the base created the slot
   (`packages/core/src/ir/semantics/portable-reference-body.ts:69-74`). A direct
   2026-07-16 `executeKernSource` probe printed `generic` for that Animal/Dog
   program, contradicting the emitted-leg fixture's required `woof`.
-- **VERIFIED:** the convergence ledger keeps one legacy full-class row with an
-  M3.30 follow-up (`scripts/source-runner-convergence-manifest.json:60-67`).
+- **VERIFIED:** the convergence ledger now keeps one legacy full-class row with
+  the exact M3.31 constructor/super/module/effect follow-up.
 
 The first root cause is a stale compatibility initializer that disagrees with
 the language's emitted-leg field override semantics. After correcting that
@@ -169,7 +174,8 @@ user-visible inheritance lifecycle and would leave an awkward partial owner.
 - [x] Inherited dispatch accepts a derived receiver only when its snapshotted
       lineage contains the resolved member owner; no original `env.runnerClasses`
       lookup occurs after selection.
-- [x] Any constructor anywhere in the selected constructed lineage, explicit
+- [x] Any constructor anywhere in an inheritance lineage in the selected root
+      registry, explicit
       or implicit `super` behavior, `super.member`, imported/re-exported class,
       effectful member, nested member use, or helper/class mixing remains a
       compatibility path before provider dispatch.
@@ -253,5 +259,7 @@ resolution, and eager whole-registry snapshot rules above incorporate them.
   verified defects, three needs-check items, one speculative item, and 19 nits.
   The sole blocking verdict was disproved by linker identity ownership and the
   regression now asserts that exact failure reason. The genuine convergence
-  brittleness was replaced by a function-scoped TypeScript AST check; focused
-  class and convergence suites passed after the review fixes.
+  brittleness was replaced by a function-scoped TypeScript AST check. Final
+  adjudication also rejects empty base metadata and nested inherited field
+  reads against the same admitted snapshot; focused class and convergence
+  suites passed after those review fixes.

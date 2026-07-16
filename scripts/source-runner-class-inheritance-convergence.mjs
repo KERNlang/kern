@@ -99,6 +99,7 @@ export function validateClassInheritanceSlice(contents, errors) {
     'routes a class-binding identity replaced after linker ownership to compatibility',
     'routes %s to compatibility before provider dispatch',
     'keeps nested inherited dispatch deferred before provider execution',
+    'keeps nested inherited field reads deferred before provider execution',
   ]) {
     if (!tests.includes(oracle)) errors.push(`machine class inheritance oracle is missing: ${oracle}`);
   }

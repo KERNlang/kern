@@ -225,6 +225,14 @@ describe('M3.30 constructorless same-root inheritance ownership', () => {
       },
     ],
     [
+      'empty-base-name',
+      ({ classes }: InheritanceFixture) => {
+        const dog = classes.get('Dog');
+        if (!dog) throw new Error('expected derived');
+        classes.set('Dog', { ...dog, extendsName: '' });
+      },
+    ],
+    [
       'cyclic',
       ({ classes }: InheritanceFixture) => {
         const animal = classes.get('Animal');
@@ -356,6 +364,22 @@ describe('M3.30 constructorless same-root inheritance ownership', () => {
       { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
       { type: 'let', props: { name: 'dog', value: 'new Dog()' } },
       { type: 'return', props: { value: 'dog.voice + "!"' } },
+    ];
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+    expect(providerCalls).toBe(0);
+  });
+
+  test('keeps nested inherited field reads deferred before provider execution', () => {
+    let providerCalls = 0;
+    const env = inheritanceEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
+    const nodes: readonly IRNode[] = [
+      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+      { type: 'let', props: { name: 'dog', value: 'new Dog()' } },
+      {
+        type: 'if',
+        props: { cond: 'true' },
+        children: [{ type: 'print', props: { value: 'dog.base' } }],
+      },
     ];
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
     expect(providerCalls).toBe(0);
