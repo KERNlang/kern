@@ -58,7 +58,7 @@ function assertClassExpression(
   node: ReturnType<typeof parseExpression>,
   fields: ReadonlySet<string>,
   env: SemanticEnv,
-  allowSuperCall = false,
+  allowClassCall = false,
 ): void {
   if (
     node.kind === 'numLit' ||
@@ -76,36 +76,36 @@ function assertClassExpression(
     return;
   }
   if (node.kind === 'unary') {
-    assertClassExpression(node.argument, fields, env, allowSuperCall);
+    assertClassExpression(node.argument, fields, env, allowClassCall);
     return;
   }
   if (node.kind === 'binary') {
-    assertClassExpression(node.left, fields, env, allowSuperCall);
-    assertClassExpression(node.right, fields, env, allowSuperCall);
+    assertClassExpression(node.left, fields, env, allowClassCall);
+    assertClassExpression(node.right, fields, env, allowClassCall);
     return;
   }
   if (node.kind === 'conditional') {
-    assertClassExpression(node.test, fields, env, allowSuperCall);
-    assertClassExpression(node.consequent, fields, env, allowSuperCall);
-    assertClassExpression(node.alternate, fields, env, allowSuperCall);
+    assertClassExpression(node.test, fields, env, allowClassCall);
+    assertClassExpression(node.consequent, fields, env, allowClassCall);
+    assertClassExpression(node.alternate, fields, env, allowClassCall);
     return;
   }
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    assertClassExpression(node.expression, fields, env, allowSuperCall);
+    assertClassExpression(node.expression, fields, env, allowClassCall);
     return;
   }
   if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) assertClassExpression(expression, fields, env, allowSuperCall);
+    for (const expression of node.expressions) assertClassExpression(expression, fields, env, allowClassCall);
     return;
   }
   if (node.kind === 'objectLit') {
     for (const entry of node.entries) {
-      assertClassExpression('kind' in entry ? entry.argument : entry.value, fields, env, allowSuperCall);
+      assertClassExpression('kind' in entry ? entry.argument : entry.value, fields, env, allowClassCall);
     }
     return;
   }
   if (node.kind === 'arrayLit') {
-    for (const item of node.items) assertClassExpression(item, fields, env, allowSuperCall);
+    for (const item of node.items) assertClassExpression(item, fields, env, allowClassCall);
     return;
   }
   if (
@@ -114,14 +114,14 @@ function assertClassExpression(
     node.callee.kind === 'member' &&
     !node.callee.optional &&
     node.callee.object.kind === 'ident' &&
-    node.callee.object.name === 'super' &&
-    allowSuperCall
+    (node.callee.object.name === 'super' || node.callee.object.name === 'this') &&
+    allowClassCall
   ) {
     const resolved = internalMachineClassMethodForCall(node, env);
     if (!resolved || node.args.length !== resolved.method.params.length) {
-      throw new Error('machine class: super method call is unavailable');
+      throw new Error('machine class: class method call is unavailable');
     }
-    for (const argument of node.args) assertClassExpression(argument, fields, env, allowSuperCall);
+    for (const argument of node.args) assertClassExpression(argument, fields, env, allowClassCall);
     return;
   }
   throw new Error(`machine class: expression kind "${node.kind}" is outside this frame slice`);
@@ -147,8 +147,8 @@ function assertClassBodyExpressions(nodes: readonly IRNode[], fields: ReadonlySe
       }
       const value = node.props?.[key];
       if (typeof value === 'string' && value !== '') {
-        const allowSuperCall = key === 'value' && ['let', 'print', 'return'].includes(node.type);
-        assertClassExpression(parseExpression(value), fields, env, allowSuperCall);
+        const allowClassCall = key === 'value' && ['let', 'print', 'return'].includes(node.type);
+        assertClassExpression(parseExpression(value), fields, env, allowClassCall);
       }
     }
     if (typeof node.props?.template === 'string') {

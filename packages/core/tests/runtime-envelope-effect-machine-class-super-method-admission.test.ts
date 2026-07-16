@@ -141,21 +141,6 @@ describe('M3.31b2a super-method fail-closed admission', () => {
       '',
     ],
     [
-      'virtual this-method dispatch in base target',
-      {
-        baseMethods: new Map([
-          ['read', method('Base', 'read', [], 'this.step()')],
-          ['step', method('Base', 'step', [], '1')],
-        ]),
-        derivedMethods: new Map([
-          ['read', method('Derived', 'read', [], 'super.read()')],
-          ['step', method('Derived', 'step', [], '2')],
-        ]),
-      },
-      'read',
-      '',
-    ],
-    [
       'super call in a collection-do slot',
       {
         baseMethods: new Map([['base', method('Base', 'base', [], '1')]]),

@@ -167,7 +167,6 @@ describe('M3.29 pure same-root class getter ownership', () => {
       'box.double',
     ],
     ['missing field', { getters: new Map([['double', member('double', 'this.missing')]]) }, 'box.double'],
-    ['method call', { getters: new Map([['double', member('double', 'this.read()')]]) }, 'box.double'],
     ['optional access', {}, 'box?.double'],
   ] as const)('routes getter %s to compatibility before provider dispatch', (_label, classOverrides, value) => {
     let providerCalls = 0;

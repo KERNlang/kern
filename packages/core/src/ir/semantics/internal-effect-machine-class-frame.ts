@@ -130,6 +130,11 @@ export function* evaluateInternalMachineClassMethodFrame(
   const events: TraceEvent[] = [];
   const values: PortableScalar[] = [];
   for (const argument of node.args) values.push(appendEvaluation(events, yield* evaluate(argument, env, state)));
+  const label = `${resolved.cls.name}.${resolved.method.name}`;
+  if ((env.runnerCallStack ?? []).includes(label)) {
+    // Keep the compatibility runtime's public recursion diagnostic verbatim.
+    throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
+  }
   const registry = internalMachineClassRegistryForEnv(env);
   const methodEnv = makeInternalMachineClassMemberEnv(resolved.cls, resolved.method, receiver, values, env, registry);
   const restore = bindInternalEffectMachineState(methodEnv, state);

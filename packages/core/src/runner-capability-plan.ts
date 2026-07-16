@@ -8,8 +8,11 @@ import {
   type CapabilityId,
 } from './runner-capability-catalog.js';
 import {
-  resolveRunnerCapabilityClassMember,
+  RUNNER_CAPABILITY_AMBIGUOUS_CLASS,
+  recordRunnerCapabilityClassBinding,
+  resolveRunnerCapabilityClassCall,
   runnerCapabilityClassAncestry,
+  runnerCapabilityClassCallKey,
 } from './runner-capability-class-dispatch.js';
 import {
   collectExecutableRequirements,
@@ -692,6 +695,7 @@ function findExecutableKernHandlers(
         classFieldInitializers,
         ownsClassFrames,
         item.ownerClass,
+        item.receiverClass,
       ).map((ref) => (item.u ? { ...ref, u: true } : ref)),
     );
   }
@@ -702,6 +706,7 @@ interface ExecutableHandlerRef {
   readonly key: string;
   readonly handler: IRNode;
   readonly ownerClass?: string;
+  readonly receiverClass?: string;
   readonly u?: boolean;
 }
 
@@ -715,6 +720,7 @@ function calledExecutableHandlers(
   classFieldInitializers: ReadonlyMap<string, readonly ValueIR[]>,
   ownsClassFrames: boolean,
   ownerClass?: string,
+  receiverClass?: string,
 ): ExecutableHandlerRef[] {
   const helperNames = new Set<string>();
   const methodKeys = new Set<string>();
@@ -724,7 +730,7 @@ function calledExecutableHandlers(
   const classBindings = new Map<string, string>();
   const superClassName = ownerClass ? classExtends.get(ownerClass) : undefined;
   for (const node of walkNodes({ type: '__block', children: [...nodes] })) {
-    recordClassBinding(node, classBindings, helpers);
+    recordRunnerCapabilityClassBinding(node, classBindings, helpers);
     for (const expr of supportedHelperCallExpressions(node)) {
       collectHelperCalls(
         expr.node,
@@ -736,6 +742,7 @@ function calledExecutableHandlers(
         classBindings,
         expr.mode,
         superClassName,
+        receiverClass,
       );
     }
   }
@@ -757,6 +764,7 @@ function calledExecutableHandlers(
             classBindings,
             'scalar',
             undefined,
+            undefined,
           );
         }
       }
@@ -773,11 +781,15 @@ function calledExecutableHandlers(
     if (handler) out.push({ key: `fn:${name}`, handler, u: true });
   }
   for (const key of methodKeys) {
-    const [className, methodName] = key.split('.', 2);
-    if (!className || !methodName) continue;
-    const resolved = resolveRunnerCapabilityClassMember(className, methodName, classMethods, classExtends);
+    const resolved = resolveRunnerCapabilityClassCall(key, classMethods, classExtends);
     for (const [index, handler] of (resolved?.values ?? []).entries()) {
-      out.push({ key: `method:${key}:${index}`, handler, ownerClass: resolved?.ownerClass, u: !ownsClassFrames });
+      out.push({
+        key: `method:${key}:${index}`,
+        handler,
+        ownerClass: resolved?.ownerClass,
+        receiverClass: resolved?.receiverClass,
+        u: !ownsClassFrames,
+      });
     }
   }
   for (const name of ambiguousMethodNames) {
@@ -788,42 +800,18 @@ function calledExecutableHandlers(
   for (const name of constructorNames) {
     for (const className of runnerCapabilityClassAncestry(name, classExtends)) {
       const handler = classConstructors.get(className);
-      if (handler) out.push({ key: `constructor:${className}`, handler, ownerClass: className, u: !ownsClassFrames });
+      if (handler) {
+        out.push({
+          key: `constructor:${name}:${className}`,
+          handler,
+          ownerClass: className,
+          receiverClass: name,
+          u: !ownsClassFrames,
+        });
+      }
     }
   }
   return out;
-}
-
-const AMBIGUOUS_CLASS_BINDING = '*';
-
-function recordClassBinding(
-  node: IRNode,
-  classBindings: Map<string, string>,
-  helpers: ReadonlyMap<string, IRNode>,
-): void {
-  if (node.type !== 'let') return;
-  const name = typeof node.props?.name === 'string' ? node.props.name : '';
-  const rawValue = typeof node.props?.value === 'string' ? node.props.value : '';
-  if (!name || !rawValue) return;
-  try {
-    const parsed = parseExpression(rawValue);
-    if (parsed.kind === 'new' && parsed.argument.kind === 'call' && parsed.argument.callee.kind === 'ident') {
-      recordClassName(classBindings, name, parsed.argument.callee.name);
-    } else if (parsed.kind === 'call' && parsed.callee.kind === 'ident' && helpers.has(parsed.callee.name)) {
-      recordClassName(classBindings, name, AMBIGUOUS_CLASS_BINDING);
-    }
-  } catch {
-    // Parser/runtime diagnostics own malformed expressions.
-  }
-}
-
-function recordClassName(classBindings: Map<string, string>, name: string, className: string): void {
-  const existing = classBindings.get(name);
-  if (!existing) {
-    classBindings.set(name, className);
-  } else if (existing !== className) {
-    classBindings.set(name, AMBIGUOUS_CLASS_BINDING);
-  }
 }
 
 type HelperCallExpressionMode = 'scalar' | 'let' | 'cap';
@@ -878,19 +866,24 @@ function collectHelperCalls(
   classBindings: ReadonlyMap<string, string>,
   mode: HelperCallExpressionMode,
   superClassName?: string,
+  receiverClass?: string,
 ): void {
   if (node.kind === 'call' && node.callee.kind === 'ident' && helpers.has(node.callee.name)) {
     helperNames.add(node.callee.name);
   }
   if (node.kind === 'call' && node.callee.kind === 'member') {
     if (node.callee.object.kind === 'ident' && node.callee.object.name === 'super' && superClassName) {
-      methodKeys.add(`${superClassName}.${node.callee.property}`);
+      methodKeys.add(
+        runnerCapabilityClassCallKey(superClassName, receiverClass ?? superClassName, node.callee.property),
+      );
+    } else if (node.callee.object.kind === 'ident' && node.callee.object.name === 'this' && receiverClass) {
+      methodKeys.add(runnerCapabilityClassCallKey(receiverClass, receiverClass, node.callee.property));
     } else if (node.callee.object.kind === 'ident' && classBindings.has(node.callee.object.name)) {
       const className = classBindings.get(node.callee.object.name);
-      if (className === AMBIGUOUS_CLASS_BINDING) {
+      if (className === RUNNER_CAPABILITY_AMBIGUOUS_CLASS) {
         ambiguousMethodNames.add(node.callee.property);
-      } else {
-        methodKeys.add(`${className}.${node.callee.property}`);
+      } else if (className) {
+        methodKeys.add(runnerCapabilityClassCallKey(className, className, node.callee.property));
       }
     } else {
       ambiguousMethodNames.add(node.callee.property);
@@ -902,17 +895,19 @@ function collectHelperCalls(
   if (node.kind === 'member') {
     if (node.object.kind === 'ident' && classBindings.has(node.object.name)) {
       const className = classBindings.get(node.object.name);
-      if (className === AMBIGUOUS_CLASS_BINDING) {
+      if (className === RUNNER_CAPABILITY_AMBIGUOUS_CLASS) {
         ambiguousMethodNames.add(node.property);
-      } else {
-        methodKeys.add(`${className}.${node.property}`);
+      } else if (className) {
+        methodKeys.add(runnerCapabilityClassCallKey(className, className, node.property));
       }
     } else if (
       node.object.kind === 'new' &&
       node.object.argument.kind === 'call' &&
       node.object.argument.callee.kind === 'ident'
     ) {
-      methodKeys.add(`${node.object.argument.callee.name}.${node.property}`);
+      methodKeys.add(
+        runnerCapabilityClassCallKey(node.object.argument.callee.name, node.object.argument.callee.name, node.property),
+      );
     }
   }
   for (const child of valueChildren(node, helpers, mode)) {
@@ -926,6 +921,7 @@ function collectHelperCalls(
       classBindings,
       child.mode,
       superClassName,
+      receiverClass,
     );
   }
 }

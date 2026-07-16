@@ -220,7 +220,6 @@ describe('M3.27 direct same-root class methods', () => {
     ['free binding', 'outside'],
     ['missing own field', 'this.other'],
     ['nested call', 'String(this.value)'],
-    ['method-to-method call', 'this.read()'],
   ])('rejects a method body with %s before provider dispatch', (_label, value) => {
     let providerCalls = 0;
     const env = methodClassEnv(

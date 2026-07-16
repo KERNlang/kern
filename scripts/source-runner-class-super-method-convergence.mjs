@@ -41,7 +41,7 @@ export function validateClassSuperMethodSlice(contents, errors) {
     'bindInternalEffectMachineState(constructorEnv, preflightState)',
     'bindInternalEffectMachineState(memberEnv, preflightState)',
     "node.callee.object.name === 'super'",
-    'super method call is unavailable',
+    'class method call is unavailable',
   ]) {
     if (!contents.classPreflight?.includes(required)) errors.push(`super-method preflight is missing ${required}`);
   }
@@ -57,7 +57,7 @@ export function validateClassSuperMethodSlice(contents, errors) {
   for (const required of [
     'item.ownerClass',
     "node.callee.object.name === 'super' && superClassName",
-    'resolveRunnerCapabilityClassMember',
+    'resolveRunnerCapabilityClassCall',
   ]) {
     if (!contents.runnerCapabilityPlan?.includes(required)) errors.push(`super-method capability plan is missing ${required}`);
   }

@@ -420,7 +420,14 @@ export function internalMachineClassMethodForCall(
     const resolved = base ? internalMachineClassMemberFor(base, node.callee.property, 'method', registry) : undefined;
     return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: 'this' } : undefined;
   }
-  if (node.callee.object.name === 'this') return undefined;
+  if (node.callee.object.name === 'this') {
+    const receiver = internalMachineClassReceiver('this', env);
+    if (!receiver) return undefined;
+    const registry = internalMachineClassRegistryForEnv(env);
+    const cls = registry.get(receiver.className);
+    const resolved = cls ? internalMachineClassMemberFor(cls, node.callee.property, 'method', registry) : undefined;
+    return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: 'this' } : undefined;
+  }
   const receiver = internalMachineClassReceiver(node.callee.object.name, env);
   if (!receiver) return undefined;
   const registry = internalMachineClassRegistryForEnv(env);

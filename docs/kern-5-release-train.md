@@ -629,6 +629,31 @@ trusted-publishing/provenance configuration is inspected.
     a verified blocker, and the one valid `print`-site coverage nit was closed
     (`review-1784226020031-rupwy5-kern-5-r2-m3-31b2a-super-method-`,
     `review-1784226650868-o94yce-kern-5-r2-m3-31b2a-super-method-`).
+  - [x] M3.31b2b1 virtual `this.method(...)` dispatch: generator-owned `let`,
+    `print`, and `return` value slots in same-root constructors, methods, and
+    getters now resolve from the private receiver's concrete class, select the
+    nearest override, and retain the selected declaring owner for nested
+    `super` lookup. The planner carries both declaring owner and concrete
+    receiver through method and constructor worklist keys, so inherited
+    templates reached on different derived classes cannot collapse or pull
+    unrelated same-named methods into executable scope. Three-level
+    virtual-to-super chains, constructor/getter use, real-async suspension,
+    mutation isolation, direct/indirect recursion, uninitialized derived-field
+    failure, provider rejection, public-source behavior, and fail-closed
+    admission are executable oracles. Pure helper/class composition, effectful
+    fields, virtual getter/property reads, pre-super statements, and
+    imported/module identity remain M3.31b2b2/c boundaries. The exact
+    `pnpm fitness:kern-5` wall passed with 432/432 cross-target fixtures,
+    109/109 class fixtures, 233 native cases, 48/48 checker fixtures, 39/39
+    validator verdicts, and 40 application fixtures on three legs plus
+    whole-app boot. The required browser wall passed at 148 modules /
+    1,491,871 raw / 322,225 gzip bytes / 56 ms cold / 86 ms median. All six
+    usable engines completed the initial and post-fix reviews. One post-fix
+    blocking verdict was disproved by the current receiver propagation and a
+    new two-derived/shared-base-constructor capability oracle; all verified
+    nits were closed or recorded as explicit boundaries
+    (`review-1784229445070-ij7bxg-kern-5-r2-m3-31b2b1-virtual-this`,
+    `review-1784230029905-13rm3s-kern-5-r2-m3-31b2b1-virtual-this`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

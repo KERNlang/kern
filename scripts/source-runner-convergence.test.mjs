@@ -44,6 +44,7 @@ const files = new Map(
     'packages/core/src/runner.ts',
     'packages/core/tests/runner-capability-class-frame.test.ts',
     'packages/core/tests/runner-capability-plan.test.ts',
+    'packages/core/tests/runner-capability-plan-virtual-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts',
@@ -53,6 +54,8 @@ const files = new Map(
     'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-super-method-admission.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -511,6 +514,55 @@ test('rejects super-method dispatch ownership regressions', () => {
     ),
   );
   assert.ok(oracleErrors.some((error) => error.includes('super-method lifecycle oracle')));
+});
+
+test('rejects virtual this-method dispatch ownership regressions', () => {
+  const manifestErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-virtual-this-method-dispatch');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(manifestErrors.some((error) => error.includes('runner-class-virtual-this-method-dispatch owner')));
+
+  const graphErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+      "if (node.callee.object.name === 'this') {",
+      "if (node.callee.object.name === 'removed-this') {",
+    ),
+  );
+  assert.ok(graphErrors.some((error) => error.includes('virtual-method graph owner')));
+
+  const plannerErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runner-capability-plan.ts',
+      'item.receiverClass,',
+      'undefined,',
+    ),
+  );
+  assert.ok(plannerErrors.some((error) => error.includes('virtual-method capability plan')));
+
+  const constructorKeyErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runner-capability-plan.ts',
+      'key: `constructor:${name}:${className}`',
+      'key: `constructor:${className}`',
+    ),
+  );
+  assert.ok(constructorKeyErrors.some((error) => error.includes('virtual-method capability plan')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts',
+      'chains concrete virtual lookup into declaring-owner super lookup',
+      'removed virtual-super chain oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('virtual-method lifecycle oracle')));
 });
 
 test('rejects constructorless class-inheritance ownership regressions', () => {
