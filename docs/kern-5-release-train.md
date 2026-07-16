@@ -496,6 +496,19 @@ trusted-publishing/provenance configuration is inspected.
     selector claim was adjudicated against the direct-eligibility call chain
     and passing nested-mutation oracle
     (`review-1784157448784-n8yhbw-kern-5-r2-m3-26-class-state-post`).
+  - [x] M3.27 pure direct same-root class methods: the canonical machine now
+    snapshots and owns linker-admitted instance methods containing exactly one
+    portable scalar return. Calls require an exact private-owned identifier
+    receiver, exact scalar arity, and a complete root `let`, `print`, or
+    `return` value. Method metadata and bodies are immutable across async
+    suspension; aliases, optional/missing dispatch, nested calls, mutation,
+    helpers, deferred arguments, and invalid returns select compatibility
+    before provider dispatch. Getters, inheritance, `super`, imported classes,
+    and non-root environments remain deferred to M3.29 and M3.28 respectively.
+    The focused suite covers public source parity, sync and real-async dispatch,
+    metadata tamper, receiver forgery, and the complete negative admission
+    boundary. Final aggregate fitness and terminal review evidence are recorded
+    in the M3.27 completion spec.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
