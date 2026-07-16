@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.29",
+  "milestone": "KERN-5-R2-M3.30",
   "owned": [
     {
       "id": "do",
@@ -55,6 +55,12 @@
       "kind": "environment",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts"
+    },
+    {
+      "id": "runner-class-constructorless-inheritance",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts"
     }
   ],
   "deferred": [
@@ -62,7 +68,7 @@
       "id": "runner-classes-state",
       "kind": "environment",
       "status": "legacy",
-      "followUp": "M3.30-class-inheritance-super-module-ownership"
+      "followUp": "M3.31-class-constructor-super-module-effect-ownership"
     }
   ]
 }

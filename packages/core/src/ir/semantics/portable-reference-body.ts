@@ -67,7 +67,6 @@ export function initializeRunnerClassInstance(
     initializeRunnerClassInstance(base, instance, explicitSuperArgs ?? [], env, evalArgument);
   }
   for (const field of cls.fields) {
-    if (Object.hasOwn(instance.fields, field.name)) continue;
     instance.fields[field.name] =
       typeof field.value === 'string' && field.value !== ''
         ? evalArgument(parseExpression(field.value), env)
@@ -102,7 +101,6 @@ export async function initializeRunnerClassInstanceAsync(
     await initializeRunnerClassInstanceAsync(base, instance, explicitSuperArgs ?? [], env, runBody, evalArgument);
   }
   for (const field of cls.fields) {
-    if (Object.hasOwn(instance.fields, field.name)) continue;
     instance.fields[field.name] =
       typeof field.value === 'string' && field.value !== ''
         ? evalArgument(parseExpression(field.value), env)

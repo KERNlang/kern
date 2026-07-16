@@ -10,12 +10,14 @@ const files = new Map(
     'packages/cli/src/commands/run-options.ts',
     'packages/cli/src/commands/run.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-lineage.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+    'packages/core/src/ir/semantics/portable-reference-body.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-admission.ts',
     'packages/core/src/ir/semantics/internal-effect-machine.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
@@ -30,6 +32,7 @@ const files = new Map(
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -125,6 +128,13 @@ test('rejects blocker deletion and owned-node regressions', () => {
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(classGetterErrors.some((error) => error.includes('runner-class-pure-getters owner')));
+
+  const classInheritanceErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-constructorless-inheritance');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(classInheritanceErrors.some((error) => error.includes('runner-class-constructorless-inheritance owner')));
 
   const nonRootErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
@@ -285,6 +295,58 @@ test('rejects pure class-getter ownership regressions', () => {
     replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts', 'snapshots getter metadata across async suspension', 'removed async getter oracle'),
   );
   assert.ok(oracleErrors.some((error) => error.includes('machine class getter oracle')));
+});
+
+test('rejects constructorless class-inheritance ownership regressions', () => {
+  const lineageErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-lineage.ts',
+      'export function internalMachineClassLineageBaseFirst',
+      'function removedMachineClassLineageBaseFirst',
+    ),
+  );
+  assert.ok(lineageErrors.some((error) => error.includes('inheritance owner')));
+
+  const registryErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+      'export function internalMachineClassRegistryForEnv',
+      'function removedMachineClassRegistryForEnv',
+    ),
+  );
+  assert.ok(registryErrors.some((error) => error.includes('inheritance graph')));
+
+  const compatibilityErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/portable-reference-body.ts',
+      'for (const field of cls.fields) {',
+      'for (const field of cls.fields) {\n    if (Object.hasOwn(instance.fields, field.name)) continue;',
+    ),
+  );
+  assert.ok(compatibilityErrors.some((error) => error.includes('stale base field slot')));
+
+  const overwriteErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/portable-reference-body.ts',
+      'instance.fields[field.name] =',
+      'instance.fields.missing =',
+    ),
+  );
+  assert.ok(overwriteErrors.some((error) => error.includes('derived overwrite semantics')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts',
+      'snapshots the complete lineage across async suspension',
+      'removed async inheritance oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('inheritance oracle')));
 });
 
 test('rejects missing, defaulted, or incomplete iteration-budget forwarding', () => {

@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import * as inheritance from './source-runner-class-inheritance-convergence.mjs';
 import { CLASS_GETTER_FILES, validateClassGetterManifest, validateClassGetterSlice } from './source-runner-class-getter-convergence.mjs';
 import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
 const FILES = Object.freeze({
   ...NON_ROOT_FILES,
+  ...inheritance.CLASS_INHERITANCE_FILES,
   ...CLASS_GETTER_FILES,
   classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
   classEvaluator: 'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
@@ -42,7 +44,6 @@ function findFunction(source, name) {
   visit(source);
   return result;
 }
-
 function callsIn(node) {
   const calls = [];
   function visit(child) {
@@ -52,7 +53,6 @@ function callsIn(node) {
   visit(node);
   return calls;
 }
-
 function descendants(node, predicate) {
   const found = [];
   function visit(child) {
@@ -62,7 +62,6 @@ function descendants(node, predicate) {
   visit(node);
   return found;
 }
-
 function propertyName(node) {
   if (ts.isPropertyAccessExpression(node)) return node.name.text;
   if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression)) {
@@ -70,7 +69,6 @@ function propertyName(node) {
   }
   return undefined;
 }
-
 function propertyReceiver(node) {
   return ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) ? node.expression : undefined;
 }
@@ -96,7 +94,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.29') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.30') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -198,6 +196,7 @@ function validateManifest(text, errors) {
     errors.push('manifest non-root-environment owner is duplicated');
   }
   validateClassGetterManifest(manifest, errors);
+  inheritance.validateClassInheritanceManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -210,8 +209,8 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.30-class-inheritance-super-module-ownership') {
-    errors.push('manifest must keep remaining class behavior as the exact M3.30 follow-up');
+  if (classState?.followUp !== 'M3.31-class-constructor-super-module-effect-ownership') {
+    errors.push('manifest must keep remaining class behavior as the exact M3.31 follow-up');
   }
 }
 
@@ -247,7 +246,7 @@ function validateClassStateSlice(
     'assertInternalMachineClassUsage',
     'allocation must occur in the root sequence',
     'field mutation must occur in the root sequence',
-    'has inheritance outside the direct-member domain',
+    'assertInternalMachineClassInheritance',
   ]) {
     if (!graphText.includes(required)) errors.push(`machine class graph is missing ${required}`);
   }
@@ -481,6 +480,7 @@ export function validateSourceRunnerConvergence(readText) {
   if (contents.engine) validateEngine(contents.engine, errors);
   validateNonRootEnvironmentSlice(contents, errors);
   validateClassGetterSlice(contents, errors);
+  inheritance.validateClassInheritanceSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }

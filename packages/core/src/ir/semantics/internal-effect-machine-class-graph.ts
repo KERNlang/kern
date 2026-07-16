@@ -2,6 +2,10 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { internalMachineClassReceiver } from './internal-effect-machine-class-instance.js';
+import {
+  assertInternalMachineClassInheritance,
+  internalMachineClassMemberFor,
+} from './internal-effect-machine-class-lineage.js';
 import { internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
 import { isRunnerMachineClassBinding, runnerMachineRootScope } from './runner-machine-scope.js';
@@ -31,6 +35,7 @@ function snapshotClassBinding(cls: RunnerClassBinding): RunnerClassBinding {
   });
   return {
     name: cls.name,
+    ...(cls.extendsName ? { extendsName: cls.extendsName } : {}),
     fields: cls.fields.map((field) => ({
       name: field.name,
       value: field.value,
@@ -134,9 +139,6 @@ function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerM
   if (cls.module?.functions !== scope.functions || cls.module.classes !== scope.classes) {
     throw new Error(`machine class: "${key}" is not defined in the selected root module`);
   }
-  if (cls.extendsName !== undefined) {
-    throw new Error(`machine class: "${key}" has inheritance outside the direct-member domain`);
-  }
   if (!Array.isArray(cls.fields)) throw new Error(`machine class: invalid fields for "${key}"`);
   const fields = new Set<string>();
   for (const field of cls.fields) {
@@ -160,6 +162,7 @@ export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachi
   const scope = runnerMachineRootScope(env.runnerFunctions, classes);
   if (!scope) throw new Error('machine class: root scope is not linker-owned');
   for (const [key, cls] of classes) assertClassBinding(key, cls, scope);
+  assertInternalMachineClassInheritance(classes);
   return {
     classes: new Map([...classes].map(([name, cls]) => [name, snapshotClassBinding(cls)])),
   };
@@ -179,7 +182,11 @@ function classForConstruction(node: IRNode, env: SemanticEnv): RunnerClassBindin
   return undefined;
 }
 
-function isDirectClassMethodLeaf(node: IRNode, rootInstances: ReadonlyMap<string, RunnerClassBinding>): boolean {
+function isDirectClassMethodLeaf(
+  node: IRNode,
+  rootInstances: ReadonlyMap<string, RunnerClassBinding>,
+  registry: ReadonlyMap<string, RunnerClassBinding>,
+): boolean {
   if (
     (node.type !== 'let' && node.type !== 'print' && node.type !== 'return') ||
     typeof node.props?.value !== 'string'
@@ -196,10 +203,15 @@ function isDirectClassMethodLeaf(node: IRNode, rootInstances: ReadonlyMap<string
   ) {
     return false;
   }
-  return rootInstances.get(value.callee.object.name)?.methods.has(value.callee.property) === true;
+  const cls = rootInstances.get(value.callee.object.name);
+  return Boolean(cls && internalMachineClassMemberFor(cls, value.callee.property, 'method', registry));
 }
 
-function isDirectClassGetterLeaf(node: IRNode, rootInstances: ReadonlyMap<string, RunnerClassBinding>): boolean {
+function isDirectClassGetterLeaf(
+  node: IRNode,
+  rootInstances: ReadonlyMap<string, RunnerClassBinding>,
+  registry: ReadonlyMap<string, RunnerClassBinding>,
+): boolean {
   if (
     (node.type !== 'let' && node.type !== 'print' && node.type !== 'return') ||
     typeof node.props?.value !== 'string'
@@ -207,12 +219,9 @@ function isDirectClassGetterLeaf(node: IRNode, rootInstances: ReadonlyMap<string
     return false;
   }
   const value = parseExpression(node.props.value);
-  return (
-    value.kind === 'member' &&
-    !value.optional &&
-    value.object.kind === 'ident' &&
-    rootInstances.get(value.object.name)?.getters.has(value.property) === true
-  );
+  if (value.kind !== 'member' || value.optional || value.object.kind !== 'ident') return false;
+  const cls = rootInstances.get(value.object.name);
+  return Boolean(cls && internalMachineClassMemberFor(cls, value.property, 'getter', registry));
 }
 
 function assertRootClassUsage(
@@ -232,10 +241,11 @@ function assertRootClassUsage(
     if (depth > 0 && node.type === 'assign' && String(node.props?.target ?? '').includes('.')) {
       throw new Error('machine class: field mutation must occur in the root sequence');
     }
-    if (depth > 0 && isDirectClassMethodLeaf(node, rootInstances)) {
+    const registry = env.runnerClasses ?? new Map();
+    if (depth > 0 && isDirectClassMethodLeaf(node, rootInstances, registry)) {
       throw new Error('machine class: method calls must occur in the root sequence');
     }
-    if (depth > 0 && isDirectClassGetterLeaf(node, rootInstances)) {
+    if (depth > 0 && isDirectClassGetterLeaf(node, rootInstances, registry)) {
       throw new Error('machine class: getter reads must occur in the root sequence');
     }
     if (node.children) assertRootClassUsage(node.children, env, rootInstances, depth + 1);
@@ -282,6 +292,10 @@ export function internalMachineClassForNew(node: ValueIR, env: SemanticEnv): Run
   return graph.classes.get(cls.name);
 }
 
+export function internalMachineClassRegistryForEnv(env: SemanticEnv): ReadonlyMap<string, RunnerClassBinding> {
+  return internalEffectMachineStateForEnv(env)?.classRegistry ?? assertInternalMachineClassGraph(env).classes;
+}
+
 export interface InternalMachineClassMethodCall {
   readonly cls: RunnerClassBinding;
   readonly method: RunnerClassMemberBinding;
@@ -301,10 +315,10 @@ export function internalMachineClassGetterForRead(
   if (node.optional || node.object.kind !== 'ident' || node.object.name === 'this') return undefined;
   const receiver = internalMachineClassReceiver(node.object.name, env);
   if (!receiver || Object.hasOwn(receiver.fields, node.property)) return undefined;
-  const registry = internalEffectMachineStateForEnv(env)?.classRegistry ?? assertInternalMachineClassGraph(env).classes;
+  const registry = internalMachineClassRegistryForEnv(env);
   const cls = registry.get(receiver.className);
-  const getter = cls?.getters.get(node.property);
-  return cls && getter ? { cls, getter, receiverName: node.object.name } : undefined;
+  const resolved = cls ? internalMachineClassMemberFor(cls, node.property, 'getter', registry) : undefined;
+  return resolved ? { cls: resolved.cls, getter: resolved.member, receiverName: node.object.name } : undefined;
 }
 
 export function internalMachineClassMethodForCall(
@@ -323,8 +337,8 @@ export function internalMachineClassMethodForCall(
   }
   const receiver = internalMachineClassReceiver(node.callee.object.name, env);
   if (!receiver) return undefined;
-  const registry = internalEffectMachineStateForEnv(env)?.classRegistry ?? assertInternalMachineClassGraph(env).classes;
+  const registry = internalMachineClassRegistryForEnv(env);
   const cls = registry.get(receiver.className);
-  const method = cls?.methods.get(node.callee.property);
-  return cls && method ? { cls, method, receiverName: node.callee.object.name } : undefined;
+  const resolved = cls ? internalMachineClassMemberFor(cls, node.callee.property, 'method', registry) : undefined;
+  return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: node.callee.object.name } : undefined;
 }

@@ -18,7 +18,7 @@ export function validateClassGetterManifest(manifest, errors) {
 }
 
 export function validateClassGetterSlice(contents, errors) {
-  for (const required of ['assertGetter', 'internalMachineClassGetterForRead', 'getters: new Map', 'direct-member domain']) {
+  for (const required of ['assertGetter', 'internalMachineClassGetterForRead', 'getters: new Map', 'assertInternalMachineClassInheritance']) {
     if (!contents.classGraph.includes(required)) errors.push(`machine class getter graph is missing ${required}`);
   }
   for (const required of ['assertClassMemberBodies', 'evalInternalMachineClassMember', 'resolved.getter', 'makeMethodEnv']) {
