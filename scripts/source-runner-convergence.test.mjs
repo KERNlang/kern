@@ -16,15 +16,20 @@ const files = new Map(
     'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-admission.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
     'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
     'packages/core/src/ir/semantics/portable-machine-shape.ts',
     'packages/core/src/ir/semantics/runner-machine-scope.ts',
+    'packages/core/src/ir/semantics/semantic-env-ownership.ts',
+    'packages/core/src/ir/semantics/semantic-env.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
 );
@@ -94,7 +99,7 @@ test('rejects post-construction metadata replacement', () => {
 test('rejects blocker deletion and owned-node regressions', () => {
   const blockerErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
-    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'non-root-environment');
+    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'runner-classes-state');
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(blockerErrors.some((error) => error.includes('audited blocker set')));
@@ -112,6 +117,13 @@ test('rejects blocker deletion and owned-node regressions', () => {
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(classMethodErrors.some((error) => error.includes('runner-class-direct-methods owner')));
+
+  const nonRootErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'non-root-environment');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(nonRootErrors.some((error) => error.includes('non-root-environment owner')));
 
   const doErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-types.ts', "do: 'unified'", "do: 'legacy'"));
   assert.ok(doErrors.some((error) => error.includes('disposition for do')));
@@ -131,6 +143,48 @@ test('rejects blocker deletion and owned-node regressions', () => {
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
   assert.ok(helperErrors.some((error) => error.includes('helper-functions owner')));
+});
+
+test('rejects non-root environment ownership regressions', () => {
+  const provenanceErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/semantic-env.ts',
+      'markChildSemanticEnvironment(child, parent);',
+      'void child; void parent;',
+    ),
+  );
+  assert.ok(provenanceErrors.some((error) => error.includes('markChildSemanticEnvironment')));
+
+  const descriptorErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/semantic-env-ownership.ts',
+      'Object.getOwnPropertyDescriptor(env, key)',
+      'undefined',
+    ),
+  );
+  assert.ok(descriptorErrors.some((error) => error.includes('Object.getOwnPropertyDescriptor')));
+
+  const earlyAdmissionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runtime-envelope/source-runner-engine.ts',
+      'if (!hasOwnedDirectEnvironment(env, true, true)) return SOURCE_RUNNER_ENGINE.legacy;',
+      'void env;',
+    ),
+  );
+  assert.ok(earlyAdmissionErrors.some((error) => error.includes('before budget or graph discovery')));
+
+  const resumeErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine.ts',
+      'assertEnvironmentStillEligible(nodes, env);\n    step = withMachineState(env, state, () => machine.next(result));',
+      'step = withMachineState(env, state, () => machine.next(result));',
+    ),
+  );
+  assert.ok(resumeErrors.some((error) => error.includes('post-provider next or throw')));
 });
 
 test('rejects state-only class ownership regressions', () => {

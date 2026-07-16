@@ -2,7 +2,7 @@ import {
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../src/ir/semantics/internal-effect-machine.js';
-import { makeEnv } from '../src/ir/semantics/semantic-env.js';
+import { childEnv, makeEnv } from '../src/ir/semantics/semantic-env.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
 import type { IRNode } from '../src/types.js';
 
@@ -15,6 +15,24 @@ function run(nodes: readonly IRNode[]) {
 }
 
 describe('M3.21 effect-machine expression-v1 ownership', () => {
+  test('reads owned record and map composites through an authentic parent chain', () => {
+    const root = makeEnv({
+      bindings: new Map<string, unknown>([
+        ['profile', { name: 'Ada' }],
+        ['values', new Map([['answer', 42]])],
+      ]),
+    });
+    const trace = runInternalEffectMachineSync(
+      [expression('name', 'profile.name'), expression('answer', 'Map.get(values, "answer")')],
+      childEnv(root),
+    );
+
+    expect(trace.events).toEqual([
+      { op: 'assign', target: 'name', value: 'Ada' },
+      { op: 'assign', target: 'answer', value: 42 },
+    ]);
+  });
+
   test.each([
     ['scalar', '1 + 2', 3],
     ['array', '[1,2]', [1, 2]],

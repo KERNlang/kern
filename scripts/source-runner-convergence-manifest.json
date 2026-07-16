@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.27",
+  "milestone": "KERN-5-R2-M3.28",
   "owned": [
     {
       "id": "do",
@@ -43,6 +43,12 @@
       "kind": "environment",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts"
+    },
+    {
+      "id": "non-root-environment",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts"
     }
   ],
   "deferred": [
@@ -51,12 +57,6 @@
       "kind": "environment",
       "status": "legacy",
       "followUp": "M3.29-class-getter-inheritance-ownership"
-    },
-    {
-      "id": "non-root-environment",
-      "kind": "environment",
-      "status": "legacy",
-      "followUp": "M3.28-non-root-environment-ownership"
     }
   ]
 }

@@ -154,15 +154,20 @@ function runPreflightFailure(acceptance: Extract<M313AcceptanceCase, { kind: 'pr
 async function runProviderFailure(
   acceptance: Extract<M313AcceptanceCase, { kind: 'provider-failure-tombstone' }>,
 ): Promise<void> {
-  const env = makeEnv({ bindings: new Map([['error', 'outer']]) });
+  const env = makeEnv({
+    bindings: new Map([['error', 'outer']]),
+    capabilities:
+      acceptance.mode === 'sync'
+        ? {
+            llm: {
+              complete: () => {
+                throw new Error('provider failed');
+              },
+            },
+          }
+        : undefined,
+  });
   if (acceptance.mode === 'sync') {
-    env.capabilities = {
-      llm: {
-        complete: () => {
-          throw new Error('provider failed');
-        },
-      },
-    };
     expect(() => runInternalEffectMachineSync(acceptance.nodes, env)).toThrow(/provider failed/);
   } else if (acceptance.mode === 'async') {
     await expect(

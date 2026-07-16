@@ -1,5 +1,6 @@
 import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
 import {
+  childEnv,
   makeEnv,
   type RunnerClassBinding,
   type RunnerClassMemberBinding,
@@ -63,6 +64,13 @@ function stdout(nodes: readonly IRNode[], env: SemanticEnv): readonly string[] {
 }
 
 describe('M3.26 same-root state-only class ownership', () => {
+  test('preserves same-root class ownership through an authentic child environment', () => {
+    const child = childEnv(stateClassEnv());
+
+    expect(selectSourceRunnerEngine(stateProgram, child, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(stdout(stateProgram, child)).toEqual(['1', '2']);
+  });
+
   test('owns the linked public source-runner path', () => {
     const source = [
       'class name=Box',

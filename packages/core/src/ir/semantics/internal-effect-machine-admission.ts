@@ -1,8 +1,10 @@
+import { CAUGHT_ERROR_TAG } from './caught-error.js';
 import {
   isInspectableDecimalValue,
   isInspectableRunnerPortableValue,
   isOwnedDecimalValue,
   isOwnedInspectableRunnerPortableValue,
+  isPortableRecordKey,
 } from './portable-scalar-domain.js';
 import {
   isOwnedEmptyExactSemanticArray,
@@ -12,6 +14,8 @@ import {
   isOwnedSemanticEnvironment,
   type SemanticEnv,
 } from './semantic-env.js';
+import { exactSemanticEnvironmentParent, isExactSemanticEnvironment } from './semantic-env-ownership.js';
+import { UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 
 const MAP_ENTRIES = Map.prototype.entries;
 const MAP_VALUES = Map.prototype.values;
@@ -76,6 +80,42 @@ function hasOwnedBindingValue(value: unknown, seen: WeakSet<object>): boolean {
   if (isOwnedDecimalValue(value)) return isInspectableDecimalValue(value);
   if (typeof value !== 'object' || value === null) return isOwnedInspectableRunnerPortableValue(value, seen);
   if (!isOwnedSemanticComposite(value)) return false;
+  if (value === UNAVAILABLE_CAUGHT_ERROR) return true;
+  const caughtTag = Object.getOwnPropertyDescriptor(value, CAUGHT_ERROR_TAG);
+  const caughtKind = Object.getOwnPropertyDescriptor(value, 'kind');
+  const caughtMessage = Object.getOwnPropertyDescriptor(value, 'message');
+  if (
+    caughtTag &&
+    'value' in caughtTag &&
+    caughtTag.value === true &&
+    caughtKind &&
+    'value' in caughtKind &&
+    typeof caughtKind.value === 'string' &&
+    caughtMessage &&
+    'value' in caughtMessage &&
+    typeof caughtMessage.value === 'string'
+  ) {
+    return true;
+  }
+  const classMarker = Object.getOwnPropertyDescriptor(value, '__kernRunnerClassInstance');
+  const className = Object.getOwnPropertyDescriptor(value, 'className');
+  const classFields = Object.getOwnPropertyDescriptor(value, 'fields');
+  if (
+    classMarker &&
+    'value' in classMarker &&
+    classMarker.value === true &&
+    className &&
+    'value' in className &&
+    typeof className.value === 'string' &&
+    classFields &&
+    'value' in classFields &&
+    typeof classFields.value === 'object' &&
+    classFields.value !== null
+  ) {
+    return (
+      isOwnedSemanticComposite(classFields.value) && isOwnedInspectableRunnerPortableValue(classFields.value, seen)
+    );
+  }
   if (value instanceof Map) {
     if (seen.has(value)) return false;
     seen.add(value);
@@ -88,7 +128,118 @@ function hasOwnedBindingValue(value: unknown, seen: WeakSet<object>): boolean {
   return isOwnedInspectableRunnerPortableValue(value, seen);
 }
 
+function hasOwnedRuntimeArray(value: unknown[], seen: WeakSet<object>): boolean {
+  if (Object.getPrototypeOf(value) !== Array.prototype || Object.getOwnPropertySymbols(value).length > 0) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value) as Record<string, PropertyDescriptor>;
+  const length = descriptors.length?.value;
+  const keys = Object.keys(descriptors);
+  if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0 || keys.length !== length + 1) {
+    return false;
+  }
+  for (const key of keys) {
+    if (key === 'length') continue;
+    const index = Number(key);
+    const descriptor = descriptors[key];
+    if (
+      !Number.isSafeInteger(index) ||
+      index < 0 ||
+      index >= length ||
+      String(index) !== key ||
+      !descriptor ||
+      descriptor.get ||
+      descriptor.set ||
+      !descriptor.enumerable ||
+      !('value' in descriptor) ||
+      !hasOwnedRuntimeBindingValue(descriptor.value, seen)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasOwnedRuntimeRecord(value: object, seen: WeakSet<object>): boolean {
+  const prototype = Object.getPrototypeOf(value);
+  if ((prototype !== Object.prototype && prototype !== null) || Object.getOwnPropertySymbols(value).length > 0) {
+    return false;
+  }
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (
+      !isPortableRecordKey(key) ||
+      descriptor.get ||
+      descriptor.set ||
+      !descriptor.enumerable ||
+      !('value' in descriptor) ||
+      !hasOwnedRuntimeBindingValue(descriptor.value, seen)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Runtime state may contain machine-created aliases and normalized capability graphs. */
+function hasOwnedRuntimeBindingValue(value: unknown, seen: WeakSet<object>): boolean {
+  if (isOwnedDecimalValue(value)) return isInspectableDecimalValue(value);
+  if (typeof value !== 'object' || value === null) return isOwnedInspectableRunnerPortableValue(value);
+  if (!isOwnedSemanticComposite(value) || seen.has(value)) return false;
+  if (value === UNAVAILABLE_CAUGHT_ERROR) return true;
+  const caughtTag = Object.getOwnPropertyDescriptor(value, CAUGHT_ERROR_TAG);
+  const caughtKind = Object.getOwnPropertyDescriptor(value, 'kind');
+  const caughtMessage = Object.getOwnPropertyDescriptor(value, 'message');
+  if (
+    caughtTag &&
+    'value' in caughtTag &&
+    caughtTag.value === true &&
+    caughtKind &&
+    'value' in caughtKind &&
+    typeof caughtKind.value === 'string' &&
+    caughtMessage &&
+    'value' in caughtMessage &&
+    typeof caughtMessage.value === 'string'
+  ) {
+    return true;
+  }
+  const classMarker = Object.getOwnPropertyDescriptor(value, '__kernRunnerClassInstance');
+  const className = Object.getOwnPropertyDescriptor(value, 'className');
+  const classFields = Object.getOwnPropertyDescriptor(value, 'fields');
+  if (
+    classMarker &&
+    'value' in classMarker &&
+    classMarker.value === true &&
+    className &&
+    'value' in className &&
+    typeof className.value === 'string' &&
+    classFields &&
+    'value' in classFields &&
+    typeof classFields.value === 'object' &&
+    classFields.value !== null
+  ) {
+    seen.add(value);
+    try {
+      return hasOwnedRuntimeBindingValue(classFields.value, seen);
+    } finally {
+      seen.delete(value);
+    }
+  }
+  seen.add(value);
+  try {
+    if (value instanceof Map) {
+      if (Object.getPrototypeOf(value) !== Map.prototype || Reflect.ownKeys(value).length > 0) return false;
+      for (const [key, item] of mapEntries(value)) {
+        if (typeof key !== 'string' || !hasOwnedRuntimeBindingValue(item, seen)) return false;
+      }
+      return true;
+    }
+    if (Array.isArray(value)) return hasOwnedRuntimeArray(value, seen);
+    return hasOwnedRuntimeRecord(value, seen);
+  } finally {
+    seen.delete(value);
+  }
+}
+
 function hasOwnedMachineMetadata(env: SemanticEnv): boolean {
+  if (!isExactSemanticEnvironment(env)) return false;
   if (!isOwnedExactSemanticMap(env.bindings)) return false;
   if (env.runnerFunctions !== undefined && !isOwnedExactSemanticMap(env.runnerFunctions)) return false;
   if (env.runnerClasses !== undefined && !isOwnedExactSemanticMap(env.runnerClasses)) return false;
@@ -111,21 +262,37 @@ function hasOwnedMachineMetadata(env: SemanticEnv): boolean {
 
 export function hasBoundedRootEnvironment(env: SemanticEnv): boolean {
   if (!hasStableMapPrototype()) return false;
-  if (
-    env.parent !== undefined ||
-    !isEmptyPlainMap(env.runnerFunctions) ||
-    !isEmptyPlainMap(env.runnerClasses) ||
-    env.runnerThis !== undefined ||
-    env.runnerSuperClass !== undefined ||
-    env.runnerProtectedClassInstances !== undefined ||
-    !(env.bindings instanceof Map) ||
-    Object.getPrototypeOf(env.bindings) !== Map.prototype
-  ) {
-    return false;
-  }
+  if (Object.getPrototypeOf(env) !== Object.prototype) return false;
+  const ownDataValue = (key: keyof SemanticEnv): unknown => {
+    const descriptor = Object.getOwnPropertyDescriptor(env, key);
+    if (!descriptor) return undefined;
+    if (descriptor.get !== undefined || descriptor.set !== undefined || !('value' in descriptor)) {
+      throw new Error('environment field must be an own data property');
+    }
+    return descriptor.value;
+  };
   try {
+    const parent = ownDataValue('parent');
+    const runnerFunctions = ownDataValue('runnerFunctions');
+    const runnerClasses = ownDataValue('runnerClasses');
+    const runnerThis = ownDataValue('runnerThis');
+    const runnerSuperClass = ownDataValue('runnerSuperClass');
+    const runnerProtectedClassInstances = ownDataValue('runnerProtectedClassInstances');
+    const bindings = ownDataValue('bindings');
+    if (
+      parent !== undefined ||
+      !isEmptyPlainMap(runnerFunctions) ||
+      !isEmptyPlainMap(runnerClasses) ||
+      runnerThis !== undefined ||
+      runnerSuperClass !== undefined ||
+      runnerProtectedClassInstances !== undefined ||
+      !(bindings instanceof Map) ||
+      Object.getPrototypeOf(bindings) !== Map.prototype
+    ) {
+      return false;
+    }
     const seen = new WeakSet<object>();
-    for (const [name, value] of mapEntries(env.bindings)) {
+    for (const [name, value] of mapEntries(bindings)) {
       if (typeof name !== 'string' || !hasBoundedBindingValue(value, seen)) return false;
     }
     return true;
@@ -134,15 +301,32 @@ export function hasBoundedRootEnvironment(env: SemanticEnv): boolean {
   }
 }
 
-export function hasOwnedDirectRootEnvironment(
+const COHERENT_CHAIN_FIELDS = [
+  'runnerFunctions',
+  'runnerClasses',
+  'runnerCallStack',
+  'runnerCallCache',
+  'runnerThis',
+  'runnerSuperClass',
+  'runnerProtectedClassInstances',
+  'capabilities',
+  'capabilityContext',
+  'seed',
+  'now',
+] as const satisfies readonly (keyof SemanticEnv)[];
+
+function hasCoherentParentFields(child: SemanticEnv, parent: SemanticEnv): boolean {
+  return COHERENT_CHAIN_FIELDS.every((key) => Object.is(child[key], parent[key]));
+}
+
+function hasOwnedEnvironmentFrame(
   env: SemanticEnv,
-  allowRunnerFunctions = false,
-  allowRunnerClasses = false,
+  allowRunnerFunctions: boolean,
+  allowRunnerClasses: boolean,
+  allowRuntimeState: boolean,
 ): boolean {
-  if (!hasStableMapPrototype()) return false;
   if (!isOwnedSemanticEnvironment(env) || !hasOwnedMachineMetadata(env)) return false;
   if (
-    env.parent !== undefined ||
     (!allowRunnerFunctions && env.runnerFunctions !== undefined && mapSize(env.runnerFunctions) !== 0) ||
     (!allowRunnerClasses && env.runnerClasses !== undefined && mapSize(env.runnerClasses) !== 0) ||
     env.runnerThis !== undefined ||
@@ -154,10 +338,62 @@ export function hasOwnedDirectRootEnvironment(
   try {
     const seen = new WeakSet<object>();
     for (const [name, value] of mapEntries(env.bindings)) {
-      if (typeof name !== 'string' || !hasOwnedBindingValue(value, seen)) return false;
+      if (
+        typeof name !== 'string' ||
+        !(allowRuntimeState ? hasOwnedRuntimeBindingValue(value, new WeakSet()) : hasOwnedBindingValue(value, seen))
+      ) {
+        return false;
+      }
     }
     return true;
   } catch {
     return false;
   }
+}
+
+export function hasOwnedDirectEnvironment(
+  env: SemanticEnv,
+  allowRunnerFunctions = false,
+  allowRunnerClasses = false,
+): boolean {
+  if (!hasStableMapPrototype()) return false;
+  return hasOwnedEnvironmentChain(env, allowRunnerFunctions, allowRunnerClasses, false);
+}
+
+export function hasStableOwnedEnvironmentChain(
+  env: SemanticEnv,
+  allowRunnerFunctions = false,
+  allowRunnerClasses = false,
+): boolean {
+  return hasOwnedEnvironmentChain(env, allowRunnerFunctions, allowRunnerClasses, true);
+}
+
+function hasOwnedEnvironmentChain(
+  env: SemanticEnv,
+  allowRunnerFunctions: boolean,
+  allowRunnerClasses: boolean,
+  allowRuntimeState: boolean,
+): boolean {
+  if (typeof env !== 'object' || env === null) return false;
+  const seen = new WeakSet<SemanticEnv>();
+  let current: SemanticEnv | undefined = env;
+  while (current) {
+    if (
+      seen.has(current) ||
+      !hasOwnedEnvironmentFrame(current, allowRunnerFunctions, allowRunnerClasses, allowRuntimeState)
+    ) {
+      return false;
+    }
+    seen.add(current);
+    const recordedParent = exactSemanticEnvironmentParent(current);
+    if (!Object.is(current.parent, recordedParent)) return false;
+    if (
+      recordedParent &&
+      (!isExactSemanticEnvironment(recordedParent) || !hasCoherentParentFields(current, recordedParent))
+    ) {
+      return false;
+    }
+    current = recordedParent;
+  }
+  return true;
 }

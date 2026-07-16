@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
 
 const FILES = Object.freeze({
+  ...NON_ROOT_FILES,
   classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
   classEvaluator: 'packages/core/src/ir/semantics/portable-machine-evaluator.ts',
   classGraph: 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
@@ -26,7 +28,6 @@ const FILES = Object.freeze({
 });
 
 const REQUIRED_DEFERRED = Object.freeze({
-  'non-root-environment': ['environment', 'legacy'],
   'runner-classes-state': ['environment', 'legacy'],
 });
 
@@ -97,7 +98,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.27') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.28') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -186,6 +187,18 @@ function validateManifest(text, errors) {
   if (manifest.owned.filter((item) => item?.id === 'runner-class-direct-methods').length !== 1) {
     errors.push('manifest runner-class-direct-methods owner is duplicated');
   }
+  const ownedNonRoot = manifest.owned.find((item) => item?.id === 'non-root-environment');
+  if (
+    !exactKeys(ownedNonRoot, ['id', 'kind', 'status', 'evidence']) ||
+    ownedNonRoot.kind !== 'environment' ||
+    ownedNonRoot.status !== 'unified' ||
+    ownedNonRoot.evidence !== 'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified non-root-environment owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'non-root-environment').length !== 1) {
+    errors.push('manifest non-root-environment owner is duplicated');
+  }
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -200,10 +213,6 @@ function validateManifest(text, errors) {
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
   if (classState?.followUp !== 'M3.29-class-getter-inheritance-ownership') {
     errors.push('manifest must keep remaining class behavior as the exact M3.29 follow-up');
-  }
-  const nonRoot = manifest.deferred.find((item) => item?.id === 'non-root-environment');
-  if (nonRoot?.followUp !== 'M3.28-non-root-environment-ownership') {
-    errors.push('manifest must keep non-root transaction ownership as the exact M3.28 follow-up');
   }
 }
 
@@ -471,6 +480,7 @@ export function validateSourceRunnerConvergence(readText) {
   if (contents.runner) validateRunner(contents.runner, errors);
   if (contents.cli && contents.cliOptions) validateCli(contents.cli, contents.cliOptions, errors);
   if (contents.engine) validateEngine(contents.engine, errors);
+  validateNonRootEnvironmentSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }

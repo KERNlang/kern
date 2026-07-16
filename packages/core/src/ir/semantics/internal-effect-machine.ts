@@ -6,6 +6,7 @@ import {
   invokeInternalRuntimeCapabilitySync,
   invokeInternalRuntimeSyncCapabilityAsync,
 } from './internal-capability-interceptor.js';
+import { hasBoundedRootEnvironment, hasStableOwnedEnvironmentChain } from './internal-effect-machine-admission.js';
 import {
   assertInternalMachineClassGraph,
   assertInternalMachineClassUsage,
@@ -24,7 +25,7 @@ import {
   type InternalEffectMachineState,
   type InternalEffectMachineSyncOptions,
 } from './internal-effect-machine-types.js';
-import type { SemanticEnv } from './semantic-env.js';
+import { isOwnedSemanticEnvironment, type SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
 function withMachineState<T>(env: SemanticEnv, state: InternalEffectMachineState, advance: () => T): T {
@@ -38,10 +39,12 @@ function withMachineState<T>(env: SemanticEnv, state: InternalEffectMachineState
 
 function unwindMachineAfterProviderError(
   machine: InternalEffectMachineGenerator,
+  nodes: readonly IRNode[],
   env: SemanticEnv,
   state: InternalEffectMachineState,
   error: unknown,
 ): never {
+  assertEnvironmentStillEligible(nodes, env);
   try {
     withMachineState(env, state, () => machine.throw(error));
   } catch {
@@ -49,6 +52,14 @@ function unwindMachineAfterProviderError(
     // generator finally blocks a chance to release internal bindings.
   }
   throw error;
+}
+
+function assertEnvironmentStillEligible(nodes: readonly IRNode[], env: SemanticEnv): void {
+  const stable = isOwnedSemanticEnvironment(env)
+    ? hasStableOwnedEnvironmentChain(env, true, true)
+    : hasBoundedRootEnvironment(env);
+  if (stable) return;
+  throw new InternalEffectMachineError('environment changed after provider dispatch', nodes[0] ?? { type: '__block' });
 }
 
 export { isInternalEffectMachineEligible } from './internal-effect-machine-structure.js';
@@ -94,8 +105,9 @@ export function runInternalEffectMachineSync(
     try {
       result = invokeInternalRuntimeCapabilitySync(env, step.value.prepared.call);
     } catch (error) {
-      unwindMachineAfterProviderError(machine, env, state, error);
+      unwindMachineAfterProviderError(machine, nodes, env, state, error);
     }
+    assertEnvironmentStillEligible(nodes, env);
     step = withMachineState(env, state, () => machine.next(result));
   }
   return step.value;
@@ -119,8 +131,9 @@ export async function runInternalEffectMachineAsync(
           })
         : await invokeInternalRuntimeSyncCapabilityAsync(env, call);
     } catch (error) {
-      unwindMachineAfterProviderError(machine, env, state, error);
+      unwindMachineAfterProviderError(machine, nodes, env, state, error);
     }
+    assertEnvironmentStillEligible(nodes, env);
     step = withMachineState(env, state, () => machine.next(result));
   }
   return step.value;
