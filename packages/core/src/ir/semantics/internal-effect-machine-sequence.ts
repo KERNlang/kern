@@ -8,7 +8,7 @@ import {
 import { iterateEachRuntimeSteps } from './each-runtime.js';
 import { forRuntimeRange } from './for-runtime.js';
 import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
-import { runInternalEffectMachineLeaf } from './internal-effect-machine-leaf.js';
+import { runInternalEffectMachineClassLeaf } from './internal-effect-machine-class-leaf.js';
 import { runInternalEffectMachineTry } from './internal-effect-machine-try.js';
 import {
   hasNoBody,
@@ -226,7 +226,7 @@ export function* runInternalEffectMachineSequence(
       next = resumeInternalCapabilityEffect(prepared, result, env);
     } else {
       try {
-        next = runInternalEffectMachineLeaf(node, env);
+        next = yield* runInternalEffectMachineClassLeaf(node, env, state);
       } catch (cause) {
         if (cause instanceof InternalEffectMachineHelperPending) throw cause;
         throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node, cause);

@@ -1,7 +1,6 @@
 import {
   makeEnv,
   type RunnerClassBinding,
-  type RunnerClassFieldBinding,
   type RunnerClassMemberBinding,
   type RunnerFunctionBinding,
   type RunnerModuleScope,
@@ -29,7 +28,15 @@ import {
   type MalformedCapabilityRequirement,
   type UnknownCapabilityRequirement,
 } from './runner-capability-plan.js';
+import { KernRunnerError } from './runner-error.js';
 import { moduleLinkErrors } from './runner-module-link.js';
+import {
+  assertRunnerClassAcyclic,
+  buildSingleModuleRunnerRootScope,
+  collectRunnerClasses,
+  collectRunnerFunctions,
+  validateRunnerCallableNames,
+} from './runner-runtime-scope.js';
 import {
   executeSourceRunnerAsync,
   executeSourceRunnerSync,
@@ -82,16 +89,7 @@ export { createMemoryStorageCapability } from './runner-storage.js';
  * it is test-only and lives behind `@kernlang/core/testing`.
  */
 
-/** Controlled program-runner failure: parse/setup/runtime abstention, never a raw stack. */
-export class KernRunnerError extends Error {
-  readonly exitCode: number;
-
-  constructor(message: string, exitCode = 2) {
-    super(message);
-    this.name = 'KernRunnerError';
-    this.exitCode = exitCode;
-  }
-}
+export { KernRunnerError } from './runner-error.js';
 
 export interface ExecuteKernSourceOptions {
   /**
@@ -201,11 +199,6 @@ function resolveSingleKernHandler(fn: IRNode, label: string): IRNode {
   return handlers[0];
 }
 
-function singleKernHandler(fn: IRNode): IRNode | undefined {
-  const handlers = (fn.children ?? []).filter((node) => node.type === 'handler' && node.props?.lang === 'kern');
-  return handlers.length === 1 ? handlers[0] : undefined;
-}
-
 function isTrueProp(value: unknown): boolean {
   return value === true || value === 'true';
 }
@@ -260,59 +253,6 @@ export function resolveKernMainHandler(root: IRNode): IRNode {
 /** Descriptor-driven native-runner entry resolution: exactly one declared top-level handler. */
 export function resolveKernEntryHandler(root: IRNode, entry: KernRunnerEntryDescriptor): IRNode {
   return resolveNamedVoidKernHandler(root, entry.handler, entryLabel(entry));
-}
-
-function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding> {
-  const functions = new Map<string, RunnerFunctionBinding>();
-  for (const node of topLevelNodes(root)) {
-    if (node.type !== 'fn' || node.props?.name === 'main') continue;
-    const binding = runnerFunctionBinding(node);
-    if (!binding) continue;
-    if (functions.has(binding.name)) throw new KernRunnerError(`duplicate runner function '${binding.name}'`);
-    functions.set(binding.name, binding);
-  }
-  return functions;
-}
-
-function collectRunnerClasses(root: IRNode): Map<string, RunnerClassBinding> {
-  const classes = new Map<string, RunnerClassBinding>();
-  for (const node of topLevelNodes(root)) {
-    if (node.type !== 'class') continue;
-    const binding = runnerClassBinding(node);
-    if (!binding) continue;
-    if (classes.has(binding.name)) throw new KernRunnerError(`duplicate runner class '${binding.name}'`);
-    classes.set(binding.name, binding);
-  }
-  for (const cls of classes.values()) {
-    if (cls.extendsName && !classes.has(cls.extendsName)) {
-      throw new KernRunnerError(`runner class '${cls.name}' extends unknown class '${cls.extendsName}'`);
-    }
-  }
-  assertRunnerClassAcyclic(classes);
-  return classes;
-}
-
-function assertRunnerClassAcyclic(classes: ReadonlyMap<string, RunnerClassBinding>): void {
-  for (const cls of classes.values()) {
-    const seen = new Set<string>();
-    for (let current: string | undefined = cls.name; current; ) {
-      if (seen.has(current)) throw new KernRunnerError(`runner class '${cls.name}' has cyclic inheritance`);
-      seen.add(current);
-      current = classes.get(current)?.extendsName;
-    }
-  }
-}
-
-function validateRunnerCallableNames(
-  runnerFunctions: ReadonlyMap<string, RunnerFunctionBinding>,
-  runnerClasses: ReadonlyMap<string, RunnerClassBinding>,
-): void {
-  if (runnerClasses.has('main')) throw new KernRunnerError("runner class 'main' conflicts with the native entrypoint");
-  for (const name of runnerClasses.keys()) {
-    if (runnerFunctions.has(name)) {
-      throw new KernRunnerError(`runner class '${name}' conflicts with runner function '${name}'`);
-    }
-  }
 }
 
 function modulePathForRoot(options: ExecuteKernSourceOptions): string {
@@ -569,6 +509,9 @@ function buildRunnerModuleScopes(records: readonly LinkedModuleRecord[]): Map<st
 }
 
 function linkedRootScope(records: readonly LinkedModuleRecord[], rootRecord: LinkedModuleRecord): RunnerModuleScope {
+  if (records.length === 1 && rootRecord.imports.length === 0) {
+    return buildSingleModuleRunnerRootScope(rootRecord.root);
+  }
   const scopes = buildRunnerModuleScopes(records);
   const rootScope = scopes.get(rootRecord.path);
   if (!rootScope) throw new KernRunnerError(`link error: root module '${rootRecord.path}' was not linked`);
@@ -589,148 +532,6 @@ function aliasRunnerClassBinding(binding: RunnerClassBinding, name: string): Run
     methods: new Map([...binding.methods].map(([key, member]) => [key, aliasMember(member)])),
     getters: new Map([...binding.getters].map(([key, member]) => [key, aliasMember(member)])),
   };
-}
-
-function runnerClassBinding(node: IRNode): RunnerClassBinding | undefined {
-  const name = node.props?.name;
-  if (!isPortableBindingName(name)) return undefined;
-  const fields: RunnerClassFieldBinding[] = [];
-  const fieldNames = new Set<string>();
-  const methods = new Map<string, RunnerClassMemberBinding>();
-  const getters = new Map<string, RunnerClassMemberBinding>();
-  let constructorBinding: RunnerClassMemberBinding | undefined;
-  for (const child of node.children ?? []) {
-    if (child.type === 'field') {
-      const fieldName = child.props?.name;
-      if (!isPortableBindingName(fieldName)) continue;
-      if (fieldNames.has(fieldName))
-        throw new KernRunnerError(`runner class '${name}' has duplicate field '${fieldName}'`);
-      fieldNames.add(fieldName);
-      fields.push({ name: fieldName, value: child.props?.value });
-      continue;
-    }
-    if (child.type === 'constructor') {
-      if (constructorBinding) throw new KernRunnerError(`runner class '${name}' has duplicate constructors`);
-      const member = runnerClassMemberBinding(child, name, 'constructor');
-      if (member) constructorBinding = member;
-      continue;
-    }
-    if (child.type === 'method') {
-      const member = runnerClassMemberBinding(child, name, 'method');
-      if (member && methods.has(member.name)) {
-        throw new KernRunnerError(`runner class '${name}' has duplicate method '${member.name}'`);
-      }
-      if (member) methods.set(member.name, member);
-      continue;
-    }
-    if (child.type === 'getter') {
-      const member = runnerClassMemberBinding(child, name, 'getter');
-      if (member && getters.has(member.name)) {
-        throw new KernRunnerError(`runner class '${name}' has duplicate getter '${member.name}'`);
-      }
-      if (member) getters.set(member.name, member);
-    }
-  }
-  const extendsName =
-    typeof node.props?.extends === 'string' && node.props.extends !== '' ? node.props.extends : undefined;
-  return { name, extendsName, fields, constructor: constructorBinding, methods, getters };
-}
-
-function runnerClassMemberBinding(
-  node: IRNode,
-  ownerClass: string,
-  fallbackName: string,
-): RunnerClassMemberBinding | undefined {
-  const name = node.type === 'constructor' ? fallbackName : node.props?.name;
-  if (!isPortableBindingName(name)) return undefined;
-  if (isTrueProp(node.props?.async) || isTrueProp(node.props?.stream) || isTrueProp(node.props?.static)) {
-    throw new KernRunnerError(
-      `runner class '${ownerClass}' member '${name}' uses unsupported async, stream, or static`,
-    );
-  }
-  const handler = singleKernHandler(node);
-  if (!handler) {
-    throw new KernRunnerError(
-      `runner class '${ownerClass}' member '${name}' must contain exactly one handler lang="kern"`,
-    );
-  }
-  return {
-    name,
-    params: runnerParamNames(node, `${ownerClass}.${name}`),
-    handler,
-    body: handler.children ?? [],
-    ownerClass,
-  };
-}
-
-function runnerFunctionBinding(fn: IRNode): RunnerFunctionBinding | undefined {
-  const name = fn.props?.name;
-  if (!isPortableBindingName(name)) return undefined;
-  if (isTrueProp(fn.props?.async) || isTrueProp(fn.props?.stream)) return undefined;
-  if (fn.props?.returns === undefined || fn.props.returns === '' || fn.props.returns === 'void') return undefined;
-  const handler = singleKernHandler(fn);
-  if (!handler) return undefined;
-  try {
-    const params = runnerParamNames(fn, name);
-    return { name, params, returns: fn.props.returns, handler, body: handler.children ?? [] };
-  } catch (error) {
-    if (error instanceof KernRunnerError) return undefined;
-    throw error;
-  }
-}
-
-function runnerParamNames(fn: IRNode, fnName: string): readonly string[] {
-  const paramChildren = (fn.children ?? []).filter((child) => child.type === 'param');
-  const legacyParams = typeof fn.props?.params === 'string' ? fn.props.params.trim() : '';
-  if (paramChildren.length > 0 && legacyParams !== '') {
-    throw new KernRunnerError(`runner function '${fnName}' cannot mix params= with param children`);
-  }
-  const names =
-    paramChildren.length > 0
-      ? paramChildren.map((param) => {
-          const name = param.props?.name;
-          if (!isPortableBindingName(name)) {
-            throw new KernRunnerError(`runner function '${fnName}' param must be a portable identifier`);
-          }
-          if ((param.children ?? []).length > 0) {
-            throw new KernRunnerError(`runner function '${fnName}' destructured params are unsupported`);
-          }
-          for (const unsupported of ['value', 'default'] as const) {
-            if (param.props?.[unsupported] !== undefined) {
-              throw new KernRunnerError(`runner function '${fnName}' param ${unsupported}= is unsupported`);
-            }
-          }
-          for (const unsupported of ['optional', 'variadic'] as const) {
-            const value = param.props?.[unsupported];
-            if (isTrueProp(value)) {
-              throw new KernRunnerError(`runner function '${fnName}' param ${unsupported}= is unsupported`);
-            }
-          }
-          return name;
-        })
-      : legacyParamNames(legacyParams, fnName);
-
-  const seen = new Set<string>();
-  for (const name of names) {
-    if (seen.has(name)) throw new KernRunnerError(`runner function '${fnName}' has duplicate param '${name}'`);
-    seen.add(name);
-  }
-  return names;
-}
-
-function legacyParamNames(params: string, fnName: string): string[] {
-  if (params === '') return [];
-  return params.split(',').map((part) => {
-    const trimmed = part.trim();
-    if (trimmed === '' || trimmed.includes('=') || trimmed.startsWith('...') || trimmed.includes('?')) {
-      throw new KernRunnerError(`runner function '${fnName}' has unsupported params= syntax`);
-    }
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)?$/.exec(trimmed);
-    if (!match || !isPortableBindingName(match[1])) {
-      throw new KernRunnerError(`runner function '${fnName}' has unsupported params= syntax`);
-    }
-    return match[1];
-  });
 }
 
 function requirementLabel(requirement: Pick<CapabilityRequirement, 'id' | 'sourceLine'>): string {
@@ -1143,6 +944,7 @@ async function executeKernSourceAsyncWithEntry(
       entryHandlerName: entry?.handler,
       providedCapabilities: options.providedCapabilities,
       providedAsyncCapabilities: options.providedAsyncCapabilities,
+      iterationBudget: options.iterationBudget,
       moduleLoader: options.moduleLoader,
       sourcePath: options.sourcePath,
     });

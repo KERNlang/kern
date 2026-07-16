@@ -14,6 +14,7 @@ import { PREFLIGHT_CAUGHT_ERROR } from './caught-error.js';
 import { internalEffectMachineEachIterationCount, isInternalEffectMachineEach } from './each-runtime.js';
 import { forRuntimeRange, forShapePreconditions } from './for-runtime.js';
 import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
+import { assertInternalMachineClassFramePreflight } from './internal-effect-machine-class-preflight.js';
 import {
   applyConditionalBindingEffects,
   branchControlIsDeferred,
@@ -439,7 +440,10 @@ function assertMachineCapability(node: IRNode, env: SemanticEnv, deferredBinding
       assertInternalMachineDeferredCaughtExpression(input, capabilityEnv, deferredBindings);
       for (const name of internalMachineExpressionBindings(input)) {
         if (deferredBindings.has(name)) shapeOnlyInput = true;
-        else if (!hasBinding(capabilityEnv, name)) throw new Error(`capability input binding "${name}" is missing`);
+        else {
+          const present = name === 'this' ? capabilityEnv.runnerThis !== undefined : hasBinding(capabilityEnv, name);
+          if (!present) throw new Error(`capability input binding "${name}" is missing`);
+        }
       }
       if (shapeOnlyInput) {
         assertDeferredCapabilityInputKnownValues(input, capabilityEnv, evalPortableValue, deferredBindings);
@@ -478,6 +482,7 @@ export function assertInternalEffectMachineStructureSupported(
   loopDepth = 0,
 ): void {
   assertInternalEffectMachineHelperStructureSupported(nodes, env);
+  assertInternalMachineClassFramePreflight(env, analyzeSequence);
   assertInternalEffectMachineRootStructureSupported(nodes, env, loopDepth);
 }
 

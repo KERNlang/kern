@@ -30,7 +30,7 @@ export function controlExpressionIsDeferred(
   if (env && internalMachineHelperCallInRaw(raw, env)) return true;
   try {
     for (const name of internalMachineExpressionBindings(raw)) {
-      if (deferredBindings.has(name)) return true;
+      if (deferredBindings.has(name) || (name === 'this' && env?.runnerThis !== undefined)) return true;
     }
   } catch {
     // The canonical control validator owns malformed-expression diagnostics.

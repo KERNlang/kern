@@ -1,24 +1,12 @@
-import { hasOwnedDirectEnvironment } from '../ir/semantics/internal-effect-machine-admission.js';
-import { internalMachineClassGraphHasClasses } from '../ir/semantics/internal-effect-machine-class-graph.js';
-import {
-  internalMachineHelperGraphHasReachableFunctions,
-  internalMachineHelperGraphRequiresIterationBudget,
-} from '../ir/semantics/internal-effect-machine-helper-graph.js';
-import {
-  assertInternalEffectMachineHelperStructureSupported,
-  assertInternalEffectMachineRootStructureSupported,
-  assertInternalEffectMachineStructureSupported,
-} from '../ir/semantics/internal-effect-machine-structure.js';
 import { INTERNAL_EFFECT_MACHINE_FORMAT } from '../ir/semantics/internal-effect-machine-types.js';
-import { lambdaRequiresIterationBudget } from '../ir/semantics/lambda-preflight.js';
 import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
+import { sourceRunnerMachineAdmission } from '../ir/semantics/source-runner-admission.js';
 import type { Trace } from '../ir/semantics/trace.js';
 import type { IRNode } from '../types.js';
 import {
   type InternalRuntimeAsyncOptions,
   runInternalRuntimeEngineAsync,
   runInternalRuntimeEngineSync,
-  selectInternalRuntimeEngine,
 } from './internal-engine.js';
 import {
   ensureSourceRunnerContractsRegistered,
@@ -48,23 +36,6 @@ export class SourceRunnerEngineError extends Error {
   }
 }
 
-function requiresIterationBudget(nodes: readonly IRNode[], env: SemanticEnv): boolean {
-  const pending = [...nodes];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (!node) continue;
-    if (
-      node.type === 'each' ||
-      node.type === 'for' ||
-      node.type === 'while' ||
-      (node.type === 'lambda' && lambdaRequiresIterationBudget(node))
-    )
-      return true;
-    for (const child of node.children ?? []) pending.push(child);
-  }
-  return internalMachineHelperGraphRequiresIterationBudget(nodes, env);
-}
-
 function validateIterationBudget(value: number | undefined): void {
   if (value === undefined) return;
   if (!Number.isSafeInteger(value) || value <= 0) {
@@ -78,25 +49,9 @@ export function selectSourceRunnerEngine(
   options: Pick<SourceRunnerEngineOptions, 'iterationBudget'>,
 ): SourceRunnerEngine {
   validateIterationBudget(options.iterationBudget);
-  if (!hasOwnedDirectEnvironment(env, true, true)) return SOURCE_RUNNER_ENGINE.legacy;
-  if (requiresIterationBudget(nodes, env) && options.iterationBudget === undefined) return SOURCE_RUNNER_ENGINE.legacy;
-  if (selectInternalRuntimeEngine(nodes, env) !== INTERNAL_EFFECT_MACHINE_FORMAT) return SOURCE_RUNNER_ENGINE.legacy;
-  if (internalMachineHelperGraphHasReachableFunctions(nodes, env)) {
-    // Pre-execution admission only: a machine execution failure never retries on compatibility.
-    try {
-      assertInternalEffectMachineHelperStructureSupported(nodes, env);
-    } catch {
-      return SOURCE_RUNNER_ENGINE.legacy;
-    }
-    assertInternalEffectMachineRootStructureSupported(nodes, env);
-  } else if (internalMachineClassGraphHasClasses(env)) {
-    try {
-      assertInternalEffectMachineStructureSupported(nodes, env);
-    } catch {
-      return SOURCE_RUNNER_ENGINE.legacy;
-    }
-  } else assertInternalEffectMachineStructureSupported(nodes, env);
-  return SOURCE_RUNNER_ENGINE.machine;
+  return sourceRunnerMachineAdmission(nodes, env, options.iterationBudget)
+    ? SOURCE_RUNNER_ENGINE.machine
+    : SOURCE_RUNNER_ENGINE.legacy;
 }
 
 function selectedEngine(

@@ -483,7 +483,7 @@ describe('@kernlang/core/runtime app descriptor', () => {
     ).rejects.toThrow(/uses undeclared capabilities: llm\.complete/);
   });
 
-  test('fails closed when class methods use declared async-only capabilities', async () => {
+  test('accepts declared async-only capabilities in owned class methods', async () => {
     await expect(
       load(
         manifest([
@@ -504,7 +504,11 @@ describe('@kernlang/core/runtime app descriptor', () => {
           ].join('\n'),
         },
       ),
-    ).rejects.toThrow(/bad async: llm\.complete/);
+    ).resolves.toEqual(
+      expect.objectContaining({
+        routes: [expect.objectContaining({ handler: 'answerRoute', requiredCapabilities: ['llm.complete'] })],
+      }),
+    );
   });
 
   test('fails closed when class field and super-argument helpers use declared async-only capabilities', async () => {

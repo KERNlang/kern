@@ -7,6 +7,11 @@ import {
   type CapabilityDescriptor,
   type CapabilityId,
 } from './runner-capability-catalog.js';
+import {
+  collectExecutableRequirements,
+  collectUnsupportedAsyncExecutionsAcrossModules,
+} from './runner-capability-requirement-reachability.js';
+import { ownsSingleModuleClassFrames } from './runner-class-frame-capability-admission.js';
 import { moduleLinkErrors, ownExplicitExportKinds, type RunnerModuleExportRecord } from './runner-module-link.js';
 import type { IRNode, ParseDiagnostic } from './types.js';
 import type { ValueIR } from './value-ir.js';
@@ -58,6 +63,7 @@ export interface CapabilityAnalysisOptions {
   readonly entryHandlerName?: string;
   readonly providedCapabilities?: readonly string[];
   readonly providedAsyncCapabilities?: readonly string[];
+  readonly iterationBudget?: number;
   readonly moduleLoader?: {
     resolve(specifier: string, context: { readonly importer: string }): string | null;
     readSource(canonicalPath: string): string;
@@ -144,7 +150,20 @@ export function analyzeKernSourceCapabilities(
   // root file (finding: preflight readiness parity across module boundaries).
   const moduleRoots = graph.roots.map((module) => module.root);
   const unsupportedHandlers = new Set<IRNode>();
-  const executableHandlers = crossModuleExecutableHandlers(graph, rootPath, entryHandlerName, unsupportedHandlers);
+  const rootModule = graph.roots.find((module) => module.path === rootPath);
+  const ownsClassFrames = Boolean(
+    rootModule &&
+      graph.roots.length === 1 &&
+      rootModule.imports.length === 0 &&
+      ownsSingleModuleClassFrames(rootModule.root, entryHandlerName, options.iterationBudget),
+  );
+  const executableHandlers = crossModuleExecutableHandlers(
+    graph,
+    rootPath,
+    entryHandlerName,
+    unsupportedHandlers,
+    ownsClassFrames,
+  );
   const executableRequirements = collectExecutableRequirements(moduleRoots, executableHandlers, requirements);
   const executableAsyncPlannedCapabilities = collectExecutableRequirements(
     moduleRoots,
@@ -469,6 +488,7 @@ function crossModuleExecutableHandlers(
   rootPath: string,
   entryHandlerName: string,
   unsupported: Set<IRNode>,
+  rootOwnsClassFrames: boolean,
 ): ReadonlySet<IRNode> {
   const scopes = buildCapabilityModuleScopes(graph);
   const out = new Set<IRNode>();
@@ -483,7 +503,12 @@ function crossModuleExecutableHandlers(
     const scope = scopes.get(item.path);
     if (!scope) continue;
     const localUnsupported = new Set<IRNode>();
-    const localHandlers = findExecutableKernHandlers(scope.root, item.entry, localUnsupported);
+    const localHandlers = findExecutableKernHandlers(
+      scope.root,
+      item.entry,
+      localUnsupported,
+      scope.path === rootPath && rootOwnsClassFrames,
+    );
     for (const handler of localHandlers) out.add(handler);
     for (const handler of localUnsupported) unsupported.add(handler);
     for (const handler of localHandlers) {
@@ -569,129 +594,11 @@ function allValueChildren(node: ValueIR): readonly ValueIR[] {
   }
 }
 
-function collectExecutableRequirements(
-  roots: readonly IRNode[],
-  executableHandlers: ReadonlySet<IRNode>,
-  requirements: readonly CapabilityRequirement[],
-): CapabilityRequirement[] {
-  if (requirements.length === 0) return [];
-  const requirementsByLineAndId = requirementsByLine(requirements);
-  const out: CapabilityRequirement[] = [];
-  for (const root of roots) {
-    collectExecutableAsyncRequirements(root, executableHandlers, false, requirementsByLineAndId, out);
-  }
-  return out;
-}
-
-function collectUnsupportedAsyncExecutionsAcrossModules(
-  roots: readonly IRNode[],
-  executableHandlers: ReadonlySet<IRNode>,
-  unsupported: ReadonlySet<IRNode>,
-  asyncRequirements: readonly CapabilityRequirement[],
-): UnsupportedAsyncCapabilityRequirement[] {
-  if (asyncRequirements.length === 0) return [];
-  const requirementsByLineAndId = requirementsByLine(asyncRequirements);
-  const out: UnsupportedAsyncCapabilityRequirement[] = [];
-  for (const root of roots) {
-    collectUnsupportedAsyncExecutions(
-      root,
-      executableHandlers,
-      unsupported,
-      false,
-      undefined,
-      requirementsByLineAndId,
-      out,
-    );
-  }
-  return out;
-}
-
-function requirementsByLine(requirements: readonly CapabilityRequirement[]): Map<string, CapabilityRequirement[]> {
-  const requirementsByLineAndId = new Map<string, CapabilityRequirement[]>();
-  for (const requirement of requirements) {
-    const key = `${requirement.sourceLine}:${requirement.id}`;
-    const existing = requirementsByLineAndId.get(key);
-    if (existing) existing.push(requirement);
-    else requirementsByLineAndId.set(key, [requirement]);
-  }
-  return requirementsByLineAndId;
-}
-
-function collectUnsupportedAsyncExecutions(
-  node: IRNode,
-  exec: ReadonlySet<IRNode>,
-  bad: ReadonlySet<IRNode>,
-  inside: boolean,
-  badNode: IRNode | undefined,
-  byLine: Map<string, CapabilityRequirement[]>,
-  out: UnsupportedAsyncCapabilityRequirement[],
-): void {
-  const nextInsideExecutableHandler = inside || exec.has(node);
-  const nextUnsupportedContainer = exec.has(node) && bad.has(node) ? node : badNode;
-  if (node.type === 'capability') {
-    const requirement = asyncRequirementForNode(node, byLine);
-    if (requirement) {
-      if (!nextInsideExecutableHandler) {
-        out.push({ ...requirement, reason: 'outside-main' });
-      } else if (nextUnsupportedContainer) {
-        out.push({
-          ...requirement,
-          reason: 'unsupported',
-        });
-      }
-    }
-  }
-  for (const child of node.children ?? []) {
-    collectUnsupportedAsyncExecutions(
-      child,
-      exec,
-      bad,
-      nextInsideExecutableHandler,
-      nextUnsupportedContainer,
-      byLine,
-      out,
-    );
-  }
-}
-
-function collectExecutableAsyncRequirements(
-  node: IRNode,
-  executableHandlers: ReadonlySet<IRNode>,
-  insideExecutableHandler: boolean,
-  requirementsByLineAndId: Map<string, CapabilityRequirement[]>,
-  out: CapabilityRequirement[],
-): void {
-  const nextInsideExecutableHandler = insideExecutableHandler || executableHandlers.has(node);
-  if (node.type === 'capability' && nextInsideExecutableHandler) {
-    const requirement = asyncRequirementForNode(node, requirementsByLineAndId);
-    if (requirement) out.push(requirement);
-  }
-  for (const child of node.children ?? []) {
-    collectExecutableAsyncRequirements(
-      child,
-      executableHandlers,
-      nextInsideExecutableHandler,
-      requirementsByLineAndId,
-      out,
-    );
-  }
-}
-
-function asyncRequirementForNode(
-  node: IRNode,
-  requirementsByLineAndId: Map<string, CapabilityRequirement[]>,
-): CapabilityRequirement | undefined {
-  const namespace = stringProp(node, 'namespace');
-  const operation = stringProp(node, 'operation');
-  if (!namespace || !operation) return undefined;
-  const key = `${node.loc?.line ?? -1}:${namespace}.${operation}`;
-  return requirementsByLineAndId.get(key)?.shift();
-}
-
 function findExecutableKernHandlers(
   root: IRNode,
   entryHandlerName: string,
   unsupported = new Set<IRNode>(),
+  ownsClassFrames = false,
 ): ReadonlySet<IRNode> {
   const out = new Set<IRNode>();
   const helpers = new Map<string, IRNode>();
@@ -759,6 +666,7 @@ function findExecutableKernHandlers(
     classConstructors,
     classExtends,
     classFieldInitializers,
+    ownsClassFrames,
   );
   const visited = new Set<string>();
   while (queued.length > 0) {
@@ -778,6 +686,7 @@ function findExecutableKernHandlers(
         classConstructors,
         classExtends,
         classFieldInitializers,
+        ownsClassFrames,
       ).map((ref) => (item.u ? { ...ref, u: true } : ref)),
     );
   }
@@ -798,6 +707,7 @@ function calledExecutableHandlers(
   classConstructors: ReadonlyMap<string, IRNode>,
   classExtends: ReadonlyMap<string, string>,
   classFieldInitializers: ReadonlyMap<string, readonly ValueIR[]>,
+  ownsClassFrames: boolean,
 ): ExecutableHandlerRef[] {
   const helperNames = new Set<string>();
   const methodKeys = new Set<string>();
@@ -857,7 +767,7 @@ function calledExecutableHandlers(
     if (!className || !methodName) continue;
     const resolved = resolveClassMethodHandlers(className, methodName, classMethods, classExtends);
     for (const [index, handler] of resolved.entries()) {
-      out.push({ key: `method:${key}:${index}`, handler, u: true });
+      out.push({ key: `method:${key}:${index}`, handler, u: !ownsClassFrames });
     }
   }
   for (const name of ambiguousMethodNames) {
@@ -868,7 +778,7 @@ function calledExecutableHandlers(
   for (const name of constructorNames) {
     for (const className of classAncestry(name, classExtends)) {
       const handler = classConstructors.get(className);
-      if (handler) out.push({ key: `constructor:${className}`, handler, u: true });
+      if (handler) out.push({ key: `constructor:${className}`, handler, u: !ownsClassFrames });
     }
   }
   return out;

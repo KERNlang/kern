@@ -11,6 +11,12 @@ import {
   preflightInternalMachineClassLet,
 } from './internal-effect-machine-class-runtime.js';
 import {
+  classifyInternalMachineClassConstructorArguments,
+  classifyInternalMachineClassLetValue,
+  classifyInternalMachineClassReturnValue,
+  classifyInternalMachineClassScalarValue,
+} from './internal-effect-machine-class-value.js';
+import {
   internalMachineDoTargetName,
   parseInternalMachineDo,
   runInternalMachineDo,
@@ -119,14 +125,40 @@ export function assertInternalEffectMachineLeafPreflight(
     }
     assertDeferredAssignTarget(node, output, env, deferredBindings);
     for (const name of references) {
-      if (!deferredBindings.has(name) && !hasBinding(env, name)) throw new Error(`binding "${name}" not found`);
+      const present = name === 'this' ? env.runnerThis !== undefined : hasBinding(env, name);
+      if (!deferredBindings.has(name) && !present) throw new Error(`binding "${name}" not found`);
     }
     assertDeferredMachineLeafKnownValues(node, env, deferredBindings);
     // Deferred producers reserve declarations; loop-frame bindings arrive at runtime.
     deferLeafOutput(node, env, deferredBindings);
     return;
   }
+  const raw = node.props?.value;
+  const value = typeof raw === 'string' && raw !== '' ? parseExpression(raw) : undefined;
+  if (
+    node.type === 'let' &&
+    value &&
+    classifyInternalMachineClassConstructorArguments(value, env) === 'suspending' &&
+    preflightDeferredInternalMachineClassLet(node, env, evalPortableValue, deferredBindings)
+  ) {
+    if (output !== undefined) deferredBindings.add(output);
+    return;
+  }
   if (node.type === 'let' && preflightInternalMachineClassLet(node, env, evalPortableValue)) return;
+  if (value) {
+    const disposition =
+      node.type === 'let'
+        ? classifyInternalMachineClassLetValue(value, env)
+        : node.type === 'return'
+          ? classifyInternalMachineClassReturnValue(value, env)
+          : node.type === 'print'
+            ? classifyInternalMachineClassScalarValue(value, env)
+            : 'pure';
+    if (disposition === 'suspending') {
+      deferLeafOutput(node, env, deferredBindings);
+      return;
+    }
+  }
   runInternalEffectMachineLeaf(node, env);
 }
 
@@ -323,7 +355,9 @@ function validateLetShape(node: IRNode, env?: SemanticEnv): void {
   if (kind !== undefined && kind !== '' && kind !== 'let' && kind !== 'const') {
     throw new Error('let: unsupported declaration kind');
   }
-  assertPortableMachineLetShape(parseRequiredExpression(node, 'value'), env);
+  const value = parseRequiredExpression(node, 'value');
+  if (env && classifyInternalMachineClassLetValue(value, env) !== 'unsupported') return;
+  assertPortableMachineLetShape(value, env);
 }
 
 type MachineLetSource = 'array' | 'class' | 'map' | 'other' | 'record' | 'record-field';

@@ -143,7 +143,7 @@ describe('M3.27 direct same-root class methods', () => {
 
   test.each([
     [
-      'mutation',
+      'state mutation',
       {
         methods: new Map([
           [
@@ -161,8 +161,24 @@ describe('M3.27 direct same-root class methods', () => {
         ]),
       },
       'box.change()',
+      1,
     ],
-    ['nested call', {}, 'box.read() + 1'],
+    ['nested scalar use', {}, 'box.read() + 1', 2],
+  ] as const)('owns method %s in a class frame', (_label, classOverrides, value, expected) => {
+    const nodes: readonly IRNode[] = [
+      { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
+      { type: 'return', props: { value } },
+    ];
+    const env = methodClassEnv({}, classOverrides as Partial<RunnerClassBinding>);
+
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: expected,
+    });
+  });
+
+  test.each([
     ['wrong arity', {}, 'box.plus()'],
     ['missing method', {}, 'box.missing()'],
     ['optional receiver', {}, 'box?.read()'],
@@ -183,7 +199,7 @@ describe('M3.27 direct same-root class methods', () => {
     expect(providerCalls).toBe(0);
   });
 
-  test('routes deferred method arguments to compatibility before provider dispatch', () => {
+  test('owns deferred method arguments through the resumable class frame', () => {
     let providerCalls = 0;
     const nodes: readonly IRNode[] = [
       { type: 'capability', props: { name: 'answer', namespace: 'storage', operation: 'get' } },
@@ -192,8 +208,12 @@ describe('M3.27 direct same-root class methods', () => {
     ];
     const env = methodClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(providerCalls).toBe(0);
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 2,
+    });
+    expect(providerCalls).toBe(1);
   });
 
   test.each([
@@ -253,6 +273,14 @@ describe('M3.27 direct same-root class methods', () => {
             children: [{ type: 'return', props: { value: 'box.read()' } }],
           },
         ],
+      },
+    ],
+    [
+      'if scalar expression',
+      {
+        type: 'if',
+        props: { cond: 'true' },
+        children: [{ type: 'return', props: { value: 'box.read() + 1' } }],
       },
     ],
   ] as const)('routes a direct method call in a nested %s to compatibility before provider dispatch', (_label, body) => {

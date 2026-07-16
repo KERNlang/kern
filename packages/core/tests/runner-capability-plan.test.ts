@@ -296,12 +296,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.asyncBoundaryRequired).toBe(true);
     expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
     expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'unsupported',
-      }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('treats class getters read from member expressions as executable capability reachability', () => {
@@ -448,6 +443,7 @@ describe('@kernlang/core/runner capability preflight', () => {
 
     expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['storage.get']);
     expect(analysis.missingProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('treats constructors in member-call receiver expressions as executable reachability', () => {

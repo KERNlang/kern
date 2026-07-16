@@ -134,6 +134,23 @@ describe('M3.29 pure same-root class getter ownership', () => {
     expect((await running).completion).toEqual({ kind: 'return', value: 4 });
   });
 
+  test('owns nested getter use inside a scalar expression', () => {
+    let providerCalls = 0;
+    const nodes: readonly IRNode[] = [
+      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+      { type: 'let', props: { name: 'box', value: 'new Box(2)' } },
+      { type: 'return', props: { value: 'box.double + 1' } },
+    ];
+    const env = getterClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
+
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 5,
+    });
+    expect(providerCalls).toBe(1);
+  });
+
   test.each([
     [
       'parameters',
@@ -151,7 +168,6 @@ describe('M3.29 pure same-root class getter ownership', () => {
     ],
     ['missing field', { getters: new Map([['double', member('double', 'this.missing')]]) }, 'box.double'],
     ['method call', { getters: new Map([['double', member('double', 'this.read()')]]) }, 'box.double'],
-    ['nested use', {}, 'box.double + 1'],
     ['optional access', {}, 'box?.double'],
   ] as const)('routes getter %s to compatibility before provider dispatch', (_label, classOverrides, value) => {
     let providerCalls = 0;

@@ -1,5 +1,9 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
+import {
+  classifyInternalMachineClassReturnValue,
+  classifyInternalMachineClassScalarValue,
+} from './internal-effect-machine-class-value.js';
 import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
@@ -27,6 +31,7 @@ function requiredExpression(node: IRNode) {
 
 export function assertInternalMachinePrintShape(node: IRNode, env?: SemanticEnv): void {
   const value = requiredExpression(node);
+  if (env && classifyInternalMachineClassScalarValue(value, env) !== 'unsupported') return;
   if (
     !assertPortableMachineClassMethodCallShape(value, env) &&
     !assertPortableMachineClassGetterReadShape(value, env)
@@ -39,8 +44,11 @@ export function assertInternalMachineReturnShape(node: IRNode, env?: SemanticEnv
   if (!Object.hasOwn(node.props ?? {}, 'value')) return;
   const value = node.props?.value;
   if (value === undefined) return;
-  if (typeof value === 'string') assertPortableMachineReturnShape(parseExpression(value), env);
-  else if (!isInspectableRunnerPortableValue(value)) {
+  if (typeof value === 'string') {
+    const parsed = parseExpression(value);
+    if (env && classifyInternalMachineClassReturnValue(parsed, env) !== 'unsupported') return;
+    assertPortableMachineReturnShape(parsed, env);
+  } else if (!isInspectableRunnerPortableValue(value)) {
     throw new Error('return: raw value is outside the machine domain');
   }
 }

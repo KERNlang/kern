@@ -124,13 +124,16 @@ describe('M3.26 same-root state-only class ownership', () => {
     expect(providerCalls).toBe(0);
   });
 
-  test('rejects constructor effects before an earlier provider executes', () => {
+  test('owns constructor stdout effects on the resumable frame', () => {
     let providerCalls = 0;
     const env = stateClassEnv(
       { capabilities: { storage: { get: () => ++providerCalls } } },
       {
         constructor: {
-          body: [{ type: 'print', props: { value: 'value' } }],
+          body: [
+            { type: 'print', props: { value: 'value' } },
+            { type: 'assign', props: { target: 'this.value', value: 'value' } },
+          ],
           name: 'constructor',
           ownerClass: 'Box',
           params: ['value'],
@@ -142,8 +145,10 @@ describe('M3.26 same-root state-only class ownership', () => {
       ...stateProgram,
     ];
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(providerCalls).toBe(0);
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    const result = executeSourceRunnerSync(nodes, env, { policy: 'machine-only' });
+    expect(result.events.filter((event) => event.op === 'stdout').map((event) => event.text)).toEqual(['1', '1', '2']);
+    expect(providerCalls).toBe(1);
   });
 
   test('preserves receiver state across async suspension and isolates parallel runs', async () => {

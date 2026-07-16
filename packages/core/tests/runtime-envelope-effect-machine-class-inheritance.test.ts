@@ -357,7 +357,7 @@ describe('M3.30 constructorless same-root inheritance ownership', () => {
     expect(providerCalls).toBe(0);
   });
 
-  test('keeps nested inherited dispatch deferred before provider execution', () => {
+  test('owns nested inherited dispatch in a scalar expression', () => {
     let providerCalls = 0;
     const env = inheritanceEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
     const nodes: readonly IRNode[] = [
@@ -365,8 +365,12 @@ describe('M3.30 constructorless same-root inheritance ownership', () => {
       { type: 'let', props: { name: 'dog', value: 'new Dog()' } },
       { type: 'return', props: { value: 'dog.voice + "!"' } },
     ];
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(providerCalls).toBe(0);
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 'woof!',
+    });
+    expect(providerCalls).toBe(1);
   });
 
   test('keeps nested inherited field reads deferred before provider execution', () => {

@@ -5,6 +5,11 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { expressionV1Parsed } from './expression-v1-runtime.js';
+import {
+  internalMachineClassGetterForRead,
+  internalMachineClassMethodForCall,
+} from './internal-effect-machine-class-graph.js';
+import { classifyInternalMachineClassScalarValue } from './internal-effect-machine-class-value.js';
 import { assertInternalMachineDoNamespaceAvailable, parseInternalMachineDo } from './internal-effect-machine-do.js';
 import { internalMachineHelperCallInValue } from './internal-effect-machine-helper-graph.js';
 import { evalDecimalExpression, isDecimalExpression, isDecimalValueExpression } from './portable-decimal-evaluator.js';
@@ -84,13 +89,25 @@ export function expressionRequiresDeferredMachinePreflight(
   return expressionHasDeferredBinding(node, deferredBindings) || internalMachineHelperCallInValue(node, env);
 }
 
+function scalarRequiresDeferredMachinePreflight(
+  node: ValueIR,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): boolean {
+  return (
+    classifyInternalMachineClassScalarValue(node, env) === 'suspending' ||
+    expressionRequiresDeferredMachinePreflight(node, env, deferredBindings)
+  );
+}
+
 export function assertDeferredMachineScalarPreflight(
   node: ValueIR,
   env: SemanticEnv,
   deferredBindings: ReadonlySet<string>,
 ): void {
-  assertPortableMachineScalarShape(node, env);
-  if (!expressionRequiresDeferredMachinePreflight(node, env, deferredBindings)) {
+  const classDisposition = classifyInternalMachineClassScalarValue(node, env);
+  if (classDisposition === 'unsupported') assertPortableMachineScalarShape(node, env);
+  if (!scalarRequiresDeferredMachinePreflight(node, env, deferredBindings)) {
     evalPortableValue(node, env);
     return;
   }
@@ -104,7 +121,7 @@ export function assertDeferredMachineScalarPreflight(
     return;
   }
   if (node.kind === 'conditional') {
-    if (expressionRequiresDeferredMachinePreflight(node.test, env, deferredBindings)) {
+    if (scalarRequiresDeferredMachinePreflight(node.test, env, deferredBindings)) {
       assertDeferredMachineScalarPreflight(node.test, env, deferredBindings);
       return;
     }
@@ -127,8 +144,14 @@ export function assertDeferredMachineScalarPreflight(
     return;
   }
   if (node.kind === 'member') {
-    if (node.object.kind === 'ident' && hasBinding(env, node.object.name)) {
-      const receiver = getBinding(env, node.object.name);
+    if (internalMachineClassGetterForRead(node, env)) return;
+    if (node.object.kind === 'ident') {
+      const receiver =
+        node.object.name === 'this'
+          ? env.runnerThis
+          : hasBinding(env, node.object.name)
+            ? getBinding(env, node.object.name)
+            : undefined;
       if (isRunnerClassInstanceValue(receiver)) {
         if (!Object.hasOwn(receiver.fields, node.property)) {
           throw new Error(`machine class: class "${receiver.className}" has no field "${node.property}"`);
@@ -269,7 +292,7 @@ function assertDeferredBinary(
   deferredBindings: ReadonlySet<string>,
 ): void {
   if (node.op === '&&' || node.op === '||' || node.op === '??') {
-    if (expressionRequiresDeferredMachinePreflight(node.left, env, deferredBindings)) {
+    if (scalarRequiresDeferredMachinePreflight(node.left, env, deferredBindings)) {
       assertDeferredMachineScalarPreflight(node.left, env, deferredBindings);
       return;
     }
@@ -317,6 +340,10 @@ function assertDeferredCall(
   env: SemanticEnv,
   deferredBindings: ReadonlySet<string>,
 ): void {
+  if (internalMachineClassMethodForCall(node, env)) {
+    for (const argument of node.args) assertDeferredMachineScalarPreflight(argument, env, deferredBindings);
+    return;
+  }
   if (node.callee.kind === 'ident') {
     const helper = env.runnerFunctions?.get(node.callee.name);
     if (helper) {
