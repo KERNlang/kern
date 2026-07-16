@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.30",
+  "milestone": "KERN-5-R2-M3.31a",
   "owned": [
     {
       "id": "do",
@@ -61,6 +61,12 @@
       "kind": "environment",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts"
+    },
+    {
+      "id": "runner-class-resumable-frames",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts"
     }
   ],
   "deferred": [

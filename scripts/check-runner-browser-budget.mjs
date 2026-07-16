@@ -46,9 +46,9 @@ const FORBIDDEN_BARE_SPECIFIERS = new Set([
   'https',
 ]);
 
-// M3.24 measures the canonical helper-machine and legacy compatibility engines
-// both reachable through static ESM. The checked-in policy records the measured
-// transition closure and a fixed 5% accidental-bloat margin. When the legacy
+// M3.31a measures the canonical resumable class machine and legacy compatibility
+// engines both reachable through static ESM. The checked-in policy records the
+// measured transition closure and a fixed 5% accidental-bloat margin. When the legacy
 // module exits this graph, the lifecycle check below forces the ceilings back
 // to their pre-transition values instead of letting temporary headroom persist.
 const MAX_INTERNAL_RAW_BYTES = BUDGET_POLICY.limits.maxInternalRawBytes;

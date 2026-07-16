@@ -50,6 +50,9 @@ export function validateClassInheritanceManifest(manifest, errors) {
 export function validateClassInheritanceSlice(contents, errors) {
   const lineage = contents.classInheritance;
   const tests = contents.classInheritanceTests;
+  const runtime = [contents.classRuntime, contents.classActivation, contents.classFrame, contents.classFramePreflight]
+    .filter(Boolean)
+    .join('\n');
   if (!lineage || !tests) return;
   for (const required of [
     'internalMachineClassLineage',
@@ -78,7 +81,7 @@ export function validateClassInheritanceSlice(contents, errors) {
     'internalMachineClassVisibleFields',
     'new Map(registry)',
   ]) {
-    if (!contents.classRuntime.includes(required)) errors.push(`machine class inheritance runtime is missing ${required}`);
+    if (!runtime.includes(required)) errors.push(`machine class inheritance runtime is missing ${required}`);
   }
   if (contents.portableReferenceBody.includes('Object.hasOwn(instance.fields, field.name)')) {
     errors.push('compatibility class initialization still preserves the stale base field slot');
@@ -98,7 +101,7 @@ export function validateClassInheritanceSlice(contents, errors) {
     'routes malformed %s lineage metadata to compatibility before provider dispatch',
     'routes a class-binding identity replaced after linker ownership to compatibility',
     'routes %s to compatibility before provider dispatch',
-    'keeps nested inherited dispatch deferred before provider execution',
+    'owns nested inherited dispatch in a scalar expression',
     'keeps nested inherited field reads deferred before provider execution',
   ]) {
     if (!tests.includes(oracle)) errors.push(`machine class inheritance oracle is missing: ${oracle}`);

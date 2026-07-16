@@ -12,8 +12,8 @@ export function validateNonRootEnvironmentSlice(contents, errors) {
   const admission = contents.nonRootAdmission;
   const runtime = contents.nonRootRuntime;
   const tests = contents.nonRootTests;
-  const engine = contents.engine;
-  if (!ownership || !environment || !admission || !runtime || !tests || !engine) return;
+  const sourceAdmission = contents.sourceAdmission;
+  if (!ownership || !environment || !admission || !runtime || !tests || !sourceAdmission) return;
 
   for (const required of [
     'environmentFacts',
@@ -41,7 +41,7 @@ export function validateNonRootEnvironmentSlice(contents, errors) {
   ]) {
     if (!admission.includes(required)) errors.push(`non-root environment admission is missing ${required}`);
   }
-  if (!engine.includes('if (!hasOwnedDirectEnvironment(env, true, true)) return SOURCE_RUNNER_ENGINE.legacy;')) {
+  if (!sourceAdmission.includes('if (!hasOwnedDirectEnvironment(env, true, true)) return false;')) {
     errors.push('source selection must validate owned environment fields before budget or graph discovery');
   }
   if (

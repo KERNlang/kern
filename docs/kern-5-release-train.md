@@ -565,6 +565,29 @@ trusted-publishing/provenance configuration is inspected.
     verified defects, and the sole blocking verdict was disproved by the
     linker-identity ownership check and made explicit in the regression
     (`review-1784184896071-7m2bxe-kern-5-r2-m3-30-constructorless-`).
+  - [x] M3.31a resumable same-root class frames: constructors, methods, and
+    getters now run the unified machine sequence through generator-owned
+    activations that suspend on the existing capability request and resume
+    without replay. Nested calls in constructor arguments, binary/template/
+    conditional expressions, and lazy short-circuit branches preserve order;
+    provider failures unwind private frame bindings and machine state without
+    compatibility retry; ordinary field writes are not advertised as a
+    transactional rollback. Capability planning and execution share one
+    semantic admission predicate and the same single-module scope builder, so
+    only exact owned frames lose their `unsupported` marker. Class-body loops consume the
+    caller-owned iteration budget. Helper/class composition, `super`, effectful
+    fields, imported classes, and module identity remain fail-closed for
+    M3.31b/c; the parent `runner-classes-state` blocker stays visible. The
+    current KERN 5 wall passed with 432/432 cross-target fixtures, 109/109 class
+    fixtures, 233 native cases, 48/48 checker fixtures, 39/39 validator
+    verdicts, and 40 application fixtures on three legs plus whole-app boot.
+    The M3.31a browser baseline is 146 modules / 1,477,446 raw / 320,266 gzip
+    bytes / 61 ms cold / 99 ms median with the same fixed 5% anti-bloat
+    margin. All six usable Agon engines completed terminal review; two blocking
+    verdicts were disproved by the current control flow and successful full
+    build, while the remaining reports were covered regressions, conservative
+    admission, or documented M3.31b/c boundaries
+    (`review-1784199956730-meez5j-kern-5-r2-m3-31a-terminal-final`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

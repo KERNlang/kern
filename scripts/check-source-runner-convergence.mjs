@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import * as frames from './source-runner-class-frame-convergence.mjs';
 import * as inheritance from './source-runner-class-inheritance-convergence.mjs';
 import { CLASS_GETTER_FILES, validateClassGetterManifest, validateClassGetterSlice } from './source-runner-class-getter-convergence.mjs';
 import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
 const FILES = Object.freeze({
   ...NON_ROOT_FILES,
+  ...frames.CLASS_FRAME_FILES,
   ...inheritance.CLASS_INHERITANCE_FILES,
   ...CLASS_GETTER_FILES,
   classEligibility: 'packages/core/src/ir/semantics/internal-effect-machine-eligibility.ts',
@@ -72,16 +74,13 @@ function propertyName(node) {
 function propertyReceiver(node) {
   return ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) ? node.expression : undefined;
 }
-
 function hasIdentifierReceiver(node, name) {
   const receiver = propertyReceiver(node);
   return receiver !== undefined && ts.isIdentifier(receiver) && receiver.text === name;
 }
-
 function exactKeys(value, keys) {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
 }
-
 function validateManifest(text, errors) {
   let manifest;
   try {
@@ -94,7 +93,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.30') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31a') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -197,6 +196,7 @@ function validateManifest(text, errors) {
   }
   validateClassGetterManifest(manifest, errors);
   inheritance.validateClassInheritanceManifest(manifest, errors);
+  frames.validateClassFrameManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -253,7 +253,7 @@ function validateClassStateSlice(
   if (!helperGraphText.includes('reachable helper/class mixing is outside this slice')) {
     errors.push('machine helper graph must reject reachable helper/class mixing');
   }
-  for (const required of ['state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice', 'assertClassMemberBodies', 'evalInternalMachineClassMethod']) {
+  for (const required of ['state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice', 'prepareInternalMachineClassInstance', 'evalInternalMachineClassMethod']) {
     if (!runtimeText.includes(required)) errors.push(`machine class runtime is missing ${required}`);
   }
   for (const required of ['classInstanceOwner', 'owner === INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER', 'internalMachineClassReceiver']) {
@@ -304,7 +304,7 @@ function validateClassStateSlice(
     'preserves direct method dispatch across async suspension',
     'snapshots admitted direct method bodies before async suspension',
     'routes %s to compatibility before provider dispatch',
-    'routes deferred method arguments to compatibility before provider dispatch',
+    'owns deferred method arguments through the resumable class frame',
     'rejects a caller-forged receiver during admission',
     'rejects method metadata changed after linker ownership',
   ]) {
@@ -456,7 +456,7 @@ export function validateSourceRunnerConvergence(readText) {
     }
   }
   if (contents.manifest) validateManifest(contents.manifest, errors);
-  if (contents.classEligibility && contents.classEvaluator && contents.classGraph && contents.classHelperGraph && contents.classInstance && contents.classLeaf && contents.classLeafResult && contents.classPreflight && contents.classRuntime && contents.classScope && contents.classShape && contents.classTests && contents.classMethodTests && contents.engine) {
+  if (contents.classEligibility && contents.classEvaluator && contents.classGraph && contents.classHelperGraph && contents.classInstance && contents.classLeaf && contents.classLeafResult && contents.classPreflight && contents.classRuntime && contents.classScope && contents.classShape && contents.classTests && contents.classMethodTests && contents.sourceAdmission) {
     validateClassStateSlice(
       contents.classEligibility,
       contents.classEvaluator,
@@ -471,7 +471,7 @@ export function validateSourceRunnerConvergence(readText) {
       contents.classShape,
       contents.classTests,
       contents.classMethodTests,
-      contents.engine,
+      contents.sourceAdmission,
       errors,
     );
   }
@@ -481,10 +481,10 @@ export function validateSourceRunnerConvergence(readText) {
   validateNonRootEnvironmentSlice(contents, errors);
   validateClassGetterSlice(contents, errors);
   inheritance.validateClassInheritanceSlice(contents, errors);
+  frames.validateClassFrameSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }
-
 function runCli() {
   const root = process.cwd();
   const errors = validateSourceRunnerConvergence((file) => fs.readFileSync(path.join(root, file), 'utf8'));

@@ -10,7 +10,12 @@ const files = new Map(
     'packages/cli/src/commands/run-options.ts',
     'packages/cli/src/commands/run.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-activation.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-leaf.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-lineage.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-value.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-value-runtime.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
@@ -27,12 +32,20 @@ const files = new Map(
     'packages/core/src/ir/semantics/runner-machine-scope.ts',
     'packages/core/src/ir/semantics/semantic-env-ownership.ts',
     'packages/core/src/ir/semantics/semantic-env.ts',
+    'packages/core/src/ir/semantics/source-runner-admission.ts',
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
+    'packages/core/src/runner-capability-plan.ts',
+    'packages/core/src/runner-capability-requirement-reachability.ts',
+    'packages/core/src/runner-class-frame-capability-admission.ts',
+    'packages/core/src/runner-error.ts',
+    'packages/core/src/runner-runtime-scope.ts',
     'packages/core/src/runner.ts',
+    'packages/core/tests/runner-capability-class-frame.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -187,8 +200,8 @@ test('rejects non-root environment ownership regressions', () => {
   const earlyAdmissionErrors = validate((mutated) =>
     replace(
       mutated,
-      'packages/core/src/runtime-envelope/source-runner-engine.ts',
-      'if (!hasOwnedDirectEnvironment(env, true, true)) return SOURCE_RUNNER_ENGINE.legacy;',
+      'packages/core/src/ir/semantics/source-runner-admission.ts',
+      'if (!hasOwnedDirectEnvironment(env, true, true)) return false;',
       'void env;',
     ),
   );
@@ -219,14 +232,16 @@ test('rejects state-only class ownership regressions', () => {
   );
   assert.ok(mixingErrors.some((error) => error.includes('reachable helper/class mixing')));
 
-  const metadataExpressionErrors = validate((mutated) =>
-    replace(
-      mutated,
-      'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
-      'helper calls in class-owned expressions are outside this slice',
-      'removed class metadata expression guard',
-    ),
-  );
+  const metadataExpressionErrors = validate((mutated) => {
+    const file = 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts';
+    mutated.set(
+      file,
+      mutated.get(file).replaceAll(
+        'helper calls in class-owned expressions are outside this slice',
+        'removed class metadata expression guard',
+      ),
+    );
+  });
   assert.ok(metadataExpressionErrors.some((error) => error.includes('class-owned expressions')));
 
   const deferredScalarErrors = validate((mutated) =>
@@ -295,6 +310,95 @@ test('rejects pure class-getter ownership regressions', () => {
     replace(mutated, 'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts', 'snapshots getter metadata across async suspension', 'removed async getter oracle'),
   );
   assert.ok(oracleErrors.some((error) => error.includes('machine class getter oracle')));
+});
+
+test('rejects resumable class-frame ownership regressions', () => {
+  const manifestErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-resumable-frames');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(manifestErrors.some((error) => error.includes('runner-class-resumable-frames owner')));
+
+  const classifierErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-value.ts',
+      "export type InternalMachineClassValueDisposition = 'pure' | 'suspending' | 'unsupported'",
+      "export type InternalMachineClassValueDisposition = 'pure' | 'unsupported'",
+    ),
+  );
+  assert.ok(classifierErrors.some((error) => error.includes('value classifier')));
+
+  const replayErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-value-runtime.ts',
+      'append(events, yield* evaluateInternalMachineClassScalarValue(node.left, env, state))',
+      'append(events, evaluateInternalMachineClassScalarValue(node.left, env, state).next().value)',
+    ),
+  );
+  assert.ok(replayErrors.some((error) => error.includes('value runtime')));
+
+  const methodFrameErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+      'const trace = yield* bodyRunner(resolved.method.body, methodEnv, state)',
+      'const trace = bodyRunner(resolved.method.body, methodEnv, state).next().value',
+    ),
+  );
+  assert.ok(methodFrameErrors.some((error) => error.includes('resumable class frame')));
+
+  const receiverPreflightErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
+      "new Set([...member.params, 'this'])",
+      'new Set(member.params)',
+    ),
+  );
+  assert.ok(receiverPreflightErrors.some((error) => error.includes('resumable class preflight')));
+
+  const capabilityAdmissionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/runner-class-frame-capability-admission.ts',
+      'return sourceRunnerMachineAdmission(handler.children ?? [], env, iterationBudget);',
+      'return false;',
+    ),
+  );
+  assert.ok(capabilityAdmissionErrors.some((error) => error.includes('capability admission')));
+
+  const classBudgetErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/source-runner-admission.ts',
+      'internalMachineClassGraphRequiresIterationBudget(env)',
+      'false',
+    ),
+  );
+  assert.ok(classBudgetErrors.some((error) => error.includes('caller-owned budgets')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts',
+      'preserves left-to-right binary invocation order without replaying a completed sibling',
+      'removed no-replay oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('resumable class frame oracle')));
+
+  const capabilityOracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runner-capability-class-frame.test.ts',
+      'clears unsupported only when the selected entry owns the class frame',
+      'removed capability ownership oracle',
+    ),
+  );
+  assert.ok(capabilityOracleErrors.some((error) => error.includes('class-frame capability oracle')));
 });
 
 test('rejects constructorless class-inheritance ownership regressions', () => {

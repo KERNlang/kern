@@ -18,11 +18,19 @@ export function validateClassGetterManifest(manifest, errors) {
 }
 
 export function validateClassGetterSlice(contents, errors) {
+  const runtime = [contents.classRuntime, contents.classActivation, contents.classFrame, contents.classFramePreflight]
+    .filter(Boolean)
+    .join('\n');
   for (const required of ['assertGetter', 'internalMachineClassGetterForRead', 'getters: new Map', 'assertInternalMachineClassInheritance']) {
     if (!contents.classGraph.includes(required)) errors.push(`machine class getter graph is missing ${required}`);
   }
-  for (const required of ['assertClassMemberBodies', 'evalInternalMachineClassMember', 'resolved.getter', 'makeMethodEnv']) {
-    if (!contents.classRuntime.includes(required)) errors.push(`machine class getter runtime is missing ${required}`);
+  for (const required of [
+    'evalInternalMachineClassMember',
+    'resolved.getter',
+    'makeInternalMachineClassMemberEnv',
+    'evaluateInternalMachineClassGetterFrame',
+  ]) {
+    if (!runtime.includes(required)) errors.push(`machine class getter runtime is missing ${required}`);
   }
   if (!contents.classShape.includes('export function assertPortableMachineClassGetterReadShape')) {
     errors.push('machine class getters are missing their whole-leaf shape owner');
@@ -38,6 +46,7 @@ export function validateClassGetterSlice(contents, errors) {
     'owns complete root let, print, and return getter leaves',
     'declared field presence wins over a same-named getter',
     'snapshots getter metadata across async suspension',
+    'owns nested getter use inside a scalar expression',
     'routes getter %s to compatibility before provider dispatch',
     'keeps inheritance deferred before provider dispatch',
   ]) {
