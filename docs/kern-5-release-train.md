@@ -546,6 +546,25 @@ trusted-publishing/provenance configuration is inspected.
     The terminal `claude,codex,agy` review completed 3/3 with zero verified,
     needs-check, or speculative findings and three nits
     (`review-1784171484079-3dpyff-kern-5-r2-m3-29-pure-class-gette`).
+  - [x] M3.30 constructorless same-root class inheritance: the canonical source
+    runner now snapshots finite same-root lineages, initializes scalar fields
+    base-to-derived with derived-field-wins semantics, and resolves pure
+    methods/getters derived-to-base while preserving declaring-owner metadata.
+    Unknown, cyclic, cross-module, non-linker-owned, constructor-bearing,
+    kind-changing, arity-changing, impure, nested, or metadata-replaced graphs
+    select compatibility before provider dispatch. The new
+    `runner-class-constructorless-inheritance` row is unified; the full
+    `runner-classes-state` row remains the sole exact M3.31 blocker for
+    constructor/`super` ownership, imported scopes, and effectful class frames.
+    The exact `pnpm fitness:kern-5` wall passed on 2026-07-16 with 432/432
+    cross-target fixtures, 109/109 class fixtures, 233 native cases, 48/48
+    checker fixtures, 39/39 validator verdicts, and 40 application fixtures on
+    three legs plus whole-app boot. The browser wall passed at 136 modules /
+    1,440,946 raw / 314,961 gzip bytes / 57 ms cold / 103 ms median. All six
+    usable Agon engines completed the terminal review; consensus found zero
+    verified defects, and the sole blocking verdict was disproved by the
+    linker-identity ownership check and made explicit in the regression
+    (`review-1784184896071-7m2bxe-kern-5-r2-m3-30-constructorless-`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
