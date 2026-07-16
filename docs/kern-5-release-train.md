@@ -529,6 +529,23 @@ trusted-publishing/provenance configuration is inspected.
     hardening; its global-prototype proposal was adjudicated against the frozen
     captured-intrinsics regression
     (`review-1784167478723-wugqlu-kern-5-r2-m3-28-non-root-environ`).
+  - [x] M3.29 pure same-root class getters: the canonical source runner now
+    snapshots linker-owned zero-parameter getters containing exactly one pure
+    scalar return. Exact private instance reads preserve field precedence and
+    admit getters only as complete root `let`, `print`, or `return` values;
+    nested dispatch, mutation, allocation, calls, effects, optional access,
+    and invalid metadata reject before provider dispatch. Getter bodies remain
+    stable across async suspension. `runner-class-pure-getters` is unified,
+    while the full `runner-classes-state` row remains the sole exact M3.30
+    blocker for inheritance, overrides, `super`, module scopes, and effectful
+    class frames. The final `pnpm fitness:kern-5` wall passed on 2026-07-16
+    with 432/432 cross-target fixtures, 109/109 class fixtures, 233 native
+    cases, 48/48 checker fixtures, 39/39 validator verdicts, and 40 application
+    fixtures on three legs plus whole-app boot. The browser wall passed at 135
+    modules / 1,436,090 raw / 314,151 gzip bytes / 49 ms cold / 81 ms median.
+    The terminal `claude,codex,agy` review completed 3/3 with zero verified,
+    needs-check, or speculative findings and three nits
+    (`review-1784171484079-3dpyff-kern-5-r2-m3-29-pure-class-gette`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
