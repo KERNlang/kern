@@ -92,7 +92,7 @@ const EXPECTED_WITNESSES = Object.freeze({
   ],
   'checker-to-cli': [
     'kern-checker-v2', 'cli-run', 'scripts/check-capstone-checker-subset.mjs',
-    'call-array:spawnSync:1:CLI,run,MAIN_KERN:process.execPath',
+    'call-array:spawnSync:1:CLI,run,target:process.execPath',
   ],
   'validator-to-cli': [
     'kern-module-validator', 'cli-run', 'scripts/check-selfhost-validator.mjs',

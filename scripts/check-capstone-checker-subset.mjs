@@ -7,10 +7,10 @@
  * reference cites production print/fmt contracts; the flattener is deliberately
  * structural and carries no verdict/provenance fields.
  */
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { checkFlatModule } from './capstone-checker-subset/reference.mjs';
@@ -20,11 +20,23 @@ import {
   generateCheckerMainKern,
   generateNumericMainKern,
 } from './capstone-checker-subset/gen-fixtures-kern.mjs';
+import { loadSelfhostSmokePolicy } from './selfhost-smoke-policy.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = resolve(ROOT, 'packages/cli/dist/cli.js');
 const MAIN_KERN = resolve(ROOT, 'examples/capstone-checker-subset/main.kern');
 const NUMERIC_MAIN_KERN = resolve(ROOT, 'examples/capstone-checker-subset/numeric-main.kern');
+const SELFHOST_SMOKE_POLICY = loadSelfhostSmokePolicy(resolve(ROOT, 'scripts/selfhost-smoke-policy.json'));
+const CAPSTONE_CHECKER_SUBSET_TIMEOUT_MS = SELFHOST_SMOKE_POLICY.timeouts.capstoneCheckerSubsetMs;
+
+function runChecker(target) {
+  return spawnSync(process.execPath, [CLI, 'run', target], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, NODE_NO_WARNINGS: '1' },
+    timeout: CAPSTONE_CHECKER_SUBSET_TIMEOUT_MS,
+  });
+}
 
 if (!existsSync(CLI)) {
   console.error(`missing built CLI at ${CLI}; run pnpm --filter @kernlang/cli build first`);
@@ -80,12 +92,7 @@ for (const fixture of FIXTURES) {
 }
 if (polarityFailures > 0) process.exit(1);
 
-const result = spawnSync(process.execPath, [CLI, 'run', MAIN_KERN], {
-  cwd: ROOT,
-  encoding: 'utf8',
-  env: { ...process.env, NODE_NO_WARNINGS: '1' },
-  timeout: 30000,
-});
+const result = runChecker(MAIN_KERN);
 
 if (result.error) {
   console.error(result.error.message);
@@ -131,12 +138,7 @@ function verifyAcceptedRunnableFixtures() {
       target = join(temp, fixture.id.replace(/[^a-z0-9_-]/gi, '_') + '.kern');
       writeFileSync(target, fixture.source());
     }
-    const run = spawnSync(process.execPath, [CLI, 'run', target], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      env: { ...process.env, NODE_NO_WARNINGS: '1' },
-      timeout: 30000,
-    });
+    const run = runChecker(target);
     if (run.status !== 0 || run.signal || run.error || run.stderr) {
       console.error(`accepted runnable fixture ${fixture.id} did not run cleanly`);
       if (run.error) console.error(run.error.message);
@@ -148,12 +150,7 @@ function verifyAcceptedRunnableFixtures() {
 }
 
 function verifyKernSafeIntegerPredicate() {
-  const run = spawnSync(process.execPath, [CLI, 'run', NUMERIC_MAIN_KERN], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, NODE_NO_WARNINGS: '1' },
-    timeout: 30000,
-  });
+  const run = runChecker(NUMERIC_MAIN_KERN);
   if (run.status !== 0 || run.signal || run.error || run.stderr) {
     console.error('direct KERN safe-integer predicate probe failed to execute cleanly');
     if (run.error) console.error(run.error.message);

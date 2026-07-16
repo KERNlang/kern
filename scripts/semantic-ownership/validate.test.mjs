@@ -136,7 +136,7 @@ test('nested local shadow cannot spoof an imported authority witness', () => {
 
 test('short call-array witness fails closed without throwing TypeError', () => {
   const checker = readFileSync('scripts/check-capstone-checker-subset.mjs', 'utf8').replace(
-    "spawnSync(process.execPath, [CLI, 'run', MAIN_KERN], {",
+    "spawnSync(process.execPath, [CLI, 'run', target], {",
     'spawnSync(); // removed authority edge\nvoid ({',
   );
   assert.throws(
@@ -151,8 +151,8 @@ test('short call-array witness fails closed without throwing TypeError', () => {
 
 test('CLI authority witness requires the Node executable', () => {
   const checker = readFileSync('scripts/check-capstone-checker-subset.mjs', 'utf8').replace(
-    "spawnSync(process.execPath, [CLI, 'run', MAIN_KERN], {",
-    "spawnSync('/bin/echo', [CLI, 'run', MAIN_KERN], {",
+    "spawnSync(process.execPath, [CLI, 'run', target], {",
+    "spawnSync('/bin/echo', [CLI, 'run', target], {",
   );
   assert.throws(
     () => validateSemanticOwnership(structuredClone(policy), {

@@ -28,7 +28,7 @@
     "check:runner-browser-budget:required": "pnpm --filter @kernlang/core build && node ./scripts/check-runner-browser-budget.mjs --browser-budget=required",
     "demo:kern-5-preview": "pnpm --filter @kernlang/core build && node ./examples/kern-5-preview-app/server.mjs",
     "test:app-demo": "pnpm --filter @kernlang/core build && node ./scripts/check-kern-5-preview-app.mjs",
-    "test:runner-smoke": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node ./scripts/check-kern-run-smoke.mjs && node ./scripts/check-kern-5-preview-app.mjs && node --test ./scripts/runner-browser-budget-policy.test.mjs && node ./scripts/check-runner-browser-budget.mjs && pnpm test:capstone-flatten && pnpm test:capstone-assertion-engine && pnpm test:capstone-checker-subset && pnpm test:selfhost-validator",
+    "test:runner-smoke": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node ./scripts/check-kern-run-smoke.mjs && node ./scripts/check-kern-5-preview-app.mjs && node --test ./scripts/runner-browser-budget-policy.test.mjs ./scripts/selfhost-smoke-policy.test.mjs && node ./scripts/check-runner-browser-budget.mjs && pnpm test:capstone-flatten && pnpm test:capstone-assertion-engine && pnpm test:capstone-checker-subset && pnpm test:selfhost-validator",
     "test:capstone-flatten": "node --test scripts/capstone/flatten.test.mjs",
     "test:capstone-assertion-engine": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node ./scripts/check-capstone-assertion-engine.mjs",
     "test:capstone-checker-subset": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node ./scripts/check-capstone-checker-subset.mjs",

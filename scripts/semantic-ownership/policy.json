@@ -115,7 +115,7 @@
       "from": "kern-checker-v2",
       "to": "cli-run",
       "path": "scripts/check-capstone-checker-subset.mjs",
-      "evidence": "call-array:spawnSync:1:CLI,run,MAIN_KERN:process.execPath"
+      "evidence": "call-array:spawnSync:1:CLI,run,target:process.execPath"
     },
     {
       "id": "validator-to-cli",

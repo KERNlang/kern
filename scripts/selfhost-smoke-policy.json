@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "timeouts": {
+    "capstoneCheckerSubsetMs": 60000
+  }
+}
