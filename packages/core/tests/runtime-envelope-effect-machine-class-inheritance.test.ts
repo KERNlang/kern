@@ -273,22 +273,6 @@ describe('M3.30 constructorless same-root inheritance ownership', () => {
 
   test.each([
     [
-      'base constructor',
-      ({ classes }: InheritanceFixture) => {
-        const base = classes.get('Animal');
-        if (!base) throw new Error('expected base');
-        classes.set('Animal', {
-          ...base,
-          constructor: {
-            body: [{ type: 'assign', props: { target: 'this.base', value: '2' } }],
-            name: 'constructor',
-            ownerClass: 'Animal',
-            params: [],
-          },
-        });
-      },
-    ],
-    [
       'impure base field initializer',
       ({ classes }: InheritanceFixture) => {
         const animal = classes.get('Animal');
@@ -296,22 +280,6 @@ describe('M3.30 constructorless same-root inheritance ownership', () => {
         classes.set('Animal', {
           ...animal,
           fields: animal.fields.map((field) => (field.name === 'base' ? { ...field, value: 'remoteValue()' } : field)),
-        });
-      },
-    ],
-    [
-      'derived constructor',
-      ({ classes }: InheritanceFixture) => {
-        const dog = classes.get('Dog');
-        if (!dog) throw new Error('expected derived');
-        classes.set('Dog', {
-          ...dog,
-          constructor: {
-            body: [],
-            name: 'constructor',
-            ownerClass: 'Dog',
-            params: [],
-          },
         });
       },
     ],

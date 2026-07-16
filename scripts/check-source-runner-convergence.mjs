@@ -2,12 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import * as constructorSuper from './source-runner-class-constructor-super-convergence.mjs';
 import * as frames from './source-runner-class-frame-convergence.mjs';
 import * as inheritance from './source-runner-class-inheritance-convergence.mjs';
 import { CLASS_GETTER_FILES, validateClassGetterManifest, validateClassGetterSlice } from './source-runner-class-getter-convergence.mjs';
 import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
 const FILES = Object.freeze({
   ...NON_ROOT_FILES,
+  ...constructorSuper.CLASS_CONSTRUCTOR_SUPER_FILES,
   ...frames.CLASS_FRAME_FILES,
   ...inheritance.CLASS_INHERITANCE_FILES,
   ...CLASS_GETTER_FILES,
@@ -93,7 +95,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31a') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b1') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -197,6 +199,7 @@ function validateManifest(text, errors) {
   validateClassGetterManifest(manifest, errors);
   inheritance.validateClassInheritanceManifest(manifest, errors);
   frames.validateClassFrameManifest(manifest, errors);
+  constructorSuper.validateClassConstructorSuperManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -209,8 +212,8 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.31-class-constructor-super-module-effect-ownership') {
-    errors.push('manifest must keep remaining class behavior as the exact M3.31 follow-up');
+  if (classState?.followUp !== 'M3.31b2-super-member-helper-effect-and-M3.31c-module-ownership') {
+    errors.push('manifest must keep remaining class behavior as the exact M3.31b2/c follow-up');
   }
 }
 
@@ -253,7 +256,11 @@ function validateClassStateSlice(
   if (!helperGraphText.includes('reachable helper/class mixing is outside this slice')) {
     errors.push('machine helper graph must reject reachable helper/class mixing');
   }
-  for (const required of ['state?.classRegistry', 'helperBodyRunner', 'helper calls in class-owned expressions are outside this slice', 'prepareInternalMachineClassInstance', 'evalInternalMachineClassMethod']) {
+  for (const required of [
+    'helper calls in class-owned expressions are outside this slice',
+    'prepareInternalMachineClassInstance',
+    'evalInternalMachineClassMethod',
+  ]) {
     if (!runtimeText.includes(required)) errors.push(`machine class runtime is missing ${required}`);
   }
   for (const required of ['classInstanceOwner', 'owner === INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER', 'internalMachineClassReceiver']) {
@@ -482,6 +489,7 @@ export function validateSourceRunnerConvergence(readText) {
   validateClassGetterSlice(contents, errors);
   inheritance.validateClassInheritanceSlice(contents, errors);
   frames.validateClassFrameSlice(contents, errors);
+  constructorSuper.validateClassConstructorSuperSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }

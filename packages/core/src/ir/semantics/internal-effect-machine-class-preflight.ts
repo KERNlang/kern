@@ -5,6 +5,7 @@ import {
   createInternalMachineClassInstance,
   makeInternalMachineClassMemberEnv,
 } from './internal-effect-machine-class-activation.js';
+import { internalMachineClassConstructorPlan } from './internal-effect-machine-class-construction.js';
 import { assertInternalMachineClassGraph } from './internal-effect-machine-class-graph.js';
 import { INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER } from './internal-effect-machine-class-instance.js';
 import { internalMachineClassVisibleFields } from './internal-effect-machine-class-lineage.js';
@@ -13,6 +14,7 @@ import { classifyInternalMachineClassScalarValue } from './internal-effect-machi
 import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
+import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env.js';
 import type { CompletionKind } from './trace.js';
 
@@ -156,15 +158,17 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
       registry,
     );
     if (cls.constructor) {
-      assertClassBodyExpressions(cls.constructor.body, visibleFields);
-      if (bodyCallsHelper(cls.constructor.body, constructorEnv)) {
+      const plan = internalMachineClassConstructorPlan(cls, registry);
+      for (const argument of plan.superArguments) assertPortableMachineScalarShape(argument, constructorEnv);
+      assertClassBodyExpressions(plan.body, visibleFields);
+      if (bodyCallsHelper(plan.body, constructorEnv)) {
         throw new Error(`machine class: constructor "${cls.name}" calls a helper`);
       }
-      const completions = analyze(cls.constructor.body, 0, constructorEnv, new Set(cls.constructor.params), true);
+      const completions = analyze(plan.body, 0, constructorEnv, new Set(cls.constructor.params), true);
       if (completions.size !== 1 || !completions.has('normal')) {
         throw new Error(`machine class: constructor "${cls.name}" must complete normally`);
       }
-      markDefiniteConstructorFieldAssignments(cls.constructor.body, instance, visibleFields);
+      markDefiniteConstructorFieldAssignments(plan.body, instance, visibleFields);
     }
     for (const member of [...cls.methods.values(), ...cls.getters.values()]) {
       const memberEnv = makeInternalMachineClassMemberEnv(

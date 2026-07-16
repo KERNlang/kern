@@ -63,7 +63,6 @@ export function validateClassInheritanceSlice(contents, errors) {
     'cyclic inheritance',
     'unknown base class',
     'outside the selected root module',
-    'inheritance constructor',
     'changes kind',
     'changes arity',
   ]) {

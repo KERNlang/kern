@@ -82,7 +82,7 @@ export function validateClassFrameSlice(contents, errors) {
     'export function* evaluateInternalMachineClassMethodFrame',
     'export function* evaluateInternalMachineClassGetterFrame',
     'export function* evaluateInternalMachineClassNewFrame',
-    'const trace = yield* bodyRunner(body, constructorEnv, state)',
+    'const trace = yield* bodyRunner(plan.body, constructorEnv, state)',
     'const trace = yield* bodyRunner(resolved.method.body, methodEnv, state)',
     'const trace = yield* bodyRunner(resolved.getter.body, getterEnv, state)',
   ]) {

@@ -1,3 +1,4 @@
+import { assertInternalMachineClassConstructorPlans } from './internal-effect-machine-class-construction.js';
 import type { RunnerClassBinding, RunnerClassMemberBinding } from './semantic-env.js';
 
 type ClassMemberKind = 'field' | 'getter' | 'method';
@@ -61,9 +62,6 @@ function localSurface(cls: RunnerClassBinding): ReadonlyMap<string, ClassSurface
 function assertLineageSurface(cls: RunnerClassBinding, registry: ReadonlyMap<string, RunnerClassBinding>): void {
   const surface = new Map<string, ClassSurfaceEntry>();
   for (const candidate of internalMachineClassLineageBaseFirst(cls, registry)) {
-    if (candidate.constructor) {
-      throw new Error(`machine class: inheritance constructor "${candidate.name}" is outside this slice`);
-    }
     for (const [name, entry] of localSurface(candidate)) {
       const inherited = surface.get(name);
       if (inherited && inherited.kind !== entry.kind) {
@@ -78,6 +76,7 @@ function assertLineageSurface(cls: RunnerClassBinding, registry: ReadonlyMap<str
 }
 
 export function assertInternalMachineClassInheritance(registry: ReadonlyMap<string, RunnerClassBinding>): void {
+  assertInternalMachineClassConstructorPlans(registry);
   for (const cls of registry.values()) {
     const lineage = internalMachineClassLineage(cls, registry);
     if (lineage.length > 1) assertLineageSurface(cls, registry);

@@ -6,6 +6,7 @@ import {
   makeInternalMachineClassMemberEnv,
   prepareInternalMachineClassInstance,
 } from './internal-effect-machine-class-activation.js';
+import { internalMachineClassConstructorPlan } from './internal-effect-machine-class-construction.js';
 import {
   internalMachineClassForNew,
   internalMachineClassGetterForRead,
@@ -37,6 +38,34 @@ import {
 import type { Trace } from './trace.js';
 
 type DeferredScalarPreflight = (node: ValueIR, env: SemanticEnv, deferredBindings: ReadonlySet<string>) => void;
+
+function reconcileConstructorLineageInitialization(
+  lineage: readonly RunnerClassBinding[],
+  registry: ReadonlyMap<string, RunnerClassBinding>,
+  instance: RunnerClassInstanceValue,
+): void {
+  const initialized = new Set<string>();
+  for (const cls of lineage) {
+    for (const field of cls.fields) {
+      if (typeof field.value === 'string' && field.value !== '') initialized.add(field.name);
+      else initialized.delete(field.name);
+    }
+    for (const statement of internalMachineClassConstructorPlan(cls, registry).body) {
+      const field =
+        statement.type === 'assign' &&
+        (statement.children === undefined || statement.children.length === 0) &&
+        typeof statement.props?.target === 'string'
+          ? /^this\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(statement.props.target)?.[1]
+          : undefined;
+      if (field && Object.hasOwn(instance.fields, field)) initialized.add(field);
+    }
+  }
+  for (const field of Object.keys(instance.fields)) {
+    if (initialized.has(field)) {
+      if (instance.fields[field] === undefined) instance.fields[field] = null;
+    } else instance.fields[field] = undefined;
+  }
+}
 
 function classNew(
   node: IRNode,
@@ -147,7 +176,7 @@ export function preflightInternalMachineClassLet(
           };
         })();
   const { constructorEnv, instance } = prepared;
-  const constructorBody = resolved.cls.constructor?.body ?? [];
+  const constructorBody = internalMachineClassConstructorPlan(resolved.cls, resolved.registry).body;
   const directAssignments = constructorBody.every(
     (statement) =>
       statement.type === 'assign' &&
@@ -168,45 +197,9 @@ export function preflightInternalMachineClassLet(
       }
     }
   }
+  reconcileConstructorLineageInitialization(lineage, resolved.registry, instance);
   defineBinding(env, String(node.props?.name), instance);
   return true;
-}
-
-export function evalInternalMachineClassNew(
-  node: IRNode,
-  env: SemanticEnv,
-  evaluate: EvalPortableValue,
-): RunnerClassInstanceValue | undefined {
-  const resolved = classNew(node, env);
-  if (!resolved) return undefined;
-  const state = internalEffectMachineStateForEnv(env);
-  const registry = state?.classRegistry;
-  const cls = registry?.get(resolved.cls.name);
-  const bodyRunner = state?.helperBodyRunner;
-  if (!state || !registry || !cls || !bodyRunner) {
-    throw new Error(`machine class: "${resolved.cls.name}" is unavailable`);
-  }
-  const { constructorEnv, instance } = prepareInternalMachineClassInstance(
-    resolved.value,
-    cls,
-    env,
-    evaluate,
-    state,
-    registry,
-  );
-  const body = cls.constructor?.body ?? [];
-  if (body.length === 0) return instance;
-  const restore = bindInternalEffectMachineState(constructorEnv, state);
-  try {
-    const step = bodyRunner(body, constructorEnv, state).next();
-    if (!step.done) throw new Error(`machine class: constructor "${cls.name}" produced effects`);
-    if (step.value.completion.kind !== 'normal') {
-      throw new Error(`machine class: constructor "${cls.name}" completed abnormally`);
-    }
-    return instance;
-  } finally {
-    restore();
-  }
 }
 
 function parsePureClassMemberReturn(member: RunnerClassMemberBinding, label: string): ValueIR {

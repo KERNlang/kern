@@ -1,10 +1,13 @@
 import type { RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
-  createInternalMachineClassInstance,
+  createInternalMachineClassReceiver,
+  initializeInternalMachineClassLayerFields,
   internalMachineClassConstructorArgumentNodes,
+  makeInternalMachineClassConstructorEnv,
   makeInternalMachineClassMemberEnv,
 } from './internal-effect-machine-class-activation.js';
+import { internalMachineClassConstructorPlan } from './internal-effect-machine-class-construction.js';
 import {
   internalMachineClassForNew,
   internalMachineClassGetterForRead,
@@ -41,6 +44,51 @@ function appendEvaluation<T>(target: TraceEvent[], evaluated: InternalMachineCla
   return evaluated.value;
 }
 
+function* evaluateInternalMachineClassConstructorLayer(
+  cls: NonNullable<ReturnType<typeof internalMachineClassForNew>>,
+  instance: RunnerClassInstanceValue,
+  values: readonly PortableScalar[],
+  outerEnv: SemanticEnv,
+  state: InternalEffectMachineState,
+  registry: ReadonlyMap<string, NonNullable<ReturnType<typeof internalMachineClassForNew>>>,
+): InternalMachineClassValueGenerator<undefined> {
+  const params = cls.constructor?.params ?? [];
+  if (values.length !== params.length) {
+    throw new Error(
+      `machine class: constructor "${cls.name}" expects ${params.length} arguments, got ${values.length}`,
+    );
+  }
+  const plan = internalMachineClassConstructorPlan(cls, registry);
+  const constructorEnv = makeInternalMachineClassConstructorEnv(cls, instance, values, outerEnv, registry);
+  const events: TraceEvent[] = [];
+  if (cls.extendsName) {
+    const base = registry.get(cls.extendsName);
+    if (!base) throw new Error(`machine class: unknown base class "${cls.extendsName}"`);
+    const baseValues = plan.superArguments.map((argument) =>
+      assertPortableScalar(evalPortableValue(argument, constructorEnv), `super argument for "${cls.name}"`),
+    );
+    events.push(
+      ...(yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues, outerEnv, state, registry))
+        .events,
+    );
+  }
+  initializeInternalMachineClassLayerFields(cls, instance.fields, outerEnv, evalPortableValue);
+  if (plan.body.length === 0) return { events, value: undefined };
+  const bodyRunner = state.helperBodyRunner;
+  if (!bodyRunner) throw new Error('machine class: constructor body runner is unavailable');
+  const restore = bindInternalEffectMachineState(constructorEnv, state);
+  try {
+    const trace = yield* bodyRunner(plan.body, constructorEnv, state);
+    events.push(...trace.events);
+    if (trace.completion.kind !== 'normal') {
+      throw new Error(`machine class: constructor "${cls.name}" completed abnormally`);
+    }
+    return { events, value: undefined };
+  } finally {
+    restore();
+  }
+}
+
 export function* evaluateInternalMachineClassNewFrame(
   value: ValueIR,
   env: SemanticEnv,
@@ -50,36 +98,18 @@ export function* evaluateInternalMachineClassNewFrame(
   const candidate = internalMachineClassForNew(value, env);
   const registry = state.classRegistry;
   const cls = candidate ? registry?.get(candidate.name) : undefined;
-  const bodyRunner = state.helperBodyRunner;
-  if (!registry || !cls || !bodyRunner) throw new Error('machine class: construction is unavailable');
+  if (!registry || !cls || !state.helperBodyRunner) throw new Error('machine class: construction is unavailable');
 
   const events: TraceEvent[] = [];
   const values: PortableScalar[] = [];
   for (const argument of internalMachineClassConstructorArgumentNodes(value, cls)) {
     values.push(appendEvaluation(events, yield* evaluate(argument, env, state)));
   }
-  const { constructorEnv, instance } = createInternalMachineClassInstance(
-    cls,
-    env,
-    values,
-    evalPortableValue,
-    state,
-    registry,
+  const instance = createInternalMachineClassReceiver(cls, state);
+  events.push(
+    ...(yield* evaluateInternalMachineClassConstructorLayer(cls, instance, values, env, state, registry)).events,
   );
-  const body = cls.constructor?.body ?? [];
-  if (body.length === 0) return { events, value: instance };
-
-  const restore = bindInternalEffectMachineState(constructorEnv, state);
-  try {
-    const trace = yield* bodyRunner(body, constructorEnv, state);
-    events.push(...trace.events);
-    if (trace.completion.kind !== 'normal') {
-      throw new Error(`machine class: constructor "${cls.name}" completed abnormally`);
-    }
-    return { events, value: instance };
-  } finally {
-    restore();
-  }
+  return { events, value: instance };
 }
 
 export function* evaluateInternalMachineClassMethodFrame(

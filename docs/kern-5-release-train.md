@@ -588,6 +588,27 @@ trusted-publishing/provenance configuration is inspected.
     build, while the remaining reports were covered regressions, conservative
     admission, or documented M3.31b/c boundaries
     (`review-1784199956730-meez5j-kern-5-r2-m3-31a-terminal-final`).
+  - [x] M3.31b1 Option-C constructor/super lifecycle: the canonical source
+    runner now owns implicit no-argument base initialization and one leading
+    top-level explicit `super(...)` with literal, constructor-parameter, or
+    call-free `this`-independent scalar arguments. One most-derived private
+    receiver is initialized recursively in language order: base layer, current
+    fields, then the current constructor remainder. Sync and real-async base
+    and derived constructors suspend without replay, retain a run-local class
+    snapshot, and fail without compatibility retry or receiver leakage.
+    Non-leading or nested super, `super.member`, helper/class composition,
+    effectful arguments or fields, and imported/module identity remain
+    fail-closed for M3.31b2/c; the parent `runner-classes-state` blocker stays
+    visible. The exact final `pnpm fitness:kern-5` wall passed with 432/432
+    cross-target fixtures, 109/109 class fixtures, 233 native cases, 48/48
+    checker fixtures, 39/39 validator verdicts, and 40 application fixtures on
+    three legs plus whole-app boot. The browser wall passed at 147 modules /
+    1,486,452 raw / 321,435 gzip bytes / 60 ms cold / 90 ms median. The full
+    usable review roster was dispatched; five engines returned no verified
+    blocker, while Kimi timed out twice at the complete 600-second wall. All
+    returned findings were adjudicated against the current contract and tree
+    (`review-1784220056869-n5svyh-kern-5-r2-m3-31b1-constructor-su`,
+    `review-1784220336939-kraaju-kern-5-r2-m3-31b1-constructor-su`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

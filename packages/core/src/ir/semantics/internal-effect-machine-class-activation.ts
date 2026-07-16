@@ -48,15 +48,36 @@ export function initializeInternalMachineClassFields(
 ): Record<string, unknown> {
   const fields = Object.create(null) as Record<string, unknown>;
   for (const candidate of internalMachineClassLineageBaseFirst(cls, registry)) {
-    for (const field of candidate.fields) {
-      if (typeof field.value === 'string' && field.value !== '') {
-        const expression = parseExpression(field.value);
-        assertPortableMachineScalarShape(expression, env);
-        fields[field.name] = evaluate(expression, env);
-      } else fields[field.name] = undefined;
-    }
+    initializeInternalMachineClassLayerFields(candidate, fields, env, evaluate);
   }
   return fields;
+}
+
+export function initializeInternalMachineClassLayerFields(
+  cls: RunnerClassBinding,
+  fields: Record<string, unknown>,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+): void {
+  for (const field of cls.fields) {
+    if (typeof field.value === 'string' && field.value !== '') {
+      const expression = parseExpression(field.value);
+      assertPortableMachineScalarShape(expression, env);
+      fields[field.name] = evaluate(expression, env);
+    } else fields[field.name] = undefined;
+  }
+}
+
+export function createInternalMachineClassReceiver(cls: RunnerClassBinding, owner: object): RunnerClassInstanceValue {
+  return ownInternalMachineClassInstance(
+    {
+      __kernRunnerClassInstance: true,
+      className: cls.name,
+      fields: Object.create(null) as Record<string, unknown>,
+      ...(cls.module ? { module: cls.module } : {}),
+    },
+    owner,
+  );
 }
 
 export function makeInternalMachineClassConstructorEnv(

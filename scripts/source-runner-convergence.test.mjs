@@ -11,6 +11,7 @@ const files = new Map(
     'packages/cli/src/commands/run.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-activation.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-class-construction.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-leaf.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-lineage.ts',
@@ -41,11 +42,14 @@ const files = new Map(
     'packages/core/src/runner-runtime-scope.ts',
     'packages/core/src/runner.ts',
     'packages/core/tests/runner-capability-class-frame.test.ts',
+    'packages/core/tests/runner-capability-plan.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-state.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -224,8 +228,15 @@ test('rejects state-only class ownership regressions', () => {
   );
   assert.ok(eligibilityErrors.some((error) => error.includes('class graph claim')));
 
-  const ownershipErrors = validate((mutated) => replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts', 'state?.classRegistry', 'undefined'));
-  assert.ok(ownershipErrors.some((error) => error.includes('state?.classRegistry')));
+  const ownershipErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+      'const registry = state.classRegistry',
+      'const registry = undefined',
+    ),
+  );
+  assert.ok(ownershipErrors.some((error) => error.includes('constructor-super frame')));
 
   const mixingErrors = validate((mutated) =>
     replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts', 'reachable helper/class mixing is outside this slice', 'removed reachable mixing guard'),
@@ -399,6 +410,65 @@ test('rejects resumable class-frame ownership regressions', () => {
     ),
   );
   assert.ok(capabilityOracleErrors.some((error) => error.includes('class-frame capability oracle')));
+});
+
+test('rejects constructor-super lifecycle ownership regressions', () => {
+  const manifestErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-constructor-super-lifecycle');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(manifestErrors.some((error) => error.includes('runner-class-constructor-super-lifecycle owner')));
+
+  const planErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-construction.ts',
+      'export function assertInternalMachineClassConstructorPlans',
+      'function removedInternalMachineClassConstructorPlans',
+    ),
+  );
+  assert.ok(planErrors.some((error) => error.includes('constructor-super plan owner')));
+
+  const recursionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+      'yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues',
+      'evaluateInternalMachineClassConstructorLayer(base, instance, baseValues',
+    ),
+  );
+  assert.ok(recursionErrors.some((error) => error.includes('constructor-super frame')));
+
+  const preflightErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
+      'reconcileConstructorLineageInitialization(lineage, resolved.registry, instance)',
+      'void instance',
+    ),
+  );
+  assert.ok(preflightErrors.some((error) => error.includes('constructor-super preflight state')));
+
+  const rootPreflightErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
+      'classifyInternalMachineClassConstructorArguments(value, env) !== undefined',
+      "classifyInternalMachineClassConstructorArguments(value, env) === 'suspending'",
+    ),
+  );
+  assert.ok(rootPreflightErrors.some((error) => error.includes('construction output deferred')));
+
+  const oracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super.test.ts',
+      'interleaves base fields, base constructor, derived fields, and derived constructor',
+      'removed constructor order oracle',
+    ),
+  );
+  assert.ok(oracleErrors.some((error) => error.includes('constructor-super lifecycle oracle')));
 });
 
 test('rejects constructorless class-inheritance ownership regressions', () => {

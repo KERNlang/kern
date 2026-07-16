@@ -468,7 +468,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.missingProviders).toEqual([]);
   });
 
-  test('treats inherited methods and base constructors as executable capability reachability', () => {
+  test('owns inherited async methods and no-arg base constructors in capability reachability', () => {
     const source = [
       'class name=Base',
       '  constructor',
@@ -496,12 +496,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
     expect(analysis.missingProviders).toEqual([]);
     expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'unsupported',
-      }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('treats class field initializers and super-call arguments as constructor reachability', () => {

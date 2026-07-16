@@ -7,7 +7,6 @@ import { expressionV1Source } from './expression-v1-runtime.js';
 import { preflightDeferredInternalMachineClassLet } from './internal-effect-machine-class-preflight.js';
 import {
   assignInternalMachineClassField,
-  evalInternalMachineClassNew,
   preflightInternalMachineClassLet,
 } from './internal-effect-machine-class-runtime.js';
 import {
@@ -138,7 +137,7 @@ export function assertInternalEffectMachineLeafPreflight(
   if (
     node.type === 'let' &&
     value &&
-    classifyInternalMachineClassConstructorArguments(value, env) === 'suspending' &&
+    classifyInternalMachineClassConstructorArguments(value, env) !== undefined &&
     preflightDeferredInternalMachineClassLet(node, env, evalPortableValue, deferredBindings)
   ) {
     if (output !== undefined) deferredBindings.add(output);
@@ -388,8 +387,6 @@ function evaluateLetValue(
   if (parsed.kind === 'new' && isEmptyMapConstructorCall(parsed.argument, env)) {
     return { parsed, source: 'map', value: new Map() };
   }
-  const classValue = evalInternalMachineClassNew(node, env, evalPortableValue);
-  if (classValue) return { parsed, source: 'class', value: classValue };
   if (parsed.kind === 'new') throw new Error('let: class construction is outside the machine domain');
   if (parsed.kind === 'ident' && hasBinding(env, parsed.name)) {
     return {
