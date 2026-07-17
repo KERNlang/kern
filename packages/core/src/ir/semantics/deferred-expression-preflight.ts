@@ -9,8 +9,12 @@ import {
   internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
-import { classifyInternalMachineClassScalarValue } from './internal-effect-machine-class-value.js';
+import {
+  classifyInternalMachineClassHelperArgument,
+  classifyInternalMachineClassScalarValue,
+} from './internal-effect-machine-class-value.js';
 import { assertInternalMachineDoNamespaceAvailable, parseInternalMachineDo } from './internal-effect-machine-do.js';
+import { assertDeferredInternalMachineHelperArgument } from './internal-effect-machine-helper-argument-preflight.js';
 import { internalMachineHelperCallInValue } from './internal-effect-machine-helper-graph.js';
 import { evalDecimalExpression, isDecimalExpression, isDecimalValueExpression } from './portable-decimal-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
@@ -353,8 +357,26 @@ function assertDeferredCall(
         );
       }
       for (const argument of node.args) {
-        if (argument.kind === 'arrayLit' || argument.kind === 'objectLit') {
+        const helperDisposition = classifyInternalMachineClassHelperArgument(argument, env);
+        if (helperDisposition === 'unsupported') {
+          throw new Error('portable machine: helper argument is outside the resumable domain');
+        }
+        if (helperDisposition === 'pure' && (argument.kind === 'arrayLit' || argument.kind === 'objectLit')) {
           assertPortableMachineLetShape(argument, env);
+        } else if (argument.kind === 'arrayLit') {
+          assertDeferredInternalMachineHelperArgument(
+            argument,
+            env,
+            deferredBindings,
+            assertDeferredMachineScalarPreflight,
+          );
+        } else if (argument.kind === 'objectLit') {
+          assertDeferredInternalMachineHelperArgument(
+            argument,
+            env,
+            deferredBindings,
+            assertDeferredMachineScalarPreflight,
+          );
         } else if (expressionRequiresDeferredMachinePreflight(argument, env, deferredBindings)) {
           assertDeferredMachineScalarPreflight(argument, env, deferredBindings);
         } else {

@@ -389,7 +389,7 @@ export function internalMachineClassGetterForRead(
   node: Extract<ValueIR, { kind: 'member' }>,
   env: SemanticEnv,
 ): InternalMachineClassGetterRead | undefined {
-  if (node.optional || node.object.kind !== 'ident' || node.object.name === 'this') return undefined;
+  if (node.optional || node.object.kind !== 'ident' || node.object.name === 'super') return undefined;
   const receiver = internalMachineClassReceiver(node.object.name, env);
   if (!receiver || Object.hasOwn(receiver.fields, node.property)) return undefined;
   const registry = internalMachineClassRegistryForEnv(env);

@@ -755,6 +755,28 @@ trusted-publishing/provenance configuration is inspected.
     (`review-1784262755790-138qtd-m3-31b2c1-pre-super-final`). Resumable
     helper-to-class effects remain M3.31b2c2 and imported/cross-module identity
     remains M3.31c.
+  - [x] M3.31b2c2 resumable helper-to-class effects: a same-root helper and any
+    transitive wrapper may now enter an owned class constructor, method, or
+    getter that performs a capability or print effect. Nested resumable helper
+    arguments execute left-to-right exactly once before the outer cache lookup;
+    observable body events bypass memoization, while pure helper/class bodies
+    retain the bounded cache. Only stdout, stderr, and capability events cross
+    the helper boundary, so helper-local assignment/iteration trace and private
+    class identity remain contained. Frozen helper/class registries preserve
+    suspended-run and overlapping-run isolation, and the planner now reports
+    the admitted same-root path executable. Direct helper effects remain
+    rejected, and imported/re-exported/cross-module identity remains the sole
+    M3.31c follow-up. The final `pnpm fitness:kern-5` wall passed with 432/432
+    cross-target fixtures, 109/109 class fixtures, 233 native cases, 48/48
+    checker fixtures, 39/39 validator verdicts, and 40 application fixtures on
+    three legs plus whole-app boot. The required browser wall passed at 152
+    modules / 1,535,195 raw / 328,258 gzip bytes / 64 ms cold / 127 ms median,
+    and all 43 convergence mutations were killed. The terminal
+    `claude,codex,agy` review completed 3/3 with zero verified and zero
+    needs-check findings; its one speculative classifier concern was disproved
+    by scalar-first classification and the nested-helper oracle, while three
+    non-behavioral allocation/traversal/explicit-boundary nits were retained
+    (`review-1784269895309-ubvwed-m3-31b2c2-resumable-helper-class`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

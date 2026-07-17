@@ -55,6 +55,7 @@ export interface InternalEffectMachineState {
   helperCallCache?: Map<string, unknown>;
   helperEvaluationDepth?: number;
   helperRegistry?: ReadonlyMap<string, RunnerFunctionBinding>;
+  resumableHelperNames?: ReadonlySet<string>;
   remainingIterations: number | undefined;
 }
 

@@ -1,5 +1,6 @@
 import type { IRNode } from '../../types.js';
 import { assertInternalMachineHelperGraph } from './internal-effect-machine-helper-graph.js';
+import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { makeEnv, type SemanticEnv } from './semantic-env.js';
 import type { CompletionKind } from './trace.js';
 
@@ -27,6 +28,7 @@ export function assertInternalMachineHelperPreflight(
       seed: env.seed,
       now: env.now,
     });
+    copyInternalEffectMachineState(env, callEnv);
     const completions = analyze(fn.body, 0, callEnv, new Set(fn.params), true);
     if (completions.size !== 1 || !completions.has('return')) {
       throw new Error(`machine helper: "${fn.name}" must return a portable value on every path`);

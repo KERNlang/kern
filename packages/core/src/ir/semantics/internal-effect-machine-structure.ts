@@ -35,6 +35,7 @@ import {
   assertInternalMachineDeferredCaughtExpression,
   isInternalEffectMachineLeafType,
 } from './internal-effect-machine-leaf.js';
+import { withInternalEffectMachineStructureState } from './internal-effect-machine-structure-state.js';
 import { hasNoBody, InternalEffectMachineError, isUnifiedNodeType } from './internal-effect-machine-types.js';
 import { assertLambdaPreflight } from './lambda-preflight.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
@@ -98,7 +99,7 @@ function analyzeBranchFrame(
       recordEscapingBindingWrites(path.children ?? [], frameWrites);
     }
   }
-  addBindingWrites(unstableBindings, frameWrites);
+  for (const name of frameWrites) unstableBindings.add(name);
   return possible;
 }
 function analyzeLoop(
@@ -472,18 +473,16 @@ function recordNodeBindingWrites(node: IRNode, out: Set<string>): void {
   }
 }
 
-function addBindingWrites(target: Set<string>, source: ReadonlySet<string>): void {
-  for (const name of source) target.add(name);
-}
-
 export function assertInternalEffectMachineStructureSupported(
   nodes: readonly IRNode[],
   env: SemanticEnv,
   loopDepth = 0,
 ): void {
-  assertInternalEffectMachineHelperStructureSupported(nodes, env);
-  assertInternalMachineClassFramePreflight(env, analyzeSequence);
-  assertInternalEffectMachineRootStructureSupported(nodes, env, loopDepth);
+  withInternalEffectMachineStructureState(nodes, env, () => {
+    assertInternalEffectMachineHelperStructureSupported(nodes, env);
+    assertInternalMachineClassFramePreflight(env, analyzeSequence);
+    assertInternalEffectMachineRootStructureSupported(nodes, env, loopDepth);
+  });
 }
 
 export function assertInternalEffectMachineRootStructureSupported(

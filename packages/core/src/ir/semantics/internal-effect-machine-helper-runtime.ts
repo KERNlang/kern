@@ -1,4 +1,8 @@
 import type { ValueIR } from '../../value-ir.js';
+import type {
+  InternalMachineClassEvaluatedValue,
+  InternalMachineClassValueGenerator,
+} from './internal-effect-machine-class-frame.js';
 import {
   bindInternalEffectMachineState,
   internalEffectMachineStateForEnv,
@@ -18,6 +22,7 @@ import {
   type RunnerPortableValue,
 } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, makeEnv, type SemanticEnv } from './semantic-env.js';
+import type { TraceEvent } from './trace.js';
 
 // Frozen native-runner semantics, shared with the compatibility helper owner.
 const RUNNER_CALL_DEPTH_LIMIT = 512;
@@ -35,7 +40,11 @@ function helperCacheKey(
   }
 }
 
-function evaluateArgument(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue): RunnerPortableValue {
+export function evalInternalMachineHelperArgumentValue(
+  node: ValueIR,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+): RunnerPortableValue {
   if (node.kind === 'ident' && hasBinding(env, node.name)) {
     return assertRunnerPortableValue(getBinding(env, node.name), `function argument "${node.name}"`);
   }
@@ -65,6 +74,39 @@ interface PreparedHelperCall {
   readonly values: readonly RunnerPortableValue[];
 }
 
+function prepareHelperCallFromValues(
+  name: string,
+  values: readonly RunnerPortableValue[],
+  provenance: readonly boolean[],
+  env: SemanticEnv,
+): PreparedHelperCall {
+  const state = internalEffectMachineStateForEnv(env);
+  const fn = state?.helperRegistry?.get(name);
+  if (!state || !fn || !state.helperBodyRunner) {
+    throw new Error(`portable machine: function call "${name}" is outside the machine scalar domain`);
+  }
+  if (values.length !== fn.params.length) {
+    throw new Error(`portable: function "${name}" expects ${fn.params.length} arguments, got ${values.length}`);
+  }
+  const stack = env.runnerCallStack ?? [];
+  if (stack.length >= RUNNER_CALL_DEPTH_LIMIT) {
+    throw new Error(`portable: runner function call depth exceeded (limit ${RUNNER_CALL_DEPTH_LIMIT})`);
+  }
+  const intProvenance = new Set<string>();
+  for (let index = 0; index < fn.params.length; index += 1) {
+    if (provenance[index]) intProvenance.add(fn.params[index]);
+  }
+  return {
+    cache: helperCache(state),
+    cacheKey: helperCacheKey(name, values, provenance),
+    env,
+    intProvenance,
+    name,
+    state,
+    values,
+  };
+}
+
 function prepareHelperCall(
   name: string,
   args: readonly ValueIR[],
@@ -79,29 +121,15 @@ function prepareHelperCall(
   if (args.length !== fn.params.length) {
     throw new Error(`portable: function "${name}" expects ${fn.params.length} arguments, got ${args.length}`);
   }
-  const stack = env.runnerCallStack ?? [];
-  if (stack.length >= RUNNER_CALL_DEPTH_LIMIT) {
-    throw new Error(`portable: runner function call depth exceeded (limit ${RUNNER_CALL_DEPTH_LIMIT})`);
-  }
   const values: RunnerPortableValue[] = [];
   const provenance: boolean[] = [];
-  const intProvenance = new Set<string>();
   for (let index = 0; index < fn.params.length; index += 1) {
-    const value = evaluateArgument(args[index], env, evaluate);
+    const value = evalInternalMachineHelperArgumentValue(args[index], env, evaluate);
     const isInteger = isIntProvenancedExpr(args[index], env);
     values.push(value);
     provenance.push(isInteger);
-    if (isInteger) intProvenance.add(fn.params[index]);
   }
-  return {
-    cache: helperCache(state),
-    cacheKey: helperCacheKey(name, values, provenance),
-    env,
-    intProvenance,
-    name,
-    state,
-    values,
-  };
+  return prepareHelperCallFromValues(name, values, provenance, env);
 }
 
 function cachedHelperValue(call: PreparedHelperCall): RunnerPortableValue | undefined {
@@ -145,6 +173,48 @@ function executePreparedHelper(call: PreparedHelperCall): RunnerPortableValue {
       throw new Error(`portable: function "${call.name}" must return a portable scalar, record, or array`);
     }
     return assertRunnerPortableValue(trace.completion.value, `function "${call.name}" return`);
+  } finally {
+    restore();
+  }
+}
+
+function observableHelperEvents(events: readonly TraceEvent[]): readonly TraceEvent[] {
+  return events.filter((event) => event.op === 'stdout' || event.op === 'stderr' || event.op === 'capability');
+}
+
+export function* evalInternalMachineHelperFrame(
+  name: string,
+  values: readonly RunnerPortableValue[],
+  provenance: readonly boolean[],
+  env: SemanticEnv,
+): InternalMachineClassValueGenerator<RunnerPortableValue> {
+  const call = prepareHelperCallFromValues(name, values, provenance, env);
+  const cached = cachedHelperValue(call);
+  if (cached !== undefined) return { events: [], value: cached };
+  const fn = call.state.helperRegistry?.get(call.name);
+  const bodyRunner = call.state.helperBodyRunner;
+  if (!fn || !bodyRunner) throw new Error(`portable machine: helper "${call.name}" is unavailable`);
+  const bindings = new Map(fn.params.map((param, index) => [param, call.values[index]]));
+  const callEnv = makeEnv({
+    bindings,
+    intProvenance: new Set(call.intProvenance),
+    runnerCallCache: call.cache,
+    runnerCallStack: [...(call.env.runnerCallStack ?? []), call.name],
+    runnerClasses: call.env.runnerClasses,
+    runnerFunctions: new Map(call.state.helperRegistry),
+    seed: call.env.seed,
+    now: call.env.now,
+  });
+  const restore = bindInternalEffectMachineState(callEnv, call.state);
+  try {
+    const trace = yield* bodyRunner(fn.body, callEnv, call.state);
+    if (trace.completion.kind !== 'return') {
+      throw new Error(`portable: function "${call.name}" must return a portable scalar, record, or array`);
+    }
+    const value = assertRunnerPortableValue(trace.completion.value, `function "${call.name}" return`);
+    const events = observableHelperEvents(trace.events);
+    if (events.length === 0) rememberHelperValue(call, value);
+    return { events, value } satisfies InternalMachineClassEvaluatedValue<RunnerPortableValue>;
   } finally {
     restore();
   }

@@ -161,7 +161,7 @@ describe('M3.31a class-frame capability planning', () => {
     ]);
   });
 
-  test('keeps an effectful class reached from a helper unsupported', () => {
+  test('owns an effectful class reached from a helper', () => {
     const source = [
       'class name=RemoteWidget',
       '  method name=read returns=string',
@@ -180,9 +180,7 @@ describe('M3.31a class-frame capability planning', () => {
     const analysis = analyzeKernSourceCapabilities(source, provided);
 
     expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('does not plan an unused effectful member on a helper-local class', () => {

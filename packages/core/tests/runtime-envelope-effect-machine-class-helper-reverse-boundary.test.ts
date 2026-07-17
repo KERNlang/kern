@@ -117,7 +117,7 @@ describe('M3.31b2b3 reverse helper/class containment', () => {
     expect(providerCalls).toBe(0);
   });
 
-  test('rejects an effectful getter reached through this before provider dispatch', () => {
+  test('owns an effectful getter reached through this', () => {
     let providerCalls = 0;
     const env = classHelperEnv({
       capabilities: { storage: { get: () => ++providerCalls } },
@@ -158,9 +158,12 @@ describe('M3.31b2b3 reverse helper/class containment', () => {
     });
     const nodes = providerThen('readWidget()');
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(() => executeSourceRunnerSync(nodes, env, { policy: 'machine-only' })).toThrow();
-    expect(providerCalls).toBe(0);
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 2,
+    });
+    expect(providerCalls).toBe(2);
   });
 
   test('rejects this passed from a class method into a helper', () => {

@@ -176,6 +176,10 @@ export function* evaluateInternalMachineClassGetterFrame(
   if (!receiver || !bodyRunner) throw new Error('machine class: getter receiver is unavailable');
 
   const registry = internalMachineClassRegistryForEnv(env);
+  const label = `${resolved.cls.name}.${resolved.getter.name}`;
+  if ((env.runnerCallStack ?? []).includes(label)) {
+    throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
+  }
   const getterEnv = makeInternalMachineClassMemberEnv(resolved.cls, resolved.getter, receiver, [], env, registry);
   const restore = bindInternalEffectMachineState(getterEnv, state);
   try {

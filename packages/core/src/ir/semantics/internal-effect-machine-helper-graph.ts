@@ -5,6 +5,7 @@ import { assertInternalMachineClassGraph } from './internal-effect-machine-class
 import { assertInternalMachineHelperClassComposition } from './internal-effect-machine-helper-class.js';
 import {
   isInternalMachineHelperCall,
+  isInternalMachineResumableHelperCall,
   isInternalMachineScalarHelperCall,
   isPortableScalarHelperReturnContract,
 } from './internal-effect-machine-helper-contract.js';
@@ -20,6 +21,23 @@ const PURE_HELPER_EXCLUDED_TYPES = new Set(['capability', 'lambda', 'print', 'tr
 export interface InternalMachineHelperGraph {
   readonly functions: ReadonlyMap<string, RunnerFunctionBinding>;
   readonly requiresIterationBudget: boolean;
+  readonly resumableHelperNames: ReadonlySet<string>;
+}
+
+function transitiveResumableHelpers(
+  direct: ReadonlySet<string>,
+  calls: ReadonlyMap<string, ReadonlySet<string>>,
+): ReadonlySet<string> {
+  const resumable = new Set(direct);
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [caller, callees] of calls) {
+      if (resumable.has(caller) || ![...callees].some((callee) => resumable.has(callee))) continue;
+      resumable.add(caller);
+      changed = true;
+    }
+  }
+  return resumable;
 }
 
 function snapshotNode(node: IRNode): IRNode {
@@ -255,12 +273,16 @@ export function assertInternalMachineHelperGraph(
   admittedClasses = assertInternalMachineClassGraph(env).classes,
 ): InternalMachineHelperGraph {
   const scope = helperScope(env);
-  if (!scope) return { functions: new Map(), requiresIterationBudget: false };
+  if (!scope) {
+    return { functions: new Map(), requiresIterationBudget: false, resumableHelperNames: new Set() };
+  }
   const pending = new Set<string>();
   collectNodeCalls(nodes, scope.functions, pending);
   collectClassBodyCalls(admittedClasses, scope.functions, pending);
   const functions = new Map<string, RunnerFunctionBinding>();
   const classScalarReturns = new Map<string, ReadonlySet<IRNode>>();
+  const directResumableHelpers = new Set<string>();
+  const helperCalls = new Map<string, ReadonlySet<string>>();
   let requiresIterationBudget = false;
   while (pending.size > 0) {
     const name = pending.values().next().value as string;
@@ -271,14 +293,21 @@ export function assertInternalMachineHelperGraph(
     assertFunctionBinding(name, fn, scope);
     if (assertPureHelperBody(fn.body)) requiresIterationBudget = true;
     const snapshot = snapshotFunctionBinding(fn);
-    classScalarReturns.set(name, assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env));
+    const composition = assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env);
+    classScalarReturns.set(name, composition.classScalarReturns);
+    if (composition.composesClass) directResumableHelpers.add(name);
     functions.set(name, snapshot);
     const nested = new Set<string>();
-    collectNodeCalls(fn.body, scope.functions, nested);
+    collectNodeCalls(snapshot.body, scope.functions, nested);
+    helperCalls.set(name, nested);
     for (const called of nested) if (!functions.has(called)) pending.add(called);
   }
   assertScalarHelperContracts(functions, env, classScalarReturns);
-  return { functions, requiresIterationBudget };
+  return {
+    functions,
+    requiresIterationBudget,
+    resumableHelperNames: transitiveResumableHelpers(directResumableHelpers, helperCalls),
+  };
 }
 
 export function internalMachineHelperGraphClaims(nodes: readonly IRNode[], env: SemanticEnv): boolean {
@@ -335,4 +364,4 @@ export function internalMachineHelperCallInNode(node: IRNode, env: SemanticEnv):
   return calls.size > 0;
 }
 
-export { isInternalMachineHelperCall, isInternalMachineScalarHelperCall };
+export { isInternalMachineHelperCall, isInternalMachineResumableHelperCall, isInternalMachineScalarHelperCall };

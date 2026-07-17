@@ -25,3 +25,9 @@ export function isInternalMachineScalarHelperCall(name: string, arity: number, e
   const fn = helperRegistryForEnv(env)?.get(name);
   return fn !== undefined && fn.params.length === arity && isPortableScalarHelperReturnContract(fn.returns);
 }
+
+export function isInternalMachineResumableHelperCall(name: string, arity: number, env: SemanticEnv): boolean {
+  const state = internalEffectMachineStateForEnv(env);
+  const fn = state?.helperRegistry?.get(name) ?? env.runnerFunctions?.get(name);
+  return fn?.params.length === arity && state?.resumableHelperNames?.has(name) === true;
+}

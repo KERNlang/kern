@@ -98,7 +98,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2c1') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2c2') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -219,11 +219,8 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (
-    classState?.followUp !==
-    'M3.31b2c2-resumable-helper-class-effects-and-M3.31c-module-ownership'
-  ) {
-    errors.push('manifest must keep remaining class behavior as the exact M3.31b2c2/M3.31c follow-up');
+  if (classState?.followUp !== 'M3.31c-module-ownership') {
+    errors.push('manifest must keep remaining class behavior as the exact M3.31c follow-up');
   }
 }
 

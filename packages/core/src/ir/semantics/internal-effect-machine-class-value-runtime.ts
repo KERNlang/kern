@@ -7,9 +7,15 @@ import {
   type InternalMachineClassValueGenerator,
 } from './internal-effect-machine-class-frame.js';
 import {
+  classifyInternalMachineClassHelperArgument,
   classifyInternalMachineClassLetValue,
   classifyInternalMachineClassScalarValue,
 } from './internal-effect-machine-class-value.js';
+import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
+import {
+  evalInternalMachineHelperArgumentValue,
+  evalInternalMachineHelperFrame,
+} from './internal-effect-machine-helper-runtime.js';
 import type { InternalEffectMachineState } from './internal-effect-machine-types.js';
 import {
   coerceToString,
@@ -18,11 +24,29 @@ import {
   evalPlusOperator,
 } from './portable-core-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
-import { assertPortableScalar, type PortableScalar, portableTruthy, sameType } from './portable-scalar-domain.js';
+import {
+  assertPortableRecordEntry,
+  assertSingleUseFreshArrayRecordSources,
+  evalRecordArrayFieldValue,
+} from './portable-record-evaluator.js';
+import {
+  assertPortableScalar,
+  isIntProvenancedExpr,
+  isPortableScalar,
+  isRunnerPortableArrayValue,
+  type PortableScalar,
+  portableTruthy,
+  type RunnerPortableArrayValue,
+  type RunnerPortableValue,
+  sameType,
+} from './portable-scalar-domain.js';
 import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env.js';
 import type { TraceEvent } from './trace.js';
 
-function evaluated(value: PortableScalar, events: readonly TraceEvent[] = []): InternalMachineClassEvaluatedValue {
+function evaluated<T = PortableScalar>(
+  value: T,
+  events: readonly TraceEvent[] = [],
+): InternalMachineClassEvaluatedValue<T> {
   return { events, value };
 }
 
@@ -56,6 +80,82 @@ function evaluateBinaryResult(
   throw new Error(`portable: unsupported binary op "${op}"`);
 }
 
+function* evaluateInternalMachineHelperArgument(
+  node: ValueIR,
+  env: SemanticEnv,
+  state: InternalEffectMachineState,
+): InternalMachineClassValueGenerator<RunnerPortableValue> {
+  const disposition = classifyInternalMachineClassHelperArgument(node, env);
+  if (disposition === 'pure') {
+    return evaluated(evalInternalMachineHelperArgumentValue(node, env, evalPortableValue));
+  }
+  if (disposition === 'unsupported') {
+    throw new Error(`machine helper: argument kind "${node.kind}" is outside the resumable domain`);
+  }
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'ident' &&
+    isInternalMachineHelperCall(node.callee.name, node.args.length, env)
+  ) {
+    return yield* evaluateInternalMachineHelperCall(node, env, state);
+  }
+  if (node.kind === 'arrayLit') {
+    const events: TraceEvent[] = [];
+    const out: Array<PortableScalar | RunnerPortableArrayValue> = [];
+    for (const item of node.items) {
+      const value = append(events, yield* evaluateInternalMachineHelperArgument(item, env, state));
+      if (!isPortableScalar(value) && !isRunnerPortableArrayValue(value)) {
+        throw new Error('machine helper: array item is outside the portable domain');
+      }
+      out.push(value);
+    }
+    return { events, value: Object.freeze(out) };
+  }
+  if (node.kind === 'objectLit') {
+    assertSingleUseFreshArrayRecordSources(node, env);
+    const events: TraceEvent[] = [];
+    const out: Record<string, PortableScalar | RunnerPortableArrayValue> = Object.create(null);
+    for (const rawEntry of node.entries) {
+      const entry = assertPortableRecordEntry(rawEntry, out);
+      const entryDisposition = classifyInternalMachineClassHelperArgument(entry.value, env);
+      const arrayValue =
+        entryDisposition === 'pure' ? evalRecordArrayFieldValue(entry.value, env, evalPortableValue) : undefined;
+      if (arrayValue !== undefined) {
+        out[entry.key] = arrayValue;
+        continue;
+      }
+      const value = append(events, yield* evaluateInternalMachineHelperArgument(entry.value, env, state));
+      if (!isPortableScalar(value) && !isRunnerPortableArrayValue(value)) {
+        throw new Error(`machine helper: record field "${entry.key}" is outside the portable domain`);
+      }
+      out[entry.key] = value;
+    }
+    return { events, value: Object.freeze(out) };
+  }
+  if (classifyInternalMachineClassScalarValue(node, env) === 'suspending') {
+    return yield* evaluateInternalMachineClassScalarValue(node, env, state);
+  }
+  throw new Error(`machine helper: unsupported resumable argument kind "${node.kind}"`);
+}
+
+function* evaluateInternalMachineHelperCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+  state: InternalEffectMachineState,
+): InternalMachineClassValueGenerator<RunnerPortableValue> {
+  if (node.callee.kind !== 'ident') throw new Error('machine helper: resumable call target is unavailable');
+  const events: TraceEvent[] = [];
+  const values: RunnerPortableValue[] = [];
+  const provenance: boolean[] = [];
+  for (const argument of node.args) {
+    values.push(append(events, yield* evaluateInternalMachineHelperArgument(argument, env, state)));
+    provenance.push(isIntProvenancedExpr(argument, env));
+  }
+  const body = yield* evalInternalMachineHelperFrame(node.callee.name, values, provenance, env);
+  events.push(...body.events);
+  return { events, value: body.value };
+}
+
 export function* evaluateInternalMachineClassScalarValue(
   node: ValueIR,
   env: SemanticEnv,
@@ -69,6 +169,13 @@ export function* evaluateInternalMachineClassScalarValue(
 
   if (node.kind === 'member') return yield* evaluateInternalMachineClassGetterFrame(node, env, state);
   if (node.kind === 'call') {
+    if (node.callee.kind === 'ident' && isInternalMachineHelperCall(node.callee.name, node.args.length, env)) {
+      const result = yield* evaluateInternalMachineHelperCall(node, env, state);
+      return {
+        events: result.events,
+        value: assertPortableScalar(result.value, `function "${node.callee.name}" return`),
+      };
+    }
     if (node.callee.kind === 'ident' && node.callee.name === 'String') {
       const argument = yield* evaluateInternalMachineClassScalarValue(node.args[0], env, state);
       return evaluated(coerceToString(argument.value), argument.events);

@@ -1,11 +1,16 @@
 export const CLASS_HELPER_FILES = Object.freeze({
   classHelperContract: 'packages/core/src/ir/semantics/internal-effect-machine-helper-contract.ts',
+  classHelperEffectsTests: 'packages/core/tests/runtime-envelope-effect-machine-class-helper-effects.test.ts',
   classHelperPortableTests: 'packages/core/tests/runtime-envelope-effect-machine-class-helper-portable.test.ts',
   classHelperReverseGraph: 'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
   classHelperReverseBoundaryTests:
     'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse-boundary.test.ts',
   classHelperReverseTests: 'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse.test.ts',
   classHelperRuntime: 'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts',
+  helperArgumentPreflight:
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-argument-preflight.ts',
+  helperPreflight: 'packages/core/src/ir/semantics/internal-effect-machine-helper-preflight.ts',
+  structureState: 'packages/core/src/ir/semantics/internal-effect-machine-structure-state.ts',
   classHelperSnapshotTests: 'packages/core/tests/runtime-envelope-effect-machine-class-helper-snapshot.test.ts',
   classHelperTests: 'packages/core/tests/runtime-envelope-effect-machine-class-helper.test.ts',
 });
@@ -35,6 +40,18 @@ export function validateClassHelperManifest(manifest, errors) {
   if (manifest.owned.filter((item) => item?.id === 'runner-helper-pure-class-calls').length !== 1) {
     errors.push('manifest runner-helper-pure-class-calls owner is duplicated');
   }
+  const effects = manifest.owned.find((item) => item?.id === 'runner-helper-resumable-class-effects');
+  if (
+    effects?.kind !== 'environment' ||
+    effects?.status !== 'unified' ||
+    effects?.evidence !== CLASS_HELPER_FILES.classHelperEffectsTests ||
+    Object.keys(effects).sort().join(',') !== 'evidence,id,kind,status'
+  ) {
+    errors.push('manifest must contain exactly one evidenced unified runner-helper-resumable-class-effects owner');
+  }
+  if (manifest.owned.filter((item) => item?.id === 'runner-helper-resumable-class-effects').length !== 1) {
+    errors.push('manifest runner-helper-resumable-class-effects owner is duplicated');
+  }
 }
 
 export function validateClassHelperSlice(contents, errors) {
@@ -46,6 +63,9 @@ export function validateClassHelperSlice(contents, errors) {
     'structuredClone(fn.returns)',
     'assertScalarHelperContracts(functions, env, classScalarReturns)',
     'assertPortableMachineScalarShape(parseExpression(value), env, isScalarHelperCall, isPortableHelperCall)',
+    'if (composition.composesClass) directResumableHelpers.add(name)',
+    'helperCalls.set(name, nested)',
+    'resumableHelperNames: transitiveResumableHelpers(directResumableHelpers, helperCalls)',
   ]) {
     if (!contents.classHelperGraph?.includes(required)) {
       errors.push(`class-body helper reachability owner is missing ${required}`);
@@ -54,13 +74,12 @@ export function validateClassHelperSlice(contents, errors) {
   for (const required of [
     'internalMachineClassLineageBaseFirst',
     'internalMachineClassMemberFor',
-    'assertPureConstruction',
-    'assertPureMember',
+    'assertReachedConstruction',
+    'assertReachedMember',
     'class binding identity cannot be reassigned',
     'portableHelperScalarShape(value, bindings)',
     'private receiver cannot cross a class member boundary',
     "if (target.kind === 'ident') return classes.get(target.name)",
-    "node.type === 'capability' || node.type === 'print'",
   ]) {
     if (!contents.classHelperReverseGraph?.includes(required)) {
       errors.push(`reverse helper-class owner is missing ${required}`);
@@ -93,8 +112,19 @@ export function validateClassHelperSlice(contents, errors) {
       errors.push(`helper scalar return contract owner is missing ${required}`);
     }
   }
-  if (!contents.classHelperRuntime?.includes('runnerFunctions: new Map(call.state.helperRegistry)')) {
-    errors.push('helper execution must use the snapshotted helper registry for nested call shape');
+  const frozenHelperRegistry = 'runnerFunctions: new Map(call.state.helperRegistry)';
+  if ((contents.classHelperRuntime?.split(frozenHelperRegistry).length ?? 1) - 1 !== 2) {
+    errors.push('both helper execution paths must use the snapshotted helper registry for nested call shape');
+  }
+  for (const required of [
+    'export function* evalInternalMachineHelperFrame',
+    'const trace = yield* bodyRunner(fn.body, callEnv, call.state)',
+    "event.op === 'stdout' || event.op === 'stderr' || event.op === 'capability'",
+    'if (events.length === 0) rememberHelperValue(call, value)',
+  ]) {
+    if (!contents.classHelperRuntime?.includes(required)) {
+      errors.push(`resumable helper runtime owner is missing ${required}`);
+    }
   }
   for (const required of [
     'isInternalMachineHelperCall(node.callee.name, node.args.length, env)',
@@ -107,8 +137,10 @@ export function validateClassHelperSlice(contents, errors) {
     }
   }
   for (const required of [
-    "return args === 'pure' ? pureScalarShape(node, env) : 'unsupported'",
     'isInternalMachineScalarHelperCall(node.callee.name, node.args.length, env)',
+    'isInternalMachineResumableHelperCall(node.callee.name, node.args.length, env)',
+    "args === 'suspending' || isInternalMachineResumableHelperCall",
+    'assertResumableCompositeArgumentShape(node, env)',
   ]) {
     if (!contents.classValue?.includes(required)) {
       errors.push(`class-body helper value owner is missing ${required}`);
@@ -123,11 +155,19 @@ export function validateClassHelperSlice(contents, errors) {
     errors.push('scalar helper proof must preserve portable composite helper arguments');
   }
   const registry = contents.nonRootRuntime?.indexOf(
-    'state.helperRegistry = assertInternalMachineHelperGraph(nodes, env, state.classRegistry).functions',
+    'const helperGraph = assertInternalMachineHelperGraph(nodes, env, state.classRegistry)',
   );
+  const resumable = contents.nonRootRuntime?.indexOf('state.resumableHelperNames = helperGraph.resumableHelperNames');
   const structure = contents.nonRootRuntime?.indexOf('assertInternalEffectMachineStructureSupported(nodes, env)');
-  if (registry === undefined || structure === undefined || registry < 0 || structure < 0 || registry > structure) {
-    errors.push('class-body helper registry must be frozen before combined structure preflight');
+  if (
+    registry === undefined ||
+    resumable === undefined ||
+    structure === undefined ||
+    registry < 0 ||
+    resumable < registry ||
+    structure < resumable
+  ) {
+    errors.push('class-body helper registry and resumable closure must be frozen before combined structure preflight');
   }
   const classBranch = contents.sourceAdmission?.indexOf('if (internalMachineClassGraphHasClasses(env))');
   const helperBranch = contents.sourceAdmission?.indexOf(
@@ -160,7 +200,7 @@ export function validateClassHelperSlice(contents, errors) {
     'accepts a pure helper-local class scalar as a method argument',
     'rejects helper-local class binding %s before provider dispatch',
     'rejects helper-local class binding loop shadowing before provider dispatch',
-    'rejects an effectful getter reached through this before provider dispatch',
+    'owns an effectful getter reached through this',
     'rejects this passed from a class method into a helper',
     'rejects this passed between class methods',
     'rejects a non-scalar %s argument before provider dispatch',
@@ -190,9 +230,9 @@ export function validateClassHelperSlice(contents, errors) {
     'owns helper-local construction, field/getter reads, and method calls',
     'accepts a scalar class method as the direct helper return',
     'keeps helper-created instances inside the helper invocation',
-    'rejects a helper-reached effectful class before an earlier provider',
+    'owns a helper-reached effectful class after an earlier provider',
     'does not reject an unused effectful member on the constructed class',
-    'rejects an indirectly reached effectful member',
+    'owns an indirectly reached effectful member',
     'preserves inherited virtual and super dispatch inside a helper',
     'rejects helper-local instance transport into a nested helper',
     'uses frozen class members after an earlier async suspension',
@@ -202,11 +242,46 @@ export function validateClassHelperSlice(contents, errors) {
     }
   }
   for (const oracle of [
-    'keeps an effectful class reached from a helper unsupported',
+    'owns an effectful class reached from a helper',
     'does not plan an unused effectful member on a helper-local class',
   ]) {
     if (!contents.classCapabilityTests?.includes(oracle)) {
       errors.push(`reverse helper-class planner oracle is missing: ${oracle}`);
     }
+  }
+  for (const oracle of [
+    'owns a capability reached through a helper-local class method',
+    'resumes an effectful constructor and getter in authored order',
+    'propagates resumability through a wrapper and nested helper argument',
+    'resumes helper descendants inside composite argument',
+    'never memoizes observable helper/class effects',
+    'never memoizes helper-local class prints or leaks private trace events',
+    'retains safe memoization for event-free class composition',
+    'freezes helper and class bodies across an owned async suspension',
+    'isolates overlapping helper/class continuations on one environment',
+  ]) {
+    if (!contents.classHelperEffectsTests?.includes(oracle)) {
+      errors.push(`resumable helper-class oracle is missing: ${oracle}`);
+    }
+  }
+  for (const required of [
+    'evaluateInternalMachineHelperCall(node, env, state)',
+    'evalInternalMachineHelperFrame(node.callee.name, values, provenance, env)',
+    'isIntProvenancedExpr(argument, env)',
+    "if (node.kind === 'arrayLit')",
+    'evaluateInternalMachineHelperArgument(item, env, state)',
+  ]) {
+    if (!contents.classValueRuntime?.includes(required)) {
+      errors.push(`resumable helper argument owner is missing ${required}`);
+    }
+  }
+  if (!contents.structureState?.includes('resumableHelperNames: helperGraph.resumableHelperNames')) {
+    errors.push('structure preflight must bind the resumable helper closure before admission');
+  }
+  if (!contents.helperPreflight?.includes('copyInternalEffectMachineState(env, callEnv)')) {
+    errors.push('helper body preflight must inherit the resumable helper closure');
+  }
+  if (!contents.helperArgumentPreflight?.includes('assertDeferredInternalMachineHelperArgument(item')) {
+    errors.push('deferred helper argument preflight must recurse through composite values');
   }
 }

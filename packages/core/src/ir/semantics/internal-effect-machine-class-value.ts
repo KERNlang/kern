@@ -6,6 +6,7 @@ import {
 } from './internal-effect-machine-class-graph.js';
 import {
   isInternalMachineHelperCall,
+  isInternalMachineResumableHelperCall,
   isInternalMachineScalarHelperCall,
 } from './internal-effect-machine-helper-graph.js';
 import {
@@ -13,6 +14,7 @@ import {
   assertPortableMachineReturnShape,
   assertPortableMachineScalarShape,
 } from './portable-machine-shape.js';
+import { assertPortableRecordEntry, assertSingleUseFreshArrayRecordSources } from './portable-record-evaluator.js';
 import type { SemanticEnv } from './semantic-env.js';
 
 export type InternalMachineClassValueDisposition = 'pure' | 'suspending' | 'unsupported';
@@ -103,7 +105,44 @@ function pureScalarShape(node: ValueIR, env: SemanticEnv): InternalMachineClassV
   }
 }
 
-function classifyInternalMachineClassHelperArgument(
+function assertResumableArrayArgumentShape(node: Extract<ValueIR, { kind: 'arrayLit' }>, env: SemanticEnv): void {
+  for (const item of node.items) {
+    if (item.kind === 'objectLit') {
+      throw new Error('machine helper: nested records are outside the portable array domain');
+    }
+    const disposition = classifyInternalMachineClassHelperArgument(item, env);
+    if (disposition === 'unsupported') {
+      throw new Error('machine helper: array item is outside the resumable argument domain');
+    }
+    if (item.kind === 'arrayLit') assertResumableArrayArgumentShape(item, env);
+  }
+}
+
+function assertResumableCompositeArgumentShape(
+  node: Extract<ValueIR, { kind: 'arrayLit' | 'objectLit' }>,
+  env: SemanticEnv,
+): void {
+  if (node.kind === 'arrayLit') {
+    assertResumableArrayArgumentShape(node, env);
+    return;
+  }
+  assertSingleUseFreshArrayRecordSources(node, env);
+  const keys: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const rawEntry of node.entries) {
+    const entry = assertPortableRecordEntry(rawEntry, keys);
+    keys[entry.key] = null;
+    if (entry.value.kind === 'objectLit') {
+      throw new Error('machine helper: nested records are outside the portable record domain');
+    }
+    const disposition = classifyInternalMachineClassHelperArgument(entry.value, env);
+    if (disposition === 'unsupported') {
+      throw new Error(`machine helper: record field "${entry.key}" is outside the resumable argument domain`);
+    }
+    if (entry.value.kind === 'arrayLit') assertResumableArrayArgumentShape(entry.value, env);
+  }
+}
+
+export function classifyInternalMachineClassHelperArgument(
   node: ValueIR,
   env: SemanticEnv,
 ): InternalMachineClassValueDisposition {
@@ -116,12 +155,22 @@ function classifyInternalMachineClassHelperArgument(
   ) {
     if (node.args.some(internalMachineClassValueUsesPrivateReceiver)) return 'unsupported';
     const args = combine(node.args.map((argument) => classifyInternalMachineClassHelperArgument(argument, env)));
-    return args === 'pure' ? 'pure' : 'unsupported';
+    if (args === 'unsupported') return args;
+    return isInternalMachineResumableHelperCall(node.callee.name, node.args.length, env) ? 'unsupported' : args;
   }
   if (node.kind !== 'arrayLit' && node.kind !== 'objectLit') return 'unsupported';
+  const descendants =
+    node.kind === 'arrayLit'
+      ? combine(node.items.map((item) => classifyInternalMachineClassHelperArgument(item, env)))
+      : combine(
+          node.entries.map((entry) =>
+            classifyInternalMachineClassHelperArgument('kind' in entry ? entry.argument : entry.value, env),
+          ),
+        );
+  if (descendants === 'unsupported') return descendants;
   try {
-    assertPortableMachineLetShape(node, env);
-    return 'pure';
+    assertResumableCompositeArgumentShape(node, env);
+    return descendants;
   } catch {
     return 'unsupported';
   }
@@ -141,7 +190,10 @@ function classifyCall(
   if (node.callee.kind === 'ident' && isInternalMachineScalarHelperCall(node.callee.name, node.args.length, env)) {
     if (node.args.some(internalMachineClassValueUsesPrivateReceiver)) return 'unsupported';
     const args = combine(node.args.map((argument) => classifyInternalMachineClassHelperArgument(argument, env)));
-    return args === 'pure' ? pureScalarShape(node, env) : 'unsupported';
+    if (args === 'unsupported') return args;
+    return args === 'suspending' || isInternalMachineResumableHelperCall(node.callee.name, node.args.length, env)
+      ? 'suspending'
+      : pureScalarShape(node, env);
   }
   if (node.callee.kind === 'ident' && isInternalMachineHelperCall(node.callee.name, node.args.length, env)) {
     return 'unsupported';

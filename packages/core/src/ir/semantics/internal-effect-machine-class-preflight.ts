@@ -8,6 +8,7 @@ import {
 import { internalMachineClassConstructorPlan } from './internal-effect-machine-class-construction.js';
 import {
   assertInternalMachineClassGraph,
+  internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
 import { INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER } from './internal-effect-machine-class-instance.js';
@@ -111,6 +112,7 @@ function assertClassExpression(
     return;
   }
   if (node.kind === 'member') {
+    if (!node.optional && internalMachineClassGetterForRead(node, env)) return;
     if (node.optional || node.object.kind !== 'ident' || node.object.name !== 'this' || !fields.has(node.property)) {
       throw new Error('machine class: member expression references an unavailable field');
     }
@@ -247,6 +249,7 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
     classRegistry: registry,
     helperBodyRunner: activeState?.helperBodyRunner,
     helperRegistry: activeState?.helperRegistry,
+    resumableHelperNames: activeState?.resumableHelperNames,
     remainingIterations: undefined,
   };
   for (const cls of registry.values()) {
