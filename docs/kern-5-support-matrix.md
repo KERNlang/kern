@@ -48,6 +48,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | runtime-handler-abi | Default-off public typed runtime handler ABI | current | `pnpm test:runtime-abi` |
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | current | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Source runner convergence, call-site isolation, and blocker non-growth | current | `pnpm test:source-runner-convergence` |
+| kern-kir-canonicalizer | KERN-authored bounded KIR canonicalizer profile | current | `pnpm test:kern-canonicalizer` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -100,6 +101,7 @@ wall and must remain absent until promoted.
 | typed-runtime-handler-abi | Default-off public typed runtime handler ABI | internal-oracle | `pnpm test:runtime-abi` |
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | internal-oracle | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Sync/async source-runner convergence and pre-execution selector | internal-oracle | `pnpm test:source-runner-convergence` |
+| kern-kir-canonicalizer-profile | Bounded KERN-authored KIR canonicalizer profile | internal-oracle | `pnpm test:kern-canonicalizer` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |

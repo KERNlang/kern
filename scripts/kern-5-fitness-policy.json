@@ -19,8 +19,10 @@
     "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-envelope|portable-machine-evaluator' && node --test ./scripts/runtime-envelope-import-closure.test.mjs ./scripts/runtime-envelope-handler-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
     "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs",
+    "test:runtime-abi": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-handler-(public|helper-link)' && node --test ./scripts/runtime-handler-public-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "check:source-runner-convergence": "node ./scripts/check-source-runner-convergence.mjs",
-    "test:source-runner-convergence": "pnpm --filter @kernlang/core test --testPathPatterns='runner-capability-(class-frame|plan)|source-runner-engine|runtime-envelope-effect-machine-(do|each|expression-v1|helper|lambda|non-root|module-ownership|class-)' && node --test ./scripts/source-runner*-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs"
+    "test:source-runner-convergence": "pnpm --filter @kernlang/core test --testPathPatterns='runner-capability-(class-frame|plan)|source-runner-engine|runtime-envelope-effect-machine-(do|each|expression-v1|helper|lambda|non-root|module-ownership|class-)' && node --test ./scripts/source-runner*-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs",
+    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.kern --with-semantics --quiet && node --test ./scripts/kern-canonicalizer/flatten.test.mjs ./scripts/kern-canonicalizer/canonicalizer.test.mjs && node ./scripts/check-kern-canonicalizer.mjs"
   },
   "gates": [
     {
@@ -184,6 +186,12 @@
       "label": "Source runner convergence, call-site isolation, and blocker non-growth",
       "status": "current",
       "argv": ["pnpm", "test:source-runner-convergence"]
+    },
+    {
+      "id": "kern-kir-canonicalizer",
+      "label": "KERN-authored bounded KIR canonicalizer profile",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-canonicalizer"]
     },
     {
       "id": "kern-frontend",
@@ -426,6 +434,12 @@
       "label": "Sync/async source-runner convergence and pre-execution selector",
       "status": "internal-oracle",
       "evidence": "pnpm test:source-runner-convergence"
+    },
+    {
+      "id": "kern-kir-canonicalizer-profile",
+      "label": "Bounded KERN-authored KIR canonicalizer profile",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-canonicalizer"
     },
     {
       "id": "kern-formatter",
