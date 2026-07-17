@@ -42,6 +42,31 @@ describe('M3.31a class-frame capability planning', () => {
     expect(analyzeKernSourceCapabilities(source, provided).unsupportedAsyncExecutions).toEqual([]);
   });
 
+  test('owns a root-reached pre-super capability while helper continuations stay separate', () => {
+    const source = [
+      'class name=Base',
+      '  field name=value type=string',
+      '  constructor',
+      '    param name=value type=string',
+      '    handler lang="kern"',
+      '      assign target="this.value" value="value"',
+      'class name=RemoteLabel extends=Base',
+      '  constructor',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"pre-super\\" }"',
+      '      do value="super(answer)"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.value"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, provided);
+
+    expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
   test('requires a caller-owned budget before planning a class-body loop as owned', () => {
     const source = [
       'class name=RemoteLabel',

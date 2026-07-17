@@ -730,6 +730,31 @@ trusted-publishing/provenance configuration is inspected.
     needs-check, duplicate class-loop budget propagation, was disproved by the
     independent complete class-graph budget owner and existing class-frame
     budget tests (`review-1784258421483-r2xyxd-m3-31b2b3-terminal-3`).
+  - [x] M3.31b2c1 pre-super constructor execution: explicit derived
+    constructors now bind parameters, execute authored pre-super statements,
+    evaluate pure `super(...)` arguments from definitely established locals,
+    recurse into the base, initialize the current class fields, and execute the
+    post-super body through one resumable class frame. Pre-super capabilities,
+    three-layer descent/ascent ordering, provider failure, overlapping-run and
+    metadata-snapshot isolation, and public-source behavior are executable
+    oracles. Whole-graph preflight rejects receiver access, abnormal completion,
+    missing or unstable locals, helper/class calls in super arguments, and
+    helper-reached class effects before provider dispatch. The convergence
+    owner and 37 mutation checks bind the plan partition, authored execution
+    order, receiver containment, definite-binding proof, capability planning,
+    and explicit M3.31b2c2/M3.31c deferrals. The final `pnpm fitness:kern-5`
+    wall passed with 432/432 cross-target fixtures, 109/109 class fixtures, 233
+    native cases, 48/48 checker fixtures, 39/39 validator verdicts, and 40
+    application fixtures on three legs plus whole-app boot. The required
+    browser wall passed at 150 modules / 1,521,167 raw / 326,404 gzip bytes /
+    58 ms cold / 87 ms median. The terminal `claude,codex,agy` review completed
+    3/3 with zero verified and zero needs-check findings. Its speculative
+    fast-path concern was disproved because preflight preparation does not
+    execute constructors and all real construction enters the resumable class
+    frame; its remaining duplicate-parse item is a non-behavioral nit
+    (`review-1784262755790-138qtd-m3-31b2c1-pre-super-final`). Resumable
+    helper-to-class effects remain M3.31b2c2 and imported/cross-module identity
+    remains M3.31c.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

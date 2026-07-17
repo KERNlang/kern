@@ -61,27 +61,35 @@ function* evaluateInternalMachineClassConstructorLayer(
   const plan = internalMachineClassConstructorPlan(cls, registry);
   const constructorEnv = makeInternalMachineClassConstructorEnv(cls, instance, values, outerEnv, registry);
   const events: TraceEvent[] = [];
-  if (cls.extendsName) {
-    const base = registry.get(cls.extendsName);
-    if (!base) throw new Error(`machine class: unknown base class "${cls.extendsName}"`);
-    const baseValues = plan.superArguments.map((argument) =>
-      assertPortableScalar(evalPortableValue(argument, constructorEnv), `super argument for "${cls.name}"`),
-    );
-    events.push(
-      ...(yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues, outerEnv, state, registry))
-        .events,
-    );
-  }
-  initializeInternalMachineClassLayerFields(cls, instance.fields, outerEnv, evalPortableValue);
-  if (plan.body.length === 0) return { events, value: undefined };
   const bodyRunner = state.helperBodyRunner;
   if (!bodyRunner) throw new Error('machine class: constructor body runner is unavailable');
   const restore = bindInternalEffectMachineState(constructorEnv, state);
   try {
-    const trace = yield* bodyRunner(plan.body, constructorEnv, state);
-    events.push(...trace.events);
-    if (trace.completion.kind !== 'normal') {
-      throw new Error(`machine class: constructor "${cls.name}" completed abnormally`);
+    if (plan.preSuper.length > 0) {
+      const trace = yield* bodyRunner(plan.preSuper, constructorEnv, state);
+      events.push(...trace.events);
+      if (trace.completion.kind !== 'normal') {
+        throw new Error(`machine class: constructor "${cls.name}" completed abnormally before super`);
+      }
+    }
+    if (cls.extendsName) {
+      const base = registry.get(cls.extendsName);
+      if (!base) throw new Error(`machine class: unknown base class "${cls.extendsName}"`);
+      const baseValues = plan.superArguments.map((argument) =>
+        assertPortableScalar(evalPortableValue(argument, constructorEnv), `super argument for "${cls.name}"`),
+      );
+      events.push(
+        ...(yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues, outerEnv, state, registry))
+          .events,
+      );
+    }
+    initializeInternalMachineClassLayerFields(cls, instance.fields, outerEnv, evalPortableValue);
+    if (plan.postSuper.length > 0) {
+      const trace = yield* bodyRunner(plan.postSuper, constructorEnv, state);
+      events.push(...trace.events);
+      if (trace.completion.kind !== 'normal') {
+        throw new Error(`machine class: constructor "${cls.name}" completed abnormally`);
+      }
     }
     return { events, value: undefined };
   } finally {

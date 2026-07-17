@@ -54,6 +54,9 @@ const files = new Map(
     'packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-constructor-super-admission.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-pre-super.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-pre-super-admission.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-pre-super-snapshot.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-super-method-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts',
@@ -572,6 +575,95 @@ test('rejects constructor-super lifecycle ownership regressions', () => {
     ),
   );
   assert.ok(oracleErrors.some((error) => error.includes('constructor-super lifecycle oracle')));
+});
+
+test('rejects pre-super constructor ownership regressions', () => {
+  const manifestErrors = validate((mutated) => {
+    const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-class-pre-super-constructor');
+    mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
+  });
+  assert.ok(manifestErrors.some((error) => error.includes('runner-class-pre-super-constructor owner')));
+
+  const partitionErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-construction.ts',
+      'preSuper: body.slice(0, superIndex)',
+      'preSuper: []',
+    ),
+  );
+  assert.ok(partitionErrors.some((error) => error.includes('pre-super constructor plan')));
+
+  const orderErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+      'bodyRunner(plan.preSuper, constructorEnv, state)',
+      'bodyRunner(plan.postSuper, constructorEnv, state)',
+    ),
+  );
+  assert.ok(orderErrors.some((error) => error.includes('authored descent/base/field/ascent order')));
+
+  const receiverErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
+      'assertClassBodyExpressions(plan.preSuper, visibleFields, constructorEnv, false)',
+      'assertClassBodyExpressions(plan.preSuper, visibleFields, constructorEnv)',
+    ),
+  );
+  assert.ok(receiverErrors.some((error) => error.includes('pre-super whole-graph preflight')));
+
+  const bindingErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
+      'if (!hasBinding(constructorEnv, name))',
+      'if (false)',
+    ),
+  );
+  assert.ok(bindingErrors.some((error) => error.includes('pre-super whole-graph preflight')));
+
+  const executionOracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-pre-super.test.ts',
+      'resumes pre-super, base, and post-super effects in authored order without replay',
+      'removed pre-super effect order oracle',
+    ),
+  );
+  assert.ok(executionOracleErrors.some((error) => error.includes('pre-super execution oracle')));
+
+  const admissionOracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-pre-super-admission.test.ts',
+      'rejects pre-super %s before an earlier provider dispatch',
+      'removed pre-super receiver oracle',
+    ),
+  );
+  assert.ok(admissionOracleErrors.some((error) => error.includes('pre-super admission oracle')));
+
+  const snapshotOracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runtime-envelope-effect-machine-class-pre-super-snapshot.test.ts',
+      'freezes pre-super, super-argument, post-super, and lineage metadata before suspension',
+      'removed pre-super snapshot oracle',
+    ),
+  );
+  assert.ok(snapshotOracleErrors.some((error) => error.includes('pre-super snapshot oracle')));
+
+  const capabilityOracleErrors = validate((mutated) =>
+    replace(
+      mutated,
+      'packages/core/tests/runner-capability-class-frame.test.ts',
+      'owns a root-reached pre-super capability while helper continuations stay separate',
+      'removed pre-super capability oracle',
+    ),
+  );
+  assert.ok(capabilityOracleErrors.some((error) => error.includes('pre-super capability-planner oracle')));
 });
 
 test('rejects super-method dispatch ownership regressions', () => {

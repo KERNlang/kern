@@ -6,8 +6,9 @@ import type { RunnerClassBinding } from './semantic-env.js';
 const EXPRESSION_PROPS = ['cond', 'expr', 'from', 'in', 'input', 'on', 'step', 'to', 'value'] as const;
 
 export interface InternalMachineClassConstructorPlan {
-  readonly body: readonly IRNode[];
   readonly mode: 'implicit' | 'none' | 'explicit';
+  readonly postSuper: readonly IRNode[];
+  readonly preSuper: readonly IRNode[];
   readonly superArguments: readonly ValueIR[];
 }
 
@@ -66,33 +67,33 @@ function bodySuperCallCount(nodes: readonly IRNode[]): number {
   return count;
 }
 
-function assertSuperArgument(node: ValueIR, params: ReadonlySet<string>): void {
+function assertSuperArgument(node: ValueIR): void {
   if (node.kind === 'numLit' || node.kind === 'strLit' || node.kind === 'boolLit' || node.kind === 'nullLit') return;
   if (node.kind === 'ident') {
-    if (params.has(node.name)) return;
-    throw new Error(`machine class: super argument binding "${node.name}" is outside this slice`);
+    if (node.name !== 'this' && node.name !== 'super') return;
+    throw new Error(`machine class: super argument cannot use "${node.name}"`);
   }
   if (node.kind === 'unary') {
-    assertSuperArgument(node.argument, params);
+    assertSuperArgument(node.argument);
     return;
   }
   if (node.kind === 'binary') {
-    assertSuperArgument(node.left, params);
-    assertSuperArgument(node.right, params);
+    assertSuperArgument(node.left);
+    assertSuperArgument(node.right);
     return;
   }
   if (node.kind === 'conditional') {
-    assertSuperArgument(node.test, params);
-    assertSuperArgument(node.consequent, params);
-    assertSuperArgument(node.alternate, params);
+    assertSuperArgument(node.test);
+    assertSuperArgument(node.consequent);
+    assertSuperArgument(node.alternate);
     return;
   }
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    assertSuperArgument(node.expression, params);
+    assertSuperArgument(node.expression);
     return;
   }
   if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) assertSuperArgument(expression, params);
+    for (const expression of node.expressions) assertSuperArgument(expression);
     return;
   }
   throw new Error(`machine class: super argument kind "${node.kind}" is outside this slice`);
@@ -121,36 +122,41 @@ export function internalMachineClassConstructorPlan(
   const count = bodySuperCallCount(body);
   if (!cls.extendsName) {
     if (count !== 0) throw new Error(`machine class: root constructor "${cls.name}" calls super`);
-    return { body, mode: 'none', superArguments: [] };
+    return { mode: 'none', postSuper: body, preSuper: [], superArguments: [] };
   }
   const effectiveBase = effectiveBaseConstructor(cls, registry);
-  const leading = body[0] ? directSuperCall(body[0]) : undefined;
   if (count === 0) {
     if ((effectiveBase?.constructor?.params.length ?? 0) !== 0) {
       throw new Error(`machine class: implicit super for "${cls.name}" requires base arguments`);
     }
-    return { body, mode: 'implicit', superArguments: [] };
+    return { mode: 'implicit', postSuper: body, preSuper: [], superArguments: [] };
   }
-  if (count !== 1 || !leading) {
-    throw new Error(`machine class: constructor super for "${cls.name}" must be one leading call`);
+  const superIndex = body.findIndex((node) => directSuperCall(node) !== undefined);
+  const direct = superIndex >= 0 ? directSuperCall(body[superIndex]) : undefined;
+  if (count !== 1 || !direct) {
+    throw new Error(`machine class: constructor super for "${cls.name}" must be one direct top-level call`);
   }
-  const params = new Set(cls.constructor?.params ?? []);
-  for (const argument of leading.args) assertSuperArgument(argument, params);
+  for (const argument of direct.args) assertSuperArgument(argument);
   const immediateBase = registry.get(cls.extendsName);
   if (!immediateBase) throw new Error(`machine class: unknown base class "${cls.extendsName}"`);
   if (immediateBase.constructor) {
-    if (leading.args.length !== immediateBase.constructor.params.length) {
+    if (direct.args.length !== immediateBase.constructor.params.length) {
       throw new Error(`machine class: super for "${cls.name}" has invalid arity`);
     }
   } else {
-    if (leading.args.length !== 0) {
+    if (direct.args.length !== 0) {
       throw new Error(`machine class: super arguments cannot cross constructor-less base "${immediateBase.name}"`);
     }
     if ((effectiveBase?.constructor?.params.length ?? 0) !== 0) {
       throw new Error(`machine class: constructor-less base for "${cls.name}" requires arguments`);
     }
   }
-  return { body: body.slice(1), mode: 'explicit', superArguments: leading.args };
+  return {
+    mode: 'explicit',
+    postSuper: body.slice(superIndex + 1),
+    preSuper: body.slice(0, superIndex),
+    superArguments: direct.args,
+  };
 }
 
 export function assertInternalMachineClassConstructorPlans(registry: ReadonlyMap<string, RunnerClassBinding>): void {

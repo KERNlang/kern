@@ -50,7 +50,7 @@ function reconcileConstructorLineageInitialization(
       if (typeof field.value === 'string' && field.value !== '') initialized.add(field.name);
       else initialized.delete(field.name);
     }
-    for (const statement of internalMachineClassConstructorPlan(cls, registry).body) {
+    for (const statement of internalMachineClassConstructorPlan(cls, registry).postSuper) {
       const field =
         statement.type === 'assign' &&
         (statement.children === undefined || statement.children.length === 0) &&
@@ -176,7 +176,7 @@ export function preflightInternalMachineClassLet(
           };
         })();
   const { constructorEnv, instance } = prepared;
-  const constructorBody = internalMachineClassConstructorPlan(resolved.cls, resolved.registry).body;
+  const constructorBody = internalMachineClassConstructorPlan(resolved.cls, resolved.registry).postSuper;
   const directAssignments = constructorBody.every(
     (statement) =>
       statement.type === 'assign' &&
