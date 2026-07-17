@@ -6,6 +6,7 @@ import * as constructorSuper from './source-runner-class-constructor-super-conve
 import * as frames from './source-runner-class-frame-convergence.mjs';
 import * as classHelper from './source-runner-class-helper-convergence.mjs';
 import * as inheritance from './source-runner-class-inheritance-convergence.mjs';
+import * as moduleOwnership from './source-runner-module-ownership-convergence.mjs';
 import * as preSuper from './source-runner-class-pre-super-convergence.mjs';
 import * as superMethod from './source-runner-class-super-method-convergence.mjs';
 import * as virtualMethod from './source-runner-class-virtual-method-convergence.mjs';
@@ -18,6 +19,7 @@ const FILES = Object.freeze({
   ...frames.CLASS_FRAME_FILES,
   ...classHelper.CLASS_HELPER_FILES,
   ...inheritance.CLASS_INHERITANCE_FILES,
+  ...moduleOwnership.MODULE_OWNERSHIP_FILES,
   ...preSuper.CLASS_PRE_SUPER_FILES,
   ...superMethod.CLASS_SUPER_METHOD_FILES,
   ...virtualMethod.CLASS_VIRTUAL_METHOD_FILES,
@@ -98,7 +100,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2c2') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31c') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -206,6 +208,7 @@ function validateManifest(text, errors) {
   superMethod.validateClassSuperMethodManifest(manifest, errors);
   virtualMethod.validateClassVirtualMethodManifest(manifest, errors);
   classHelper.validateClassHelperManifest(manifest, errors);
+  moduleOwnership.validateModuleOwnershipManifest(manifest, errors);
   preSuper.validateClassPreSuperManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
@@ -217,10 +220,6 @@ function validateManifest(text, errors) {
     if (!exactKeys(item, ['id', 'kind', 'status', 'followUp']) || item.kind !== kind || item.status !== status || typeof item.followUp !== 'string' || item.followUp.length === 0) {
       errors.push(`manifest blocker ${id} has invalid kind, status, or follow-up`);
     }
-  }
-  const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.31c-module-ownership') {
-    errors.push('manifest must keep remaining class behavior as the exact M3.31c follow-up');
   }
 }
 
@@ -497,6 +496,7 @@ export function validateSourceRunnerConvergence(readText) {
   superMethod.validateClassSuperMethodSlice(contents, errors);
   virtualMethod.validateClassVirtualMethodSlice(contents, errors);
   classHelper.validateClassHelperSlice(contents, errors);
+  moduleOwnership.validateModuleOwnershipSlice(contents, errors);
   preSuper.validateClassPreSuperSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;

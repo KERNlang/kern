@@ -777,6 +777,30 @@ trusted-publishing/provenance configuration is inspected.
     by scalar-first classification and the nested-helper oracle, while three
     non-behavioral allocation/traversal/explicit-boundary nits were retained
     (`review-1784269895309-ubvwed-m3-31b2c2-resumable-helper-class`).
+  - [x] M3.31c module-owned helper and class identity: the canonical source
+    machine now authenticates the complete linker-built module graph, snapshots
+    every function/class binding once while preserving alias and re-export
+    identity, and executes reached helpers and class frames in their defining
+    module scopes. Helper caches, resumability, recursion labels, receiver
+    dispatch, and metadata snapshots are binding-keyed rather than flattened by
+    display name. The shared runtime linker now feeds both execution and linked
+    capability admission; the planner follows exact imported function,
+    constructor, method, and getter reachability without poisoning an admitted
+    path with unused private members. `runner-classes-state` is unified/current
+    and the convergence manifest has no deferred rows. The final Node 22
+    `pnpm fitness:kern-5` wall passed with 432/432 cross-target fixtures,
+    109/109 class fixtures, 233 native cases, 48/48 checker fixtures, 39/39
+    validator verdicts, and 40 application fixtures on three legs plus
+    whole-app boot. The required browser wall passed at 153 modules / 1,534,548
+    raw / 328,497 gzip bytes / 75 ms cold / 108 ms browser, and all 68
+    convergence mutations were killed. Reviews added and fixed binding-identity
+    resumability plus imported-helper -> private-class -> private-helper budget
+    reachability with RED public oracles
+    (`review-1784275324468-ctztgz`, `review-1784277601118-gduk7h`). The final
+    full-roster review completed on the fixed diff; its two Agy blockers were
+    stale or contradicted the exact-reachability contract, Codex reported no
+    findings, and Claude reported no high-confidence blocker
+    (`review-1784279863324-vvtril`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

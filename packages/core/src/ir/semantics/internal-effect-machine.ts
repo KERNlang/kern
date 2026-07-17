@@ -84,11 +84,14 @@ function* runMachine(
       nodes[0] ?? { type: '__block' },
     );
   }
-  state.classRegistry = assertInternalMachineClassGraph(env).classes;
-  assertInternalMachineClassUsage(nodes, env);
+  const classGraph = assertInternalMachineClassGraph(env);
+  state.classRegistry = classGraph.classes;
+  state.moduleGraph = classGraph.moduleGraph;
+  assertInternalMachineClassUsage(nodes, env, classGraph.classes);
   state.helperBodyRunner = runInternalEffectMachineSequence;
-  const helperGraph = assertInternalMachineHelperGraph(nodes, env, state.classRegistry);
+  const helperGraph = assertInternalMachineHelperGraph(nodes, env, classGraph);
   state.helperRegistry = helperGraph.functions;
+  state.resumableHelpers = helperGraph.resumableHelpers;
   state.resumableHelperNames = helperGraph.resumableHelperNames;
   assertInternalEffectMachineStructureSupported(nodes, env);
   return yield* runInternalEffectMachineSequence(nodes, env, state);

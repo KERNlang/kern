@@ -4,6 +4,7 @@ import {
   makeEnv,
   type RunnerClassBinding,
   type RunnerClassMemberBinding,
+  type RunnerFunctionBinding,
   type RunnerModuleScope,
   type SemanticEnv,
 } from '../src/ir/semantics/semantic-env.js';
@@ -19,6 +20,7 @@ import type { IRNode } from '../src/types.js';
 function stateClassEnv(
   overrides: Partial<SemanticEnv> = {},
   classOverrides: Partial<RunnerClassBinding> = {},
+  helpers: readonly Omit<RunnerFunctionBinding, 'module'>[] = [],
 ): SemanticEnv {
   const functions: RunnerModuleScope['functions'] = new Map();
   const classes: RunnerModuleScope['classes'] = new Map();
@@ -40,6 +42,7 @@ function stateClassEnv(
   };
   markRunnerMachineClassBinding(box);
   classes.set('Box', box);
+  for (const helper of helpers) functions.set(helper.name, { ...helper, module: scope });
   markRunnerMachineRootScope(scope);
   return makeEnv({
     ...overrides,
@@ -91,15 +94,14 @@ describe('M3.26 same-root state-only class ownership', () => {
   });
 
   test('selects machine when the linked root function map contains the entry function', () => {
-    const env = stateClassEnv();
-    const scope = env.runnerClasses?.get('Box')?.module;
-    scope?.functions.set('main', {
-      body: stateProgram,
-      module: scope,
-      name: 'main',
-      params: [],
-      returns: 'void',
-    });
+    const env = stateClassEnv({}, {}, [
+      {
+        body: stateProgram,
+        name: 'main',
+        params: [],
+        returns: 'void',
+      },
+    ]);
 
     expect(selectSourceRunnerEngine(stateProgram, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
   });
@@ -413,15 +415,14 @@ describe('M3.26 same-root state-only class ownership', () => {
     ];
     expect(selectSourceRunnerEngine(undeclared, stateClassEnv(), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
 
-    const env = stateClassEnv();
-    const scope = env.runnerClasses?.get('Box')?.module;
-    scope?.functions.set('identity', {
-      body: [{ type: 'return', props: { value: 'value' } }],
-      module: scope,
-      name: 'identity',
-      params: ['value'],
-      returns: 'number',
-    });
+    const env = stateClassEnv({}, {}, [
+      {
+        body: [{ type: 'return', props: { value: 'value' } }],
+        name: 'identity',
+        params: ['value'],
+        returns: 'number',
+      },
+    ]);
     expect(selectSourceRunnerEngine([{ type: 'print', props: { value: 'identity(1)' } }], env, {})).toBe(
       SOURCE_RUNNER_ENGINE.machine,
     );

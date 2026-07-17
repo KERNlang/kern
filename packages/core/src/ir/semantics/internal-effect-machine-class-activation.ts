@@ -47,6 +47,8 @@ export function initializeInternalMachineClassFields(
   evaluate: EvalPortableValue,
 ): Record<string, unknown> {
   const fields = Object.create(null) as Record<string, unknown>;
+  // Whole-graph preflight admits only closed field expressions before handler
+  // locals exist, so caller bindings cannot become class initializer inputs.
   for (const candidate of internalMachineClassLineageBaseFirst(cls, registry)) {
     initializeInternalMachineClassLayerFields(candidate, fields, env, evaluate);
   }
@@ -86,16 +88,18 @@ export function makeInternalMachineClassConstructorEnv(
   values: readonly PortableScalar[],
   env: SemanticEnv,
   registry: ReadonlyMap<string, RunnerClassBinding>,
+  stackLabel = `${cls.name}.constructor`,
 ): SemanticEnv {
   const params = cls.constructor?.params ?? [];
+  const scope = cls.module;
   return makeEnv({
     bindings: new Map(params.map((param, index) => [param, values[index]])),
     capabilities: env.capabilities,
     capabilityContext: env.capabilityContext,
     runnerCallCache: env.runnerCallCache,
-    runnerCallStack: [...(env.runnerCallStack ?? []), `${cls.name}.constructor`],
-    runnerClasses: new Map(registry),
-    runnerFunctions: env.runnerFunctions,
+    runnerCallStack: [...(env.runnerCallStack ?? []), stackLabel],
+    runnerClasses: scope?.classes ?? new Map(registry),
+    runnerFunctions: scope?.functions ?? env.runnerFunctions,
     runnerSuperClass: cls.extendsName,
     runnerThis: instance,
     seed: env.seed,
@@ -110,15 +114,17 @@ export function makeInternalMachineClassMemberEnv(
   values: readonly PortableScalar[],
   env: SemanticEnv,
   registry: ReadonlyMap<string, RunnerClassBinding>,
+  stackLabel = `${cls.name}.${member.name}`,
 ): SemanticEnv {
+  const scope = cls.module;
   return makeEnv({
     bindings: new Map(member.params.map((param, index) => [param, values[index]])),
     capabilities: env.capabilities,
     capabilityContext: env.capabilityContext,
     runnerCallCache: env.runnerCallCache,
-    runnerCallStack: [...(env.runnerCallStack ?? []), `${cls.name}.${member.name}`],
-    runnerClasses: new Map(registry),
-    runnerFunctions: env.runnerFunctions,
+    runnerCallStack: [...(env.runnerCallStack ?? []), stackLabel],
+    runnerClasses: scope?.classes ?? new Map(registry),
+    runnerFunctions: scope?.functions ?? env.runnerFunctions,
     runnerSuperClass: cls.extendsName,
     runnerThis: instance,
     seed: env.seed,

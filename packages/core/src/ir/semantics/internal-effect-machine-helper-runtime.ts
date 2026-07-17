@@ -7,6 +7,7 @@ import {
   bindInternalEffectMachineState,
   internalEffectMachineStateForEnv,
 } from './internal-effect-machine-helper-state.js';
+import { internalMachineFunctionForEnv } from './internal-effect-machine-module-graph.js';
 import {
   InternalEffectMachineHelperPending,
   type InternalEffectMachineState,
@@ -21,20 +22,16 @@ import {
   type PortableScalar,
   type RunnerPortableValue,
 } from './portable-scalar-domain.js';
-import { getBinding, hasBinding, makeEnv, type SemanticEnv } from './semantic-env.js';
+import { getBinding, hasBinding, makeEnv, type RunnerFunctionBinding, type SemanticEnv } from './semantic-env.js';
 import type { TraceEvent } from './trace.js';
 
 // Frozen native-runner semantics, shared with the compatibility helper owner.
 const RUNNER_CALL_DEPTH_LIMIT = 512;
 const RUNNER_CALL_CACHE_LIMIT = 1024;
 
-function helperCacheKey(
-  name: string,
-  values: readonly RunnerPortableValue[],
-  provenance: readonly boolean[],
-): string | undefined {
+function helperCacheKey(values: readonly RunnerPortableValue[], provenance: readonly boolean[]): string | undefined {
   try {
-    return `machine-helper:${JSON.stringify([name, values.map((value, index) => [value, provenance[index]])])}`;
+    return JSON.stringify(values.map((value, index) => [value, provenance[index]]));
   } catch {
     return undefined;
   }
@@ -60,14 +57,21 @@ export function evalInternalMachineHelperArgumentValue(
   return evaluate(node, env);
 }
 
-function helperCache(state: InternalEffectMachineState): Map<string, unknown> {
-  return (state.helperCallCache ??= new Map());
+function helperCache(state: InternalEffectMachineState, fn: RunnerFunctionBinding): Map<string, unknown> {
+  const caches = (state.helperCallCache ??= new Map());
+  let cache = caches.get(fn);
+  if (!cache) {
+    cache = new Map();
+    caches.set(fn, cache);
+  }
+  return cache;
 }
 
 interface PreparedHelperCall {
   readonly cache: Map<string, unknown>;
   readonly cacheKey: string | undefined;
   readonly env: SemanticEnv;
+  readonly fn: RunnerFunctionBinding;
   readonly intProvenance: ReadonlySet<string>;
   readonly name: string;
   readonly state: InternalEffectMachineState;
@@ -81,7 +85,9 @@ function prepareHelperCallFromValues(
   env: SemanticEnv,
 ): PreparedHelperCall {
   const state = internalEffectMachineStateForEnv(env);
-  const fn = state?.helperRegistry?.get(name);
+  const fn = state?.moduleGraph
+    ? internalMachineFunctionForEnv(state.moduleGraph, env, name)
+    : state?.helperRegistry?.get(name);
   if (!state || !fn || !state.helperBodyRunner) {
     throw new Error(`portable machine: function call "${name}" is outside the machine scalar domain`);
   }
@@ -97,9 +103,10 @@ function prepareHelperCallFromValues(
     if (provenance[index]) intProvenance.add(fn.params[index]);
   }
   return {
-    cache: helperCache(state),
-    cacheKey: helperCacheKey(name, values, provenance),
+    cache: helperCache(state, fn),
+    cacheKey: helperCacheKey(values, provenance),
     env,
+    fn,
     intProvenance,
     name,
     state,
@@ -114,7 +121,9 @@ function prepareHelperCall(
   evaluate: EvalPortableValue,
 ): PreparedHelperCall {
   const state = internalEffectMachineStateForEnv(env);
-  const fn = state?.helperRegistry?.get(name);
+  const fn = state?.moduleGraph
+    ? internalMachineFunctionForEnv(state.moduleGraph, env, name)
+    : state?.helperRegistry?.get(name);
   if (!state || !fn || !state.helperBodyRunner) {
     throw new Error(`portable machine: function call "${name}" is outside the machine scalar domain`);
   }
@@ -147,17 +156,21 @@ function rememberHelperValue(call: PreparedHelperCall, value: RunnerPortableValu
 }
 
 function executePreparedHelper(call: PreparedHelperCall): RunnerPortableValue {
-  const fn = call.state.helperRegistry?.get(call.name);
+  const fn = call.fn;
   const bodyRunner = call.state.helperBodyRunner;
   if (!fn || !bodyRunner) throw new Error(`portable machine: helper "${call.name}" is unavailable`);
   const bindings = new Map(fn.params.map((param, index) => [param, call.values[index]]));
+  const scope = fn.module;
+  if (!scope) throw new Error(`portable machine: helper "${call.name}" has no defining module`);
+  const identity = call.state.moduleGraph?.functionIdentity.get(fn);
+  const stackLabel = identity === undefined ? call.name : `module-function:${identity}:${fn.name}`;
   const callEnv = makeEnv({
     bindings,
     intProvenance: new Set(call.intProvenance),
     runnerCallCache: call.cache,
-    runnerCallStack: [...(call.env.runnerCallStack ?? []), call.name],
-    runnerClasses: call.env.runnerClasses,
-    runnerFunctions: new Map(call.state.helperRegistry),
+    runnerCallStack: [...(call.env.runnerCallStack ?? []), stackLabel],
+    runnerClasses: scope.classes,
+    runnerFunctions: scope.functions,
     seed: call.env.seed,
     now: call.env.now,
   });
@@ -191,17 +204,21 @@ export function* evalInternalMachineHelperFrame(
   const call = prepareHelperCallFromValues(name, values, provenance, env);
   const cached = cachedHelperValue(call);
   if (cached !== undefined) return { events: [], value: cached };
-  const fn = call.state.helperRegistry?.get(call.name);
+  const fn = call.fn;
   const bodyRunner = call.state.helperBodyRunner;
   if (!fn || !bodyRunner) throw new Error(`portable machine: helper "${call.name}" is unavailable`);
   const bindings = new Map(fn.params.map((param, index) => [param, call.values[index]]));
+  const scope = fn.module;
+  if (!scope) throw new Error(`portable machine: helper "${call.name}" has no defining module`);
+  const identity = call.state.moduleGraph?.functionIdentity.get(fn);
+  const stackLabel = identity === undefined ? call.name : `module-function:${identity}:${fn.name}`;
   const callEnv = makeEnv({
     bindings,
     intProvenance: new Set(call.intProvenance),
     runnerCallCache: call.cache,
-    runnerCallStack: [...(call.env.runnerCallStack ?? []), call.name],
-    runnerClasses: call.env.runnerClasses,
-    runnerFunctions: new Map(call.state.helperRegistry),
+    runnerCallStack: [...(call.env.runnerCallStack ?? []), stackLabel],
+    runnerClasses: scope.classes,
+    runnerFunctions: scope.functions,
     seed: call.env.seed,
     now: call.env.now,
   });

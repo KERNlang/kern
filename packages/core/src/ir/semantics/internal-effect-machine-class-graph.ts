@@ -8,13 +8,19 @@ import {
   internalMachineClassVisibleFields,
 } from './internal-effect-machine-class-lineage.js';
 import { internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
+import {
+  assertInternalMachineModuleGraph,
+  type InternalMachineModuleGraph,
+  internalMachineClassForEnv,
+  internalMachineModuleScopeForEnv,
+} from './internal-effect-machine-module-graph.js';
 import { lambdaRequiresIterationBudget } from './lambda-preflight.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
-import { isRunnerMachineClassBinding, runnerMachineRootScope } from './runner-machine-scope.js';
 import type { RunnerClassBinding, RunnerClassMemberBinding, RunnerModuleScope, SemanticEnv } from './semantic-env.js';
 
 export interface InternalMachineClassGraph {
   readonly classes: ReadonlyMap<string, RunnerClassBinding>;
+  readonly moduleGraph: InternalMachineModuleGraph;
   readonly requiresIterationBudget: boolean;
 }
 
@@ -34,46 +40,6 @@ function classBodyRequiresIterationBudget(nodes: readonly IRNode[]): boolean {
     for (const child of node.children ?? []) pending.push(child);
   }
   return false;
-}
-
-function snapshotNode(node: IRNode): IRNode {
-  return {
-    type: node.type,
-    ...(node.loc ? { loc: { ...node.loc } } : {}),
-    ...(node.props ? { props: { ...node.props } } : {}),
-    ...(node.__quotedProps ? { __quotedProps: [...node.__quotedProps] } : {}),
-    ...(node.children ? { children: node.children.map(snapshotNode) } : {}),
-  };
-}
-
-function snapshotClassBinding(cls: RunnerClassBinding): RunnerClassBinding {
-  const snapshotMember = (member: RunnerClassMemberBinding): RunnerClassMemberBinding => ({
-    body: member.body.map(snapshotNode),
-    ...(member.handler ? { handler: snapshotNode(member.handler) } : {}),
-    name: member.name,
-    ownerClass: member.ownerClass,
-    params: [...member.params],
-  });
-  return {
-    name: cls.name,
-    ...(cls.extendsName !== undefined ? { extendsName: cls.extendsName } : {}),
-    fields: cls.fields.map((field) => ({
-      name: field.name,
-      value: field.value,
-    })),
-    constructor: cls.constructor
-      ? {
-          name: cls.constructor.name,
-          ownerClass: cls.constructor.ownerClass,
-          params: [...cls.constructor.params],
-          body: cls.constructor.body.map(snapshotNode),
-          ...(cls.constructor.handler ? { handler: snapshotNode(cls.constructor.handler) } : {}),
-        }
-      : undefined,
-    methods: new Map([...cls.methods].map(([name, member]) => [name, snapshotMember(member)])),
-    getters: new Map([...cls.getters].map(([name, member]) => [name, snapshotMember(member)])),
-    module: cls.module,
-  };
 }
 
 function assertGetter(key: string, getter: RunnerClassMemberBinding, cls: RunnerClassBinding): void {
@@ -127,14 +93,14 @@ function assertConstructor(cls: RunnerClassBinding): void {
 }
 
 function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerModuleScope): void {
-  if (!isRunnerMachineClassBinding(cls)) {
-    throw new Error(`machine class: "${key}" is not linker-owned`);
-  }
-  if (cls.name !== key || !isPortableBindingName(cls.name)) {
+  if (!isPortableBindingName(key) || !isPortableBindingName(cls.name)) {
     throw new Error(`machine class: invalid binding name "${key}"`);
   }
-  if (cls.module?.functions !== scope.functions || cls.module.classes !== scope.classes) {
-    throw new Error(`machine class: "${key}" is not defined in the selected root module`);
+  if (!cls.module || cls.module.classes.get(cls.name) !== cls) {
+    throw new Error(`machine class: "${key}" has invalid defining-module identity`);
+  }
+  if (scope.classes.get(key) !== cls) {
+    throw new Error(`machine class: "${key}" is not bound in the selected module`);
   }
   if (cls.extendsName !== undefined && !isPortableBindingName(cls.extendsName)) {
     throw new Error(`machine class: invalid base class name for "${key}"`);
@@ -156,17 +122,19 @@ function assertClassBinding(key: string, cls: RunnerClassBinding, scope: RunnerM
 }
 
 export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachineClassGraph {
-  const classes = env.runnerClasses;
-  if (!classes || classes.size === 0) return { classes: new Map(), requiresIterationBudget: false };
-  if (!env.runnerFunctions) throw new Error('machine class: root function scope is missing');
-  const scope = runnerMachineRootScope(env.runnerFunctions, classes);
-  if (!scope) throw new Error('machine class: root scope is not linker-owned');
-  for (const [key, cls] of classes) assertClassBinding(key, cls, scope);
-  assertInternalMachineClassInheritance(classes);
-  const snapshots = new Map([...classes].map(([name, cls]) => [name, snapshotClassBinding(cls)]));
+  const moduleGraph = assertInternalMachineModuleGraph(env);
+  const seen = new Set<RunnerClassBinding>();
+  for (const scope of moduleGraph.scopes) {
+    for (const [key, cls] of scope.classes) {
+      assertClassBinding(key, cls, scope);
+      seen.add(cls);
+    }
+    assertInternalMachineClassInheritance(scope.classes);
+  }
   return {
-    classes: snapshots,
-    requiresIterationBudget: [...snapshots.values()].some((cls) =>
+    classes: moduleGraph.root.classes,
+    moduleGraph,
+    requiresIterationBudget: [...seen].some((cls) =>
       [...(cls.constructor ? [cls.constructor] : []), ...cls.methods.values(), ...cls.getters.values()].some((member) =>
         classBodyRequiresIterationBudget(member.body),
       ),
@@ -335,7 +303,7 @@ export function internalMachineClassGraphClaims(nodes: readonly IRNode[], env: S
 
 export function internalMachineClassGraphHasClasses(env: SemanticEnv): boolean {
   try {
-    return assertInternalMachineClassGraph(env).classes.size > 0;
+    return assertInternalMachineClassGraph(env).moduleGraph.scopes.some((scope) => scope.classes.size > 0);
   } catch {
     return false;
   }
@@ -358,19 +326,38 @@ export function internalMachineClassForNew(node: ValueIR, env: SemanticEnv): Run
   ) {
     return undefined;
   }
-  const admitted = internalEffectMachineStateForEnv(env)?.classRegistry?.get(node.argument.callee.name);
+  const state = internalEffectMachineStateForEnv(env);
+  const admitted = state?.moduleGraph
+    ? internalMachineClassForEnv(state.moduleGraph, env, node.argument.callee.name)
+    : state?.classRegistry?.get(node.argument.callee.name);
   if (admitted) return admitted;
   const cls = env.runnerClasses?.get(node.argument.callee.name);
   if (!cls) return undefined;
   try {
-    return assertInternalMachineClassGraph(env).classes.get(cls.name);
+    return assertInternalMachineClassGraph(env).classes.get(node.argument.callee.name);
   } catch {
     return undefined;
   }
 }
 
 export function internalMachineClassRegistryForEnv(env: SemanticEnv): ReadonlyMap<string, RunnerClassBinding> {
-  return internalEffectMachineStateForEnv(env)?.classRegistry ?? assertInternalMachineClassGraph(env).classes;
+  const state = internalEffectMachineStateForEnv(env);
+  if (state?.moduleGraph) {
+    const scope = internalMachineModuleScopeForEnv(state.moduleGraph, env);
+    if (scope) return scope.classes;
+  }
+  return state?.classRegistry ?? assertInternalMachineClassGraph(env).classes;
+}
+
+function internalMachineClassRegistryForReceiver(
+  env: SemanticEnv,
+  receiver: { readonly module?: RunnerModuleScope },
+): ReadonlyMap<string, RunnerClassBinding> {
+  const state = internalEffectMachineStateForEnv(env);
+  if (state?.moduleGraph && receiver.module && state.moduleGraph.scopes.includes(receiver.module)) {
+    return receiver.module.classes;
+  }
+  return internalMachineClassRegistryForEnv(env);
 }
 
 export interface InternalMachineClassMethodCall {
@@ -392,7 +379,7 @@ export function internalMachineClassGetterForRead(
   if (node.optional || node.object.kind !== 'ident' || node.object.name === 'super') return undefined;
   const receiver = internalMachineClassReceiver(node.object.name, env);
   if (!receiver || Object.hasOwn(receiver.fields, node.property)) return undefined;
-  const registry = internalMachineClassRegistryForEnv(env);
+  const registry = internalMachineClassRegistryForReceiver(env, receiver);
   const cls = registry.get(receiver.className);
   const resolved = cls ? internalMachineClassMemberFor(cls, node.property, 'getter', registry) : undefined;
   return resolved ? { cls: resolved.cls, getter: resolved.member, receiverName: node.object.name } : undefined;
@@ -415,7 +402,7 @@ export function internalMachineClassMethodForCall(
     const receiver = internalMachineClassReceiver('this', env);
     const baseName = env.runnerSuperClass;
     if (!receiver || !baseName) return undefined;
-    const registry = internalMachineClassRegistryForEnv(env);
+    const registry = internalMachineClassRegistryForReceiver(env, receiver);
     const base = registry.get(baseName);
     const resolved = base ? internalMachineClassMemberFor(base, node.callee.property, 'method', registry) : undefined;
     return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: 'this' } : undefined;
@@ -423,14 +410,14 @@ export function internalMachineClassMethodForCall(
   if (node.callee.object.name === 'this') {
     const receiver = internalMachineClassReceiver('this', env);
     if (!receiver) return undefined;
-    const registry = internalMachineClassRegistryForEnv(env);
+    const registry = internalMachineClassRegistryForReceiver(env, receiver);
     const cls = registry.get(receiver.className);
     const resolved = cls ? internalMachineClassMemberFor(cls, node.callee.property, 'method', registry) : undefined;
     return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: 'this' } : undefined;
   }
   const receiver = internalMachineClassReceiver(node.callee.object.name, env);
   if (!receiver) return undefined;
-  const registry = internalMachineClassRegistryForEnv(env);
+  const registry = internalMachineClassRegistryForReceiver(env, receiver);
   const cls = registry.get(receiver.className);
   const resolved = cls ? internalMachineClassMemberFor(cls, node.callee.property, 'method', registry) : undefined;
   return resolved ? { cls: resolved.cls, method: resolved.member, receiverName: node.callee.object.name } : undefined;

@@ -7,7 +7,7 @@ import {
 import type { IRNode } from '../src/types.js';
 import { classHelperEnv, helper, member } from './runtime-envelope-effect-machine-class-helper-fixtures.js';
 
-function remoteMethodEnv(provider: () => number) {
+function remoteMethodEnv(provider: () => number, additionalHelpers: readonly ReturnType<typeof helper>[] = []) {
   return classHelperEnv({
     capabilities: { storage: { get: provider } },
     classes: [
@@ -36,6 +36,7 @@ function remoteMethodEnv(provider: () => number) {
           { type: 'return', props: { value: 'item.read()' } },
         ],
       ),
+      ...additionalHelpers,
     ],
   });
 }
@@ -116,25 +117,10 @@ describe('M3.31b2c2 resumable helper-to-class effects', () => {
     const env = remoteMethodEnv(() => {
       providerCalls += 1;
       return 5;
-    });
-    const scope = env.runnerFunctions;
-    expect(scope).toBeDefined();
-    const module = scope?.get('readRemote')?.module;
-    expect(module).toBeDefined();
-    module?.functions.set('decorate', {
-      body: [{ type: 'return', props: { value: 'value + 10' } }],
-      module,
-      name: 'decorate',
-      params: ['value'],
-      returns: 'number',
-    });
-    module?.functions.set('wrappedRemote', {
-      body: [{ type: 'return', props: { value: 'decorate(readRemote())' } }],
-      module,
-      name: 'wrappedRemote',
-      params: [],
-      returns: 'number',
-    });
+    }, [
+      helper('decorate', ['value'], [{ type: 'return', props: { value: 'value + 10' } }]),
+      helper('wrappedRemote', [], [{ type: 'return', props: { value: 'decorate(readRemote())' } }]),
+    ]);
     const nodes: readonly IRNode[] = [{ type: 'return', props: { value: 'wrappedRemote()' } }];
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
@@ -168,16 +154,7 @@ describe('M3.31b2c2 resumable helper-to-class effects', () => {
     const env = remoteMethodEnv(() => {
       providerCalls += 1;
       return 5;
-    });
-    const module = env.runnerFunctions?.get('readRemote')?.module;
-    expect(module).toBeDefined();
-    module?.functions.set(helperName, {
-      body: [{ type: 'return', props: { value: bodyValue } }],
-      module,
-      name: helperName,
-      params: [paramName],
-      returns: 'number',
-    });
+    }, [helper(helperName, [paramName], [{ type: 'return', props: { value: bodyValue } }])]);
     const nodes: readonly IRNode[] = [{ type: 'return', props: { value: expression } }];
 
     expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);

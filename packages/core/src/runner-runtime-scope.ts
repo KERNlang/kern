@@ -8,6 +8,7 @@ import type {
   RunnerModuleScope,
 } from './ir/semantics/semantic-env.js';
 import { KernRunnerError } from './runner-error.js';
+import { moduleLinkErrors } from './runner-module-link.js';
 import type { IRNode } from './types.js';
 
 function topLevelNodes(root: IRNode): readonly IRNode[] {
@@ -211,6 +212,90 @@ export function validateRunnerCallableNames(
       throw new KernRunnerError(`runner class '${name}' conflicts with runner function '${name}'`);
     }
   }
+}
+
+export interface RunnerLinkedScopeExport {
+  readonly kind: 'class' | 'fn';
+  readonly sourceName: string;
+}
+
+export interface RunnerLinkedScopeImport {
+  readonly exportOnly: boolean;
+  readonly importedName: string;
+  readonly localName: string;
+  readonly targetPath: string;
+}
+
+export interface RunnerLinkedScopeRecord {
+  readonly classes: ReadonlyMap<string, RunnerClassBinding>;
+  readonly exports: ReadonlyMap<string, RunnerLinkedScopeExport>;
+  readonly functions: ReadonlyMap<string, RunnerFunctionBinding>;
+  readonly imports: readonly RunnerLinkedScopeImport[];
+  readonly path: string;
+}
+
+/** Build one identity-preserving runtime scope per already-validated linked module. */
+export function buildRunnerModuleScopes(records: readonly RunnerLinkedScopeRecord[]): Map<string, RunnerModuleScope> {
+  const byPath = new Map(records.map((record) => [record.path, record]));
+  const scopes = new Map<string, RunnerModuleScope>();
+  for (const record of records) {
+    const scope: RunnerModuleScope = { functions: new Map(), classes: new Map() };
+    for (const [name, binding] of record.functions) scope.functions.set(name, { ...binding, module: scope });
+    for (const [name, binding] of record.classes) {
+      const scopedBinding = { ...binding, module: scope };
+      markRunnerMachineClassBinding(scopedBinding);
+      scope.classes.set(name, scopedBinding);
+    }
+    scopes.set(record.path, scope);
+  }
+
+  const resolveExport = (
+    path: string,
+    name: string,
+    seen: Set<string>,
+  ): { readonly kind: 'class' | 'fn'; readonly binding: RunnerClassBinding | RunnerFunctionBinding } | undefined => {
+    const key = `${path}\u0000${name}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    const record = byPath.get(path);
+    const scope = scopes.get(path);
+    if (!record || !scope) return undefined;
+    // Additive re-exports are import edges, so follow them before consulting
+    // own exports. Own exports always name declarations allocated in pass one;
+    // they never depend on another module's pass-two import wiring.
+    const reexport = record.imports.find((imported) => imported.exportOnly && imported.localName === name);
+    if (reexport) return resolveExport(reexport.targetPath, reexport.importedName, seen);
+    const exported = record.exports.get(name);
+    if (exported?.kind === 'fn') {
+      const binding = scope.functions.get(exported.sourceName);
+      if (binding) return { binding, kind: 'fn' };
+    } else if (exported?.kind === 'class') {
+      const binding = scope.classes.get(exported.sourceName);
+      if (binding) return { binding, kind: 'class' };
+    }
+    return undefined;
+  };
+
+  for (const record of records) {
+    const scope = scopes.get(record.path);
+    if (!scope) continue;
+    for (const imported of record.imports) {
+      const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
+      if (!resolved) {
+        throw new KernRunnerError(
+          moduleLinkErrors.doesNotExport(imported.targetPath, imported.importedName, record.path),
+        );
+      }
+      if (scope.functions.has(imported.localName) || scope.classes.has(imported.localName)) {
+        throw new KernRunnerError(moduleLinkErrors.aliasConflicts(imported.localName, record.path));
+      }
+      if (resolved.kind === 'fn') scope.functions.set(imported.localName, resolved.binding as RunnerFunctionBinding);
+      else scope.classes.set(imported.localName, resolved.binding as RunnerClassBinding);
+    }
+    validateRunnerCallableNames(scope.functions, scope.classes);
+    assertRunnerClassAcyclic(scope.classes);
+  }
+  return scopes;
 }
 
 export function buildSingleModuleRunnerRootScope(root: IRNode): RunnerModuleScope {

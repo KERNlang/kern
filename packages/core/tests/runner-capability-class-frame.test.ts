@@ -89,7 +89,27 @@ describe('M3.31a class-frame capability planning', () => {
     ).toEqual([]);
   });
 
-  test('keeps an imported class frame unsupported even when its capability is reachable', () => {
+  test('preserves root capability reachability when machine structure admission rejects', () => {
+    const source = [
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    try',
+      '      capability namespace=llm operation=complete name=body input="{ prompt: \\"body\\" }"',
+      '      finally',
+      '        capability namespace=llm operation=complete name=cleanup input="{ prompt: \\"cleanup\\" }"',
+      '        return value="1"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, provided);
+
+    expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual([
+      'llm.complete',
+      'llm.complete',
+    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('owns an imported class frame when its capability is reachable', () => {
     const remoteSource = [
       'class name=RemoteLabel export=true',
       '  method name=read returns=string',
@@ -117,13 +137,12 @@ describe('M3.31a class-frame capability planning', () => {
       },
     });
 
+    expect(analysis.parseDiagnostics.filter((diagnostic) => diagnostic.severity === 'error')).toEqual([]);
     expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
-  test('keeps an imported helper called from a local class frame unsupported', () => {
+  test('owns an imported helper called from a local class frame', () => {
     const remoteSource = [
       'fn name=decorate export=true returns=string',
       '  param name=value type=string',
@@ -156,8 +175,124 @@ describe('M3.31a class-frame capability planning', () => {
     });
 
     expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('follows an imported helper into its defining module private class', () => {
+    const remoteSource = [
+      'class name=PrivateLabel',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"private\\" }"',
+      '      return value="answer"',
+      'fn name=readRemote export=true returns=string',
+      '  handler lang="kern"',
+      '    let name=label value="new PrivateLabel()"',
+      '    return value="label.read()"',
+    ].join('\n');
+    const rootSource = [
+      'use path="./remote"',
+      '  from name=readRemote kind=fn as=readPrivate',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="readPrivate()"',
+    ].join('\n');
+    const analysis = analyzeKernSourceCapabilities(rootSource, {
+      ...provided,
+      sourcePath: '/app/main.kern',
+      moduleLoader: {
+        resolve: (specifier) => (specifier === './remote' ? '/app/remote.kern' : null),
+        readSource: (path) => {
+          if (path !== '/app/remote.kern') throw new Error(`unexpected module: ${path}`);
+          return remoteSource;
+        },
+      },
+    });
+
+    expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('keeps class identity through an aliased additive re-export', () => {
+    const modules = new Map([
+      [
+        '/app/leaf.kern',
+        [
+          'class name=RemoteLabel export=true',
+          '  method name=read returns=string',
+          '    handler lang="kern"',
+          '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"leaf\\" }"',
+          '      return value="answer"',
+        ].join('\n'),
+      ],
+      [
+        '/app/bridge.kern',
+        ['use path="./leaf"', '  from name=RemoteLabel kind=class as=Forwarded export=true'].join('\n'),
+      ],
+    ]);
+    const rootSource = [
+      'use path="./bridge"',
+      '  from name=Forwarded kind=class as=ImportedLabel',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new ImportedLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+    const analysis = analyzeKernSourceCapabilities(rootSource, {
+      ...provided,
+      sourcePath: '/app/main.kern',
+      moduleLoader: {
+        resolve: (specifier) => {
+          if (specifier === './bridge') return '/app/bridge.kern';
+          if (specifier === './leaf') return '/app/leaf.kern';
+          return null;
+        },
+        readSource: (path) => {
+          const source = modules.get(path);
+          if (!source) throw new Error(`unexpected module: ${path}`);
+          return source;
+        },
+      },
+    });
+
+    expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('does not plan an unused effectful member on an imported class', () => {
+    const remoteSource = [
+      'class name=RemoteLabel export=true',
+      '  method name=local returns=string',
+      '    handler lang="kern"',
+      '      return value="\\"local\\""',
+      '  method name=remote returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"remote\\" }"',
+      '      return value="answer"',
+    ].join('\n');
+    const rootSource = [
+      'use path="./remote"',
+      '  from name=RemoteLabel kind=class as=ImportedLabel',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new ImportedLabel()"',
+      '    print value="label.local()"',
+    ].join('\n');
+    const analysis = analyzeKernSourceCapabilities(rootSource, {
+      ...provided,
+      sourcePath: '/app/main.kern',
+      moduleLoader: {
+        resolve: (specifier) => (specifier === './remote' ? '/app/remote.kern' : null),
+        readSource: (path) => {
+          if (path !== '/app/remote.kern') throw new Error(`unexpected module: ${path}`);
+          return remoteSource;
+        },
+      },
+    });
+
+    expect(analysis.executableAsyncPlannedCapabilities).toEqual([]);
     expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
+      expect.objectContaining({ id: 'llm.complete', reason: 'outside-main' }),
     ]);
   });
 

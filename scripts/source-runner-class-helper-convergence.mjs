@@ -7,6 +7,7 @@ export const CLASS_HELPER_FILES = Object.freeze({
     'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse-boundary.test.ts',
   classHelperReverseTests: 'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse.test.ts',
   classHelperRuntime: 'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts',
+  moduleGraph: 'packages/core/src/ir/semantics/internal-effect-machine-module-graph.ts',
   helperArgumentPreflight:
     'packages/core/src/ir/semantics/internal-effect-machine-helper-argument-preflight.ts',
   helperPreflight: 'packages/core/src/ir/semantics/internal-effect-machine-helper-preflight.ts',
@@ -56,20 +57,21 @@ export function validateClassHelperManifest(manifest, errors) {
 
 export function validateClassHelperSlice(contents, errors) {
   for (const required of [
-    'collectClassBodyCalls(admittedClasses, scope.functions, pending)',
-    'assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env)',
-    'snapshotFunctionBinding(fn)',
-    'structuredClone(node.props)',
-    'structuredClone(fn.returns)',
+    'collectClassBodyCalls(scope.classes, pending)',
+    'assertInternalMachineHelperClassComposition(fn.body, defining.classes, helperEnv)',
+    'ReadonlySet<RunnerFunctionBinding>',
     'assertScalarHelperContracts(functions, env, classScalarReturns)',
     'assertPortableMachineScalarShape(parseExpression(value), env, isScalarHelperCall, isPortableHelperCall)',
-    'if (composition.composesClass) directResumableHelpers.add(name)',
-    'helperCalls.set(name, nested)',
-    'resumableHelperNames: transitiveResumableHelpers(directResumableHelpers, helperCalls)',
+    'if (composition.composesClass) directResumableHelpers.add(fn)',
+    'helperCalls.set(fn, nested)',
+    'const resumableHelpers = transitiveResumableHelpers(directResumableHelpers, helperCalls)',
   ]) {
     if (!contents.classHelperGraph?.includes(required)) {
       errors.push(`class-body helper reachability owner is missing ${required}`);
     }
+  }
+  for (const required of ['props: structuredClone(node.props)', 'returns: structuredClone(binding.returns)']) {
+    if (!contents.moduleGraph?.includes(required)) errors.push(`class-body helper snapshot owner is missing ${required}`);
   }
   for (const required of [
     'internalMachineClassLineageBaseFirst',
@@ -112,7 +114,7 @@ export function validateClassHelperSlice(contents, errors) {
       errors.push(`helper scalar return contract owner is missing ${required}`);
     }
   }
-  const frozenHelperRegistry = 'runnerFunctions: new Map(call.state.helperRegistry)';
+  const frozenHelperRegistry = 'runnerFunctions: scope.functions';
   if ((contents.classHelperRuntime?.split(frozenHelperRegistry).length ?? 1) - 1 !== 2) {
     errors.push('both helper execution paths must use the snapshotted helper registry for nested call shape');
   }
@@ -155,9 +157,9 @@ export function validateClassHelperSlice(contents, errors) {
     errors.push('scalar helper proof must preserve portable composite helper arguments');
   }
   const registry = contents.nonRootRuntime?.indexOf(
-    'const helperGraph = assertInternalMachineHelperGraph(nodes, env, state.classRegistry)',
+    'const helperGraph = assertInternalMachineHelperGraph(nodes, env, classGraph)',
   );
-  const resumable = contents.nonRootRuntime?.indexOf('state.resumableHelperNames = helperGraph.resumableHelperNames');
+  const resumable = contents.nonRootRuntime?.indexOf('state.resumableHelpers = helperGraph.resumableHelpers');
   const structure = contents.nonRootRuntime?.indexOf('assertInternalEffectMachineStructureSupported(nodes, env)');
   if (
     registry === undefined ||

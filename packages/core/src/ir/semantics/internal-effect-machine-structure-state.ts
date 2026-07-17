@@ -13,11 +13,14 @@ export function withInternalEffectMachineStructureState<T>(
   advance: () => T,
 ): T {
   if (internalEffectMachineStateForEnv(env)) return advance();
-  const classes = assertInternalMachineClassGraph(env).classes;
-  const helperGraph = assertInternalMachineHelperGraph(nodes, env, classes);
+  const classGraph = assertInternalMachineClassGraph(env);
+  const classes = classGraph.classes;
+  const helperGraph = assertInternalMachineHelperGraph(nodes, env, classGraph);
   const restore = bindInternalEffectMachineState(env, {
     classRegistry: classes,
     helperRegistry: helperGraph.functions,
+    moduleGraph: classGraph.moduleGraph,
+    resumableHelpers: helperGraph.resumableHelpers,
     resumableHelperNames: helperGraph.resumableHelperNames,
     remainingIterations: undefined,
   });

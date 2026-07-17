@@ -1,27 +1,23 @@
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
-import { parseExpression } from './parser-expression.js';
 import {
   ASYNC_CAPABILITY_IDS,
   CAPABILITY_DESCRIPTORS,
   type CapabilityDescriptor,
   type CapabilityId,
 } from './runner-capability-catalog.js';
-import {
-  RUNNER_CAPABILITY_AMBIGUOUS_CLASS,
-  recordRunnerCapabilityClassBinding,
-  resolveRunnerCapabilityClassCall,
-  runnerCapabilityClassAncestry,
-  runnerCapabilityClassCallKey,
-} from './runner-capability-class-dispatch.js';
+import { linkedExecutableKernHandlers } from './runner-capability-linked-handlers.js';
 import {
   collectExecutableRequirements,
   collectUnsupportedAsyncExecutionsAcrossModules,
 } from './runner-capability-requirement-reachability.js';
-import { ownsSingleModuleClassFrames } from './runner-class-frame-capability-admission.js';
+import {
+  type LinkedClassFrameAdmission,
+  linkedClassFrameAdmission,
+} from './runner-class-frame-capability-admission.js';
 import { moduleLinkErrors, ownExplicitExportKinds, type RunnerModuleExportRecord } from './runner-module-link.js';
+import { collectRunnerClasses, collectRunnerFunctions } from './runner-runtime-scope.js';
 import type { IRNode, ParseDiagnostic } from './types.js';
-import type { ValueIR } from './value-ir.js';
 
 export type {
   AsyncCapabilityId,
@@ -32,7 +28,6 @@ export type {
   CapabilitySyncBoundary,
 } from './runner-capability-catalog.js';
 export { CAPABILITY_DESCRIPTORS } from './runner-capability-catalog.js';
-
 export interface CapabilityRequirement {
   readonly id: CapabilityId;
   readonly namespace: string;
@@ -156,21 +151,17 @@ export function analyzeKernSourceCapabilities(
   // imported helper called from main must count exactly as if it lived in the
   // root file (finding: preflight readiness parity across module boundaries).
   const moduleRoots = graph.roots.map((module) => module.root);
-  const unsupportedHandlers = new Set<IRNode>();
   const rootModule = graph.roots.find((module) => module.path === rootPath);
-  const ownsClassFrames = Boolean(
-    rootModule &&
-      graph.roots.length === 1 &&
-      rootModule.imports.length === 0 &&
-      ownsSingleModuleClassFrames(rootModule.root, entryHandlerName, options.iterationBudget),
+  const admission = rootModule
+    ? capabilityLinkedAdmission(graph, rootModule, entryHandlerName, options.iterationBudget)
+    : { ownsClassFrames: false };
+  const executable = linkedExecutableKernHandlers(
+    admission.entryHandler,
+    admission.rootScope,
+    admission.ownsClassFrames,
   );
-  const executableHandlers = crossModuleExecutableHandlers(
-    graph,
-    rootPath,
-    entryHandlerName,
-    unsupportedHandlers,
-    ownsClassFrames,
-  );
+  const executableHandlers = executable.handlers;
+  const unsupportedHandlers = executable.unsupported;
   const executableRequirements = collectExecutableRequirements(moduleRoots, executableHandlers, requirements);
   const executableAsyncPlannedCapabilities = collectExecutableRequirements(
     moduleRoots,
@@ -272,7 +263,7 @@ function parseCapabilityGraph(
     name: string,
     seen: Set<string>,
   ): (RunnerModuleExportRecord & { readonly path: string }) | undefined {
-    const key = `${path} ${name}`;
+    const key = `${path}\u0000${name}`;
     if (seen.has(key)) return undefined;
     seen.add(key);
     const module = modules.get(path);
@@ -432,630 +423,27 @@ function topLevelNodes(root: IRNode): readonly IRNode[] {
   return root.type === 'document' ? (root.children ?? []) : [];
 }
 
-export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new Set();
-
-interface CapabilityModuleScope {
-  readonly path: string;
-  readonly root: IRNode;
-  readonly importedFn: Map<string, { readonly path: string; readonly name: string }>;
-  readonly importedClass: Map<string, { readonly path: string; readonly name: string }>;
-}
-
-function buildCapabilityModuleScopes(graph: {
-  readonly roots: readonly CapabilityGraphModule[];
-}): Map<string, CapabilityModuleScope> {
-  const byPath = new Map(graph.roots.map((module) => [module.path, module]));
-  const scopes = new Map<string, CapabilityModuleScope>();
-
-  function resolveExport(
-    path: string,
-    name: string,
-    seen: Set<string>,
-  ): (RunnerModuleExportRecord & { readonly path: string }) | undefined {
-    const key = `${path} ${name}`;
-    if (seen.has(key)) return undefined;
-    seen.add(key);
-    const module = byPath.get(path);
-    if (!module) return undefined;
-    const own = module.ownExports.get(name);
-    if (own) return { ...own, path };
-    const reexport = module.imports.find((imported) => imported.exportOnly && imported.localName === name);
-    if (reexport && reexport.targetPath !== '') return resolveExport(reexport.targetPath, reexport.importedName, seen);
-    return undefined;
-  }
-
-  for (const module of graph.roots) {
-    const importedFn = new Map<string, { path: string; name: string }>();
-    const importedClass = new Map<string, { path: string; name: string }>();
-    for (const imported of module.imports) {
-      // export=true imports are additive (locally bound AND re-exported), so
-      // they resolve into the local scope exactly like plain imports.
-      if (imported.targetPath === '') continue;
-      const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
-      if (!resolved) continue;
-      if (resolved.kind === 'fn')
-        importedFn.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
-      else importedClass.set(imported.localName, { path: resolved.path, name: resolved.sourceName });
-    }
-    scopes.set(module.path, { path: module.path, root: module.root, importedFn, importedClass });
-  }
-  return scopes;
-}
-
-/**
- * Executable handler nodes reachable from the entry handler ACROSS the linked
- * module graph. Within each module the existing single-file reachability walk is
- * reused unchanged; imported function calls jump to the defining module and the
- * walk continues there. Imported classes that are referenced are treated
- * fail-closed (all members marked executable + unsupported), since class-member
- * capabilities can never execute at runtime.
- */
-function crossModuleExecutableHandlers(
+function capabilityLinkedAdmission(
   graph: { readonly roots: readonly CapabilityGraphModule[] },
-  rootPath: string,
-  entryHandlerName: string,
-  unsupported: Set<IRNode>,
-  rootOwnsClassFrames: boolean,
-): ReadonlySet<IRNode> {
-  const scopes = buildCapabilityModuleScopes(graph);
-  const out = new Set<IRNode>();
-  const visited = new Set<string>();
-  const queue: { path: string; entry: string }[] = [{ path: rootPath, entry: entryHandlerName }];
-  while (queue.length > 0) {
-    const item = queue.pop();
-    if (!item) continue;
-    const key = `${item.path} ${item.entry}`;
-    if (visited.has(key)) continue;
-    visited.add(key);
-    const scope = scopes.get(item.path);
-    if (!scope) continue;
-    const localUnsupported = new Set<IRNode>();
-    const localHandlers = findExecutableKernHandlers(
-      scope.root,
-      item.entry,
-      localUnsupported,
-      scope.path === rootPath && rootOwnsClassFrames,
-    );
-    for (const handler of localHandlers) out.add(handler);
-    for (const handler of localUnsupported) unsupported.add(handler);
-    for (const handler of localHandlers) {
-      for (const name of calledSymbolNames(handler)) {
-        const importedFn = scope.importedFn.get(name);
-        if (importedFn) queue.push({ path: importedFn.path, entry: importedFn.name });
-        const importedClass = scope.importedClass.get(name);
-        if (importedClass) enqueueImportedClassMembers(importedClass, scopes, out, unsupported);
-      }
-    }
-  }
-  return out;
-}
-
-function enqueueImportedClassMembers(
-  ref: { readonly path: string; readonly name: string },
-  scopes: ReadonlyMap<string, CapabilityModuleScope>,
-  out: Set<IRNode>,
-  unsupported: Set<IRNode>,
-): void {
-  const scope = scopes.get(ref.path);
-  if (!scope) return;
-  for (const node of topLevelNodes(scope.root)) {
-    if (node.type !== 'class' || node.props?.name !== ref.name) continue;
-    for (const member of node.children ?? []) {
-      if (member.type !== 'method' && member.type !== 'getter' && member.type !== 'constructor') continue;
-      const handler = previewHelperHandler(member);
-      if (handler) {
-        out.add(handler);
-        unsupported.add(handler);
-      }
-    }
+  rootModule: CapabilityGraphModule,
+  entryName: string,
+  iterationBudget: number | undefined,
+): LinkedClassFrameAdmission {
+  try {
+    const records = graph.roots.map((module) => ({
+      classes: collectRunnerClasses(module.root),
+      exports: module.ownExports,
+      functions: collectRunnerFunctions(module.root),
+      imports: module.imports,
+      path: module.path,
+    }));
+    return linkedClassFrameAdmission(records, rootModule.path, rootModule.root, entryName, iterationBudget);
+  } catch {
+    return { ownsClassFrames: false };
   }
 }
 
-function calledSymbolNames(handler: IRNode): Set<string> {
-  const names = new Set<string>();
-  for (const node of walkNodes(handler)) {
-    for (const expr of supportedHelperCallExpressions(node)) {
-      collectCalledSymbolNames(expr.node, names);
-    }
-  }
-  return names;
-}
-
-function collectCalledSymbolNames(node: ValueIR, names: Set<string>): void {
-  if (node.kind === 'call' && node.callee.kind === 'ident') names.add(node.callee.name);
-  if (node.kind === 'new' && node.argument.kind === 'call' && node.argument.callee.kind === 'ident') {
-    names.add(node.argument.callee.name);
-  }
-  for (const child of allValueChildren(node)) collectCalledSymbolNames(child, names);
-}
-
-function allValueChildren(node: ValueIR): readonly ValueIR[] {
-  switch (node.kind) {
-    case 'unary':
-    case 'spread':
-    case 'await':
-    case 'new':
-    case 'propagate':
-      return [node.argument];
-    case 'binary':
-      return [node.left, node.right];
-    case 'conditional':
-      return [node.test, node.consequent, node.alternate];
-    case 'member':
-      return [node.object];
-    case 'index':
-      return [node.object, node.index];
-    case 'call':
-      return [node.callee, ...node.args];
-    case 'typeAssert':
-    case 'nonNull':
-      return [node.expression];
-    case 'tmplLit':
-      return node.expressions;
-    case 'arrayLit':
-      return node.items.filter((item): item is ValueIR => Boolean(item));
-    case 'objectLit':
-      return node.entries.map((entry) => ('kind' in entry ? entry.argument : entry.value));
-    default:
-      return [];
-  }
-}
-
-function findExecutableKernHandlers(
-  root: IRNode,
-  entryHandlerName: string,
-  unsupported = new Set<IRNode>(),
-  ownsClassFrames = false,
-): ReadonlySet<IRNode> {
-  const out = new Set<IRNode>();
-  const helpers = new Map<string, IRNode>();
-  const classMethods = new Map<string, IRNode[]>();
-  const classMethodsByName = new Map<string, IRNode[]>();
-  const classConstructors = new Map<string, IRNode>();
-  const classExtends = new Map<string, string>();
-  const classFieldInitializers = new Map<string, ValueIR[]>();
-  let entryHandler: IRNode | undefined;
-
-  for (const node of root.children ?? []) {
-    if (node.type === 'fn') {
-      const name = typeof node.props?.name === 'string' ? node.props.name : '';
-      const handler = previewHelperHandler(node);
-      if (!handler) continue;
-      if (name === entryHandlerName) entryHandler = handler;
-      else if (isPreviewHelperFunction(node, name)) helpers.set(name, handler);
-      continue;
-    }
-    if (node.type === 'class') {
-      const className = typeof node.props?.name === 'string' ? node.props.name : '';
-      const extendsName = typeof node.props?.extends === 'string' ? node.props.extends : '';
-      if (className && extendsName) classExtends.set(className, extendsName);
-      for (const member of node.children ?? []) {
-        if (member.type === 'field' && className && typeof member.props?.value === 'string' && member.props.value) {
-          try {
-            const existing = classFieldInitializers.get(className);
-            const parsed = parseExpression(member.props.value);
-            if (existing) existing.push(parsed);
-            else classFieldInitializers.set(className, [parsed]);
-          } catch {
-            // Parser/runtime diagnostics own malformed expressions.
-          }
-          continue;
-        }
-        if (member.type === 'constructor') {
-          const handler = previewHelperHandler(member);
-          if (className && handler) classConstructors.set(className, handler);
-          continue;
-        }
-        if (member.type !== 'method' && member.type !== 'getter') continue;
-        const name = typeof member.props?.name === 'string' ? member.props.name : '';
-        const handler = previewHelperHandler(member);
-        if (!name || !handler) continue;
-        if (className) {
-          const key = `${className}.${name}`;
-          const existing = classMethods.get(key);
-          if (existing) existing.push(handler);
-          else classMethods.set(key, [handler]);
-        }
-        const existingByName = classMethodsByName.get(name);
-        if (existingByName) existingByName.push(handler);
-        else classMethodsByName.set(name, [handler]);
-      }
-    }
-  }
-  if (!entryHandler) return out;
-
-  out.add(entryHandler);
-  const queued = calledExecutableHandlers(
-    entryHandler.children ?? [],
-    helpers,
-    classMethods,
-    classMethodsByName,
-    classConstructors,
-    classExtends,
-    classFieldInitializers,
-    ownsClassFrames,
-  );
-  const visited = new Set<string>();
-  while (queued.length > 0) {
-    const item = queued.pop();
-    if (!item || visited.has(item.key)) continue;
-    visited.add(item.key);
-    const handler = item.handler;
-    if (!handler) continue;
-    out.add(handler);
-    if (item.u) unsupported.add(handler);
-    queued.push(
-      ...calledExecutableHandlers(
-        handler.children ?? [],
-        helpers,
-        classMethods,
-        classMethodsByName,
-        classConstructors,
-        classExtends,
-        classFieldInitializers,
-        ownsClassFrames,
-        item.ownerClass,
-        item.receiverClass,
-      ).map((ref) => (item.u ? { ...ref, u: true } : ref)),
-    );
-  }
-  return out;
-}
-
-interface ExecutableHandlerRef {
-  readonly key: string;
-  readonly handler: IRNode;
-  readonly ownerClass?: string;
-  readonly receiverClass?: string;
-  readonly u?: boolean;
-}
-
-function calledExecutableHandlers(
-  nodes: readonly IRNode[],
-  helpers: ReadonlyMap<string, IRNode>,
-  classMethods: ReadonlyMap<string, readonly IRNode[]>,
-  classMethodsByName: ReadonlyMap<string, readonly IRNode[]>,
-  classConstructors: ReadonlyMap<string, IRNode>,
-  classExtends: ReadonlyMap<string, string>,
-  classFieldInitializers: ReadonlyMap<string, readonly ValueIR[]>,
-  ownsClassFrames: boolean,
-  ownerClass?: string,
-  receiverClass?: string,
-): ExecutableHandlerRef[] {
-  const helperNames = new Set<string>();
-  const methodKeys = new Set<string>();
-  const ambiguousMethodNames = new Set<string>();
-  const constructorNames = new Set<string>();
-  const unsupportedHelperNames = new Set<string>();
-  const classBindings = new Map<string, string>();
-  const superClassName = ownerClass ? classExtends.get(ownerClass) : undefined;
-  for (const node of walkNodes({ type: '__block', children: [...nodes] })) {
-    recordRunnerCapabilityClassBinding(node, classBindings, helpers);
-    for (const expr of supportedHelperCallExpressions(node)) {
-      collectHelperCalls(
-        expr.node,
-        helpers,
-        helperNames,
-        methodKeys,
-        ambiguousMethodNames,
-        constructorNames,
-        classBindings,
-        expr.mode,
-        superClassName,
-        receiverClass,
-      );
-    }
-  }
-  const expandedConstructorNames = new Set<string>();
-  for (let changed = true; changed; ) {
-    changed = false;
-    for (const name of [...constructorNames]) {
-      if (expandedConstructorNames.has(name)) continue;
-      expandedConstructorNames.add(name);
-      for (const className of runnerCapabilityClassAncestry(name, classExtends)) {
-        for (const initializer of classFieldInitializers.get(className) ?? []) {
-          collectHelperCalls(
-            initializer,
-            helpers,
-            unsupportedHelperNames,
-            methodKeys,
-            ambiguousMethodNames,
-            constructorNames,
-            classBindings,
-            'scalar',
-            undefined,
-            undefined,
-          );
-        }
-      }
-      changed = true;
-    }
-  }
-  const out: ExecutableHandlerRef[] = [];
-  for (const name of helperNames) {
-    const handler = helpers.get(name);
-    if (handler) out.push({ key: `fn:${name}`, handler });
-  }
-  for (const name of unsupportedHelperNames) {
-    const handler = helpers.get(name);
-    if (handler) out.push({ key: `fn:${name}`, handler, u: true });
-  }
-  for (const key of methodKeys) {
-    const resolved = resolveRunnerCapabilityClassCall(key, classMethods, classExtends);
-    for (const [index, handler] of (resolved?.values ?? []).entries()) {
-      out.push({
-        key: `method:${key}:${index}`,
-        handler,
-        ownerClass: resolved?.ownerClass,
-        receiverClass: resolved?.receiverClass,
-        u: !ownsClassFrames,
-      });
-    }
-  }
-  for (const name of ambiguousMethodNames) {
-    for (const [index, handler] of (classMethodsByName.get(name) ?? []).entries()) {
-      out.push({ key: `method:${name}:${index}`, handler, u: true });
-    }
-  }
-  for (const name of constructorNames) {
-    for (const className of runnerCapabilityClassAncestry(name, classExtends)) {
-      const handler = classConstructors.get(className);
-      if (handler) {
-        out.push({
-          key: `constructor:${name}:${className}`,
-          handler,
-          ownerClass: className,
-          receiverClass: name,
-          u: !ownsClassFrames,
-        });
-      }
-    }
-  }
-  return out;
-}
-
-type HelperCallExpressionMode = 'scalar' | 'let' | 'cap';
-
-interface HelperCallExpression {
-  readonly node: ValueIR;
-  readonly mode: HelperCallExpressionMode;
-}
-
-function supportedHelperCallExpressions(node: IRNode): HelperCallExpression[] {
-  const props = node.props ?? {};
-  const out: HelperCallExpression[] = [];
-  function add(raw: unknown, mode: HelperCallExpressionMode): void {
-    if (typeof raw !== 'string' || raw.trim() === '') return;
-    try {
-      out.push({ node: parseExpression(raw), mode });
-    } catch {
-      // Ignore malformed expressions here; parser/runtime diagnostics own them.
-    }
-  }
-  if (node.type === 'let') {
-    add(props.value, 'let');
-  } else if (node.type === 'capability') {
-    add(props.input, 'cap');
-  } else if (node.type === 'do') {
-    add(props.value, 'scalar');
-  } else if (
-    node.type === 'assign' ||
-    node.type === 'print' ||
-    node.type === 'return' ||
-    node.type === 'if' ||
-    node.type === 'while'
-  ) {
-    add(node.type === 'if' || node.type === 'while' ? props.cond : props.value, 'scalar');
-  } else if (node.type === 'fmt' && typeof props.template === 'string') {
-    try {
-      out.push({ node: parseExpression(`\`${props.template}\``), mode: 'scalar' });
-    } catch {
-      // Ignore malformed templates here; parser/runtime diagnostics own them.
-    }
-  }
-  return out;
-}
-
-function collectHelperCalls(
-  node: ValueIR,
-  helpers: ReadonlyMap<string, IRNode>,
-  helperNames: Set<string>,
-  methodKeys: Set<string>,
-  ambiguousMethodNames: Set<string>,
-  constructorNames: Set<string>,
-  classBindings: ReadonlyMap<string, string>,
-  mode: HelperCallExpressionMode,
-  superClassName?: string,
-  receiverClass?: string,
-): void {
-  if (node.kind === 'call' && node.callee.kind === 'ident' && helpers.has(node.callee.name)) {
-    helperNames.add(node.callee.name);
-  }
-  if (node.kind === 'call' && node.callee.kind === 'member') {
-    if (node.callee.object.kind === 'ident' && node.callee.object.name === 'super' && superClassName) {
-      methodKeys.add(
-        runnerCapabilityClassCallKey(superClassName, receiverClass ?? superClassName, node.callee.property),
-      );
-    } else if (node.callee.object.kind === 'ident' && node.callee.object.name === 'this' && receiverClass) {
-      methodKeys.add(runnerCapabilityClassCallKey(receiverClass, receiverClass, node.callee.property));
-    } else if (node.callee.object.kind === 'ident' && classBindings.has(node.callee.object.name)) {
-      const className = classBindings.get(node.callee.object.name);
-      if (className === RUNNER_CAPABILITY_AMBIGUOUS_CLASS) {
-        ambiguousMethodNames.add(node.callee.property);
-      } else if (className) {
-        methodKeys.add(runnerCapabilityClassCallKey(className, className, node.callee.property));
-      }
-    } else {
-      ambiguousMethodNames.add(node.callee.property);
-    }
-  }
-  if (node.kind === 'new' && node.argument.kind === 'call' && node.argument.callee.kind === 'ident') {
-    constructorNames.add(node.argument.callee.name);
-  }
-  if (node.kind === 'member') {
-    if (node.object.kind === 'ident' && classBindings.has(node.object.name)) {
-      const className = classBindings.get(node.object.name);
-      if (className === RUNNER_CAPABILITY_AMBIGUOUS_CLASS) {
-        ambiguousMethodNames.add(node.property);
-      } else if (className) {
-        methodKeys.add(runnerCapabilityClassCallKey(className, className, node.property));
-      }
-    } else if (
-      node.object.kind === 'new' &&
-      node.object.argument.kind === 'call' &&
-      node.object.argument.callee.kind === 'ident'
-    ) {
-      methodKeys.add(
-        runnerCapabilityClassCallKey(node.object.argument.callee.name, node.object.argument.callee.name, node.property),
-      );
-    }
-  }
-  for (const child of valueChildren(node, helpers, mode)) {
-    collectHelperCalls(
-      child.node,
-      helpers,
-      helperNames,
-      methodKeys,
-      ambiguousMethodNames,
-      constructorNames,
-      classBindings,
-      child.mode,
-      superClassName,
-      receiverClass,
-    );
-  }
-}
-
-function valueChildren(
-  node: ValueIR,
-  helpers: ReadonlyMap<string, IRNode>,
-  mode: HelperCallExpressionMode,
-): readonly HelperCallExpression[] {
-  switch (node.kind) {
-    case 'unary':
-      return [{ node: node.argument, mode: 'scalar' }];
-    case 'binary':
-      return [
-        { node: node.left, mode: 'scalar' },
-        { node: node.right, mode: 'scalar' },
-      ];
-    case 'conditional':
-      return [
-        { node: node.test, mode: 'scalar' },
-        { node: node.consequent, mode: 'scalar' },
-        { node: node.alternate, mode: 'scalar' },
-      ];
-    case 'member':
-      return [{ node: node.object, mode: 'scalar' }];
-    case 'index':
-      return [];
-    case 'call':
-      if (
-        node.callee.kind === 'ident' &&
-        (helpers.has(node.callee.name) || node.callee.name === 'String' || node.callee.name === 'super')
-      ) {
-        return node.args.map((arg) => ({ node: arg, mode: 'scalar' }));
-      }
-      if (node.callee.kind === 'member') {
-        return [
-          { node: node.callee.object, mode: 'scalar' },
-          ...node.args.map((arg): HelperCallExpression => ({ node: arg, mode: 'scalar' })),
-        ];
-      }
-      return [];
-    case 'new':
-      return node.argument.kind === 'call' ? node.argument.args.map((arg) => ({ node: arg, mode: 'scalar' })) : [];
-    case 'typeAssert':
-    case 'nonNull':
-      return [{ node: node.expression, mode: 'scalar' }];
-    case 'tmplLit':
-      return node.expressions.map((expression) => ({ node: expression, mode: 'scalar' }));
-    case 'arrayLit':
-      if (mode === 'cap') {
-        return node.items.filter((item): item is ValueIR => Boolean(item)).map((item) => ({ node: item, mode: 'cap' }));
-      }
-      if (mode === 'let') {
-        return node.items
-          .filter((item): item is ValueIR => Boolean(item))
-          .map((item) => ({ node: item, mode: item.kind === 'arrayLit' ? 'let' : 'scalar' }));
-      }
-      return [];
-    case 'objectLit':
-      if (mode === 'cap') {
-        return node.entries.flatMap((entry) => ('kind' in entry ? [] : [{ node: entry.value, mode }]));
-      }
-      if (mode === 'let') {
-        return node.entries.flatMap((entry) =>
-          'kind' in entry ? [] : [{ node: entry.value, mode: 'scalar' as const }],
-        );
-      }
-      return [];
-    default:
-      return [];
-  }
-}
-
-function isPreviewHelperFunction(fn: IRNode, name: string): boolean {
-  return (
-    isPortableHelperName(name) &&
-    !isTrueProp(fn.props?.async) &&
-    !isTrueProp(fn.props?.stream) &&
-    fn.props?.returns !== undefined &&
-    fn.props.returns !== '' &&
-    fn.props.returns !== 'void' &&
-    previewHelperParamsAreSupported(fn)
-  );
-}
-
-function previewHelperHandler(fn: IRNode): IRNode | undefined {
-  const handlers = (fn.children ?? []).filter((child) => child.type === 'handler' && child.props?.lang === 'kern');
-  return handlers.length === 1 ? handlers[0] : undefined;
-}
-
-function isTrueProp(value: unknown): boolean {
-  return value === true || value === 'true';
-}
-
-function isPortableHelperName(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
-}
-
-function previewHelperParamsAreSupported(fn: IRNode): boolean {
-  const paramChildren = (fn.children ?? []).filter((child) => child.type === 'param');
-  const legacyParams = typeof fn.props?.params === 'string' ? fn.props.params.trim() : '';
-  if (paramChildren.length > 0 && legacyParams !== '') return false;
-  const names =
-    paramChildren.length > 0 ? previewParamChildNames(paramChildren) : previewLegacyParamNames(legacyParams);
-  if (!names) return false;
-  return new Set(names).size === names.length;
-}
-
-function previewParamChildNames(paramChildren: readonly IRNode[]): string[] | undefined {
-  const names: string[] = [];
-  for (const param of paramChildren) {
-    const name = param.props?.name;
-    if (!isPortableHelperName(name)) return undefined;
-    if ((param.children ?? []).length > 0) return undefined;
-    if (param.props?.value !== undefined || param.props?.default !== undefined) return undefined;
-    if (isTrueProp(param.props?.optional) || isTrueProp(param.props?.variadic)) return undefined;
-    names.push(name);
-  }
-  return names;
-}
-
-function previewLegacyParamNames(params: string): string[] | undefined {
-  if (params === '') return [];
-  const names: string[] = [];
-  for (const part of params.split(',')) {
-    const trimmed = part.trim();
-    if (trimmed === '' || trimmed.includes('=') || trimmed.startsWith('...') || trimmed.includes('?')) return undefined;
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)?$/.exec(trimmed);
-    if (!match) return undefined;
-    names.push(match[1]);
-  }
-  return names;
-}
-
+export const ASYNC_SOURCE_UNSUPPORTED_CONTAINER_TYPES: ReadonlySet<string> = new Set();
 function* walkNodes(root: IRNode): Generator<IRNode> {
   const stack: IRNode[] = [root];
   while (stack.length > 0) {

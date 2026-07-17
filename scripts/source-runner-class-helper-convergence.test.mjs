@@ -45,7 +45,7 @@ test('rejects deletion of reverse-composition ownership', () => {
   const errors = validate(
     replace(
       'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env)',
+      'assertInternalMachineHelperClassComposition(fn.body, defining.classes, helperEnv)',
       'new Set()',
     ),
   );
@@ -142,8 +142,8 @@ test('rejects deletion of transitive resumable-helper propagation', () => {
   const errors = validate(
     replace(
       'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'resumableHelperNames: transitiveResumableHelpers(directResumableHelpers, helperCalls)',
-      'resumableHelperNames: directResumableHelpers',
+      'const resumableHelpers = transitiveResumableHelpers(directResumableHelpers, helperCalls);',
+      'const resumableHelpers = directResumableHelpers;',
     ),
   );
   assert.ok(errors.some((error) => error.includes('class-body helper reachability owner')));
@@ -174,28 +174,28 @@ test('rejects deletion of resumable helper yield ownership', () => {
 test('rejects deletion of the helper binding snapshot', () => {
   const errors = validate(
     replace(
-      'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'const snapshot = snapshotFunctionBinding(fn);',
-      'const snapshot = fn;',
+      'packages/core/src/ir/semantics/internal-effect-machine-module-graph.ts',
+      'const functionClones = new Map<RunnerFunctionBinding, RunnerFunctionBinding>();',
+      'const functionClones = new WeakMap<RunnerFunctionBinding, RunnerFunctionBinding>();',
     ),
   );
-  assert.ok(errors.some((error) => error.includes('class-body helper reachability owner')));
+  assert.ok(errors.some((error) => error.includes('identity-preserving module snapshot')));
 });
 
 test('rejects a shallow helper metadata snapshot', () => {
   const errors = validate(
     replace(
-      'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+      'packages/core/src/ir/semantics/internal-effect-machine-module-graph.ts',
       'props: structuredClone(node.props)',
       'props: { ...node.props }',
     ),
   );
-  assert.ok(errors.some((error) => error.includes('class-body helper reachability owner')));
+  assert.ok(errors.some((error) => error.includes('class-body helper snapshot owner')));
 });
 
 test('rejects live helper metadata during nested call validation', () => {
   const file = 'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts';
-  const anchor = 'runnerFunctions: new Map(call.state.helperRegistry)';
+  const anchor = 'runnerFunctions: scope.functions';
   const current = source(file);
   assert.equal(current.split(anchor).length - 1, 2, `mutation anchor count changed in ${file}`);
   const errors = validate(new Map([[file, current.replaceAll(anchor, 'runnerFunctions: call.env.runnerFunctions')]]));
@@ -281,13 +281,15 @@ test('rejects helper-only admission before combined class preflight', () => {
 
 test('rejects freezing the helper registry after structure preflight', () => {
   const file = 'packages/core/src/ir/semantics/internal-effect-machine.ts';
-  const before = `const helperGraph = assertInternalMachineHelperGraph(nodes, env, state.classRegistry);
+  const before = `const helperGraph = assertInternalMachineHelperGraph(nodes, env, classGraph);
   state.helperRegistry = helperGraph.functions;
+  state.resumableHelpers = helperGraph.resumableHelpers;
   state.resumableHelperNames = helperGraph.resumableHelperNames;
   assertInternalEffectMachineStructureSupported(nodes, env);`;
   const after = `assertInternalEffectMachineStructureSupported(nodes, env);
-  const helperGraph = assertInternalMachineHelperGraph(nodes, env, state.classRegistry);
+  const helperGraph = assertInternalMachineHelperGraph(nodes, env, classGraph);
   state.helperRegistry = helperGraph.functions;
+  state.resumableHelpers = helperGraph.resumableHelpers;
   state.resumableHelperNames = helperGraph.resumableHelperNames;`;
   const errors = validate(replace(file, before, after));
   assert.ok(errors.some((error) => error.includes('resumable closure must be frozen before combined structure preflight')));

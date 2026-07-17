@@ -8,11 +8,21 @@ import {
 } from './internal-effect-machine-class-lineage.js';
 import { isPortableScalarHelperReturnContract } from './internal-effect-machine-helper-contract.js';
 import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
-import type { RunnerClassBinding, RunnerClassMemberBinding, SemanticEnv } from './semantic-env.js';
+import type {
+  RunnerClassBinding,
+  RunnerClassMemberBinding,
+  RunnerFunctionBinding,
+  SemanticEnv,
+} from './semantic-env.js';
 
 interface ClassFrame {
   readonly owner: RunnerClassBinding;
   readonly receiver: RunnerClassBinding;
+}
+
+interface ClassReachability {
+  readonly helpers: Set<RunnerFunctionBinding>;
+  readonly stack: Set<string>;
 }
 
 function expressionSources(node: IRNode): readonly string[] {
@@ -105,15 +115,17 @@ function assertReachedMember(
   member: RunnerClassMemberBinding,
   classes: ReadonlyMap<string, RunnerClassBinding>,
   env: SemanticEnv,
-  stack: Set<string>,
+  reachability: ClassReachability,
 ): void {
   const key = memberKey(owner, member);
-  if (stack.has(key)) throw new Error(`machine helper: recursive class member "${key}" is outside this slice`);
-  stack.add(key);
+  if (reachability.stack.has(key)) {
+    throw new Error(`machine helper: recursive class member "${key}" is outside this slice`);
+  }
+  reachability.stack.add(key);
   try {
-    assertReachedClassNodes(member.body, { owner, receiver }, classes, env, stack);
+    assertReachedClassNodes(member.body, { owner, receiver }, classes, env, reachability);
   } finally {
-    stack.delete(key);
+    reachability.stack.delete(key);
   }
 }
 
@@ -122,14 +134,14 @@ function assertReachedClassValue(
   frame: ClassFrame,
   classes: ReadonlyMap<string, RunnerClassBinding>,
   env: SemanticEnv,
-  stack: Set<string>,
+  reachability: ClassReachability,
 ): ValueIR {
   if (node.kind === 'new' && classForNew(node, classes)) {
     throw new Error('machine helper: class-to-class allocation is outside this slice');
   }
   if (node.kind === 'call' && node.callee.kind === 'ident' && node.callee.name === 'super') {
     for (const argument of node.args) {
-      assertPortableMachineScalarShape(assertReachedClassValue(argument, frame, classes, env, stack), env);
+      assertPortableMachineScalarShape(assertReachedClassValue(argument, frame, classes, env, reachability), env);
     }
     return classScalarPlaceholder();
   }
@@ -150,9 +162,9 @@ function assertReachedClassValue(
         throw new Error('machine helper: reached class method is unavailable');
       }
       for (const argument of node.args) {
-        assertPortableMachineScalarShape(assertReachedClassValue(argument, frame, classes, env, stack), env);
+        assertPortableMachineScalarShape(assertReachedClassValue(argument, frame, classes, env, reachability), env);
       }
-      assertReachedMember(resolved.cls, frame.receiver, resolved.member, classes, env, stack);
+      assertReachedMember(resolved.cls, frame.receiver, resolved.member, classes, env, reachability);
       return classScalarPlaceholder();
     }
   }
@@ -162,7 +174,8 @@ function assertReachedClassValue(
       if (node.optional || node.args.length !== helper.params.length) {
         throw new Error('machine helper: reached helper call is unavailable');
       }
-      const args = node.args.map((argument) => assertReachedClassValue(argument, frame, classes, env, stack));
+      reachability.helpers.add(helper);
+      const args = node.args.map((argument) => assertReachedClassValue(argument, frame, classes, env, reachability));
       for (const argument of args) assertPortableMachineLetShape(argument, env);
       return { ...node, args };
     }
@@ -182,14 +195,14 @@ function assertReachedClassValue(
       }
       const resolved = internalMachineClassMemberFor(start, node.property, 'getter', classes);
       if (!resolved) throw new Error('machine helper: reached class field or getter is unavailable');
-      assertReachedMember(resolved.cls, frame.receiver, resolved.member, classes, env, stack);
+      assertReachedMember(resolved.cls, frame.receiver, resolved.member, classes, env, reachability);
       return classScalarPlaceholder();
     }
   }
   if (node.kind === 'ident' && (node.name === 'this' || node.name === 'super')) {
     throw new Error('machine helper: private receiver cannot cross a class member boundary');
   }
-  return mapValue(node, (child) => assertReachedClassValue(child, frame, classes, env, stack));
+  return mapValue(node, (child) => assertReachedClassValue(child, frame, classes, env, reachability));
 }
 
 function assertReachedClassNodes(
@@ -197,13 +210,13 @@ function assertReachedClassNodes(
   frame: ClassFrame,
   classes: ReadonlyMap<string, RunnerClassBinding>,
   env: SemanticEnv,
-  stack: Set<string>,
+  reachability: ClassReachability,
 ): void {
   for (const node of nodes) {
     for (const source of expressionSources(node)) {
-      assertReachedClassValue(parseExpression(source), frame, classes, env, stack);
+      assertReachedClassValue(parseExpression(source), frame, classes, env, reachability);
     }
-    if (node.children) assertReachedClassNodes(node.children, frame, classes, env, stack);
+    if (node.children) assertReachedClassNodes(node.children, frame, classes, env, reachability);
   }
 }
 
@@ -211,10 +224,10 @@ function assertReachedConstruction(
   cls: RunnerClassBinding,
   classes: ReadonlyMap<string, RunnerClassBinding>,
   env: SemanticEnv,
-  stack: Set<string>,
+  reachability: ClassReachability,
 ): void {
   for (const layer of internalMachineClassLineageBaseFirst(cls, classes)) {
-    if (layer.constructor) assertReachedMember(layer, cls, layer.constructor, classes, env, stack);
+    if (layer.constructor) assertReachedMember(layer, cls, layer.constructor, classes, env, reachability);
   }
 }
 
@@ -223,7 +236,7 @@ function assertHelperValue(
   bindings: ReadonlyMap<string, RunnerClassBinding>,
   classes: ReadonlyMap<string, RunnerClassBinding>,
   env: SemanticEnv,
-  stack: Set<string>,
+  reachability: ClassReachability,
 ): void {
   if (node.kind === 'ident' && (node.name === 'this' || node.name === 'super')) {
     throw new Error('machine helper: class use is outside the pure helper domain');
@@ -245,10 +258,10 @@ function assertHelperValue(
         throw new Error('machine helper: reached class method is unavailable');
       }
       for (const argument of node.args) {
-        assertHelperValue(argument, bindings, classes, env, stack);
+        assertHelperValue(argument, bindings, classes, env, reachability);
         assertPortableMachineScalarShape(portableHelperScalarShape(argument, bindings), env);
       }
-      assertReachedMember(resolved.cls, receiver, resolved.member, classes, env, stack);
+      assertReachedMember(resolved.cls, receiver, resolved.member, classes, env, reachability);
       return;
     }
   }
@@ -259,11 +272,11 @@ function assertHelperValue(
       if (internalMachineClassVisibleFields(receiver, classes).has(node.property)) return;
       const resolved = internalMachineClassMemberFor(receiver, node.property, 'getter', classes);
       if (!resolved) throw new Error('machine helper: reached class field or getter is unavailable');
-      assertReachedMember(resolved.cls, receiver, resolved.member, classes, env, stack);
+      assertReachedMember(resolved.cls, receiver, resolved.member, classes, env, reachability);
       return;
     }
   }
-  for (const child of valueChildren(node)) assertHelperValue(child, bindings, classes, env, stack);
+  for (const child of valueChildren(node)) assertHelperValue(child, bindings, classes, env, reachability);
 }
 
 function usesHelperLocalClassScalar(node: ValueIR, bindings: ReadonlyMap<string, RunnerClassBinding>): boolean {
@@ -301,7 +314,7 @@ function assertHelperNodes(
   inherited: ReadonlyMap<string, RunnerClassBinding>,
   classes: ReadonlyMap<string, RunnerClassBinding>,
   env: SemanticEnv,
-  stack: Set<string>,
+  reachability: ClassReachability,
   classScalarReturns: Set<IRNode>,
   composition: { composesClass: boolean },
 ): void {
@@ -316,16 +329,16 @@ function assertHelperNodes(
     if (constructed && letValue?.kind === 'new' && letValue.argument.kind === 'call') {
       composition.composesClass = true;
       for (const argument of letValue.argument.args) {
-        assertHelperValue(argument, bindings, classes, env, stack);
+        assertHelperValue(argument, bindings, classes, env, reachability);
         assertPortableMachineScalarShape(portableHelperScalarShape(argument, bindings), env);
       }
-      assertReachedConstruction(constructed, classes, env, stack);
+      assertReachedConstruction(constructed, classes, env, reachability);
       const name = node.props?.name;
       if (typeof name !== 'string' || name === '') throw new Error('machine helper: class let requires a binding');
       bindings.set(name, constructed);
     } else {
       for (const source of expressionSources(node)) {
-        assertHelperValue(parseExpression(source), bindings, classes, env, stack);
+        assertHelperValue(parseExpression(source), bindings, classes, env, reachability);
       }
       if (node.type === 'return' && typeof node.props?.value === 'string') {
         const value = parseExpression(node.props.value);
@@ -348,7 +361,7 @@ function assertHelperNodes(
       }
     }
     if (node.children) {
-      assertHelperNodes(node.children, bindings, classes, env, stack, classScalarReturns, composition);
+      assertHelperNodes(node.children, bindings, classes, env, reachability, classScalarReturns, composition);
     }
   }
 }
@@ -356,6 +369,7 @@ function assertHelperNodes(
 export interface InternalMachineHelperClassComposition {
   readonly classScalarReturns: ReadonlySet<IRNode>;
   readonly composesClass: boolean;
+  readonly reachableFunctions: ReadonlySet<RunnerFunctionBinding>;
 }
 
 export function assertInternalMachineHelperClassComposition(
@@ -365,6 +379,11 @@ export function assertInternalMachineHelperClassComposition(
 ): InternalMachineHelperClassComposition {
   const classScalarReturns = new Set<IRNode>();
   const composition = { composesClass: false };
-  assertHelperNodes(nodes, new Map(), classes, env, new Set(), classScalarReturns, composition);
-  return { classScalarReturns, composesClass: composition.composesClass };
+  const reachability: ClassReachability = { helpers: new Set(), stack: new Set() };
+  assertHelperNodes(nodes, new Map(), classes, env, reachability, classScalarReturns, composition);
+  return {
+    classScalarReturns,
+    composesClass: composition.composesClass,
+    reachableFunctions: reachability.helpers,
+  };
 }

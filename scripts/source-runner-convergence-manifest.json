@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.31b2c2",
+  "milestone": "KERN-5-R2-M3.31c",
   "owned": [
     {
       "id": "do",
@@ -109,14 +109,13 @@
       "kind": "environment",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-pre-super.test.ts"
-    }
-  ],
-  "deferred": [
+    },
     {
       "id": "runner-classes-state",
       "kind": "environment",
-      "status": "legacy",
-      "followUp": "M3.31c-module-ownership"
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-module-ownership.test.ts"
     }
-  ]
+  ],
+  "deferred": []
 }

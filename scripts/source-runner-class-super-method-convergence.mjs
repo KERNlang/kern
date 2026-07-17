@@ -6,7 +6,7 @@ export const CLASS_SUPER_METHOD_FILES = Object.freeze({
     'packages/core/tests/runtime-envelope-effect-machine-class-super-method-admission.test.ts',
   classSuperMethodTests: 'packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts',
   runnerCapabilityClassDispatch: 'packages/core/src/runner-capability-class-dispatch.ts',
-  runnerCapabilityPlan: 'packages/core/src/runner-capability-plan.ts',
+  runnerCapabilityPlan: 'packages/core/src/runner-capability-linked-handlers.ts',
   runnerCapabilityPlanTests: 'packages/core/tests/runner-capability-plan.test.ts',
 });
 
@@ -55,9 +55,9 @@ export function validateClassSuperMethodSlice(contents, errors) {
     }
   }
   for (const required of [
-    'item.ownerClass',
-    "node.callee.object.name === 'super' && superClassName",
-    'resolveRunnerCapabilityClassCall',
+    "object.name === 'super' && work.ownerClass && work.receiverClass",
+    'const parent = parentClass(work.ownerClass)',
+    'return parent ? { startClass: parent, receiverClass: work.receiverClass } : undefined',
   ]) {
     if (!contents.runnerCapabilityPlan?.includes(required)) errors.push(`super-method capability plan is missing ${required}`);
   }
