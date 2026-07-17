@@ -25,34 +25,128 @@ test('rejects deletion of the pure class-helper owner', () => {
   assert.ok(errors.some((error) => error.includes('runner-class-pure-helper-calls owner')));
 });
 
-test('rejects deletion of reverse-composition containment', () => {
+test('rejects deletion of the pure helper-class owner', () => {
+  const file = 'scripts/source-runner-convergence-manifest.json';
+  const manifest = JSON.parse(source(file));
+  manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-helper-pure-class-calls');
+  const errors = validate(new Map([[file, JSON.stringify(manifest)]]));
+  assert.ok(errors.some((error) => error.includes('runner-helper-pure-class-calls owner')));
+});
+
+test('rejects deletion of reverse-composition ownership', () => {
   const errors = validate(
     replace(
       'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'assertHelperBodyDoesNotUseClasses(fn.body, admittedClasses);',
-      'void admittedClasses;',
+      'assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env)',
+      'new Set()',
     ),
   );
   assert.ok(errors.some((error) => error.includes('class-body helper reachability owner')));
 });
 
+test('rejects deletion of private receiver argument containment', () => {
+  const errors = validate(
+    replace(
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      'private receiver cannot cross a class member boundary',
+      'private receiver transport was widened',
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('reverse helper-class owner')));
+});
+
+test('rejects deletion of helper-local scalar argument normalization', () => {
+  const file = 'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts';
+  const anchor = 'assertPortableMachineScalarShape(portableHelperScalarShape(argument, bindings), env)';
+  const current = source(file);
+  assert.equal(current.split(anchor).length - 1, 2, `mutation anchor count changed in ${file}`);
+  const errors = validate(new Map([[file, current.replaceAll(anchor, 'assertPortableMachineScalarShape(argument, env)')]]));
+  assert.ok(errors.some((error) => error.includes('normalize both method and constructor scalar arguments')));
+});
+
+test('rejects deletion of helper-local class binding identity containment', () => {
+  const errors = validate(
+    replace(
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      'class binding identity cannot be reassigned',
+      'class binding identity may be reassigned',
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('reverse helper-class owner')));
+});
+
+test('rejects deletion of parenthesisless class containment', () => {
+  const errors = validate(
+    replace(
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      "if (target.kind === 'ident') return classes.get(target.name)",
+      "if (target.kind === 'ident') return undefined",
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('reverse helper-class owner')));
+});
+
+test('rejects deletion of full class-scalar return validation', () => {
+  const errors = validate(
+    replace(
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      'portableHelperScalarShape(value, bindings)',
+      'value',
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('reverse helper-class owner')));
+});
+
+test('rejects deletion of the reverse boundary oracle set', () => {
+  const errors = validate(
+    replace(
+      'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse-boundary.test.ts',
+      'rejects this passed between class methods',
+      'private receiver argument coverage removed',
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('reverse helper-class boundary oracle')));
+});
+
+test('rejects deletion of helper-local instance containment', () => {
+  const errors = validate(
+    replace(
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      'class instance cannot cross the helper-local boundary',
+      'class instance transport was widened',
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('recursive boundary diagnostic')));
+});
+
 test('rejects deletion of bare helper receiver containment', () => {
   const errors = validate(
     replace(
-      'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      "if (node.kind === 'ident') return node.name === 'this' || node.name === 'super';",
-      "if (node.kind === 'ident') return false;",
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      'class use is outside the pure helper domain',
+      'private receiver transport was widened',
     ),
   );
-  assert.ok(errors.some((error) => error.includes('class-body helper reachability owner')));
+  assert.ok(errors.some((error) => error.includes('recursive boundary diagnostic')));
+});
+
+test('rejects deletion of reached class effect containment', () => {
+  const errors = validate(
+    replace(
+      'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
+      "node.type === 'capability' || node.type === 'print'",
+      'false',
+    ),
+  );
+  assert.ok(errors.some((error) => error.includes('reverse helper-class owner')));
 });
 
 test('rejects deletion of the helper binding snapshot', () => {
   const errors = validate(
     replace(
       'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'functions.set(name, snapshotFunctionBinding(fn));',
-      'functions.set(name, fn);',
+      'const snapshot = snapshotFunctionBinding(fn);',
+      'const snapshot = fn;',
     ),
   );
   assert.ok(errors.some((error) => error.includes('class-body helper reachability owner')));
@@ -84,7 +178,7 @@ test('rejects deletion of scalar helper return-body proof', () => {
   const errors = validate(
     replace(
       'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'assertScalarHelperContracts(functions, env);',
+      'assertScalarHelperContracts(functions, env, classScalarReturns);',
       'void env;',
     ),
   );

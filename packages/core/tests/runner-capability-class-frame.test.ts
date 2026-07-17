@@ -135,4 +135,55 @@ describe('M3.31a class-frame capability planning', () => {
       expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
     ]);
   });
+
+  test('keeps an effectful class reached from a helper unsupported', () => {
+    const source = [
+      'class name=RemoteWidget',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"remote\\" }"',
+      '      return value="answer"',
+      'fn name=readRemote returns=string',
+      '  handler lang="kern"',
+      '    let name=item value="new RemoteWidget()"',
+      '    return value="item.read()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="readRemote()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, provided);
+
+    expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
+    ]);
+  });
+
+  test('does not plan an unused effectful member on a helper-local class', () => {
+    const source = [
+      'class name=MixedWidget',
+      '  method name=local returns=string',
+      '    handler lang="kern"',
+      '      return value="\\"local\\""',
+      '  method name=remote returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"remote\\" }"',
+      '      return value="answer"',
+      'fn name=readLocal returns=string',
+      '  handler lang="kern"',
+      '    let name=item value="new MixedWidget()"',
+      '    return value="item.local()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="readLocal()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, provided);
+
+    expect(analysis.executableAsyncPlannedCapabilities).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({ id: 'llm.complete', reason: 'outside-main' }),
+    ]);
+  });
 });

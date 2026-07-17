@@ -96,7 +96,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2b2') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2b3') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -218,9 +218,9 @@ function validateManifest(text, errors) {
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
   if (
     classState?.followUp !==
-    'M3.31b2b3-reverse-helper-class-M3.31b2c-effect-pre-super-and-M3.31c-module-ownership'
+    'M3.31b2c-effect-pre-super-and-M3.31c-module-ownership'
   ) {
-    errors.push('manifest must keep remaining class behavior as the exact M3.31b2/c follow-up');
+    errors.push('manifest must keep remaining class behavior as the exact M3.31b2c/M3.31c follow-up');
   }
 }
 

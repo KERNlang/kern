@@ -699,6 +699,37 @@ trusted-publishing/provenance configuration is inspected.
     the unrelated-class needs-check was disproved by machine selection with a
     valid dormant class and intentional fallback for private-receiver transport
     (`review-1784249101282-nraj2q-m3-31b2b2-final`).
+  - [x] M3.31b2b3 pure helper-to-class composition: an admitted M3.24 helper
+    may now allocate an exact same-root class, keep its private instance inside
+    the helper invocation, and return a portable scalar through owned field,
+    getter, or method access. Reverse reachability follows only selected
+    members, preserves inherited virtual/`super` dispatch, snapshots helper and
+    class metadata before suspension, and rejects direct or nested-helper
+    instance transport. Reached direct/indirect class effects fail preflight
+    before provider dispatch, while unused effectful members do not poison a
+    selected pure member. Planner and runtime dispositions are executable, and
+    convergence mutations bind reverse ownership, instance/effect containment,
+    snapshot depth, private receivers, stable local binding identity, and scalar
+    return proof. Effectful class work and pre-super statements remain
+    M3.31b2c; imported/module identity remains M3.31c. The exact final
+    `pnpm fitness:kern-5` wall passed with 432/432
+    cross-target fixtures, 233 native cases, 48/48 checker fixtures, 39/39
+    validator verdicts, and 40 application fixtures on three legs plus
+    whole-app boot. The required browser wall passed at 150 modules / 1,517,134
+    raw / 325,833 gzip bytes / 57 ms cold / 87 ms median; all 36 convergence
+    mutations were killed. The first full-roster review found private-receiver,
+    scalar-argument, getter-reachability, parenthesisless-construction, and
+    whole-return validation gaps; seven RED boundary oracles plus four new
+    convergence kills close them (`review-1784252757692-8i784i-m3-31b2b3-final`).
+    A later review's helper-local scalar-argument gap was fixed and covered
+    (`review-1784254817000-7qq1xn-m3-31b2b3-terminal`). The next terminal review
+    reproduced stale class-binding admission after reassignment; a provider-before-helper
+    RED oracle and convergence kill close it
+    (`review-1784256648627-inqwpc-m3-31b2b3-terminal-2`). The final
+    `claude,codex,agy` review completed 3/3 with zero verified findings. Its sole
+    needs-check, duplicate class-loop budget propagation, was disproved by the
+    independent complete class-graph budget owner and existing class-frame
+    budget tests (`review-1784258421483-r2xyxd-m3-31b2b3-terminal-3`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

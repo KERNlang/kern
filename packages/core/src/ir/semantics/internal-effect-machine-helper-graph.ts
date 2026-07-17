@@ -2,6 +2,7 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { assertInternalMachineClassGraph } from './internal-effect-machine-class-graph.js';
+import { assertInternalMachineHelperClassComposition } from './internal-effect-machine-helper-class.js';
 import {
   isInternalMachineHelperCall,
   isInternalMachineScalarHelperCall,
@@ -139,73 +140,6 @@ function collectClassBodyCalls(
   }
 }
 
-function valueUsesOwnedClass(node: ValueIR, classes: ReadonlyMap<string, RunnerClassBinding>): boolean {
-  if (node.kind === 'ident') return node.name === 'this' || node.name === 'super';
-  if (
-    node.kind === 'new' &&
-    node.argument.kind === 'call' &&
-    node.argument.callee.kind === 'ident' &&
-    classes.has(node.argument.callee.name)
-  ) {
-    return true;
-  }
-  if (node.kind === 'member' && node.object.kind === 'ident' && ['this', 'super'].includes(node.object.name)) {
-    return true;
-  }
-  if (
-    node.kind === 'call' &&
-    node.callee.kind === 'member' &&
-    node.callee.object.kind === 'ident' &&
-    ['this', 'super'].includes(node.callee.object.name)
-  ) {
-    return true;
-  }
-  if (node.kind === 'unary' || node.kind === 'new' || node.kind === 'spread' || node.kind === 'await') {
-    return valueUsesOwnedClass(node.argument, classes);
-  }
-  if (node.kind === 'propagate') return valueUsesOwnedClass(node.argument, classes);
-  if (node.kind === 'binary') {
-    return valueUsesOwnedClass(node.left, classes) || valueUsesOwnedClass(node.right, classes);
-  }
-  if (node.kind === 'conditional') {
-    return (
-      valueUsesOwnedClass(node.test, classes) ||
-      valueUsesOwnedClass(node.consequent, classes) ||
-      valueUsesOwnedClass(node.alternate, classes)
-    );
-  }
-  if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    return valueUsesOwnedClass(node.expression, classes);
-  }
-  if (node.kind === 'tmplLit') return node.expressions.some((value) => valueUsesOwnedClass(value, classes));
-  if (node.kind === 'member') return valueUsesOwnedClass(node.object, classes);
-  if (node.kind === 'index') {
-    return valueUsesOwnedClass(node.object, classes) || valueUsesOwnedClass(node.index, classes);
-  }
-  if (node.kind === 'call') {
-    return valueUsesOwnedClass(node.callee, classes) || node.args.some((value) => valueUsesOwnedClass(value, classes));
-  }
-  if (node.kind === 'arrayLit') return node.items.some((value) => valueUsesOwnedClass(value, classes));
-  if (node.kind === 'objectLit') {
-    return node.entries.some((entry) => valueUsesOwnedClass('kind' in entry ? entry.argument : entry.value, classes));
-  }
-  return false;
-}
-
-function assertHelperBodyDoesNotUseClasses(
-  nodes: readonly IRNode[],
-  classes: ReadonlyMap<string, RunnerClassBinding>,
-): void {
-  for (const node of nodes) {
-    for (const source of nodeExpressionSources(node)) {
-      if (valueUsesOwnedClass(parseExpression(source), classes)) {
-        throw new Error('machine helper: class use is outside the pure helper domain');
-      }
-    }
-    if (node.children) assertHelperBodyDoesNotUseClasses(node.children, classes);
-  }
-}
-
 function assertPureHelperBody(nodes: readonly IRNode[]): boolean {
   let requiresIterationBudget = false;
   for (const node of nodes) {
@@ -237,6 +171,7 @@ function assertScalarHelperReturns(
   name: string,
   isScalarHelperCall: (name: string, arity: number) => boolean,
   isPortableHelperCall: (name: string, arity: number) => boolean,
+  classScalarReturns: ReadonlySet<IRNode>,
 ): void {
   for (const node of nodes) {
     if (node.type === 'return') {
@@ -247,16 +182,21 @@ function assertScalarHelperReturns(
       try {
         assertPortableMachineScalarShape(parseExpression(value), env, isScalarHelperCall, isPortableHelperCall);
       } catch {
+        if (classScalarReturns.has(node)) continue;
         throw new Error(`machine helper: scalar function "${name}" has a non-scalar return`);
       }
     }
     if (node.children) {
-      assertScalarHelperReturns(node.children, env, name, isScalarHelperCall, isPortableHelperCall);
+      assertScalarHelperReturns(node.children, env, name, isScalarHelperCall, isPortableHelperCall, classScalarReturns);
     }
   }
 }
 
-function assertScalarHelperContracts(functions: ReadonlyMap<string, RunnerFunctionBinding>, env: SemanticEnv): void {
+function assertScalarHelperContracts(
+  functions: ReadonlyMap<string, RunnerFunctionBinding>,
+  env: SemanticEnv,
+  classScalarReturns: ReadonlyMap<string, ReadonlySet<IRNode>>,
+): void {
   const helperFunctions = new Map(functions);
   const scalarFunctions = new Map(
     [...helperFunctions].filter(([, fn]) => isPortableScalarHelperReturnContract(fn.returns)),
@@ -269,7 +209,14 @@ function assertScalarHelperContracts(functions: ReadonlyMap<string, RunnerFuncti
   const isPortableHelperCall = (name: string, arity: number): boolean =>
     helperFunctions.get(name)?.params.length === arity;
   for (const [name, fn] of scalarFunctions) {
-    assertScalarHelperReturns(fn.body, helperEnv, name, isScalarHelperCall, isPortableHelperCall);
+    assertScalarHelperReturns(
+      fn.body,
+      helperEnv,
+      name,
+      isScalarHelperCall,
+      isPortableHelperCall,
+      classScalarReturns.get(name) ?? new Set(),
+    );
   }
 }
 
@@ -313,6 +260,7 @@ export function assertInternalMachineHelperGraph(
   collectNodeCalls(nodes, scope.functions, pending);
   collectClassBodyCalls(admittedClasses, scope.functions, pending);
   const functions = new Map<string, RunnerFunctionBinding>();
+  const classScalarReturns = new Map<string, ReadonlySet<IRNode>>();
   let requiresIterationBudget = false;
   while (pending.size > 0) {
     const name = pending.values().next().value as string;
@@ -322,13 +270,14 @@ export function assertInternalMachineHelperGraph(
     if (!fn) throw new Error(`machine helper: unknown function "${name}"`);
     assertFunctionBinding(name, fn, scope);
     if (assertPureHelperBody(fn.body)) requiresIterationBudget = true;
-    assertHelperBodyDoesNotUseClasses(fn.body, admittedClasses);
-    functions.set(name, snapshotFunctionBinding(fn));
+    const snapshot = snapshotFunctionBinding(fn);
+    classScalarReturns.set(name, assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env));
+    functions.set(name, snapshot);
     const nested = new Set<string>();
     collectNodeCalls(fn.body, scope.functions, nested);
     for (const called of nested) if (!functions.has(called)) pending.add(called);
   }
-  assertScalarHelperContracts(functions, env);
+  assertScalarHelperContracts(functions, env, classScalarReturns);
   return { functions, requiresIterationBudget };
 }
 
