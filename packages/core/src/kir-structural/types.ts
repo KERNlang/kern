@@ -1,12 +1,14 @@
 import type { CanonicalRecordEntry, CanonicalValue } from '../canonical-value/types.js';
+import type { PortableHandlerTypeKind } from '../portable-handler-type.js';
 
-export const STRUCTURAL_KIR_ARTIFACT_FORMAT = 'kern.kir.structural.r1.5c.2-alpha' as const;
-export const STRUCTURAL_KIR_TYPE_CATALOG_FORMAT = 'kern.type-admission.r1.5c.2-empty' as const;
+export const STRUCTURAL_KIR_ARTIFACT_FORMAT = 'kern.kir.structural.r1.5e.1-alpha' as const;
+export const STRUCTURAL_KIR_TYPE_CATALOG_FORMAT = 'kern.type-admission.r1.5e.1-handler' as const;
 
 export type StructuralPropertyDisposition =
   | 'included-value'
   | 'lowered-import-path'
   | 'lowered-expression'
+  | 'lowered-type'
   | 'excluded-host-expression'
   | 'excluded-host-type'
   | 'excluded-raw-block';
@@ -44,6 +46,7 @@ export type StructuralKirErrorCode =
   | 'invalid-child'
   | 'unknown-expression-kind'
   | 'invalid-expression'
+  | 'invalid-type'
   | 'invalid-import-path';
 
 export class StructuralKirError extends TypeError {
@@ -64,7 +67,7 @@ export interface StructuralKirArtifact {
   readonly proofLabel: 'ALPHA-NO-GO';
   readonly typeCatalog: {
     readonly format: typeof STRUCTURAL_KIR_TYPE_CATALOG_FORMAT;
-    readonly admittedKinds: readonly [];
+    readonly admittedKinds: readonly PortableHandlerTypeKind[];
   };
   readonly root: StructuralKirNode;
 }

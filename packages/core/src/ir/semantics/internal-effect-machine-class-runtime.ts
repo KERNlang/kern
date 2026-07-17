@@ -81,7 +81,7 @@ function classNew(
   const value = parseExpression(node.props.value);
   const cls = internalMachineClassForNew(value, env);
   if (!cls) return undefined;
-  const registry = internalMachineClassRegistryForEnv(env);
+  const registry = cls.module?.classes ?? internalMachineClassRegistryForEnv(env);
   const admitted = registry.get(cls.name);
   return admitted ? { cls: admitted, registry, value } : undefined;
 }
@@ -96,6 +96,8 @@ export function preflightInternalMachineClassLet(
 ): boolean {
   const resolved = classNew(node, env);
   if (!resolved) return false;
+  // The graph-level class preflight validates these expressions before this
+  // handler-local environment is populated; keep the per-let check as defense.
   const lineage = internalMachineClassLineageBaseFirst(resolved.cls, resolved.registry);
   const fieldExpressions = lineage.flatMap((candidate) =>
     candidate.fields.flatMap((field) =>

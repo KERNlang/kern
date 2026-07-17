@@ -5,47 +5,54 @@ import { assertInternalMachineClassGraph } from './internal-effect-machine-class
 import { assertInternalMachineHelperClassComposition } from './internal-effect-machine-helper-class.js';
 import {
   isInternalMachineHelperCall,
+  isInternalMachineResumableHelperCall,
   isInternalMachineScalarHelperCall,
   isPortableScalarHelperReturnContract,
 } from './internal-effect-machine-helper-contract.js';
+import type { InternalMachineModuleGraph } from './internal-effect-machine-module-graph.js';
 import { hasNoBody, isUnifiedNodeType } from './internal-effect-machine-types.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
-import { runnerMachineRootScope } from './runner-machine-scope.js';
-import type { RunnerClassBinding, RunnerFunctionBinding, RunnerModuleScope, SemanticEnv } from './semantic-env.js';
+import type { RunnerClassBinding, RunnerFunctionBinding, SemanticEnv } from './semantic-env.js';
 
 const PURE_HELPER_CONTAINER_TYPES = new Set(['branch', 'each', 'else', 'for', 'if', 'while']);
 const PURE_HELPER_EXCLUDED_TYPES = new Set(['capability', 'lambda', 'print', 'try']);
 
 export interface InternalMachineHelperGraph {
   readonly functions: ReadonlyMap<string, RunnerFunctionBinding>;
+  readonly moduleGraph: InternalMachineModuleGraph;
+  readonly reachableFunctions: ReadonlySet<RunnerFunctionBinding>;
   readonly requiresIterationBudget: boolean;
+  readonly resumableHelpers: ReadonlySet<RunnerFunctionBinding>;
+  readonly resumableHelperNames: ReadonlySet<string>;
 }
 
-function snapshotNode(node: IRNode): IRNode {
-  return {
-    type: node.type,
-    ...(node.loc ? { loc: { ...node.loc } } : {}),
-    ...(node.props ? { props: structuredClone(node.props) } : {}),
-    ...(node.__quotedProps ? { __quotedProps: [...node.__quotedProps] } : {}),
-    ...(node.children ? { children: node.children.map(snapshotNode) } : {}),
-  };
+function transitiveResumableHelpers(
+  direct: ReadonlySet<RunnerFunctionBinding>,
+  calls: ReadonlyMap<RunnerFunctionBinding, ReadonlySet<RunnerFunctionBinding>>,
+): ReadonlySet<RunnerFunctionBinding> {
+  const resumable = new Set(direct);
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [caller, callees] of calls) {
+      if (resumable.has(caller) || ![...callees].some((callee) => resumable.has(callee))) continue;
+      resumable.add(caller);
+      changed = true;
+    }
+  }
+  return resumable;
 }
 
-function snapshotFunctionBinding(fn: RunnerFunctionBinding): RunnerFunctionBinding {
-  return {
-    body: fn.body.map(snapshotNode),
-    ...(fn.handler ? { handler: snapshotNode(fn.handler) } : {}),
-    module: fn.module,
-    name: fn.name,
-    params: [...fn.params],
-    returns: structuredClone(fn.returns),
-  };
-}
-
-function valueCalls(node: ValueIR, names: ReadonlyMap<string, RunnerFunctionBinding>, out: Set<string>): void {
+function valueCalls(
+  node: ValueIR,
+  names: ReadonlyMap<string, RunnerFunctionBinding>,
+  out: Set<RunnerFunctionBinding>,
+): void {
   if (node.kind === 'call') {
-    if (node.callee.kind === 'ident' && names.has(node.callee.name)) out.add(node.callee.name);
+    if (node.callee.kind === 'ident') {
+      const binding = names.get(node.callee.name);
+      if (binding) out.add(binding);
+    }
     valueCalls(node.callee, names, out);
     for (const argument of node.args) valueCalls(argument, names, out);
     return;
@@ -113,14 +120,18 @@ function nodeExpressionSources(node: IRNode): readonly string[] {
   return sources;
 }
 
-function directNodeCalls(node: IRNode, names: ReadonlyMap<string, RunnerFunctionBinding>, out: Set<string>): void {
+function directNodeCalls(
+  node: IRNode,
+  names: ReadonlyMap<string, RunnerFunctionBinding>,
+  out: Set<RunnerFunctionBinding>,
+): void {
   for (const source of nodeExpressionSources(node)) valueCalls(parseExpression(source), names, out);
 }
 
 function collectNodeCalls(
   nodes: readonly IRNode[],
   names: ReadonlyMap<string, RunnerFunctionBinding>,
-  out: Set<string>,
+  out: Set<RunnerFunctionBinding>,
 ): void {
   for (const node of nodes) {
     directNodeCalls(node, names, out);
@@ -130,10 +141,11 @@ function collectNodeCalls(
 
 function collectClassBodyCalls(
   classes: ReadonlyMap<string, RunnerClassBinding>,
-  names: ReadonlyMap<string, RunnerFunctionBinding>,
-  out: Set<string>,
+  out: Set<RunnerFunctionBinding>,
 ): void {
-  for (const cls of classes.values()) {
+  for (const cls of new Set(classes.values())) {
+    const names = cls.module?.functions;
+    if (!names) throw new Error(`machine helper: class "${cls.name}" has no defining function scope`);
     if (cls.constructor) collectNodeCalls(cls.constructor.body, names, out);
     for (const member of cls.methods.values()) collectNodeCalls(member.body, names, out);
     for (const getter of cls.getters.values()) collectNodeCalls(getter.body, names, out);
@@ -193,92 +205,102 @@ function assertScalarHelperReturns(
 }
 
 function assertScalarHelperContracts(
-  functions: ReadonlyMap<string, RunnerFunctionBinding>,
+  functions: ReadonlySet<RunnerFunctionBinding>,
   env: SemanticEnv,
-  classScalarReturns: ReadonlyMap<string, ReadonlySet<IRNode>>,
+  classScalarReturns: ReadonlyMap<RunnerFunctionBinding, ReadonlySet<IRNode>>,
 ): void {
-  const helperFunctions = new Map(functions);
-  const scalarFunctions = new Map(
-    [...helperFunctions].filter(([, fn]) => isPortableScalarHelperReturnContract(fn.returns)),
-  );
-  const helperEnv: SemanticEnv = { ...env, runnerFunctions: helperFunctions };
-  const isScalarHelperCall = (name: string, arity: number): boolean => {
-    const fn = scalarFunctions.get(name);
-    return fn !== undefined && fn.params.length === arity;
-  };
-  const isPortableHelperCall = (name: string, arity: number): boolean =>
-    helperFunctions.get(name)?.params.length === arity;
-  for (const [name, fn] of scalarFunctions) {
+  for (const fn of functions) {
+    if (!isPortableScalarHelperReturnContract(fn.returns)) continue;
+    const scope = fn.module;
+    if (!scope) throw new Error(`machine helper: "${fn.name}" has no defining module`);
+    const helperEnv: SemanticEnv = { ...env, runnerClasses: scope.classes, runnerFunctions: scope.functions };
+    const isScalarHelperCall = (name: string, arity: number): boolean => {
+      const called = scope.functions.get(name);
+      return (
+        called !== undefined && called.params.length === arity && isPortableScalarHelperReturnContract(called.returns)
+      );
+    };
+    const isPortableHelperCall = (name: string, arity: number): boolean =>
+      scope.functions.get(name)?.params.length === arity;
     assertScalarHelperReturns(
       fn.body,
       helperEnv,
-      name,
+      fn.name,
       isScalarHelperCall,
       isPortableHelperCall,
-      classScalarReturns.get(name) ?? new Set(),
+      classScalarReturns.get(fn) ?? new Set(),
     );
   }
 }
 
-function assertFunctionBinding(key: string, fn: RunnerFunctionBinding, scope: RunnerModuleScope): void {
-  if (fn.name !== key || !isPortableBindingName(fn.name)) {
-    throw new Error(`machine helper: invalid binding name "${key}"`);
-  }
-  if (fn.module?.functions !== scope.functions || fn.module.classes !== scope.classes) {
-    throw new Error(`machine helper: "${key}" is not defined in the selected root module`);
+function assertFunctionBinding(fn: RunnerFunctionBinding): void {
+  if (!isPortableBindingName(fn.name)) throw new Error(`machine helper: invalid binding name "${fn.name}"`);
+  if (!fn.module || fn.module.functions.get(fn.name) !== fn) {
+    throw new Error(`machine helper: "${fn.name}" has invalid defining-module identity`);
   }
   if (!Array.isArray(fn.params) || !Array.isArray(fn.body)) {
-    throw new Error(`machine helper: "${key}" has invalid params or body`);
+    throw new Error(`machine helper: "${fn.name}" has invalid params or body`);
   }
   const params = new Set<string>();
   for (const param of fn.params) {
     if (!isPortableBindingName(param) || params.has(param)) {
-      throw new Error(`machine helper: "${key}" has invalid or duplicate parameters`);
+      throw new Error(`machine helper: "${fn.name}" has invalid or duplicate parameters`);
     }
     params.add(param);
   }
   if (fn.returns === undefined || fn.returns === '' || fn.returns === 'void') {
-    throw new Error(`machine helper: "${key}" must declare a non-void return`);
+    throw new Error(`machine helper: "${fn.name}" must declare a non-void return`);
   }
-}
-
-function helperScope(env: SemanticEnv): RunnerModuleScope | undefined {
-  if (!env.runnerFunctions || env.runnerFunctions.size === 0) return undefined;
-  const scope = runnerMachineRootScope(env.runnerFunctions, env.runnerClasses);
-  if (!scope) throw new Error('machine helper: root scope is not linker-owned');
-  return scope;
 }
 
 export function assertInternalMachineHelperGraph(
   nodes: readonly IRNode[],
   env: SemanticEnv,
-  admittedClasses = assertInternalMachineClassGraph(env).classes,
+  admittedClassGraph = assertInternalMachineClassGraph(env),
 ): InternalMachineHelperGraph {
-  const scope = helperScope(env);
-  if (!scope) return { functions: new Map(), requiresIterationBudget: false };
-  const pending = new Set<string>();
+  const moduleGraph = admittedClassGraph.moduleGraph;
+  const scope = moduleGraph.root;
+  const pending = new Set<RunnerFunctionBinding>();
   collectNodeCalls(nodes, scope.functions, pending);
-  collectClassBodyCalls(admittedClasses, scope.functions, pending);
-  const functions = new Map<string, RunnerFunctionBinding>();
-  const classScalarReturns = new Map<string, ReadonlySet<IRNode>>();
+  collectClassBodyCalls(scope.classes, pending);
+  const functions = new Set<RunnerFunctionBinding>();
+  const classScalarReturns = new Map<RunnerFunctionBinding, ReadonlySet<IRNode>>();
+  const directResumableHelpers = new Set<RunnerFunctionBinding>();
+  const helperCalls = new Map<RunnerFunctionBinding, ReadonlySet<RunnerFunctionBinding>>();
   let requiresIterationBudget = false;
   while (pending.size > 0) {
-    const name = pending.values().next().value as string;
-    pending.delete(name);
-    if (functions.has(name)) continue;
-    const fn = scope.functions.get(name);
-    if (!fn) throw new Error(`machine helper: unknown function "${name}"`);
-    assertFunctionBinding(name, fn, scope);
+    const fn = pending.values().next().value as RunnerFunctionBinding;
+    pending.delete(fn);
+    if (functions.has(fn)) continue;
+    assertFunctionBinding(fn);
     if (assertPureHelperBody(fn.body)) requiresIterationBudget = true;
-    const snapshot = snapshotFunctionBinding(fn);
-    classScalarReturns.set(name, assertInternalMachineHelperClassComposition(snapshot.body, admittedClasses, env));
-    functions.set(name, snapshot);
-    const nested = new Set<string>();
-    collectNodeCalls(fn.body, scope.functions, nested);
+    const defining = fn.module;
+    if (!defining) throw new Error(`machine helper: "${fn.name}" has no defining module`);
+    const helperEnv: SemanticEnv = {
+      ...env,
+      runnerClasses: defining.classes,
+      runnerFunctions: defining.functions,
+    };
+    const composition = assertInternalMachineHelperClassComposition(fn.body, defining.classes, helperEnv);
+    classScalarReturns.set(fn, composition.classScalarReturns);
+    if (composition.composesClass) directResumableHelpers.add(fn);
+    functions.add(fn);
+    const nested = new Set<RunnerFunctionBinding>();
+    collectNodeCalls(fn.body, defining.functions, nested);
+    for (const called of composition.reachableFunctions) nested.add(called);
+    helperCalls.set(fn, nested);
     for (const called of nested) if (!functions.has(called)) pending.add(called);
   }
   assertScalarHelperContracts(functions, env, classScalarReturns);
-  return { functions, requiresIterationBudget };
+  const resumableHelpers = transitiveResumableHelpers(directResumableHelpers, helperCalls);
+  return {
+    functions: scope.functions,
+    moduleGraph,
+    reachableFunctions: functions,
+    requiresIterationBudget,
+    resumableHelpers,
+    resumableHelperNames: new Set([...resumableHelpers].map((fn) => fn.name)),
+  };
 }
 
 export function internalMachineHelperGraphClaims(nodes: readonly IRNode[], env: SemanticEnv): boolean {
@@ -300,7 +322,7 @@ export function internalMachineHelperGraphRequiresIterationBudget(nodes: readonl
 
 export function internalMachineHelperGraphHasReachableFunctions(nodes: readonly IRNode[], env: SemanticEnv): boolean {
   try {
-    return assertInternalMachineHelperGraph(nodes, env).functions.size > 0;
+    return assertInternalMachineHelperGraph(nodes, env).reachableFunctions.size > 0;
   } catch {
     return false;
   }
@@ -309,7 +331,7 @@ export function internalMachineHelperGraphHasReachableFunctions(nodes: readonly 
 export function internalMachineHelperCallInValue(node: ValueIR, env: SemanticEnv): boolean {
   const functions = env.runnerFunctions;
   if (!functions || functions.size === 0) return false;
-  const calls = new Set<string>();
+  const calls = new Set<RunnerFunctionBinding>();
   valueCalls(node, functions, calls);
   return calls.size > 0;
 }
@@ -326,7 +348,7 @@ export function internalMachineHelperCallInRaw(raw: unknown, env: SemanticEnv): 
 export function internalMachineHelperCallInNode(node: IRNode, env: SemanticEnv): boolean {
   const functions = env.runnerFunctions;
   if (!functions || functions.size === 0) return false;
-  const calls = new Set<string>();
+  const calls = new Set<RunnerFunctionBinding>();
   try {
     directNodeCalls(node, functions, calls);
   } catch {
@@ -335,4 +357,4 @@ export function internalMachineHelperCallInNode(node: IRNode, env: SemanticEnv):
   return calls.size > 0;
 }
 
-export { isInternalMachineHelperCall, isInternalMachineScalarHelperCall };
+export { isInternalMachineHelperCall, isInternalMachineResumableHelperCall, isInternalMachineScalarHelperCall };

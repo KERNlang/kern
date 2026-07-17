@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "milestone": "KERN-5-R2-M3.31b2c1",
+  "milestone": "KERN-5-R2-M3.31c",
   "owned": [
     {
       "id": "do",
@@ -99,18 +99,23 @@
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse.test.ts"
     },
     {
+      "id": "runner-helper-resumable-class-effects",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-helper-effects.test.ts"
+    },
+    {
       "id": "runner-class-pre-super-constructor",
       "kind": "environment",
       "status": "unified",
       "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-pre-super.test.ts"
-    }
-  ],
-  "deferred": [
+    },
     {
       "id": "runner-classes-state",
       "kind": "environment",
-      "status": "legacy",
-      "followUp": "M3.31b2c2-resumable-helper-class-effects-and-M3.31c-module-ownership"
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-module-ownership.test.ts"
     }
-  ]
+  ],
+  "deferred": []
 }

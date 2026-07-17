@@ -17,12 +17,16 @@ const files = new Map(
     'packages/core/src/ir/semantics/internal-effect-machine-class-value.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-value-runtime.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-argument-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-class.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-contract.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-structure-state.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-module-graph.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-preflight.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts',
     'packages/core/src/ir/semantics/portable-reference-body.ts',
@@ -39,6 +43,7 @@ const files = new Map(
     'packages/core/src/runtime-envelope/source-runner-engine.ts',
     'packages/core/src/runner-capability-plan.ts',
     'packages/core/src/runner-capability-class-dispatch.ts',
+    'packages/core/src/runner-capability-linked-handlers.ts',
     'packages/core/src/runner-capability-requirement-reachability.ts',
     'packages/core/src/runner-class-frame-capability-admission.ts',
     'packages/core/src/runner-error.ts',
@@ -62,11 +67,13 @@ const files = new Map(
     'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-helper.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-helper-effects.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse-boundary.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-helper-portable.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-helper-snapshot.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-module-ownership.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
 );
@@ -136,13 +143,13 @@ test('rejects post-construction metadata replacement', () => {
   }
 });
 
-test('rejects blocker deletion and owned-node regressions', () => {
-  const blockerErrors = validate((mutated) => {
+test('rejects final class-state owner deletion and owned-node regressions', () => {
+  const classStateErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
-    manifest.deferred = manifest.deferred.filter(({ id }) => id !== 'runner-classes-state');
+    manifest.owned = manifest.owned.filter(({ id }) => id !== 'runner-classes-state');
     mutated.set('scripts/source-runner-convergence-manifest.json', JSON.stringify(manifest));
   });
-  assert.ok(blockerErrors.some((error) => error.includes('audited blocker set')));
+  assert.ok(classStateErrors.some((error) => error.includes('runner-classes-state owner')));
 
   const budgetErrors = validate((mutated) => {
     const manifest = JSON.parse(mutated.get('scripts/source-runner-convergence-manifest.json'));
@@ -284,8 +291,8 @@ test('rejects state-only class ownership regressions', () => {
     replace(
       mutated,
       'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+      'const registry = cls?.module?.classes ?? state.classRegistry',
       'const registry = state.classRegistry',
-      'const registry = undefined',
     ),
   );
   assert.ok(ownershipErrors.some((error) => error.includes('constructor-super frame')));
@@ -294,8 +301,8 @@ test('rejects state-only class ownership regressions', () => {
     replace(
       mutated,
       'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
-      'collectClassBodyCalls(admittedClasses, scope.functions, pending);',
-      'void admittedClasses;',
+      'collectClassBodyCalls(scope.classes, pending);',
+      'void scope;',
     ),
   );
   assert.ok(mixingErrors.some((error) => error.includes('class-body helper reachability')));
@@ -481,8 +488,8 @@ test('rejects resumable class-frame ownership regressions', () => {
     replace(
       mutated,
       'packages/core/src/runner-class-frame-capability-admission.ts',
-      'return sourceRunnerMachineAdmission(handler.children ?? [], env, iterationBudget);',
-      'return false;',
+      'ownsClassFrames = sourceRunnerMachineAdmission(handler.children ?? [], env, iterationBudget);',
+      'ownsClassFrames = false;',
     ),
   );
   assert.ok(capabilityAdmissionErrors.some((error) => error.includes('capability admission')));
@@ -687,8 +694,8 @@ test('rejects super-method dispatch ownership regressions', () => {
   const plannerErrors = validate((mutated) =>
     replace(
       mutated,
-      'packages/core/src/runner-capability-plan.ts',
-      "node.callee.object.name === 'super' && superClassName",
+      'packages/core/src/runner-capability-linked-handlers.ts',
+      "object.name === 'super' && work.ownerClass && work.receiverClass",
       'false',
     ),
   );
@@ -724,16 +731,21 @@ test('rejects virtual this-method dispatch ownership regressions', () => {
   assert.ok(graphErrors.some((error) => error.includes('virtual-method graph owner')));
 
   const plannerErrors = validate((mutated) =>
-    replace(mutated, 'packages/core/src/runner-capability-plan.ts', 'item.receiverClass,', 'undefined,'),
+    replace(
+      mutated,
+      'packages/core/src/runner-capability-linked-handlers.ts',
+      "object.name === 'this' && work.receiverClass",
+      "object.name === 'removed-this' && work.receiverClass",
+    ),
   );
   assert.ok(plannerErrors.some((error) => error.includes('virtual-method capability plan')));
 
   const constructorKeyErrors = validate((mutated) =>
     replace(
       mutated,
-      'packages/core/src/runner-capability-plan.ts',
-      'key: `constructor:${name}:${className}`',
-      'key: `constructor:${className}`',
+      'packages/core/src/runner-capability-linked-handlers.ts',
+      'if (cls) enqueueConstruction(cls, work.unsupported || !ownsClassFrames, enqueue);',
+      'if (cls) void ownsClassFrames;',
     ),
   );
   assert.ok(constructorKeyErrors.some((error) => error.includes('virtual-method capability plan')));

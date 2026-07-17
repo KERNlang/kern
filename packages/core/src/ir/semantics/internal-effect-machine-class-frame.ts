@@ -39,6 +39,15 @@ export type InternalMachineClassValueEvaluator = (
   state: InternalEffectMachineState,
 ) => InternalMachineClassValueGenerator;
 
+function classFrameIdentity(
+  state: InternalEffectMachineState,
+  cls: NonNullable<ReturnType<typeof internalMachineClassForNew>>,
+  member: string,
+): string {
+  const identity = state.moduleGraph?.classIdentity.get(cls);
+  return identity === undefined ? `${cls.name}.${member}` : `module-class:${identity}:${cls.name}.${member}`;
+}
+
 function appendEvaluation<T>(target: TraceEvent[], evaluated: InternalMachineClassEvaluatedValue<T>): T {
   target.push(...evaluated.events);
   return evaluated.value;
@@ -73,6 +82,8 @@ function* evaluateInternalMachineClassConstructorLayer(
       }
     }
     if (cls.extendsName) {
+      // Class collection and lineage admission require the complete chain to
+      // share this defining module, so the registry is stable across layers.
       const base = registry.get(cls.extendsName);
       if (!base) throw new Error(`machine class: unknown base class "${cls.extendsName}"`);
       const baseValues = plan.superArguments.map((argument) =>
@@ -104,8 +115,8 @@ export function* evaluateInternalMachineClassNewFrame(
   evaluate: InternalMachineClassValueEvaluator,
 ): InternalMachineClassValueGenerator<RunnerClassInstanceValue> {
   const candidate = internalMachineClassForNew(value, env);
-  const registry = state.classRegistry;
-  const cls = candidate ? registry?.get(candidate.name) : undefined;
+  const cls = candidate;
+  const registry = cls?.module?.classes ?? state.classRegistry;
   if (!registry || !cls || !state.helperBodyRunner) throw new Error('machine class: construction is unavailable');
 
   const events: TraceEvent[] = [];
@@ -139,12 +150,21 @@ export function* evaluateInternalMachineClassMethodFrame(
   const values: PortableScalar[] = [];
   for (const argument of node.args) values.push(appendEvaluation(events, yield* evaluate(argument, env, state)));
   const label = `${resolved.cls.name}.${resolved.method.name}`;
-  if ((env.runnerCallStack ?? []).includes(label)) {
+  const frameIdentity = classFrameIdentity(state, resolved.cls, resolved.method.name);
+  if ((env.runnerCallStack ?? []).includes(frameIdentity)) {
     // Keep the compatibility runtime's public recursion diagnostic verbatim.
     throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
   }
   const registry = internalMachineClassRegistryForEnv(env);
-  const methodEnv = makeInternalMachineClassMemberEnv(resolved.cls, resolved.method, receiver, values, env, registry);
+  const methodEnv = makeInternalMachineClassMemberEnv(
+    resolved.cls,
+    resolved.method,
+    receiver,
+    values,
+    env,
+    registry,
+    frameIdentity,
+  );
   const restore = bindInternalEffectMachineState(methodEnv, state);
   try {
     const trace = yield* bodyRunner(resolved.method.body, methodEnv, state);
@@ -176,7 +196,20 @@ export function* evaluateInternalMachineClassGetterFrame(
   if (!receiver || !bodyRunner) throw new Error('machine class: getter receiver is unavailable');
 
   const registry = internalMachineClassRegistryForEnv(env);
-  const getterEnv = makeInternalMachineClassMemberEnv(resolved.cls, resolved.getter, receiver, [], env, registry);
+  const label = `${resolved.cls.name}.${resolved.getter.name}`;
+  const frameIdentity = classFrameIdentity(state, resolved.cls, resolved.getter.name);
+  if ((env.runnerCallStack ?? []).includes(frameIdentity)) {
+    throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
+  }
+  const getterEnv = makeInternalMachineClassMemberEnv(
+    resolved.cls,
+    resolved.getter,
+    receiver,
+    [],
+    env,
+    registry,
+    frameIdentity,
+  );
   const restore = bindInternalEffectMachineState(getterEnv, state);
   try {
     const trace = yield* bodyRunner(resolved.getter.body, getterEnv, state);

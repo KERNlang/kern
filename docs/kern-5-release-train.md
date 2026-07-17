@@ -200,6 +200,14 @@ trusted-publishing/provenance configuration is inspected.
       gate: policy-bound hashes/oracles/exclusions, dirty-tree and symlink kill
       tests, full fitness wall, and final 3/3 Agon review passed on 2026-07-12.
       The SHA-named ignored receipt is generated only after commit.
+  - [x] R1.5e.1 runtime-handler type KIR bridge: one neutral exact handler-type
+    owner now feeds both runtime admission and canonical semantic KIR records
+    for `fn.returns` plus direct structured `param.type`. The other 93
+    type-annotation locations remain explicitly excluded; structural, module,
+    catalog, constitution, and coverage identities are versioned together.
+    The Node 22 full fitness wall and terminal `claude,codex,agy` review passed
+    on 2026-07-17 with zero verified, needs-check, or speculative findings
+    (`ALPHA-NO-GO`; no public KIR v1 or formatter claim).
 - [ ] R2 M3 runtime and handler ownership.
   - [x] M3.1 internal transactional runtime envelope: default-off sync/async
     normalization with closed portable values, structural diagnostics, failure
@@ -755,6 +763,52 @@ trusted-publishing/provenance configuration is inspected.
     (`review-1784262755790-138qtd-m3-31b2c1-pre-super-final`). Resumable
     helper-to-class effects remain M3.31b2c2 and imported/cross-module identity
     remains M3.31c.
+  - [x] M3.31b2c2 resumable helper-to-class effects: a same-root helper and any
+    transitive wrapper may now enter an owned class constructor, method, or
+    getter that performs a capability or print effect. Nested resumable helper
+    arguments execute left-to-right exactly once before the outer cache lookup;
+    observable body events bypass memoization, while pure helper/class bodies
+    retain the bounded cache. Only stdout, stderr, and capability events cross
+    the helper boundary, so helper-local assignment/iteration trace and private
+    class identity remain contained. Frozen helper/class registries preserve
+    suspended-run and overlapping-run isolation, and the planner now reports
+    the admitted same-root path executable. Direct helper effects remain
+    rejected, and imported/re-exported/cross-module identity remains the sole
+    M3.31c follow-up. The final `pnpm fitness:kern-5` wall passed with 432/432
+    cross-target fixtures, 109/109 class fixtures, 233 native cases, 48/48
+    checker fixtures, 39/39 validator verdicts, and 40 application fixtures on
+    three legs plus whole-app boot. The required browser wall passed at 152
+    modules / 1,535,195 raw / 328,258 gzip bytes / 64 ms cold / 127 ms median,
+    and all 43 convergence mutations were killed. The terminal
+    `claude,codex,agy` review completed 3/3 with zero verified and zero
+    needs-check findings; its one speculative classifier concern was disproved
+    by scalar-first classification and the nested-helper oracle, while three
+    non-behavioral allocation/traversal/explicit-boundary nits were retained
+    (`review-1784269895309-ubvwed-m3-31b2c2-resumable-helper-class`).
+  - [x] M3.31c module-owned helper and class identity: the canonical source
+    machine now authenticates the complete linker-built module graph, snapshots
+    every function/class binding once while preserving alias and re-export
+    identity, and executes reached helpers and class frames in their defining
+    module scopes. Helper caches, resumability, recursion labels, receiver
+    dispatch, and metadata snapshots are binding-keyed rather than flattened by
+    display name. The shared runtime linker now feeds both execution and linked
+    capability admission; the planner follows exact imported function,
+    constructor, method, and getter reachability without poisoning an admitted
+    path with unused private members. `runner-classes-state` is unified/current
+    and the convergence manifest has no deferred rows. The final Node 22
+    `pnpm fitness:kern-5` wall passed with 432/432 cross-target fixtures,
+    109/109 class fixtures, 233 native cases, 48/48 checker fixtures, 39/39
+    validator verdicts, and 40 application fixtures on three legs plus
+    whole-app boot. The required browser wall passed at 153 modules / 1,534,548
+    raw / 328,497 gzip bytes / 75 ms cold / 108 ms browser, and all 68
+    convergence mutations were killed. Reviews added and fixed binding-identity
+    resumability plus imported-helper -> private-class -> private-helper budget
+    reachability with RED public oracles
+    (`review-1784275324468-ctztgz`, `review-1784277601118-gduk7h`). The final
+    full-roster review completed on the fixed diff; its two Agy blockers were
+    stale or contradicted the exact-reachability contract, Codex reported no
+    findings, and Claude reported no high-confidence blocker
+    (`review-1784279863324-vvtril`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
@@ -781,6 +835,9 @@ trusted-publishing/provenance configuration is inspected.
 9. R1.5d: version diagnostic/location evidence separately, require stable
    non-empty diagnostics and expression spans, then generate the clean-SHA
    Alpha manifest. Unknown versions and fields fail before effects.
+10. R1.5e.1: bridge the exact executable runtime-handler type domain into
+    semantic structural/module KIR before M4 consumes the seam. Keep the other
+    93 type-annotation locations excluded and preserve `ALPHA-NO-GO`.
 
 The original broad R1.4-before-ownership order was withdrawn after the R1.3
 probe. The selected projection covers seven of 302 source node kinds, while the

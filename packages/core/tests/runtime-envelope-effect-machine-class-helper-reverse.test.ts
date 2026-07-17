@@ -106,7 +106,7 @@ describe('M3.31b2b3 pure helper-to-class composition', () => {
     expect(() => executeSourceRunnerSync(nodes, env, { policy: 'machine-only' })).toThrow();
   });
 
-  test('rejects a helper-reached effectful class before an earlier provider', () => {
+  test('owns a helper-reached effectful class after an earlier provider', () => {
     let providerCalls = 0;
     const env = classHelperEnv({
       capabilities: { storage: { get: () => ++providerCalls } },
@@ -143,9 +143,12 @@ describe('M3.31b2b3 pure helper-to-class composition', () => {
       { type: 'return', props: { value: 'readRemote()' } },
     ];
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(() => executeSourceRunnerSync(nodes, env, { policy: 'machine-only' })).toThrow();
-    expect(providerCalls).toBe(0);
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 2,
+    });
+    expect(providerCalls).toBe(2);
   });
 
   test('does not reject an unused effectful member on the constructed class', () => {
@@ -188,7 +191,7 @@ describe('M3.31b2b3 pure helper-to-class composition', () => {
     });
   });
 
-  test('rejects an indirectly reached effectful member', () => {
+  test('owns an indirectly reached effectful member', () => {
     let providerCalls = 0;
     const env = classHelperEnv({
       capabilities: { storage: { get: () => ++providerCalls } },
@@ -226,9 +229,12 @@ describe('M3.31b2b3 pure helper-to-class composition', () => {
       { type: 'return', props: { value: 'readRemote()' } },
     ];
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(() => executeSourceRunnerSync(nodes, env, { policy: 'machine-only' })).toThrow();
-    expect(providerCalls).toBe(0);
+    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+      kind: 'return',
+      value: 2,
+    });
+    expect(providerCalls).toBe(2);
   });
 
   test('preserves inherited virtual and super dispatch inside a helper', () => {

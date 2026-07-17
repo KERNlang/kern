@@ -5,9 +5,11 @@ import {
   type CanonicalValueLimits,
 } from '../canonical-value/types.js';
 import { compareCodePoints, validateCanonicalValueLimits } from '../canonical-value/validate.js';
+import type { PortableHandlerTypePosition } from '../portable-handler-type.js';
 import type { IRNode } from '../types.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from './catalog.generated.js';
 import { projectExpressionText, validateExpressionValue } from './expression.js';
+import { projectHandlerType, validateHandlerType } from './handler-type.js';
 import {
   StructuralKirError,
   type StructuralKirNode,
@@ -141,7 +143,24 @@ function includedValue(value: unknown, contract: StructuralPropertyContract, pat
   fail('invalid-property', path, `unsupported included schema kind ${contract.schemaKind}`);
 }
 
-function projectProperty(value: unknown, contract: StructuralPropertyContract, path: string): CanonicalValue {
+function handlerTypePosition(
+  kind: string,
+  name: string,
+  parentKind: string | undefined,
+): PortableHandlerTypePosition | undefined {
+  if (kind === 'fn' && name === 'returns') return 'return';
+  if (kind === 'param' && name === 'type' && parentKind === 'fn') return 'parameter';
+  return undefined;
+}
+
+function projectProperty(
+  value: unknown,
+  contract: StructuralPropertyContract,
+  path: string,
+  kind: string,
+  name: string,
+  parentKind: string | undefined,
+): CanonicalValue {
   if (contract.disposition.startsWith('excluded-')) {
     fail('excluded-host-payload', path, `${contract.disposition}: ${contract.reasonId}`);
   }
@@ -151,7 +170,16 @@ function projectProperty(value: unknown, contract: StructuralPropertyContract, p
   if (contract.disposition === 'included-value') return includedValue(value, contract, path);
   if (contract.disposition === 'lowered-import-path') return { tag: 'text', value: normalizeImportPath(value, path) };
   if (contract.disposition === 'lowered-expression') return projectExpressionText(expressionSource(value, path), path);
+  if (contract.disposition === 'lowered-type') {
+    const position = handlerTypePosition(kind, name, parentKind);
+    if (position === undefined) fail('excluded-host-payload', path, 'type is outside a structured handler signature');
+    return projectHandlerType(value, position, path);
+  }
   fail('invalid-property', path, `unknown property disposition ${String(contract.disposition)}`);
+}
+
+function canonicalizesToOmission(kind: string, name: string, value: unknown): boolean {
+  return kind === 'fn' && name === 'params' && typeof value === 'string' && value.trim() === '';
 }
 
 function nodeContract(kind: string, path: string): StructuralNodeContract {
@@ -185,7 +213,13 @@ interface ProjectState {
   readonly limits: CanonicalValueLimits;
 }
 
-function projectNode(input: unknown, path: string, depth: number, state: ProjectState): StructuralKirNode {
+function projectNode(
+  input: unknown,
+  path: string,
+  depth: number,
+  state: ProjectState,
+  parentKind?: string,
+): StructuralKirNode {
   if (depth > state.limits.maxDepth) {
     throw new CanonicalValueDecodeError(
       'limit-depth',
@@ -213,14 +247,15 @@ function projectNode(input: unknown, path: string, depth: number, state: Project
   for (const name of Object.keys(rawProperties).sort(compareCodePoints)) {
     const propertyContract = contract.properties[name];
     if (propertyContract === undefined) fail('unknown-property', `${path}.props.${name}`, `unknown ${kind} property`);
+    if (canonicalizesToOmission(kind, name, rawProperties[name])) continue;
     properties.push({
       key: name,
-      value: projectProperty(rawProperties[name], propertyContract, `${path}.props.${name}`),
+      value: projectProperty(rawProperties[name], propertyContract, `${path}.props.${name}`, kind, name, parentKind),
     });
   }
   const rawChildren = node.children === undefined ? [] : array(node.children, `${path}.children`);
   const children = rawChildren.map((child, index) =>
-    projectNode(child, `${path}.children[${index}]`, depth + 1, state),
+    projectNode(child, `${path}.children[${index}]`, depth + 1, state, kind),
   );
   if (contract.allowedChildren !== null) {
     children.forEach((child, index) => {
@@ -266,7 +301,14 @@ function canonicalText(value: CanonicalValue, path: string): string {
   return value.value;
 }
 
-function validateProperty(value: CanonicalValue, contract: StructuralPropertyContract, path: string): void {
+function validateProperty(
+  value: CanonicalValue,
+  contract: StructuralPropertyContract,
+  path: string,
+  kind: string,
+  name: string,
+  parentKind: string | undefined,
+): void {
   if (contract.disposition.startsWith('excluded-'))
     fail('excluded-host-payload', path, `${contract.disposition} is forbidden`);
   if (contract.disposition === 'lowered-expression') {
@@ -276,6 +318,12 @@ function validateProperty(value: CanonicalValue, contract: StructuralPropertyCon
   if (contract.disposition === 'lowered-import-path') {
     const source = canonicalText(value, path);
     if (normalizeImportPath(source, path) !== source) fail('invalid-import-path', path, 'import path is not canonical');
+    return;
+  }
+  if (contract.disposition === 'lowered-type') {
+    const position = handlerTypePosition(kind, name, parentKind);
+    if (position === undefined) fail('excluded-host-payload', path, 'type is outside a structured handler signature');
+    validateHandlerType(value, position, path);
     return;
   }
   if (contract.schemaKind === 'boolean') {
@@ -293,7 +341,7 @@ function validateProperty(value: CanonicalValue, contract: StructuralPropertyCon
     fail('invalid-property', path, 'value is outside enum');
 }
 
-export function validateStructuralNode(value: CanonicalValue, path = '$.root'): StructuralKirNode {
+export function validateStructuralNode(value: CanonicalValue, path = '$.root', parentKind?: string): StructuralKirNode {
   const node = canonicalRecord(value, ['children', 'kind', 'properties'], path);
   const kind = canonicalText(canonicalField(node, 'kind'), `${path}.kind`);
   const contract = nodeContract(kind, `${path}.kind`);
@@ -305,11 +353,13 @@ export function validateStructuralNode(value: CanonicalValue, path = '$.root'): 
     const propertyContract = contract.properties[entry.key];
     if (propertyContract === undefined)
       fail('unknown-property', `${path}.properties.${entry.key}`, `unknown ${kind} property`);
-    validateProperty(entry.value, propertyContract, `${path}.properties.${entry.key}`);
+    validateProperty(entry.value, propertyContract, `${path}.properties.${entry.key}`, kind, entry.key, parentKind);
   });
   const childValue = canonicalField(node, 'children');
   if (childValue.tag !== 'list') fail('invalid-artifact', `${path}.children`, 'expected child list');
-  const children = childValue.value.map((child, index) => validateStructuralNode(child, `${path}.children[${index}]`));
+  const children = childValue.value.map((child, index) =>
+    validateStructuralNode(child, `${path}.children[${index}]`, kind),
+  );
   if (contract.allowedChildren !== null)
     children.forEach((child, index) => {
       if (!contract.allowedChildren?.includes(child.kind))

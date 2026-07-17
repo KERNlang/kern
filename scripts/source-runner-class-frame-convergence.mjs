@@ -2,6 +2,7 @@ export const CLASS_FRAME_FILES = Object.freeze({
   classActivation: 'packages/core/src/ir/semantics/internal-effect-machine-class-activation.ts',
   classCapabilityAdmission: 'packages/core/src/runner-class-frame-capability-admission.ts',
   classCapabilityPlanner: 'packages/core/src/runner-capability-plan.ts',
+  classCapabilityLinked: 'packages/core/src/runner-capability-linked-handlers.ts',
   classCapabilityReachability: 'packages/core/src/runner-capability-requirement-reachability.ts',
   classCapabilityTests: 'packages/core/tests/runner-capability-class-frame.test.ts',
   classFrame: 'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
@@ -48,17 +49,21 @@ export function validateClassFrameSlice(contents, errors) {
     }
   }
   for (const required of [
-    'buildSingleModuleRunnerRootScope',
-    'return sourceRunnerMachineAdmission(handler.children ?? [], env, iterationBudget);',
+    'buildRunnerModuleScopes',
+    'markRunnerMachineRootScope(rootScope)',
+    'ownsClassFrames = sourceRunnerMachineAdmission(handler.children ?? [], env, iterationBudget)',
   ]) {
     if (!contents.classCapabilityAdmission?.includes(required)) {
       errors.push(`class-frame capability admission is missing ${required}`);
     }
   }
-  for (const required of ['ownsSingleModuleClassFrames', 'ownsClassFrames', 'u: !ownsClassFrames']) {
+  for (const required of ['linkedClassFrameAdmission', 'linkedExecutableKernHandlers', 'admission.ownsClassFrames']) {
     if (!contents.classCapabilityPlanner?.includes(required)) {
       errors.push(`class-frame capability planner is missing ${required}`);
     }
+  }
+  if (!contents.classCapabilityLinked?.includes('work.unsupported || !ownsClassFrames')) {
+    errors.push('class-frame capability planner does not preserve unsupported disposition');
   }
   for (const required of ['buildSingleModuleRunnerRootScope', 'markRunnerMachineRootScope']) {
     if (!contents.runnerScope?.includes(required)) errors.push(`runner root scope extraction is missing ${required}`);

@@ -1,6 +1,4 @@
-export const REQUIRED_DEFERRED = Object.freeze({
-  'runner-classes-state': ['environment', 'legacy'],
-});
+export const REQUIRED_DEFERRED = Object.freeze({});
 
 export function exactKeys(value, keys) {
   return (

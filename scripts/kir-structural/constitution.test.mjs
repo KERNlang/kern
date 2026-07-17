@@ -75,6 +75,30 @@ test('property disposition and ordering mutations fail', () => {
   assert.throws(() => validateStructuralConstitution(enumValues, NODE_TYPES, NODE_SCHEMAS), /constitution drifted/u);
 });
 
+test('only structured runtime-handler type locations are lowered', () => {
+  const typeRows = checkedIn.properties.filter((row) => row.schemaKind === 'typeAnnotation');
+  assert.equal(typeRows.length, 95);
+  assert.deepEqual(
+    typeRows
+      .filter((row) => row.disposition === 'lowered-type')
+      .map((row) => `${row.nodeKind}.${row.propertyName}`),
+    ['fn.returns', 'param.type'],
+  );
+  assert.equal(typeRows.filter((row) => row.disposition === 'excluded-host-type').length, 93);
+  assert.deepEqual(
+    checkedIn.properties.find((row) => row.nodeKind === 'fn' && row.propertyName === 'params'),
+    {
+      nodeKind: 'fn',
+      propertyName: 'params',
+      schemaKind: 'string',
+      required: false,
+      values: null,
+      disposition: 'excluded-host-type',
+      reasonId: 'structured-handler-parameters-required',
+    },
+  );
+});
+
 test('unknown schema property kinds fail constitution generation', () => {
   const schemas = clone(NODE_SCHEMAS);
   schemas.fn.props.name.kind = 'host-mystery';

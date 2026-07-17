@@ -21,8 +21,11 @@ export function validateClassGetterSlice(contents, errors) {
   const runtime = [contents.classRuntime, contents.classActivation, contents.classFrame, contents.classFramePreflight]
     .filter(Boolean)
     .join('\n');
-  for (const required of ['assertGetter', 'internalMachineClassGetterForRead', 'getters: new Map', 'assertInternalMachineClassInheritance']) {
+  for (const required of ['assertGetter', 'internalMachineClassGetterForRead', 'assertInternalMachineClassInheritance']) {
     if (!contents.classGraph.includes(required)) errors.push(`machine class getter graph is missing ${required}`);
+  }
+  if (!contents.moduleGraph?.includes('getters: new Map')) {
+    errors.push('machine class getter snapshot is missing getters: new Map');
   }
   for (const required of [
     'evalInternalMachineClassMember',

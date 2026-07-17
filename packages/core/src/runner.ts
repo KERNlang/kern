@@ -11,7 +11,7 @@ import { InternalEffectMachineError } from './ir/semantics/internal-effect-machi
 import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
 import { ReferenceRunnerError, referenceRunSequence } from './ir/semantics/reference-runner.js';
 import { registerAllContracts } from './ir/semantics/register-all.js';
-import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from './ir/semantics/runner-machine-scope.js';
+import { markRunnerMachineRootScope } from './ir/semantics/runner-machine-scope.js';
 import { parseDocumentWithDiagnostics } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { parseExpression } from './parser-expression.js';
@@ -31,7 +31,7 @@ import {
 import { KernRunnerError } from './runner-error.js';
 import { moduleLinkErrors } from './runner-module-link.js';
 import {
-  assertRunnerClassAcyclic,
+  buildRunnerModuleScopes,
   buildSingleModuleRunnerRootScope,
   collectRunnerClasses,
   collectRunnerFunctions,
@@ -428,84 +428,6 @@ function linkedRoot(records: readonly LinkedModuleRecord[], options: ExecuteKern
   const root = records.find((record) => record.path === path);
   if (!root) throw new KernRunnerError(`link error: root module '${path}' was not linked`);
   return root;
-}
-
-/**
- * Build a private {@link RunnerModuleScope} for every linked module. Modules are
- * singletons: each scope holds the module's OWN functions/classes (each tagged
- * with the scope so their bodies resolve against it) plus references to the
- * bindings it imports — the SAME binding object from the defining module's
- * scope, never a copy flattened into this scope. So an imported helper resolves
- * its own module's private helpers/classes, transitive imports chain correctly,
- * and a name defined here does not shadow the imported module's same-named
- * private symbol. `linkRunnerModules` has already validated the import graph, so
- * this pass only wires references and re-checks callable-name conflicts.
- */
-function buildRunnerModuleScopes(records: readonly LinkedModuleRecord[]): Map<string, RunnerModuleScope> {
-  const byPath = new Map(records.map((record) => [record.path, record]));
-  const scopes = new Map<string, RunnerModuleScope>();
-
-  // Pass 1: seed each scope with its own declarations, tagged with the scope.
-  for (const record of records) {
-    const scope: RunnerModuleScope = { functions: new Map(), classes: new Map() };
-    for (const [name, binding] of record.functions) scope.functions.set(name, { ...binding, module: scope });
-    for (const [name, binding] of record.classes) {
-      const scopedBinding = { ...binding, module: scope };
-      markRunnerMachineClassBinding(scopedBinding);
-      scope.classes.set(name, scopedBinding);
-    }
-    scopes.set(record.path, scope);
-  }
-
-  // Resolve an export (own or re-exported) to the DEFINING module's tagged binding.
-  const resolveExport = (
-    path: string,
-    name: string,
-    seen: Set<string>,
-  ): { readonly kind: 'fn' | 'class'; readonly binding: RunnerFunctionBinding | RunnerClassBinding } | undefined => {
-    const key = `${path} ${name}`;
-    if (seen.has(key)) return undefined;
-    seen.add(key);
-    const record = byPath.get(path);
-    const scope = scopes.get(path);
-    if (!record || !scope) return undefined;
-    const reexport = record.imports.find((imported) => imported.exportOnly && imported.localName === name);
-    if (reexport) return resolveExport(reexport.targetPath, reexport.importedName, seen);
-    const exported = record.exports.get(name);
-    if (exported?.kind === 'fn') {
-      const binding = scope.functions.get(exported.sourceName);
-      if (binding) return { kind: 'fn', binding };
-    } else if (exported?.kind === 'class') {
-      const binding = scope.classes.get(exported.sourceName);
-      if (binding) return { kind: 'class', binding };
-    }
-    return undefined;
-  };
-
-  // Pass 2: wire each module's imports as references into its scope. Imports
-  // with export=true are additive (local binding AND re-export), so they are
-  // wired locally exactly like plain imports.
-  for (const record of records) {
-    const scope = scopes.get(record.path);
-    if (!scope) continue;
-    for (const imported of record.imports) {
-      const resolved = resolveExport(imported.targetPath, imported.importedName, new Set());
-      if (!resolved) {
-        throw new KernRunnerError(
-          moduleLinkErrors.doesNotExport(imported.targetPath, imported.importedName, record.path),
-        );
-      }
-      if (scope.functions.has(imported.localName) || scope.classes.has(imported.localName)) {
-        throw new KernRunnerError(moduleLinkErrors.aliasConflicts(imported.localName, record.path));
-      }
-      if (resolved.kind === 'fn') scope.functions.set(imported.localName, resolved.binding as RunnerFunctionBinding);
-      else scope.classes.set(imported.localName, resolved.binding as RunnerClassBinding);
-    }
-    validateRunnerCallableNames(scope.functions, scope.classes);
-    assertRunnerClassAcyclic(scope.classes);
-  }
-
-  return scopes;
 }
 
 function linkedRootScope(records: readonly LinkedModuleRecord[], rootRecord: LinkedModuleRecord): RunnerModuleScope {

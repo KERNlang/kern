@@ -1,4 +1,5 @@
 import { isPortableBindingName } from './ir/semantics/portable-scalar-domain.js';
+import { type PortableHandlerType, parsePortableHandlerType } from './portable-handler-type.js';
 import type { IRNode } from './types.js';
 
 export interface KernRuntimeHandlerParameter {
@@ -11,26 +12,13 @@ export interface KernRuntimeHandlerSignature {
   readonly returns?: string;
 }
 
-export type KernRuntimeHandlerAdmittedType =
-  | { readonly kind: 'boolean' | 'integer' | 'text' }
-  | { readonly element: 'boolean' | 'integer' | 'text'; readonly kind: 'list' }
-  | { readonly kind: 'void' };
-
-function admittedAnnotation(annotation: string | undefined, returns: boolean): KernRuntimeHandlerAdmittedType | null {
-  if (annotation === undefined) return null;
-  const value = annotation.trim();
-  if (returns && value === 'void') return { kind: 'void' };
-  const scalar = value.endsWith('[]') ? value.slice(0, -2) : value;
-  const kind = scalar === 'string' ? 'text' : scalar === 'number' ? 'integer' : scalar === 'boolean' ? 'boolean' : null;
-  if (kind === null) return null;
-  return value.endsWith('[]') ? { element: kind, kind: 'list' } : { kind };
-}
+export type KernRuntimeHandlerAdmittedType = PortableHandlerType;
 
 export function admitKernRuntimeHandlerSignature(
   signature: KernRuntimeHandlerSignature,
 ): readonly KernRuntimeHandlerAdmittedType[] | null {
-  const parameters = signature.parameters.map(({ annotation }) => admittedAnnotation(annotation, false));
-  const returns = admittedAnnotation(signature.returns, true);
+  const parameters = signature.parameters.map(({ annotation }) => parsePortableHandlerType(annotation, 'parameter'));
+  const returns = parsePortableHandlerType(signature.returns, 'return');
   if (parameters.some((type) => type === null) || returns === null) return null;
   return [...(parameters as KernRuntimeHandlerAdmittedType[]), returns];
 }

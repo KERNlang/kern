@@ -103,6 +103,8 @@ function effectiveBaseConstructor(
   cls: RunnerClassBinding,
   registry: ReadonlyMap<string, RunnerClassBinding>,
 ): RunnerClassBinding | undefined {
+  // Cross-module inheritance is rejected before constructor planning; every
+  // admitted candidate therefore resolves through this one defining registry.
   const seen = new Set<string>();
   let current: RunnerClassBinding | undefined = cls.extendsName ? registry.get(cls.extendsName) : undefined;
   while (current) {

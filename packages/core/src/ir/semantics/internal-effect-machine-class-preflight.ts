@@ -8,6 +8,7 @@ import {
 import { internalMachineClassConstructorPlan } from './internal-effect-machine-class-construction.js';
 import {
   assertInternalMachineClassGraph,
+  internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
 import { INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER } from './internal-effect-machine-class-instance.js';
@@ -111,6 +112,7 @@ function assertClassExpression(
     return;
   }
   if (node.kind === 'member') {
+    if (!node.optional && internalMachineClassGetterForRead(node, env)) return;
     if (node.optional || node.object.kind !== 'ident' || node.object.name !== 'this' || !fields.has(node.property)) {
       throw new Error('machine class: member expression references an unavailable field');
     }
@@ -241,16 +243,28 @@ function markDefiniteConstructorFieldAssignments(
 }
 
 export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analyze: ClassBodyAnalyzer): void {
-  const registry = assertInternalMachineClassGraph(env).classes;
   const activeState = internalEffectMachineStateForEnv(env);
-  const preflightState = {
-    classRegistry: registry,
-    helperBodyRunner: activeState?.helperBodyRunner,
-    helperRegistry: activeState?.helperRegistry,
-    remainingIterations: undefined,
-  };
-  for (const cls of registry.values()) {
-    const visibleFields = internalMachineClassVisibleFields(cls, registry);
+  const classGraph = activeState?.moduleGraph
+    ? {
+        classes: activeState.moduleGraph.root.classes,
+        moduleGraph: activeState.moduleGraph,
+        requiresIterationBudget: false,
+      }
+    : assertInternalMachineClassGraph(env);
+  const registry = classGraph.classes;
+  const classes = new Set(classGraph.moduleGraph.scopes.flatMap((scope) => [...scope.classes.values()]));
+  for (const cls of classes) {
+    const definingRegistry = cls.module?.classes ?? registry;
+    const preflightState = {
+      classRegistry: definingRegistry,
+      helperBodyRunner: activeState?.helperBodyRunner,
+      helperRegistry: activeState?.helperRegistry,
+      moduleGraph: activeState?.moduleGraph ?? classGraph.moduleGraph,
+      resumableHelpers: activeState?.resumableHelpers,
+      resumableHelperNames: activeState?.resumableHelperNames,
+      remainingIterations: undefined,
+    };
+    const visibleFields = internalMachineClassVisibleFields(cls, definingRegistry);
     const constructorValues = (cls.constructor?.params ?? []).map(() => null);
     const { constructorEnv, instance } = createInternalMachineClassInstance(
       cls,
@@ -258,12 +272,12 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
       constructorValues,
       evalPortableValue,
       INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER,
-      registry,
+      definingRegistry,
     );
     if (cls.constructor) {
       const restore = bindInternalEffectMachineState(constructorEnv, preflightState);
       try {
-        const plan = internalMachineClassConstructorPlan(cls, registry);
+        const plan = internalMachineClassConstructorPlan(cls, definingRegistry);
         const unstableBindings = new Set(cls.constructor.params);
         assertClassBodyExpressions(plan.preSuper, visibleFields, constructorEnv, false);
         const preSuperCompletions = analyze(plan.preSuper, 0, constructorEnv, unstableBindings, true);
@@ -301,7 +315,7 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
         instance,
         member.params.map(() => null),
         env,
-        registry,
+        definingRegistry,
       );
       const restore = bindInternalEffectMachineState(memberEnv, preflightState);
       try {

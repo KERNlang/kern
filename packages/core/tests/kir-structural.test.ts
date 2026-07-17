@@ -77,10 +77,10 @@ describe('internal structural KIR writer and bounded reader', () => {
     expect(encodeStructuralKir(reordered, limits)).toEqual(bytes);
     const artifact = decodeStructuralKir(bytes, limits);
     expect(encodeCanonicalValue(decodeCanonicalValue(bytes, limits), limits)).toEqual(bytes);
-    expect(artifact.format).toBe('kern.kir.structural.r1.5c.2-alpha');
-    expect(artifact.constitution).toBe('kern.kir.structural.alpha.1');
+    expect(artifact.format).toBe('kern.kir.structural.r1.5e.1-alpha');
+    expect(artifact.constitution).toBe('kern.kir.structural.r1.5e.1');
     expect(artifact.proofLabel).toBe('ALPHA-NO-GO');
-    expect(artifact.typeCatalog.admittedKinds).toEqual([]);
+    expect(artifact.typeCatalog.admittedKinds).toEqual(['boolean', 'integer', 'list', 'text', 'void']);
     expect(artifact.root.properties.map((entry) => entry.key)).toEqual(['export', 'name']);
     expect(artifact.root.children.map((child) => child.kind)).toEqual(['let', 'return']);
   });
@@ -120,6 +120,143 @@ describe('internal structural KIR writer and bounded reader', () => {
     ['x as User', 'unknown-expression-kind'],
   ] as const)('rejects expression outside the closed catalog: %s', (source, code) =>
     expectStructuralCode(() => encodeStructuralKir(letNode(source), limits), code));
+
+  test('lowers exact structured runtime-handler types into semantic KIR', () => {
+    const artifact = decodeStructuralKir(
+      encodeStructuralKir(
+        {
+          type: 'fn',
+          props: { name: 'answer', returns: 'string[]' },
+          children: [{ type: 'param', props: { name: 'question', type: 'string' } }],
+        },
+        limits,
+      ),
+      limits,
+    );
+    const returns = artifact.root.properties.find((entry) => entry.key === 'returns')?.value;
+    const parameterType = artifact.root.children[0]?.properties.find((entry) => entry.key === 'type')?.value;
+    expect(returns).toEqual({
+      tag: 'record',
+      value: [
+        { key: 'element', value: { tag: 'text', value: 'text' } },
+        { key: 'kind', value: { tag: 'text', value: 'list' } },
+      ],
+    });
+    expect(parameterType).toEqual({
+      tag: 'record',
+      value: [{ key: 'kind', value: { tag: 'text', value: 'text' } }],
+    });
+  });
+
+  test.each([
+    ['string', 'text'],
+    ['number', 'integer'],
+    ['boolean', 'boolean'],
+  ])('lowers scalar handler type %s to %s in parameter and return positions', (annotation, kind) => {
+    const artifact = decodeStructuralKir(
+      encodeStructuralKir(
+        {
+          type: 'fn',
+          props: { name: 'f', returns: annotation },
+          children: [{ type: 'param', props: { name: 'value', type: annotation } }],
+        },
+        limits,
+      ),
+      limits,
+    );
+    const expected = { tag: 'record', value: [{ key: 'kind', value: { tag: 'text', value: kind } }] };
+    expect(artifact.root.properties.find((entry) => entry.key === 'returns')?.value).toEqual(expected);
+    expect(artifact.root.children[0]?.properties.find((entry) => entry.key === 'type')?.value).toEqual(expected);
+  });
+
+  test.each([
+    ['string[]', 'text'],
+    ['number[]', 'integer'],
+    ['boolean[]', 'boolean'],
+  ])('lowers list handler type %s with semantic element %s', (annotation, element) => {
+    const artifact = decodeStructuralKir(
+      encodeStructuralKir({ type: 'fn', props: { name: 'f', returns: annotation } }, limits),
+      limits,
+    );
+    expect(artifact.root.properties.find((entry) => entry.key === 'returns')?.value).toEqual({
+      tag: 'record',
+      value: [
+        { key: 'element', value: { tag: 'text', value: element } },
+        { key: 'kind', value: { tag: 'text', value: 'list' } },
+      ],
+    });
+  });
+
+  test('lowers void only in the handler return position', () => {
+    const artifact = decodeStructuralKir(
+      encodeStructuralKir({ type: 'fn', props: { name: 'f', returns: 'void' } }, limits),
+      limits,
+    );
+    expect(artifact.root.properties.find((entry) => entry.key === 'returns')?.value).toEqual({
+      tag: 'record',
+      value: [{ key: 'kind', value: { tag: 'text', value: 'void' } }],
+    });
+  });
+
+  test.each([
+    ['param', 'void'],
+    ['param', 'string[][]'],
+    ['param', 'String'],
+    ['param', 'User'],
+    ['fn', 'void[]'],
+    ['fn', 'string | null'],
+    ['fn', '{ value: string }'],
+    ['fn', '[string, number]'],
+    ['fn', 'Array<string>'],
+    ['fn', 'string?'],
+    ['fn', 'string=default'],
+    ['fn', "User['name']"],
+    ['fn', 'value is string'],
+    ['fn', 'Record<string, unknown>'],
+    ['fn', '(value: string) => string'],
+  ])('rejects non-portable %s type %s', (kind, annotation) => {
+    const input: IRNode =
+      kind === 'param'
+        ? {
+            type: 'fn',
+            props: { name: 'f', returns: 'void' },
+            children: [{ type: 'param', props: { name: 'value', type: annotation } }],
+          }
+        : { type: 'fn', props: { name: 'f', returns: annotation } };
+    expectStructuralCode(() => encodeStructuralKir(input, limits), 'invalid-type');
+  });
+
+  test('rejects typed params outside direct fn children and legacy raw params text', () => {
+    expectStructuralCode(
+      () => encodeStructuralKir({ type: 'param', props: { name: 'value', type: 'string' } }, limits),
+      'excluded-host-payload',
+    );
+    expectStructuralCode(
+      () => encodeStructuralKir({ type: 'fn', props: { name: 'f', params: 'value:string', returns: 'void' } }, limits),
+      'excluded-host-payload',
+    );
+  });
+
+  test.each(['', '   '])('canonicalizes an empty legacy params value to omission', (params) => {
+    const artifact = decodeStructuralKir(
+      encodeStructuralKir({ type: 'fn', props: { name: 'f', params, returns: 'void' } }, limits),
+      limits,
+    );
+    expect(artifact.root.properties.some((entry) => entry.key === 'params')).toBe(false);
+
+    const mutated = structuredClone(
+      decodeCanonicalValue(encodeStructuralKir({ type: 'fn', props: { name: 'f', returns: 'void' } }, limits), limits),
+    );
+    const rootValue = recordField(mutated, 'root');
+    const properties = recordField(rootValue, 'properties');
+    if (properties.tag !== 'record') throw new Error('expected properties');
+    properties.value.push({ key: 'params', value: { tag: 'text', value: params } });
+    properties.value.sort((left, right) => left.key.localeCompare(right.key));
+    expectStructuralCode(
+      () => decodeStructuralKir(encodeCanonicalValue(mutated, limits), limits),
+      'excluded-host-payload',
+    );
+  });
 
   test('hard-rejects excluded host payloads and required excluded types', () => {
     expectStructuralCode(
@@ -201,6 +338,99 @@ describe('internal structural KIR writer and bounded reader', () => {
     expectStructuralCode(
       () => decodeStructuralKir(encodeCanonicalValue(typeValue, limits), limits),
       'invalid-artifact',
+    );
+
+    const rawTypeValue = structuredClone(
+      decodeCanonicalValue(
+        encodeStructuralKir({ type: 'fn', props: { name: 'f', returns: 'string' } }, limits),
+        limits,
+      ),
+    );
+    const rawTypeRoot = recordField(rawTypeValue, 'root');
+    const rawTypeProperties = recordField(rawTypeRoot, 'properties');
+    if (rawTypeProperties.tag !== 'record') throw new Error('expected properties');
+    const rawReturn = rawTypeProperties.value.find((entry) => entry.key === 'returns');
+    if (!rawReturn) throw new Error('expected return type');
+    rawReturn.value = { tag: 'text', value: 'string' };
+    expectStructuralCode(() => decodeStructuralKir(encodeCanonicalValue(rawTypeValue, limits), limits), 'invalid-type');
+  });
+
+  test('reader rejects semantic type shape, catalog, and predecessor-version mutations', () => {
+    const typed = () =>
+      structuredClone(
+        decodeCanonicalValue(
+          encodeStructuralKir({ type: 'fn', props: { name: 'f', returns: 'string[]' } }, limits),
+          limits,
+        ),
+      );
+    const returnType = (value: CanonicalValue): CanonicalValue => {
+      const rootValue = recordField(value, 'root');
+      const properties = recordField(rootValue, 'properties');
+      if (properties.tag !== 'record') throw new Error('expected properties');
+      const result = properties.value.find((entry) => entry.key === 'returns')?.value;
+      if (!result) throw new Error('expected return type');
+      return result;
+    };
+    const mutations: Array<(value: CanonicalValue) => void> = [
+      (value) => {
+        const type = returnType(value);
+        if (type.tag !== 'record' || type.value[0]?.value.tag !== 'text') throw new Error('expected list element');
+        type.value[0].value.value = 'void';
+      },
+      (value) => {
+        const type = returnType(value);
+        if (type.tag !== 'record' || type.value[1]?.value.tag !== 'text') throw new Error('expected list kind');
+        type.value[1].value.value = 'array';
+      },
+      (value) => {
+        const type = returnType(value);
+        if (type.tag !== 'record') throw new Error('expected type record');
+        type.value.push({ key: 'unknown', value: { tag: 'null' } });
+      },
+      (value) => {
+        const type = returnType(value);
+        if (type.tag !== 'record') throw new Error('expected type record');
+        type.value.splice(0, 1);
+      },
+    ];
+    for (const mutate of mutations) {
+      const value = typed();
+      mutate(value);
+      expectStructuralCode(() => decodeStructuralKir(encodeCanonicalValue(value, limits), limits), 'invalid-type');
+    }
+
+    const scalarMutation = structuredClone(
+      decodeCanonicalValue(
+        encodeStructuralKir({ type: 'fn', props: { name: 'f', returns: 'string' } }, limits),
+        limits,
+      ),
+    );
+    const scalarType = returnType(scalarMutation);
+    if (scalarType.tag !== 'record' || scalarType.value[0]?.value.tag !== 'text') {
+      throw new Error('expected scalar type');
+    }
+    scalarType.value[0].value.value = 'number';
+    expectStructuralCode(
+      () => decodeStructuralKir(encodeCanonicalValue(scalarMutation, limits), limits),
+      'invalid-type',
+    );
+
+    const catalogMutation = typed();
+    const catalog = recordField(catalogMutation, 'typeCatalog');
+    if (catalog.tag !== 'record') throw new Error('expected type catalog');
+    catalog.value.splice(1, 1);
+    expectStructuralCode(
+      () => decodeStructuralKir(encodeCanonicalValue(catalogMutation, limits), limits),
+      'invalid-artifact',
+    );
+
+    const predecessor = typed();
+    const format = recordField(predecessor, 'format');
+    if (format.tag !== 'text') throw new Error('expected format');
+    format.value = 'kern.kir.structural.r1.5c.2-alpha';
+    expectStructuralCode(
+      () => decodeStructuralKir(encodeCanonicalValue(predecessor, limits), limits),
+      'unsupported-version',
     );
   });
 

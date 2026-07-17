@@ -6,7 +6,7 @@ export const CLASS_VIRTUAL_METHOD_FILES = Object.freeze({
     'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method-admission.test.ts',
   classVirtualMethodTests: 'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts',
   runnerCapabilityClassDispatch: 'packages/core/src/runner-capability-class-dispatch.ts',
-  runnerCapabilityPlan: 'packages/core/src/runner-capability-plan.ts',
+  runnerCapabilityPlan: 'packages/core/src/runner-capability-linked-handlers.ts',
   virtualRunnerCapabilityPlanTests: 'packages/core/tests/runner-capability-plan-virtual-method.test.ts',
 });
 
@@ -57,11 +57,10 @@ export function validateClassVirtualMethodSlice(contents, errors) {
     }
   }
   for (const required of [
-    'item.receiverClass',
-    "node.callee.object.name === 'this' && receiverClass",
-    'runnerCapabilityClassCallKey(receiverClass, receiverClass',
-    'resolveRunnerCapabilityClassCall',
-    'key: `constructor:${name}:${className}`',
+    "object.name === 'this' && work.receiverClass",
+    'return { startClass: work.receiverClass, receiverClass: work.receiverClass }',
+    'enqueue({ handler: member.handler, scope, ownerClass: owner, receiverClass, unsupported })',
+    'if (cls) enqueueConstruction(cls, work.unsupported || !ownsClassFrames, enqueue)',
   ]) {
     if (!contents.runnerCapabilityPlan?.includes(required)) {
       errors.push(`virtual-method capability plan is missing ${required}`);

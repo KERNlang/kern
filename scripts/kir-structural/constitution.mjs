@@ -1,4 +1,4 @@
-export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.alpha.1';
+export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5e.1';
 
 const PROPERTY_POLICIES = Object.freeze({
   identifier: ['included-value', 'portable-identifier'],
@@ -23,7 +23,14 @@ function compareCodePoints(left, right) {
 }
 
 function propertyRow(nodeKind, propertyName, schema) {
-  const policy = PROPERTY_POLICIES[schema.kind];
+  const policy =
+    nodeKind === 'fn' && propertyName === 'returns'
+      ? ['lowered-type', 'portable-handler-return-type']
+      : nodeKind === 'param' && propertyName === 'type'
+        ? ['lowered-type', 'portable-handler-parameter-type']
+        : nodeKind === 'fn' && propertyName === 'params'
+          ? ['excluded-host-type', 'structured-handler-parameters-required']
+          : PROPERTY_POLICIES[schema.kind];
   if (policy === undefined) throw new Error(`unknown property kind ${schema.kind} at ${nodeKind}.${propertyName}`);
   return {
     nodeKind,

@@ -55,7 +55,7 @@ export function validateClassConstructorSuperSlice(contents, errors) {
   }
   for (const required of [
     'function* evaluateInternalMachineClassConstructorLayer',
-    'const registry = state.classRegistry',
+    'const registry = cls?.module?.classes ?? state.classRegistry',
     'state.helperBodyRunner',
     'yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues',
     'initializeInternalMachineClassLayerFields(cls, instance.fields',
@@ -72,7 +72,7 @@ export function validateClassConstructorSuperSlice(contents, errors) {
     if (!contents.classRuntime?.includes(required)) errors.push(`constructor-super preflight state is missing ${required}`);
   }
   for (const required of [
-    'internalMachineClassConstructorPlan(cls, registry)',
+    'internalMachineClassConstructorPlan(cls, definingRegistry)',
     'for (const argument of plan.superArguments)',
     'assertClassBodyExpressions(plan.preSuper, visibleFields, constructorEnv, false)',
     'assertClassBodyExpressions(plan.postSuper, visibleFields, constructorEnv)',
