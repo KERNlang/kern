@@ -654,6 +654,107 @@ trusted-publishing/provenance configuration is inspected.
     nits were closed or recorded as explicit boundaries
     (`review-1784229445070-ij7bxg-kern-5-r2-m3-31b2b1-virtual-this`,
     `review-1784230029905-13rm3s-kern-5-r2-m3-31b2b1-virtual-this`).
+  - [x] M3.31b2b2 pure class-to-helper composition: same-root constructors,
+    methods, and getters now call M3.24 pure portable helpers through the
+    existing per-run machine state. Class bodies seed exact helper
+    reachability; the helper registry snapshots binding metadata and bodies
+    before suspension; combined class preflight runs before helper-only
+    admission; and the planner clears `unsupported` only for the same exact
+    owned graph. Private receiver transport, helper-to-class allocation or
+    member access, helper calls in `super(...)`, effects inside helpers, and
+    imported/module identity remain fail-closed as explicit M3.31b2b3/c
+    boundaries. Constructor/method/getter execution, before-and-after async
+    capabilities without replay, class-only helper discovery, shared loop
+    budget, inactive-branch preflight, overlapping-run isolation, mid-flight
+    metadata mutation, public-source behavior, and local/imported planner
+    dispositions are executable oracles. The exact `pnpm fitness:kern-5` wall
+    passed with 432/432 cross-target fixtures, 109/109 class fixtures, 233
+    native cases, 48/48 checker fixtures, 39/39 validator verdicts, and 40
+    application fixtures on three legs plus whole-app boot. The required
+    browser wall passed at 149 modules / 1,504,140 raw / 324,003 gzip bytes /
+    60 ms cold / 92 ms median; the required repeat measured 57 ms cold / 88 ms
+    median. The new convergence wall passed 433 focused
+    runtime/planner units plus 27 convergence checks. The initial 6/6 Agon review
+    found no verified blocker; its wrapped-private-receiver concern was made
+    executable and fixed before this final fitness run
+    (`review-1784236442005-xtko8x`). A second 6/6 review exposed shallow nested
+    metadata snapshotting; a RED oracle, structured deep clone, and convergence
+    kill mutation closed it (`review-1784238408653-tdc0cw`). A third review
+    exposed missing portable array/record helper arguments; a RED oracle and
+    composite-aware classifier closed that gap while its helper-only regression
+    claim was disproved by the guarded selector and M3.24 suite
+    (`review-1784240330837-1grirm`). The first terminal 6/6 review exposed live
+    nested-call arity validation through the original function map; a RED async
+    mutation oracle and convergence kill now bind nested calls to the frozen
+    helper registry (`review-1784242429634-pwgyrc`). A second terminal 6/6
+    review returned zero verified findings but exposed bare `this`/`super`
+    receiver containment as a real needs-check; three RED graph oracles and a
+    convergence kill closed it (`review-1784244496719-9oo0jq`). A third
+    terminal review exposed composite helper returns escaping scalar class
+    slots; declared scalar contracts, return-body proof, nested composite
+    argument preservation, and two convergence kills closed the boundary and
+    its M3.24 regression (`review-1784246309546-pbzrmw`). The final full-roster
+    review returned five verdicts while Kimi exhausted the 600-second wall.
+    Its sole verified item was commit completeness for the new untracked files;
+    the unrelated-class needs-check was disproved by machine selection with a
+    valid dormant class and intentional fallback for private-receiver transport
+    (`review-1784249101282-nraj2q-m3-31b2b2-final`).
+  - [x] M3.31b2b3 pure helper-to-class composition: an admitted M3.24 helper
+    may now allocate an exact same-root class, keep its private instance inside
+    the helper invocation, and return a portable scalar through owned field,
+    getter, or method access. Reverse reachability follows only selected
+    members, preserves inherited virtual/`super` dispatch, snapshots helper and
+    class metadata before suspension, and rejects direct or nested-helper
+    instance transport. Reached direct/indirect class effects fail preflight
+    before provider dispatch, while unused effectful members do not poison a
+    selected pure member. Planner and runtime dispositions are executable, and
+    convergence mutations bind reverse ownership, instance/effect containment,
+    snapshot depth, private receivers, stable local binding identity, and scalar
+    return proof. Effectful class work and pre-super statements remain
+    M3.31b2c; imported/module identity remains M3.31c. The exact final
+    `pnpm fitness:kern-5` wall passed with 432/432
+    cross-target fixtures, 233 native cases, 48/48 checker fixtures, 39/39
+    validator verdicts, and 40 application fixtures on three legs plus
+    whole-app boot. The required browser wall passed at 150 modules / 1,517,134
+    raw / 325,833 gzip bytes / 57 ms cold / 87 ms median; all 36 convergence
+    mutations were killed. The first full-roster review found private-receiver,
+    scalar-argument, getter-reachability, parenthesisless-construction, and
+    whole-return validation gaps; seven RED boundary oracles plus four new
+    convergence kills close them (`review-1784252757692-8i784i-m3-31b2b3-final`).
+    A later review's helper-local scalar-argument gap was fixed and covered
+    (`review-1784254817000-7qq1xn-m3-31b2b3-terminal`). The next terminal review
+    reproduced stale class-binding admission after reassignment; a provider-before-helper
+    RED oracle and convergence kill close it
+    (`review-1784256648627-inqwpc-m3-31b2b3-terminal-2`). The final
+    `claude,codex,agy` review completed 3/3 with zero verified findings. Its sole
+    needs-check, duplicate class-loop budget propagation, was disproved by the
+    independent complete class-graph budget owner and existing class-frame
+    budget tests (`review-1784258421483-r2xyxd-m3-31b2b3-terminal-3`).
+  - [x] M3.31b2c1 pre-super constructor execution: explicit derived
+    constructors now bind parameters, execute authored pre-super statements,
+    evaluate pure `super(...)` arguments from definitely established locals,
+    recurse into the base, initialize the current class fields, and execute the
+    post-super body through one resumable class frame. Pre-super capabilities,
+    three-layer descent/ascent ordering, provider failure, overlapping-run and
+    metadata-snapshot isolation, and public-source behavior are executable
+    oracles. Whole-graph preflight rejects receiver access, abnormal completion,
+    missing or unstable locals, helper/class calls in super arguments, and
+    helper-reached class effects before provider dispatch. The convergence
+    owner and 37 mutation checks bind the plan partition, authored execution
+    order, receiver containment, definite-binding proof, capability planning,
+    and explicit M3.31b2c2/M3.31c deferrals. The final `pnpm fitness:kern-5`
+    wall passed with 432/432 cross-target fixtures, 109/109 class fixtures, 233
+    native cases, 48/48 checker fixtures, 39/39 validator verdicts, and 40
+    application fixtures on three legs plus whole-app boot. The required
+    browser wall passed at 150 modules / 1,521,167 raw / 326,404 gzip bytes /
+    58 ms cold / 87 ms median. The terminal `claude,codex,agy` review completed
+    3/3 with zero verified and zero needs-check findings. Its speculative
+    fast-path concern was disproved because preflight preparation does not
+    execute constructors and all real construction enters the resumable class
+    frame; its remaining duplicate-parse item is a non-behavioral nit
+    (`review-1784262755790-138qtd-m3-31b2c1-pre-super-final`). Resumable
+    helper-to-class effects remain M3.31b2c2 and imported/cross-module identity
+    remains M3.31c.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

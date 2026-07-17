@@ -32,7 +32,9 @@ export function validateClassConstructorSuperSlice(contents, errors) {
     'function bodySuperCallCount',
     'function assertSuperArgument',
     'function effectiveBaseConstructor',
-    'must be one leading call',
+    'readonly preSuper: readonly IRNode[]',
+    'readonly postSuper: readonly IRNode[]',
+    'must be one direct top-level call',
     'super arguments cannot cross constructor-less base',
     'export function assertInternalMachineClassConstructorPlans',
   ]) {
@@ -57,21 +59,23 @@ export function validateClassConstructorSuperSlice(contents, errors) {
     'state.helperBodyRunner',
     'yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues',
     'initializeInternalMachineClassLayerFields(cls, instance.fields',
-    'const trace = yield* bodyRunner(plan.body, constructorEnv, state)',
+    'const trace = yield* bodyRunner(plan.preSuper, constructorEnv, state)',
+    'const trace = yield* bodyRunner(plan.postSuper, constructorEnv, state)',
   ]) {
     if (!contents.classFrame?.includes(required)) errors.push(`constructor-super frame is missing ${required}`);
   }
   for (const required of [
     'function reconcileConstructorLineageInitialization',
     'reconcileConstructorLineageInitialization(lineage, resolved.registry, instance)',
-    'internalMachineClassConstructorPlan(resolved.cls, resolved.registry).body',
+    'internalMachineClassConstructorPlan(resolved.cls, resolved.registry).postSuper',
   ]) {
     if (!contents.classRuntime?.includes(required)) errors.push(`constructor-super preflight state is missing ${required}`);
   }
   for (const required of [
     'internalMachineClassConstructorPlan(cls, registry)',
     'for (const argument of plan.superArguments)',
-    'assertClassBodyExpressions(plan.body, visibleFields, constructorEnv)',
+    'assertClassBodyExpressions(plan.preSuper, visibleFields, constructorEnv, false)',
+    'assertClassBodyExpressions(plan.postSuper, visibleFields, constructorEnv)',
   ]) {
     if (!contents.classFramePreflight?.includes(required)) {
       errors.push(`constructor-super whole-graph preflight is missing ${required}`);

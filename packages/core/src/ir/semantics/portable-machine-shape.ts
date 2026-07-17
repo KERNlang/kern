@@ -4,7 +4,7 @@ import {
   internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
-import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
+import { isInternalMachineHelperCall } from './internal-effect-machine-helper-contract.js';
 import { isDecimalExpression } from './portable-decimal-evaluator.js';
 import { assertPortableRecordEntry } from './portable-record-evaluator.js';
 import { isPortableBindingName, isSafeIntegerLiteralIndex } from './portable-scalar-domain.js';
@@ -38,19 +38,26 @@ const TEXT_ARITY: Readonly<Record<string, number>> = Object.freeze({
   startsWith: 2,
 });
 
+type ScalarHelperCall = (name: string, arity: number, env: SemanticEnv) => boolean;
+
 function fail(kind: string): never {
   throw new Error(`portable machine: expression ${kind} is outside the structural domain`);
 }
 
-function assertScalarCallShape(node: Extract<ValueIR, { kind: 'call' }>, env?: SemanticEnv): void {
+function assertScalarCallShape(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv | undefined,
+  scalarHelperCall: ScalarHelperCall,
+  portableHelperCall: ScalarHelperCall,
+): void {
   if (node.optional) fail('optional call');
   if (node.callee.kind === 'ident') {
     if (node.callee.name === 'String' && node.args.length === 1) {
-      assertPortableMachineScalarShape(node.args[0], env);
+      assertPortableMachineScalarShape(node.args[0], env, scalarHelperCall, portableHelperCall);
       return;
     }
-    if (!env || !isInternalMachineHelperCall(node.callee.name, node.args.length, env)) fail('function call');
-    for (const argument of node.args) assertPortableMachineLetShape(argument, env);
+    if (!env || !scalarHelperCall(node.callee.name, node.args.length, env)) fail('function call');
+    for (const argument of node.args) assertPortableMachineLetShape(argument, env, portableHelperCall);
     return;
   }
   if (node.callee.kind !== 'member' || node.callee.optional || node.callee.object.kind !== 'ident') {
@@ -82,12 +89,14 @@ function assertScalarCallShape(node: Extract<ValueIR, { kind: 'call' }>, env?: S
     ) {
       fail('Map call');
     }
-    assertPortableMachineScalarShape(node.args[1], env);
+    assertPortableMachineScalarShape(node.args[1], env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (namespace === 'Text') {
     if (TEXT_ARITY[method] !== node.args.length) fail('Text call');
-    for (const argument of node.args) assertPortableMachineScalarShape(argument, env);
+    for (const argument of node.args) {
+      assertPortableMachineScalarShape(argument, env, scalarHelperCall, portableHelperCall);
+    }
     return;
   }
   fail('namespace call');
@@ -109,10 +118,15 @@ function assertMemberShape(node: Extract<ValueIR, { kind: 'member' }>, env?: Sem
   }
 }
 
-function assertIndexShape(node: Extract<ValueIR, { kind: 'index' }>, env?: SemanticEnv): void {
+function assertIndexShape(
+  node: Extract<ValueIR, { kind: 'index' }>,
+  env: SemanticEnv | undefined,
+  scalarHelperCall: ScalarHelperCall,
+  portableHelperCall: ScalarHelperCall,
+): void {
   if (node.optional) fail('optional index');
   if (node.object.kind === 'ident') {
-    assertPortableMachineScalarShape(node.index, env);
+    assertPortableMachineScalarShape(node.index, env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (
@@ -125,7 +139,12 @@ function assertIndexShape(node: Extract<ValueIR, { kind: 'index' }>, env?: Seman
   }
 }
 
-export function assertPortableMachineScalarShape(node: ValueIR, env?: SemanticEnv): void {
+export function assertPortableMachineScalarShape(
+  node: ValueIR,
+  env?: SemanticEnv,
+  scalarHelperCall: ScalarHelperCall = isInternalMachineHelperCall,
+  portableHelperCall: ScalarHelperCall = scalarHelperCall,
+): void {
   if (node.kind === 'numLit') {
     if (node.bigint || !Number.isFinite(node.value)) fail('number literal');
     return;
@@ -133,27 +152,29 @@ export function assertPortableMachineScalarShape(node: ValueIR, env?: SemanticEn
   if (node.kind === 'strLit' || node.kind === 'boolLit' || node.kind === 'nullLit' || node.kind === 'ident') return;
   if (node.kind === 'unary') {
     if (!SCALAR_UNARY_OPS.has(node.op)) fail('unary');
-    assertPortableMachineScalarShape(node.argument, env);
+    assertPortableMachineScalarShape(node.argument, env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (node.kind === 'binary') {
     if (!SCALAR_BINARY_OPS.has(node.op)) fail('binary');
-    assertPortableMachineScalarShape(node.left, env);
-    assertPortableMachineScalarShape(node.right, env);
+    assertPortableMachineScalarShape(node.left, env, scalarHelperCall, portableHelperCall);
+    assertPortableMachineScalarShape(node.right, env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (node.kind === 'conditional') {
-    assertPortableMachineScalarShape(node.test, env);
-    assertPortableMachineScalarShape(node.consequent, env);
-    assertPortableMachineScalarShape(node.alternate, env);
+    assertPortableMachineScalarShape(node.test, env, scalarHelperCall, portableHelperCall);
+    assertPortableMachineScalarShape(node.consequent, env, scalarHelperCall, portableHelperCall);
+    assertPortableMachineScalarShape(node.alternate, env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    assertPortableMachineScalarShape(node.expression, env);
+    assertPortableMachineScalarShape(node.expression, env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) assertPortableMachineScalarShape(expression, env);
+    for (const expression of node.expressions) {
+      assertPortableMachineScalarShape(expression, env, scalarHelperCall, portableHelperCall);
+    }
     return;
   }
   if (node.kind === 'member') {
@@ -161,11 +182,11 @@ export function assertPortableMachineScalarShape(node: ValueIR, env?: SemanticEn
     return;
   }
   if (node.kind === 'index') {
-    assertIndexShape(node, env);
+    assertIndexShape(node, env, scalarHelperCall, portableHelperCall);
     return;
   }
   if (node.kind === 'call') {
-    assertScalarCallShape(node, env);
+    assertScalarCallShape(node, env, scalarHelperCall, portableHelperCall);
     return;
   }
   fail(node.kind);
@@ -189,20 +210,28 @@ function assertArrayShape(node: Extract<ValueIR, { kind: 'arrayLit' }>, allowFin
   }
 }
 
-function assertReturnArrayShape(node: Extract<ValueIR, { kind: 'arrayLit' }>, env?: SemanticEnv): void {
+function assertReturnArrayShape(
+  node: Extract<ValueIR, { kind: 'arrayLit' }>,
+  env?: SemanticEnv,
+  helperCall: ScalarHelperCall = isInternalMachineHelperCall,
+): void {
   for (const item of node.items) {
     if (item.kind === 'arrayLit') assertArrayShape(item, false);
-    else assertPortableMachineScalarShape(item, env);
+    else assertPortableMachineScalarShape(item, env, helperCall);
   }
 }
 
-function assertRecordShape(node: Extract<ValueIR, { kind: 'objectLit' }>, env?: SemanticEnv): void {
+function assertRecordShape(
+  node: Extract<ValueIR, { kind: 'objectLit' }>,
+  env?: SemanticEnv,
+  helperCall: ScalarHelperCall = isInternalMachineHelperCall,
+): void {
   const keys: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const rawEntry of node.entries) {
     const entry = assertPortableRecordEntry(rawEntry, keys);
     keys[entry.key] = null;
     if (entry.value.kind === 'arrayLit') assertArrayShape(entry.value, true);
-    else assertPortableMachineScalarShape(entry.value, env);
+    else assertPortableMachineScalarShape(entry.value, env, helperCall);
   }
 }
 
@@ -217,22 +246,30 @@ function isEmptyMapConstructor(node: ValueIR): boolean {
   );
 }
 
-function assertClassConstructionShape(node: ValueIR, env?: SemanticEnv): boolean {
+function assertClassConstructionShape(
+  node: ValueIR,
+  env?: SemanticEnv,
+  helperCall: ScalarHelperCall = isInternalMachineHelperCall,
+): boolean {
   if (!env) return false;
   const cls = internalMachineClassForNew(node, env);
   if (!cls || node.kind !== 'new' || node.argument.kind !== 'call') return false;
   const params = cls.constructor?.params ?? [];
   if (node.argument.args.length !== params.length) fail('class constructor arity');
-  for (const argument of node.argument.args) assertPortableMachineScalarShape(argument, env);
+  for (const argument of node.argument.args) assertPortableMachineScalarShape(argument, env, helperCall);
   return true;
 }
 
-export function assertPortableMachineClassMethodCallShape(node: ValueIR, env?: SemanticEnv): boolean {
+export function assertPortableMachineClassMethodCallShape(
+  node: ValueIR,
+  env?: SemanticEnv,
+  helperCall: ScalarHelperCall = isInternalMachineHelperCall,
+): boolean {
   if (!env) return false;
   const resolved = internalMachineClassMethodForCall(node, env);
   if (!resolved || node.kind !== 'call') return false;
   if (node.args.length !== resolved.method.params.length) fail('class method arity');
-  for (const argument of node.args) assertPortableMachineScalarShape(argument, env);
+  for (const argument of node.args) assertPortableMachineScalarShape(argument, env, helperCall);
   return true;
 }
 
@@ -240,20 +277,24 @@ export function assertPortableMachineClassGetterReadShape(node: ValueIR, env?: S
   return Boolean(env && node.kind === 'member' && internalMachineClassGetterForRead(node, env));
 }
 
-export function assertPortableMachineLetShape(node: ValueIR, env?: SemanticEnv): void {
+export function assertPortableMachineLetShape(
+  node: ValueIR,
+  env?: SemanticEnv,
+  helperCall: ScalarHelperCall = isInternalMachineHelperCall,
+): void {
   if (node.kind === 'arrayLit') {
     assertArrayShape(node, false);
     return;
   }
   if (node.kind === 'objectLit') {
-    assertRecordShape(node, env);
+    assertRecordShape(node, env, helperCall);
     return;
   }
   if (isEmptyMapConstructor(node)) return;
-  if (assertClassConstructionShape(node, env)) return;
-  if (assertPortableMachineClassMethodCallShape(node, env)) return;
+  if (assertClassConstructionShape(node, env, helperCall)) return;
+  if (assertPortableMachineClassMethodCallShape(node, env, helperCall)) return;
   if (assertPortableMachineClassGetterReadShape(node, env)) return;
-  assertPortableMachineScalarShape(node, env);
+  assertPortableMachineScalarShape(node, env, helperCall);
 }
 
 export function assertPortableMachineReturnShape(node: ValueIR, env?: SemanticEnv): void {

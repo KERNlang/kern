@@ -406,7 +406,7 @@ describe('M3.26 same-root state-only class ownership', () => {
     expect(getterCalls).toBe(0);
   });
 
-  test('routes undeclared field writes and helper/class mixing to compatibility', () => {
+  test('routes undeclared field writes to compatibility and owns a pure helper beside a class scope', () => {
     const undeclared: readonly IRNode[] = [
       { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
       { type: 'assign', props: { target: 'box.other', value: '2' } },
@@ -423,7 +423,7 @@ describe('M3.26 same-root state-only class ownership', () => {
       returns: 'number',
     });
     expect(selectSourceRunnerEngine([{ type: 'print', props: { value: 'identity(1)' } }], env, {})).toBe(
-      SOURCE_RUNNER_ENGINE.legacy,
+      SOURCE_RUNNER_ENGINE.machine,
     );
   });
 

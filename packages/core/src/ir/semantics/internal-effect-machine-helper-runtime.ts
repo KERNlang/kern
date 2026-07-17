@@ -129,7 +129,7 @@ function executePreparedHelper(call: PreparedHelperCall): RunnerPortableValue {
     runnerCallCache: call.cache,
     runnerCallStack: [...(call.env.runnerCallStack ?? []), call.name],
     runnerClasses: call.env.runnerClasses,
-    runnerFunctions: call.env.runnerFunctions,
+    runnerFunctions: new Map(call.state.helperRegistry),
     seed: call.env.seed,
     now: call.env.now,
   });

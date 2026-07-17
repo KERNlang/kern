@@ -82,7 +82,8 @@ export function validateClassFrameSlice(contents, errors) {
     'export function* evaluateInternalMachineClassMethodFrame',
     'export function* evaluateInternalMachineClassGetterFrame',
     'export function* evaluateInternalMachineClassNewFrame',
-    'const trace = yield* bodyRunner(plan.body, constructorEnv, state)',
+    'const trace = yield* bodyRunner(plan.preSuper, constructorEnv, state)',
+    'const trace = yield* bodyRunner(plan.postSuper, constructorEnv, state)',
     'const trace = yield* bodyRunner(resolved.method.body, methodEnv, state)',
     'const trace = yield* bodyRunner(resolved.getter.body, getterEnv, state)',
   ]) {
@@ -122,7 +123,7 @@ export function validateClassFrameSlice(contents, errors) {
   }
   for (const oracle of [
     'clears unsupported only when the selected entry owns the class frame',
-    'keeps helper and class composition unsupported before provider dispatch',
+    'owns same-root pure helpers called from an admitted class frame',
     'requires a caller-owned budget before planning a class-body loop as owned',
   ]) {
     if (!contents.classCapabilityTests?.includes(oracle)) {

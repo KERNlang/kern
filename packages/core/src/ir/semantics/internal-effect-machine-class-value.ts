@@ -4,7 +4,10 @@ import {
   internalMachineClassGetterForRead,
   internalMachineClassMethodForCall,
 } from './internal-effect-machine-class-graph.js';
-import { isInternalMachineHelperCall } from './internal-effect-machine-helper-graph.js';
+import {
+  isInternalMachineHelperCall,
+  isInternalMachineScalarHelperCall,
+} from './internal-effect-machine-helper-graph.js';
 import {
   assertPortableMachineLetShape,
   assertPortableMachineReturnShape,
@@ -39,9 +42,85 @@ function combine(values: readonly InternalMachineClassValueDisposition[]): Inter
   return values.includes('suspending') ? 'suspending' : 'pure';
 }
 
+export function internalMachineClassValueUsesPrivateReceiver(node: ValueIR): boolean {
+  if (node.kind === 'ident') return node.name === 'this' || node.name === 'super';
+  if (node.kind === 'unary' || node.kind === 'new' || node.kind === 'spread' || node.kind === 'await') {
+    return internalMachineClassValueUsesPrivateReceiver(node.argument);
+  }
+  if (node.kind === 'propagate') return internalMachineClassValueUsesPrivateReceiver(node.argument);
+  if (node.kind === 'binary') {
+    return (
+      internalMachineClassValueUsesPrivateReceiver(node.left) ||
+      internalMachineClassValueUsesPrivateReceiver(node.right)
+    );
+  }
+  if (node.kind === 'conditional') {
+    return (
+      internalMachineClassValueUsesPrivateReceiver(node.test) ||
+      internalMachineClassValueUsesPrivateReceiver(node.consequent) ||
+      internalMachineClassValueUsesPrivateReceiver(node.alternate)
+    );
+  }
+  if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
+    return internalMachineClassValueUsesPrivateReceiver(node.expression);
+  }
+  if (node.kind === 'tmplLit') return node.expressions.some(internalMachineClassValueUsesPrivateReceiver);
+  if (
+    node.kind === 'member' &&
+    node.object.kind === 'ident' &&
+    (node.object.name === 'this' || node.object.name === 'super')
+  ) {
+    return false;
+  }
+  if (node.kind === 'member') return internalMachineClassValueUsesPrivateReceiver(node.object);
+  if (node.kind === 'index') {
+    return (
+      internalMachineClassValueUsesPrivateReceiver(node.object) ||
+      internalMachineClassValueUsesPrivateReceiver(node.index)
+    );
+  }
+  if (node.kind === 'call') {
+    return (
+      internalMachineClassValueUsesPrivateReceiver(node.callee) ||
+      node.args.some(internalMachineClassValueUsesPrivateReceiver)
+    );
+  }
+  if (node.kind === 'arrayLit') return node.items.some(internalMachineClassValueUsesPrivateReceiver);
+  if (node.kind === 'objectLit') {
+    return node.entries.some((entry) =>
+      internalMachineClassValueUsesPrivateReceiver('kind' in entry ? entry.argument : entry.value),
+    );
+  }
+  return false;
+}
+
 function pureScalarShape(node: ValueIR, env: SemanticEnv): InternalMachineClassValueDisposition {
   try {
     assertPortableMachineScalarShape(node, env);
+    return 'pure';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+function classifyInternalMachineClassHelperArgument(
+  node: ValueIR,
+  env: SemanticEnv,
+): InternalMachineClassValueDisposition {
+  const scalar = classifyInternalMachineClassScalarValue(node, env);
+  if (scalar !== 'unsupported') return scalar;
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'ident' &&
+    isInternalMachineHelperCall(node.callee.name, node.args.length, env)
+  ) {
+    if (node.args.some(internalMachineClassValueUsesPrivateReceiver)) return 'unsupported';
+    const args = combine(node.args.map((argument) => classifyInternalMachineClassHelperArgument(argument, env)));
+    return args === 'pure' ? 'pure' : 'unsupported';
+  }
+  if (node.kind !== 'arrayLit' && node.kind !== 'objectLit') return 'unsupported';
+  try {
+    assertPortableMachineLetShape(node, env);
     return 'pure';
   } catch {
     return 'unsupported';
@@ -59,8 +138,13 @@ function classifyCall(
     return args === 'unsupported' ? args : 'suspending';
   }
   if (node.optional) return 'unsupported';
+  if (node.callee.kind === 'ident' && isInternalMachineScalarHelperCall(node.callee.name, node.args.length, env)) {
+    if (node.args.some(internalMachineClassValueUsesPrivateReceiver)) return 'unsupported';
+    const args = combine(node.args.map((argument) => classifyInternalMachineClassHelperArgument(argument, env)));
+    return args === 'pure' ? pureScalarShape(node, env) : 'unsupported';
+  }
   if (node.callee.kind === 'ident' && isInternalMachineHelperCall(node.callee.name, node.args.length, env)) {
-    return env.runnerClasses && env.runnerClasses.size > 0 ? 'unsupported' : pureScalarShape(node, env);
+    return 'unsupported';
   }
   if (node.callee.kind === 'ident' && node.callee.name === 'String' && node.args.length === 1) {
     return classifyInternalMachineClassScalarValue(node.args[0], env);
@@ -159,6 +243,14 @@ export function classifyInternalMachineClassReturnValue(
   node: ValueIR,
   env: SemanticEnv,
 ): InternalMachineClassValueDisposition {
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'ident' &&
+    isInternalMachineHelperCall(node.callee.name, node.args.length, env) &&
+    !isInternalMachineScalarHelperCall(node.callee.name, node.args.length, env)
+  ) {
+    return 'unsupported';
+  }
   const scalar = classifyInternalMachineClassScalarValue(node, env);
   if (scalar !== 'unsupported') return scalar;
   try {
