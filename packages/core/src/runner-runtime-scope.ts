@@ -1,4 +1,4 @@
-import { isPortableBindingName } from './ir/semantics/portable-scalar.js';
+import { isPortableBindingName } from './ir/semantics/portable-scalar-domain.js';
 import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from './ir/semantics/runner-machine-scope.js';
 import type {
   RunnerClassBinding,
@@ -161,16 +161,20 @@ function runnerFunctionBinding(node: IRNode): RunnerFunctionBinding | undefined 
   }
 }
 
-export function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding> {
+function collectRunnerFunctionsExcluding(root: IRNode, excludedName: string): Map<string, RunnerFunctionBinding> {
   const functions = new Map<string, RunnerFunctionBinding>();
   for (const node of topLevelNodes(root)) {
-    if (node.type !== 'fn' || node.props?.name === 'main') continue;
+    if (node.type !== 'fn' || node.props?.name === excludedName) continue;
     const binding = runnerFunctionBinding(node);
     if (!binding) continue;
     if (functions.has(binding.name)) throw new KernRunnerError(`duplicate runner function '${binding.name}'`);
     functions.set(binding.name, binding);
   }
   return functions;
+}
+
+export function collectRunnerFunctions(root: IRNode): Map<string, RunnerFunctionBinding> {
+  return collectRunnerFunctionsExcluding(root, 'main');
 }
 
 export function assertRunnerClassAcyclic(classes: ReadonlyMap<string, RunnerClassBinding>): void {
@@ -309,6 +313,25 @@ export function buildSingleModuleRunnerRootScope(root: IRNode): RunnerModuleScop
     markRunnerMachineClassBinding(scopedBinding);
     scope.classes.set(name, scopedBinding);
   }
+  markRunnerMachineRootScope(scope);
+  return scope;
+}
+
+/** Build the owned sibling-function scope used by one public runtime-handler entry. */
+export function buildSingleModuleRunnerFunctionScope(root: IRNode, selectedEntry: string): RunnerModuleScope {
+  const rawFunctions = collectRunnerFunctionsExcluding(root, selectedEntry);
+  const classNames = new Set(
+    topLevelNodes(root)
+      .filter((node) => node.type === 'class' && isPortableBindingName(node.props?.name))
+      .map((node) => node.props?.name as string),
+  );
+  for (const name of [selectedEntry, ...rawFunctions.keys()]) {
+    if (classNames.has(name)) {
+      throw new KernRunnerError(`runner class '${name}' conflicts with runner function '${name}'`);
+    }
+  }
+  const scope: RunnerModuleScope = { functions: new Map(), classes: new Map() };
+  for (const [name, binding] of rawFunctions) scope.functions.set(name, { ...binding, module: scope });
   markRunnerMachineRootScope(scope);
   return scope;
 }

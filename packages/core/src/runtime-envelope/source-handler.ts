@@ -1,6 +1,7 @@
 import { isPortableBindingName } from '../ir/semantics/portable-scalar-domain.js';
-import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
+import type { RunnerModuleScope, SemanticEnv } from '../ir/semantics/semantic-env.js';
 import { parseDocumentWithDiagnostics } from '../parser.js';
+import { buildSingleModuleRunnerFunctionScope } from '../runner-runtime-scope.js';
 import { inspectKernRuntimeHandlerSignature, type KernRuntimeHandlerSignature } from '../runtime-handler-contract.js';
 import { validateSchema } from '../schema.js';
 import {
@@ -25,6 +26,7 @@ export interface InternalRuntimeSourceHandlerIdentity {
 
 export interface InternalRuntimeLinkedHandlerEntry extends InternalRuntimeHandlerEntry {
   readonly identity: InternalRuntimeSourceHandlerIdentity;
+  readonly runnerScope: RunnerModuleScope;
   readonly signature: KernRuntimeHandlerSignature;
 }
 
@@ -104,6 +106,7 @@ function linkedEntry(
     body: handler.children ?? [],
     identity,
     parameters: signature.parameters.map(({ name }) => name),
+    runnerScope: buildSingleModuleRunnerFunctionScope(parsed.root, identity.handlerName),
     signature,
   };
 }

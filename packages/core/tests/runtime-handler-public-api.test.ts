@@ -35,6 +35,28 @@ const syncOptions = { enabled: true, limits } as const;
 const asyncOptions = { capabilityTimeoutMs: 100, enabled: true, limits } as const;
 
 describe('@kernlang/core/runtime/handler public ABI', () => {
+  test('links a selected handler to same-source sibling KERN helpers', async () => {
+    const helperSource = [
+      'fn name=decorate returns=string export=true',
+      '  param name=value type=string',
+      '  handler lang="kern"',
+      '    return value="value"',
+      '',
+      ...source(['name=value type=string'], 'string', ['return value="decorate(value)"']).split('\n'),
+    ].join('\n');
+    const invocation = request(helperSource, ['ready']);
+    const sync = executeKernRuntimeHandlerSync(invocation, syncOptions);
+    const asyncEnvelope = await executeKernRuntimeHandlerAsync(invocation, asyncOptions);
+    expect(sync).toMatchObject({
+      completion: { kind: 'return' },
+      diagnostics: [],
+      events: [],
+      outcome: 'success',
+      result: { presence: 'value', value: { tag: 'text', value: 'ready' } },
+    });
+    expect(asyncEnvelope).toEqual(sync);
+  });
+
   test('puts the exact ABI on ingress and egress with sync/async byte parity', async () => {
     const invocation = request(source(['name=value type=string'], 'string', ['return value="value"']), ['ready']);
     const sync = executeKernRuntimeHandlerSync(invocation, syncOptions);
