@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { validateSourceRunnerConvergence } from './check-source-runner-convergence.mjs';
-
 const root = process.cwd();
 const files = new Map(
   [
@@ -18,6 +17,8 @@ const files = new Map(
     'packages/core/src/ir/semantics/internal-effect-machine-class-value.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-value-runtime.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-contract.ts',
+    'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-class-instance.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf.ts',
     'packages/core/src/ir/semantics/internal-effect-machine-leaf-result.ts',
@@ -56,6 +57,9 @@ const files = new Map(
     'packages/core/tests/runtime-envelope-effect-machine-class-super-method-admission.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-class-virtual-method-admission.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-helper.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-helper-portable.test.ts',
+    'packages/core/tests/runtime-envelope-effect-machine-class-helper-snapshot.test.ts',
     'packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts',
     'scripts/source-runner-convergence-manifest.json',
   ].map((file) => [file, fs.readFileSync(path.join(root, file), 'utf8')]),
@@ -245,9 +249,9 @@ test('rejects state-only class ownership regressions', () => {
   assert.ok(ownershipErrors.some((error) => error.includes('constructor-super frame')));
 
   const mixingErrors = validate((mutated) =>
-    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts', 'reachable helper/class mixing is outside this slice', 'removed reachable mixing guard'),
+    replace(mutated, 'packages/core/src/ir/semantics/internal-effect-machine-helper-graph.ts', 'collectClassBodyCalls(admittedClasses, scope.functions, pending);', 'void admittedClasses;'),
   );
-  assert.ok(mixingErrors.some((error) => error.includes('reachable helper/class mixing')));
+  assert.ok(mixingErrors.some((error) => error.includes('class-body helper reachability')));
 
   const metadataExpressionErrors = validate((mutated) => {
     const file = 'packages/core/src/ir/semantics/internal-effect-machine-class-runtime.ts';

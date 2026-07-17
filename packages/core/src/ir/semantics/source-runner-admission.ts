@@ -46,19 +46,19 @@ export function sourceRunnerMachineAdmission(
   if (!hasOwnedDirectEnvironment(env, true, true)) return false;
   if (requiresIterationBudget(nodes, env) && iterationBudget === undefined) return false;
   if (!isInternalEffectMachineDirectEligible(nodes, env)) return false;
-  if (internalMachineHelperGraphHasReachableFunctions(nodes, env)) {
+  if (internalMachineClassGraphHasClasses(env)) {
+    try {
+      assertInternalEffectMachineStructureSupported(nodes, env);
+    } catch {
+      return false;
+    }
+  } else if (internalMachineHelperGraphHasReachableFunctions(nodes, env)) {
     try {
       assertInternalEffectMachineHelperStructureSupported(nodes, env);
     } catch {
       return false;
     }
     assertInternalEffectMachineRootStructureSupported(nodes, env);
-  } else if (internalMachineClassGraphHasClasses(env)) {
-    try {
-      assertInternalEffectMachineStructureSupported(nodes, env);
-    } catch {
-      return false;
-    }
   } else assertInternalEffectMachineStructureSupported(nodes, env);
   return true;
 }

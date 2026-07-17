@@ -654,6 +654,51 @@ trusted-publishing/provenance configuration is inspected.
     nits were closed or recorded as explicit boundaries
     (`review-1784229445070-ij7bxg-kern-5-r2-m3-31b2b1-virtual-this`,
     `review-1784230029905-13rm3s-kern-5-r2-m3-31b2b1-virtual-this`).
+  - [x] M3.31b2b2 pure class-to-helper composition: same-root constructors,
+    methods, and getters now call M3.24 pure portable helpers through the
+    existing per-run machine state. Class bodies seed exact helper
+    reachability; the helper registry snapshots binding metadata and bodies
+    before suspension; combined class preflight runs before helper-only
+    admission; and the planner clears `unsupported` only for the same exact
+    owned graph. Private receiver transport, helper-to-class allocation or
+    member access, helper calls in `super(...)`, effects inside helpers, and
+    imported/module identity remain fail-closed as explicit M3.31b2b3/c
+    boundaries. Constructor/method/getter execution, before-and-after async
+    capabilities without replay, class-only helper discovery, shared loop
+    budget, inactive-branch preflight, overlapping-run isolation, mid-flight
+    metadata mutation, public-source behavior, and local/imported planner
+    dispositions are executable oracles. The exact `pnpm fitness:kern-5` wall
+    passed with 432/432 cross-target fixtures, 109/109 class fixtures, 233
+    native cases, 48/48 checker fixtures, 39/39 validator verdicts, and 40
+    application fixtures on three legs plus whole-app boot. The required
+    browser wall passed at 149 modules / 1,504,140 raw / 324,003 gzip bytes /
+    60 ms cold / 92 ms median; the required repeat measured 57 ms cold / 88 ms
+    median. The new convergence wall passed 433 focused
+    runtime/planner units plus 27 convergence checks. The initial 6/6 Agon review
+    found no verified blocker; its wrapped-private-receiver concern was made
+    executable and fixed before this final fitness run
+    (`review-1784236442005-xtko8x`). A second 6/6 review exposed shallow nested
+    metadata snapshotting; a RED oracle, structured deep clone, and convergence
+    kill mutation closed it (`review-1784238408653-tdc0cw`). A third review
+    exposed missing portable array/record helper arguments; a RED oracle and
+    composite-aware classifier closed that gap while its helper-only regression
+    claim was disproved by the guarded selector and M3.24 suite
+    (`review-1784240330837-1grirm`). The first terminal 6/6 review exposed live
+    nested-call arity validation through the original function map; a RED async
+    mutation oracle and convergence kill now bind nested calls to the frozen
+    helper registry (`review-1784242429634-pwgyrc`). A second terminal 6/6
+    review returned zero verified findings but exposed bare `this`/`super`
+    receiver containment as a real needs-check; three RED graph oracles and a
+    convergence kill closed it (`review-1784244496719-9oo0jq`). A third
+    terminal review exposed composite helper returns escaping scalar class
+    slots; declared scalar contracts, return-body proof, nested composite
+    argument preservation, and two convergence kills closed the boundary and
+    its M3.24 regression (`review-1784246309546-pbzrmw`). The final full-roster
+    review returned five verdicts while Kimi exhausted the 600-second wall.
+    Its sole verified item was commit completeness for the new untracked files;
+    the unrelated-class needs-check was disproved by machine selection with a
+    valid dormant class and intentional fallback for private-receiver transport
+    (`review-1784249101282-nraj2q-m3-31b2b2-final`).
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -22,7 +22,7 @@ describe('M3.31a class-frame capability planning', () => {
     expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
-  test('keeps helper and class composition unsupported before provider dispatch', () => {
+  test('owns same-root pure helpers called from an admitted class frame', () => {
     const source = [
       'fn name=decorate returns=string',
       '  param name=value type=string',
@@ -39,9 +39,7 @@ describe('M3.31a class-frame capability planning', () => {
       '    print value="label.read()"',
     ].join('\n');
 
-    expect(analyzeKernSourceCapabilities(source, provided).unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
-    ]);
+    expect(analyzeKernSourceCapabilities(source, provided).unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('requires a caller-owned budget before planning a class-body loop as owned', () => {
@@ -77,6 +75,44 @@ describe('M3.31a class-frame capability planning', () => {
     const rootSource = [
       'use path="./remote"',
       '  from name=RemoteLabel kind=class',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=label value="new RemoteLabel()"',
+      '    print value="label.read()"',
+    ].join('\n');
+    const analysis = analyzeKernSourceCapabilities(rootSource, {
+      ...provided,
+      sourcePath: '/app/main.kern',
+      moduleLoader: {
+        resolve: (specifier) => (specifier === './remote' ? '/app/remote.kern' : null),
+        readSource: (path) => {
+          if (path !== '/app/remote.kern') throw new Error(`unexpected module: ${path}`);
+          return remoteSource;
+        },
+      },
+    });
+
+    expect(analysis.executableAsyncPlannedCapabilities.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([
+      expect.objectContaining({ id: 'llm.complete', reason: 'unsupported' }),
+    ]);
+  });
+
+  test('keeps an imported helper called from a local class frame unsupported', () => {
+    const remoteSource = [
+      'fn name=decorate export=true returns=string',
+      '  param name=value type=string',
+      '  handler lang="kern"',
+      '    return value="value"',
+    ].join('\n');
+    const rootSource = [
+      'use path="./remote"',
+      '  from name=decorate kind=fn',
+      'class name=RemoteLabel',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"remote\\" }"',
+      '      return value="decorate(answer)"',
       'fn name=main returns=void',
       '  handler lang="kern"',
       '    let name=label value="new RemoteLabel()"',

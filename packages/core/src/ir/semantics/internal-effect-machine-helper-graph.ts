@@ -1,10 +1,17 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { assertInternalMachineClassGraph } from './internal-effect-machine-class-graph.js';
+import {
+  isInternalMachineHelperCall,
+  isInternalMachineScalarHelperCall,
+  isPortableScalarHelperReturnContract,
+} from './internal-effect-machine-helper-contract.js';
 import { hasNoBody, isUnifiedNodeType } from './internal-effect-machine-types.js';
+import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
 import { runnerMachineRootScope } from './runner-machine-scope.js';
-import type { RunnerFunctionBinding, RunnerModuleScope, SemanticEnv } from './semantic-env.js';
+import type { RunnerClassBinding, RunnerFunctionBinding, RunnerModuleScope, SemanticEnv } from './semantic-env.js';
 
 const PURE_HELPER_CONTAINER_TYPES = new Set(['branch', 'each', 'else', 'for', 'if', 'while']);
 const PURE_HELPER_EXCLUDED_TYPES = new Set(['capability', 'lambda', 'print', 'try']);
@@ -12,6 +19,27 @@ const PURE_HELPER_EXCLUDED_TYPES = new Set(['capability', 'lambda', 'print', 'tr
 export interface InternalMachineHelperGraph {
   readonly functions: ReadonlyMap<string, RunnerFunctionBinding>;
   readonly requiresIterationBudget: boolean;
+}
+
+function snapshotNode(node: IRNode): IRNode {
+  return {
+    type: node.type,
+    ...(node.loc ? { loc: { ...node.loc } } : {}),
+    ...(node.props ? { props: structuredClone(node.props) } : {}),
+    ...(node.__quotedProps ? { __quotedProps: [...node.__quotedProps] } : {}),
+    ...(node.children ? { children: node.children.map(snapshotNode) } : {}),
+  };
+}
+
+function snapshotFunctionBinding(fn: RunnerFunctionBinding): RunnerFunctionBinding {
+  return {
+    body: fn.body.map(snapshotNode),
+    ...(fn.handler ? { handler: snapshotNode(fn.handler) } : {}),
+    module: fn.module,
+    name: fn.name,
+    params: [...fn.params],
+    returns: structuredClone(fn.returns),
+  };
 }
 
 function valueCalls(node: ValueIR, names: ReadonlyMap<string, RunnerFunctionBinding>, out: Set<string>): void {
@@ -99,6 +127,85 @@ function collectNodeCalls(
   }
 }
 
+function collectClassBodyCalls(
+  classes: ReadonlyMap<string, RunnerClassBinding>,
+  names: ReadonlyMap<string, RunnerFunctionBinding>,
+  out: Set<string>,
+): void {
+  for (const cls of classes.values()) {
+    if (cls.constructor) collectNodeCalls(cls.constructor.body, names, out);
+    for (const member of cls.methods.values()) collectNodeCalls(member.body, names, out);
+    for (const getter of cls.getters.values()) collectNodeCalls(getter.body, names, out);
+  }
+}
+
+function valueUsesOwnedClass(node: ValueIR, classes: ReadonlyMap<string, RunnerClassBinding>): boolean {
+  if (node.kind === 'ident') return node.name === 'this' || node.name === 'super';
+  if (
+    node.kind === 'new' &&
+    node.argument.kind === 'call' &&
+    node.argument.callee.kind === 'ident' &&
+    classes.has(node.argument.callee.name)
+  ) {
+    return true;
+  }
+  if (node.kind === 'member' && node.object.kind === 'ident' && ['this', 'super'].includes(node.object.name)) {
+    return true;
+  }
+  if (
+    node.kind === 'call' &&
+    node.callee.kind === 'member' &&
+    node.callee.object.kind === 'ident' &&
+    ['this', 'super'].includes(node.callee.object.name)
+  ) {
+    return true;
+  }
+  if (node.kind === 'unary' || node.kind === 'new' || node.kind === 'spread' || node.kind === 'await') {
+    return valueUsesOwnedClass(node.argument, classes);
+  }
+  if (node.kind === 'propagate') return valueUsesOwnedClass(node.argument, classes);
+  if (node.kind === 'binary') {
+    return valueUsesOwnedClass(node.left, classes) || valueUsesOwnedClass(node.right, classes);
+  }
+  if (node.kind === 'conditional') {
+    return (
+      valueUsesOwnedClass(node.test, classes) ||
+      valueUsesOwnedClass(node.consequent, classes) ||
+      valueUsesOwnedClass(node.alternate, classes)
+    );
+  }
+  if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
+    return valueUsesOwnedClass(node.expression, classes);
+  }
+  if (node.kind === 'tmplLit') return node.expressions.some((value) => valueUsesOwnedClass(value, classes));
+  if (node.kind === 'member') return valueUsesOwnedClass(node.object, classes);
+  if (node.kind === 'index') {
+    return valueUsesOwnedClass(node.object, classes) || valueUsesOwnedClass(node.index, classes);
+  }
+  if (node.kind === 'call') {
+    return valueUsesOwnedClass(node.callee, classes) || node.args.some((value) => valueUsesOwnedClass(value, classes));
+  }
+  if (node.kind === 'arrayLit') return node.items.some((value) => valueUsesOwnedClass(value, classes));
+  if (node.kind === 'objectLit') {
+    return node.entries.some((entry) => valueUsesOwnedClass('kind' in entry ? entry.argument : entry.value, classes));
+  }
+  return false;
+}
+
+function assertHelperBodyDoesNotUseClasses(
+  nodes: readonly IRNode[],
+  classes: ReadonlyMap<string, RunnerClassBinding>,
+): void {
+  for (const node of nodes) {
+    for (const source of nodeExpressionSources(node)) {
+      if (valueUsesOwnedClass(parseExpression(source), classes)) {
+        throw new Error('machine helper: class use is outside the pure helper domain');
+      }
+    }
+    if (node.children) assertHelperBodyDoesNotUseClasses(node.children, classes);
+  }
+}
+
 function assertPureHelperBody(nodes: readonly IRNode[]): boolean {
   let requiresIterationBudget = false;
   for (const node of nodes) {
@@ -122,6 +229,48 @@ function assertPureHelperBody(nodes: readonly IRNode[]): boolean {
     if (node.children && assertPureHelperBody(node.children)) requiresIterationBudget = true;
   }
   return requiresIterationBudget;
+}
+
+function assertScalarHelperReturns(
+  nodes: readonly IRNode[],
+  env: SemanticEnv,
+  name: string,
+  isScalarHelperCall: (name: string, arity: number) => boolean,
+  isPortableHelperCall: (name: string, arity: number) => boolean,
+): void {
+  for (const node of nodes) {
+    if (node.type === 'return') {
+      const value = node.props?.value;
+      if (typeof value !== 'string' || value === '') {
+        throw new Error(`machine helper: scalar function "${name}" has a non-scalar return`);
+      }
+      try {
+        assertPortableMachineScalarShape(parseExpression(value), env, isScalarHelperCall, isPortableHelperCall);
+      } catch {
+        throw new Error(`machine helper: scalar function "${name}" has a non-scalar return`);
+      }
+    }
+    if (node.children) {
+      assertScalarHelperReturns(node.children, env, name, isScalarHelperCall, isPortableHelperCall);
+    }
+  }
+}
+
+function assertScalarHelperContracts(functions: ReadonlyMap<string, RunnerFunctionBinding>, env: SemanticEnv): void {
+  const helperFunctions = new Map(functions);
+  const scalarFunctions = new Map(
+    [...helperFunctions].filter(([, fn]) => isPortableScalarHelperReturnContract(fn.returns)),
+  );
+  const helperEnv: SemanticEnv = { ...env, runnerFunctions: helperFunctions };
+  const isScalarHelperCall = (name: string, arity: number): boolean => {
+    const fn = scalarFunctions.get(name);
+    return fn !== undefined && fn.params.length === arity;
+  };
+  const isPortableHelperCall = (name: string, arity: number): boolean =>
+    helperFunctions.get(name)?.params.length === arity;
+  for (const [name, fn] of scalarFunctions) {
+    assertScalarHelperReturns(fn.body, helperEnv, name, isScalarHelperCall, isPortableHelperCall);
+  }
 }
 
 function assertFunctionBinding(key: string, fn: RunnerFunctionBinding, scope: RunnerModuleScope): void {
@@ -156,14 +305,13 @@ function helperScope(env: SemanticEnv): RunnerModuleScope | undefined {
 export function assertInternalMachineHelperGraph(
   nodes: readonly IRNode[],
   env: SemanticEnv,
+  admittedClasses = assertInternalMachineClassGraph(env).classes,
 ): InternalMachineHelperGraph {
   const scope = helperScope(env);
   if (!scope) return { functions: new Map(), requiresIterationBudget: false };
   const pending = new Set<string>();
   collectNodeCalls(nodes, scope.functions, pending);
-  if (pending.size > 0 && scope.classes.size > 0) {
-    throw new Error('machine helper: reachable helper/class mixing is outside this slice');
-  }
+  collectClassBodyCalls(admittedClasses, scope.functions, pending);
   const functions = new Map<string, RunnerFunctionBinding>();
   let requiresIterationBudget = false;
   while (pending.size > 0) {
@@ -174,11 +322,13 @@ export function assertInternalMachineHelperGraph(
     if (!fn) throw new Error(`machine helper: unknown function "${name}"`);
     assertFunctionBinding(name, fn, scope);
     if (assertPureHelperBody(fn.body)) requiresIterationBudget = true;
-    functions.set(name, fn);
+    assertHelperBodyDoesNotUseClasses(fn.body, admittedClasses);
+    functions.set(name, snapshotFunctionBinding(fn));
     const nested = new Set<string>();
     collectNodeCalls(fn.body, scope.functions, nested);
     for (const called of nested) if (!functions.has(called)) pending.add(called);
   }
+  assertScalarHelperContracts(functions, env);
   return { functions, requiresIterationBudget };
 }
 
@@ -236,7 +386,4 @@ export function internalMachineHelperCallInNode(node: IRNode, env: SemanticEnv):
   return calls.size > 0;
 }
 
-export function isInternalMachineHelperCall(name: string, arity: number, env: SemanticEnv): boolean {
-  const fn = env.runnerFunctions?.get(name);
-  return fn !== undefined && fn.params.length === arity;
-}
+export { isInternalMachineHelperCall, isInternalMachineScalarHelperCall };

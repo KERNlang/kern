@@ -119,27 +119,6 @@ describe('M3.31b2b1 virtual this-method fail-closed admission', () => {
       },
     ],
     [
-      'helper-bearing virtual argument',
-      {
-        baseMethods: new Map([
-          ['render', method('Base', 'render', [], 'this.step(helper())')],
-          ['step', method('Base', 'step', ['input'], 'input')],
-        ]),
-        helper: true,
-      },
-    ],
-    [
-      'helper-bearing derived override',
-      {
-        baseMethods: new Map([
-          ['render', method('Base', 'render', [], 'this.step()')],
-          ['step', method('Base', 'step', [], '1')],
-        ]),
-        derivedMethods: new Map([['step', method('Derived', 'step', [], 'helper()')]]),
-        helper: true,
-      },
-    ],
-    [
       'virtual call in collection-do slot',
       {
         baseMethods: new Map([
@@ -201,6 +180,32 @@ describe('M3.31b2b1 virtual this-method fail-closed admission', () => {
     ],
   ] as const)('routes %s to compatibility before provider dispatch', (_label, options) => {
     expect(selectSourceRunnerEngine(program(), admissionEnv(options), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+  });
+
+  test.each([
+    [
+      'helper-bearing virtual argument',
+      {
+        baseMethods: new Map([
+          ['render', method('Base', 'render', [], 'this.step(helper())')],
+          ['step', method('Base', 'step', ['input'], 'input')],
+        ]),
+        helper: true,
+      },
+    ],
+    [
+      'helper-bearing derived override',
+      {
+        baseMethods: new Map([
+          ['render', method('Base', 'render', [], 'this.step()')],
+          ['step', method('Base', 'step', [], '1')],
+        ]),
+        derivedMethods: new Map([['step', method('Derived', 'step', [], 'helper()')]]),
+        helper: true,
+      },
+    ],
+  ] as const)('owns %s', (_label, options) => {
+    expect(selectSourceRunnerEngine(program(), admissionEnv(options), {})).toBe(SOURCE_RUNNER_ENGINE.machine);
   });
 
   test('rejects a forged entry runnerThis before provider dispatch', () => {

@@ -131,16 +131,6 @@ describe('M3.31b2a super-method fail-closed admission', () => {
       '1',
     ],
     [
-      'helper-bearing base target',
-      {
-        baseMethods: new Map([['read', method('Base', 'read', [], 'helper()')]]),
-        derivedMethods: new Map([['read', method('Derived', 'read', [], 'super.read()')]]),
-        helper: true,
-      },
-      'read',
-      '',
-    ],
-    [
       'super call in a collection-do slot',
       {
         baseMethods: new Map([['base', method('Base', 'base', [], '1')]]),
@@ -217,6 +207,16 @@ describe('M3.31b2a super-method fail-closed admission', () => {
     ],
   ] as const)('routes %s to compatibility before provider dispatch', (_label, options, name, args) => {
     expect(selectSourceRunnerEngine(program(name, args), admissionEnv(options), {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+  });
+
+  test('owns a pure helper reached through the resolved base target', () => {
+    const env = admissionEnv({
+      baseMethods: new Map([['read', method('Base', 'read', [], 'helper()')]]),
+      derivedMethods: new Map([['read', method('Derived', 'read', [], 'super.read()')]]),
+      helper: true,
+    });
+
+    expect(selectSourceRunnerEngine(program('read', ''), env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
   });
 
   test('rejects a forged entry runnerSuperClass before provider dispatch', () => {

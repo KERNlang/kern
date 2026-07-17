@@ -4,15 +4,18 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import * as constructorSuper from './source-runner-class-constructor-super-convergence.mjs';
 import * as frames from './source-runner-class-frame-convergence.mjs';
+import * as classHelper from './source-runner-class-helper-convergence.mjs';
 import * as inheritance from './source-runner-class-inheritance-convergence.mjs';
 import * as superMethod from './source-runner-class-super-method-convergence.mjs';
 import * as virtualMethod from './source-runner-class-virtual-method-convergence.mjs';
 import { CLASS_GETTER_FILES, validateClassGetterManifest, validateClassGetterSlice } from './source-runner-class-getter-convergence.mjs';
+import { exactKeys, REQUIRED_DEFERRED } from './source-runner-convergence-utils.mjs';
 import { NON_ROOT_FILES, validateNonRootEnvironmentSlice } from './source-runner-non-root-convergence.mjs';
 const FILES = Object.freeze({
   ...NON_ROOT_FILES,
   ...constructorSuper.CLASS_CONSTRUCTOR_SUPER_FILES,
   ...frames.CLASS_FRAME_FILES,
+  ...classHelper.CLASS_HELPER_FILES,
   ...inheritance.CLASS_INHERITANCE_FILES,
   ...superMethod.CLASS_SUPER_METHOD_FILES,
   ...virtualMethod.CLASS_VIRTUAL_METHOD_FILES,
@@ -36,9 +39,6 @@ const FILES = Object.freeze({
   engine: 'packages/core/src/runtime-envelope/source-runner-engine.ts',
   manifest: 'scripts/source-runner-convergence-manifest.json',
   runner: 'packages/core/src/runner.ts',
-});
-const REQUIRED_DEFERRED = Object.freeze({
-  'runner-classes-state': ['environment', 'legacy'],
 });
 function parseSource(name, text) {
   return ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -84,9 +84,6 @@ function hasIdentifierReceiver(node, name) {
   const receiver = propertyReceiver(node);
   return receiver !== undefined && ts.isIdentifier(receiver) && receiver.text === name;
 }
-function exactKeys(value, keys) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === [...keys].sort().join(',');
-}
 function validateManifest(text, errors) {
   let manifest;
   try {
@@ -99,7 +96,7 @@ function validateManifest(text, errors) {
     errors.push('manifest top-level schema drifted');
     return;
   }
-  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2b1') {
+  if (manifest.schemaVersion !== 1 || manifest.milestone !== 'KERN-5-R2-M3.31b2b2') {
     errors.push('manifest schemaVersion or milestone is invalid');
   }
   if (!Array.isArray(manifest.owned) || !Array.isArray(manifest.deferred)) {
@@ -206,6 +203,7 @@ function validateManifest(text, errors) {
   constructorSuper.validateClassConstructorSuperManifest(manifest, errors);
   superMethod.validateClassSuperMethodManifest(manifest, errors);
   virtualMethod.validateClassVirtualMethodManifest(manifest, errors);
+  classHelper.validateClassHelperManifest(manifest, errors);
   const deferredIds = manifest.deferred.map((item) => item?.id);
   if (new Set(deferredIds).size !== deferredIds.length) errors.push('manifest deferred ids must be unique');
   if (deferredIds.sort().join(',') !== Object.keys(REQUIRED_DEFERRED).sort().join(',')) {
@@ -218,7 +216,10 @@ function validateManifest(text, errors) {
     }
   }
   const classState = manifest.deferred.find((item) => item?.id === 'runner-classes-state');
-  if (classState?.followUp !== 'M3.31b2b2-helper-effect-pre-super-and-M3.31c-module-ownership') {
+  if (
+    classState?.followUp !==
+    'M3.31b2b3-reverse-helper-class-M3.31b2c-effect-pre-super-and-M3.31c-module-ownership'
+  ) {
     errors.push('manifest must keep remaining class behavior as the exact M3.31b2/c follow-up');
   }
 }
@@ -258,9 +259,6 @@ function validateClassStateSlice(
     'assertInternalMachineClassInheritance',
   ]) {
     if (!graphText.includes(required)) errors.push(`machine class graph is missing ${required}`);
-  }
-  if (!helperGraphText.includes('reachable helper/class mixing is outside this slice')) {
-    errors.push('machine helper graph must reject reachable helper/class mixing');
   }
   for (const required of [
     'helper calls in class-owned expressions are outside this slice',
@@ -498,6 +496,7 @@ export function validateSourceRunnerConvergence(readText) {
   constructorSuper.validateClassConstructorSuperSlice(contents, errors);
   superMethod.validateClassSuperMethodSlice(contents, errors);
   virtualMethod.validateClassVirtualMethodSlice(contents, errors);
+  classHelper.validateClassHelperSlice(contents, errors);
   if (contents.disposition) validateDisposition(contents.disposition, errors);
   return errors;
 }

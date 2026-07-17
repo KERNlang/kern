@@ -122,7 +122,7 @@ export function validateClassFrameSlice(contents, errors) {
   }
   for (const oracle of [
     'clears unsupported only when the selected entry owns the class frame',
-    'keeps helper and class composition unsupported before provider dispatch',
+    'owns same-root pure helpers called from an admitted class frame',
     'requires a caller-owned budget before planning a class-body loop as owned',
   ]) {
     if (!contents.classCapabilityTests?.includes(oracle)) {

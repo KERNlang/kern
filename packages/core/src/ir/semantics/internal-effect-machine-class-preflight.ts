@@ -13,9 +13,18 @@ import {
 import { INTERNAL_MACHINE_PREFLIGHT_CLASS_OWNER } from './internal-effect-machine-class-instance.js';
 import { internalMachineClassVisibleFields } from './internal-effect-machine-class-lineage.js';
 import { preflightInternalMachineClassLet } from './internal-effect-machine-class-runtime.js';
-import { classifyInternalMachineClassScalarValue } from './internal-effect-machine-class-value.js';
-import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
-import { bindInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
+import {
+  classifyInternalMachineClassScalarValue,
+  internalMachineClassValueUsesPrivateReceiver,
+} from './internal-effect-machine-class-value.js';
+import {
+  internalMachineHelperCallInValue,
+  isInternalMachineHelperCall,
+} from './internal-effect-machine-helper-graph.js';
+import {
+  bindInternalEffectMachineState,
+  internalEffectMachineStateForEnv,
+} from './internal-effect-machine-helper-state.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
@@ -29,14 +38,6 @@ type ClassBodyAnalyzer = (
   unstableBindings: Set<string>,
   evaluateControls: boolean,
 ) => Set<CompletionKind>;
-
-function bodyCallsHelper(nodes: readonly IRNode[], env: SemanticEnv): boolean {
-  for (const node of nodes) {
-    if (internalMachineHelperCallInNode(node, env)) return true;
-    if (node.children && bodyCallsHelper(node.children, env)) return true;
-  }
-  return false;
-}
 
 function assertScalarReturns(nodes: readonly IRNode[], env: SemanticEnv): void {
   for (const node of nodes) {
@@ -111,6 +112,19 @@ function assertClassExpression(
   if (
     node.kind === 'call' &&
     !node.optional &&
+    node.callee.kind === 'ident' &&
+    isInternalMachineHelperCall(node.callee.name, node.args.length, env) &&
+    allowClassCall
+  ) {
+    if (node.args.some(internalMachineClassValueUsesPrivateReceiver)) {
+      throw new Error('machine class: helper arguments cannot contain the private receiver');
+    }
+    for (const argument of node.args) assertClassExpression(argument, fields, env, allowClassCall);
+    return;
+  }
+  if (
+    node.kind === 'call' &&
+    !node.optional &&
     node.callee.kind === 'member' &&
     !node.callee.optional &&
     node.callee.object.kind === 'ident' &&
@@ -174,7 +188,13 @@ function markDefiniteConstructorFieldAssignments(
 
 export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analyze: ClassBodyAnalyzer): void {
   const registry = assertInternalMachineClassGraph(env).classes;
-  const preflightState = { classRegistry: registry, remainingIterations: undefined };
+  const activeState = internalEffectMachineStateForEnv(env);
+  const preflightState = {
+    classRegistry: registry,
+    helperBodyRunner: activeState?.helperBodyRunner,
+    helperRegistry: activeState?.helperRegistry,
+    remainingIterations: undefined,
+  };
   for (const cls of registry.values()) {
     const visibleFields = internalMachineClassVisibleFields(cls, registry);
     const constructorValues = (cls.constructor?.params ?? []).map(() => null);
@@ -190,11 +210,13 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
       const restore = bindInternalEffectMachineState(constructorEnv, preflightState);
       try {
         const plan = internalMachineClassConstructorPlan(cls, registry);
-        for (const argument of plan.superArguments) assertPortableMachineScalarShape(argument, constructorEnv);
-        assertClassBodyExpressions(plan.body, visibleFields, constructorEnv);
-        if (bodyCallsHelper(plan.body, constructorEnv)) {
-          throw new Error(`machine class: constructor "${cls.name}" calls a helper`);
+        for (const argument of plan.superArguments) {
+          if (internalMachineHelperCallInValue(argument, constructorEnv)) {
+            throw new Error(`machine class: constructor "${cls.name}" uses a helper in super arguments`);
+          }
+          assertPortableMachineScalarShape(argument, constructorEnv);
         }
+        assertClassBodyExpressions(plan.body, visibleFields, constructorEnv);
         const completions = analyze(plan.body, 0, constructorEnv, new Set(cls.constructor.params), true);
         if (completions.size !== 1 || !completions.has('normal')) {
           throw new Error(`machine class: constructor "${cls.name}" must complete normally`);
@@ -215,9 +237,6 @@ export function assertInternalMachineClassFramePreflight(env: SemanticEnv, analy
       );
       const restore = bindInternalEffectMachineState(memberEnv, preflightState);
       try {
-        if (bodyCallsHelper(member.body, memberEnv)) {
-          throw new Error(`machine class: member "${cls.name}.${member.name}" calls a helper`);
-        }
         assertClassBodyExpressions(member.body, visibleFields, memberEnv);
         const completions = analyze(member.body, 0, memberEnv, new Set([...member.params, 'this']), true);
         if (completions.size !== 1 || !completions.has('return')) {

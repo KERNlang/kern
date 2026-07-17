@@ -87,8 +87,8 @@ function* runMachine(
   state.classRegistry = assertInternalMachineClassGraph(env).classes;
   assertInternalMachineClassUsage(nodes, env);
   state.helperBodyRunner = runInternalEffectMachineSequence;
+  state.helperRegistry = assertInternalMachineHelperGraph(nodes, env, state.classRegistry).functions;
   assertInternalEffectMachineStructureSupported(nodes, env);
-  state.helperRegistry = assertInternalMachineHelperGraph(nodes, env).functions;
   return yield* runInternalEffectMachineSequence(nodes, env, state);
 }
 
