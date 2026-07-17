@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.structural.alpha.1",
+  "format": "kern.kir.structural.r1.5e.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
     "sourceNodes": 302,
@@ -5676,8 +5676,8 @@
       "schemaKind": "string",
       "required": false,
       "values": null,
-      "disposition": "included-value",
-      "reasonId": "portable-text"
+      "disposition": "excluded-host-type",
+      "reasonId": "structured-handler-parameters-required"
     },
     {
       "nodeKind": "fn",
@@ -5685,8 +5685,8 @@
       "schemaKind": "typeAnnotation",
       "required": false,
       "values": null,
-      "disposition": "excluded-host-type",
-      "reasonId": "portable-type-grammar-required"
+      "disposition": "lowered-type",
+      "reasonId": "portable-handler-return-type"
     },
     {
       "nodeKind": "fn",
@@ -11805,8 +11805,8 @@
       "schemaKind": "typeAnnotation",
       "required": false,
       "values": null,
-      "disposition": "excluded-host-type",
-      "reasonId": "portable-type-grammar-required"
+      "disposition": "lowered-type",
+      "reasonId": "portable-handler-parameter-type"
     },
     {
       "nodeKind": "param",

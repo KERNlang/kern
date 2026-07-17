@@ -2,7 +2,7 @@ import type { CanonicalValueLimits } from '../canonical-value/types.js';
 import type { IRNode } from '../types.js';
 import type { StructuralKirNode } from './types.js';
 
-export const MODULE_KIR_ARTIFACT_FORMAT = 'kern.kir.modules.r1.5c.3-alpha' as const;
+export const MODULE_KIR_ARTIFACT_FORMAT = 'kern.kir.modules.r1.5e.1-alpha' as const;
 export const MODULE_KIR_SYMBOL_CATALOG_FORMAT = 'kern.symbol-admission.r1.5c.3' as const;
 export const MODULE_KIR_SYMBOL_KINDS = ['class', 'fn'] as const;
 export const MODULE_KIR_ROOT_KINDS = ['class', 'fn', 'from', 'module', 'use'] as const;

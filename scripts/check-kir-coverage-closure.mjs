@@ -49,6 +49,12 @@ function expectedCanonicalValue(row) {
     };
   }
   if (row.disposition === 'lowered-import-path') return { tag: 'text', value: row.fixture };
+  if (row.disposition === 'lowered-type') {
+    return {
+      tag: 'record',
+      value: [{ key: 'kind', value: { tag: 'text', value: 'text' } }],
+    };
+  }
   if (row.disposition !== 'included-value') {
     throw new Error(`${row.witnessIds[0]}: admitted disposition has no canonical value recipe`);
   }
@@ -76,6 +82,24 @@ function roundTrip(node, witnessId) {
   return artifact.root;
 }
 
+function propertyWitness(row, properties) {
+  if (row.nodeKind === 'param' && row.propertyName === 'type') {
+    return {
+      node: {
+        type: 'fn',
+        props: { name: 'handler' },
+        children: [{ type: 'param', props: properties }],
+      },
+      target(root) {
+        const parameter = root.children[0];
+        if (!parameter || parameter.kind !== 'param') throw new Error(`${row.witnessIds[0]}: param context changed`);
+        return parameter;
+      },
+    };
+  }
+  return { node: { type: row.nodeKind, props: properties }, target: (root) => root };
+}
+
 export function runCoverageClosure() {
   validateCoverageLedger(ledger, constitution);
   const propertiesByNode = groupProperties(ledger.properties);
@@ -99,26 +123,28 @@ export function runCoverageClosure() {
     const properties = propertiesByNode.get(row.nodeKind) ?? [];
     const base = requiredProps(properties);
     const populated = { ...base, [row.propertyName]: row.fixture };
+    const populatedWitness = propertyWitness(row, populated);
     const populatedId = row.witnessIds[0];
     if (rejectedNode(node.disposition) || row.disposition.startsWith('excluded-')) {
       const code = node.disposition === 'explicit-missing-schema' ? 'unknown-node-kind' : 'excluded-host-payload';
-      expectCode(() => encodeStructuralKir({ type: row.nodeKind, props: populated }, limits), code, populatedId);
+      expectCode(() => encodeStructuralKir(populatedWitness.node, limits), code, populatedId);
     } else {
-      const root = roundTrip({ type: row.nodeKind, props: populated }, populatedId);
-      assertCanonicalProperty(root, row, populatedId);
+      const root = roundTrip(populatedWitness.node, populatedId);
+      assertCanonicalProperty(populatedWitness.target(root), row, populatedId);
     }
     executed += 1;
 
     if (!row.required) {
       const omitted = { ...base };
       delete omitted[row.propertyName];
+      const omittedWitness = propertyWitness(row, omitted);
       const omittedId = row.witnessIds[1];
       if (rejectedNode(node.disposition)) {
         const code = node.disposition === 'explicit-missing-schema' ? 'unknown-node-kind' : 'excluded-host-payload';
-        expectCode(() => encodeStructuralKir({ type: row.nodeKind, props: omitted }, limits), code, omittedId);
+        expectCode(() => encodeStructuralKir(omittedWitness.node, limits), code, omittedId);
       } else {
-        const root = roundTrip({ type: row.nodeKind, props: omitted }, omittedId);
-        if (root.properties.some((property) => property.key === row.propertyName)) {
+        const root = roundTrip(omittedWitness.node, omittedId);
+        if (omittedWitness.target(root).properties.some((property) => property.key === row.propertyName)) {
           throw new Error(`${omittedId}: omitted property gained a default`);
         }
       }

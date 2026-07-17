@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.coverage-witness-ledger.r1.5c.4",
-  "constitutionFormat": "kern.kir.structural.alpha.1",
+  "format": "kern.kir.coverage-witness-ledger.r1.5e.1",
+  "constitutionFormat": "kern.kir.structural.r1.5e.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
     "nodes": 302,
@@ -510,8 +510,8 @@
     },
     {
       "id": "fn",
-      "disposition": "included-structural",
-      "witnessId": "kir-c4.node.fn.included-structural.accept"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-e1.node.fn.lowered-semantic.accept"
     },
     {
       "id": "const",
@@ -6094,12 +6094,12 @@
       "schemaKind": "string",
       "required": false,
       "values": null,
-      "disposition": "included-value",
-      "reasonId": "portable-text",
-      "fixture": "witness",
+      "disposition": "excluded-host-type",
+      "reasonId": "structured-handler-parameters-required",
+      "fixture": "value:string",
       "witnessIds": [
-        "kir-c4.prop.fn.params.included-value.populated.accept",
-        "kir-c4.prop.fn.params.included-value.omitted.accept"
+        "kir-e1.prop.fn.params.excluded-host-type.populated.reject",
+        "kir-e1.prop.fn.params.excluded-host-type.omitted.accept"
       ]
     },
     {
@@ -6108,12 +6108,12 @@
       "schemaKind": "typeAnnotation",
       "required": false,
       "values": null,
-      "disposition": "excluded-host-type",
-      "reasonId": "portable-type-grammar-required",
-      "fixture": "HostType",
+      "disposition": "lowered-type",
+      "reasonId": "portable-handler-return-type",
+      "fixture": "string",
       "witnessIds": [
-        "kir-c4.prop.fn.returns.excluded-host-type.populated.reject",
-        "kir-c4.prop.fn.returns.excluded-host-type.omitted.accept"
+        "kir-e1.prop.fn.returns.lowered-type.populated.accept",
+        "kir-e1.prop.fn.returns.lowered-type.omitted.accept"
       ]
     },
     {
@@ -15391,12 +15391,12 @@
       "schemaKind": "typeAnnotation",
       "required": false,
       "values": null,
-      "disposition": "excluded-host-type",
-      "reasonId": "portable-type-grammar-required",
-      "fixture": "HostType",
+      "disposition": "lowered-type",
+      "reasonId": "portable-handler-parameter-type",
+      "fixture": "string",
       "witnessIds": [
-        "kir-c4.prop.param.type.excluded-host-type.populated.reject",
-        "kir-c4.prop.param.type.excluded-host-type.omitted.accept"
+        "kir-e1.prop.param.type.lowered-type.populated.accept",
+        "kir-e1.prop.param.type.lowered-type.omitted.accept"
       ]
     },
     {

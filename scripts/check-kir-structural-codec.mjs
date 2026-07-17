@@ -70,7 +70,7 @@ export function runStructuralKirCodecCheck() {
   }
 
   process.stdout.write(
-    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence-only consumer; empty type catalog; ALPHA-NO-GO).\n`,
+    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence-only consumer; handler type catalog; ALPHA-NO-GO).\n`,
   );
 }
 

@@ -200,6 +200,14 @@ trusted-publishing/provenance configuration is inspected.
       gate: policy-bound hashes/oracles/exclusions, dirty-tree and symlink kill
       tests, full fitness wall, and final 3/3 Agon review passed on 2026-07-12.
       The SHA-named ignored receipt is generated only after commit.
+  - [x] R1.5e.1 runtime-handler type KIR bridge: one neutral exact handler-type
+    owner now feeds both runtime admission and canonical semantic KIR records
+    for `fn.returns` plus direct structured `param.type`. The other 93
+    type-annotation locations remain explicitly excluded; structural, module,
+    catalog, constitution, and coverage identities are versioned together.
+    The Node 22 full fitness wall and terminal `claude,codex,agy` review passed
+    on 2026-07-17 with zero verified, needs-check, or speculative findings
+    (`ALPHA-NO-GO`; no public KIR v1 or formatter claim).
 - [ ] R2 M3 runtime and handler ownership.
   - [x] M3.1 internal transactional runtime envelope: default-off sync/async
     normalization with closed portable values, structural diagnostics, failure
@@ -827,6 +835,9 @@ trusted-publishing/provenance configuration is inspected.
 9. R1.5d: version diagnostic/location evidence separately, require stable
    non-empty diagnostics and expression spans, then generate the clean-SHA
    Alpha manifest. Unknown versions and fields fail before effects.
+10. R1.5e.1: bridge the exact executable runtime-handler type domain into
+    semantic structural/module KIR before M4 consumes the seam. Keep the other
+    93 type-annotation locations excluded and preserve `ALPHA-NO-GO`.
 
 The original broad R1.4-before-ownership order was withdrawn after the R1.3
 probe. The selected projection covers seven of 302 source node kinds, while the

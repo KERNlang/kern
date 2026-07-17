@@ -89,7 +89,7 @@ describe('internal structural KIR module graph', () => {
   test('round-trips fn/class aliases and re-exports under the explicit catalog', () => {
     const bytes = encodeModuleKir(moduleFixture(), limits);
     const artifact = decodeModuleKir(bytes, limits);
-    expect(artifact.format).toBe('kern.kir.modules.r1.5c.3-alpha');
+    expect(artifact.format).toBe('kern.kir.modules.r1.5e.1-alpha');
     expect(artifact.proofLabel).toBe('ALPHA-NO-GO');
     expect(artifact.diagnostics).toEqual([]);
     expect(artifact.symbolCatalog.admittedKinds).toEqual(['class', 'fn']);
@@ -260,6 +260,36 @@ describe('internal structural KIR module graph', () => {
     if (kind.tag !== 'text') throw new Error('expected root kind');
     (kind as { tag: 'text'; value: string }).value = 'screen';
     expectStructuralCode(() => decodeModuleKir(encodeCanonicalValue(rootDrift, limits), limits), 'invalid-artifact');
+  });
+
+  test('reader rejects raw type text hidden beneath the current module envelope', () => {
+    const value = structuredClone(
+      decodeCanonicalValue(
+        encodeModuleKir(
+          [{ id: 'main.kern', roots: [{ type: 'fn', props: { name: 'main', returns: 'string' } }] }],
+          limits,
+        ),
+        limits,
+      ),
+    );
+    const modules = recordField(value, 'modules');
+    const module = listItem(modules, 0);
+    const rootsValue = recordField(module, 'roots');
+    const root = listItem(rootsValue, 0);
+    const properties = recordField(root, 'properties');
+    if (properties.tag !== 'record') throw new Error('expected root properties');
+    const returns = properties.value.find((entry) => entry.key === 'returns');
+    if (!returns) throw new Error('expected return type');
+    returns.value = { tag: 'text', value: 'string' };
+    expectStructuralCode(() => decodeModuleKir(encodeCanonicalValue(value, limits), limits), 'invalid-type');
+  });
+
+  test('reader rejects the predecessor module envelope identity', () => {
+    const value = structuredClone(decodeCanonicalValue(encodeModuleKir(moduleFixture(), limits), limits));
+    const format = recordField(value, 'format');
+    if (format.tag !== 'text') throw new Error('expected module format');
+    format.value = 'kern.kir.modules.r1.5c.3-alpha';
+    expectModuleCode(() => decodeModuleKir(encodeCanonicalValue(value, limits), limits), 'unsupported-module-version');
   });
 
   test('forbids the non-catalog document container instead of synthesizing source structure', () => {

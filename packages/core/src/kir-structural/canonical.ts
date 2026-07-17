@@ -1,5 +1,6 @@
 import { decodeCanonicalValue, encodeCanonicalValue } from '../canonical-value/canonical.js';
 import { type CanonicalValue, CanonicalValueDecodeError, type CanonicalValueLimits } from '../canonical-value/types.js';
+import { PORTABLE_HANDLER_TYPE_KINDS } from '../portable-handler-type.js';
 import type { IRNode } from '../types.js';
 import { STRUCTURAL_KIR_CONSTITUTION_FORMAT, STRUCTURAL_KIR_PROOF_LABEL } from './catalog.generated.js';
 import { projectStructuralNode, validateStructuralNode } from './node.js';
@@ -39,7 +40,10 @@ function artifactValue(root: StructuralKirNode): CanonicalValue {
         value: {
           tag: 'record',
           value: [
-            { key: 'admittedKinds', value: { tag: 'list', value: [] } },
+            {
+              key: 'admittedKinds',
+              value: { tag: 'list', value: PORTABLE_HANDLER_TYPE_KINDS.map((kind) => ({ tag: 'text', value: kind })) },
+            },
             { key: 'format', value: { tag: 'text', value: STRUCTURAL_KIR_TYPE_CATALOG_FORMAT } },
           ],
         },
@@ -78,15 +82,19 @@ function validateArtifact(value: CanonicalValue): StructuralKirArtifact {
   exactText(field(artifact, 'proofLabel'), STRUCTURAL_KIR_PROOF_LABEL, '$.proofLabel');
   const typeCatalog = exact(field(artifact, 'typeCatalog'), ['admittedKinds', 'format'], '$.typeCatalog');
   const admittedKinds = field(typeCatalog, 'admittedKinds');
-  if (admittedKinds.tag !== 'list' || admittedKinds.value.length !== 0) {
-    fail('invalid-artifact', '$.typeCatalog.admittedKinds', 'type admission catalog must remain empty');
+  if (
+    admittedKinds.tag !== 'list' ||
+    admittedKinds.value.length !== PORTABLE_HANDLER_TYPE_KINDS.length ||
+    admittedKinds.value.some((kind, index) => kind.tag !== 'text' || kind.value !== PORTABLE_HANDLER_TYPE_KINDS[index])
+  ) {
+    fail('invalid-artifact', '$.typeCatalog.admittedKinds', 'expected exact portable handler type catalog');
   }
   exactText(field(typeCatalog, 'format'), STRUCTURAL_KIR_TYPE_CATALOG_FORMAT, '$.typeCatalog.format');
   return {
     format: STRUCTURAL_KIR_ARTIFACT_FORMAT,
     constitution: STRUCTURAL_KIR_CONSTITUTION_FORMAT,
     proofLabel: STRUCTURAL_KIR_PROOF_LABEL,
-    typeCatalog: { format: STRUCTURAL_KIR_TYPE_CATALOG_FORMAT, admittedKinds: [] },
+    typeCatalog: { format: STRUCTURAL_KIR_TYPE_CATALOG_FORMAT, admittedKinds: PORTABLE_HANDLER_TYPE_KINDS },
     root: validateStructuralNode(field(artifact, 'root')),
   };
 }

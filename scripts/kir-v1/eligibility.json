@@ -350,8 +350,8 @@
   },
   "coverageWitnessLedger": {
     "path": "scripts/kir-v1/coverage-witness-ledger.json",
-    "format": "kern.kir.coverage-witness-ledger.r1.5c.4",
-    "canonicalSha256": "2b5b7c9bb8e8ada6c8b07153638b8b9d738d920212a208a735fcce4338667a04"
+    "format": "kern.kir.coverage-witness-ledger.r1.5e.1",
+    "canonicalSha256": "d358a25dd719df335587ce5759afedcc7cde7f662ece3d2c01c402f10ebd86f5"
   },
   "blockers": [
     {
@@ -926,8 +926,8 @@
     },
     {
       "id": "fn",
-      "disposition": "included-structural",
-      "witnessId": "kir-c4.node.fn.included-structural.accept"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-e1.node.fn.lowered-semantic.accept"
     },
     {
       "id": "const",
