@@ -981,6 +981,44 @@ trusted-publishing/provenance configuration is inspected.
     engines with zero verified findings
     (`review-1784393191142-xojaa8-kern-5-r2-m4-2-coverage-terminal`). M4.2 is
     sealed with a null winner and no canonicalizer or ownership promotion.
+  - [x] M4.3a structured-parameter prerequisite: direct semantic, TypeScript,
+    and Python consumers now reject mixed legacy `params=` plus structured
+    `param` declarations instead of silently selecting one representation.
+    Seven parameterized functions in the assertion-engine `diag.kern` module
+    use fourteen ordered structured children; `passResult`, bodies, calls,
+    exports, and returns remain unchanged. The hash-bound corpus gate first
+    rejected the expected source drift, then remeasured the same 98 functions
+    across four tools with 90 remaining `fn.params` blockers. The exact new
+    winner is `binary-expression`: three complete assertion-engine functions,
+    941 occurrences, and witnesses `reasonTypeMismatch`,
+    `reasonValueMismatch`, and `reasonKeyMismatch`. The result is pinned but
+    deliberately not implemented in this slice. Focused gates and the initial
+    complete Node 22 `pnpm fitness:kern-5` wall pass, including
+    assertion-engine 13/13, checker subset 48/48 plus 36 rejected
+    accept-but-abstain attacks, and self-host validator 39/39. The first
+    terminal review (`review-1784398592317-alchda-kern-5-r2-m4-3a-terminal`)
+    exposed and drove RED fixes for the incorrectly `fn`-only guard, missing
+    core-runtime rejection, and write-mode winner assertion. The corrected
+    exact tree passes the complete Node 22 `pnpm fitness:kern-5` wall with the
+    regenerated compiled-core-bound receipt. The second terminal review
+    (`review-1784402070934-k183s3-kern-5-r2-m4-3a-terminal-r2`) found no
+    verified issues across five completed engines; Kimi timed out, while Codex
+    and Claude exposed a valid null-winner status-printer edge. That edge is
+    now RED-covered and fixed. The next exact receipt-bound Node 22
+    `pnpm fitness:kern-5` wall passed. The third terminal review completed all
+    six usable engines
+    (`review-1784404337202-jjc35k-kern-5-r2-m4-3a-terminal-r3`) with zero
+    verified findings and independently exposed duplicated package-boundary
+    guard/message drift. Python and the checker adapter now consume the shared
+    core guard, a RED export-contract test proves the dependency, and the
+    compiled-core-bound receipt is regenerated. The corrected exact-tree Node
+    22 `pnpm fitness:kern-5` wall passes. The final terminal review completed
+    all six usable engines with zero verified findings
+    (`review-1784406342479-xc3w91-kern-5-r2-m4-3a-terminal-r4`). Its five
+    needs-checks were rejected against the bound winner row-or-null schema,
+    the shared guard that runs before target-local fallback parsing, the
+    fn-only checker fact contract, semantic validation's location ownership,
+    and the runtime's required direct-invocation defense.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

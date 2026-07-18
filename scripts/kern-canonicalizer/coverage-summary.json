@@ -2,7 +2,7 @@
   "baseCompleteFunctions": 1,
   "blockers": [
     {
-      "count": 97,
+      "count": 90,
       "id": "fn.params"
     },
     {
@@ -61,32 +61,36 @@
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
   "canonicalizerDigest": "2f0fec12660ba194c92371ce10121461e917258555a792b0b22ead8bc5c4f081",
   "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
-  "compiledCoreDigest": "7b00119bb78af4ed955f7f0f3d636393b9ab6f0685bf11df661d5ab9da132725",
+  "compiledCoreDigest": "5c26e8d394f79dac034e88e035251e5e65dc5e9d259269a6d15c1087c4eb239f",
   "corpusMembers": 7,
-  "corpusDigest": "414746c7d4d1fd5e1027b02dff2b8f20402b36348a445b77a5a8f32fd2d7c089",
-  "coverageImplementationDigest": "fd6f0a53ec23088f82d8a6c06ad40c5ff31f4b1db00f6a6f6251efd77b361550",
-  "coveragePolicyDigest": "7788328e7862f5a697f5d750633cc1b005069f09b53ad38a090b30d0c9a537fa",
+  "corpusDigest": "2d5359347a1f89f33130fcea981025a14abc40c0a7f3ec3f2cd96ab201b2c199",
+  "coverageImplementationDigest": "c0d3042757cc5f8516201010daad1ab7c62cb4f1973ac4b2ea3e3661353ade93",
+  "coveragePolicyDigest": "f414bdb8729d5a692cf01efa23c5166253723b6c1425baceb57cd03fa7500748",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "format": "kern.kir-canonicalizer.coverage-summary.1",
-  "functionFactsDigest": "088ff03fb9157e42f8c28e40f7df7ed4720a30e5008ce135816ae0e8e09244dd",
+  "functionFactsDigest": "b43e472e6189b03ead210c9fb30abcf9b6616f2d4b2dcb539b70610a9d0cc583",
   "functionCount": 98,
-  "policyDigest": "56e9d72beac6349eba3d161bd5b6d05cec3ce60f9b606f3dc58932981832d858",
+  "policyDigest": "b330b95d416928841ce05b507d2fa0106cfbaaa6225dc1228c0e77f65c7bfaf3",
   "profileDigest": "89b8d503b64d83a6475283ba3b58763b675a23a0f053b7875964c2867b2d3f85",
   "selection": {
     "ranking": [
+      {
+        "completeFunctions": 3,
+        "completeTools": 1,
+        "id": "binary-expression",
+        "occurrences": 941,
+        "witnesses": [
+          "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
+          "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
+          "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
+        ]
+      },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "conditional",
         "occurrences": 1097,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "binary-expression",
-        "occurrences": 941,
         "witnesses": []
       },
       {
@@ -153,7 +157,17 @@
         "witnesses": []
       }
     ],
-    "winner": null
+    "winner": {
+      "completeFunctions": 3,
+      "completeTools": 1,
+      "id": "binary-expression",
+      "occurrences": 941,
+      "witnesses": [
+        "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
+        "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
+        "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
+      ]
+    }
   },
   "toolCount": 4
 }
