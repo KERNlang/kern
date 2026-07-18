@@ -22,7 +22,7 @@
     "test:runtime-abi": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-handler-(public|helper-link)' && node --test ./scripts/runtime-handler-public-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "check:source-runner-convergence": "node ./scripts/check-source-runner-convergence.mjs",
     "test:source-runner-convergence": "pnpm --filter @kernlang/core test --testPathPatterns='runner-capability-(class-frame|plan)|source-runner-engine|runtime-envelope-effect-machine-(do|each|expression-v1|helper|lambda|non-root|module-ownership|class-)' && node --test ./scripts/source-runner*-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs",
-    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.kern --with-semantics --quiet && node --test ./scripts/kern-canonicalizer/flatten.test.mjs ./scripts/kern-canonicalizer/canonicalizer.test.mjs && node ./scripts/check-kern-canonicalizer.mjs"
+    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.kern --with-semantics --quiet && node --test ./scripts/kern-canonicalizer/flatten.test.mjs ./scripts/kern-canonicalizer/canonicalizer.test.mjs ./scripts/kern-canonicalizer/coverage.test.mjs ./scripts/kern-canonicalizer/coverage-integrity.test.mjs && node ./scripts/check-kern-canonicalizer.mjs && node ./scripts/check-kern-canonicalizer-coverage.mjs"
   },
   "gates": [
     {
