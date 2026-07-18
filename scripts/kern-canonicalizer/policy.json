@@ -1,0 +1,31 @@
+{
+  "expansionLimits": {
+    "kirToSourceMaxFactor": 4,
+    "runtimeEnvelopeMaxFactor": 2
+  },
+  "kirLimits": {
+    "maxBytes": 262144,
+    "maxDepth": 64,
+    "maxNodes": 4096,
+    "maxStringBytes": 8192,
+    "maxCollectionLength": 1024,
+    "maxRecordFields": 512,
+    "maxMapEntries": 64,
+    "maxIntegerDigits": 256,
+    "maxFractionDigits": 256,
+    "maxDecimalChars": 520
+  },
+  "runtimeLimits": {
+    "maxBytes": 2097152,
+    "maxCollectionLength": 65536,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 64,
+    "maxStringBytes": 1048576
+  },
+  "profileLimits": {
+    "maxNodeRows": 16,
+    "maxPropertyRows": 30,
+    "maxValueRows": 72
+  }
+}

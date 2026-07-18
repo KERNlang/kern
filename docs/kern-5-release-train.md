@@ -809,6 +809,45 @@ trusted-publishing/provenance configuration is inspected.
     stale or contradicted the exact-reachability contract, Codex reported no
     findings, and Claude reported no high-confidence blocker
     (`review-1784279863324-vvtril`).
+  - [x] M3.31d public runtime-handler sibling helper link: the selected typed
+    source entry now retains a fresh authenticated function-only scope from the
+    same parsed module. The public entry is excluded from that helper scope;
+    classes and imports remain unavailable; duplicate callable helpers and
+    class/function collisions fail during link. Public oracles cover transitive
+    scalar helpers, list arguments, wrong arity, loop and recursion bounds,
+    unreachable and reached effects, exact map ownership, sync/async byte
+    parity, and overlapping-call isolation. The machine-only public import
+    closure remains green after narrowing the linker dependency to the portable
+    scalar domain. Focused `test:runtime-abi` and the complete Node 22
+    `fitness:kern-5` wall are green. The terminal 3/3 full-roster review found
+    zero issues
+    (`review-1784294556508-m2mp6g-kern-5-r2-m3-31d-terminal-v2`).
+- [ ] R2 M4 toolchain ownership.
+  - [x] M4.1 bounded KERN-authored KIR canonicalizer profile: a generic,
+    lossless host adapter transports decoded structural KIR through twelve
+    primitive tables, while `canonicalizer.kern` owns profile validation,
+    property/type/expression spelling, quoting, indentation, child order, and
+    complete-result construction. Eleven valid fixtures prove exact goldens,
+    byte-identical module KIR, second-pass idempotence, and every admitted
+    return/parameter type. The config-owned 16/30/72 row ceilings are enforced
+    inside KERN; one exact-boundary valid fixture completes while three
+    otherwise-valid over-limit fixtures and 105 hostile table/profile fixtures
+    reject without partial source. `kern check
+    --with-semantics` reports zero diagnostics and the new current gate earns
+    only `kern-kir-canonicalizer-profile: internal-oracle`; the broad formatter,
+    frontend, compiler, fixed point, interpreter, and packed-release rows stay
+    open. Exact-tree reviews found and drove the `$` structural-name round-trip
+    fix, the missing non-string parameter/void-parameter coverage, duplicate
+    required-property variants, and a runtime-ABI public-entry gate omission.
+    Focused gates are green after the row-bound, runtime-ABI, name-uniqueness,
+    Unicode, policy, signed-integer, array-density, root-order, and direct-ABI
+    table-integrity, escaped-output, symbol-record, and shared-array hardening.
+    The complete Node 22 wall passed on 2026-07-17. The terminal six-engine
+    exact-tree review completed across an initial dispatch and exact-range
+    retry for two transport failures, with no unresolved material finding
+    (`review-1784323647882-9ylf9g-kern-5-r2-m4-1-terminal-sealed-v`,
+    `review-1784324869674-axw52z-kern-5-r2-m4-1-terminal-sealed-v`). M4.1 is
+    closed; the broader M4 toolchain exit remains open.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -52,6 +52,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'runtime-handler-abi',
       'core-runtime-internalization',
       'source-runner-convergence',
+      'kern-kir-canonicalizer',
     ],
   );
 });
@@ -83,6 +84,11 @@ test('matrix mutations fail with the affected gate or ownership id', () => {
         '| checker-v2 | Checker v2 and production shadow | internal-oracle | shipped |',
       ),
       error: /checker-v2/i,
+    },
+    {
+      name: 'missing bounded canonicalizer receipt',
+      text: matrixText.replace(/^\| kern-kir-canonicalizer-profile \|.*\n/mu, ''),
+      error: /kern-kir-canonicalizer-profile/i,
     },
     {
       name: 'missing ownership row',
@@ -154,6 +160,21 @@ test('entrypoint scripts must exactly match policy', () => {
   const mutated = structuredClone(packageJson);
   mutated.scripts['fitness:kern-5'] = 'pnpm test:runner-smoke';
   assert.throws(() => validate({ packageJson: mutated }), /fitness:kern-5.*exactly match/i);
+});
+
+test('runtime ABI gate keeps every public handler entry and helper-link oracle', () => {
+  const runtimeAbi = packageJson.scripts['test:runtime-abi'];
+  assert.match(
+    runtimeAbi,
+    /runtime-handler-\(public\|helper-link\)/u,
+    'test:runtime-abi must select the public-handler prefix and helper-link oracle',
+  );
+  assert.ok(
+    readdirSync(new URL('../packages/core/tests/', import.meta.url)).some((name) =>
+      /^runtime-handler-helper-link.*\.test\.ts$/u.test(name),
+    ),
+    'test:runtime-abi helper-link selector must match a real test file',
+  );
 });
 
 test('aggregate uses argv without a shell, preserves order, and stops at first failure', () => {

@@ -225,4 +225,83 @@ describe('internal source handler identity and link', () => {
     );
     expect(calls).toBe(0);
   });
+
+  test('links one exact owned function-only scope and excludes the selected entry', () => {
+    const source = [
+      'class name=Box',
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    return value="\\"ready\\""',
+      'fn name=answer returns=string',
+      '  handler lang="kern"',
+      '    return value="helper()"',
+    ].join('\n');
+    const linked = resolveInternalRuntimeSourceHandler(source, identity, enabled);
+    if ('format' in linked) throw new Error(`expected linked entry, got ${linked.diagnostics[0]?.code}`);
+
+    expect(linked.runnerScope.classes.size).toBe(0);
+    expect([...linked.runnerScope.functions.keys()]).toEqual(['helper']);
+    expect(linked.runnerScope.functions.has('answer')).toBe(false);
+    expect(linked.runnerScope.functions.get('helper')?.module).toBe(linked.runnerScope);
+    expect(makeEnv({ runnerFunctions: linked.runnerScope.functions }).runnerFunctions).toBe(
+      linked.runnerScope.functions,
+    );
+  });
+
+  test('rejects duplicate callable helpers and class/function collisions during link', () => {
+    const answer = ['fn name=answer returns=string', '  handler lang="kern"', '    return value="helper()"'];
+    const helper = ['fn name=helper returns=string', '  handler lang="kern"', '    return value="\\"ok\\""'];
+    const duplicate = [...helper, ...helper, ...answer].join('\n');
+    const collision = ['class name=helper', ...helper, ...answer].join('\n');
+    for (const source of [duplicate, collision]) {
+      expect(executeInternalRuntimeSourceHandlerSync(source, identity, [], makeEnv(), enabled)).toMatchObject({
+        diagnostics: [{ code: 'handler-link-error', phase: 'link' }],
+        events: [],
+        outcome: 'failure',
+      });
+    }
+  });
+
+  test('keeps malformed helpers non-callable and non-shadowing in either source order', () => {
+    const answer = ['fn name=answer returns=string', '  handler lang="kern"', '    return value="helper()"'];
+    const valid = ['fn name=helper returns=string', '  handler lang="kern"', '    return value="\\"ok\\""'];
+    const ignored = [
+      'fn name=helper returns=string async=true',
+      '  handler lang="kern"',
+      '    return value="\\"ignored\\""',
+    ];
+    for (const roots of [
+      [...ignored, ...valid, ...answer],
+      [...valid, ...ignored, ...answer],
+    ]) {
+      expect(executeInternalRuntimeSourceHandlerSync(roots.join('\n'), identity, [], makeEnv(), enabled)).toMatchObject(
+        {
+          diagnostics: [],
+          outcome: 'success',
+          result: { presence: 'value', value: { tag: 'text', value: 'ok' } },
+        },
+      );
+    }
+  });
+
+  test('does not promote sibling classes into the public helper scope', () => {
+    const source = [
+      'class name=Box',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="\\"class\\""',
+      'fn name=helper returns=string',
+      '  handler lang="kern"',
+      '    let name=box value="new Box()"',
+      '    return value="box.read()"',
+      'fn name=answer returns=string',
+      '  handler lang="kern"',
+      '    return value="helper()"',
+    ].join('\n');
+    expect(executeInternalRuntimeSourceHandlerSync(source, identity, [], makeEnv(), enabled)).toMatchObject({
+      diagnostics: [{ code: 'unsupported-runtime-input', phase: 'execution' }],
+      events: [],
+      outcome: 'failure',
+    });
+  });
 });

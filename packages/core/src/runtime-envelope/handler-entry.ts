@@ -6,6 +6,7 @@ import {
   defineIntBinding,
   defineRecordBinding,
   makeEnv,
+  type RunnerModuleScope,
   type SemanticEnv,
 } from '../ir/semantics/semantic-env.js';
 import type { IRNode } from '../types.js';
@@ -27,6 +28,7 @@ import {
 export interface InternalRuntimeHandlerEntry {
   readonly body: readonly IRNode[];
   readonly parameters: readonly string[];
+  readonly runnerScope?: RunnerModuleScope;
 }
 
 function recordArrayFieldsFromArgument(value: unknown): Set<string> {
@@ -116,6 +118,7 @@ function validatedArguments(
 }
 
 function handlerEnvironment(
+  entry: InternalRuntimeHandlerEntry,
   validated: ValidatedArguments,
   host: SemanticEnv,
   options: InternalRuntimeEnvelopeOptions | undefined,
@@ -127,6 +130,8 @@ function handlerEnvironment(
     now: host.now,
     runnerCallCache: new Map(),
     runnerCallStack: [],
+    runnerClasses: entry.runnerScope?.classes,
+    runnerFunctions: entry.runnerScope?.functions,
     seed: host.seed,
   });
   const interceptor = options?.capabilityInterceptor;
@@ -155,7 +160,7 @@ function preparedEnvironment(
   const validated = validatedArguments(entry, args, options);
   if ('format' in validated) return validated;
   try {
-    return handlerEnvironment(validated, host, options);
+    return handlerEnvironment(entry, validated, host, options);
   } catch (error) {
     return normalizeInternalRuntimeFailure(error);
   }
