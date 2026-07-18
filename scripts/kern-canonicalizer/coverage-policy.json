@@ -1,0 +1,70 @@
+{
+  "format": "kern.kir-canonicalizer.coverage-policy.1",
+  "base": {
+    "expressionKinds": ["boolean", "identifier", "integer", "list", "null", "text"],
+    "nodeKinds": ["fn", "handler", "param", "return"],
+    "propertyKeys": [
+      "fn.async", "fn.effects", "fn.export", "fn.expr", "fn.generics", "fn.name", "fn.params", "fn.returns", "fn.stream",
+      "handler.code", "handler.lang", "handler.reason", "handler.review",
+      "param.default", "param.description", "param.max", "param.min", "param.name", "param.optional", "param.required", "param.type", "param.value", "param.variadic",
+      "return.trailingComment", "return.value"
+    ]
+  },
+  "corpus": [
+    {
+      "digest": "ff5fdbc8c9f63f592c930c04a14f77379b13279bedb71dcb20a7907d40a3db2a",
+      "path": "examples/capstone-assertion-engine/compare.kern",
+      "sourceKind": "handwritten",
+      "tool": "assertion-engine"
+    },
+    {
+      "digest": "18c3d9def86d464d008311d4fd35a3e6d23e4d9499243c90d1fcdb473a51af61",
+      "path": "examples/capstone-assertion-engine/diag.kern",
+      "sourceKind": "handwritten",
+      "tool": "assertion-engine"
+    },
+    {
+      "digest": "33b1d41d1f94e01fec3cdae46cbdf9aa0288dce1cb43c828c2a5b45433ceb8a7",
+      "path": "examples/capstone-assertion-engine/sort.kern",
+      "sourceKind": "handwritten",
+      "tool": "assertion-engine"
+    },
+    {
+      "digest": "cfe9837888d038d9de7d1f3685e3f28871c0bfe7e6b67e2234b4c1c4e89f5818",
+      "path": "examples/capstone-checker-subset/checker-while.kern",
+      "sourceKind": "handwritten",
+      "tool": "checker"
+    },
+    {
+      "digest": "cdb09bd110cf0b8ec419d3f8ab7f80e59f924c6a32bb4c54d790e0e8d9f9962c",
+      "path": "examples/capstone-checker-subset/checker.kern",
+      "sourceKind": "handwritten",
+      "tool": "checker"
+    },
+    {
+      "digest": "2f0fec12660ba194c92371ce10121461e917258555a792b0b22ead8bc5c4f081",
+      "path": "examples/kern-canonicalizer/canonicalizer.kern",
+      "sourceKind": "handwritten",
+      "tool": "canonicalizer"
+    },
+    {
+      "digest": "a54013ee9523d290a525d839ee6c0fae979c9fcb71ef2e46418b37c7d13ab464",
+      "path": "examples/selfhost-validator/validator.kern",
+      "sourceKind": "handwritten",
+      "tool": "validator"
+    }
+  ],
+  "families": [
+    { "expressionKinds": ["binary"], "id": "binary-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": [], "id": "binding", "nodeKinds": ["assign", "let"], "propertyKeys": ["assign.target", "assign.value", "let.name", "let.value"] },
+    { "expressionKinds": ["call"], "id": "call-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": [], "id": "conditional", "nodeKinds": ["else", "if"], "propertyKeys": ["if.cond"] },
+    { "expressionKinds": [], "id": "counted-iteration", "nodeKinds": ["for"], "propertyKeys": ["for.from", "for.name", "for.to"] },
+    { "expressionKinds": [], "id": "do-statement", "nodeKinds": ["do"], "propertyKeys": ["do.value"] },
+    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
+    { "expressionKinds": ["index"], "id": "index-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": ["member"], "id": "member-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": ["unary"], "id": "unary-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": [], "id": "while-iteration", "nodeKinds": ["while"], "propertyKeys": ["while.cond"] }
+  ]
+}

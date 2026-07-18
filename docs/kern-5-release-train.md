@@ -848,6 +848,139 @@ trusted-publishing/provenance configuration is inspected.
     (`review-1784323647882-9ylf9g-kern-5-r2-m4-1-terminal-sealed-v`,
     `review-1784324869674-axw52z-kern-5-r2-m4-1-terminal-sealed-v`). M4.1 is
     closed; the broader M4 toolchain exit remains open.
+  - [x] M4.2 measured canonicalizer tranche selection: a hash-bound corpus of
+    seven handwritten modules across the assertion engine, validator, checker,
+    and canonicalizer drives a deterministic structural-KIR coverage summary.
+    The summary measures 98 functions; one is already M4.1-complete, 97 are
+    blocked by the deliberately excluded legacy `fn.params` payload, and one
+    of those also contains an expression outside the structural catalog. Every
+    catalog-backed candidate family completes zero additional functions. The
+    exact family registry is coverage-closed over every observed unsupported
+    function-root node, expression, and property fact, including 491 index
+    expressions, and exact M4.1 property/value/child admission is required
+    before completion credit, so the tribunal-mandated evidence-only fallback
+    records a null winner and makes no canonicalizer or ownership promotion.
+    The first three terminal reviews found and fixed profile-admission,
+    candidate-closure, property-closure, nested-base-expression,
+    text-character, and row-ceiling blockers. The exact receipt also exposes
+    47 value-row, 12 node-row, and seven property-row blockers plus six rejected
+    text-character facts in one function; the bounded codec also rejects 13
+    functions for depth and one for node count. They were previously hidden
+    behind the legacy parameter
+    exclusion and do not change the null winner. Exact-byte/regular-file corpus
+    revalidation, complete per-function fact binding,
+    policy/canonicalizer/profile/coverage digests, ordinal witness ids,
+    explicit candidate handler widening, and corpus/property/expression
+    mutation oracles harden the receipt. The fourth terminal review independently
+    found the same false-credit path through two engines: a candidate handler
+    child could mask duplicate returns or an orphan/reversed `else`
+    (`review-1784360706127-7sgggx-kern-5-r2-m4-2-coverage-terminal`). Combined
+    handler-sequence validation, fail-closed fact/limit checks, explicit
+    handwritten corpus classification, and a deterministic receipt writer are
+    now regression-covered. The fifth terminal review found nested candidate
+    sequence, codec-bypass, exact-fact-schema, and expression-authority binding
+    blockers
+    (`review-1784363236516-soakf0-kern-5-r2-m4-2-coverage-terminal`). Every
+    candidate statement container now validates its sequence, rows pass through
+    bounded canonical encode/decode, all 13 function-fact fields are exact, and
+    the expression source is digest-bound. The deterministic writer builds core
+    and asserts the null fallback before writing; nested-sequence, codec-limit,
+    incomplete-fact, and empty-family mutations are regression-covered.
+    Post-fix focused gates and the repeated complete Node 22
+    `pnpm fitness:kern-5` wall passed on 2026-07-18. The sixth review completed
+    4/6 before Codex and Kimi timed out, with no verified blockers and two
+    needs-checks
+    (`review-1784365878717-6kfy1g-kern-5-r2-m4-2-coverage-terminal`). The
+    catalog-freeze concern is disproved by exact policy-to-catalog validation
+    plus separate policy/constitution digests. The real node-row concern is
+    fixed: codec rows are no longer overwritten by source traversal counts,
+    codec-rejected functions carry explicit null rows, and malformed rows
+    reject. The post-fix focused gates and complete Node 22
+    `pnpm fitness:kern-5` wall passed on 2026-07-18. The exact Codex/Kimi retry
+    completed and found a stale prose count plus three integrity gaps
+    (`review-1784368509065-1oh63s-kern-5-r2-m4-2-coverage-terminal`). The prose
+    now records 12 node-row blockers; generated-header variants reject;
+    function kind sets are derived exactly from occurrence evidence; and
+    profile-only rejection populates `firstUnsupported`. Three RED integrity
+    tests, focused gates, and the complete Node 22 wall pass after these fixes.
+    The terminal full-roster review completed 5/6 before Codex timed out
+    (`review-1784370930544-az31je-kern-5-r2-m4-2-coverage-terminal`). Its
+    canonicalizer/corpus digest duplication claim is intentional and
+    drift-safe; malformed parser shapes reject before receipts; `fn.async`
+    remains outside exact M4.1 admission; and production profile limits are
+    policy-validated. One defense-in-depth concern was valid: executed compiled
+    core modules were not receipt-bound. The receipt now hashes the complete
+    emitted core JavaScript tree with path/length framing, rejects compiled
+    symlinks, and has a RED binding oracle. Post-fix focused gates and the
+    complete Node 22 `pnpm fitness:kern-5` wall passed on 2026-07-18. The exact
+    Codex retry then found that local implementation dependencies were not all
+    path/length-framed, compiled bytes were hashed after static loading, and a
+    profile-only first blocker came from sorted summary order
+    (`review-1784373341918-svmlgh-kern-5-r2-m4-2-coverage-terminal`). The entry
+    now authenticates compiled and local dependency bytes before dynamic
+    implementation loading, verifies them after load, and preserves authored
+    blocker traversal. Three RED oracles, the focused gates, and the post-fix
+    complete Node 22 `pnpm fitness:kern-5` wall pass. The next full-roster
+    exact review completed all six engines
+    (`review-1784378428611-liei4p-kern-5-r2-m4-2-coverage-terminal`). Its dead
+    constitution-loader claim was disproved at the receipt call site, while
+    two needs-checks were real: constitution projection accepted ignored or
+    duplicate rows, and the local dependency digest relied on a mirrored
+    allowlist. Constitution validation now enforces exact schemas, counts,
+    identities, and property-to-node membership against the executed catalog;
+    implementation authentication discovers and path/length-frames every local
+    `.mjs`. Focused gates and the post-fix complete Node 22
+    `pnpm fitness:kern-5` wall pass after the corrections. The exact retry
+    then completed five engines before Codex hit its 600-second transport
+    timeout
+    (`review-1784380865734-63qlrs-kern-5-r2-m4-2-coverage-terminal`). Its
+    missing-file findings were disproved by the staged tree; the expression
+    projector is already authenticated by the compiled-core digest; and
+    code-unit ordering is locale-independent. A clean core rebuild reproduced
+    compiled digest
+    `7b00119bb78af4ed955f7f0f3d636393b9ab6f0685bf11df661d5ab9da132725`.
+    One non-blocking hardening gap was real: function-fact property identities
+    now enforce exact `node.property` grammar with a RED oracle. Focused gates
+    and the post-fix complete Node 22 `pnpm fitness:kern-5` wall pass after that
+    correction; the exact full-roster retry then completed four engines with
+    zero verified findings before Codex and Kimi timed out
+    (`review-1784383392836-5e943l-kern-5-r2-m4-2-coverage-terminal`). An exact
+    longer-budget retry completed both missing engines
+    (`review-1784384016998-14qhb3-kern-5-r2-m4-2-coverage-terminal`). Three
+    fail-closed hardening gaps were real and are RED-covered: duplicate function
+    witness ids reject, selection independently enforces policy row ceilings,
+    and atomic summary writes reject symlink/non-file destinations. Measured
+    duplicate occurrences remain the intentional ranking frequency signal.
+    The focused suite passes 47/47 and the post-fix complete Node 22
+    `pnpm fitness:kern-5` wall passes after the corrections; the final terminal
+    review then completed all six usable engines
+    (`review-1784387000656-w3teuz-kern-5-r2-m4-2-coverage-terminal`) and exposed
+    one deeper trust-boundary defect through two Codex findings: exported
+    re-selection accepted mutable or cloned fact arrays, permitting blocker,
+    occurrence, or tool-score forgery. Measurement now deeply freezes its fact
+    graph and registers the exact array in a module-private weak map bound to
+    the producing policy digest. Clones, mutations, and policy/tool-manifest
+    drift reject before ranking. The authenticity RED oracle and focused suite
+    pass 41/41, and the post-fix complete Node 22 `pnpm fitness:kern-5` wall
+    passes. The next terminal full-roster review completed five structured
+    verdicts plus the full unstructured ZAI review
+    (`review-1784389940398-i5qcyc-kern-5-r2-m4-2-coverage-terminal`). It found
+    two evidence blockers and two reachable hardening gaps. Mixed profile and
+    structural blockers now share authored traversal positions; check mode
+    requires canonical summary bytes in a regular non-symlink file; deep
+    freezing traverses shallow-frozen containers; and catalog-excluded
+    candidate properties remain ineligible blockers without becoming family
+    claims. Four RED oracles cover those corrections, the focused suite passes
+    45/45, and the post-fix complete Node 22 `pnpm fitness:kern-5` wall passes.
+    The next terminal review completed five engines before Kimi returned a
+    parse failure
+    (`review-1784392563479-1a9dd8-kern-5-r2-m4-2-coverage-terminal`) and reported
+    zero verified findings. Its one real prose correction records that six
+    distinct rejected text-character facts belong to one `quotesource`
+    function. The final exact-tree terminal review completed all six usable
+    engines with zero verified findings
+    (`review-1784393191142-xojaa8-kern-5-r2-m4-2-coverage-terminal`). M4.2 is
+    sealed with a null winner and no canonicalizer or ownership promotion.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 
+const CANONICALIZER_POLICY_SOURCE = readFileSync(new URL('./policy.json', import.meta.url));
+
 const POLICY_KEYS = {
   expansionLimits: ['kirToSourceMaxFactor', 'runtimeEnvelopeMaxFactor'],
   kirLimits: [
@@ -50,6 +52,10 @@ export function validateCanonicalizerPolicy(policy) {
 
 export function loadCanonicalizerPolicy() {
   return validateCanonicalizerPolicy(
-    JSON.parse(readFileSync(new URL('./policy.json', import.meta.url), 'utf8')),
+    JSON.parse(CANONICALIZER_POLICY_SOURCE.toString('utf8')),
   );
+}
+
+export function canonicalizerPolicySource() {
+  return Buffer.from(CANONICALIZER_POLICY_SOURCE);
 }

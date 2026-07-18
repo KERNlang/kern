@@ -1,0 +1,16 @@
+{
+  "format": "kern.kir-canonicalizer.coverage-family-registry.1",
+  "families": [
+    { "expressionKinds": ["binary"], "id": "binary-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": [], "id": "binding", "nodeKinds": ["assign", "let"], "propertyKeys": ["assign.target", "assign.value", "let.name", "let.value"] },
+    { "expressionKinds": ["call"], "id": "call-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": [], "id": "conditional", "nodeKinds": ["else", "if"], "propertyKeys": ["if.cond"] },
+    { "expressionKinds": [], "id": "counted-iteration", "nodeKinds": ["for"], "propertyKeys": ["for.from", "for.name", "for.to"] },
+    { "expressionKinds": [], "id": "do-statement", "nodeKinds": ["do"], "propertyKeys": ["do.value"] },
+    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
+    { "expressionKinds": ["index"], "id": "index-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": ["member"], "id": "member-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": ["unary"], "id": "unary-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": [], "id": "while-iteration", "nodeKinds": ["while"], "propertyKeys": ["while.cond"] }
+  ]
+}
