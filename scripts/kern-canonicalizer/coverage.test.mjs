@@ -22,6 +22,12 @@ import {
   canonicalProfileRowsForFunction,
   profileBlockersForFunction,
 } from './coverage-profile.mjs';
+import {
+  CANONICALIZER_COMPOSITE_PATH,
+  CANONICALIZER_COMPOSITION_MEMBERS,
+  canonicalCompositionRecordBytes,
+  verifyCanonicalizerComposition,
+} from './composition.mjs';
 import { formatCoverageWinnerStatus } from './coverage-status.mjs';
 import { VALID_FIXTURES } from './fixtures.mjs';
 
@@ -52,7 +58,34 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   const first = measureCanonicalizerCoverage(policy);
   const second = measureCanonicalizerCoverage(policy);
   assert.deepEqual(second, first);
-  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.1');
+  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.2');
+  const composition = verifyCanonicalizerComposition();
+  assert.deepEqual(first.composition.record, composition.record);
+  assert.equal(
+    first.composition.digest,
+    createHash('sha256').update(canonicalCompositionRecordBytes(composition.record)).digest('hex'),
+  );
+  assert.equal(first.canonicalizerDigest, composition.record.composite.sha256);
+  assert.equal(
+    first.selectionProvenance.digest,
+    '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+  );
+  assert.deepEqual(first.selectionProvenance.record.snapshot, {
+    corpusMembers: 7,
+    functionCount: 98,
+    selection: {
+      completeFunctions: 3,
+      completeTools: 1,
+      id: 'binary-expression',
+      occurrences: 941,
+      witnesses: [
+        'examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch',
+        'examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch',
+        'examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch',
+      ],
+    },
+    toolCount: 4,
+  });
   assert.equal(
     first.canonicalizerPolicyDigest,
     createHash('sha256').update(readFileSync(new URL('./policy.json', import.meta.url))).digest('hex'),
@@ -60,6 +93,13 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.match(first.coveragePolicyDigest, /^[0-9a-f]{64}$/u);
   assert.match(first.corpusDigest, /^[0-9a-f]{64}$/u);
   assert.equal(first.corpus.length, policy.corpus.length);
+  assert.equal(first.corpus.length, 8);
+  assert.equal(first.functions.length, 99);
+  assert.deepEqual(
+    first.corpus.filter(({ path }) => CANONICALIZER_COMPOSITION_MEMBERS.includes(path)).map(({ path }) => path),
+    CANONICALIZER_COMPOSITION_MEMBERS,
+  );
+  assert.equal(first.corpus.some(({ path }) => path === CANONICALIZER_COMPOSITE_PATH), false);
   assert.equal(new Set(first.corpus.map(({ tool }) => tool)).size, 4);
   assert.deepEqual(new Set(first.corpus.map(({ sourceKind }) => sourceKind)), new Set(['handwritten']));
   assert.ok(first.functions.length > 0);
@@ -80,12 +120,12 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     diagFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences).filter((kind) => kind === 'param').length,
     14,
   );
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 90);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 91);
   assert.deepEqual(first.selection.winner, {
     completeFunctions: 3,
     completeTools: 1,
     id: 'binary-expression',
-    occurrences: 941,
+    occurrences: 1002,
     witnesses: [
       'examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch',
       'examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch',
@@ -163,6 +203,25 @@ test('policy validation rejects corpus, family, ordering, and catalog invention'
     mutate(copy);
     assert.throws(() => validateCoveragePolicy(copy), /coverage policy rejection/u);
   }
+});
+
+test('coverage policy rejects the generated canonicalizer composite as handwritten evidence', () => {
+  const policy = loadCoveragePolicy();
+  const copy = structuredClone(policy);
+  const main = copy.corpus.findIndex(({ path }) => path === CANONICALIZER_COMPOSITION_MEMBERS[1]);
+  copy.corpus[main] = {
+    digest: createHash('sha256')
+      .update(readFileSync(new URL(`../../${CANONICALIZER_COMPOSITE_PATH}`, import.meta.url)))
+      .digest('hex'),
+    path: CANONICALIZER_COMPOSITE_PATH,
+    sourceKind: 'handwritten',
+    tool: 'canonicalizer',
+  };
+  copy.corpus.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  assert.throws(
+    () => validateCoveragePolicy(copy),
+    /generated composite cannot enter handwritten corpus/u,
+  );
 });
 
 test('coverage closure rejects missing observed facts and unobserved claims', () => {

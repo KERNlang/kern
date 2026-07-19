@@ -10,6 +10,10 @@ import {
   KERN_RUNTIME_HANDLER_ABI,
 } from '../packages/core/dist/runtime-handler.js';
 import { flattenKirRoots, tableArguments } from './kern-canonicalizer/flatten.mjs';
+import {
+  CANONICALIZER_COMPOSITE_PATH,
+  verifyCanonicalizerComposition,
+} from './kern-canonicalizer/composition.mjs';
 import { HOSTILE_FIXTURES, VALID_FIXTURES } from './kern-canonicalizer/fixtures.mjs';
 import { loadCanonicalizerPolicy } from './kern-canonicalizer/policy.mjs';
 import { rehydrateKirRoots } from './kern-canonicalizer/rehydrate.mjs';
@@ -18,10 +22,12 @@ import { PROFILE_LIMIT_FIXTURES } from './kern-canonicalizer/profile-limit-fixtu
 const CANONICALIZER_POLICY = loadCanonicalizerPolicy();
 const { kirLimits: KIR_LIMITS, profileLimits: PROFILE_LIMITS, runtimeLimits: RUNTIME_LIMITS } =
   CANONICALIZER_POLICY;
-const CANONICALIZER_PATH = fileURLToPath(
-  new URL('../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
+const CANONICALIZER_SOURCE = verifyCanonicalizerComposition().source;
+const ASSERTION_DIAG_SOURCE = readFileSync(
+  new URL('../examples/capstone-assertion-engine/diag.kern', import.meta.url),
+  'utf8',
 );
-const CANONICALIZER_SOURCE = readFileSync(CANONICALIZER_PATH, 'utf8');
+const SELECTED_WITNESSES = ['reasonTypeMismatch', 'reasonValueMismatch', 'reasonKeyMismatch'];
 const fixtureById = new Map(VALID_FIXTURES.map((fixture) => [fixture.id, fixture]));
 
 function fail(category, detail) {
@@ -87,7 +93,7 @@ function executeTableEnvelope(tables) {
     {
       abi: KERN_RUNTIME_HANDLER_ABI,
       arguments: canonicalizerArguments(tables),
-      identity: { handlerName: 'canonicalize', sourcePath: 'examples/kern-canonicalizer/canonicalizer.kern' },
+      identity: { handlerName: 'canonicalize', sourcePath: CANONICALIZER_COMPOSITE_PATH },
       source: CANONICALIZER_SOURCE,
     },
     { enabled: true, limits: RUNTIME_LIMITS },
@@ -115,6 +121,24 @@ export function runKernCanonicalizerCheck() {
 
     const second = canonicalizeSource(first.source, moduleId, `${fixture.id}:second-pass`);
     if (second.source !== first.source) fail('idempotence mismatch', fixture.id);
+  }
+
+  const witnessRoots = parsedRoots(ASSERTION_DIAG_SOURCE, 'assertion-engine witnesses');
+  for (const witness of SELECTED_WITNESSES) {
+    const root = witnessRoots.find((candidate) => candidate.type === 'fn' && candidate.props?.name === witness);
+    assert.ok(root, `missing measured witness ${witness}`);
+    const moduleId = `${witness}.kern`;
+    const bytes = encodeModuleKir([{ id: moduleId, roots: [root] }], KIR_LIMITS);
+    const decoded = decodeModuleKir(bytes, KIR_LIMITS);
+    const decodedModule = decoded.modules.find((candidate) => candidate.id === moduleId);
+    assert.ok(decodedModule, `KIR mismatch: ${witness} omitted ${moduleId}`);
+    const tables = flattenKirRoots(decodedModule.roots);
+    assert.deepEqual(rehydrateKirRoots(tables), decodedModule.roots, `adapter rejection: ${witness} was not lossless`);
+    const formatted = `${executeTables(tables, witness).join('\n')}\n`;
+    const formattedArtifact = semanticArtifact(formatted, moduleId, `${witness}:formatted`);
+    assert.deepEqual(formattedArtifact.roots, decodedModule.roots, `KIR mismatch: ${witness}`);
+    const second = canonicalizeSource(formatted, moduleId, `${witness}:second-pass`);
+    assert.equal(second.source, formatted, `idempotence mismatch: ${witness}`);
   }
 
   for (const fixture of PROFILE_LIMIT_FIXTURES) {
@@ -159,6 +183,6 @@ export function runKernCanonicalizerCheck() {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runKernCanonicalizerCheck();
   process.stdout.write(
-    `KERN canonicalizer: ${VALID_FIXTURES.length} golden/idempotence/KIR fixtures, ${PROFILE_LIMIT_FIXTURES.length} profile-limit fixtures, and ${HOSTILE_FIXTURES.length} hostile fixtures passed.\n`,
+    `KERN canonicalizer: ${VALID_FIXTURES.length} golden/idempotence/KIR fixtures, ${SELECTED_WITNESSES.length} measured witnesses, ${PROFILE_LIMIT_FIXTURES.length} profile-limit fixtures, and ${HOSTILE_FIXTURES.length} hostile fixtures passed.\n`,
   );
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -6,20 +7,62 @@ import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js
 import { VALID_FIXTURES } from './fixtures.mjs';
 import { validateCanonicalizerPolicy } from './policy.mjs';
 
-const source = readFileSync(new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url), 'utf8');
+const mainSource = readFileSync(new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url), 'utf8');
+const helperSource = readFileSync(
+  new URL('../../examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', import.meta.url),
+  'utf8',
+);
+const source = `${helperSource}${mainSource}`;
 const policyUrl = new URL('./policy.json', import.meta.url);
 
-test('the KERN canonicalizer is parseable, bounded, and contains the semantic source decisions', () => {
+test('the KERN canonicalizer members are parseable, bounded, and contain the semantic source decisions', () => {
+  for (const [name, member] of [['helpers', helperSource], ['main', mainSource]]) {
+    const parsedMember = parseDocumentWithDiagnostics(member);
+    assert.notEqual(parsedMember.partial, true, name);
+    assert.deepEqual(
+      parsedMember.diagnostics.filter((diagnostic) => diagnostic.severity === 'error'),
+      [],
+      name,
+    );
+    assert.ok(member.split('\n').length - 1 < 500, `${name} hand-written KERN source must stay below 500 lines`);
+  }
   const parsed = parseDocumentWithDiagnostics(source);
   assert.notEqual(parsed.partial, true);
   assert.deepEqual(
     parsed.diagnostics.filter((diagnostic) => diagnostic.severity === 'error'),
     [],
   );
-  assert.ok(source.split('\n').length - 1 < 500, 'hand-written KERN source must stay below 500 lines');
   for (const owned of ['fn name=', 'param name=', 'handler lang=', 'return value=', 'quotesource', 'typesource']) {
     assert.ok(source.includes(owned), `missing KERN-owned source decision ${owned}`);
   }
+});
+
+test('binary ownership stays in main and mechanically matches the structural operator catalog', () => {
+  assert.equal(helperSource.includes('validbinaryop'), false);
+  assert.equal(helperSource.includes('\\"binary\\"'), false);
+  const expressionCatalog = readFileSync(
+    new URL('../../packages/core/src/kir-structural/expression.ts', import.meta.url),
+    'utf8',
+  );
+  const catalogBlock = /const BINARY_OPERATORS = new Set\(\[([\s\S]*?)\]\);/u.exec(expressionCatalog)?.[1];
+  assert.ok(catalogBlock, 'missing structural binary catalog');
+  const catalogOperators = [...catalogBlock.matchAll(/'([^']+)'/gu)].map((match) => match[1]);
+  const kernFunction = /fn name=validbinaryop[\s\S]*?(?=\nfn name=)/u.exec(mainSource)?.[0];
+  assert.ok(kernFunction, 'missing KERN validbinaryop');
+  const kernOperators = [...kernFunction.matchAll(/op == \\"([^"\\]+)\\"/gu)].map((match) => match[1]);
+  assert.equal(kernOperators.length, 24);
+  assert.deepEqual(new Set(kernOperators), new Set(catalogOperators));
+});
+
+test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
+  const hash = createHash('sha256');
+  const nonBinary = VALID_FIXTURES.filter(({ id }) => !id.startsWith('binary-'));
+  for (const fixture of nonBinary) {
+    hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
+    hash.update(fixture.golden);
+  }
+  assert.equal(nonBinary.length, 11);
+  assert.equal(hash.digest('hex'), '92b55c08bb450e81b19a7f19257afd6e85b406eeb0657c207bdb0df91f68c176');
 });
 
 test('the admitted table profile is policy-owned and enforced by KERN', () => {

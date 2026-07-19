@@ -1,3 +1,4 @@
+import { BINARY_HOSTILE_FIXTURES, BINARY_VALID_FIXTURES } from './binary-fixtures.mjs';
 import { PROFILE_BOUNDARY_FIXTURE } from './profile-limit-fixtures.mjs';
 import {
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
@@ -155,6 +156,7 @@ export const VALID_FIXTURES = [
       '    return',
     ),
   },
+  ...BINARY_VALID_FIXTURES,
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
   PROFILE_BOUNDARY_FIXTURE,
 ];
@@ -410,6 +412,7 @@ export const HOSTILE_FIXTURES = [
       tables.valueText[kind] = 'binary';
     },
   },
+  ...BINARY_HOSTILE_FIXTURES,
   ...['true', 'false', 'null', 'none', 'undefined', 'await', 'new', 'typeof'].map((reserved) => ({
     id: `reserved-identifier-${reserved}`,
     base: 'shuffled-identifier',

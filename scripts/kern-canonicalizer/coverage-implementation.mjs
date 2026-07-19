@@ -28,15 +28,16 @@ import {
   validateCoverageBase,
 } from './coverage-profile.mjs';
 import { canonicalizerPolicySource, loadCanonicalizerPolicy } from './policy.mjs';
+import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
+import { CANONICALIZER_COMPOSITE_PATH } from './composition.mjs';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.1';
-const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.1';
+const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.2';
 const EXPRESSION_KINDS = STRUCTURAL_EXPRESSION_KINDS;
 const AUTHENTICATED_DEPENDENCIES = requireAuthenticatedCoverageDependencies();
 const COVERAGE_POLICY_SOURCE = readFileSync(new URL('./coverage-policy.json', import.meta.url));
 const PROFILE_SOURCE = readFileSync(new URL('./coverage-profile.mjs', import.meta.url));
 const EXPRESSION_CATALOG_SOURCE = readFileSync(resolve(ROOT, 'packages/core/src/kir-structural/expression.ts'));
-const CANONICALIZER_SOURCE = readFileSync(resolve(ROOT, 'examples/kern-canonicalizer/canonicalizer.kern'));
 const AUTHENTICATED_FUNCTION_FACTS = new WeakMap();
 function fail(message) {
   throw new TypeError(`coverage policy rejection: ${message}`);
@@ -44,11 +45,9 @@ function fail(message) {
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
-
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
-
 function record(value, keys, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be a record`);
   const prototype = Object.getPrototypeOf(value);
@@ -65,7 +64,6 @@ function record(value, keys, label) {
   }
   return value;
 }
-
 function text(value, label) {
   if (typeof value !== 'string' || value.length === 0) fail(`${label} must be non-empty text`);
   return value;
@@ -80,7 +78,6 @@ function sortedUniqueText(value, label) {
   }
   return result;
 }
-
 function safePath(value, label) {
   const path = text(value, label);
   if (
@@ -94,7 +91,6 @@ function safePath(value, label) {
   }
   return path;
 }
-
 export function readCorpusMemberBytes(path, root = ROOT) {
   let canonicalRoot;
   try {
@@ -123,6 +119,7 @@ function validateCorpus(corpus, allowMissingCorpus) {
   const result = corpus.map((entry, index) => {
     const item = record(entry, ['digest', 'path', 'sourceKind', 'tool'], `corpus[${index}]`);
     const path = safePath(item.path, `corpus[${index}].path`);
+    if (path === CANONICALIZER_COMPOSITE_PATH) fail('generated composite cannot enter handwritten corpus');
     const expectedDigest = text(item.digest, `corpus[${index}].digest`);
     if (!/^[0-9a-f]{64}$/u.test(expectedDigest)) fail(`corpus[${index}].digest must be lowercase SHA-256`);
     const tool = text(item.tool, `corpus[${index}].tool`);
@@ -411,6 +408,7 @@ export function selectCanonicalizerTranche(policyInput, functions) {
 }
 export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
+  const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
   const canonicalizerPolicy = loadCanonicalizerPolicy();
   const functions = [];
@@ -444,9 +442,10 @@ export function measureCanonicalizerCoverage(policyInput) {
   const receipt = {
     baseCompleteFunctions: functions.filter((fn) => completes(baseProfile, fn, canonicalizerPolicy.profileLimits)).length,
     catalogDigest: digest(constitution),
-    canonicalizerDigest: digest(CANONICALIZER_SOURCE),
+    canonicalizerDigest: digest(evidence.source),
     canonicalizerPolicyDigest: digest(boundCanonicalizerPolicySource),
     compiledCoreDigest: AUTHENTICATED_DEPENDENCIES.compiledCoreDigest,
+    composition: evidence.composition,
     corpus: policy.corpus,
     corpusDigest: digest(JSON.stringify(policy.corpus)),
     coverageImplementationDigest: AUTHENTICATED_DEPENDENCIES.coverageImplementationDigest,
@@ -459,6 +458,7 @@ export function measureCanonicalizerCoverage(policyInput) {
     policyDigest: digest(JSON.stringify(policy)),
     profileDigest: digest(PROFILE_SOURCE),
     selection,
+    selectionProvenance: evidence.selectionProvenance,
   };
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   return receipt;
@@ -480,18 +480,20 @@ export function summarizeCanonicalizerCoverage(receipt = measureCanonicalizerCov
     canonicalizerDigest: receipt.canonicalizerDigest,
     canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
     compiledCoreDigest: receipt.compiledCoreDigest,
+    composition: receipt.composition,
     corpusMembers: receipt.corpus.length,
     corpusDigest: receipt.corpusDigest,
     coverageImplementationDigest: receipt.coverageImplementationDigest,
     coveragePolicyDigest: receipt.coveragePolicyDigest,
     familyRegistryDigest: receipt.familyRegistryDigest,
     expressionCatalogDigest: receipt.expressionCatalogDigest,
-    format: 'kern.kir-canonicalizer.coverage-summary.1',
+    format: 'kern.kir-canonicalizer.coverage-summary.2',
     functionFactsDigest: receipt.functionFactsDigest,
     functionCount: receipt.functions.length,
     policyDigest: receipt.policyDigest,
     profileDigest: receipt.profileDigest,
     selection: receipt.selection,
+    selectionProvenance: receipt.selectionProvenance,
     toolCount: new Set(receipt.corpus.map(({ tool }) => tool)).size,
   };
 }

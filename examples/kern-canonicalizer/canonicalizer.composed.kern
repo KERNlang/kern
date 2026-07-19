@@ -1,3 +1,168 @@
+fn name=validfirst params="c:string" returns=boolean export=true
+  handler lang="kern"
+    if cond="c >= \"A\" && c <= \"Z\""
+      return value="true"
+    if cond="c >= \"a\" && c <= \"z\""
+      return value="true"
+    return value="c == \"_\" || c == \"$\""
+
+fn name=validnext params="c:string" returns=boolean export=true
+  handler lang="kern"
+    if cond="validfirst(c)"
+      return value="true"
+    return value="c >= \"0\" && c <= \"9\""
+
+fn name=valididentifier params="value:string" returns=boolean export=true
+  handler lang="kern"
+    if cond="Text.length(value) == 0 || !validfirst(Text.charAt(value, 0))"
+      return value="false"
+    let name=n value="Text.length(value)"
+    for name=i from=1 to="n"
+      if cond="!validnext(Text.charAt(value, i))"
+        return value="false"
+    return value="true"
+
+fn name=validexpressionidentifier params="value:string" returns=boolean export=true
+  handler lang="kern"
+    if cond="value == \"true\" || value == \"false\" || value == \"null\" || value == \"none\" || value == \"undefined\""
+      return value="false"
+    if cond="value == \"await\" || value == \"new\" || value == \"typeof\""
+      return value="false"
+    return value="valididentifier(value)"
+
+fn name=validinteger params="value:string" returns=boolean export=true
+  handler lang="kern"
+    let name=start value="0"
+    if cond="Text.length(value) == 0"
+      return value="false"
+    if cond="Text.charAt(value, 0) == \"-\""
+      assign target=start value="1"
+    if cond="start == Text.length(value)"
+      return value="false"
+    if cond="Text.charAt(value, start) == \"0\" && Text.length(value) - start > 1"
+      return value="false"
+    let name=n value="Text.length(value)"
+    for name=i from=0 to="n"
+      if cond="i >= start"
+        let name=c value="Text.charAt(value, i)"
+        if cond="c < \"0\" || c > \"9\""
+          return value="false"
+    return value="value != \"-0\""
+
+fn name=quotesource params="value:string" returns=string export=true
+  handler lang="kern"
+    let name=out value="\"\\\"\""
+    let name=n value="Text.length(value)"
+    for name=i from=0 to="n"
+      let name=c value="Text.charAt(value, i)"
+      if cond="c == \"\\\\\""
+        assign target=out value="out + \"\\\\\\\\\""
+      else
+        if cond="c == \"\\\"\""
+          assign target=out value="out + \"\\\\\\\"\""
+        else
+          if cond="c == \"\\n\""
+            assign target=out value="out + \"\\\\n\""
+          else
+            if cond="c == \"\\r\""
+              assign target=out value="out + \"\\\\r\""
+            else
+              if cond="c == \"\\t\""
+                assign target=out value="out + \"\\\\t\""
+              else
+                if cond="c < \" \" || c == \"\\u007f\" || (c >= \"\\u0080\" && c <= \"\\u009f\") || c == \"\\u2028\" || c == \"\\u2029\" || c == \"\\ufeff\""
+                  return value="\"\""
+                assign target=out value="out + c"
+    return value="out + \"\\\"\""
+
+fn name=structuralname params="value:string" returns=string export=true
+  handler lang="kern"
+    if cond="!valididentifier(value)"
+      return value="\"\""
+    let name=n value="Text.length(value)"
+    for name=i from=0 to="n"
+      if cond="Text.charAt(value, i) == \"$\""
+        return value="quotesource(value)"
+    return value="value"
+
+fn name=propcount params="node:number,propNode:number[]" returns=number export=true
+  handler lang="kern"
+    let name=count value="0"
+    for name=i from=0 to="propNode.length"
+      if cond="propNode[i] == node"
+        assign target=count value="count + 1"
+    return value="count"
+
+fn name=stringat params="id:number,values:string[]" returns=string export=true
+  handler lang="kern"
+    for name=i from=0 to="values.length"
+      if cond="i + 1 == id"
+        return value="values[i]"
+    return value="\"\""
+
+fn name=numberat params="id:number,values:number[]" returns=number export=true
+  handler lang="kern"
+    for name=i from=0 to="values.length"
+      if cond="i + 1 == id"
+        return value="values[i]"
+    return value="-1"
+
+fn name=propid params="node:number,key:string,propNode:number[],propKey:string[],propValue:number[]" returns=number export=true
+  handler lang="kern"
+    let name=result value="0"
+    for name=i from=0 to="propNode.length"
+      if cond="propNode[i] == node && propKey[i] == key"
+        if cond="result != 0"
+          return value="-1"
+        assign target=result value="propValue[i]"
+    return value="result"
+
+fn name=childcount params="parent:number,nodeParent:number[]" returns=number export=true
+  handler lang="kern"
+    let name=count value="0"
+    for name=i from=0 to="nodeParent.length"
+      if cond="nodeParent[i] == parent"
+        assign target=count value="count + 1"
+    return value="count"
+
+fn name=childat params="parent:number,order:number,nodeParent:number[],nodeOrder:number[]" returns=number export=true
+  handler lang="kern"
+    let name=result value="0"
+    for name=i from=0 to="nodeParent.length"
+      if cond="nodeParent[i] == parent && nodeOrder[i] == order"
+        if cond="result != 0"
+          return value="-1"
+        assign target=result value="i + 1"
+    return value="result"
+
+fn name=valuechildcount params="parent:number,valueParent:number[]" returns=number export=true
+  handler lang="kern"
+    let name=count value="0"
+    for name=i from=0 to="valueParent.length"
+      if cond="valueParent[i] == parent"
+        assign target=count value="count + 1"
+    return value="count"
+
+fn name=valuechildat params="parent:number,order:number,valueParent:number[],valueOrder:number[]" returns=number export=true
+  handler lang="kern"
+    let name=result value="0"
+    for name=i from=0 to="valueParent.length"
+      if cond="valueParent[i] == parent && valueOrder[i] == order"
+        if cond="result != 0"
+          return value="-1"
+        assign target=result value="i + 1"
+    return value="result"
+
+fn name=recordfield params="parent:number,key:string,valueParent:number[],valueRole:string[]" returns=number export=true
+  handler lang="kern"
+    let name=result value="0"
+    let name=role value="\"record:\" + key"
+    for name=i from=0 to="valueParent.length"
+      if cond="valueParent[i] == parent && valueRole[i] == role"
+        if cond="result != 0"
+          return value="-1"
+        assign target=result value="i + 1"
+    return value="result"
 fn name=typesource params="id:number,allowVoid:boolean,valueTag:string[],valueParent:number[],valueRole:string[],valueText:string[]" returns=string export=true
   handler lang="kern"
     if cond="id <= 0 || id > valueTag.length || stringat(id, valueTag) != \"record\""

@@ -2,11 +2,11 @@
   "baseCompleteFunctions": 1,
   "blockers": [
     {
-      "count": 90,
+      "count": 91,
       "id": "fn.params"
     },
     {
-      "count": 47,
+      "count": 48,
       "id": "profile.rows.values"
     },
     {
@@ -59,19 +59,43 @@
     }
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
-  "canonicalizerDigest": "2f0fec12660ba194c92371ce10121461e917258555a792b0b22ead8bc5c4f081",
+  "canonicalizerDigest": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5",
   "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
   "compiledCoreDigest": "f72c6a7f951807d8b56b89d5106e77509b8c6cb6c2631611818d477ed48a1291",
-  "corpusMembers": 7,
-  "corpusDigest": "2d5359347a1f89f33130fcea981025a14abc40c0a7f3ec3f2cd96ab201b2c199",
-  "coverageImplementationDigest": "c0d3042757cc5f8516201010daad1ab7c62cb4f1973ac4b2ea3e3661353ade93",
-  "coveragePolicyDigest": "f414bdb8729d5a692cf01efa23c5166253723b6c1425baceb57cd03fa7500748",
+  "composition": {
+    "digest": "57a2b21548b4f1e74ee650c9c8d3f182ecced84222570a8ebee55092ec19a065",
+    "record": {
+      "composite": {
+        "bytes": 25892,
+        "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
+        "sha256": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5"
+      },
+      "format": "kern.canonicalizer.composition.1",
+      "members": [
+        {
+          "bytes": 6348,
+          "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+          "sha256": "c5bbf6412e1ca4fb8af40f8042331e2084f2f5950f490b83d8220b1b8e17c39c"
+        },
+        {
+          "bytes": 19544,
+          "path": "examples/kern-canonicalizer/canonicalizer.kern",
+          "sha256": "3cf69dae7b493f4608909582976039c5eefa752a937675c5c4c987c2a690af84"
+        }
+      ],
+      "recipe": "concat-ordered-members-exact-bytes.1"
+    }
+  },
+  "corpusMembers": 8,
+  "corpusDigest": "8f8e725d79807b22ec9a0db8edfada2dc7123327868b9e8802958ed18412c347",
+  "coverageImplementationDigest": "5c24d598847b36a3fc54557bfe8d1294dd6cfa3b5a402783c55addef1e629f26",
+  "coveragePolicyDigest": "e4b57654d65f9f4a04a28c2b86805c750d9324aa9759c9ee802b37c6eefc8ce0",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
-  "format": "kern.kir-canonicalizer.coverage-summary.1",
-  "functionFactsDigest": "b43e472e6189b03ead210c9fb30abcf9b6616f2d4b2dcb539b70610a9d0cc583",
-  "functionCount": 98,
-  "policyDigest": "b330b95d416928841ce05b507d2fa0106cfbaaa6225dc1228c0e77f65c7bfaf3",
+  "format": "kern.kir-canonicalizer.coverage-summary.2",
+  "functionFactsDigest": "ea9e7da000a930bd38144e51dffe8d842312bb6a40b19279e25f403c6089be66",
+  "functionCount": 99,
+  "policyDigest": "f872ffcbf7c24d4bb9ec1e62b8d6760c312b74138273c9d682cdd8eec5d9d4ca",
   "profileDigest": "89b8d503b64d83a6475283ba3b58763b675a23a0f053b7875964c2867b2d3f85",
   "selection": {
     "ranking": [
@@ -79,7 +103,7 @@
         "completeFunctions": 3,
         "completeTools": 1,
         "id": "binary-expression",
-        "occurrences": 941,
+        "occurrences": 1002,
         "witnesses": [
           "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
           "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
@@ -90,14 +114,14 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "conditional",
-        "occurrences": 1097,
+        "occurrences": 1115,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "binding",
-        "occurrences": 633,
+        "occurrences": 651,
         "witnesses": []
       },
       {
@@ -111,7 +135,7 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "call-expression",
-        "occurrences": 445,
+        "occurrences": 454,
         "witnesses": []
       },
       {
@@ -139,7 +163,7 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "unary-expression",
-        "occurrences": 43,
+        "occurrences": 44,
         "witnesses": []
       },
       {
@@ -161,12 +185,41 @@
       "completeFunctions": 3,
       "completeTools": 1,
       "id": "binary-expression",
-      "occurrences": 941,
+      "occurrences": 1002,
       "witnesses": [
         "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
         "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
         "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
       ]
+    }
+  },
+  "selectionProvenance": {
+    "digest": "35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027",
+    "record": {
+      "format": "kern.kir-canonicalizer.selection-provenance.1",
+      "snapshot": {
+        "corpusMembers": 7,
+        "functionCount": 98,
+        "selection": {
+          "completeFunctions": 3,
+          "completeTools": 1,
+          "id": "binary-expression",
+          "occurrences": 941,
+          "witnesses": [
+            "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
+            "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
+            "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
+          ]
+        },
+        "toolCount": 4
+      },
+      "source": {
+        "canonicalizerSha256": "2f0fec12660ba194c92371ce10121461e917258555a792b0b22ead8bc5c4f081",
+        "commit": "d3b7f04bbc1c7529925a956202fefdf7ac9a4983",
+        "coveragePolicySha256": "f414bdb8729d5a692cf01efa23c5166253723b6c1425baceb57cd03fa7500748",
+        "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.1",
+        "coverageSummarySha256": "573cab8673e1507de0047da6aec89d1ccc75103ae72064ea81af9a603ca842b8"
+      }
     }
   },
   "toolCount": 4

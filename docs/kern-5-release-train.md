@@ -1019,6 +1019,30 @@ trusted-publishing/provenance configuration is inspected.
     the shared guard that runs before target-local fallback parsing, the
     fn-only checker fact contract, semantic validation's location ownership,
     and the runtime's required direct-invocation defense.
+  - [x] M4.3b binary-expression canonicalizer tranche: the handwritten
+    canonicalizer is split into two sub-500-line authored KERN members and an
+    exact checked-in composite. A fail-closed composition record authenticates
+    ordered member paths, byte lengths, SHA-256 digests, trailing-LF seams, and
+    the composite executed by the unchanged one-source runtime handler ABI.
+    KERN now validates the exact 24 structural binary operators and emits
+    recursive fully parenthesized source. Fourteen golden/idempotence/KIR
+    fixtures, all three M4.3a witnesses, three profile-limit fixtures, and 119
+    hostile fixtures pass; every pre-M4.3b non-binary golden byte remains
+    unchanged. Receipt regeneration exposed a contradiction in the draft
+    contract: newly authored `validbinaryop` and binary syntax cannot preserve
+    the pre-slice raw counts. Synthesis tribunal
+    `tribunal-1784459844249-vw92xw-kern-5-r2-m4-3b-receipt-contradi` selected a
+    dual-timepoint contract: digest-pinned M4.3a provenance remains exactly 98
+    functions and 941 binary occurrences, while live M4.3b coverage honestly
+    reports 99 functions, 1,002 occurrences, four tools, eight authored corpus
+    members, and the same winner identity, three completed functions, one tool,
+    and three witnesses. The generated composite is explicitly forbidden from
+    handwritten coverage credit. Focused gates and the complete Node 22
+    `pnpm fitness:kern-5` wall pass. The exact requested terminal review
+    (`review-1784460387023-6g3bfl-kern-5-r2-m4-3b-binary-expressio`) returned
+    zero findings from Claude and Antigravity; Codex exhausted its account
+    limit after retry, leaving a recorded 2/3 routing shortfall rather than a
+    silently reduced roster.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

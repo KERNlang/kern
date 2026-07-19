@@ -42,7 +42,13 @@
       "tool": "checker"
     },
     {
-      "digest": "2f0fec12660ba194c92371ce10121461e917258555a792b0b22ead8bc5c4f081",
+      "digest": "c5bbf6412e1ca4fb8af40f8042331e2084f2f5950f490b83d8220b1b8e17c39c",
+      "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+      "sourceKind": "handwritten",
+      "tool": "canonicalizer"
+    },
+    {
+      "digest": "3cf69dae7b493f4608909582976039c5eefa752a937675c5c4c987c2a690af84",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
