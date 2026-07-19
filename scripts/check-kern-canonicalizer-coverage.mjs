@@ -50,19 +50,20 @@ if (process.argv.includes('--write')) {
     family: 'binary-expression',
     selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
   }], 'M4.3c must cite the frozen binary selection');
-  assert.equal(actual.functionCount, 99, 'live M4.3c authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.3c tool count must remain exact');
+  assert.equal(actual.corpusMembers, 9, 'live M4.3d handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.3d authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.3d tool count must remain exact');
   assert.equal(actual.baseCompleteFunctions, 4, 'binary promotion must complete exactly four base functions');
   assert.deepEqual(actual.selection.winner, {
     completeFunctions: 2,
     completeTools: 1,
     id: 'conditional',
-    occurrences: 1115,
+    occurrences: 1140,
     witnesses: [
       'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
       'examples/capstone-assertion-engine/diag.kern#3:failResult',
     ],
-  }, 'live M4.3c conditional measurement must remain exact');
+  }, 'live M4.3d conditional measurement must remain exact and unpromoted');
   assertCoverageSummary(summaryUrl, actual);
 }
 const leadingBlocker = actual.blockers[0];

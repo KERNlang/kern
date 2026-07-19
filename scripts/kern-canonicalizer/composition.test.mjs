@@ -26,10 +26,8 @@ function digest(value) {
 
 function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), 'kern-canonicalizer-composition-'));
-  const sources = [
-    'fn name=helper returns=void export=true\n  handler lang=kern\n    return\n',
-    'fn name=canonicalize returns=void export=true\n  handler lang=kern\n    return\n',
-  ];
+  const sources = CANONICALIZER_COMPOSITION_MEMBERS.map((_, index) =>
+    `fn name=member${index} returns=void export=true\n  handler lang=kern\n    return\n`);
   CANONICALIZER_COMPOSITION_MEMBERS.forEach((path, index) => {
     const target = join(root, path);
     mkdirSync(dirname(target), { recursive: true });

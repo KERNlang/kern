@@ -112,8 +112,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.match(first.coveragePolicyDigest, /^[0-9a-f]{64}$/u);
   assert.match(first.corpusDigest, /^[0-9a-f]{64}$/u);
   assert.equal(first.corpus.length, policy.corpus.length);
-  assert.equal(first.corpus.length, 8);
-  assert.equal(first.functions.length, 99);
+  assert.equal(first.corpus.length, 9);
+  assert.equal(first.functions.length, 104);
   assert.deepEqual(
     first.corpus.filter(({ path }) => CANONICALIZER_COMPOSITION_MEMBERS.includes(path)).map(({ path }) => path),
     CANONICALIZER_COMPOSITION_MEMBERS,
@@ -139,13 +139,13 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     diagFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences).filter((kind) => kind === 'param').length,
     14,
   );
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 91);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 96);
   assert.equal(first.baseCompleteFunctions, 4);
   assert.deepEqual(first.selection.winner, {
     completeFunctions: 2,
     completeTools: 1,
     id: 'conditional',
-    occurrences: 1115,
+    occurrences: 1140,
     witnesses: [
       'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
       'examples/capstone-assertion-engine/diag.kern#3:failResult',

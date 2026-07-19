@@ -27,7 +27,13 @@ const ASSERTION_DIAG_SOURCE = readFileSync(
   new URL('../examples/capstone-assertion-engine/diag.kern', import.meta.url),
   'utf8',
 );
-const SELECTED_WITNESSES = ['reasonTypeMismatch', 'reasonValueMismatch', 'reasonKeyMismatch'];
+const SELECTED_WITNESSES = [
+  'reasonTypeMismatch',
+  'reasonValueMismatch',
+  'reasonKeyMismatch',
+  'pathAppendKey',
+  'failResult',
+];
 const fixtureById = new Map(VALID_FIXTURES.map((fixture) => [fixture.id, fixture]));
 
 function fail(category, detail) {

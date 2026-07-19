@@ -24,6 +24,10 @@ const M43C_SELECTION = {
     'examples/capstone-assertion-engine/diag.kern#3:failResult',
   ],
 };
+const LIVE_CONDITIONAL_SELECTION = {
+  ...M43C_SELECTION,
+  occurrences: 1140,
+};
 
 test('M4.3d freezes distinct promoted-base and implementation-selection provenance', () => {
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -48,7 +52,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('M4.3d receipt and summary bind both provenance roles without changing selection', () => {
+test('M4.3d provenance remains frozen while live conditional evidence advances', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const implementation = loadCanonicalizerImplementationSelectionProvenance();
@@ -57,8 +61,15 @@ test('M4.3d receipt and summary bind both provenance roles without changing sele
   assert.deepEqual(receipt.selectionProvenance, loadCanonicalizerSelectionProvenance());
   assert.deepEqual(receipt.implementationSelectionProvenance, implementation);
   assert.deepEqual(summary.implementationSelectionProvenance, implementation);
+  assert.equal(implementation.record.snapshot.corpusMembers, 8);
+  assert.equal(implementation.record.snapshot.functionCount, 99);
+  assert.equal(receipt.corpus.length, 9);
+  assert.equal(receipt.functions.length, 104);
+  assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
+  assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
+  assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
   assert.equal(receipt.baseCompleteFunctions, 4);
-  assert.deepEqual(receipt.selection.winner, M43C_SELECTION);
+  assert.deepEqual(receipt.selection.winner, LIVE_CONDITIONAL_SELECTION);
 });
 
 test('M4.3d extracts ranking without changing KERN capability or family policy', () => {
@@ -70,9 +81,15 @@ test('M4.3d extracts ranking without changing KERN capability or family policy',
   assert.equal(implementationSource.includes('function completes('), false);
   assert.match(selectionSource, /export function rankCanonicalizerFamilies/u);
   assert.ok(implementationSource.split('\n').length - 1 < 440);
-  assert.equal(canonicalizerSource.length, 25892, 'M4.3d must not change the executable KERN canonicalizer bytes');
+  assert.equal(
+    canonicalizerSource.length,
+    30866,
+    'M4.4 must bind the exact three-member conditional canonicalizer bytes',
+  );
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.3c');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), true);
+  assert.equal(policy.base.nodeKinds.includes('if'), false);
+  assert.equal(policy.base.nodeKinds.includes('else'), false);
 });

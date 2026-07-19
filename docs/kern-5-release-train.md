@@ -1089,6 +1089,28 @@ trusted-publishing/provenance configuration is inspected.
     compiled-core receipt binding without any core source diff. Full usable-
     roster review `review-1784468516053-xupoi8` completed five of six engines
     with zero verified or needs-check findings; Codex alone was unavailable.
+  - [x] M4.4 conditional canonicalizer capability: a third authenticated,
+    handwritten KERN composition member recursively validates and emits the
+    exact `if` / sibling `else` / `if.cond` statement family, including nested
+    and empty containers. It preserves terminal-return and return-type rules,
+    validates before emission, and returns fresh line arrays so helper
+    parameters remain effect-machine pure. Four new golden/idempotence/KIR
+    fixtures, both sealed conditional witnesses, and nine hostile mutations
+    pass. The focused Node 22 gate passes 60 Node tests, 18 golden fixtures,
+    five witnesses, three profile-limit fixtures, and 128 hostile fixtures;
+    coverage keeps conditional unpromoted and selected. Full-roster review,
+    `review-1784467657693-d189fo-kern-5-r2-m4-conditional-termina`, completed
+    five of six requested engines; Codex exhausted its account limit. The only
+    claimed blocker mistook the generated composite for another composition
+    input: byte arithmetic, declared membership, and exact definition counts
+    prove every statement helper appears once. A regression assertion now
+    freezes that invariant. The exact integrated tree passes the complete Node
+    22 `pnpm fitness:kern-5` wall. Final integrated-tree review
+    `review-1784470527261-w0lc8x` completed five of six engines with zero
+    verified findings; all four needs-check claims were disproven or were the
+    intentionally pending publication step. The capability/evidence gate is
+    closed; signed commit, rebase, and verified push remain external
+    publication actions. M4.5 owns promotion and remeasurement.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

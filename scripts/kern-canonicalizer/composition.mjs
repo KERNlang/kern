@@ -18,6 +18,7 @@ export const CANONICALIZER_COMPOSITION_FORMAT = 'kern.canonicalizer.composition.
 export const CANONICALIZER_COMPOSITION_RECIPE = 'concat-ordered-members-exact-bytes.1';
 export const CANONICALIZER_COMPOSITION_MEMBERS = Object.freeze([
   'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
+  'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
   'examples/kern-canonicalizer/canonicalizer.kern',
 ]);
 export const CANONICALIZER_COMPOSITE_PATH =

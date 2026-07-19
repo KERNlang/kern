@@ -55,7 +55,13 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "3cf69dae7b493f4608909582976039c5eefa752a937675c5c4c987c2a690af84",
+      "digest": "d29c747624b6dc0347c896cd0978c8059e44125ea2afef893c3d6ed3eb953e38",
+      "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+      "sourceKind": "handwritten",
+      "tool": "canonicalizer"
+    },
+    {
+      "digest": "ee583055ee047e1a63d870c533b2bab0db7af27cc4c3ba1bfbaa14163810cf7b",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

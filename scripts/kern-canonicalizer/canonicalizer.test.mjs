@@ -12,11 +12,19 @@ const helperSource = readFileSync(
   new URL('../../examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', import.meta.url),
   'utf8',
 );
-const source = `${helperSource}${mainSource}`;
+const statementSource = readFileSync(
+  new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url),
+  'utf8',
+);
+const source = `${helperSource}${statementSource}${mainSource}`;
 const policyUrl = new URL('./policy.json', import.meta.url);
 
 test('the KERN canonicalizer members are parseable, bounded, and contain the semantic source decisions', () => {
-  for (const [name, member] of [['helpers', helperSource], ['main', mainSource]]) {
+  for (const [name, member] of [
+    ['expression helpers', helperSource],
+    ['statement helpers', statementSource],
+    ['main', mainSource],
+  ]) {
     const parsedMember = parseDocumentWithDiagnostics(member);
     assert.notEqual(parsedMember.partial, true, name);
     assert.deepEqual(
@@ -35,6 +43,19 @@ test('the KERN canonicalizer members are parseable, bounded, and contain the sem
   for (const owned of ['fn name=', 'param name=', 'handler lang=', 'return value=', 'quotesource', 'typesource']) {
     assert.ok(source.includes(owned), `missing KERN-owned source decision ${owned}`);
   }
+});
+
+test('conditional validation and emission stay in the KERN statement member', () => {
+  for (const owned of ['validstatementlist', 'validstatement', 'emitstatementlist', 'emitstatement']) {
+    assert.ok(statementSource.includes(`fn name=${owned}`), `missing KERN-owned conditional helper ${owned}`);
+    assert.equal(
+      [...source.matchAll(new RegExp(`^fn name=${owned}\\b`, 'gmu'))].length,
+      1,
+      `conditional helper ${owned} must have exactly one definition in the executable composition`,
+    );
+  }
+  assert.ok(mainSource.includes('validstatementlist'));
+  assert.ok(mainSource.includes('emitstatementlist'));
 });
 
 test('binary ownership stays in main and mechanically matches the structural operator catalog', () => {
@@ -56,7 +77,8 @@ test('binary ownership stays in main and mechanically matches the structural ope
 
 test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
-  const nonBinary = VALID_FIXTURES.filter(({ id }) => !id.startsWith('binary-'));
+  const nonBinary = VALID_FIXTURES.filter(({ id }) =>
+    !id.startsWith('binary-') && !id.startsWith('conditional-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

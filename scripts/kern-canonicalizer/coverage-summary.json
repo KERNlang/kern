@@ -53,23 +53,23 @@
   "baseCompleteFunctions": 4,
   "blockers": [
     {
-      "count": 91,
+      "count": 96,
       "id": "fn.params"
     },
     {
-      "count": 48,
+      "count": 52,
       "id": "profile.rows.values"
+    },
+    {
+      "count": 15,
+      "id": "profile.rows.nodes"
     },
     {
       "count": 13,
       "id": "projection.limit-depth"
     },
     {
-      "count": 12,
-      "id": "profile.rows.nodes"
-    },
-    {
-      "count": 7,
+      "count": 8,
       "id": "profile.rows.properties"
     },
     {
@@ -110,16 +110,16 @@
     }
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
-  "canonicalizerDigest": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5",
+  "canonicalizerDigest": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc",
   "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
-  "compiledCoreDigest": "592b39f856f626b9fe89bd8ccbdf8b018f0faf8671f1a6286f6360cb171544d7",
+  "compiledCoreDigest": "f72c6a7f951807d8b56b89d5106e77509b8c6cb6c2631611818d477ed48a1291",
   "composition": {
-    "digest": "57a2b21548b4f1e74ee650c9c8d3f182ecced84222570a8ebee55092ec19a065",
+    "digest": "ee57fa56541594169054a19ea1506daa7974e3c811764af5c6446cade095e7a8",
     "record": {
       "composite": {
-        "bytes": 25892,
+        "bytes": 30866,
         "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
-        "sha256": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5"
+        "sha256": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc"
       },
       "format": "kern.canonicalizer.composition.1",
       "members": [
@@ -129,23 +129,28 @@
           "sha256": "c5bbf6412e1ca4fb8af40f8042331e2084f2f5950f490b83d8220b1b8e17c39c"
         },
         {
-          "bytes": 19544,
+          "bytes": 5508,
+          "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+          "sha256": "d29c747624b6dc0347c896cd0978c8059e44125ea2afef893c3d6ed3eb953e38"
+        },
+        {
+          "bytes": 19010,
           "path": "examples/kern-canonicalizer/canonicalizer.kern",
-          "sha256": "3cf69dae7b493f4608909582976039c5eefa752a937675c5c4c987c2a690af84"
+          "sha256": "ee583055ee047e1a63d870c533b2bab0db7af27cc4c3ba1bfbaa14163810cf7b"
         }
       ],
       "recipe": "concat-ordered-members-exact-bytes.1"
     }
   },
-  "corpusMembers": 8,
-  "corpusDigest": "8f8e725d79807b22ec9a0db8edfada2dc7123327868b9e8802958ed18412c347",
-  "coverageImplementationDigest": "b5e131da82288e1c6de1ec4480c922b702cbe41b052d01310bf45da5fd00f2b4",
-  "coveragePolicyDigest": "163629a32b2184f0fb27b6b58e6a95a5ccbcde846371d59d4dc0812d2a666b5c",
+  "corpusMembers": 9,
+  "corpusDigest": "1296e409218bc11a966330cc57576fbd6e8a74ea3ffe9149adeb3b5ba678da39",
+  "coverageImplementationDigest": "a36b9811ad11f54788393f2283f9f8263b316cc72977b6a2b6b7fe22fc878214",
+  "coveragePolicyDigest": "3cd7d4ea61ab31136495ca5ebff9ca730fba683e3bf7b86685e135f0130f8192",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.4",
-  "functionCount": 99,
-  "functionFactsDigest": "a1a9e58d2811b6876696af2213fc0d7cb474b74bc97c2df7025e12ca17c5d7c9",
+  "functionCount": 104,
+  "functionFactsDigest": "7df3f242223e893a72ca6a3d24bf872015b713e13aea046fb9d9970d5beb8b47",
   "implementationSelectionProvenance": {
     "digest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b",
     "record": {
@@ -174,7 +179,7 @@
       }
     }
   },
-  "policyDigest": "76a95c6995328f42f109b273db9399a9da0908ee783cbdd25c8dfdd4e7455f41",
+  "policyDigest": "fbe73f632ce343ea9ae39bfb1c6ddfc4b4c75eeb4fd1bb0e2647ce36cacc7970",
   "profileDigest": "c1854492c636d4a3817e70c96c553dec77da6887f7e258f28d71be67f11a30c9",
   "selection": {
     "ranking": [
@@ -182,7 +187,7 @@
         "completeFunctions": 2,
         "completeTools": 1,
         "id": "conditional",
-        "occurrences": 1115,
+        "occurrences": 1140,
         "witnesses": [
           "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
           "examples/capstone-assertion-engine/diag.kern#3:failResult"
@@ -192,7 +197,7 @@
         "completeFunctions": 2,
         "completeTools": 1,
         "id": "call-expression",
-        "occurrences": 454,
+        "occurrences": 481,
         "witnesses": [
           "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
           "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
@@ -202,49 +207,49 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "binding",
-        "occurrences": 651,
+        "occurrences": 705,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "index-expression",
-        "occurrences": 491,
+        "occurrences": 494,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "counted-iteration",
-        "occurrences": 440,
+        "occurrences": 464,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "member-expression",
-        "occurrences": 251,
+        "occurrences": 259,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "do-statement",
-        "occurrences": 160,
+        "occurrences": 170,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "unary-expression",
-        "occurrences": 44,
+        "occurrences": 46,
         "witnesses": []
       },
       {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "exception-flow",
-        "occurrences": 36,
+        "occurrences": 34,
         "witnesses": []
       },
       {
@@ -259,7 +264,7 @@
       "completeFunctions": 2,
       "completeTools": 1,
       "id": "conditional",
-      "occurrences": 1115,
+      "occurrences": 1140,
       "witnesses": [
         "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
         "examples/capstone-assertion-engine/diag.kern#3:failResult"
