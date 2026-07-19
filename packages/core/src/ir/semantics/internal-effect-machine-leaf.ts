@@ -22,6 +22,7 @@ import {
 } from './internal-effect-machine-do.js';
 import {
   addInternalMachineExpressionBindings,
+  forEachInternalMachineDataChild,
   internalMachineExpressionBindings,
 } from './internal-effect-machine-expression-bindings.js';
 import {
@@ -205,46 +206,29 @@ function isDeferredCaughtBinding(name: string, env: SemanticEnv, deferredBinding
 }
 
 function assertDeferredCaughtUses(node: ValueIR, env: SemanticEnv, deferredBindings: ReadonlySet<string>): void {
-  if (node.kind === 'ident') {
-    if (isDeferredCaughtBinding(node.name, env, deferredBindings)) {
-      throw new Error(`caught binding "${node.name}" is only portable through .message`);
-    }
-    return;
-  }
-  if (node.kind === 'member') {
-    if (node.object.kind === 'ident' && isDeferredCaughtBinding(node.object.name, env, deferredBindings)) {
-      if (node.optional || node.property !== 'message') {
-        throw new Error(`caught binding "${node.object.name}" is only portable through .message`);
+  const stack: ValueIR[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop() as ValueIR;
+    if (current.kind === 'ident') {
+      if (isDeferredCaughtBinding(current.name, env, deferredBindings)) {
+        throw new Error(`caught binding "${current.name}" is only portable through .message`);
       }
-      return;
+      continue;
     }
-    assertDeferredCaughtUses(node.object, env, deferredBindings);
-    return;
+    const children: ValueIR[] = [];
+    if (current.kind === 'member') {
+      if (current.object.kind === 'ident' && isDeferredCaughtBinding(current.object.name, env, deferredBindings)) {
+        if (current.optional || current.property !== 'message') {
+          throw new Error(`caught binding "${current.object.name}" is only portable through .message`);
+        }
+        continue;
+      }
+      children.push(current.object);
+    } else {
+      forEachInternalMachineDataChild(current, (child) => children.push(child));
+    }
+    for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index]);
   }
-  if (node.kind === 'unary') assertDeferredCaughtUses(node.argument, env, deferredBindings);
-  else if (node.kind === 'binary') {
-    assertDeferredCaughtUses(node.left, env, deferredBindings);
-    assertDeferredCaughtUses(node.right, env, deferredBindings);
-  } else if (node.kind === 'conditional') {
-    assertDeferredCaughtUses(node.test, env, deferredBindings);
-    assertDeferredCaughtUses(node.consequent, env, deferredBindings);
-    assertDeferredCaughtUses(node.alternate, env, deferredBindings);
-  } else if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    assertDeferredCaughtUses(node.expression, env, deferredBindings);
-  } else if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) assertDeferredCaughtUses(expression, env, deferredBindings);
-  } else if (node.kind === 'index') {
-    assertDeferredCaughtUses(node.object, env, deferredBindings);
-    assertDeferredCaughtUses(node.index, env, deferredBindings);
-  } else if (node.kind === 'call') {
-    for (const argument of node.args) assertDeferredCaughtUses(argument, env, deferredBindings);
-  } else if (node.kind === 'arrayLit') {
-    for (const item of node.items) assertDeferredCaughtUses(item, env, deferredBindings);
-  } else if (node.kind === 'objectLit') {
-    for (const entry of node.entries) {
-      assertDeferredCaughtUses('kind' in entry ? entry.argument : entry.value, env, deferredBindings);
-    }
-  } else if (node.kind === 'new') assertDeferredCaughtUses(node.argument, env, deferredBindings);
 }
 
 function deferLeafOutput(node: IRNode, env: SemanticEnv, deferredBindings: Set<string>): void {

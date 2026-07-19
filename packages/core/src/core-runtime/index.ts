@@ -18,6 +18,7 @@ import { numberToInt32, numberToUint32 } from '../ir/semantics/to-numeric.js';
 import { assertNoMixedParameterDeclarations } from '../parameter-declarations.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
+import { flattenPortablePowerChain, foldPortablePowerChain } from '../portable-power.js';
 import type { IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
 import {
@@ -575,6 +576,10 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
     const left = evalValueIR(node.left, env);
     return isNullish(left) ? evalValueIR(node.right, env) : left;
   }
+  if (node.op === '**') {
+    const values = flattenPortablePowerChain(node).map((operand) => evalValueIR(operand, env));
+    return foldPortablePowerChain(values, (base, exponent) => evalNumberBinary('**', base, exponent));
+  }
 
   const left = evalValueIR(node.left, env);
   const right = evalValueIR(node.right, env);
@@ -682,6 +687,8 @@ function evalNumberBinary(op: string, left: KernValue, right: KernValue): KernVa
       return dispatchCoreContractOperation('Number.divide', [left.value, right.value]);
     case '%':
       return dispatchCoreContractOperation('Number.remainder', [left.value, right.value]);
+    case '**':
+      return dispatchCoreContractOperation('Number.power', [left.value, right.value]);
     default:
       throw new Error(`KERN core runtime unsupported numeric operator: ${op}`);
   }

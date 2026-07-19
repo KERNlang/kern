@@ -5,6 +5,7 @@ export function assertLambdaBinaryOperator(operator: string): void {
     operator !== '*' &&
     operator !== '/' &&
     operator !== '%' &&
+    operator !== '**' &&
     operator !== '==' &&
     operator !== '===' &&
     operator !== '!=' &&

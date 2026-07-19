@@ -5,6 +5,7 @@
 
 import {
   detectKernStdlibUsage,
+  emittedCodeUsesPower,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
@@ -244,6 +245,16 @@ describe('detectKernStdlibUsage', () => {
 describe('kernStdlibPreamble', () => {
   test('returns empty preamble when nothing is used', () => {
     expect(kernStdlibPreamble({ result: false, option: false })).toEqual([]);
+  });
+
+  test('detects emitted checked-power calls and injects one private helper', () => {
+    expect(emittedCodeUsesPower('return __kern_pow_int([a, b]);')).toBe(true);
+    expect(emittedCodeUsesPower('return a ** b;')).toBe(false);
+    const out = kernStdlibPreamble({ result: false, option: false, power: true }).join('\n');
+    expect(out.match(/function __kern_pow_int\(/g)).toHaveLength(1);
+    expect(out).toContain('const maxSafe = 9007199254740991;');
+    expect(out).not.toMatch(/\b(?:Number|Math|Object)\./u);
+    expect(out).not.toContain('new Error');
   });
 
   test('emits only the Result alias when Option is unused', () => {

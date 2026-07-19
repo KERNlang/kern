@@ -5,7 +5,7 @@
  * Public API: generatePythonCoreNode (switch on node.type)
  */
 
-import type { IRNode } from '@kernlang/core';
+import { assertNotPortablePowerHelperBinding, type IRNode } from '@kernlang/core';
 
 // Core generators (type, interface, fn, machine, error, config, store, test, event, import, const)
 import {
@@ -141,6 +141,8 @@ export interface PythonCodegenOptions {
 
 /** Generate Python for any core language node. Returns string lines. */
 export function generatePythonCoreNode(node: IRNode, options: PythonCodegenOptions = {}): string[] {
+  const authoredName = node.props?.name;
+  if (typeof authoredName === 'string') assertNotPortablePowerHelperBinding(authoredName);
   switch (node.type) {
     case 'type':
       return generateType(node);

@@ -1,3 +1,4 @@
+import { flattenPortablePowerChain, foldPortablePowerChain } from '../../portable-power.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   evaluateInternalMachineClassGetterFrame,
@@ -62,7 +63,9 @@ function evaluateBinaryResult(
   env: SemanticEnv,
 ): PortableScalar {
   if (op === '+') return evalPlusOperator(left, right, env);
-  if (op === '-' || op === '*' || op === '/' || op === '%') return evalNumberBinary(op, left, right, env);
+  if (op === '-' || op === '*' || op === '/' || op === '%' || op === '**') {
+    return evalNumberBinary(op, left, right, env);
+  }
   if (op === '===' || op === '==') return sameType(left, right) ? left === right : false;
   if (op === '!==' || op === '!=') return sameType(left, right) ? left !== right : true;
   if (op === '<' || op === '<=' || op === '>' || op === '>=') {
@@ -193,6 +196,16 @@ export function* evaluateInternalMachineClassScalarValue(
   }
   if (node.kind === 'binary') {
     const events: TraceEvent[] = [];
+    if (node.op === '**') {
+      const operands: PortableScalar[] = [];
+      for (const operand of flattenPortablePowerChain(node)) {
+        operands.push(append(events, yield* evaluateInternalMachineClassScalarValue(operand, env, state)));
+      }
+      const value = foldPortablePowerChain(operands, (base, exponent) =>
+        evaluateBinaryResult('**', base, exponent, env),
+      );
+      return evaluated(value, events);
+    }
     const left = append(events, yield* evaluateInternalMachineClassScalarValue(node.left, env, state));
     if (node.op === '&&' && !portableTruthy(left)) return evaluated(left, events);
     if (node.op === '||' && portableTruthy(left)) return evaluated(left, events);

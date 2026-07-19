@@ -46,11 +46,18 @@ import {
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
 import { isSafeIntegerLiteralIndex } from './ir/semantics/portable-scalar.js';
+import {
+  assertNotPortablePowerHelperBinding,
+  assertPortablePowerOperand,
+  flattenPortablePowerChain,
+  KERN_POWER_HELPER_TS_NAME,
+} from './portable-power.js';
 import { isParenthesized, type ValueIR } from './value-ir.js';
 
 export interface ExprEmitContext {
   isUserBinding(name: string): boolean;
   validateRawBlock?(rawBlock: string, isUserBinding: (name: string) => boolean): void;
+  rewriteRawBlock?(rawBlock: string, ctx: ExprEmitContext): string;
   /** DECIMAL Slice 1 — TS-leg import-requirement sink, the additive mirror of the
    *  Python expression emitter's `ctx.imports`. When a stdlib lowering declares
    *  `requires.ts` (currently only the Decimal namespace, which needs the EXTERNAL
@@ -210,6 +217,7 @@ const PREC: Record<string, number> = {
   '*': 14,
   '/': 14,
   '%': 14,
+  '**': 15,
 };
 
 /** DECIMAL Slice 1 — context-aware entry point returning `{ code, imports }`.
@@ -466,6 +474,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
       return node.optional ? `${wrapped}?.${typeArgs}(${args})` : `${wrapped}${typeArgs}(${args})`;
     }
     case 'lambda': {
+      for (const parameter of node.params) assertNotPortablePowerHelperBinding(parameter.name);
       const params =
         !node.parenthesized && node.params.length === 1 && !node.params[0].type
           ? node.params[0].name
@@ -475,17 +484,36 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
         ctx,
         node.params.map((p) => p.name),
       );
-      // Block-bodied arrow (slices 0+1): re-emit the raw block verbatim. The
-      // raw text INCLUDES the outer braces, so emission adds nothing inside it
-      // and `parse(emit(x))` reproduces `raw` byte-identically — the round-trip
-      // invariant `canonicalKernExpression` relies on.
+      // Block-bodied arrow (slices 0+1): raw/non-native emission remains
+      // byte-stable. Native emission routes through the Node-side structural
+      // block rewriter so portable operators cannot escape as host syntax.
       if (node.bodyBlock) {
         validateRawBlockHostNamespacesTS(node.bodyBlock.raw, lambdaCtx);
+        if (ctx?.coerceJsValues === true) {
+          if (!ctx.rewriteRawBlock || !lambdaCtx) {
+            throw new Error('Native block closure emission requires the structural closure rewriter.');
+          }
+          return `${params}${returnType} => ${ctx.rewriteRawBlock(node.bodyBlock.raw, lambdaCtx)}`;
+        }
         return `${params}${returnType} => ${node.bodyBlock.raw}`;
       }
       return `${params}${returnType} => ${emitExpression(node.body as ValueIR, lambdaCtx)}`;
     }
     case 'binary': {
+      if (node.op === '**') {
+        const operands = flattenPortablePowerChain(node);
+        for (const operand of operands) assertPortablePowerOperand(operand);
+        const emitted = operands.map((operand) => emitExpression(operand, ctx));
+        if (ctx?.coerceJsValues === true) {
+          return `${KERN_POWER_HELPER_TS_NAME}([${emitted.join(', ')}])`;
+        }
+        return emitted
+          .map((value, index) => {
+            const side = index === emitted.length - 1 ? 'right' : 'left';
+            return needsParens(operands[index], node.op, side) ? `(${value})` : value;
+          })
+          .join(' ** ');
+      }
       // DECIMAL Slice 2 (item 3) — fail closed on `+`/`-`/`*` over a syntactically-
       // proven Decimal operand (`Decimal.of(...)`/`Decimal.<m>(...)`). decimal.js's
       // `+` calls .valueOf() → float (silent precision loss + TS↔Python divergence).
@@ -700,7 +728,11 @@ function nestedArrayMemberThrowTS(message: string): string {
  *   - element scalar-ness (index form): null/string/boolean/finite-number only,
  *     lockstep with `_kern_nested_array_value` and nested `each` lowering. */
 function nestedRecordGuardTS(field: string): string {
-  return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
+  return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(
+    field,
+  )})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(
+    field,
+  )}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
 }
 
 function nestedArrayLengthTS(record: string, field: string): string {
@@ -708,7 +740,9 @@ function nestedArrayLengthTS(record: string, field: string): string {
 }
 
 function nestedArrayIndexTS(record: string, field: string, rawIndex: string): string {
-  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} const __kern_index = ${rawIndex}; if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (!(__kern_value === null || typeof __kern_value === "string" || typeof __kern_value === "boolean" || (typeof __kern_value === "number" && Number.isFinite(__kern_value)))) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
+  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(
+    field,
+  )} const __kern_index = ${rawIndex}; if (!Number.isSafeInteger(__kern_index) || __kern_index < 0 || __kern_index >= __kern_array.length || !Object.prototype.hasOwnProperty.call(__kern_array, __kern_index)) throw new Error("portable: nested array index must be an in-bounds non-negative safe integer"); const __kern_value = __kern_array[__kern_index]; if (!(__kern_value === null || typeof __kern_value === "string" || typeof __kern_value === "boolean" || (typeof __kern_value === "number" && Number.isFinite(__kern_value)))) throw new Error("portable: nested array element must be a portable scalar"); return __kern_value; })()`;
 }
 
 function isSimpleErrorConstructor(node: ValueIR): boolean {
@@ -792,7 +826,10 @@ function collectRawHostNamespaceAccesses(source: string): Array<{ root: string; 
   );
   let memberMatch: RegExpExecArray | null;
   while ((memberMatch = memberRe.exec(source)) !== null) {
-    accesses.push({ root: memberMatch[1], member: memberMatch[2] ?? memberMatch[4] ?? '[computed]' });
+    accesses.push({
+      root: memberMatch[1],
+      member: memberMatch[2] ?? memberMatch[4] ?? '[computed]',
+    });
   }
   const callRe = new RegExp(`(?<![\\w$.])(${rootAlt})\\s*\\(`, 'g');
   let callMatch: RegExpExecArray | null;
@@ -816,6 +853,15 @@ function escapeRegExp(value: string): string {
  *  the Python target can share the same logic. The Python `binary` emitter
  *  doesn't have its own parent-op context outside this helper. */
 export function needsBinaryParens(child: ValueIR, parentOp: string, side: 'left' | 'right'): boolean {
+  // Raw/non-native catalog emission keeps prefix power operands explicit.
+  // The left parentheses are required by JavaScript; retaining them on the
+  // right gives both raw target emitters one unambiguous source shape.
+  if (
+    parentOp === '**' &&
+    (child.kind === 'unary' || child.kind === 'await' || child.kind === 'new' || child.kind === 'spread')
+  ) {
+    return true;
+  }
   if (child.kind !== 'binary') return false;
   // ?? mixed with || or && requires parens (either direction).
   if (parentOp === '??' && (child.op === '||' || child.op === '&&')) return true;
@@ -824,7 +870,10 @@ export function needsBinaryParens(child: ValueIR, parentOp: string, side: 'left'
   const pp = PREC[parentOp];
   if (cp === undefined || pp === undefined) return false;
   if (cp < pp) return true;
-  // Same precedence, left-associative: right child needs parens to preserve grouping.
+  // Exponentiation is right-associative: its left child needs parentheses to
+  // preserve explicit left nesting, while an equal-precedence right child does not.
+  if (pp === PREC['**'] && parentOp === '**') return side === 'left';
+  // Every other same-precedence binary operator is left-associative.
   if (cp === pp && side === 'right') return true;
   return false;
 }

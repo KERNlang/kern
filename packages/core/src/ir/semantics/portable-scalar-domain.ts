@@ -305,10 +305,19 @@ export function isSafeIntegerLiteralIndex(node: ValueIR): boolean {
 }
 
 export function isIntProvenancedExpr(node: ValueIR, env: SemanticEnv): boolean {
-  if (isSafeIntegerLiteralIndex(node)) return true;
-  if (node.kind === 'ident') return isIntProvenanced(env, node.name);
-  if (node.kind === 'binary' && (node.op === '+' || node.op === '-')) {
-    return isIntProvenancedExpr(node.left, env) && isIntProvenancedExpr(node.right, env);
+  const stack: ValueIR[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop() as ValueIR;
+    if (isSafeIntegerLiteralIndex(current)) continue;
+    if (current.kind === 'ident') {
+      if (!isIntProvenanced(env, current.name)) return false;
+      continue;
+    }
+    if (current.kind === 'binary' && (current.op === '+' || current.op === '-' || current.op === '**')) {
+      stack.push(current.right, current.left);
+      continue;
+    }
+    return false;
   }
-  return false;
+  return true;
 }

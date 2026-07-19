@@ -3,7 +3,8 @@
  *
  *  Architecture (council + tribunal decided, Option B′ "TS-AST-grounded raw
  *  body"): the lambda IR carries the raw block text (`bodyBlock.raw`) for
- *  verbatim TS re-emit ONLY. Every analyzer/consumer reads the TS AST obtained
+ *  source-preserving TS re-emit. Native power expressions are rewritten by
+ *  AST spans before emission; every analyzer/consumer reads the TS AST obtained
  *  through `parseClosureBlockAst` here — never scans the string. The IR does
  *  NOT store the `ts.Block` (serialization safety); this helper recomputes it
  *  (cheap; memoized via a module-level `Map`).
@@ -62,6 +63,74 @@ export function parseClosureBlockAst(raw: string): ts.Block | null {
   const result = parseClosureBlockUncached(trimmed);
   blockCache.set(trimmed, result);
   return result;
+}
+
+export interface ClosurePowerRewritePlan {
+  leading: string;
+  trailing: string;
+  trimmed: string;
+  writtenNames: string[];
+  expressions: Array<{ start: number; end: number; source: string }>;
+}
+
+/** Build the source-preserving rewrite plan for outermost power expressions
+ *  while collecting every bare name that the block can bind or overwrite. */
+export function analyzeClosurePowerRewrite(raw: string): ClosurePowerRewritePlan | null {
+  const leading = raw.match(/^\s*/u)?.[0] ?? '';
+  const trailing = raw.match(/\s*$/u)?.[0] ?? '';
+  const trimmed = raw.trim();
+  const block = parseClosureBlockAst(trimmed);
+  if (!block) return null;
+  const sourceFile = block.getSourceFile();
+  const blockStart = block.getStart(sourceFile);
+  const writtenNames = new Set<string>();
+  const expressions: ClosurePowerRewritePlan['expressions'] = [];
+
+  const isPower = (node: ts.Node): node is ts.BinaryExpression =>
+    ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken;
+  const hasPowerParent = (node: ts.BinaryExpression): boolean => {
+    let parent: ts.Node | undefined = node.parent;
+    while (
+      parent &&
+      (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isNonNullExpression(parent))
+    ) {
+      parent = parent.parent;
+    }
+    return parent !== undefined && isPower(parent);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) writtenNames.add(node.name.text);
+    if (ts.isBinaryExpression(node)) {
+      const op = node.operatorToken.kind;
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment && ts.isIdentifier(node.left)) {
+        writtenNames.add(node.left.text);
+      }
+    }
+    if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) &&
+      ts.isIdentifier(node.operand)
+    ) {
+      writtenNames.add(node.operand.text);
+    }
+    if (isPower(node) && !hasPowerParent(node)) {
+      expressions.push({
+        start: node.getStart(sourceFile) - blockStart,
+        end: node.getEnd() - blockStart,
+        source: node.getText(sourceFile),
+      });
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(block, visit);
+  return {
+    leading,
+    trailing,
+    trimmed,
+    writtenNames: [...writtenNames],
+    expressions,
+  };
 }
 
 function parseClosureBlockUncached(trimmed: string): ts.Block | null {
@@ -177,7 +246,12 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
     }
     if (ts.isPropertyAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: propertyAccessMemberLabel(node), locallyShadowed: isLocal(root) });
+      if (root)
+        accesses.push({
+          root,
+          member: propertyAccessMemberLabel(node),
+          locallyShadowed: isLocal(root),
+        });
     } else if (ts.isElementAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
       if (root)
@@ -188,7 +262,12 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
         });
     } else if (ts.isNewExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });
+      if (root)
+        accesses.push({
+          root,
+          member: 'constructor',
+          locallyShadowed: isLocal(root),
+        });
     } else if (ts.isCallExpression(node)) {
       // GAP 2 — the callee may be wrapped in paren/as/satisfies/non-null/legacy
       // type-assert forms, or be the right operand of a comma (sequence)
@@ -198,7 +277,11 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
       // nothing, exactly as the prior bare-identifier guard did).
       const callee = unwrapCallCalleeExpression(node.expression);
       if (ts.isIdentifier(callee)) {
-        accesses.push({ root: callee.text, member: 'call', locallyShadowed: isLocal(callee.text) });
+        accesses.push({
+          root: callee.text,
+          member: 'call',
+          locallyShadowed: isLocal(callee.text),
+        });
       }
     }
     ts.forEachChild(node, visit);
@@ -388,7 +471,12 @@ export function collectClosureBlockRegexHostViolations(raw: string): ClosureBloc
       const flags = regexLiteralFlags(receiver);
       const message = classifyRegexLiteralAccessFailClose(property, isDottedCallee, flags);
       if (message !== null) {
-        violations.push({ kind: 'regexLiteralAccess', root: 'RegExp', locallyShadowed: false, message });
+        violations.push({
+          kind: 'regexLiteralAccess',
+          root: 'RegExp',
+          locallyShadowed: false,
+          message,
+        });
       }
       // Do NOT blindly `forEachChild` into this already-classified access: the
       // regexLit RECEIVER (`node.expression`) has no child violation, and
@@ -466,7 +554,10 @@ export function collectClosureBlockTypeofOperands(raw: string): ClosureBlockType
       // recorded as the underlying `Date` — matching the ValueIR legs' unwrap.
       const operand = unwrapRegexReceiverTS(node.expression);
       if (ts.isIdentifier(operand)) {
-        operands.push({ name: operand.text, locallyShadowed: isLocal(operand.text) });
+        operands.push({
+          name: operand.text,
+          locallyShadowed: isLocal(operand.text),
+        });
       }
     }
     ts.forEachChild(node, visit);

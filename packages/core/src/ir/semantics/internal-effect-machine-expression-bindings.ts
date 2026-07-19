@@ -1,33 +1,33 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { ValueIR } from '../../value-ir.js';
+import { forEachValueIRChild } from '../../value-ir-walk.js';
+
+/**
+ * Visit only expression children that are data inputs to the internal machine.
+ * Function callees name operations rather than data bindings, and nested
+ * lambdas own their own binding scope.
+ */
+export function forEachInternalMachineDataChild(node: ValueIR, visit: (child: ValueIR) => void): void {
+  if (node.kind === 'lambda') return;
+  if (node.kind === 'call') {
+    for (const argument of node.args) visit(argument);
+    return;
+  }
+  forEachValueIRChild(node, visit);
+}
 
 export function addInternalMachineExpressionBindings(target: Set<string>, node: ValueIR): void {
-  if (node.kind === 'ident') target.add(node.name);
-  else if (node.kind === 'unary') addInternalMachineExpressionBindings(target, node.argument);
-  else if (node.kind === 'binary') {
-    addInternalMachineExpressionBindings(target, node.left);
-    addInternalMachineExpressionBindings(target, node.right);
-  } else if (node.kind === 'conditional') {
-    addInternalMachineExpressionBindings(target, node.test);
-    addInternalMachineExpressionBindings(target, node.consequent);
-    addInternalMachineExpressionBindings(target, node.alternate);
-  } else if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    addInternalMachineExpressionBindings(target, node.expression);
-  } else if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) addInternalMachineExpressionBindings(target, expression);
-  } else if (node.kind === 'member') addInternalMachineExpressionBindings(target, node.object);
-  else if (node.kind === 'index') {
-    addInternalMachineExpressionBindings(target, node.object);
-    addInternalMachineExpressionBindings(target, node.index);
-  } else if (node.kind === 'call') {
-    for (const argument of node.args) addInternalMachineExpressionBindings(target, argument);
-  } else if (node.kind === 'arrayLit') {
-    for (const item of node.items) addInternalMachineExpressionBindings(target, item);
-  } else if (node.kind === 'objectLit') {
-    for (const entry of node.entries) {
-      addInternalMachineExpressionBindings(target, 'kind' in entry ? entry.argument : entry.value);
+  const stack: ValueIR[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop() as ValueIR;
+    if (current.kind === 'ident') {
+      target.add(current.name);
+      continue;
     }
-  } else if (node.kind === 'new') addInternalMachineExpressionBindings(target, node.argument);
+    const children: ValueIR[] = [];
+    forEachInternalMachineDataChild(current, (child) => children.push(child));
+    for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index]);
+  }
 }
 
 export function internalMachineExpressionBindings(raw: string): ReadonlySet<string> {

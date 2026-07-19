@@ -212,6 +212,141 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     '    return value=r',
   ].join('\n');
 
+  const NATIVE_POWER = [
+    'fn name=power params="a:number,b:number" returns=number export=true',
+    '  handler lang="kern"',
+    '    return value="a ** b"',
+  ].join('\n');
+
+  test('portable power injects one checked helper before the native TS call site', () => {
+    const code = compile(NATIVE_POWER, 'lib');
+    expect(code.match(/function __kern_pow_int\(/g)).toHaveLength(1);
+    expect(code).toContain('return __kern_pow_int([a, b]);');
+    expect(code.indexOf('function __kern_pow_int(')).toBeLessThan(code.indexOf('return __kern_pow_int([a, b]);'));
+  });
+
+  test('portable power injects the equivalent checked helper on FastAPI', () => {
+    const code = compile(NATIVE_POWER, 'fastapi');
+    expect(code.match(/def _kern_pow_int\(/g)).toHaveLength(1);
+    expect(code).toContain('return _kern_pow_int([a, b])');
+  });
+
+  test('portable power inside an accepted block closure lowers structurally on both native targets', () => {
+    const source = [
+      'fn name=closurePower returns=number export=true',
+      '  handler lang="kern"',
+      '    return value="List.map([1], x => { return 2 ** 3; })[0]"',
+    ].join('\n');
+    const tsCode = compile(source, 'lib');
+    const pyCode = compile(source, 'fastapi');
+    expect(tsCode).toContain('x => { return __kern_pow_int([2, 3]); }');
+    expect(pyCode).toContain('return _kern_pow_int([2, 3])');
+  });
+
+  test.each([
+    'lib',
+    'fastapi',
+  ] as const)('portable power compiles a 10,001-operand chain iteratively on %s', (target) => {
+    const chain = new Array(10_001).fill('1').join(' ** ');
+    const source = [
+      'fn name=powerChain returns=number export=true',
+      '  handler lang="kern"',
+      `    return value="${chain}"`,
+    ].join('\n');
+    const code = compile(source, target);
+    const helperCall = target === 'lib' ? '__kern_pow_int(' : '_kern_pow_int(';
+    const returnLine = code.split('\n').find((line) => line.includes(`return ${helperCall}`)) ?? '';
+    expect(returnLine).not.toBe('');
+    expect(returnLine.slice(returnLine.indexOf(helperCall)).split(', ')).toHaveLength(10_001);
+  });
+
+  test.each([
+    [
+      'fn name=__kern_pow_int params="a:number,b:number" returns=number export=true\n  handler <<<\n    return 7;\n  >>>',
+    ],
+    [
+      'fn name=power params="__kern_pow_int:number,b:number" returns=number export=true\n  handler lang="kern"\n    return value="2 ** b"',
+    ],
+    [
+      'fn name=power params="__kern_pow_int=2,b=3" returns=number export=true\n  handler lang="kern"\n    return value="__kern_pow_int ** b"',
+    ],
+    [
+      'fn name=power params="a:number,b:number" returns=number export=true\n  handler lang="kern"\n    let name=__kern_pow_int value=7\n    return value="a ** b"',
+    ],
+    [
+      'import from="./power" names="power as __kern_pow_int"\nfn name=power params="a:number,b:number" returns=number export=true\n  handler lang="kern"\n    return value="a ** b"',
+    ],
+    [
+      'fn name=power params="xs:number[]" returns="number[]" export=true\n  handler lang="kern"\n    return value="List.map(xs, __kern_pow_int => 2 ** 3)"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    each name=__kern_pow_int in="[1]"\n      return value="2 ** 3"',
+    ],
+    [
+      'fn name=power params="record:object" returns=number export=true\n  handler lang="kern"\n    destructure source=record\n      binding name=__kern_pow_int\n    return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    try\n      throw value="1"\n      catch name=__kern_pow_int\n        return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    set name=__kern_pow_int to=1\n    return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    assign target=__kern_pow_int value=1\n    return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=string export=true\n  handler lang="kern"\n    fmt name=__kern_pow_int template="captured"\n    return value=__kern_pow_int',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    return value="List.map([1], x => { const __kern_pow_int = x; return __kern_pow_int; })[0]"',
+    ],
+  ])('rejects authored TypeScript bindings that capture the private power helper', (source) => {
+    expect(() => compile(source, 'lib')).toThrow(/reserved.*power helper/i);
+  });
+
+  test.each([
+    ['fn name=_kern_pow_int params="a:number,b:number" returns=number export=true\n  handler <<<\n    return 7\n  >>>'],
+    [
+      'fn name=power params="_kern_pow_int:number,b:number" returns=number export=true\n  handler lang="kern"\n    return value="2 ** b"',
+    ],
+    [
+      'fn name=power params="a:number,b:number" returns=number export=true\n  handler lang="kern"\n    let name=_kern_pow_int value=7\n    return value="a ** b"',
+    ],
+    [
+      'fn name=power params="xs:number[]" returns="number[]" export=true\n  handler lang="kern"\n    return value="List.map(xs, _kern_pow_int => 2 ** 3)"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    each name=_kern_pow_int in="[1]"\n      return value="2 ** 3"',
+    ],
+    [
+      'fn name=power params="record:object" returns=number export=true\n  handler lang="kern"\n    destructure source=record\n      binding name=_kern_pow_int\n    return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    try\n      throw value="1"\n      catch name=_kern_pow_int\n        return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    set name=_kern_pow_int to=1\n    return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    assign target=_kern_pow_int value=1\n    return value="2 ** 3"',
+    ],
+    [
+      'fn name=power returns=string export=true\n  handler lang="kern"\n    fmt name=_kern_pow_int template="captured"\n    return value=_kern_pow_int',
+    ],
+    [
+      'fn name=power returns=number export=true\n  handler lang="kern"\n    return value="List.map([1], x => { const _kern_pow_int = x; return _kern_pow_int; })[0]"',
+    ],
+  ])('rejects authored Python bindings that capture the private power helper', (source) => {
+    expect(() => compile(source, 'fastapi')).toThrow(/reserved.*power helper/i);
+  });
+
+  test.each([
+    'import from="./power" default=_kern_pow_int\nfn name=power params="a:number,b:number" returns=number export=true\n  handler lang="kern"\n    return value="a ** b"',
+    'import from="./power" names="power as _kern_pow_int"\nfn name=power params="a:number,b:number" returns=number export=true\n  handler lang="kern"\n    return value="a ** b"',
+  ])('Python imports cannot capture the private power helper', (source) => {
+    expect(() => compile(source, 'fastapi')).toThrow();
+  });
+
   test('D1b — a native `lang="kern"` body with loose `==` injects `__kern_loose_eq` on lib (TS)', () => {
     // Production-path coverage for the D1b helper: `applyKernStdlibPreamble` sets
     // `looseEq` from the EMITTED code (`emittedCodeUsesLooseEq`), so the helper def is
@@ -345,7 +480,11 @@ describe('transpileForTarget — Text code-point-ops helper preamble', () => {
       '</template>',
     ].join('\n');
     expect(emittedCodeUsesTextOps(sfc)).toBe(true);
-    const preamble = kernStdlibPreamble({ result: false, option: false, textOps: true });
+    const preamble = kernStdlibPreamble({
+      result: false,
+      option: false,
+      textOps: true,
+    });
     const injected = injectKernStdlibPreambleIntoSFC(sfc, preamble);
     const scriptOpen = injected.indexOf('<script setup lang="ts">');
     const helperDef = injected.indexOf('function __kern_text_length(');

@@ -1,3 +1,4 @@
+import { checkedPortablePower, checkedPortablePowerChain, flattenPortablePowerChain } from '../../portable-power.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import { isCaughtErrorValue } from './caught-error.js';
 import { evalRunnerNativeDecimalScalarCall } from './portable-decimal-evaluator.js';
@@ -207,6 +208,9 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
       const left = evaluate(node.left, env);
       return left === null ? evaluate(node.right, env) : left;
     }
+    if (node.op === '**') {
+      return checkedPortablePowerChain(flattenPortablePowerChain(node).map((operand) => evaluate(operand, env)));
+    }
     const left = evaluate(node.left, env);
     const right = evaluate(node.right, env);
     switch (node.op) {
@@ -265,6 +269,7 @@ export function evalNumberBinary(
   env: SemanticEnv,
 ): PortableScalar {
   if (typeof left !== 'number' || typeof right !== 'number') throw new Error(`portable: ${op} requires numbers`);
+  if (op === '**') return checkedPortablePower(left, right);
   let result: PortableScalar;
   if (op === '-') result = assertPortableScalar(left - right, op);
   else if (op === '*') result = assertPortableScalar(left * right, op);

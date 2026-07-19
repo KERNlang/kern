@@ -1,4 +1,5 @@
 import { parseExpression } from '../../parser-expression.js';
+import { checkedPortablePower, checkedPortablePowerChain, flattenPortablePowerChain } from '../../portable-power.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import { copyLambdaOwnedEnumerableProperties, readLambdaOwnedProperty } from './lambda-owned-property.js';
@@ -156,6 +157,10 @@ function evalBinary(op: string, left: unknown, right: unknown): unknown {
       assertLambdaPrimitiveBinaryOperands(op, left, right);
       return (left as number) % (right as number);
     }
+    case '**': {
+      assertLambdaPrimitiveBinaryOperands(op, left, right);
+      return checkedPortablePower(left, right);
+    }
     case '==':
     case '===':
       return left === right;
@@ -269,6 +274,9 @@ function evalValue(node: ValueIR, scope: EvalScope): unknown {
       if (node.bodyBlock || !node.body) throw new Error('lambda: block-bodied closures are not executable');
       return makePrivateClosure(node.body, node.params, scope);
     case 'binary': {
+      if (node.op === '**') {
+        return checkedPortablePowerChain(flattenPortablePowerChain(node).map((operand) => evalValue(operand, scope)));
+      }
       const left = evalValue(node.left, scope);
       if (node.op === '&&') return left ? evalValue(node.right, scope) : left;
       if (node.op === '||') return left ? left : evalValue(node.right, scope);

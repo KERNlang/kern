@@ -87,6 +87,7 @@ const AGREE: readonly AgreeFixture[] = [
   { name: 'add', expr: '1 + 1', expected: 2 },
   { name: 'sub', expr: '10 - 3', expected: 7 },
   { name: 'mul', expr: '6 * 7', expected: 42 },
+  { name: 'pow', expr: '2 ** 3', expected: 8 },
   { name: 'div_float', expr: '1 / 2', expected: 0.5 }, // catches int-truncation
   { name: 'mod_pos', expr: '7 % 3', expected: 1 },
   { name: 'mod_neg', expr: '-5 % 3', expected: -2 }, // JS remainder sign; catches Python modulo=1
@@ -150,7 +151,8 @@ const BOTH_REJECT: readonly RejectFixture[] = [
   { name: 'div_zero', expr: '1 / 0' }, // core div-by-zero ; reference non-finite
   { name: 'mod_zero', expr: '7 % 0' },
   { name: 'cmp_xtype', expr: '1 < "a"' }, // same-kind comparison
-  { name: 'pow_unsupported', expr: '2 ** 3' }, // ** not in subset
+  { name: 'pow_negative_exponent', expr: '2 ** -1' },
+  { name: 'pow_unsafe_result', expr: '2 ** 53' },
   { name: 'overflow', expr: '1e308 * 10' }, // finite-only (Infinity result refused)
   { name: 'nan_source', expr: '0 / 0' }, // finite-only (NaN result refused — both engines, no NaN value ever reaches comparison)
 ];

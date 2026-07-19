@@ -2,7 +2,11 @@
  * Shared Python expression lowering — framework-agnostic.
  */
 
-import { PORTABLE_LOGIC_PRIMITIVES, type PortableLogicPrimitiveId } from '@kernlang/core';
+import {
+  assertNotPortablePowerHelperBinding,
+  PORTABLE_LOGIC_PRIMITIVES,
+  type PortableLogicPrimitiveId,
+} from '@kernlang/core';
 import { lowerJsClosureBodyToPython } from '@kernlang/core/node';
 import { toSnakeCase } from '../../type-map.js';
 import {
@@ -257,6 +261,10 @@ function lowerArrowBlockClosure(arrow: { params: string[]; body: string }, ctx: 
     // Closure params are def-locals (never `nonlocal`); the lowerer excludes
     // them and block-locals from the written-free set.
     paramNames: arrow.params,
+    validateBindingName: (binding) => {
+      assertNotPortablePowerHelperBinding(binding);
+      assertNotPortablePowerHelperBinding(toSnakeCase(binding));
+    },
     // Round-7 — the block-scope hooks are now REQUIRED (a missing wire is a
     // compile error, no longer a silent fail-open). The route path screens host
     // names through the `rewriteExpr` rewriter, NOT a per-block shadow stack, so
@@ -1959,7 +1967,10 @@ function extractTemplateLiterals(
   bodyFields: Set<string>,
   authUser: boolean,
   imports?: Set<string>,
-): { maskedExpr: string; replacements: Array<{ placeholder: string; lowered: string }> } {
+): {
+  maskedExpr: string;
+  replacements: Array<{ placeholder: string; lowered: string }>;
+} {
   let maskedExpr = '';
   const replacements: Array<{ placeholder: string; lowered: string }> = [];
   let quote: '"' | "'" | null = null;
@@ -2302,7 +2313,14 @@ export function rewriteExpr(
   result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `request.headers.get("${key}")`);
   result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, (_m, name) => toSnakeCase(name));
 
-  result = lowerJsArrayMethods(result, { pathParams, bodyFields, authUser, imports, hoistedDefs, closureSeq });
+  result = lowerJsArrayMethods(result, {
+    pathParams,
+    bodyFields,
+    authUser,
+    imports,
+    hoistedDefs,
+    closureSeq,
+  });
 
   result = result.replace(STRICT_EQ_RE, (match) => {
     if (match === '===') return '==';

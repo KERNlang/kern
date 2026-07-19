@@ -1,3 +1,4 @@
+import { checkedPortablePower, PortablePowerError } from '../portable-power.js';
 import {
   CORE_FIXTURE_UNDEFINED,
   type CoreFixtureValue,
@@ -8,7 +9,7 @@ import {
 
 export class CoreContractEvaluationError extends Error {
   constructor(
-    readonly code: 'strict-type' | 'division-by-zero' | 'unsupported-operation',
+    readonly code: 'strict-type' | 'division-by-zero' | 'invalid-power' | 'unsupported-operation',
     message: string,
   ) {
     super(message);
@@ -143,6 +144,17 @@ export function evaluateCoreContractOperation(
       const [left, right] = expectCoreTypes(operationId, args, ['Number', 'Number']);
       if (right === 0) throw new CoreContractEvaluationError('division-by-zero', 'Number.remainder division by zero.');
       return finiteNumberResult(operationId, left % right);
+    }
+    case 'Number.power': {
+      const [base, exponent] = expectCoreTypes(operationId, args, ['Number', 'Number']);
+      try {
+        return checkedPortablePower(base, exponent);
+      } catch (error) {
+        if (error instanceof PortablePowerError) {
+          throw new CoreContractEvaluationError('invalid-power', error.message);
+        }
+        throw error;
+      }
     }
     case 'Number.lessThan': {
       const [left, right] = expectCoreTypes(operationId, args, ['Number', 'Number']);

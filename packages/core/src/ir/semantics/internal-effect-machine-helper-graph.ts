@@ -1,6 +1,7 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { forEachValueIRChild } from '../../value-ir-walk.js';
 import { assertInternalMachineClassGraph } from './internal-effect-machine-class-graph.js';
 import { assertInternalMachineHelperClassComposition } from './internal-effect-machine-helper-class.js';
 import {
@@ -48,57 +49,19 @@ function valueCalls(
   names: ReadonlyMap<string, RunnerFunctionBinding>,
   out: Set<RunnerFunctionBinding>,
 ): void {
-  if (node.kind === 'call') {
-    if (node.callee.kind === 'ident') {
-      const binding = names.get(node.callee.name);
+  const stack: ValueIR[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop() as ValueIR;
+    if (current.kind === 'call' && current.callee.kind === 'ident') {
+      const binding = names.get(current.callee.name);
       if (binding) out.add(binding);
     }
-    valueCalls(node.callee, names, out);
-    for (const argument of node.args) valueCalls(argument, names, out);
-    return;
-  }
-  if (node.kind === 'unary' || node.kind === 'new' || node.kind === 'spread' || node.kind === 'await') {
-    valueCalls(node.argument, names, out);
-    return;
-  }
-  if (node.kind === 'propagate') {
-    valueCalls(node.argument, names, out);
-    return;
-  }
-  if (node.kind === 'binary') {
-    valueCalls(node.left, names, out);
-    valueCalls(node.right, names, out);
-    return;
-  }
-  if (node.kind === 'conditional') {
-    valueCalls(node.test, names, out);
-    valueCalls(node.consequent, names, out);
-    valueCalls(node.alternate, names, out);
-    return;
-  }
-  if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
-    valueCalls(node.expression, names, out);
-    return;
-  }
-  if (node.kind === 'tmplLit') {
-    for (const expression of node.expressions) valueCalls(expression, names, out);
-    return;
-  }
-  if (node.kind === 'member') {
-    valueCalls(node.object, names, out);
-    return;
-  }
-  if (node.kind === 'index') {
-    valueCalls(node.object, names, out);
-    valueCalls(node.index, names, out);
-    return;
-  }
-  if (node.kind === 'arrayLit') {
-    for (const item of node.items) valueCalls(item, names, out);
-    return;
-  }
-  if (node.kind === 'objectLit') {
-    for (const entry of node.entries) valueCalls('kind' in entry ? entry.argument : entry.value, names, out);
+    // Preserve the helper graph's existing closure boundary: calls inside a
+    // ValueIR lambda are owned by lambda admission, not the enclosing helper.
+    if (current.kind === 'lambda') continue;
+    const children: ValueIR[] = [];
+    forEachValueIRChild(current, (child) => children.push(child));
+    for (let index = children.length - 1; index >= 0; index -= 1) stack.push(children[index]);
   }
 }
 

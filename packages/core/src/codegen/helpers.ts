@@ -5,6 +5,7 @@
  * These are pure utility functions with no generator dependencies.
  */
 
+import { assertNotPortablePowerHelperBinding } from '../portable-power.js';
 import type { IRNode } from '../types.js';
 
 // ── IR Node Accessors ───────────────────────────────────────────────────
@@ -102,8 +103,12 @@ export function parseParamList(params: string, options?: { stripDefaults?: boole
     .map((s) => {
       const trimmed = s.trim();
       const colonIdx = trimmed.indexOf(':');
-      if (colonIdx === -1) return trimmed;
+      if (colonIdx === -1) {
+        assertNotPortablePowerHelperBinding(parameterBindingName(trimmed));
+        return trimmed;
+      }
       const pname = trimmed.slice(0, colonIdx).trim();
+      assertNotPortablePowerHelperBinding(parameterBindingName(pname));
       const rest = trimmed.slice(colonIdx + 1).trim();
       const eqIdx = findDefaultSeparator(rest);
       if (eqIdx === -1) return `${pname}: ${rest}`;
@@ -115,6 +120,15 @@ export function parseParamList(params: string, options?: { stripDefaults?: boole
       return `${pname}: ${ptype} = ${pdefault}`;
     })
     .join(', ');
+}
+
+function parameterBindingName(authored: string): string {
+  const defaultIndex = findDefaultSeparator(authored);
+  const binding = defaultIndex === -1 ? authored : authored.slice(0, defaultIndex);
+  return binding
+    .replace(/^\.\.\./, '')
+    .replace(/\?$/, '')
+    .trim();
 }
 
 /** Split param string on commas while respecting <>, (), {} depth. */

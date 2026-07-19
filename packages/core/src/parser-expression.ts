@@ -19,7 +19,8 @@ import {
   type ClosureClassifier,
   unavailableClosureClassifier,
 } from './closure-classifier.js';
-import { markParenthesized, type ValueIR } from './value-ir.js';
+import { assertPortablePowerOperand } from './portable-power.js';
+import { isParenthesized, markParenthesized, type ValueIR } from './value-ir.js';
 
 // ── Tokenizer ────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ export type ExprTokenKind =
   | 'gte'
   | 'plus'
   | 'minus'
+  | 'power'
   | 'star'
   | 'slash'
   | 'percent'
@@ -131,6 +133,21 @@ function isExprStartKind(kind: ExprTokenKind): boolean {
   return EXPR_START_KINDS.has(kind);
 }
 
+/**
+ * KERN requires an explicit source grouping when a prefix-form expression is
+ * used as the left operand of `**`. Transparent postfix wrappers retain that
+ * requirement unless an inner node carries the parser's parenthesized mark.
+ */
+function hasUnparenthesizedPowerLeftPrefix(node: ValueIR): boolean {
+  if (isParenthesized(node)) return false;
+  if (node.kind === 'unary' || node.kind === 'await' || node.kind === 'new' || node.kind === 'spread') return true;
+  if (node.kind === 'typeAssert' || node.kind === 'nonNull') {
+    return hasUnparenthesizedPowerLeftPrefix(node.expression);
+  }
+  if (node.kind === 'propagate') return hasUnparenthesizedPowerLeftPrefix(node.argument);
+  return false;
+}
+
 function isTypeAssertionBoundary(kind: ExprTokenKind): boolean {
   return (
     kind === 'comma' ||
@@ -148,6 +165,7 @@ function isTypeAssertionBoundary(kind: ExprTokenKind): boolean {
     kind === 'strictNeq' ||
     kind === 'plus' ||
     kind === 'minus' ||
+    kind === 'power' ||
     kind === 'star' ||
     kind === 'slash' ||
     kind === 'percent' ||
@@ -420,6 +438,7 @@ function canStartRegex(tokens: ExprToken[]): boolean {
     prev.kind === 'gte' ||
     prev.kind === 'plus' ||
     prev.kind === 'minus' ||
+    prev.kind === 'power' ||
     prev.kind === 'star' ||
     prev.kind === 'slash' ||
     prev.kind === 'percent' ||
@@ -593,6 +612,11 @@ export function tokenizeExpression(input: string): ExprToken[] {
     if (ch === '-') {
       tokens.push({ kind: 'minus', value: '-', pos: i });
       i++;
+      continue;
+    }
+    if (ch === '*' && input[i + 1] === '*') {
+      tokens.push({ kind: 'power', value: '**', pos: i });
+      i += 2;
       continue;
     }
     if (ch === '*') {
@@ -1157,17 +1181,44 @@ class Parser {
     return left;
   }
 
-  // Slice 2c — multiplicative (*, /, %), left-associative.
+  // Binary-catalog closure — multiplicative (*, /, %), left-associative.
   private parseMultiplicative(): ValueIR {
-    let left = this.parseUnary();
+    let left = this.parsePower();
     while (true) {
       const k = this.peek().kind;
       if (k !== 'star' && k !== 'slash' && k !== 'percent') break;
       const op = this.advance().value as '*' | '/' | '%';
-      const right = this.parseUnary();
+      const right = this.parsePower();
       left = { kind: 'binary', op, left, right };
     }
     return left;
+  }
+
+  // Binary-catalog closure — exponentiation binds above multiplicative and is
+  // right-associative. Collecting the chain before folding avoids recursive
+  // descent proportional to the number of `**` operators.
+  private parsePower(): ValueIR {
+    const operands: ValueIR[] = [this.parseUnary()];
+    while (this.peek().kind === 'power') {
+      const operator = this.advance();
+      const leftOperand = operands[operands.length - 1];
+      assertPortablePowerOperand(leftOperand);
+      if (hasUnparenthesizedPowerLeftPrefix(leftOperand)) {
+        throw new Error(
+          `The left operand of '**' must be parenthesized at column ${operator.pos + 1}; ` +
+            'write (-a) ** b or -(a ** b).',
+        );
+      }
+      const rightOperand = this.parseUnary();
+      assertPortablePowerOperand(rightOperand);
+      operands.push(rightOperand);
+    }
+
+    let expression = operands[operands.length - 1];
+    for (let index = operands.length - 2; index >= 0; index -= 1) {
+      expression = { kind: 'binary', op: '**', left: operands[index], right: expression };
+    }
+    return expression;
   }
 
   private parseUnary(): ValueIR {

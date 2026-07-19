@@ -25,6 +25,7 @@ const SCALAR_BINARY_OPS = new Set<BinaryOp>([
   '*',
   '/',
   '%',
+  '**',
   '==',
   '!=',
   '===',

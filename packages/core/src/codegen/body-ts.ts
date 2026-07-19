@@ -46,12 +46,15 @@
 
 import { isPostfixMutationOperator, isSupportedAssignOperator } from '../assignment-operators.js';
 import { collectClosureBlockCallTexts } from '../closure-eligibility.js';
+import { rewriteClosurePowerExpressions } from '../closure-power-lowering.js';
 import type { ExprEmitContext } from '../codegen-expression.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
+import { assertNotPortablePowerHelperBinding } from '../portable-power.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import { isParenthesized, type ValueIR } from '../value-ir.js';
+import { forEachValueIRChild, visitValueIRTree } from '../value-ir-walk.js';
 
 /** A regex-literal IR node — the value recorded in the TS regex-binding table. */
 type RegexLitIR = Extract<ValueIR, { kind: 'regexLit' }>;
@@ -98,7 +101,11 @@ export interface BodyEmitOptions {
    * Scoped per-flag. Adding hooks for other nodes is an explicit spec
    * revision and a new flag.
    */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  traceHooks?: {
+    eachIterNext?: boolean;
+    forIterNext?: boolean;
+    letAssign?: boolean;
+  };
 }
 
 /** Slice 3e — public return shape, parity with the Python body emitter.
@@ -150,7 +157,11 @@ interface BodyEmitContext {
    *  override pending control flow, so it gets a finally-specific error. */
   finallyDepth: number;
   /** Differential harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  traceHooks?: {
+    eachIterNext?: boolean;
+    forIterNext?: boolean;
+    letAssign?: boolean;
+  };
   /** DECIMAL Slice 2 (Finding A) — PER-EMISSION import-requirement sink. Threaded
    *  into the expression emitter via `exprCtxFor` so a stdlib lowering that
    *  declares `requires.ts` (currently only the Decimal namespace, which needs the
@@ -208,7 +219,10 @@ export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, options?: B
   // useState bindings (parent screen's `state name=…`).
   if (options?.stateBindings && options.stateBindings.length > 0) {
     const outer = new Map<string, 'const' | 'let' | 'cell'>();
-    for (const name of options.stateBindings) outer.set(name, 'cell');
+    for (const name of options.stateBindings) {
+      assertNotPortablePowerHelperBinding(name);
+      outer.set(name, 'cell');
+    }
     ctx.localScopes.push(outer);
     // Index-align `regexScopes` with `localScopes`: state bindings are never
     // regex literals (they come from `state name=…`), so seed them as null.
@@ -268,6 +282,7 @@ function emitChildrenTS(
   isLoopBody = false,
 ): string[] {
   const lines: string[] = [];
+  for (const [name] of initialBindings) assertNotPortablePowerHelperBinding(name);
   ctx.localScopes.push(new Map(initialBindings));
   // Index-aligned regex/record binding scopes (initial bindings are neither).
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
@@ -586,7 +601,10 @@ function emitChildrenTS(
           const typeAnn = itemType ? `: [number, ${itemType}]` : '';
           loopBindings.push([idxName, 'const'], [asName, 'const']);
           lines.push(
-            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitEachIterableTS(listIR, ctx)}).entries()) {`,
+            `${indent}for (const [${idxName}, ${asName}]${typeAnn} of (${emitEachIterableTS(
+              listIR,
+              ctx,
+            )}).entries()) {`,
           );
           primaryBinding = asName;
         } else {
@@ -611,7 +629,9 @@ function emitChildrenTS(
             throw new Error('emitEach: traceHooks.eachIterNext set but no primaryBinding for this each shape');
           }
           lines.push(
-            `${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(primaryBinding)},value:${primaryBinding}});`,
+            `${indent}${INDENT_STEP}__kernTrace({op:'iter-next',binding:${JSON.stringify(
+              primaryBinding,
+            )},value:${primaryBinding}});`,
           );
         }
         for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP, loopBindings, true)) {
@@ -946,7 +966,10 @@ function emitClampTS(node: IRNode, ctx: BodyEmitContext): string[] {
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const lines = [
-    `const ${name}${typeAnn} = Math.max(${emitValueTS(minIR, ctx)}, Math.min(${emitValueTS(maxIR, ctx)}, ${emitValueTS(valueIR, ctx)}));`,
+    `const ${name}${typeAnn} = Math.max(${emitValueTS(
+      minIR,
+      ctx,
+    )}, Math.min(${emitValueTS(maxIR, ctx)}, ${emitValueTS(valueIR, ctx)}));`,
   ];
   if (ctx.traceHooks?.letAssign) lines.push(letAssignTraceTS(name));
   return lines;
@@ -1145,6 +1168,7 @@ function emitAssignTS(node: IRNode, ctx: BodyEmitContext): string[] {
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
+  if (targetIR.kind === 'ident') assertNotPortablePowerHelperBinding(targetIR.name);
   assertAssignableLocalTarget(targetIR, ctx);
   applyArrayMutationAssignTS(targetIR, ctx);
   // Cell assignment auto-lowers to its React setter so authors can use the
@@ -1259,6 +1283,7 @@ function cellSetterName(cellName: string): string {
 }
 
 function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let' | 'cell'): void {
+  assertNotPortablePowerHelperBinding(name);
   const scope = ctx.localScopes.at(-1);
   if (!scope) return;
   if (scope.has(name)) {
@@ -1859,10 +1884,16 @@ function applyArrayMutationsInExpressionTS(node: ValueIR, ctx: BodyEmitContext, 
   applyArrayMutationDoTS(node, ctx, preserveFreshPush);
   // Only a direct `do xs.push(<scalar>)` statement certifies the push-built freshness chain.
   // Nested pushes inside a larger expression are still mutation expressions and must stale.
-  forEachValueIRChild(node, (child) => applyArrayMutationsInExpressionTS(child, ctx));
+  const children: ValueIR[] = [];
+  forEachValueIRChild(node, (child) => children.push(child));
+  for (const child of children) visitValueIRTree(child, (descendant) => applyArrayMutationDoTS(descendant, ctx));
 }
 
 function assertRecordArrayFieldReadsProvenTS(node: ValueIR, ctx: BodyEmitContext): void {
+  visitValueIRTree(node, (current) => assertRecordArrayFieldReadProvenTS(current, ctx));
+}
+
+function assertRecordArrayFieldReadProvenTS(node: ValueIR, ctx: BodyEmitContext): void {
   if (
     node.kind === 'member' &&
     node.object.kind === 'ident' &&
@@ -1879,7 +1910,6 @@ function assertRecordArrayFieldReadsProvenTS(node: ValueIR, ctx: BodyEmitContext
   ) {
     throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
   }
-  forEachValueIRChild(node, (child) => assertRecordArrayFieldReadsProvenTS(child, ctx));
 }
 
 function emitValueTS(node: ValueIR, ctx: BodyEmitContext, options: { preserveFreshPush?: boolean } = {}): string {
@@ -1935,17 +1965,28 @@ function assertNoKeyedNestedRecordReceiverTS(node: ValueIR, ctx: BodyEmitContext
 }
 
 function nestedRecordGuardTS(field: string): string {
-  return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(field)})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(field)}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
+  return `const __kern_proto = __kern_record === null || typeof __kern_record !== "object" ? undefined : Object.getPrototypeOf(__kern_record); if (__kern_record === null || typeof __kern_record !== "object" || Array.isArray(__kern_record) || (__kern_proto !== Object.prototype && __kern_proto !== null) || !Object.prototype.hasOwnProperty.call(__kern_record, ${JSON.stringify(
+    field,
+  )})) throw new Error("portable: nested array receiver must be a record field"); const __kern_array = __kern_record[${JSON.stringify(
+    field,
+  )}]; if (!Array.isArray(__kern_array)) throw new Error("portable: nested record field must be an array");`;
 }
 
 function nestedArrayIterableTS(record: string, field: string): string {
-  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(field)} for (const __kern_value of __kern_array) { if (!(__kern_value === null || typeof __kern_value === "string" || typeof __kern_value === "boolean" || (typeof __kern_value === "number" && Number.isFinite(__kern_value)))) throw new Error("portable: nested array element must be a portable scalar"); } return __kern_array; })()`;
+  return `(() => { const __kern_record = ${record}; ${nestedRecordGuardTS(
+    field,
+  )} for (const __kern_value of __kern_array) { if (!(__kern_value === null || typeof __kern_value === "string" || typeof __kern_value === "boolean" || (typeof __kern_value === "number" && Number.isFinite(__kern_value)))) throw new Error("portable: nested array element must be a portable scalar"); } return __kern_array; })()`;
 }
 
 function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
   return {
     isUserBinding: (name: string) => lookupLocalBinding(ctx, name) !== undefined,
     validateRawBlock: validateClosureBlockHostNamespacesTS,
+    rewriteRawBlock: (rawBlock, closureCtx) =>
+      rewriteClosurePowerExpressions(rawBlock, {
+        lowerExpression: (source) => emitExpression(parseExpr(source), closureCtx),
+        validateBindingName: assertNotPortablePowerHelperBinding,
+      }),
     // DECIMAL Slice 2 (Finding A) — forward the per-emission import sink so the
     // expression emitter's `registerStdlibRequirementTS` records `requires.ts`
     // (e.g. `decimal.js`) into the body emitter's result instead of dropping it.
@@ -1982,16 +2023,17 @@ function exprCtxFor(ctx: BodyEmitContext): ExprEmitContext {
  *  call inside it (re-parsed via the SAME `parseExpr` the Python lowerer uses),
  *  so the fail-close decision is byte-for-byte symmetric. */
 function assertNoBoundRegexMethodTS(node: ValueIR, ctx: BodyEmitContext): void {
-  if (node.kind === 'call') {
-    const argName = regexMethodRegexArgIdent(node);
-    if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
-      throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+  visitValueIRTree(node, (current) => {
+    if (current.kind === 'call') {
+      const argName = regexMethodRegexArgIdent(current);
+      if (argName !== null && lookupRegexBinding(ctx, argName) !== null) {
+        throw new Error(REGEX_NONLITERAL_FAILCLOSE);
+      }
     }
-  }
-  if (node.kind === 'lambda' && node.bodyBlock) {
-    assertNoBoundRegexMethodInBlockTS(node.bodyBlock.raw, ctx);
-  }
-  forEachValueIRChild(node, (child) => assertNoBoundRegexMethodTS(child, ctx));
+    if (current.kind === 'lambda' && current.bodyBlock) {
+      assertNoBoundRegexMethodInBlockTS(current.bodyBlock.raw, ctx);
+    }
+  });
 }
 
 /** Fail-close a bound-regex method called anywhere inside a block-bodied
@@ -2025,69 +2067,6 @@ function assertNoBoundRegexMethodInBlockTS(raw: string, ctx: BodyEmitContext): v
         throw new Error(REGEX_NONLITERAL_FAILCLOSE);
       }
     }
-  }
-}
-
-/** Visit each immediate child `ValueIR` of `node`. Covers every variant of the
- *  value AST so the regex-method walk reaches calls nested inside any operand
- *  (args, members, binaries, conditionals, template exprs, object/array
- *  literals, …). `lambda.bodyBlock` is opaque raw TS text with no parsed IR, so
- *  it has no child `ValueIR` nodes here — its bound-regex methods are reached
- *  separately by `assertNoBoundRegexMethodInBlockTS` (called from
- *  `assertNoBoundRegexMethodTS` on the lambda), which parses the raw block. */
-function forEachValueIRChild(node: ValueIR, visit: (child: ValueIR) => void): void {
-  switch (node.kind) {
-    case 'member':
-      visit(node.object);
-      return;
-    case 'index':
-      visit(node.object);
-      visit(node.index);
-      return;
-    case 'call':
-      visit(node.callee);
-      for (const a of node.args) visit(a);
-      return;
-    case 'lambda':
-      if (node.body) visit(node.body);
-      return;
-    case 'binary':
-      visit(node.left);
-      visit(node.right);
-      return;
-    case 'unary':
-    case 'spread':
-    case 'await':
-    case 'new':
-      visit(node.argument);
-      return;
-    case 'typeAssert':
-    case 'nonNull':
-      visit(node.expression);
-      return;
-    case 'propagate':
-      visit(node.argument);
-      return;
-    case 'tmplLit':
-      for (const e of node.expressions) visit(e);
-      return;
-    case 'objectLit':
-      for (const entry of node.entries) {
-        if ('kind' in entry && entry.kind === 'spread') visit(entry.argument);
-        else visit((entry as { value: ValueIR }).value);
-      }
-      return;
-    case 'arrayLit':
-      for (const item of node.items) visit(item);
-      return;
-    case 'conditional':
-      visit(node.test);
-      visit(node.consequent);
-      visit(node.alternate);
-      return;
-    default:
-      // Leaf nodes (numLit/strLit/boolLit/nullLit/undefLit/regexLit/ident): no children.
-      return;
   }
 }
 
@@ -2179,6 +2158,11 @@ function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const rawSource = props.source;
   if (rawSource === undefined || rawSource === '') {
     throw new Error('body-statement `destructure` requires `source=`.');
+  }
+  for (const child of node.children ?? []) {
+    if (child.type !== 'binding' && child.type !== 'element') continue;
+    const name = String(child.props?.name ?? '');
+    if (name) assertNotPortablePowerHelperBinding(name);
   }
   const pattern = formatBodyDestructurePattern(node);
   const kind = props.kind === 'let' ? 'let' : 'const';
@@ -2369,7 +2353,10 @@ function emitFnTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] 
     throw new Error('body-statement `fn` cannot mix legacy `params=` with structured `param` children.');
   }
   const bodyBindings = bodyContextBindingNames(ctx);
-  const paramList = emitParamList(node, { exprCtx: exprCtxFor(ctx), userBindings: bodyBindings });
+  const paramList = emitParamList(node, {
+    exprCtx: exprCtxFor(ctx),
+    userBindings: bodyBindings,
+  });
 
   const lines: string[] = [];
   lines.push(`${indent}${asyncKw}function ${name}(${paramList})${retClause} {`);

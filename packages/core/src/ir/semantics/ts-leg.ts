@@ -30,8 +30,10 @@ import { emitNativeKernBodyTS } from '../../codegen/body-ts.js';
 import {
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesPower,
   KERN_LOOSE_EQ_HELPER_JS,
 } from '../../codegen/stdlib-preamble.js';
+import { KERN_POWER_HELPER_JS } from '../../portable-power.js';
 import type { IRNode } from '../../types.js';
 import { lowerFixtureForTarget } from './fixture-lowering.js';
 import type { SemanticEnv } from './index.js';
@@ -135,7 +137,12 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
       'TS-leg differential harness only supports the looseEq preamble; a fixture pulled in Result/Option/unwrap/decimal.',
     );
   }
-  const preamble = emittedCodeUsesLooseEq(bodyCode) ? KERN_LOOSE_EQ_HELPER_JS : '';
+  const preamble = [
+    emittedCodeUsesLooseEq(bodyCode) ? KERN_LOOSE_EQ_HELPER_JS : '',
+    emittedCodeUsesPower(bodyCode) ? KERN_POWER_HELPER_JS : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   const events: TraceEvent[] = [];
   const traceSink = (e: TraceEvent) => {

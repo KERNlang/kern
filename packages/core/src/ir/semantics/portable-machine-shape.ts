@@ -1,3 +1,4 @@
+import { flattenPortablePowerChain } from '../../portable-power.js';
 import type { BinaryOp, UnaryOp, ValueIR } from '../../value-ir.js';
 import {
   internalMachineClassForNew,
@@ -16,6 +17,7 @@ const SCALAR_BINARY_OPS = new Set<BinaryOp>([
   '*',
   '/',
   '%',
+  '**',
   '==',
   '!=',
   '===',
@@ -157,6 +159,12 @@ export function assertPortableMachineScalarShape(
   }
   if (node.kind === 'binary') {
     if (!SCALAR_BINARY_OPS.has(node.op)) fail('binary');
+    if (node.op === '**') {
+      for (const operand of flattenPortablePowerChain(node)) {
+        assertPortableMachineScalarShape(operand, env, scalarHelperCall, portableHelperCall);
+      }
+      return;
+    }
     assertPortableMachineScalarShape(node.left, env, scalarHelperCall, portableHelperCall);
     assertPortableMachineScalarShape(node.right, env, scalarHelperCall, portableHelperCall);
     return;

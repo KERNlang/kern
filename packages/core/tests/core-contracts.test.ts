@@ -61,6 +61,7 @@ describe('core type contracts registry', () => {
       'Number.multiply',
       'Number.divide',
       'Number.remainder',
+      'Number.power',
       'Number.lessThan',
       'Number.lessThanOrEqual',
       'Number.greaterThan',
@@ -182,6 +183,14 @@ describe('core type contract fixtures', () => {
     );
     expect(evaluateCoreContractOperation('Number.remainder', [-5, 2])).toBe(-1);
     expect(evaluateCoreContractOperation('Number.remainder', [5, -2])).toBe(1);
+    expect(evaluateCoreContractOperation('Number.power', [2, 10])).toBe(1024);
+    expect(evaluateCoreContractOperation('Number.power', [-2, 3])).toBe(-8);
+    expect(() => evaluateCoreContractOperation('Number.power', [2, -1])).toThrow(
+      'portable: ** requires a safe-integer base and nonnegative safe-integer exponent',
+    );
+    expect(() => evaluateCoreContractOperation('Number.power', [2, 53])).toThrow(
+      'portable: ** result exceeds the safe-integer domain',
+    );
     expect(evaluateCoreContractOperation('List.length', [[1, 2, 3]])).toBe(3);
     expect(evaluateCoreContractOperation('List.index', [[null], 0])).toBeNull();
     expect(evaluateCoreContractOperation('List.index', [[10, 20], 2])).toEqual(CORE_FIXTURE_UNDEFINED);

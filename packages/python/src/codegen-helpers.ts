@@ -3,7 +3,12 @@
  * used across all Python code generators.
  */
 
-import { assertNoMixedParameterDeclarations, type IRNode, isExprObject } from '@kernlang/core';
+import {
+  assertNoMixedParameterDeclarations,
+  assertNotPortablePowerHelperBinding,
+  type IRNode,
+  isExprObject,
+} from '@kernlang/core';
 import { mapTsTypeToPython, mapTsTypeToPythonAnnotation, toSnakeCase } from './type-map.js';
 
 // ── Micro-helpers ──────────────────────────────────────────────────────
@@ -137,14 +142,19 @@ export function parseLegacyParamParts(rawParams: string): LegacyParamPart[] {
     const colonIdx = trimmed.indexOf(':');
     if (colonIdx === -1) {
       const eqIdx = findDefaultSeparator(trimmed);
-      if (eqIdx === -1) return { name: trimmed, type: '', defaultValue: '' };
-      return {
-        name: trimmed.slice(0, eqIdx).trim(),
-        type: '',
-        defaultValue: trimmed.slice(eqIdx + 1).trim(),
-      };
+      const parsed =
+        eqIdx === -1
+          ? { name: trimmed, type: '', defaultValue: '' }
+          : {
+              name: trimmed.slice(0, eqIdx).trim(),
+              type: '',
+              defaultValue: trimmed.slice(eqIdx + 1).trim(),
+            };
+      assertPythonPowerBinding(parsed.name);
+      return parsed;
     }
     const name = trimmed.slice(0, colonIdx).trim();
+    assertPythonPowerBinding(name);
     const rest = trimmed.slice(colonIdx + 1).trim();
     const eqIdx = findDefaultSeparator(rest);
     if (eqIdx === -1) return { name, type: rest, defaultValue: '' };
@@ -154,6 +164,12 @@ export function parseLegacyParamParts(rawParams: string): LegacyParamPart[] {
       defaultValue: rest.slice(eqIdx + 1).trim(),
     };
   });
+}
+
+function assertPythonPowerBinding(name: string): void {
+  const binding = name.replace(/^\*+/, '').replace(/\?$/, '').trim();
+  assertNotPortablePowerHelperBinding(binding);
+  assertNotPortablePowerHelperBinding(toSnakeCase(binding));
 }
 
 function splitParamsRespectingDepth(s: string): string[] {
@@ -295,6 +311,7 @@ function formatPyParamFromChild(paramNode: IRNode, lazyAnnotations: boolean): st
   if (hasDestructure) return null;
 
   const rawName = (props.name as string) || 'arg';
+  assertPythonPowerBinding(rawName);
   const variadic = props.variadic === true || props.variadic === 'true';
   const optional = props.optional === true || props.optional === 'true';
   const rawType = props.type as string | undefined;
@@ -308,6 +325,7 @@ function formatPyParamFromChild(paramNode: IRNode, lazyAnnotations: boolean): st
   // before mapping so `string[]` → `str`.
   const typeBase = variadic && rawType?.endsWith('[]') ? rawType.slice(0, -2) : rawType;
   const pyName = toSnakeCase(rawName);
+  assertNotPortablePowerHelperBinding(pyName);
   const namePart = variadic ? `*${pyName}` : pyName;
   const defaultStr = formatPyDefault(paramNode);
 

@@ -8,6 +8,7 @@
  */
 
 import { KernCodegenError } from '../errors.js';
+import { assertNotPortablePowerHelperBinding } from '../portable-power.js';
 import type { IRNode } from '../types.js';
 
 // Matches valid JS/TS identifiers — KERN hyphens are converted to camelCase by the parser.
@@ -24,6 +25,7 @@ export function emitIdentifier(value: string | undefined, fallback: string, node
       node,
     );
   }
+  assertNotPortablePowerHelperBinding(v);
   return v;
 }
 

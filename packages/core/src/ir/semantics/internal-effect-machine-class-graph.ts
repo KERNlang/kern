@@ -1,11 +1,11 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { someValueIRTree } from '../../value-ir-walk.js';
 import { internalMachineClassReceiver } from './internal-effect-machine-class-instance.js';
 import {
   assertInternalMachineClassInheritance,
   internalMachineClassMemberFor,
-  internalMachineClassVisibleFields,
 } from './internal-effect-machine-class-lineage.js';
 import { internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
 import {
@@ -164,81 +164,15 @@ function valueUsesRootClass(
   rootInstances: ReadonlyMap<string, RunnerClassBinding>,
   registry: ReadonlyMap<string, RunnerClassBinding>,
 ): boolean {
-  if (value.kind === 'ident') return rootInstances.has(value.name);
-  if (value.kind === 'member') {
-    if (value.object.kind === 'ident') {
-      const cls = rootInstances.get(value.object.name);
-      if (
-        cls &&
-        (internalMachineClassVisibleFields(cls, registry).has(value.property) ||
-          internalMachineClassMemberFor(cls, value.property, 'getter', registry))
-      ) {
-        return true;
-      }
-    }
-    return valueUsesRootClass(value.object, rootInstances, registry);
-  }
-  if (value.kind === 'call') {
-    if (value.callee.kind === 'member' && value.callee.object.kind === 'ident') {
-      const cls = rootInstances.get(value.callee.object.name);
-      if (cls && internalMachineClassMemberFor(cls, value.callee.property, 'method', registry)) return true;
-    }
+  return someValueIRTree(value, (node) => {
+    if (node.kind === 'ident') return rootInstances.has(node.name);
     return (
-      valueUsesRootClass(value.callee, rootInstances, registry) ||
-      value.args.some((argument) => valueUsesRootClass(argument, rootInstances, registry))
+      node.kind === 'new' &&
+      node.argument.kind === 'call' &&
+      node.argument.callee.kind === 'ident' &&
+      registry.has(node.argument.callee.name)
     );
-  }
-  if (value.kind === 'index') {
-    return (
-      valueUsesRootClass(value.object, rootInstances, registry) ||
-      valueUsesRootClass(value.index, rootInstances, registry)
-    );
-  }
-  if (value.kind === 'lambda') {
-    return value.body ? valueUsesRootClass(value.body, rootInstances, registry) : false;
-  }
-  if (value.kind === 'binary') {
-    return (
-      valueUsesRootClass(value.left, rootInstances, registry) ||
-      valueUsesRootClass(value.right, rootInstances, registry)
-    );
-  }
-  if (value.kind === 'new') {
-    if (
-      value.argument.kind === 'call' &&
-      value.argument.callee.kind === 'ident' &&
-      registry.has(value.argument.callee.name)
-    ) {
-      return true;
-    }
-    return valueUsesRootClass(value.argument, rootInstances, registry);
-  }
-  if (value.kind === 'unary' || value.kind === 'spread' || value.kind === 'await') {
-    return valueUsesRootClass(value.argument, rootInstances, registry);
-  }
-  if (value.kind === 'typeAssert' || value.kind === 'nonNull') {
-    return valueUsesRootClass(value.expression, rootInstances, registry);
-  }
-  if (value.kind === 'propagate') return valueUsesRootClass(value.argument, rootInstances, registry);
-  if (value.kind === 'tmplLit') {
-    return value.expressions.some((expression) => valueUsesRootClass(expression, rootInstances, registry));
-  }
-  if (value.kind === 'objectLit') {
-    return value.entries.some((entry) =>
-      valueUsesRootClass('kind' in entry ? entry.argument : entry.value, rootInstances, registry),
-    );
-  }
-  if (value.kind === 'arrayLit') {
-    return value.items.some((item) => valueUsesRootClass(item, rootInstances, registry));
-  }
-  if (value.kind === 'conditional') {
-    return (
-      valueUsesRootClass(value.test, rootInstances, registry) ||
-      valueUsesRootClass(value.consequent, rootInstances, registry) ||
-      valueUsesRootClass(value.alternate, rootInstances, registry)
-    );
-  }
-  return false;
+  });
 }
 
 function nodeUsesRootClass(

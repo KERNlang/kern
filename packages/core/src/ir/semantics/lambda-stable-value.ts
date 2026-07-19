@@ -1,3 +1,4 @@
+import { checkedPortablePowerChain, flattenPortablePowerChain } from '../../portable-power.js';
 import type { ValueIR } from '../../value-ir.js';
 import { copyLambdaOwnedEnumerableProperties, readLambdaOwnedProperty } from './lambda-owned-property.js';
 import {
@@ -104,6 +105,17 @@ export function stableValue(
     );
   }
   if (node.kind === 'binary') {
+    if (node.op === '**') {
+      const operands = flattenPortablePowerChain(node).map((operand) =>
+        stableValue(operand, env, locals, unstableBindings, localValues, shadowedBindings, deferredBindings),
+      );
+      if (!operands.every((operand) => operand.known)) return unknown(...operands);
+      return {
+        known: true,
+        value: checkedPortablePowerChain(operands.map((operand) => operand.value)),
+        deferred: operands.some((operand) => operand.deferred === true),
+      };
+    }
     const left = stableValue(node.left, env, locals, unstableBindings, localValues, shadowedBindings, deferredBindings);
     if (!left.known) return left;
     if (node.op === '&&' && !left.value) return left;

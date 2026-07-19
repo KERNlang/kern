@@ -178,11 +178,13 @@ export {
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
+export { findTypeScriptSfcScriptBlock } from './codegen/sfc-script.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesPower,
   emittedCodeUsesTextOps,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
@@ -395,6 +397,7 @@ export {
   parseExternalNamedBinding,
   signatureMapForSidecarPackage,
 } from './external-symbols.js';
+export { toSnakeCaseIdentifier } from './identifier-case.js';
 export type {
   CapabilityEffect,
   CapabilityRuntime,
@@ -627,6 +630,23 @@ export { collectNativeEligibleHints, validateNativeEligible } from './parser-val
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExportSymbol, ModuleExports } from './parser-validate-propagation.js';
 export { splitPortableExpressionList } from './portable-expression-list.js';
+export type { PortablePowerErrorCode } from './portable-power.js';
+export {
+  assertNotPortablePowerHelperBinding,
+  assertPortablePowerOperand,
+  checkedPortablePower,
+  checkedPortablePowerChain,
+  flattenPortablePowerChain,
+  KERN_POWER_HELPER_JS,
+  KERN_POWER_HELPER_PY,
+  KERN_POWER_HELPER_PY_NAME,
+  KERN_POWER_HELPER_TS_NAME,
+  PORTABLE_POWER_OPERAND_ERROR,
+  PORTABLE_POWER_RESULT_ERROR,
+  PORTABLE_POWER_SPREAD_ERROR,
+  PortablePowerError,
+  portablePowerHelperTS,
+} from './portable-power.js';
 export type {
   PortablePredicateArrayOp,
   PortablePredicateCompareOp,
@@ -1038,6 +1058,7 @@ export {
 } from './utils.js';
 export type { BinaryOp, UnaryOp, ValueIR, ValueIRKind } from './value-ir.js';
 export { isParenthesized, isValueIR, markParenthesized } from './value-ir.js';
+export { forEachValueIRChild, someValueIRTree, visitValueIRTree } from './value-ir-walk.js';
 export type {
   NextjsOutputRules,
   NextjsVersionProfile,
