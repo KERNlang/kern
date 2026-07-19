@@ -26,6 +26,25 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.3a selection provenance must remain exact');
+  assert.equal(
+    actual.implementationSelectionProvenance.digest,
+    'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+  );
+  assert.deepEqual(actual.implementationSelectionProvenance.record.snapshot, {
+    corpusMembers: 8,
+    functionCount: 99,
+    selection: {
+      completeFunctions: 2,
+      completeTools: 1,
+      id: 'conditional',
+      occurrences: 1115,
+      witnesses: [
+        'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
+        'examples/capstone-assertion-engine/diag.kern#3:failResult',
+      ],
+    },
+    toolCount: 4,
+  }, 'frozen M4.3c implementation selection provenance must remain exact');
   assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.3c');
   assert.deepEqual(actual.base.promotions, [{
     family: 'binary-expression',

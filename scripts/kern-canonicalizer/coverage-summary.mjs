@@ -1,4 +1,4 @@
-const SUMMARY_FORMAT = 'kern.kir-canonicalizer.coverage-summary.3';
+const SUMMARY_FORMAT = 'kern.kir-canonicalizer.coverage-summary.4';
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -30,6 +30,7 @@ export function summarizeCoverageReceipt(receipt) {
     format: SUMMARY_FORMAT,
     functionCount: receipt.functions.length,
     functionFactsDigest: receipt.functionFactsDigest,
+    implementationSelectionProvenance: receipt.implementationSelectionProvenance,
     policyDigest: receipt.policyDigest,
     profileDigest: receipt.profileDigest,
     selection: receipt.selection,

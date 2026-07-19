@@ -23,17 +23,20 @@ import {
   analyzeProfileBlockersForFunction,
   canonicalProfileRowsForFunction,
   firstUnsupportedByAuthoredOrder,
-  handlerChildProfilesComplete,
   handlerChildProfilesForFunction,
   validateCoverageBase,
 } from './coverage-profile.mjs';
 import { canonicalizerPolicySource, loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
+import {
+  canonicalizerFunctionCompletes,
+  rankCanonicalizerFamilies,
+} from './coverage-selection.mjs';
 import { summarizeCoverageReceipt } from './coverage-summary.mjs';
 import { CANONICALIZER_COMPOSITE_PATH } from './composition.mjs';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.2';
-const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.3';
+const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.4';
 const EXPRESSION_KINDS = STRUCTURAL_EXPRESSION_KINDS;
 const AUTHENTICATED_DEPENDENCIES = requireAuthenticatedCoverageDependencies();
 const COVERAGE_POLICY_SOURCE = readFileSync(new URL('./coverage-policy.json', import.meta.url));
@@ -348,36 +351,6 @@ function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy) {
     tool,
   };
 }
-function completes(profile, fn, profileLimits) {
-  const requiredFacts = [fn.excludedProperties, fn.profileBlockers, fn.handlerChildProfiles, fn.nodeKinds,
-    fn.expressionKinds, fn.propertyKeys];
-  return requiredFacts.every(Array.isArray) &&
-    fn.profileRows !== null &&
-    fn.profileRows.nodes <= profileLimits.maxNodeRows &&
-    fn.profileRows.properties <= profileLimits.maxPropertyRows && fn.profileRows.values <= profileLimits.maxValueRows &&
-    fn.excludedProperties.length === 0 && fn.profileBlockers.length === 0 &&
-    candidateCatalogRequirementsComplete(profile, fn) &&
-    handlerChildProfilesComplete(profile, fn.handlerChildProfiles) &&
-    fn.nodeKinds.every((kind) => profile.nodeKinds.has(kind)) &&
-    fn.expressionKinds.every((kind) => profile.expressionKinds.has(kind)) &&
-    fn.propertyKeys.every((propertyKey) => {
-      const nodeKind = propertyKey.slice(0, propertyKey.indexOf('.'));
-      return profile.baseNodeKinds.has(nodeKind) || profile.propertyKeys.has(propertyKey);
-    });
-}
-
-function candidateCatalogRequirementsComplete(profile, fn) {
-  return [...profile.candidateNodeKinds].every((kind) => {
-    const nodeCount = fn.nodeOccurrences.filter((observed) => observed === kind).length;
-    if (nodeCount === 0) return true;
-    const contract = STRUCTURAL_KIR_NODE_CATALOG.get(kind);
-    return contract !== undefined && Object.entries(contract.properties).every(([name, property]) =>
-      !property.required ||
-      (!property.disposition.startsWith('excluded-') &&
-        fn.propertyOccurrences.filter((observed) => observed === `${kind}.${name}`).length === nodeCount),
-    );
-  });
-}
 export function selectCanonicalizerTranche(policyInput, functions) {
   const authenticatedPolicyDigest = AUTHENTICATED_FUNCTION_FACTS.get(functions);
   if (authenticatedPolicyDigest === undefined) fail('function facts require authenticated measurement');
@@ -385,47 +358,7 @@ export function selectCanonicalizerTranche(policyInput, functions) {
   const profileLimits = loadCanonicalizerPolicy().profileLimits;
   const policy = assertCoverageClosed(policyInput, functions);
   if (authenticatedPolicyDigest !== digest(JSON.stringify(policy))) fail('function facts require authenticated policy');
-  const baseNodes = new Set(policy.base.nodeKinds);
-  const baseExpressions = new Set(policy.base.expressionKinds);
-  const ranking = policy.families.map((family) => {
-    const profile = {
-      baseNodeKinds: baseNodes,
-      candidateNodeKinds: new Set(family.nodeKinds),
-      expressionKinds: new Set([...baseExpressions, ...family.expressionKinds]),
-      nodeKinds: new Set([...baseNodes, ...family.nodeKinds]),
-      propertyKeys: new Set(family.propertyKeys),
-    };
-    const baseProfile = {
-      baseNodeKinds: baseNodes,
-      candidateNodeKinds: new Set(),
-      expressionKinds: baseExpressions,
-      nodeKinds: baseNodes,
-      propertyKeys: new Set(),
-    };
-    const newlyComplete = functions.filter((fn) => !completes(baseProfile, fn, profileLimits) &&
-      completes(profile, fn, profileLimits));
-    const tools = new Set(newlyComplete.map(({ tool }) => tool));
-    const occurrences = functions.reduce(
-      (total, fn) => total + fn.nodeOccurrences.filter((kind) => family.nodeKinds.includes(kind)).length +
-        fn.expressionOccurrences.filter((kind) => family.expressionKinds.includes(kind)).length +
-        fn.propertyOccurrences.filter((key) => family.propertyKeys.includes(key)).length,
-      0,
-    );
-    return {
-      completeFunctions: newlyComplete.length,
-      completeTools: tools.size,
-      id: family.id,
-      occurrences,
-      witnesses: newlyComplete.map(({ id }) => id).sort(compareText),
-    };
-  }).sort((left, right) =>
-    right.completeFunctions - left.completeFunctions ||
-    right.completeTools - left.completeTools ||
-    right.occurrences - left.occurrences ||
-    compareText(left.id, right.id),
-  );
-  const winner = ranking[0]?.completeFunctions > 0 ? ranking[0] : null;
-  return { ranking, winner };
+  return rankCanonicalizerFamilies(policy, functions, profileLimits);
 }
 export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
@@ -468,7 +401,9 @@ export function measureCanonicalizerCoverage(policyInput) {
   };
   const receipt = {
     base: policy.base,
-    baseCompleteFunctions: functions.filter((fn) => completes(baseProfile, fn, canonicalizerPolicy.profileLimits)).length,
+    baseCompleteFunctions: functions.filter((fn) =>
+      canonicalizerFunctionCompletes(baseProfile, fn, canonicalizerPolicy.profileLimits),
+    ).length,
     catalogDigest: digest(constitution),
     canonicalizerDigest: digest(evidence.source),
     canonicalizerPolicyDigest: digest(boundCanonicalizerPolicySource),
@@ -483,6 +418,7 @@ export function measureCanonicalizerCoverage(policyInput) {
     format: RECEIPT_FORMAT,
     functionFactsDigest: digest(JSON.stringify(functions)),
     functions,
+    implementationSelectionProvenance: evidence.implementationSelectionProvenance,
     policyDigest: digest(JSON.stringify(policy)),
     profileDigest: digest(PROFILE_SOURCE),
     selection,

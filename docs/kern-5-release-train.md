@@ -1072,6 +1072,23 @@ trusted-publishing/provenance configuration is inspected.
     and the actionable next-slice constraint that the 497-line implementation
     module must be split before expansion. The final exact staged tree passes
     the complete Node 22 `pnpm fitness:kern-5` wall.
+  - [x] M4.3d conditional-selection handoff prerequisite: the exact M4.3c
+    `conditional` winner is frozen as separate canonical, digest-pinned
+    implementation provenance before any KERN corpus change. Receipt and
+    summary format 4 now distinguish the older M4.3a evidence authorizing the
+    promoted binary base from the M4.3c evidence authorizing the next
+    implementation tranche. Pure completion/ranking moved into a dedicated
+    module while the authenticated public wrapper remains fail-closed; the
+    former 497-line implementation owner is now 433 lines. The executable KERN
+    canonicalizer remains exactly 25,892 bytes, the policy remains format 2
+    with profile M4.3c, and live coverage remains four of 99 base-complete with
+    the same conditional winner. The focused canonicalizer gate passes 59
+    tests plus core/CLI builds, composition, semantic, host, and receipt checks.
+    The exact prerequisite tree also passes the complete Node 22
+    `pnpm fitness:kern-5` wall. Its clean-worktree build refreshed the
+    compiled-core receipt binding without any core source diff. Full usable-
+    roster review `review-1784468516053-xupoi8` completed five of six engines
+    with zero verified or needs-check findings; Codex alone was unavailable.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

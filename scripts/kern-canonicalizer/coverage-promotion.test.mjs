@@ -28,9 +28,9 @@ test('M4.3c promotes the measured binary family into one exact cumulative profil
 
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
-  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.3');
+  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.4');
   assert.deepEqual(receipt.base, policy.base);
-  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.3');
+  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.4');
   assert.deepEqual(summary.base, policy.base);
   assert.equal(receipt.selectionProvenance.digest, PROVENANCE_DIGEST);
 });

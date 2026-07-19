@@ -112,7 +112,7 @@
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
   "canonicalizerDigest": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5",
   "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
-  "compiledCoreDigest": "f72c6a7f951807d8b56b89d5106e77509b8c6cb6c2631611818d477ed48a1291",
+  "compiledCoreDigest": "592b39f856f626b9fe89bd8ccbdf8b018f0faf8671f1a6286f6360cb171544d7",
   "composition": {
     "digest": "57a2b21548b4f1e74ee650c9c8d3f182ecced84222570a8ebee55092ec19a065",
     "record": {
@@ -139,13 +139,41 @@
   },
   "corpusMembers": 8,
   "corpusDigest": "8f8e725d79807b22ec9a0db8edfada2dc7123327868b9e8802958ed18412c347",
-  "coverageImplementationDigest": "306d712a9affcb40849746d3d649b3d89c0b58ea6e3dd43e625ddcdfba82be92",
+  "coverageImplementationDigest": "b5e131da82288e1c6de1ec4480c922b702cbe41b052d01310bf45da5fd00f2b4",
   "coveragePolicyDigest": "163629a32b2184f0fb27b6b58e6a95a5ccbcde846371d59d4dc0812d2a666b5c",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
-  "format": "kern.kir-canonicalizer.coverage-summary.3",
+  "format": "kern.kir-canonicalizer.coverage-summary.4",
   "functionCount": 99,
   "functionFactsDigest": "a1a9e58d2811b6876696af2213fc0d7cb474b74bc97c2df7025e12ca17c5d7c9",
+  "implementationSelectionProvenance": {
+    "digest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b",
+    "record": {
+      "format": "kern.kir-canonicalizer.selection-provenance.1",
+      "snapshot": {
+        "corpusMembers": 8,
+        "functionCount": 99,
+        "selection": {
+          "completeFunctions": 2,
+          "completeTools": 1,
+          "id": "conditional",
+          "occurrences": 1115,
+          "witnesses": [
+            "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
+            "examples/capstone-assertion-engine/diag.kern#3:failResult"
+          ]
+        },
+        "toolCount": 4
+      },
+      "source": {
+        "canonicalizerSha256": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5",
+        "commit": "736e2d1237b6d154b7abbf5f853103c459627424",
+        "coveragePolicySha256": "163629a32b2184f0fb27b6b58e6a95a5ccbcde846371d59d4dc0812d2a666b5c",
+        "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.3",
+        "coverageSummarySha256": "2f201a51f1a2d580f6cf4521ebfa6f1a896851edc069bcb20562ecc2f53de8ee"
+      }
+    }
+  },
   "policyDigest": "76a95c6995328f42f109b273db9399a9da0908ee783cbdd25c8dfdd4e7455f41",
   "profileDigest": "c1854492c636d4a3817e70c96c553dec77da6887f7e258f28d71be67f11a30c9",
   "selection": {

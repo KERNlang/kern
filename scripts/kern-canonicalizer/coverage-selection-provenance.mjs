@@ -2,8 +2,16 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const FORMAT = 'kern.kir-canonicalizer.selection-provenance.1';
-const PINNED_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
-const SOURCE = readFileSync(new URL('./coverage-selection-provenance.json', import.meta.url));
+const PROMOTED_SELECTION = Object.freeze({
+  digest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+  label: 'M4.3a selection',
+  source: readFileSync(new URL('./coverage-selection-provenance.json', import.meta.url)),
+});
+const IMPLEMENTATION_SELECTION = Object.freeze({
+  digest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+  label: 'M4.3c implementation selection',
+  source: readFileSync(new URL('./coverage-implementation-selection-provenance.json', import.meta.url)),
+});
 
 function fail(message) {
   throw new TypeError(`selection provenance rejection: ${message}`);
@@ -109,11 +117,19 @@ export function canonicalSelectionProvenanceBytes(input) {
   return Buffer.from(`${JSON.stringify(validateCanonicalizerSelectionProvenance(input), null, 2)}\n`);
 }
 
-export function loadCanonicalizerSelectionProvenance() {
-  const record = validateCanonicalizerSelectionProvenance(JSON.parse(SOURCE.toString('utf8')));
+function loadPinnedSelectionProvenance(pin) {
+  const record = validateCanonicalizerSelectionProvenance(JSON.parse(pin.source.toString('utf8')));
   const canonical = canonicalSelectionProvenanceBytes(record);
-  if (!SOURCE.equals(canonical)) fail('checked-in provenance must use canonical JSON bytes');
+  if (!pin.source.equals(canonical)) fail('checked-in provenance must use canonical JSON bytes');
   const digest = createHash('sha256').update(canonical).digest('hex');
-  if (digest !== PINNED_DIGEST) fail('checked-in provenance differs from the frozen M4.3a selection');
+  if (digest !== pin.digest) fail(`checked-in provenance differs from the frozen ${pin.label}`);
   return { digest, record };
+}
+
+export function loadCanonicalizerSelectionProvenance() {
+  return loadPinnedSelectionProvenance(PROMOTED_SELECTION);
+}
+
+export function loadCanonicalizerImplementationSelectionProvenance() {
+  return loadPinnedSelectionProvenance(IMPLEMENTATION_SELECTION);
 }

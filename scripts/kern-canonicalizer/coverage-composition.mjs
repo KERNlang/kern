@@ -4,7 +4,10 @@ import {
   canonicalCompositionRecordBytes,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { loadCanonicalizerSelectionProvenance } from './coverage-selection-provenance.mjs';
+import {
+  loadCanonicalizerImplementationSelectionProvenance,
+  loadCanonicalizerSelectionProvenance,
+} from './coverage-selection-provenance.mjs';
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -18,6 +21,7 @@ export function loadCanonicalizerCoverageEvidence() {
       digest: digest(canonicalCompositionRecordBytes(verified.record)),
       record: verified.record,
     },
+    implementationSelectionProvenance: loadCanonicalizerImplementationSelectionProvenance(),
     selectionProvenance: loadCanonicalizerSelectionProvenance(),
     source: verified.compositeBytes,
   };

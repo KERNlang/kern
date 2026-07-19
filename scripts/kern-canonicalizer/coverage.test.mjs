@@ -58,7 +58,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   const first = measureCanonicalizerCoverage(policy);
   const second = measureCanonicalizerCoverage(policy);
   assert.deepEqual(second, first);
-  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.3');
+  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.4');
   const composition = verifyCanonicalizerComposition();
   assert.deepEqual(first.composition.record, composition.record);
   assert.equal(
@@ -82,6 +82,25 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
         'examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch',
         'examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch',
         'examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch',
+      ],
+    },
+    toolCount: 4,
+  });
+  assert.equal(
+    first.implementationSelectionProvenance.digest,
+    'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+  );
+  assert.deepEqual(first.implementationSelectionProvenance.record.snapshot, {
+    corpusMembers: 8,
+    functionCount: 99,
+    selection: {
+      completeFunctions: 2,
+      completeTools: 1,
+      id: 'conditional',
+      occurrences: 1115,
+      witnesses: [
+        'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
+        'examples/capstone-assertion-engine/diag.kern#3:failResult',
       ],
     },
     toolCount: 4,
