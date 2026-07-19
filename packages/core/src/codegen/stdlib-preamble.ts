@@ -32,6 +32,7 @@ import { KERN_POWER_HELPER_TS_NAME, portablePowerHelperTS } from '../portable-po
 import type { IRNode } from '../types.js';
 import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
+import { emittedCodeCallsIdentifier } from './emitted-helper-call.js';
 import { findTypeScriptSfcScriptBlock } from './sfc-script.js';
 import { textOpsHelpersTS } from './text-contract.js';
 
@@ -151,8 +152,8 @@ export function emittedCodeUsesTextOps(code: string): boolean {
 }
 
 /** Detection equals emission for the private checked-power call site. */
-export function emittedCodeUsesPower(code: string): boolean {
-  return code.includes(`${KERN_POWER_HELPER_TS_NAME}(`);
+export function emittedCodeUsesPower(code: string, sourceKind: 'ts' | 'tsx' = 'ts'): boolean {
+  return emittedCodeCallsIdentifier(code, KERN_POWER_HELPER_TS_NAME, sourceKind);
 }
 
 /** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and

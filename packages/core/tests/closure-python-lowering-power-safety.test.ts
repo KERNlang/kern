@@ -10,12 +10,12 @@ describe('closure Python lowering generated-helper safety', () => {
     exitBlockScope: () => {},
   };
 
-  test('validates a bare for-of assignment target before it becomes a Python binding', () => {
+  test.each([
+    ['bare assignment', 'for (_kern_pow_int of values)'],
+    ['declared local', 'for (const _kern_pow_int of values)'],
+  ])('validates a %s for-of target before it becomes a Python binding', (_label, loopHeader) => {
     expect(() =>
-      lowerJsClosureBodyToPython(
-        '{ for (_kern_pow_int of values) { total += 1; } return total; }',
-        reservedPowerBindingOptions,
-      ),
+      lowerJsClosureBodyToPython(`{ ${loopHeader} { total += 1; } return total; }`, reservedPowerBindingOptions),
     ).toThrow('reserved checked-power helper');
   });
 
@@ -26,5 +26,28 @@ describe('closure Python lowering generated-helper safety', () => {
         reservedPowerBindingOptions,
       ),
     ).toThrow('reserved checked-power helper');
+  });
+
+  test('normalizes accepted TypeScript-only expression syntax before consumer lowering', () => {
+    const loweredExpressions: string[] = [];
+    const loweredConditions: string[] = [];
+    const result = lowerJsClosureBodyToPython(
+      '{ const seen = new Set<string>(); if ((seen.size satisfies number) > 0) { return load<number>(seen); } return 0; }',
+      {
+        ...reservedPowerBindingOptions,
+        lowerExpression: (source) => {
+          loweredExpressions.push(source);
+          return source;
+        },
+        lowerCondition: (source) => {
+          loweredConditions.push(source);
+          return source;
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(loweredExpressions).toEqual(['new Set()', 'load(seen)', '0']);
+    expect(loweredConditions).toEqual(['(seen.size) > 0']);
   });
 });

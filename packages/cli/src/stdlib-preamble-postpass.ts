@@ -3,7 +3,6 @@ import {
   assertNotPortablePowerHelperBinding,
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
-  emittedCodeUsesPower,
   emittedCodeUsesTextOps,
   findTypeScriptSfcScriptBlock,
   injectKernStdlibPreamble,
@@ -11,7 +10,11 @@ import {
   KERN_POWER_HELPER_TS_NAME,
   kernStdlibPreamble,
 } from '@kernlang/core';
-import { typescriptCodeBindsOrWritesIdentifier } from './typescript-generated-helper-safety.js';
+import { getOutputExtension } from './target-output-extension.js';
+import {
+  analyzeTypeScriptGeneratedHelperUsage,
+  type TypeScriptGeneratedSourceKind,
+} from './typescript-generated-helper-safety.js';
 
 const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
   'lib',
@@ -45,10 +48,16 @@ function powerBearingTypeScript(code: string, isSfc: boolean): string {
   return findTypeScriptSfcScriptBlock(code)?.content ?? '';
 }
 
-function injectForOutput(code: string, isSfc: boolean, sharedUsage: KernStdlibUsage): string {
+function injectForOutput(
+  code: string,
+  isSfc: boolean,
+  sharedUsage: KernStdlibUsage,
+  sourceKind: TypeScriptGeneratedSourceKind,
+): string {
   const emittedTypeScript = powerBearingTypeScript(code, isSfc);
-  const power = emittedCodeUsesPower(emittedTypeScript);
-  if (power && typescriptCodeBindsOrWritesIdentifier(emittedTypeScript, KERN_POWER_HELPER_TS_NAME)) {
+  const helperUsage = analyzeTypeScriptGeneratedHelperUsage(emittedTypeScript, KERN_POWER_HELPER_TS_NAME, sourceKind);
+  const power = helperUsage.calls;
+  if (power && helperUsage.bindsOrWrites) {
     assertNotPortablePowerHelperBinding(KERN_POWER_HELPER_TS_NAME);
   }
   const preamble = kernStdlibPreamble({ ...sharedUsage, power });
@@ -82,13 +91,15 @@ export function applyKernStdlibPreamble(ast: IRNode, target: KernTarget, result:
     usage.textOps = true;
   }
 
-  const updatedCode = injectForOutput(result.code, isSfcTarget, usage);
+  const mainSourceKind: TypeScriptGeneratedSourceKind = getOutputExtension(target) === '.tsx' ? 'tsx' : 'ts';
+  const updatedCode = injectForOutput(result.code, isSfcTarget, usage, mainSourceKind);
   const updatedArtifacts = result.artifacts?.map((artifact) => {
     if (isSfcArtifactPath(artifact.path)) {
-      return { ...artifact, content: injectForOutput(artifact.content, true, usage) };
+      return { ...artifact, content: injectForOutput(artifact.content, true, usage, 'ts') };
     }
     if (isTsArtifactPath(artifact.path)) {
-      return { ...artifact, content: injectForOutput(artifact.content, false, usage) };
+      const sourceKind: TypeScriptGeneratedSourceKind = artifact.path.endsWith('.tsx') ? 'tsx' : 'ts';
+      return { ...artifact, content: injectForOutput(artifact.content, false, usage, sourceKind) };
     }
     return artifact;
   });

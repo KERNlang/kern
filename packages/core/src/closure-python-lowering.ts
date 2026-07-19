@@ -4,6 +4,7 @@ import {
   CLOSURE_ASSIGN_OPERATORS,
   parseClosureBlockAst,
 } from './closure-eligibility.js';
+import { normalizeClosureExpressionSource } from './closure-expression-normalize.js';
 
 export interface LowerJsClosureBodyToPythonOptions {
   lowerExpression(expr: string): string;
@@ -97,8 +98,7 @@ export function lowerJsClosureBodyToPython(
   opts: LowerJsClosureBodyToPythonOptions,
 ): LowerJsClosureBodyToPythonResult {
   // Shared block parse — single source of truth with the v1 closure gate
-  // (`closure-eligibility.ts`). The block carries its own SourceFile (created
-  // with parent nodes), which we need for `expr.getText(sf)`.
+  // (`closure-eligibility.ts`).
   const block = parseClosureBlockAst(body);
   if (!block)
     return {
@@ -107,7 +107,6 @@ export function lowerJsClosureBodyToPython(
       reason: 'parse',
       writtenFreeNames: new Set(),
     };
-  const sf = block.getSourceFile();
   if (hasUnsupportedNestedConstruct(block))
     return {
       ok: false,
@@ -116,9 +115,11 @@ export function lowerJsClosureBodyToPython(
       writtenFreeNames: new Set(),
     };
 
-  const lowerExpr = (expr: ts.Expression): string => opts.lowerExpression(expr.getText(sf));
+  const lowerExpr = (expr: ts.Expression): string => opts.lowerExpression(normalizeClosureExpressionSource(ts, expr));
   const lowerCond = (expr: ts.Expression): string =>
-    opts.lowerCondition ? opts.lowerCondition(expr.getText(sf)) : `js_truthy(${lowerExpr(expr)})`;
+    opts.lowerCondition
+      ? opts.lowerCondition(normalizeClosureExpressionSource(ts, expr))
+      : `js_truthy(${lowerExpr(expr)})`;
 
   // A bare-identifier write needs `nonlocal` (it is FREE) only when its name is
   // neither a closure PARAM nor a block-LOCAL declared inside the body. Collect

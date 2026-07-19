@@ -134,6 +134,19 @@ describe('portable exponentiation runtime contract', () => {
     }
   });
 
+  test('generated helpers cannot be rebound through direct eval', () => {
+    const transpiled = ts.transpileModule(portablePowerHelperTS(), {
+      compilerOptions: { module: ts.ModuleKind.None, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+
+    for (const helperSource of [KERN_POWER_HELPER_JS, transpiled]) {
+      const result = Function(
+        `${helperSource}\ntry { eval("__kern_pow_int = () => 7"); } catch {}\nreturn __kern_pow_int([2, 3]);`,
+      )();
+      expect(result).toBe(8);
+    }
+  });
+
   test('generated TS helper does not resolve safety intrinsics through authored module bindings', () => {
     const shadowed = Function(
       [

@@ -121,7 +121,7 @@ function renderPowerHelper(typed: boolean): string {
   const finalResult = typed ? '  return result as number;' : '  return result;';
 
   return [
-    `function ${KERN_POWER_HELPER_TS_NAME}(${operandsParam})${numberReturn} {`,
+    `const ${KERN_POWER_HELPER_TS_NAME} = (${operandsParam})${numberReturn} => {`,
     '  const maxSafe = 9007199254740991;',
     `  const fail = (${stringParam})${failReturn} => { throw { name: 'Error', message }; };`,
     `  const isSafeInteger = (${valueParam})${integerReturn} =>`,
@@ -155,7 +155,7 @@ function renderPowerHelper(typed: boolean): string {
     '    result = power(operands[index], result);',
     '  }',
     finalResult,
-    '}',
+    '};',
   ].join('\n');
 }
 

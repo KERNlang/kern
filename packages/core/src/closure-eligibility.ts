@@ -45,6 +45,7 @@
  *  Widening the gate is a future slice. */
 
 import ts from 'typescript';
+import { normalizeClosureExpressionSource } from './closure-expression-normalize.js';
 import { classifyRegexLiteralAccessFailClose, REGEX_HOST_REGEXP_FAILCLOSE } from './codegen/regex-normalize.js';
 
 /** Memoize parsed blocks. Keyed by the raw (trimmed) source. A `null` value is
@@ -88,42 +89,65 @@ export function analyzeClosurePowerRewrite(raw: string): ClosurePowerRewritePlan
 
   const isPower = (node: ts.Node): node is ts.BinaryExpression =>
     ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken;
-  const hasPowerParent = (node: ts.BinaryExpression): boolean => {
-    let parent: ts.Node | undefined = node.parent;
+  const writeIdentifier = (target: ts.Expression): ts.Identifier | undefined => {
+    let current = target;
     while (
-      parent &&
-      (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isNonNullExpression(parent))
+      ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isNonNullExpression(current)
     ) {
-      parent = parent.parent;
+      current = current.expression;
     }
-    return parent !== undefined && isPower(parent);
+    return ts.isIdentifier(current) ? current : undefined;
   };
-  const visit = (node: ts.Node): void => {
+  const stack: Array<{ node: ts.Node; beneathSelectedPower: boolean }> = [];
+  const pushChildren = (node: ts.Node, beneathSelectedPower: boolean): void => {
+    const children: ts.Node[] = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({ node: children[index], beneathSelectedPower });
+    }
+  };
+  pushChildren(block, false);
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) continue;
+    const { node, beneathSelectedPower } = entry;
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) writtenNames.add(node.name.text);
     if (ts.isBinaryExpression(node)) {
       const op = node.operatorToken.kind;
-      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment && ts.isIdentifier(node.left)) {
-        writtenNames.add(node.left.text);
+      const target = writeIdentifier(node.left);
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment && target) {
+        writtenNames.add(target.text);
       }
     }
     if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
-      (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) &&
-      ts.isIdentifier(node.operand)
+      (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)
     ) {
-      writtenNames.add(node.operand.text);
+      const target = writeIdentifier(node.operand);
+      if (target) writtenNames.add(target.text);
     }
-    if (isPower(node) && !hasPowerParent(node)) {
+    if ((ts.isForInStatement(node) || ts.isForOfStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) {
+      const target = writeIdentifier(node.initializer);
+      if (target) writtenNames.add(target.text);
+    }
+    const selectedPower = isPower(node) && !beneathSelectedPower;
+    if (selectedPower) {
       expressions.push({
         start: node.getStart(sourceFile) - blockStart,
         end: node.getEnd() - blockStart,
-        source: node.getText(sourceFile),
+        source: normalizeClosureExpressionSource(ts, node),
       });
-      return;
     }
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(block, visit);
+    // Descendants of a selected outer power are still scanned for bindings and
+    // writes, but they must not become overlapping rewrite spans themselves.
+    pushChildren(node, beneathSelectedPower || selectedPower);
+  }
   return {
     leading,
     trailing,
@@ -136,7 +160,12 @@ export function analyzeClosurePowerRewrite(raw: string): ClosurePowerRewritePlan
 function parseClosureBlockUncached(trimmed: string): ts.Block | null {
   if (trimmed.length < 2 || trimmed[0] !== '{' || trimmed[trimmed.length - 1] !== '}') return null;
   const source = `function __kern_closure__() ${trimmed}`;
-  const sf = ts.createSourceFile('__kern_closure__.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let sf: ts.SourceFile;
+  try {
+    sf = ts.createSourceFile('__kern_closure__.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  } catch {
+    return null;
+  }
   const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
   if (diags && diags.length > 0) return null;
   const fn = sf.statements[0];
@@ -716,11 +745,12 @@ function elementAccessMemberLabel(argument: ts.Expression | undefined): string {
   return argument && ts.isStringLiteralLike(argument) ? argument.text : '[computed]';
 }
 
-/** Collect the raw source text of every CALL expression nested anywhere in a
+/** Collect normalized runtime source for every CALL expression nested in a
  *  closure block, via the shared TS AST (`parseClosureBlockAst`) — never a
- *  string scan. Returned to consumers that re-parse each call into their own
- *  IR (the TS body emitter's bound-regex-method fail-close), so those callers
- *  need no static `typescript` import of their own. Keeping the `ts` AST walk
+ *  string scan. Runtime-no-op TypeScript syntax and comments are removed before
+ *  consumers re-parse each call into their own IR (the TS body emitter's
+ *  bound-regex-method fail-close), so those callers need no static `typescript`
+ *  import of their own. Keeping the `ts` AST walk
  *  quarantined in this Node-only module is what keeps `body-ts.js` OFF the
  *  browser-spine TS-importer pin (`browser-spine-import-graph.test.ts`). A
  *  parse failure yields an empty list (the gate already rejected such bodies,
@@ -729,11 +759,18 @@ export function collectClosureBlockCallTexts(raw: string): string[] {
   const block = parseClosureBlockAst(raw);
   if (block === null) return [];
   const texts: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) texts.push(node.getText());
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(block, visit);
+  const nodes: ts.Node[] = [];
+  ts.forEachChild(block, (child) => {
+    nodes.push(child);
+  });
+  while (nodes.length > 0) {
+    const node = nodes.pop();
+    if (!node) continue;
+    if (ts.isCallExpression(node)) texts.push(normalizeClosureExpressionSource(ts, node));
+    ts.forEachChild(node, (child) => {
+      nodes.push(child);
+    });
+  }
   return texts;
 }
 
