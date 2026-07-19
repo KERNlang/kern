@@ -104,6 +104,12 @@ it must not assume all promotion rows cite one historical record.
       statement children remain constrained by the shared statement grammar
       and terminal-return rules, empty promoted conditionals are intentional,
       and catalog-derived property keys plus coverage closure detect drift.
+- [x] Review-driven hardening centralizes recursive statement classification,
+      rejects duplicate provenance-family ids explicitly, restores both prior
+      policy mutations, and tightens the implementation ratchet to 450 lines.
+      The focused gate passes again and targeted review
+      `review-1784473453151-59d825-kern-5-r2-m4-5-review-hardening` reports no
+      verified finding.
 - [ ] Signed commit is fetched/rebased before one verified push.
 
 ## Stop Conditions

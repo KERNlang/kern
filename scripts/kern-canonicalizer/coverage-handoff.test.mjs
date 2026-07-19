@@ -86,7 +86,7 @@ test('M4.5 promotes conditional without changing the exact M4.4 KERN capability'
   );
   assert.equal(implementationSource.includes('function completes('), false);
   assert.match(selectionSource, /export function rankCanonicalizerFamilies/u);
-  assert.ok(implementationSource.split('\n').length - 1 < 500);
+  assert.ok(implementationSource.split('\n').length - 1 < 450);
   assert.equal(
     canonicalizerSource.length,
     30866,

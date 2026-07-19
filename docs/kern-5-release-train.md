@@ -1131,9 +1131,13 @@ trusted-publishing/provenance configuration is inspected.
     canonicalizer proof. Exact-tree review `review-1784472947300-f8nh4e`
     completed five of six engines with zero verified findings; Codex exhausted
     its account limit. All five needs-check claims were disproven against the
-    exact cumulative profile and catalog-closure contracts. The
-    capability/evidence gate is closed; signed commit, rebase, and verified
-    push remain external publication actions.
+    exact cumulative profile and catalog-closure contracts. Review-driven
+    hardening then centralized recursive-statement classification, added an
+    explicit duplicate-provenance guard, restored prior mutations, and passed
+    the focused gate plus targeted review
+    `review-1784473453151-59d825-kern-5-r2-m4-5-review-hardening`. The
+    capability/evidence gate is closed; signed follow-up commit, rebase, and
+    verified push remain external publication actions.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

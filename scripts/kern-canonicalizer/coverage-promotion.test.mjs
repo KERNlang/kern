@@ -49,11 +49,14 @@ test('M4.5 rejects profile identity, facts, evidence, and candidate overlap drif
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.1'; },
     (copy) => { copy.base.future = true; },
     (copy) => { copy.base.id = 'kern.kir-canonicalizer.profile.future'; },
+    (copy) => { copy.base.expressionKinds.shift(); },
     (copy) => { copy.base.nodeKinds.shift(); },
     (copy) => { copy.base.promotions.pop(); },
+    (copy) => { copy.base.promotions[0].selectionProvenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[1].selectionProvenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions.reverse(); },
     (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
+    (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
     (copy) => {
       copy.families.unshift({
         expressionKinds: [],
@@ -89,6 +92,9 @@ test('the promoted conditional profile rejects malformed shape and pairing', () 
     type: 'fn',
   };
   assert.deepEqual(profileBlockersForFunction(functionRoot, policy.base), []);
+  const standalone = structuredClone(functionRoot);
+  standalone.children[0].children = [standalone.children[0].children[0], returned('2')];
+  assert.deepEqual(profileBlockersForFunction(standalone, policy.base), []);
 
   const mutations = [
     (copy) => { delete copy.children[0].children[0].props.cond; },

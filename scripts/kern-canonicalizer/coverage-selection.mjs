@@ -1,6 +1,9 @@
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 
-import { handlerChildProfilesComplete } from './coverage-profile.mjs';
+import {
+  handlerChildProfilesComplete,
+  recursiveStatementNodeKinds,
+} from './coverage-profile.mjs';
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -48,9 +51,7 @@ export function canonicalizerFunctionCompletes(profile, fn, profileLimits) {
 export function rankCanonicalizerFamilies(policy, functions, profileLimits) {
   const baseNodes = new Set(policy.base.nodeKinds);
   const baseExpressions = new Set(policy.base.expressionKinds);
-  const baseStatementNodes = new Set(
-    policy.base.nodeKinds.filter((kind) => !['fn', 'handler', 'param', 'return'].includes(kind)),
-  );
+  const baseStatementNodes = new Set(recursiveStatementNodeKinds(policy.base.nodeKinds));
   const baseProfile = {
     baseNodeKinds: baseNodes,
     expressionKinds: baseExpressions,

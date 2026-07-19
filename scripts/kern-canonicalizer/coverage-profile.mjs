@@ -52,6 +52,10 @@ const PROFILE_ROW_KEYS = ['nodes', 'properties', 'values'];
 const STATEMENT_CONTAINERS = new Set(['else', 'for', 'handler', 'if', 'while']);
 const STATEMENT_KINDS = new Set(['assign', 'do', 'else', 'for', 'if', 'let', 'return', 'throw', 'while']);
 
+export function recursiveStatementNodeKinds(nodeKinds) {
+  return nodeKinds.filter((kind) => kind !== 'return' && STATEMENT_KINDS.has(kind));
+}
+
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }

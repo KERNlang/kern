@@ -24,6 +24,7 @@ import {
   canonicalProfileRowsForFunction,
   firstUnsupportedByAuthoredOrder,
   handlerChildProfilesForFunction,
+  recursiveStatementNodeKinds,
   validateCoverageBase,
 } from './coverage-profile.mjs';
 import { canonicalizerPolicySource, loadCanonicalizerPolicy } from './policy.mjs';
@@ -364,10 +365,14 @@ export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
-  const promotionEvidence = new Map([
+  const promotionProvenances = [
     evidence.selectionProvenance,
     evidence.implementationSelectionProvenance,
-  ].map((provenance) => [provenance.record.snapshot.selection.id, provenance]));
+  ];
+  const promotionEvidence = new Map(
+    promotionProvenances.map((provenance) => [provenance.record.snapshot.selection.id, provenance]),
+  );
+  if (promotionEvidence.size !== promotionProvenances.length) fail('promotion evidence must select unique families');
   for (const promotion of policy.base.promotions) {
     const provenance = promotionEvidence.get(promotion.family);
     if (
@@ -402,9 +407,7 @@ export function measureCanonicalizerCoverage(policyInput) {
     expressionKinds: new Set(policy.base.expressionKinds),
     nodeKinds: new Set(policy.base.nodeKinds),
     propertyKeys: new Set(),
-    statementNodeKinds: new Set(
-      policy.base.nodeKinds.filter((kind) => !['fn', 'handler', 'param', 'return'].includes(kind)),
-    ),
+    statementNodeKinds: new Set(recursiveStatementNodeKinds(policy.base.nodeKinds)),
   };
   const receipt = {
     base: policy.base,
