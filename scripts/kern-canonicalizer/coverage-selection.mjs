@@ -7,7 +7,7 @@ function compareText(left, right) {
 }
 
 function candidateCatalogRequirementsComplete(profile, fn) {
-  return [...profile.candidateNodeKinds].every((kind) => {
+  return [...profile.statementNodeKinds].every((kind) => {
     const nodeCount = fn.nodeOccurrences.filter((observed) => observed === kind).length;
     if (nodeCount === 0) return true;
     const contract = STRUCTURAL_KIR_NODE_CATALOG.get(kind);
@@ -48,20 +48,23 @@ export function canonicalizerFunctionCompletes(profile, fn, profileLimits) {
 export function rankCanonicalizerFamilies(policy, functions, profileLimits) {
   const baseNodes = new Set(policy.base.nodeKinds);
   const baseExpressions = new Set(policy.base.expressionKinds);
+  const baseStatementNodes = new Set(
+    policy.base.nodeKinds.filter((kind) => !['fn', 'handler', 'param', 'return'].includes(kind)),
+  );
   const baseProfile = {
     baseNodeKinds: baseNodes,
-    candidateNodeKinds: new Set(),
     expressionKinds: baseExpressions,
     nodeKinds: baseNodes,
     propertyKeys: new Set(),
+    statementNodeKinds: baseStatementNodes,
   };
   const ranking = policy.families.map((family) => {
     const profile = {
       baseNodeKinds: baseNodes,
-      candidateNodeKinds: new Set(family.nodeKinds),
       expressionKinds: new Set([...baseExpressions, ...family.expressionKinds]),
       nodeKinds: new Set([...baseNodes, ...family.nodeKinds]),
       propertyKeys: new Set(family.propertyKeys),
+      statementNodeKinds: new Set([...baseStatementNodes, ...family.nodeKinds]),
     };
     const newlyComplete = functions.filter((fn) =>
       !canonicalizerFunctionCompletes(baseProfile, fn, profileLimits) &&

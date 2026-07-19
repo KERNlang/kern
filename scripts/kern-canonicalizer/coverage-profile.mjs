@@ -24,15 +24,23 @@ const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
   'binary', 'boolean', 'identifier', 'integer', 'list', 'null', 'text',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.3c';
-const BASE_PROMOTIONS = [{
-  family: 'binary-expression',
-  selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
-}];
-const BASE_NODE_KINDS = ['fn', 'handler', 'param', 'return'];
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5';
+const BASE_PROMOTIONS = [
+  {
+    family: 'binary-expression',
+    selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+  },
+  {
+    family: 'conditional',
+    selectionProvenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+  },
+];
+const BASE_NODE_KINDS = ['else', 'fn', 'handler', 'if', 'param', 'return'];
 const BASE_PROPERTIES = Object.freeze({
+  else: { optional: [], required: [] },
   fn: { optional: ['export'], required: ['name', 'returns'] },
   handler: { optional: [], required: ['lang'] },
+  if: { optional: [], required: ['cond'] },
   param: { optional: [], required: ['name', 'type'] },
   return: { optional: ['value'], required: [] },
 });
@@ -60,7 +68,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.3c cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.5 cumulative profile');
   }
   return base;
 }
@@ -281,7 +289,7 @@ function collectProfileBlockersForFunction(root, base, profileLimits, profileRow
   const allKindsAreBase = nodes.every(({ type }) => base.nodeKinds.includes(type));
   for (const handler of nodes.filter(({ type }) => type === 'handler')) {
     if (handler.props?.lang !== 'kern') add('handler.properties.lang.value', handler);
-    if (allKindsAreBase && ((handler.children?.length ?? 0) !== 1 || handler.children[0]?.type !== 'return')) {
+    if (allKindsAreBase && (handler.children?.length ?? 0) === 0) {
       add('handler.children', handler);
     }
   }
@@ -374,10 +382,10 @@ export function handlerChildProfilesComplete(profile, profiles) {
     if (!Array.isArray(childKinds)) return false;
     if (childKinds.length === 1 && childKinds[0] === 'return') return true;
     if (
-      profile.candidateNodeKinds.size === 0 ||
+      profile.statementNodeKinds.size === 0 ||
       childKinds.length === 0 ||
-      !childKinds.some((kind) => profile.candidateNodeKinds.has(kind)) ||
-      !childKinds.every((kind) => kind === 'return' || profile.candidateNodeKinds.has(kind))
+      !childKinds.some((kind) => profile.statementNodeKinds.has(kind)) ||
+      !childKinds.every((kind) => kind === 'return' || profile.statementNodeKinds.has(kind))
     ) return false;
     const returnIndexes = childKinds.flatMap((kind, index) => kind === 'return' ? [index] : []);
     if (returnIndexes.length > 1 || (returnIndexes.length === 1 && returnIndexes[0] !== childKinds.length - 1)) {

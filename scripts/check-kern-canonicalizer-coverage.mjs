@@ -45,25 +45,31 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.3c implementation selection provenance must remain exact');
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.3c');
-  assert.deepEqual(actual.base.promotions, [{
-    family: 'binary-expression',
-    selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
-  }], 'M4.3c must cite the frozen binary selection');
-  assert.equal(actual.corpusMembers, 9, 'live M4.3d handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.3d authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.3d tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 4, 'binary promotion must complete exactly four base functions');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.5');
+  assert.deepEqual(actual.base.promotions, [
+    {
+      family: 'binary-expression',
+      selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+    },
+    {
+      family: 'conditional',
+      selectionProvenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+    },
+  ], 'M4.5 must cite the frozen binary and conditional selections');
+  assert.equal(actual.corpusMembers, 9, 'live M4.5 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.5 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.5 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 6, 'conditional promotion must complete exactly six base functions');
   assert.deepEqual(actual.selection.winner, {
     completeFunctions: 2,
     completeTools: 1,
-    id: 'conditional',
-    occurrences: 1140,
+    id: 'call-expression',
+    occurrences: 481,
     witnesses: [
-      'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
-      'examples/capstone-assertion-engine/diag.kern#3:failResult',
+      'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
+      'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
     ],
-  }, 'live M4.3d conditional measurement must remain exact and unpromoted');
+  }, 'live M4.5 call-expression measurement must remain exact and unimplemented');
   assertCoverageSummary(summaryUrl, actual);
 }
 const leadingBlocker = actual.blockers[0];

@@ -364,10 +364,15 @@ export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
+  const promotionEvidence = new Map([
+    evidence.selectionProvenance,
+    evidence.implementationSelectionProvenance,
+  ].map((provenance) => [provenance.record.snapshot.selection.id, provenance]));
   for (const promotion of policy.base.promotions) {
+    const provenance = promotionEvidence.get(promotion.family);
     if (
-      promotion.family !== evidence.selectionProvenance.record.snapshot.selection.id ||
-      promotion.selectionProvenanceDigest !== evidence.selectionProvenance.digest
+      provenance === undefined ||
+      promotion.selectionProvenanceDigest !== provenance.digest
     ) fail('base promotion must cite the authenticated selection provenance');
   }
   const canonicalizerPolicy = loadCanonicalizerPolicy();
@@ -394,10 +399,12 @@ export function measureCanonicalizerCoverage(policyInput) {
   const boundCanonicalizerPolicySource = canonicalizerPolicySource();
   const baseProfile = {
     baseNodeKinds: new Set(policy.base.nodeKinds),
-    candidateNodeKinds: new Set(),
     expressionKinds: new Set(policy.base.expressionKinds),
     nodeKinds: new Set(policy.base.nodeKinds),
     propertyKeys: new Set(),
+    statementNodeKinds: new Set(
+      policy.base.nodeKinds.filter((kind) => !['fn', 'handler', 'param', 'return'].includes(kind)),
+    ),
   };
   const receipt = {
     base: policy.base,

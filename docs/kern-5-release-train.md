@@ -1111,6 +1111,29 @@ trusted-publishing/provenance configuration is inspected.
     intentionally pending publication step. The capability/evidence gate is
     closed; signed commit, rebase, and verified push remain external
     publication actions. M4.5 owns promotion and remeasurement.
+  - [x] M4.5 conditional-profile promotion and remeasurement: the exact
+    cumulative `kern.kir-canonicalizer.profile.m4.5` base adds `if`, `else`,
+    and `if.cond`, citing both immutable causal records: M4.3a for binary and
+    M4.3c for conditional. Conditional is removed from active candidates;
+    every promotion is authenticated by family plus digest. Base and candidate
+    completion now share the promoted recursive statement profile rather than
+    treating all non-return statements as perpetually candidate-only. The
+    unchanged nine-member/104-function corpus measures six base-complete
+    functions and selects `call-expression`: two functions, one tool, 481
+    occurrences, with witnesses `pathAppendIndex` and
+    `reasonLengthMismatch`. No call implementation is included. The focused
+    Node 22 gate passes 61 Node tests, 18 golden fixtures, five witnesses,
+    three profile-limit fixtures, and 128 hostile fixtures. The exact tree also
+    passes the complete Node 22 `pnpm fitness:kern-5` wall, including 432
+    cross-target fixtures, 109 class fixtures, 48 checker-subset fixtures, 39
+    validator verdicts, 40 whole-app fixtures on three legs, browser budget,
+    KIR seam/export guards, source-runner convergence, and the repeated
+    canonicalizer proof. Exact-tree review `review-1784472947300-f8nh4e`
+    completed five of six engines with zero verified findings; Codex exhausted
+    its account limit. All five needs-check claims were disproven against the
+    exact cumulative profile and catalog-closure contracts. The
+    capability/evidence gate is closed; signed commit, rebase, and verified
+    push remain external publication actions.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

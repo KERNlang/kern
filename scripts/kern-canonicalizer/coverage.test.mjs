@@ -140,23 +140,22 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     14,
   );
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 96);
-  assert.equal(first.baseCompleteFunctions, 4);
+  assert.equal(first.baseCompleteFunctions, 6);
   assert.deepEqual(first.selection.winner, {
     completeFunctions: 2,
     completeTools: 1,
-    id: 'conditional',
-    occurrences: 1140,
+    id: 'call-expression',
+    occurrences: 481,
     witnesses: [
-      'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
-      'examples/capstone-assertion-engine/diag.kern#3:failResult',
+      'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
+      'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
     ],
   });
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+    [2, 0, 0, 0, 0, 0, 0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'conditional',
     'call-expression',
     'binding',
     'index-expression',
