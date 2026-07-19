@@ -1043,6 +1043,35 @@ trusted-publishing/provenance configuration is inspected.
     zero findings from Claude and Antigravity; Codex exhausted its account
     limit after retry, leaving a recorded 2/3 routing shortfall rather than a
     silently reduced roster.
+  - [x] M4.3c binary-profile promotion and remeasurement: coverage-policy
+    format 2 names the exact cumulative
+    `kern.kir-canonicalizer.profile.m4.3c` base, promotes binary through the
+    digest-pinned M4.3a selection provenance, and removes
+    `binary-expression` from active candidates without changing the frozen
+    family registry. Receipt/summary format 3 exposes the validated base and
+    fails closed on profile identity, fact, evidence, candidate-overlap, and
+    checked-in byte drift. Promoted binary shape and all 24 operators are
+    validated through the authoritative structural-expression validator. The
+    remeasurement reports four of 99 functions base-complete and selects
+    `conditional`: two newly complete assertion-engine functions, one tool,
+    1,115 occurrences, and witnesses `pathAppendKey` and `failResult`;
+    `call-expression` ranks second with the same function/tool score and 454
+    occurrences. No second family is implemented. The focused gate passes 56
+    Node tests plus core/CLI builds, composition, semantic, host, and receipt
+    checks. Exact staged review
+    `review-1784463482337-0745ow-kern-5-r2-m4-3c-terminal-exact` found one real
+    stale implementation digest after a final source-byte cleanup; receipt
+    regeneration and the repeated focused gate fixed it. Post-fix review
+    `review-1784463782524-6v723f-kern-5-r2-m4-3c-post-fix-exact` completed
+    Claude and Antigravity with no verified actionable finding; Codex exhausted
+    its account limit, leaving an explicit 2/3 routing shortfall. Final
+    slice-only full-usable-roster review
+    `review-1784464773863-hra3ka-kern-5-r2-m4-3c-terminal-full-ro` completed
+    five of six engines with zero verified material findings; Codex alone was
+    unavailable. Its only important notes were non-blocking ranking-loop cost
+    and the actionable next-slice constraint that the 497-line implementation
+    module must be split before expansion. The final exact staged tree passes
+    the complete Node 22 `pnpm fitness:kern-5` wall.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -58,7 +58,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   const first = measureCanonicalizerCoverage(policy);
   const second = measureCanonicalizerCoverage(policy);
   assert.deepEqual(second, first);
-  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.2');
+  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.3');
   const composition = verifyCanonicalizerComposition();
   assert.deepEqual(first.composition.record, composition.record);
   assert.equal(
@@ -121,27 +121,26 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     14,
   );
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 91);
+  assert.equal(first.baseCompleteFunctions, 4);
   assert.deepEqual(first.selection.winner, {
-    completeFunctions: 3,
+    completeFunctions: 2,
     completeTools: 1,
-    id: 'binary-expression',
-    occurrences: 1002,
+    id: 'conditional',
+    occurrences: 1115,
     witnesses: [
-      'examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch',
-      'examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch',
-      'examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch',
+      'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
+      'examples/capstone-assertion-engine/diag.kern#3:failResult',
     ],
   });
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [2, 2, 0, 0, 0, 0, 0, 0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'binary-expression',
     'conditional',
+    'call-expression',
     'binding',
     'index-expression',
-    'call-expression',
     'counted-iteration',
     'member-expression',
     'do-statement',

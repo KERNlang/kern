@@ -4,7 +4,10 @@ import {
   encodeStructuralKir,
 } from '../../packages/core/dist/kir-structural/canonical.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
-import { projectExpressionText } from '../../packages/core/dist/kir-structural/expression.js';
+import {
+  projectExpressionText,
+  validateExpressionValue,
+} from '../../packages/core/dist/kir-structural/expression.js';
 import { StructuralKirError } from '../../packages/core/dist/kir-structural/types.js';
 
 import { flattenKirRoots } from './flatten.mjs';
@@ -19,8 +22,13 @@ const PARAMETER_TYPES = new Set([
 ]);
 const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
-  'boolean', 'identifier', 'integer', 'list', 'null', 'text',
+  'binary', 'boolean', 'identifier', 'integer', 'list', 'null', 'text',
 ];
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.3c';
+const BASE_PROMOTIONS = [{
+  family: 'binary-expression',
+  selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+}];
 const BASE_NODE_KINDS = ['fn', 'handler', 'param', 'return'];
 const BASE_PROPERTIES = Object.freeze({
   fn: { optional: ['export'], required: ['name', 'returns'] },
@@ -46,11 +54,13 @@ function sameText(left, right) {
 
 export function validateCoverageBase(base) {
   if (
+    base.id !== BASE_PROFILE_ID ||
     !sameText(base.nodeKinds, BASE_NODE_KINDS) ||
     !sameText(base.expressionKinds, BASE_EXPRESSION_KINDS) ||
-    !sameText(base.propertyKeys, BASE_PROPERTY_KEYS)
+    !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
+    JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the frozen M4.1 profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.3c cumulative profile');
   }
   return base;
 }
@@ -114,6 +124,15 @@ function localBaseExpressionBlocker(value) {
       }
     }
     return null;
+  }
+  if (kind.value === 'binary') {
+    try {
+      validateExpressionValue(value, '$.binary');
+      return null;
+    } catch (error) {
+      if (error instanceof StructuralKirError) return 'expression.binary.shape';
+      throw error;
+    }
   }
   if (kind.value !== 'list') return null;
   const items = fields.get('items');

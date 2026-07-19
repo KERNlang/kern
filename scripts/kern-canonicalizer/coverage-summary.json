@@ -1,5 +1,56 @@
 {
-  "baseCompleteFunctions": 1,
+  "base": {
+    "expressionKinds": [
+      "binary",
+      "boolean",
+      "identifier",
+      "integer",
+      "list",
+      "null",
+      "text"
+    ],
+    "id": "kern.kir-canonicalizer.profile.m4.3c",
+    "nodeKinds": [
+      "fn",
+      "handler",
+      "param",
+      "return"
+    ],
+    "promotions": [
+      {
+        "family": "binary-expression",
+        "selectionProvenanceDigest": "35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027"
+      }
+    ],
+    "propertyKeys": [
+      "fn.async",
+      "fn.effects",
+      "fn.export",
+      "fn.expr",
+      "fn.generics",
+      "fn.name",
+      "fn.params",
+      "fn.returns",
+      "fn.stream",
+      "handler.code",
+      "handler.lang",
+      "handler.reason",
+      "handler.review",
+      "param.default",
+      "param.description",
+      "param.max",
+      "param.min",
+      "param.name",
+      "param.optional",
+      "param.required",
+      "param.type",
+      "param.value",
+      "param.variadic",
+      "return.trailingComment",
+      "return.value"
+    ]
+  },
+  "baseCompleteFunctions": 4,
   "blockers": [
     {
       "count": 91,
@@ -88,34 +139,36 @@
   },
   "corpusMembers": 8,
   "corpusDigest": "8f8e725d79807b22ec9a0db8edfada2dc7123327868b9e8802958ed18412c347",
-  "coverageImplementationDigest": "5c24d598847b36a3fc54557bfe8d1294dd6cfa3b5a402783c55addef1e629f26",
-  "coveragePolicyDigest": "e4b57654d65f9f4a04a28c2b86805c750d9324aa9759c9ee802b37c6eefc8ce0",
-  "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
+  "coverageImplementationDigest": "306d712a9affcb40849746d3d649b3d89c0b58ea6e3dd43e625ddcdfba82be92",
+  "coveragePolicyDigest": "163629a32b2184f0fb27b6b58e6a95a5ccbcde846371d59d4dc0812d2a666b5c",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
-  "format": "kern.kir-canonicalizer.coverage-summary.2",
-  "functionFactsDigest": "ea9e7da000a930bd38144e51dffe8d842312bb6a40b19279e25f403c6089be66",
+  "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
+  "format": "kern.kir-canonicalizer.coverage-summary.3",
   "functionCount": 99,
-  "policyDigest": "f872ffcbf7c24d4bb9ec1e62b8d6760c312b74138273c9d682cdd8eec5d9d4ca",
-  "profileDigest": "89b8d503b64d83a6475283ba3b58763b675a23a0f053b7875964c2867b2d3f85",
+  "functionFactsDigest": "a1a9e58d2811b6876696af2213fc0d7cb474b74bc97c2df7025e12ca17c5d7c9",
+  "policyDigest": "76a95c6995328f42f109b273db9399a9da0908ee783cbdd25c8dfdd4e7455f41",
+  "profileDigest": "c1854492c636d4a3817e70c96c553dec77da6887f7e258f28d71be67f11a30c9",
   "selection": {
     "ranking": [
       {
-        "completeFunctions": 3,
+        "completeFunctions": 2,
         "completeTools": 1,
-        "id": "binary-expression",
-        "occurrences": 1002,
+        "id": "conditional",
+        "occurrences": 1115,
         "witnesses": [
-          "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
-          "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
-          "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
+          "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
+          "examples/capstone-assertion-engine/diag.kern#3:failResult"
         ]
       },
       {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "conditional",
-        "occurrences": 1115,
-        "witnesses": []
+        "completeFunctions": 2,
+        "completeTools": 1,
+        "id": "call-expression",
+        "occurrences": 454,
+        "witnesses": [
+          "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
+          "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
+        ]
       },
       {
         "completeFunctions": 0,
@@ -129,13 +182,6 @@
         "completeTools": 0,
         "id": "index-expression",
         "occurrences": 491,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "call-expression",
-        "occurrences": 454,
         "witnesses": []
       },
       {
@@ -182,14 +228,13 @@
       }
     ],
     "winner": {
-      "completeFunctions": 3,
+      "completeFunctions": 2,
       "completeTools": 1,
-      "id": "binary-expression",
-      "occurrences": 1002,
+      "id": "conditional",
+      "occurrences": 1115,
       "witnesses": [
-        "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
-        "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
-        "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
+        "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
+        "examples/capstone-assertion-engine/diag.kern#3:failResult"
       ]
     }
   },

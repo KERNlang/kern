@@ -29,10 +29,11 @@ import {
 } from './coverage-profile.mjs';
 import { canonicalizerPolicySource, loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
+import { summarizeCoverageReceipt } from './coverage-summary.mjs';
 import { CANONICALIZER_COMPOSITE_PATH } from './composition.mjs';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
-const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.1';
-const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.2';
+const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.2';
+const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.3';
 const EXPRESSION_KINDS = STRUCTURAL_EXPRESSION_KINDS;
 const AUTHENTICATED_DEPENDENCIES = requireAuthenticatedCoverageDependencies();
 const COVERAGE_POLICY_SOURCE = readFileSync(new URL('./coverage-policy.json', import.meta.url));
@@ -146,10 +147,30 @@ function validateCorpus(corpus, allowMissingCorpus) {
 export function validateCoveragePolicy(input, options = {}) {
   const policy = record(input, ['base', 'corpus', 'families', 'format'], 'policy');
   if (policy.format !== POLICY_FORMAT) fail(`format must be ${POLICY_FORMAT}`);
-  const baseInput = record(policy.base, ['expressionKinds', 'nodeKinds', 'propertyKeys'], 'base');
+  const baseInput = record(
+    policy.base,
+    ['expressionKinds', 'id', 'nodeKinds', 'promotions', 'propertyKeys'],
+    'base',
+  );
+  if (!Array.isArray(baseInput.promotions)) fail('base.promotions must be an array');
+  const promotions = baseInput.promotions.map((entry, index) => {
+    const row = record(entry, ['family', 'selectionProvenanceDigest'], `base.promotions[${index}]`);
+    const family = text(row.family, `base.promotions[${index}].family`);
+    const selectionProvenanceDigest = text(
+      row.selectionProvenanceDigest,
+      `base.promotions[${index}].selectionProvenanceDigest`,
+    );
+    if (!/^[0-9a-f]{64}$/u.test(selectionProvenanceDigest)) fail('promotion digest must be lowercase SHA-256');
+    return { family, selectionProvenanceDigest };
+  });
+  if (new Set(promotions.map(({ family }) => family)).size !== promotions.length) {
+    fail('base.promotions must contain unique families');
+  }
   const base = {
     expressionKinds: sortedUniqueText(baseInput.expressionKinds, 'base.expressionKinds'),
+    id: text(baseInput.id, 'base.id'),
     nodeKinds: sortedUniqueText(baseInput.nodeKinds, 'base.nodeKinds'),
+    promotions,
     propertyKeys: sortedUniqueText(baseInput.propertyKeys, 'base.propertyKeys'),
   };
   for (const kind of base.nodeKinds) {
@@ -410,6 +431,12 @@ export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
+  for (const promotion of policy.base.promotions) {
+    if (
+      promotion.family !== evidence.selectionProvenance.record.snapshot.selection.id ||
+      promotion.selectionProvenanceDigest !== evidence.selectionProvenance.digest
+    ) fail('base promotion must cite the authenticated selection provenance');
+  }
   const canonicalizerPolicy = loadCanonicalizerPolicy();
   const functions = [];
   for (const member of policy.corpus) {
@@ -440,6 +467,7 @@ export function measureCanonicalizerCoverage(policyInput) {
     propertyKeys: new Set(),
   };
   const receipt = {
+    base: policy.base,
     baseCompleteFunctions: functions.filter((fn) => completes(baseProfile, fn, canonicalizerPolicy.profileLimits)).length,
     catalogDigest: digest(constitution),
     canonicalizerDigest: digest(evidence.source),
@@ -465,35 +493,5 @@ export function measureCanonicalizerCoverage(policyInput) {
 }
 
 export function summarizeCanonicalizerCoverage(receipt = measureCanonicalizerCoverage()) {
-  const blockerCounts = new Map();
-  for (const fn of receipt.functions) {
-    for (const blocker of [...fn.excludedProperties, ...(fn.profileBlockers ?? [])]) {
-      blockerCounts.set(blocker, (blockerCounts.get(blocker) ?? 0) + 1);
-    }
-  }
-  return {
-    baseCompleteFunctions: receipt.baseCompleteFunctions,
-    blockers: [...blockerCounts]
-      .map(([id, count]) => ({ count, id }))
-      .sort((left, right) => right.count - left.count || compareText(left.id, right.id)),
-    catalogDigest: receipt.catalogDigest,
-    canonicalizerDigest: receipt.canonicalizerDigest,
-    canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
-    compiledCoreDigest: receipt.compiledCoreDigest,
-    composition: receipt.composition,
-    corpusMembers: receipt.corpus.length,
-    corpusDigest: receipt.corpusDigest,
-    coverageImplementationDigest: receipt.coverageImplementationDigest,
-    coveragePolicyDigest: receipt.coveragePolicyDigest,
-    familyRegistryDigest: receipt.familyRegistryDigest,
-    expressionCatalogDigest: receipt.expressionCatalogDigest,
-    format: 'kern.kir-canonicalizer.coverage-summary.2',
-    functionFactsDigest: receipt.functionFactsDigest,
-    functionCount: receipt.functions.length,
-    policyDigest: receipt.policyDigest,
-    profileDigest: receipt.profileDigest,
-    selection: receipt.selection,
-    selectionProvenance: receipt.selectionProvenance,
-    toolCount: new Set(receipt.corpus.map(({ tool }) => tool)).size,
-  };
+  return summarizeCoverageReceipt(receipt);
 }
