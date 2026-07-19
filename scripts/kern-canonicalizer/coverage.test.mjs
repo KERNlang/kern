@@ -22,6 +22,7 @@ import {
   canonicalProfileRowsForFunction,
   profileBlockersForFunction,
 } from './coverage-profile.mjs';
+import { formatCoverageWinnerStatus } from './coverage-status.mjs';
 import { VALID_FIXTURES } from './fixtures.mjs';
 
 function canonicalExpression(kind, fields) {
@@ -41,6 +42,11 @@ function canonicalExpression(kind, fields) {
   };
 }
 
+test('coverage status reports a null winner without throwing after receipt writes', () => {
+  assert.equal(formatCoverageWinnerStatus(null), 'no tranche selected');
+  assert.equal(formatCoverageWinnerStatus({ id: 'binary-expression' }), 'binary-expression tranche selected');
+});
+
 test('the handwritten corpus produces one deterministic catalog-bound selection receipt', () => {
   const policy = loadCoveragePolicy();
   const first = measureCanonicalizerCoverage(policy);
@@ -58,11 +64,41 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.deepEqual(new Set(first.corpus.map(({ sourceKind }) => sourceKind)), new Set(['handwritten']));
   assert.ok(first.functions.length > 0);
   assert.ok(first.functions.some(({ firstUnsupported }) => firstUnsupported !== null));
-  assert.equal(first.selection.winner, null);
-  assert.equal(first.selection.ranking.every(({ completeFunctions }) => completeFunctions === 0), true);
+  const diagFunctions = first.functions.filter(({ id }) => id.startsWith('examples/capstone-assertion-engine/diag.kern#'));
+  assert.deepEqual(diagFunctions.map(({ id }) => id), [
+    'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
+    'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
+    'examples/capstone-assertion-engine/diag.kern#2:passResult',
+    'examples/capstone-assertion-engine/diag.kern#3:failResult',
+    'examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch',
+    'examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch',
+    'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
+    'examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch',
+  ]);
+  assert.equal(diagFunctions.every(({ excludedProperties }) => !excludedProperties.includes('fn.params')), true);
+  assert.equal(
+    diagFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences).filter((kind) => kind === 'param').length,
+    14,
+  );
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 90);
+  assert.deepEqual(first.selection.winner, {
+    completeFunctions: 3,
+    completeTools: 1,
+    id: 'binary-expression',
+    occurrences: 941,
+    witnesses: [
+      'examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch',
+      'examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch',
+      'examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch',
+    ],
+  });
+  assert.deepEqual(
+    first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
+    [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'conditional',
     'binary-expression',
+    'conditional',
     'binding',
     'index-expression',
     'call-expression',

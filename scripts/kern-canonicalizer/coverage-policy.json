@@ -18,7 +18,7 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "18c3d9def86d464d008311d4fd35a3e6d23e4d9499243c90d1fcdb473a51af61",
+      "digest": "9fb0c91cdc2e92d849a8bb83e245b7425f865cb5fb3cc45cbed142353966ac4e",
       "path": "examples/capstone-assertion-engine/diag.kern",
       "sourceKind": "handwritten",
       "tool": "assertion-engine"

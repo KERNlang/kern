@@ -593,6 +593,13 @@ export type {
 } from './node-props.js';
 // Typed node props
 export { propsOf, propsUntyped } from './node-props.js';
+export type { MixedParameterDeclarationViolation } from './parameter-declarations.js';
+export {
+  assertNoMixedParameterDeclarations,
+  hasMixedParameterDeclarations,
+  MIXED_PARAMETER_DECLARATION_MESSAGE,
+  mixedParameterDeclarationViolation,
+} from './parameter-declarations.js';
 export type { Token, TokenKind } from './parser.js';
 // Core
 export {

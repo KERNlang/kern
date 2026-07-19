@@ -1,5 +1,9 @@
 import { parseDocument } from '../../packages/core/dist/parser.js';
 import { parseExpression } from '../../packages/core/dist/parser-expression.js';
+import {
+  hasMixedParameterDeclarations,
+  MIXED_PARAMETER_DECLARATION_MESSAGE,
+} from '../../packages/core/dist/parameter-declarations.js';
 
 export const DATA_ARRAYS = Object.freeze([
   ['stmtKind', 'string'],
@@ -87,7 +91,16 @@ function visitIr(node, out, currentFn, currentStmt) {
 
   if (node.type === 'fn') {
     nextFn = stringProp(node, 'name');
-    const params = parseParamEntries(stringProp(node, 'params'));
+    const rawParams = stringProp(node, 'params');
+    const paramChildren = Array.isArray(node.children)
+      ? node.children.filter((child) => child?.type === 'param')
+      : [];
+    if (hasMixedParameterDeclarations(node)) {
+      throw new TypeError(MIXED_PARAMETER_DECLARATION_MESSAGE);
+    }
+    const params = paramChildren.length > 0
+      ? paramChildren.map((param) => structuredParamEntry(param))
+      : parseParamEntries(rawParams);
     params.forEach((param, ordinal) => {
       out.paramFn.push(nextFn);
       out.paramName.push(param.name);
@@ -103,8 +116,25 @@ function visitIr(node, out, currentFn, currentStmt) {
   }
 
   if (Array.isArray(node.children)) {
-    for (const child of node.children) visitIr(child, out, nextFn, stmtIndex);
+    for (const child of node.children) {
+      if (node.type === 'fn' && child?.type === 'param') continue;
+      visitIr(child, out, nextFn, stmtIndex);
+    }
   }
+}
+
+function structuredParamEntry(node) {
+  const props = node.props ?? {};
+  const unsupportedProps = Object.keys(props).filter((key) => key !== 'name' && key !== 'type');
+  if (unsupportedProps.length > 0 || (Array.isArray(node.children) && node.children.length > 0)) {
+    throw new TypeError('checker parameter facts support only `name` and `type`');
+  }
+  const name = stringProp(node, 'name').trim();
+  const rawType = props.type;
+  if (name === '' || (rawType !== undefined && typeof rawType !== 'string')) {
+    throw new TypeError('checker structured parameter requires a string `name` and optional string `type`');
+  }
+  return { name, type: typeof rawType === 'string' ? rawType.trim() : '' };
 }
 
 function pushStmt(out, node, currentFn, parentStmt) {

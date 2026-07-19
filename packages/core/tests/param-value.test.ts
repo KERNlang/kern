@@ -3,13 +3,14 @@
  * Slice 1j: const.value, 3a: let.value, 3b: field.value. Slice 3c extends the
  * same pattern to fn/method/constructor parameter defaults via structured
  * `param` child nodes. The legacy `params="..."` string with embedded defaults
- * stays supported for back-compat. When both forms are present on the same
- * node, structured children win (canonical). The `default=` rawExpr
+ * stays supported for back-compat. Using both forms on one node fails closed.
+ * The `default=` rawExpr
  * passthrough stays on the `param` node for back-compat with MCP usage and
  * for callers that need to opt out of canonicalisation. */
 
 import { capabilitySupport } from '../src/capability-matrix.js';
 import { parseParamList } from '../src/codegen/helpers.js';
+import { emitParamList } from '../src/codegen/type-system.js';
 import { generateCoreNode } from '../src/codegen-core.js';
 import { decompile } from '../src/decompiler.js';
 import { importTypeScript } from '../src/importer.js';
@@ -238,8 +239,7 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
       );
     });
 
-    it('structured param children win over legacy params= string', () => {
-      // When both are authored, children take precedence (canonical form).
+    it('rejects mixed structured param children and legacy params= string', () => {
       const node: IRNode = {
         type: 'fn',
         props: { name: 'load', params: 'id:string,retries:number=3', returns: 'string' },
@@ -248,11 +248,19 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
           mk('handler', { code: 'return name;' }),
         ],
       };
-      const code = generateCoreNode(node).join('\n');
-      // Only the structured-form params are emitted; legacy is ignored.
-      expect(code).toContain('function load(name: string = world): string {');
-      expect(code).not.toContain('id: string');
-      expect(code).not.toContain('retries: number = 3');
+      expect(() => generateCoreNode(node)).toThrow(
+        'Callable cannot combine legacy `params=` with structured `param` children.',
+      );
+    });
+
+    it('rejects mixed declarations for every callable consumed by emitParamList', () => {
+      const method = mk('method', { name: 'load', params: 'id:string', returns: 'string' }, [
+        mk('param', { name: 'name', type: 'string' }),
+      ]);
+
+      expect(() => emitParamList(method)).toThrow(
+        'Callable cannot combine legacy `params=` with structured `param` children.',
+      );
     });
   });
 

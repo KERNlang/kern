@@ -15,6 +15,7 @@ import {
   makeDecimalValue,
 } from '../ir/semantics/portable-scalar.js';
 import { numberToInt32, numberToUint32 } from '../ir/semantics/to-numeric.js';
+import { assertNoMixedParameterDeclarations } from '../parameter-declarations.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
 import type { IRNode } from '../types.js';
@@ -2104,6 +2105,7 @@ function runtimeChildren(node: IRNode): IRNode[] {
 }
 
 function runtimeParams(node: IRNode): RuntimeParam[] {
+  assertNoMixedParameterDeclarations(node);
   const childParams =
     node.children
       ?.filter((child) => child.type === 'param')

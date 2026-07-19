@@ -3,7 +3,7 @@
  * used across all Python code generators.
  */
 
-import { type IRNode, isExprObject } from '@kernlang/core';
+import { assertNoMixedParameterDeclarations, type IRNode, isExprObject } from '@kernlang/core';
 import { mapTsTypeToPython, mapTsTypeToPythonAnnotation, toSnakeCase } from './type-map.js';
 
 // ── Micro-helpers ──────────────────────────────────────────────────────
@@ -337,7 +337,10 @@ export function buildPythonParamList(
   node: IRNode,
   options?: { selfPrefix?: boolean; lazyAnnotations?: boolean },
 ): string {
+  assertNoMixedParameterDeclarations(node);
   const paramChildren = kids(node, 'param');
+  const rawParams = p(node).params;
+  const hasLegacyParams = typeof rawParams === 'string' && rawParams.trim() !== '';
   const lazyAnnotations = options?.lazyAnnotations === true;
   let signature: string;
 
@@ -348,8 +351,7 @@ export function buildPythonParamList(
       .join(', ');
   } else {
     // Legacy `params="..."` string fallback.
-    const rawParams = (p(node).params as string) || '';
-    if (!rawParams) signature = '';
+    if (!hasLegacyParams) signature = '';
     else
       signature = parseLegacyParamParts(rawParams)
         .map((part) => {

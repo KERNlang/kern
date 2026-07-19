@@ -1853,6 +1853,25 @@ describe('KERN core runtime functions', () => {
     expect(toHostValue(result.value)).toBe('hi world');
   });
 
+  test('mixed legacy and structured parameters fail before runtime binding', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'ambiguous', params: 'legacy:number', returns: 'number' },
+      children: [
+        { type: 'param', props: { name: 'structured', type: 'number' } },
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: 'structured' } }],
+        },
+      ],
+    };
+
+    expect(() => callCoreFunction(fnNode, [kNumber(7)])).toThrow(
+      'Callable cannot combine legacy `params=` with structured `param` children.',
+    );
+  });
+
   test('structured default prop quoting is supported', () => {
     const fnNode: IRNode = {
       type: 'fn',
