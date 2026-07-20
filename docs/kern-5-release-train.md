@@ -1342,10 +1342,12 @@ trusted-publishing/provenance configuration is inspected.
     class fixtures, 233 native assertions at 100% coverage, 39 validator
     verdicts, 40 whole-app fixtures across three legs, browser budget,
     KIR/runtime guards, source-runner convergence, and repeated canonicalizer
-    evidence. Automatically routed terminal review
-    `review-1784577709996-drhnzx` completed both required independent
-    reviewers with role lenses and zero verified, needs-check, speculative, or
-    nit findings. No material finding remains unresolved.
+    evidence. Full-roster terminal review
+    `review-1784577771218-s0mruf-kern-5-r2-m4-9-terminal-boundary` completed all
+    six usable engines with zero verified, needs-check, or speculative
+    findings. Its five nits do not alter the bounded fail-closed evidence; the
+    accurate baseline-wording nit is resolved in the sealed spec. No material
+    finding remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

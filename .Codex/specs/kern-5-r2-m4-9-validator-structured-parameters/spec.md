@@ -2,7 +2,7 @@
 
 **Status:** SEALED
 **Date:** 2026-07-20
-**Confidence:** 0.98
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -25,7 +25,7 @@ functions. The only other completion is one one-parameter canonicalizer helper,
 advances base completion to 19 of 104 and reduces `fn.params` blockers to 83
 without changing any candidate family or canonicalizer executable source.
 
-## Current State / Root Cause
+## M4.8 Baseline / Root Cause
 
 [VERIFIED] `validator.kern` is 465 lines and contains 21 functions, all using
 non-empty legacy `params=` signatures (`wc -l` plus parser inventory on
@@ -185,10 +185,14 @@ fixtures across three legs, browser budget, KIR/runtime guards, source-runner
 convergence, and repeated canonicalizer evidence at 19/104 with 83 legacy
 blockers and no selected tranche.
 
-[VERIFIED] Automatically routed terminal review
-`review-1784577709996-drhnzx` completed both required independent reviewers
-with role lenses and zero verified, needs-check, speculative, or nit findings.
-No material finding remains unresolved.
+[VERIFIED] Full-roster terminal review
+`review-1784577771218-s0mruf-kern-5-r2-m4-9-terminal-boundary` completed all
+six usable engines with zero verified, needs-check, or speculative findings.
+Its five nits do not change the contract: exact line counts, source order,
+function ordinals, and literal profile rows are intentional fail-closed receipt
+evidence. The one accurate wording nit is resolved by naming the 465-line
+section as the immutable M4.8 baseline. No material finding remains unresolved.
+This post-review sealing metadata was not input to its own review.
 
 ## Stop Conditions
 
