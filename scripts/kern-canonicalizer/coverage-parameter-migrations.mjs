@@ -50,12 +50,12 @@ export function assertStructuredParameterMigrations(receipt) {
   const checkerWhileDocument = parseDocumentWithDiagnostics(checkerWhileSource);
   assert.deepEqual(checkerWhileDocument.diagnostics, []);
   const checkerWhileRoots = checkerWhileDocument.root.children.filter(({ type }) => type === 'fn');
-  const checkerWhileTargetNames = ['isDecimalDigit', 'isLiteralKind', 'literalToken'];
+  const checkerWhileTargetNames = ['isDecimalDigit', 'isPositiveSafeIntText', 'isLiteralKind', 'literalToken'];
   const checkerWhileTargets = checkerWhileRoots.filter(({ props }) =>
     checkerWhileTargetNames.includes(props.name));
   const checkerWhileLegacySiblings = checkerWhileRoots.filter(({ props }) =>
     !checkerWhileTargetNames.includes(props.name));
-  assert.equal(checkerWhileSource.split('\n').length - 1, 256);
+  assert.equal(checkerWhileSource.split('\n').length - 1, 257);
   assert.equal(checkerWhileRoots.length, 18);
   assert.deepEqual(checkerWhileTargets.map(({ props }) => props.name), checkerWhileTargetNames);
   assert.equal(checkerWhileTargets.every(({ props }) => props.params === undefined), true);
@@ -65,11 +65,12 @@ export function assertStructuredParameterMigrations(receipt) {
       .map(({ props }) => [props.name, props.type])),
     [
       [['ch', 'string']],
+      [['raw', 'string']],
       [['kind', 'string']],
       [['kind', 'string'], ['name', 'string'], ['num', 'string']],
     ],
   );
-  assert.equal(checkerWhileLegacySiblings.length, 15);
+  assert.equal(checkerWhileLegacySiblings.length, 14);
   assert.equal(checkerWhileLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -81,13 +82,14 @@ export function assertStructuredParameterMigrations(receipt) {
     `${checkerWhilePath}#0:isDecimalDigit`,
     `${checkerWhilePath}#12:isLiteralKind`,
     `${checkerWhilePath}#13:literalToken`,
+    `${checkerWhilePath}#8:isPositiveSafeIntText`,
   ]);
   assert.equal(checkerWhileFunctions.every(({ excludedProperties }) =>
     !excludedProperties.includes('fn.params')), true);
   assert.equal(
     checkerWhileFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences)
       .filter((kind) => kind === 'param').length,
-    5,
+    6,
   );
   assert.deepEqual(
     checkerWhileFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
@@ -95,6 +97,7 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 8, properties: 10, values: 43 } },
       { profileBlockers: [], profileRows: { nodes: 4, properties: 6, values: 67 } },
       { profileBlockers: [], profileRows: { nodes: 10, properties: 14, values: 49 } },
+      { profileBlockers: [], profileRows: { nodes: 8, properties: 10, values: 70 } },
     ],
   );
 

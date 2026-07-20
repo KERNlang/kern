@@ -161,18 +161,24 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     14,
   );
   assertStructuredParameterMigrations(first);
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 82);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 81);
   assert.equal(first.baseCompleteFunctions, 20);
-  assert.equal(first.selection.winner, null);
+  assert.deepEqual(first.selection.winner, {
+    completeFunctions: 1,
+    completeTools: 1,
+    id: 'member-expression',
+    occurrences: 259,
+    witnesses: ['examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText'],
+  });
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 0, 0, 0, 0, 0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
+    'member-expression',
     'binding',
     'index-expression',
     'counted-iteration',
-    'member-expression',
     'do-statement',
     'unary-expression',
     'exception-flow',

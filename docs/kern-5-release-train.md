@@ -1382,6 +1382,37 @@ trusted-publishing/provenance configuration is inspected.
     provenance nits are resolved in the sealed specs; import and current-value
     label concerns were verified non-issues. No material finding remains
     unresolved.
+  - [x] M4.11 member-expression selection prerequisite: exact AST-level
+    read-only measurement distinguished the only two apparent post-call
+    witnesses. Migrating only checker function `isPositiveSafeIntText` yields
+    an admitted 8/10/70 profile; migrating validator function `contained`
+    would yield 9/13/73 and remain outside the frozen 72-value-row ceiling.
+    The implemented boundary therefore rewrites only `raw:string` as one
+    ordered direct `param` child. Checker source is exactly 257 lines with 18
+    functions, six direct params, and 14 internally consistent legacy
+    siblings. Authenticated base completion remains 20/104 while `fn.params`
+    blockers fall from 82 to 81. `member-expression` becomes the unique winner
+    at one function, one tool, and 259 read-only corpus occurrences, witnessed
+    only by `checker-while.kern#8:isPositiveSafeIntText`; all seven other
+    families remain at zero. The focused canonicalizer gate passes all 67
+    structural tests plus 21 golden/idempotence/KIR, seven measured-witness,
+    three profile-limit, and 140 hostile fixtures. Checker parity passes 48/48
+    oracle fixtures and all 36 hostile attempts reject. Numeric main,
+    validator source/main, the 32,310-byte canonicalizer composite, profile,
+    schema, family registry, and all three historical provenance records remain
+    byte-identical. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including repository consistency, lint,
+    production build, every workspace and infrastructure suite, 432
+    cross-target fixtures, 109 class fixtures, 233 native assertions at 100%
+    coverage, 39 validator verdicts, 40 whole-app fixtures across three legs,
+    browser budget, KIR/runtime/ownership/convergence guards, and repeated
+    canonicalizer evidence. Automatically routed medium-risk terminal review
+    `review-1784582535977-ppv228` completed both independent reviewers with zero
+    verified, needs-check, or speculative findings and three non-blocking nits.
+    The tense nit is fixed; the order and generated-line observations were
+    resolved against canonical receipt ordering and exact old/new flatten
+    comparison. No material finding remains unresolved. This slice freezes no
+    new provenance and implements no member canonicalization.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

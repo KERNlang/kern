@@ -65,7 +65,7 @@
   "baseCompleteFunctions": 20,
   "blockers": [
     {
-      "count": 82,
+      "count": 81,
       "id": "fn.params"
     },
     {
@@ -155,19 +155,28 @@
     }
   },
   "corpusMembers": 9,
-  "corpusDigest": "8c43f127348de2f13994830da708dba46bef57e1b7fdf105b134cfa0ef384260",
-  "coverageImplementationDigest": "67d5a2bb8b8f759c829ef10428a652f0493bd227c46f08e96d50e7abde2a04b9",
-  "coveragePolicyDigest": "1be5813084d5811be9ff6d2b1efb6911177d45f60fa85721a1e2630a5512d1c9",
+  "corpusDigest": "3b950631478ef867210efa7821344b92e84205fb99475aec72911dc209af137c",
+  "coverageImplementationDigest": "3951ab6b17599d269374156f2b638a1233d8bce1f824a556ec7a5f00152abecb",
+  "coveragePolicyDigest": "be9e50847de262ce4c9cb1d78a12fd410cf304d3cd294a45f7dff544e18a2584",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
-  "functionFactsDigest": "14bee197dde72e0fecfda30d30956b3268db1b9556b1d56b3af80927577d559f",
+  "functionFactsDigest": "a211baef422868779a89b1b5d4eb7f722ec084a424a94243219ef9127390985e",
   "implementationSelectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
-  "policyDigest": "8ef4ca95b46f9feb4b7f13a91ce1e29fe47e51f15ebc1f3c130492f0fbb103af",
+  "policyDigest": "6e805431cffd2d991b9ed05a800d570e1da499ba220db95aa45dbe60ba25d508",
   "profileDigest": "9ce6b03032d39d68be23318835a9d0ce3888aa6dacf984bd18e097260f421322",
   "selection": {
     "ranking": [
+      {
+        "completeFunctions": 1,
+        "completeTools": 1,
+        "id": "member-expression",
+        "occurrences": 259,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText"
+        ]
+      },
       {
         "completeFunctions": 0,
         "completeTools": 0,
@@ -187,13 +196,6 @@
         "completeTools": 0,
         "id": "counted-iteration",
         "occurrences": 468,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "member-expression",
-        "occurrences": 259,
         "witnesses": []
       },
       {
@@ -225,7 +227,15 @@
         "witnesses": []
       }
     ],
-    "winner": null
+    "winner": {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "id": "member-expression",
+      "occurrences": 259,
+      "witnesses": [
+        "examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText"
+      ]
+    }
   },
   "selectionProvenances": [
     {

@@ -39,6 +39,15 @@ const M45_SELECTION = {
     'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
   ],
 };
+const M411_SELECTION = {
+  completeFunctions: 1,
+  completeTools: 1,
+  id: 'member-expression',
+  occurrences: 259,
+  witnesses: [
+    'examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText',
+  ],
+};
 test('M4.5a freezes call-expression selection as a third immutable record', () => {
   const call = loadCanonicalizerCallSelectionProvenance();
   assert.equal(call.record.source.commit, M45_COMMIT);
@@ -113,7 +122,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus consumes frozen M4.5c provenance after five targeted parameter migrations', () => {
+test('the current corpus consumes frozen M4.5c provenance after six targeted parameter migrations', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -133,7 +142,7 @@ test('the current corpus consumes frozen M4.5c provenance after five targeted pa
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
   assert.equal(receipt.baseCompleteFunctions, 20);
-  assert.equal(receipt.selection.winner, null);
+  assert.deepEqual(receipt.selection.winner, M411_SELECTION);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 

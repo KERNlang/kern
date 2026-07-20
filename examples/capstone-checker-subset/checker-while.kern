@@ -91,7 +91,8 @@ fn name=functionRow params="fnName:string,stmtKind:string[],stmtName:string[]" r
         return value="i"
     return value="-1"
 
-fn name=isPositiveSafeIntText params="raw:string" returns=boolean
+fn name=isPositiveSafeIntText returns=boolean
+  param name=raw type=string
   handler lang="kern"
     if cond="raw == \"0\""
       return value="false"
