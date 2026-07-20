@@ -27,14 +27,21 @@ const ASSERTION_DIAG_SOURCE = readFileSync(
   new URL('../examples/capstone-assertion-engine/diag.kern', import.meta.url),
   'utf8',
 );
+const CHECKER_WHILE_SOURCE = readFileSync(
+  new URL('../examples/capstone-checker-subset/checker-while.kern', import.meta.url),
+  'utf8',
+);
 const SELECTED_WITNESSES = [
-  'reasonTypeMismatch',
-  'reasonValueMismatch',
-  'reasonKeyMismatch',
-  'pathAppendKey',
-  'failResult',
-  'pathAppendIndex',
-  'reasonLengthMismatch',
+  ...[
+    'reasonTypeMismatch',
+    'reasonValueMismatch',
+    'reasonKeyMismatch',
+    'pathAppendKey',
+    'failResult',
+    'pathAppendIndex',
+    'reasonLengthMismatch',
+  ].map((name) => ({ name, source: ASSERTION_DIAG_SOURCE })),
+  { name: 'isPositiveSafeIntText', source: CHECKER_WHILE_SOURCE },
 ];
 const fixtureById = new Map(VALID_FIXTURES.map((fixture) => [fixture.id, fixture]));
 
@@ -131,22 +138,27 @@ export function runKernCanonicalizerCheck() {
     if (second.source !== first.source) fail('idempotence mismatch', fixture.id);
   }
 
-  const witnessRoots = parsedRoots(ASSERTION_DIAG_SOURCE, 'assertion-engine witnesses');
+  const witnessRootsBySource = new Map();
   for (const witness of SELECTED_WITNESSES) {
-    const root = witnessRoots.find((candidate) => candidate.type === 'fn' && candidate.props?.name === witness);
-    assert.ok(root, `missing measured witness ${witness}`);
-    const moduleId = `${witness}.kern`;
+    let witnessRoots = witnessRootsBySource.get(witness.source);
+    if (!witnessRoots) {
+      witnessRoots = parsedRoots(witness.source, `${witness.name}:source`);
+      witnessRootsBySource.set(witness.source, witnessRoots);
+    }
+    const root = witnessRoots.find((candidate) => candidate.type === 'fn' && candidate.props?.name === witness.name);
+    assert.ok(root, `missing measured witness ${witness.name}`);
+    const moduleId = `${witness.name}.kern`;
     const bytes = encodeModuleKir([{ id: moduleId, roots: [root] }], KIR_LIMITS);
     const decoded = decodeModuleKir(bytes, KIR_LIMITS);
     const decodedModule = decoded.modules.find((candidate) => candidate.id === moduleId);
-    assert.ok(decodedModule, `KIR mismatch: ${witness} omitted ${moduleId}`);
+    assert.ok(decodedModule, `KIR mismatch: ${witness.name} omitted ${moduleId}`);
     const tables = flattenKirRoots(decodedModule.roots);
-    assert.deepEqual(rehydrateKirRoots(tables), decodedModule.roots, `adapter rejection: ${witness} was not lossless`);
-    const formatted = `${executeTables(tables, witness).join('\n')}\n`;
-    const formattedArtifact = semanticArtifact(formatted, moduleId, `${witness}:formatted`);
-    assert.deepEqual(formattedArtifact.roots, decodedModule.roots, `KIR mismatch: ${witness}`);
-    const second = canonicalizeSource(formatted, moduleId, `${witness}:second-pass`);
-    assert.equal(second.source, formatted, `idempotence mismatch: ${witness}`);
+    assert.deepEqual(rehydrateKirRoots(tables), decodedModule.roots, `adapter rejection: ${witness.name} was not lossless`);
+    const formatted = `${executeTables(tables, witness.name).join('\n')}\n`;
+    const formattedArtifact = semanticArtifact(formatted, moduleId, `${witness.name}:formatted`);
+    assert.deepEqual(formattedArtifact.roots, decodedModule.roots, `KIR mismatch: ${witness.name}`);
+    const second = canonicalizeSource(formatted, moduleId, `${witness.name}:second-pass`);
+    assert.equal(second.source, formatted, `idempotence mismatch: ${witness.name}`);
   }
 
   for (const fixture of PROFILE_LIMIT_FIXTURES) {

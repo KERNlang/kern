@@ -122,16 +122,16 @@
     }
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
-  "canonicalizerDigest": "e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b",
+  "canonicalizerDigest": "b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a",
   "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
   "compiledCoreDigest": "1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54",
   "composition": {
-    "digest": "f9ef5950a5564fef51d78dac6cbfe548be2194fecc3a571a82b1dbbcf3fa1955",
+    "digest": "2750c1f4b632c0aa8fbc33658743eabb6cd71af81635a83414cc2b3bf0fac741",
     "record": {
       "composite": {
-        "bytes": 32310,
+        "bytes": 33571,
         "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
-        "sha256": "e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b"
+        "sha256": "b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a"
       },
       "format": "kern.canonicalizer.composition.1",
       "members": [
@@ -146,25 +146,25 @@
           "sha256": "d29c747624b6dc0347c896cd0978c8059e44125ea2afef893c3d6ed3eb953e38"
         },
         {
-          "bytes": 20445,
+          "bytes": 21706,
           "path": "examples/kern-canonicalizer/canonicalizer.kern",
-          "sha256": "d781d06324ec2da1ae617f5dd743e6a720b72f6ee3d03b9ddd7170fe3be48821"
+          "sha256": "3f33bd5d9ea6ecafc323035b5bce303b133d502f8b5c3fca4c8076da238c369a"
         }
       ],
       "recipe": "concat-ordered-members-exact-bytes.1"
     }
   },
   "corpusMembers": 9,
-  "corpusDigest": "3b950631478ef867210efa7821344b92e84205fb99475aec72911dc209af137c",
-  "coverageImplementationDigest": "6f0f7138651b3119d378bc154a0169db5c2d58937f52c59464ebdabe6db6cc63",
-  "coveragePolicyDigest": "be9e50847de262ce4c9cb1d78a12fd410cf304d3cd294a45f7dff544e18a2584",
+  "corpusDigest": "c30d61d0458fd48a9243a71f8de8690e002fc7a3a6e1e49833c9549a031544d6",
+  "coverageImplementationDigest": "5477da2d0781541b9c9086ff22c9bff83fe6687af4ceeb48b1a7de8dcea2acf8",
+  "coveragePolicyDigest": "f7c0b13a614034345003dc6499e4a532f70032416a7c9a48e4e728e2a0c1c56f",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
-  "functionFactsDigest": "a211baef422868779a89b1b5d4eb7f722ec084a424a94243219ef9127390985e",
+  "functionFactsDigest": "d3b90dab96a279255607a65e69415529844e3159b0cbc2abd3b0e8a75ab23872",
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "6e805431cffd2d991b9ed05a800d570e1da499ba220db95aa45dbe60ba25d508",
+  "policyDigest": "379acc541d21a9300262bca9704fea2e6843f3065bdf911bb85d2fb97b51f2f8",
   "profileDigest": "9ce6b03032d39d68be23318835a9d0ce3888aa6dacf984bd18e097260f421322",
   "selection": {
     "ranking": [
@@ -181,7 +181,7 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "binding",
-        "occurrences": 735,
+        "occurrences": 750,
         "witnesses": []
       },
       {
@@ -209,7 +209,7 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "unary-expression",
-        "occurrences": 46,
+        "occurrences": 47,
         "witnesses": []
       },
       {

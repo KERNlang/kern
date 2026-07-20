@@ -181,7 +181,7 @@ test('the current corpus consumes frozen M4.5c provenance after six targeted par
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.5c promotes exact call capability without rewriting selection evidence', () => {
+test('M4.13 implements exact member capability without rewriting selection evidence', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -195,13 +195,14 @@ test('M4.5c promotes exact call capability without rewriting selection evidence'
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 32310, 'M4.10 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 33571, 'M4.13 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b',
-    'M4.10 must bind the exact live KERN capability digest',
+    'b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a',
+    'M4.13 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.5c');

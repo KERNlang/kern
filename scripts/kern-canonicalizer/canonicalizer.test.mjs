@@ -92,10 +92,31 @@ test('call validation and emission stay in the KERN-owned expression source', ()
   assert.ok(callBranch.includes('exprsource(argId'), 'call args must use recursive expression ownership');
 });
 
+test('member validation and emission stay in the KERN-owned expression source', () => {
+  assert.equal(helperSource.includes('\\"member\\"'), false);
+  const memberStart = mainSource.indexOf('if cond="kind == \\"member\\""');
+  const memberEnd = mainSource.indexOf('if cond="kind == \\"call\\""', memberStart);
+  assert.ok(memberStart >= 0 && memberEnd > memberStart, 'missing KERN-owned member branch');
+  const memberBranch = mainSource.slice(memberStart, memberEnd);
+  for (const field of ['object', 'optional', 'property']) {
+    assert.ok(
+      memberBranch.includes(`recordfield(fieldsId, \\"${field}\\", valueParent, valueRole)`),
+      `member branch omitted ${field}`,
+    );
+  }
+  assert.ok(memberBranch.includes('numberat(optionalId, valueBool) != 0'), 'optional members must remain fail-closed');
+  assert.ok(memberBranch.includes('exprsource(objectId'), 'member object must use recursive expression ownership');
+  assert.ok(memberBranch.includes('valididentifier(property)'), 'member properties must remain identifier-shaped');
+  for (const rejected of ['null', 'none', 'undefined', 'true', 'false', 'await']) {
+    assert.ok(memberBranch.includes(`property == \\"${rejected}\\"`), `member branch must reject ${rejected}`);
+  }
+});
+
 test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
-    !id.startsWith('binary-') && !id.startsWith('conditional-') && !id.startsWith('call-'));
+    !id.startsWith('binary-') && !id.startsWith('conditional-') &&
+    !id.startsWith('call-') && !id.startsWith('member-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

@@ -421,7 +421,7 @@ test('corpus reads reject symlinks even when their target remains inside the roo
 
 test('the cumulative base profile admits every promoted-family golden function', () => {
   const base = loadCoveragePolicy().base;
-  for (const fixture of VALID_FIXTURES) {
+  for (const fixture of VALID_FIXTURES.filter(({ id }) => !id.startsWith('member-'))) {
     const parsed = parseDocumentWithDiagnostics(fixture.source);
     for (const root of parsed.root.children ?? []) {
       assert.deepEqual(profileBlockersForFunction(root, base), [], `${fixture.id}:${root.props?.name}`);

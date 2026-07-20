@@ -70,7 +70,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "d781d06324ec2da1ae617f5dd743e6a720b72f6ee3d03b9ddd7170fe3be48821",
+      "digest": "3f33bd5d9ea6ecafc323035b5bce303b133d502f8b5c3fca4c8076da238c369a",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
