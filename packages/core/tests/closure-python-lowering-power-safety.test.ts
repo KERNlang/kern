@@ -50,4 +50,13 @@ describe('closure Python lowering generated-helper safety', () => {
     expect(loweredExpressions).toEqual(['new Set()', 'load(seen)', '0']);
     expect(loweredConditions).toEqual(['(seen.size) > 0']);
   });
+
+  test('rejects a closure above the shared default power limit before Python emission', () => {
+    const chain = new Array(1_201).fill('1').join(' ** ');
+    const result = lowerJsClosureBodyToPython(`{ return ${chain}; }`, reservedPowerBindingOptions);
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('parse');
+    expect(result.lines).toEqual([]);
+  });
 });

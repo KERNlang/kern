@@ -1,5 +1,6 @@
-import { analyzeClosurePowerRewrite } from '../src/closure-eligibility.js';
+import { analyzeClosurePowerRewrite, classifyClosureBlock } from '../src/closure-eligibility.js';
 import { rewriteClosurePowerExpressions } from '../src/closure-power-lowering.js';
+import { DEFAULT_CLOSURE_POWER_REWRITE_LIMITS } from '../src/closure-power-policy.js';
 
 describe('closure portable-power rewriting', () => {
   test.each([
@@ -35,6 +36,7 @@ describe('closure portable-power rewriting', () => {
     const chain = new Array(1_200).fill('1').join(' ** ');
     const body = `{ return ${chain}; }`;
     const lowered: string[] = [];
+    expect(classifyClosureBlock(body)).toBe(null);
     const rewritten = rewriteClosurePowerExpressions(body, {
       lowerExpression: (source) => {
         lowered.push(source);
@@ -47,9 +49,31 @@ describe('closure portable-power rewriting', () => {
     expect(rewritten).toBe('{ return __lowered_power__; }');
   });
 
-  test('fails closed when a closure exceeds the TypeScript parser stack', () => {
-    const chain = new Array(3_000).fill('1').join(' ** ');
-    expect(analyzeClosurePowerRewrite(`{ return ${chain}; }`)).toBe(null);
+  test.each([1_201, 3_000])('fails closed for a %s-operand chain above the configured limit', (operands) => {
+    const chain = new Array(operands).fill('1').join(' ** ');
+    const body = `{ return ${chain}; }`;
+    expect(classifyClosureBlock(body)).toBe('closure-parse-error');
+    expect(analyzeClosurePowerRewrite(body)).toBe(null);
+  });
+
+  test('applies a caller-provided portable-power complexity limit', () => {
+    const body = '{ return 1 ** 1 ** 1 ** 1; }';
+
+    expect(analyzeClosurePowerRewrite(body, { maxPowerOperators: 3 })).not.toBe(null);
+    expect(analyzeClosurePowerRewrite(body, { maxPowerOperators: 2 })).toBe(null);
+    expect(classifyClosureBlock(body, { maxPowerOperators: 2 })).toBe('closure-parse-error');
+  });
+
+  test('keeps the default policy between the supported and rejected regression depths', () => {
+    expect(DEFAULT_CLOSURE_POWER_REWRITE_LIMITS.maxPowerOperators).toBe(1_199);
+  });
+
+  test('validates a caller-provided policy before parsing authored source', () => {
+    const invalidLimits = { maxPowerOperators: -1 };
+
+    expect(() => analyzeClosurePowerRewrite('{', invalidLimits)).toThrow(/safe integer between/);
+    expect(() => classifyClosureBlock('{', invalidLimits)).toThrow(/safe integer between/);
+    expect(() => classifyClosureBlock('{}', { maxPowerOperators: 1_200 })).toThrow(/safe integer between/);
   });
 
   test('analyzes a 3,000-operand non-power chain without recursive traversal overflow', () => {

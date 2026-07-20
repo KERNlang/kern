@@ -133,11 +133,13 @@ independent review is adjudicated and signed publication remains.
 `packages/core/dist/typescript-generated-helper-safety.js` bytes copied from a
 CLI module; the source does not exist in the core tree and a clean build does
 not emit it. Because the dependency receipt intentionally hashes every
-compiled core JavaScript file, that stale output produced `f72c…`. This clean
-worktree started without `dist`, reproducibly emits
-`592b39f856f626b9fe89d5106e77509b8c6cb6c2631611818d477ed48a1291`, and
-passed both focused and complete walls. The format-5 summary therefore repairs
-an environment-contaminated receipt rather than introducing core drift.
+compiled core JavaScript file, that stale output produced `f72c…`. The exact
+M4.5a evidence tree started without `dist` and reproducibly emitted
+`592b39f856f626b9fe89bd8ccbdf8b018f0faf8671f1a6286f6360cb171544d7`, and
+passed both focused and complete walls. Later core commits necessarily produce
+new compiled-core digests and regenerate the receipt. The format-5 M4.5a
+summary therefore repaired an environment-contaminated receipt rather than
+introducing core drift.
 
 [VERIFIED] `.Codex/specs` is established tracked repository evidence, with
 dozens of prior specs; the ignore-convention claim is false.

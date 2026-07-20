@@ -2,6 +2,7 @@ import ts from 'typescript';
 import {
   bindingPatternIdentifierNames,
   CLOSURE_ASSIGN_OPERATORS,
+  isClosureBlockPowerWithinLimits,
   parseClosureBlockAst,
 } from './closure-eligibility.js';
 import { normalizeClosureExpressionSource } from './closure-expression-normalize.js';
@@ -101,6 +102,13 @@ export function lowerJsClosureBodyToPython(
   // (`closure-eligibility.ts`).
   const block = parseClosureBlockAst(body);
   if (!block)
+    return {
+      ok: false,
+      lines: [],
+      reason: 'parse',
+      writtenFreeNames: new Set(),
+    };
+  if (!isClosureBlockPowerWithinLimits(block))
     return {
       ok: false,
       lines: [],

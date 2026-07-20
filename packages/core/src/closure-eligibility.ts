@@ -46,6 +46,12 @@
 
 import ts from 'typescript';
 import { normalizeClosureExpressionSource } from './closure-expression-normalize.js';
+import {
+  assertClosurePowerRewriteLimits,
+  type ClosurePowerRewriteLimits,
+  DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+  isClosurePowerTreeWithinLimits,
+} from './closure-power-policy.js';
 import { classifyRegexLiteralAccessFailClose, REGEX_HOST_REGEXP_FAILCLOSE } from './codegen/regex-normalize.js';
 
 /** Memoize parsed blocks. Keyed by the raw (trimmed) source. A `null` value is
@@ -74,14 +80,31 @@ export interface ClosurePowerRewritePlan {
   expressions: Array<{ start: number; end: number; source: string }>;
 }
 
+export function isClosureBlockPowerWithinLimits(
+  block: ts.Block,
+  limits: Readonly<ClosurePowerRewriteLimits> = DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+): boolean {
+  return isClosurePowerTreeWithinLimits<ts.Node>(
+    block,
+    (node) => ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken,
+    (node, visit) => ts.forEachChild(node, visit),
+    limits,
+  );
+}
+
 /** Build the source-preserving rewrite plan for outermost power expressions
  *  while collecting every bare name that the block can bind or overwrite. */
-export function analyzeClosurePowerRewrite(raw: string): ClosurePowerRewritePlan | null {
+export function analyzeClosurePowerRewrite(
+  raw: string,
+  limits: Readonly<ClosurePowerRewriteLimits> = DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+): ClosurePowerRewritePlan | null {
+  assertClosurePowerRewriteLimits(limits);
   const leading = raw.match(/^\s*/u)?.[0] ?? '';
   const trailing = raw.match(/\s*$/u)?.[0] ?? '';
   const trimmed = raw.trim();
   const block = parseClosureBlockAst(trimmed);
   if (!block) return null;
+  if (!isClosureBlockPowerWithinLimits(block, limits)) return null;
   const sourceFile = block.getSourceFile();
   const blockStart = block.getStart(sourceFile);
   const writtenNames = new Set<string>();
@@ -1104,9 +1127,14 @@ function isAcceptedBranch(node: ts.Statement): boolean {
  *  PINNED per-iteration loop capture passes the gate but is rejected LOUDLY at
  *  Python emission (`closure-pinned-write`) — the single-statement gate cannot
  *  see the enclosing loop header (eligibility≢lowerability, by design). */
-export function classifyClosureBlock(raw: string): null | string {
+export function classifyClosureBlock(
+  raw: string,
+  limits: Readonly<ClosurePowerRewriteLimits> = DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+): null | string {
+  assertClosurePowerRewriteLimits(limits);
   const block = parseClosureBlockAst(raw);
   if (block === null) return 'closure-parse-error';
+  if (!isClosureBlockPowerWithinLimits(block, limits)) return 'closure-parse-error';
 
   // Whole-block walk for unsupported constructs (this/await/loops/…).
   const constructReason = findUnsupportedConstruct(block);
