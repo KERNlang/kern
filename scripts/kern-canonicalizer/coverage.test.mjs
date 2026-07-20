@@ -159,8 +159,48 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     diagFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences).filter((kind) => kind === 'param').length,
     14,
   );
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 96);
-  assert.equal(first.baseCompleteFunctions, 8);
+  const sortPath = 'examples/capstone-assertion-engine/sort.kern';
+  const sortSource = readFileSync(new URL(`../../${sortPath}`, import.meta.url), 'utf8');
+  const sortDocument = parseDocumentWithDiagnostics(sortSource);
+  assert.deepEqual(sortDocument.diagnostics, []);
+  const sortRoots = sortDocument.root.children.filter(({ type }) => type === 'fn');
+  assert.equal(sortSource.split('\n').length - 1, 53);
+  assert.deepEqual(sortRoots.map(({ props }) => props.name), ['halfFloor', 'mergeStrings', 'sortStrings']);
+  assert.equal(sortRoots.every(({ props }) => !props.params), true);
+  assert.deepEqual(
+    sortRoots.map(({ children }) => children
+      .filter(({ type }) => type === 'param')
+      .map(({ props }) => [props.name, props.type])),
+    [
+      [['n', 'number']],
+      [['left', 'string[]'], ['i', 'number'], ['right', 'string[]'], ['j', 'number'], ['acc', 'string[]']],
+      [['xs', 'string[]']],
+    ],
+  );
+  const sortFunctions = first.functions.filter(({ id }) => id.startsWith(`${sortPath}#`));
+  assert.deepEqual(sortFunctions.map(({ id }) => id), [
+    `${sortPath}#0:halfFloor`,
+    `${sortPath}#1:mergeStrings`,
+    `${sortPath}#2:sortStrings`,
+  ]);
+  assert.equal(sortFunctions.every(({ excludedProperties }) => !excludedProperties.includes('fn.params')), true);
+  assert.equal(
+    sortFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences).filter((kind) => kind === 'param').length,
+    7,
+  );
+  assert.deepEqual(
+    sortFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
+    [
+      { profileBlockers: [], profileRows: { nodes: 6, properties: 9, values: 53 } },
+      {
+        profileBlockers: ['profile.rows.nodes', 'profile.rows.properties', 'profile.rows.values'],
+        profileRows: { nodes: 29, properties: 44, values: 493 },
+      },
+      { profileBlockers: ['profile.rows.values'], profileRows: { nodes: 16, properties: 29, values: 197 } },
+    ],
+  );
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 93);
+  assert.equal(first.baseCompleteFunctions, 9);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),

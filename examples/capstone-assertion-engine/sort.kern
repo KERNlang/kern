@@ -1,10 +1,16 @@
-fn name=halfFloor params="n:number" returns=number export=true
+fn name=halfFloor returns=number export=true
+  param name=n type=number
   handler lang="kern"
     if cond="n <= 1"
       return value="0"
     return value="halfFloor(n - 2) + 1"
 
-fn name=mergeStrings params="left:string[],i:number,right:string[],j:number,acc:string[]" returns=string[]
+fn name=mergeStrings returns=string[]
+  param name=left type="string[]"
+  param name=i type=number
+  param name=right type="string[]"
+  param name=j type=number
+  param name=acc type="string[]"
   handler lang="kern"
     if cond="i >= left.length"
       if cond="j >= right.length"
@@ -29,7 +35,8 @@ fn name=mergeStrings params="left:string[],i:number,right:string[],j:number,acc:
     do value="grown.push(right[j])"
     return value="mergeStrings(left, i, right, j + 1, grown)"
 
-fn name=sortStrings params="xs:string[]" returns=string[] export=true
+fn name=sortStrings returns=string[] export=true
+  param name=xs type="string[]"
   handler lang="kern"
     if cond="xs.length <= 1"
       return value="xs"

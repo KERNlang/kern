@@ -1220,6 +1220,37 @@ trusted-publishing/provenance configuration is inspected.
     six usable engines with zero verified or needs-check findings. This closes
     the single-family ladder; the next slice must measure dependency-closed
     multi-family tranches before authorizing another canonicalizer capability.
+  - [x] M4.6 structured-parameter prerequisite measurement: exhaustive
+    read-only evaluation of all 255 non-empty combinations of the eight
+    remaining families completed no additional function because every one of
+    the 96 incomplete functions first carried the catalog-excluded legacy
+    `fn.params` property. Corrected six-engine brainstorm
+    `brainstorm-1784566212986-7ygt4o-kern-5-r2-m4-6-structured-parame`
+    rejected a forced-null multi-family selector and selected the smallest
+    complete-module prerequisite: migrate only the three functions and seven
+    parameters in assertion-engine `sort.kern` to existing ordered direct
+    `param` children. Runtime bodies, calls, arities, types, exports, the
+    canonicalizer executable, profile, family registry, schema, and immutable
+    promotion history remain unchanged. Authenticated remeasurement advances
+    base completion from eight to nine of 104 and reduces `fn.params` blockers
+    from 96 to 93. `halfFloor` is newly complete at 6/9/53
+    node/property/value rows; `mergeStrings` measures 29/44/493 and remains
+    blocked by all three row ceilings, while `sortStrings` measures 16/29/197
+    and remains blocked by the value-row ceiling. Every remaining family still
+    completes zero functions, so the winner remains `null`. The focused Node
+    22 gate passes all 67 canonicalizer tests, the assertion engine remains
+    13/13 byte-identical to its TypeScript oracle, and the checker-subset
+    structured-parameter adapter tests pass. The exact tree also passes the
+    complete Node 22 `pnpm fitness:kern-5` wall: repository consistency, lint,
+    build, all workspace and infrastructure tests, 432 cross-target fixtures,
+    109 class fixtures, 233 native assertions, 48 checker-subset fixtures, 39
+    validator verdicts, 40 whole-app fixtures on three legs, browser budget,
+    KIR and runtime guards, source-runner convergence, and repeated
+    canonicalizer evidence. Terminal automatic-risk review
+    `review-1784568300383-ovva7y` completed both independently routed reviewers
+    with zero verified, needs-check, speculative, or nit findings. This slice
+    removes one measured prerequisite only; no remaining family is authorized
+    by it.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

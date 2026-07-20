@@ -40,7 +40,7 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "33b1d41d1f94e01fec3cdae46cbdf9aa0288dce1cb43c828c2a5b45433ceb8a7",
+      "digest": "c0bb7e664cfa0886df2e1183e87dfd3942e4348d0765dff467b92f3164cc4728",
       "path": "examples/capstone-assertion-engine/sort.kern",
       "sourceKind": "handwritten",
       "tool": "assertion-engine"
