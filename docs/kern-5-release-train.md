@@ -1454,6 +1454,42 @@ trusted-publishing/provenance configuration is inspected.
     needs-check, or speculative findings and one non-blocking nit. It directly
     authenticated the historical M4.11 hash; a Git-history-dependent CI oracle
     was rejected in favor of the hermetic checked-in record and digest.
+  - [x] M4.13 member-expression canonicalizer tranche: the KERN-authored
+    canonicalizer now validates and emits the exact structural
+    `{ object, optional, property }` member record for `optional=false`.
+    Objects recurse only through already implemented expression families;
+    optional chains, index dependencies, malformed fields, and parser-forbidden
+    dot properties remain fail-closed. Direct properties, member calls,
+    recursive chains, call/binary/list/null/boolean/integer/text receivers, and
+    parser-valid `object.new`, `object.typeof`, and `object.return` spellings
+    preserve exact structural KIR and byte idempotence.
+    The authenticated composite is 33,571 bytes at SHA-256
+    `b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a`;
+    format-5 coverage summary SHA-256 is
+    `1caa9245ea16dd60e572cef3812070552645b041e2fe1805d606872fede7ac0b`.
+    The focused Node 22 gate passes all 69 structural/authentication tests plus
+    27 golden/idempotence/KIR, eight measured-witness, three profile-limit, and
+    156 hostile fixtures. Coverage deliberately remains 20/104 with 81
+    `fn.params` blockers and member still selected, unpromoted, at one function
+    / one tool / 259 occurrences. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including all workspace and infrastructure
+    suites, 432 cross-target fixtures, 109 class fixtures, 233 native assertions
+    at 100% coverage, 48 checker fixtures plus 36 hostile rejections, 39
+    validator verdicts, 40 whole-app fixtures across three legs, browser budget,
+    and every KIR/runtime/ownership/convergence guard. High-risk role-lens
+    review `review-1784588210665-n8hgn4-kern-5-r2-m4-13-terminal-boundar`
+    completed all six usable engines with zero verified findings, five
+    needs-check findings, zero speculative findings, and five nits. The
+    escaped ownership guard, per-source witness parse cache, review receipt,
+    and missing positive/hostile cases are fixed. The remaining modularity
+    suggestions were rejected as prior-tranche scope expansion or intentional
+    independent parser/KERN oracle duplication. No material finding remains.
+    Supplemental review
+    `review-1784589125374-ngt1a2-kern-5-r2-m4-13-post-review-fixe` completed
+    2/2 independent engines with zero verified findings, one needs-check item,
+    zero speculative findings, and five nits. Exact flattened-KIR inspection
+    resolved the needs-check: fixture index zero is the inner `service.client`
+    member, so recursive optional rejection is directly exercised.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
