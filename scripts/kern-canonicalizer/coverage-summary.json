@@ -3,13 +3,14 @@
     "expressionKinds": [
       "binary",
       "boolean",
+      "call",
       "identifier",
       "integer",
       "list",
       "null",
       "text"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.5",
+    "id": "kern.kir-canonicalizer.profile.m4.5c",
     "nodeKinds": [
       "else",
       "fn",
@@ -26,6 +27,10 @@
       {
         "family": "conditional",
         "selectionProvenanceDigest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b"
+      },
+      {
+        "family": "call-expression",
+        "selectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605"
       }
     ],
     "propertyKeys": [
@@ -57,7 +62,7 @@
       "return.value"
     ]
   },
-  "baseCompleteFunctions": 6,
+  "baseCompleteFunctions": 8,
   "blockers": [
     {
       "count": 96,
@@ -151,28 +156,18 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "f2f472d5e9324467cb7a47b886a68781c31771efd68290372279718374d9c3c7",
-  "coverageImplementationDigest": "47e2ac78e1e3dcf10c533121baa2b8c43a7d70b6860077e60a577fe167008148",
-  "coveragePolicyDigest": "76bd75143db3d1c3615a4d0ccbe0b5685fd774a2ef193efa80017dcefba4f6b6",
+  "coverageImplementationDigest": "fc1c337d9961e64a7d9bae7546ed91b6b519781b3b45ec6a3d71730b78738ced",
+  "coveragePolicyDigest": "594cddb6b3ce205e97eac9f51e9a2c3c69cef397bc4aac0d8afeb6d0869b73da",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
-  "functionFactsDigest": "977e2e7f86b4f585a559ecb2996cfd6647a097d719998e0682ea93b08c1cbf74",
+  "functionFactsDigest": "8c815b045069d3e98ed71985ace96d23c5c93874725faedec12a9e9a57e60916",
   "implementationSelectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
-  "policyDigest": "7a50ced2fb345631e02226d92f203defb69d873d797cc3a12f129db20e3b2fd3",
-  "profileDigest": "c8532569870157b285f3397f54d6db5d590ac30450675e1f48f7fd2796c1e519",
+  "policyDigest": "a07b37e2a6ed98763d730aac16fbab94d2f42156495a912553ffb17e89cf6fd1",
+  "profileDigest": "9ce6b03032d39d68be23318835a9d0ce3888aa6dacf984bd18e097260f421322",
   "selection": {
     "ranking": [
-      {
-        "completeFunctions": 2,
-        "completeTools": 1,
-        "id": "call-expression",
-        "occurrences": 492,
-        "witnesses": [
-          "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
-          "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
-        ]
-      },
       {
         "completeFunctions": 0,
         "completeTools": 0,
@@ -230,16 +225,7 @@
         "witnesses": []
       }
     ],
-    "winner": {
-      "completeFunctions": 2,
-      "completeTools": 1,
-      "id": "call-expression",
-      "occurrences": 492,
-      "witnesses": [
-        "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
-        "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
-      ]
-    }
+    "winner": null
   },
   "selectionProvenances": [
     {

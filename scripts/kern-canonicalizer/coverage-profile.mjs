@@ -22,9 +22,9 @@ const PARAMETER_TYPES = new Set([
 ]);
 const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
-  'binary', 'boolean', 'identifier', 'integer', 'list', 'null', 'text',
+  'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'null', 'text',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5';
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5c';
 const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -33,6 +33,10 @@ const BASE_PROMOTIONS = [
   {
     family: 'conditional',
     selectionProvenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+  },
+  {
+    family: 'call-expression',
+    selectionProvenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
   },
 ];
 const BASE_NODE_KINDS = ['else', 'fn', 'handler', 'if', 'param', 'return'];
@@ -72,7 +76,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.5 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.5c cumulative profile');
   }
   return base;
 }
@@ -146,7 +150,16 @@ function localBaseExpressionBlocker(value) {
       throw error;
     }
   }
-  if (kind.value !== 'list') return null;
+  if (kind.value === 'call') {
+    try {
+      validateExpressionValue(value, '$.call');
+    } catch (error) {
+      if (error instanceof StructuralKirError) return 'expression.call.shape';
+      throw error;
+    }
+    return fields.get('optional')?.value === false ? null : 'expression.call.optional';
+  }
+  if (kind.value !== 'list') return `expression.${kind.value}.profile`;
   const items = fields.get('items');
   return fields.size === 1 && items?.tag === 'list' ? null : 'expression.list.shape';
 }

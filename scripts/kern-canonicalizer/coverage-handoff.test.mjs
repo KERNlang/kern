@@ -39,11 +39,6 @@ const M45_SELECTION = {
     'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
   ],
 };
-const M45B_SELECTION = {
-  ...M45_SELECTION,
-  occurrences: 492,
-};
-
 test('M4.5a freezes call-expression selection as a third immutable record', () => {
   const call = loadCanonicalizerCallSelectionProvenance();
   assert.equal(call.record.source.commit, M45_COMMIT);
@@ -118,7 +113,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('M4.5 consumes frozen M4.3c provenance while live evidence advances', () => {
+test('M4.5c consumes frozen provenance while the call family joins the base', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -137,12 +132,12 @@ test('M4.5 consumes frozen M4.3c provenance while live evidence advances', () =>
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 6);
-  assert.deepEqual(receipt.selection.winner, M45B_SELECTION);
+  assert.equal(receipt.baseCompleteFunctions, 8);
+  assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.5b changes live call capability without rewriting M4.4 selection evidence', () => {
+test('M4.5c promotes exact call capability without rewriting selection evidence', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -165,13 +160,19 @@ test('M4.5b changes live call capability without rewriting M4.4 selection eviden
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.5');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.5c');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].selectionProvenanceDigest,
     loadCanonicalizerImplementationSelectionProvenance().digest,
+  );
+  assert.equal(policy.base.promotions[2].family, 'call-expression');
+  assert.equal(
+    policy.base.promotions[2].selectionProvenanceDigest,
+    loadCanonicalizerCallSelectionProvenance().digest,
   );
 });

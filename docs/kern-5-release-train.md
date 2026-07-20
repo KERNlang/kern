@@ -1188,6 +1188,38 @@ trusted-publishing/provenance configuration is inspected.
     all six usable engines with zero verified, needs-check, or speculative
     findings. Publication remains pending; the next slice owns promotion and
     remeasurement.
+  - [x] M4.5c call-expression profile promotion and remeasurement: cumulative
+    profile `kern.kir-canonicalizer.profile.m4.5c` authenticates the exact
+    immutable M4.5a call selection digest, appends it after binary and
+    conditional, admits recursive structural calls only when
+    `optional=false`, and removes call-expression from active candidates.
+    Missing, malformed, extra-field, non-boolean, optional, and nested-optional
+    call shapes fail closed; reordered, duplicated, missing, forged, and
+    overlapping promotion-policy mutations are killed. Immutable provenance
+    remains two functions, one tool, and 481 occurrences even though M4.5b
+    live implementation evidence measured 492. The unchanged 104-function
+    corpus now has eight base-complete functions. Every remaining single-family
+    candidate completes zero functions, so the authenticated winner is `null`;
+    binding is not selected merely for having the highest occurrence count.
+    Initial six-engine review
+    `review-1784563663115-9as2oz-kern-5-r2-m4-5c-call-promotion` reported zero
+    verified blockers and exposed two needs-check hardening gaps. The exact
+    completion predicate now proves member/index call dependencies remain
+    outside the base, and any future base expression kind without a local
+    validator fails closed. Both additions passed RED first. The focused Node
+    22 gate passes 67 Node tests, 21
+    golden/idempotence/KIR fixtures, seven measured witnesses, three
+    profile-limit fixtures, and 140 hostile fixtures. The exact tree passes the
+    complete Node 22 `pnpm fitness:kern-5` wall, including repository
+    consistency, lint, build, all workspace and infrastructure tests, 432
+    cross-target fixtures, 109 class fixtures, 233 native assertions, 48
+    checker-subset fixtures, 39 validator verdicts, 40 whole-app fixtures on
+    three legs, browser budget, KIR and runtime guards, source-runner
+    convergence, and repeated canonicalizer evidence. Final exact-tree review
+    `review-1784565656837-624qiq-kern-5-r2-m4-5c-call-promotion-f` completed all
+    six usable engines with zero verified or needs-check findings. This closes
+    the single-family ladder; the next slice must measure dependency-closed
+    multi-family tranches before authorizing another canonicalizer capability.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

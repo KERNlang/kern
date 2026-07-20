@@ -160,23 +160,13 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     14,
   );
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 96);
-  assert.equal(first.baseCompleteFunctions, 6);
-  assert.deepEqual(first.selection.winner, {
-    completeFunctions: 2,
-    completeTools: 1,
-    id: 'call-expression',
-    occurrences: 492,
-    witnesses: [
-      'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
-      'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
-    ],
-  });
+  assert.equal(first.baseCompleteFunctions, 8);
+  assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [2, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'call-expression',
     'binding',
     'index-expression',
     'counted-iteration',
@@ -403,9 +393,9 @@ test('corpus reads reject symlinks even when their target remains inside the roo
   }
 });
 
-test('the base profile admits every M4.1 golden function', () => {
+test('the cumulative base profile admits every promoted-family golden function', () => {
   const base = loadCoveragePolicy().base;
-  for (const fixture of VALID_FIXTURES.filter(({ id }) => !id.startsWith('call-'))) {
+  for (const fixture of VALID_FIXTURES) {
     const parsed = parseDocumentWithDiagnostics(fixture.source);
     for (const root of parsed.root.children ?? []) {
       assert.deepEqual(profileBlockersForFunction(root, base), [], `${fixture.id}:${root.props?.name}`);
