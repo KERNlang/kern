@@ -46,7 +46,7 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "cfe9837888d038d9de7d1f3685e3f28871c0bfe7e6b67e2234b4c1c4e89f5818",
+      "digest": "07f17a96fc27cb8f9926537d6d9900395c2b9286eb66f8addd499bc2f1ed459a",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"

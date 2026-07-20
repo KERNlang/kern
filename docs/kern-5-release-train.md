@@ -1253,6 +1253,38 @@ trusted-publishing/provenance configuration is inspected.
     `coverage.test.mjs` and the corrected array-type value-row explanation in
     the sealed spec. This slice removes one measured prerequisite only; no
     remaining family is authorized by it.
+  - [x] M4.7 targeted checker structured-parameter prerequisite: exact
+    read-only migration measurement found that converting only
+    `isDecimalDigit`, `isLiteralKind`, and `literalToken` in
+    `checker-while.kern` changes five parameter rows and completes three
+    functions. Converting all 18 functions and 126 parameters in that module
+    produces the identical gain. Six-engine brainstorm
+    `brainstorm-1784569913694-o3p3tj-kern-5-r2-m4-7-parameter-scope`
+    unanimously selected the per-function boundary: three internally
+    consistent direct-form functions intentionally coexist with 15
+    internally consistent legacy-form siblings. The migrated source is 256
+    lines, authenticated completion advances from nine to 12 of 104, and
+    `fn.params` blockers fall from 93 to 90. Exact target rows are 8/10/43,
+    4/6/67, and 10/14/49. Every remaining family still completes zero
+    functions and the winner remains `null`. The focused Node 22 gate passes
+    all 67 canonicalizer tests, 21 golden/idempotence/KIR fixtures, seven
+    measured witnesses, three profile-limit fixtures, and 140 hostile
+    fixtures. Checker-subset parity remains 48/48 with all 36 hostile attempts
+    rejected. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including repository consistency, lint, build,
+    every workspace and infrastructure suite, 432 cross-target fixtures, 109
+    class fixtures, 233 native assertions at 100% coverage, 39 validator
+    verdicts, 40 whole-app fixtures on three legs, browser budget, KIR/runtime
+    guards, source-runner convergence, and repeated canonicalizer evidence.
+    Initial six-engine review
+    `review-1784571949656-g95nh2-kern-5-r2-m4-7-terminal-boundary` found one
+    material evidence-wording issue, resolved by binding the nine/93/251
+    baseline to immutable M4.6 commit `f8f684fc` and separating the current
+    M4.7 state. Post-fix review
+    `review-1784572635152-mw47un-kern-5-r2-m4-7-final-postfix` completed all six
+    usable engines with zero verified findings. Its one needs-check item is
+    resolved by the exhaustive 3-direct/15-legacy partition, which covers all
+    18 functions and mechanically excludes mixed parameter forms.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

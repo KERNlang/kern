@@ -113,7 +113,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus consumes frozen M4.5c provenance after structured-parameter migration', () => {
+test('the current corpus consumes frozen M4.5c provenance after targeted parameter migrations', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -132,7 +132,7 @@ test('the current corpus consumes frozen M4.5c provenance after structured-param
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 9);
+  assert.equal(receipt.baseCompleteFunctions, 12);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });

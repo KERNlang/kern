@@ -1,4 +1,5 @@
-fn name=isDecimalDigit params="ch:string" returns=boolean
+fn name=isDecimalDigit returns=boolean
+  param name=ch type=string
   handler lang="kern"
     if cond="ch < \"0\""
       return value="false"
@@ -170,11 +171,15 @@ fn name=lengthReceiverProven params="row:number,fnName:string,binding:string,stm
           return value="false"
     return value="declared"
 
-fn name=isLiteralKind params="kind:string" returns=boolean
+fn name=isLiteralKind returns=boolean
+  param name=kind type=string
   handler lang="kern"
     return value="kind == \"numLit\" || kind == \"strLit\" || kind == \"boolLit\" || kind == \"nullLit\""
 
-fn name=literalToken params="kind:string,name:string,num:string" returns=string
+fn name=literalToken returns=string
+  param name=kind type=string
+  param name=name type=string
+  param name=num type=string
   handler lang="kern"
     if cond="kind == \"numLit\""
       return value="num"
