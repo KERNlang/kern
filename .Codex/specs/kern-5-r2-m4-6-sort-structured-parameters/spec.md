@@ -1,15 +1,17 @@
 # KERN 5 R2 M4.6 — `sort.kern` Structured Parameters
 
-**Status:** VERIFIED
+**Status:** SEALED
 **Date:** 2026-07-20
-**Confidence:** 0.95
+**Confidence:** 0.99
 
 ## Executive Summary
 
-[VERIFIED] M4.5c leaves eight of 104 corpus functions base-complete and all eight
-remaining single-family candidates at zero completions. The leading blocker is
-the deliberately excluded legacy `fn.params` property on all 96 incomplete
-functions (`scripts/kern-canonicalizer/coverage-summary.json:65-70,163-228`).
+[VERIFIED — PRE-MIGRATION] At parent revision `aa911c28`, M4.5c left eight of
+104 corpus functions base-complete and all eight remaining single-family
+candidates at zero completions. The leading blocker was the deliberately
+excluded legacy `fn.params` property on all 96 incomplete functions. The
+current receipt records the post-migration result at
+`scripts/kern-canonicalizer/coverage-summary.json:65-70,163-228`.
 
 [VERIFIED] A read-only exhaustive measurement of all 255 non-empty combinations
 of the eight remaining candidate families also completed zero functions on
@@ -21,20 +23,22 @@ functions in `examples/capstone-assertion-engine/sort.kern` from legacy
 signature text to the language's existing ordered direct `param` children,
 then remeasure once without preselecting a family.
 
-## Current State / Root Cause
+## Pre-Migration State / Root Cause
 
-[VERIFIED] `sort.kern` is 46 lines and contains exactly three legacy signatures:
-one parameter for `halfFloor`, five ordered parameters for `mergeStrings`, and
-one parameter for `sortStrings` (`examples/capstone-assertion-engine/sort.kern:1-46`).
-The migration adds exactly seven child rows, producing a 53-line file below the
-500-line handwritten-source ceiling.
+[VERIFIED — PRE-MIGRATION] At parent revision `aa911c28`, `sort.kern` was 46
+lines and contained exactly three legacy signatures: one parameter for
+`halfFloor`, five ordered parameters for `mergeStrings`, and one parameter for
+`sortStrings`. The migration added exactly seven child rows, producing the
+current 53-line file below the 500-line handwritten-source ceiling
+(`examples/capstone-assertion-engine/sort.kern:1-53`).
 
-[VERIFIED] The current authenticated receipt admits direct `param` nodes in the
-base profile but records `fn.params` as a property and excluded-host-type blocker
-(`scripts/kern-canonicalizer/coverage-summary.json:14-20,36-63,65-70`). The
-existing deterministic coverage test pins 96 legacy blockers, eight base
-completions, and a null single-family winner
-(`scripts/kern-canonicalizer/coverage.test.mjs:146-178`).
+[VERIFIED — PRE-MIGRATION] At parent revision `aa911c28`, the authenticated
+receipt admitted direct `param` nodes in the base profile but recorded
+`fn.params` as a property and excluded-host-type blocker. It pinned 96 legacy
+blockers, eight base completions, and a null single-family winner. The current
+receipt records the observed post-migration result: nine base completions and
+93 `fn.params` blockers
+(`scripts/kern-canonicalizer/coverage-summary.json:65-70`).
 
 [VERIFIED] Read-only pre-migration measurement produced these exact profile rows:
 
@@ -69,9 +73,9 @@ change row counts, so the actual source must be remeasured.
 
 | Behavior | Contract | Evidence | Tag |
 |---|---|---|---|
-| Migration scope | Rewrite all and only the three `sort.kern` signatures | `examples/capstone-assertion-engine/sort.kern:1-46` | VERIFIED |
-| Parameter order | `halfFloor(n)`; `mergeStrings(left,i,right,j,acc)`; `sortStrings(xs)` | `examples/capstone-assertion-engine/sort.kern:1,7,32` | VERIFIED |
-| Source preservation | Bodies, exports, returns, call sites, and authored order remain byte-equivalent outside signature rows | `examples/capstone-assertion-engine/sort.kern:1-46` | VERIFIED |
+| Migration scope | Rewrite all and only the three `sort.kern` signatures | `examples/capstone-assertion-engine/sort.kern:1-53`; parent `aa911c28` | VERIFIED |
+| Parameter order | `halfFloor(n)`; `mergeStrings(left,i,right,j,acc)`; `sortStrings(xs)` | `examples/capstone-assertion-engine/sort.kern:1-13,38-40` | VERIFIED |
+| Source preservation | Bodies, exports, returns, call sites, and authored order remain byte-equivalent outside signature rows | diff from parent `aa911c28` to the current tree | VERIFIED |
 | Runtime behavior | All assertion-engine fixtures remain byte-identical to the TypeScript reference with empty stderr | `scripts/check-capstone-assertion-engine.mjs:58-146` | VERIFIED |
 | Corpus authentication | Old source digest rejects before policy update; only the `sort.kern` corpus digest changes | `scripts/kern-canonicalizer/coverage-policy.json:40-47`; `scripts/kern-canonicalizer/coverage-implementation.mjs:124-140,392` | VERIFIED |
 | Remeasurement | Preserve 104 functions, nine members, four tools, base profile, candidate registry, and immutable promotion provenance | `scripts/kern-canonicalizer/coverage.test.mjs:54-178` | VERIFIED |
@@ -114,6 +118,11 @@ promotion provenance remains unchanged. Exact post-migration profile rows are:
 | `mergeStrings` | 29 | 44 | 493 | nodes, properties, values |
 | `sortStrings` | 16 | 29 | 197 | values |
 
+The value-row deltas are +3, +18, and +4 respectively: every structured
+parameter contributes a child node plus serialized `name` and `type` values,
+and each array type contributes one additional value row. They are therefore
+not one-row-per-parameter increments.
+
 [VERIFIED] The complete canonicalizer gate passed 67/67 tests. Assertion-engine
 behavior remains 13/13 byte-identical to its TypeScript reference, and the
 regenerated checker fixture remains 48/48 byte-identical with all 36 hostile
@@ -135,6 +144,8 @@ convergence, and repeated canonicalizer evidence.
 | `scripts/kern-canonicalizer/coverage-policy.json` | Modify | Bind the migrated source bytes |
 | `scripts/kern-canonicalizer/coverage-summary.json` | Regenerate | Authenticated post-migration receipt |
 | `examples/capstone-checker-subset/main.kern` | Regenerate if changed | Source-derived structural checker fixture |
+| `scripts/check-kern-canonicalizer-coverage.mjs` | Modify | Pin the live M4.6 totals and null winner |
+| `scripts/kern-canonicalizer/coverage-handoff.test.mjs` | Modify | Pin post-migration totals against frozen M4.5c provenance |
 | `docs/kern-5-release-train.md` | Modify | Durable M4.6 decision and evidence |
 | this spec | Modify | Seal observed results and gate evidence |
 
@@ -160,8 +171,13 @@ convergence, and repeated canonicalizer evidence.
 - [x] No canonicalizer source, runtime, schema, family registry, promotion
       provenance, or second corpus module changes.
 - [x] Focused tests and `pnpm fitness:kern-5` pass on the exact tree.
-- [x] Terminal automatic-risk Agon review `review-1784568300383-ovva7y`
-      completed 2/2 independent reviewers with no findings.
+- [x] Terminal six-engine Agon review
+      `review-1784569089322-7yj717-kern-5-r2-m4-6-terminal-boundary` completed
+      6/6 engines with zero verified findings. Its two needs-check items are
+      resolved: `coverage.test.mjs` already pins the exact 93-blocker count, and
+      the array-type value-row explanation above is corrected. This receipt is
+      post-review sealing metadata and is not represented as input to its own
+      review.
 
 ## Out of Scope
 
@@ -178,10 +194,11 @@ None. The exact post-migration measurement is an output, not a design input.
 
 ## Deploy Order
 
-[VERIFIED] This monorepo slice ships atomically: migrated source, any regenerated
+[VERIFIED] This monorepo slice ships atomically: migrated source, regenerated
 fixture, corpus digest, receipt, tests, spec, and release evidence land in one
-commit. Rebase the complete feature on `origin/main` before its single push;
-there is no supported skewed deployment.
+push. Granular local implementation and post-review sealing commits are allowed.
+Rebase the complete feature on `origin/main` before that single push; there is
+no supported skewed deployment.
 
 ## Corrections Log
 

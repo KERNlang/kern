@@ -1246,11 +1246,13 @@ trusted-publishing/provenance configuration is inspected.
     109 class fixtures, 233 native assertions, 48 checker-subset fixtures, 39
     validator verdicts, 40 whole-app fixtures on three legs, browser budget,
     KIR and runtime guards, source-runner convergence, and repeated
-    canonicalizer evidence. Terminal automatic-risk review
-    `review-1784568300383-ovva7y` completed both independently routed reviewers
-    with zero verified, needs-check, speculative, or nit findings. This slice
-    removes one measured prerequisite only; no remaining family is authorized
-    by it.
+    canonicalizer evidence. Terminal exact-tree review
+    `review-1784569089322-7yj717-kern-5-r2-m4-6-terminal-boundary` completed all
+    six usable engines with zero verified findings. Both needs-check items are
+    resolved by the exact 93-blocker assertion already present in
+    `coverage.test.mjs` and the corrected array-type value-row explanation in
+    the sealed spec. This slice removes one measured prerequisite only; no
+    remaining family is authorized by it.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
