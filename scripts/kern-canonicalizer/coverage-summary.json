@@ -7,10 +7,11 @@
       "identifier",
       "integer",
       "list",
+      "member",
       "null",
       "text"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.5c",
+    "id": "kern.kir-canonicalizer.profile.m4.14",
     "nodeKinds": [
       "else",
       "fn",
@@ -31,6 +32,10 @@
       {
         "family": "call-expression",
         "selectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605"
+      },
+      {
+        "family": "member-expression",
+        "selectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d"
       }
     ],
     "propertyKeys": [
@@ -62,7 +67,7 @@
       "return.value"
     ]
   },
-  "baseCompleteFunctions": 20,
+  "baseCompleteFunctions": 21,
   "blockers": [
     {
       "count": 81,
@@ -156,27 +161,18 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "c30d61d0458fd48a9243a71f8de8690e002fc7a3a6e1e49833c9549a031544d6",
-  "coverageImplementationDigest": "5477da2d0781541b9c9086ff22c9bff83fe6687af4ceeb48b1a7de8dcea2acf8",
-  "coveragePolicyDigest": "f7c0b13a614034345003dc6499e4a532f70032416a7c9a48e4e728e2a0c1c56f",
+  "coverageImplementationDigest": "83b4fcdc8558045e40edbef391e9094dcda0d77c8662f56600c67037aaa0e810",
+  "coveragePolicyDigest": "2a5413c0e40540f51b0213adfee3f00f91e293dde0070666ed3244a714d25b26",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
-  "functionFactsDigest": "d3b90dab96a279255607a65e69415529844e3159b0cbc2abd3b0e8a75ab23872",
+  "functionFactsDigest": "f739d0a766a7ad7ef549a2a6e667ced42a31eec7bc91fa0e30b3baff4db8ff38",
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "379acc541d21a9300262bca9704fea2e6843f3065bdf911bb85d2fb97b51f2f8",
-  "profileDigest": "9ce6b03032d39d68be23318835a9d0ce3888aa6dacf984bd18e097260f421322",
+  "policyDigest": "a15a5e56be5a95f47c7059144cf73ec82eb44ae12f2cfdc46a7a38885ad7c701",
+  "profileDigest": "c1c0caf0595fcba87e27fa3b8319244bbbd04d107c063bfcd638c42c667fef33",
   "selection": {
     "ranking": [
-      {
-        "completeFunctions": 1,
-        "completeTools": 1,
-        "id": "member-expression",
-        "occurrences": 259,
-        "witnesses": [
-          "examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText"
-        ]
-      },
       {
         "completeFunctions": 0,
         "completeTools": 0,
@@ -227,15 +223,7 @@
         "witnesses": []
       }
     ],
-    "winner": {
-      "completeFunctions": 1,
-      "completeTools": 1,
-      "id": "member-expression",
-      "occurrences": 259,
-      "witnesses": [
-        "examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText"
-      ]
-    }
+    "winner": null
   },
   "selectionProvenances": [
     {

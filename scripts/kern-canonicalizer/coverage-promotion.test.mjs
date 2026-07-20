@@ -12,7 +12,7 @@ import { baseExpressionProfileBlockers, profileBlockersForFunction } from './cov
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5c';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.14';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
@@ -29,19 +29,27 @@ const CALL_PROMOTION = {
   family: 'call-expression',
   selectionProvenanceDigest: CALL_PROVENANCE_DIGEST,
 };
+const MEMBER_PROMOTION = {
+  family: 'member-expression',
+  selectionProvenanceDigest: MEMBER_PROVENANCE_DIGEST,
+};
 
-test('M4.5c promotes the measured call family into one exact cumulative profile', () => {
+test('M4.14 promotes the measured member family into one exact cumulative profile', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
   assert.equal(policy.base.id, PROFILE_ID);
   assert.deepEqual(policy.base.nodeKinds, ['else', 'fn', 'handler', 'if', 'param', 'return']);
   assert.deepEqual(policy.base.expressionKinds, [
-    'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'null', 'text',
+    'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'member', 'null', 'text',
   ]);
-  assert.deepEqual(policy.base.promotions, [BINARY_PROMOTION, CONDITIONAL_PROMOTION, CALL_PROMOTION]);
+  assert.deepEqual(
+    policy.base.promotions,
+    [BINARY_PROMOTION, CONDITIONAL_PROMOTION, CALL_PROMOTION, MEMBER_PROMOTION],
+  );
   assert.equal(policy.families.some(({ id }) => id === 'binary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
 
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
@@ -61,7 +69,7 @@ test('M4.5c promotes the measured call family into one exact cumulative profile'
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
 });
 
-test('M4.5c rejects profile identity, facts, evidence, and candidate overlap drift', () => {
+test('M4.14 rejects profile identity, facts, evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.1'; },
@@ -73,14 +81,16 @@ test('M4.5c rejects profile identity, facts, evidence, and candidate overlap dri
     (copy) => { copy.base.promotions[0].selectionProvenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[1].selectionProvenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[2].selectionProvenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[3].selectionProvenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions.reverse(); },
     (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CALL_PROMOTION)); },
+    (copy) => { copy.base.promotions.push(structuredClone(MEMBER_PROMOTION)); },
     (copy) => {
       copy.families.unshift({
-        expressionKinds: ['call'],
-        id: 'call-expression',
+        expressionKinds: ['member'],
+        id: 'member-expression',
         nodeKinds: [],
         propertyKeys: [],
       });
@@ -115,6 +125,11 @@ const call = (callee, args = [], optional = { tag: 'bool', value: false }) => ex
   args: { tag: 'list', value: args },
   callee,
   optional,
+});
+const member = (object, property = 'value', optional = { tag: 'bool', value: false }) => expression('member', {
+  object,
+  optional,
+  property: { tag: 'text', value: property },
 });
 
 function baseCompletionProfile(base) {
@@ -168,20 +183,15 @@ test('the promoted call profile admits only exact recursive non-optional calls',
   }
 });
 
-test('the promoted call profile keeps member and index dependencies outside the base', () => {
+test('the promoted member profile keeps index dependencies outside the base', () => {
   const base = loadCoveragePolicy().base;
   const optional = { tag: 'bool', value: false };
-  const member = expression('member', {
-    object: identifier('service'),
-    optional,
-    property: { tag: 'text', value: 'run' },
-  });
   const index = expression('index', {
     index: expression('integer', { value: { tag: 'int', value: '0' } }),
     object: identifier('items'),
     optional,
   });
-  for (const candidate of [call(member), call(identifier('consume'), [index])]) {
+  for (const candidate of [member(index, 'length', optional), call(identifier('consume'), [index])]) {
     assert.deepEqual(baseExpressionProfileBlockers(candidate, base), []);
     const expressionKinds = [...new Set(collectCanonicalExpressionKinds(candidate))];
     assert.equal(
@@ -197,13 +207,56 @@ test('the promoted call profile keeps member and index dependencies outside the 
 
 test('a future base expression kind fails closed until it has an exact local profile', () => {
   const base = structuredClone(loadCoveragePolicy().base);
-  base.expressionKinds.push('member');
-  const member = expression('member', {
-    object: identifier('service'),
+  base.expressionKinds.push('index');
+  const index = expression('index', {
+    index: expression('integer', { value: { tag: 'int', value: '0' } }),
+    object: identifier('items'),
     optional: { tag: 'bool', value: false },
-    property: { tag: 'text', value: 'run' },
   });
-  assert.deepEqual(baseExpressionProfileBlockers(member, base), ['expression.member.profile']);
+  assert.deepEqual(baseExpressionProfileBlockers(index, base), ['expression.index.profile']);
+});
+
+test('the promoted member profile admits only exact recursive non-optional parser-safe members', () => {
+  const base = loadCoveragePolicy().base;
+  const valid = member(member(call(identifier('make')), 'new'), 'return');
+  assert.deepEqual(baseExpressionProfileBlockers(valid, base), []);
+  assert.deepEqual(baseExpressionProfileBlockers(member(identifier('service'), 'typeof'), base), []);
+  assert.deepEqual(
+    baseExpressionProfileBlockers(
+      member(identifier('service'), 'run', { tag: 'bool', value: true }),
+      base,
+    ),
+    ['expression.member.optional'],
+  );
+  assert.deepEqual(
+    baseExpressionProfileBlockers(
+      member(member(identifier('service'), 'client', { tag: 'bool', value: true }), 'run'),
+      base,
+    ),
+    ['expression.member.optional'],
+  );
+  for (const property of ['null', 'none', 'undefined', 'true', 'false', 'await']) {
+    assert.deepEqual(
+      baseExpressionProfileBlockers(member(identifier('service'), property), base),
+      [`expression.member.property.${property}`],
+    );
+  }
+  for (const malformed of [
+    expression('member', {
+      object: identifier('service'),
+      property: { tag: 'text', value: 'run' },
+    }),
+    member(identifier('service'), 'bad-name'),
+    member(identifier('service'), 'run', { tag: 'text', value: 'false' }),
+    expression('member', {
+      future: { tag: 'null' },
+      object: identifier('service'),
+      optional: { tag: 'bool', value: false },
+      property: { tag: 'text', value: 'run' },
+    }),
+  ]) {
+    assert.deepEqual(baseExpressionProfileBlockers(malformed, base), ['expression.member.shape']);
+  }
 });
 
 test('the promoted conditional profile rejects malformed shape and pairing', () => {

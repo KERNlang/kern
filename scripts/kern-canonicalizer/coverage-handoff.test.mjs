@@ -154,7 +154,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus consumes frozen M4.5c provenance after six targeted parameter migrations', () => {
+test('the current corpus consumes frozen M4.14 provenance after member promotion', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -176,12 +176,12 @@ test('the current corpus consumes frozen M4.5c provenance after six targeted par
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 20);
-  assert.deepEqual(receipt.selection.winner, M411_SELECTION);
+  assert.equal(receipt.baseCompleteFunctions, 21);
+  assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.13 implements exact member capability without rewriting selection evidence', () => {
+test('M4.14 promotes the exact M4.13 member capability without rewriting selection evidence', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -205,9 +205,10 @@ test('M4.13 implements exact member capability without rewriting selection evide
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.5c');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.14');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
@@ -219,5 +220,10 @@ test('M4.13 implements exact member capability without rewriting selection evide
   assert.equal(
     policy.base.promotions[2].selectionProvenanceDigest,
     loadCanonicalizerCallSelectionProvenance().digest,
+  );
+  assert.equal(policy.base.promotions[3].family, 'member-expression');
+  assert.equal(
+    policy.base.promotions[3].selectionProvenanceDigest,
+    loadCanonicalizerMemberSelectionProvenance().digest,
   );
 });

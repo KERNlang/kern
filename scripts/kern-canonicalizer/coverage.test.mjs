@@ -180,20 +180,13 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   );
   assertStructuredParameterMigrations(first);
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 81);
-  assert.equal(first.baseCompleteFunctions, 20);
-  assert.deepEqual(first.selection.winner, {
-    completeFunctions: 1,
-    completeTools: 1,
-    id: 'member-expression',
-    occurrences: 259,
-    witnesses: ['examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText'],
-  });
+  assert.equal(first.baseCompleteFunctions, 21);
+  assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [1, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'member-expression',
     'binding',
     'index-expression',
     'counted-iteration',
@@ -421,7 +414,7 @@ test('corpus reads reject symlinks even when their target remains inside the roo
 
 test('the cumulative base profile admits every promoted-family golden function', () => {
   const base = loadCoveragePolicy().base;
-  for (const fixture of VALID_FIXTURES.filter(({ id }) => !id.startsWith('member-'))) {
+  for (const fixture of VALID_FIXTURES) {
     const parsed = parseDocumentWithDiagnostics(fixture.source);
     for (const root of parsed.root.children ?? []) {
       assert.deepEqual(profileBlockersForFunction(root, base), [], `${fixture.id}:${root.props?.name}`);

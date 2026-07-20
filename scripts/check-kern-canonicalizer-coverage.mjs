@@ -84,7 +84,7 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.5c');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.14');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -98,23 +98,34 @@ if (process.argv.includes('--write')) {
       family: 'call-expression',
       selectionProvenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
     },
-  ], 'M4.5c must cite the frozen binary, conditional, and call selections');
-  assert.equal(actual.corpusMembers, 9, 'live M4.11 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.11 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.11 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 20, 'live M4.11 base completion must remain exactly 20/104');
+    {
+      family: 'member-expression',
+      selectionProvenanceDigest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+    },
+  ], 'M4.14 must cite the frozen binary, conditional, call, and member selections');
+  assert.equal(actual.corpusMembers, 9, 'live M4.14 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.14 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.14 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 21, 'live M4.14 base completion must remain exactly 21/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     81,
-    'live M4.11 fn.params blocker count must remain exactly 81',
+    'live M4.14 fn.params blocker count must remain exactly 81',
   );
-  assert.deepEqual(actual.selection.winner, {
-    completeFunctions: 1,
-    completeTools: 1,
-    id: 'member-expression',
-    occurrences: 259,
-    witnesses: ['examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText'],
-  }, 'live M4.11 measurement must select the exact member-expression prerequisite');
+  assert.equal(actual.selection.winner, null, 'live M4.14 measurement must have no single-family winner');
+  assert.deepEqual(
+    actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
+    [
+      { completeFunctions: 0, completeTools: 0, id: 'binding' },
+      { completeFunctions: 0, completeTools: 0, id: 'index-expression' },
+      { completeFunctions: 0, completeTools: 0, id: 'counted-iteration' },
+      { completeFunctions: 0, completeTools: 0, id: 'do-statement' },
+      { completeFunctions: 0, completeTools: 0, id: 'unary-expression' },
+      { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
+      { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
+    ],
+    'live M4.14 zero-completion ranking must remain exact',
+  );
   assertCoverageSummary(summaryUrl, actual);
 }
 const leadingBlocker = actual.blockers[0];

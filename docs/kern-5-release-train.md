@@ -1490,6 +1490,36 @@ trusted-publishing/provenance configuration is inspected.
     zero speculative findings, and five nits. Exact flattened-KIR inspection
     resolved the needs-check: fixture index zero is the inner `service.client`
     member, so recursive optional rejection is directly exercised.
+  - [x] M4.14 member-expression profile promotion: cumulative profile
+    `kern.kir-canonicalizer.profile.m4.14` now authenticates the immutable
+    M4.11 member selection digest, admits the exact recursive M4.13 member
+    subset, and removes `member-expression` from active candidates. The local
+    profile requires exact `{ object, optional, property }` shape,
+    `optional=false`, identifier-shaped properties, and rejects the six
+    parser-forbidden dot properties while preserving valid `new`, `typeof`,
+    and `return` properties. Index dependencies remain outside the base.
+    Authenticated measurement rises from 20 to 21 of 104 base-complete
+    functions with 81 `fn.params` blockers. All seven remaining single-family
+    candidates complete zero functions, so the deterministic winner is null;
+    binding's 750 occurrences do not authorize implementation. The KERN
+    executable remains 33,571 bytes at SHA-256
+    `b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a`;
+    regenerated format-5 summary SHA-256 is
+    `ddcb79ffd489555070ae807905ad09405761fb6175d7d0597ab896fc4e26717c`.
+    The focused Node 22 gate passes 70 structural/authentication tests plus 27
+    golden/idempotence/KIR, eight measured-witness, three profile-limit, and
+    156 hostile fixtures. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including all workspace and infrastructure
+    suites, 432 cross-target fixtures, 109 class fixtures, 233 native assertions
+    at 100% coverage, 48 checker fixtures plus 36 hostile rejections, 39
+    validator verdicts, 40 whole-app fixtures across three legs, browser budget,
+    and every KIR/runtime/ownership/convergence guard. Full-roster terminal
+    review `review-1784590699884-b0vlql-kern-5-r2-m4-14-terminal-boundar`
+    completed all six usable engines with zero verified findings, two
+    needs-check items, zero speculative findings, and three nits. The
+    needs-check items were resolved as intentional separation between
+    root-identifier and dot-property policy, and as an out-of-scope
+    cross-family validator refactor. No material finding remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

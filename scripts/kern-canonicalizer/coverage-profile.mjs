@@ -17,14 +17,17 @@ const INTEGER = /^(?:0|[1-9][0-9]*)$/u;
 const RESERVED_EXPRESSION_IDENTIFIERS = new Set([
   'await', 'false', 'new', 'none', 'null', 'true', 'typeof', 'undefined',
 ]);
+const FORBIDDEN_MEMBER_PROPERTIES = new Set([
+  'await', 'false', 'none', 'null', 'true', 'undefined',
+]);
 const PARAMETER_TYPES = new Set([
   'boolean', 'boolean[]', 'number', 'number[]', 'string', 'string[]',
 ]);
 const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
-  'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'null', 'text',
+  'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'member', 'null', 'text',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5c';
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.14';
 const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -37,6 +40,10 @@ const BASE_PROMOTIONS = [
   {
     family: 'call-expression',
     selectionProvenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+  },
+  {
+    family: 'member-expression',
+    selectionProvenanceDigest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
   },
 ];
 const BASE_NODE_KINDS = ['else', 'fn', 'handler', 'if', 'param', 'return'];
@@ -76,7 +83,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.5c cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.14 cumulative profile');
   }
   return base;
 }
@@ -158,6 +165,19 @@ function localBaseExpressionBlocker(value) {
       throw error;
     }
     return fields.get('optional')?.value === false ? null : 'expression.call.optional';
+  }
+  if (kind.value === 'member') {
+    try {
+      validateExpressionValue(value, '$.member');
+    } catch (error) {
+      if (error instanceof StructuralKirError) return 'expression.member.shape';
+      throw error;
+    }
+    if (fields.get('optional')?.value !== false) return 'expression.member.optional';
+    const property = fields.get('property')?.value;
+    return FORBIDDEN_MEMBER_PROPERTIES.has(property)
+      ? `expression.member.property.${property}`
+      : null;
   }
   if (kind.value !== 'list') return `expression.${kind.value}.profile`;
   const items = fields.get('items');
