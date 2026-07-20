@@ -5,8 +5,7 @@ import {
   verifyCanonicalizerComposition,
 } from './composition.mjs';
 import {
-  loadCanonicalizerImplementationSelectionProvenance,
-  loadCanonicalizerSelectionProvenance,
+  loadCanonicalizerSelectionProvenanceChain,
 } from './coverage-selection-provenance.mjs';
 
 function digest(value) {
@@ -16,13 +15,13 @@ function digest(value) {
 /** Authenticate the exact composite before it becomes coverage evidence. */
 export function loadCanonicalizerCoverageEvidence() {
   const verified = verifyCanonicalizerComposition();
+  const selectionEvidence = loadCanonicalizerSelectionProvenanceChain();
   return {
     composition: {
       digest: digest(canonicalCompositionRecordBytes(verified.record)),
       record: verified.record,
     },
-    implementationSelectionProvenance: loadCanonicalizerImplementationSelectionProvenance(),
-    selectionProvenance: loadCanonicalizerSelectionProvenance(),
+    ...selectionEvidence,
     source: verified.compositeBytes,
   };
 }

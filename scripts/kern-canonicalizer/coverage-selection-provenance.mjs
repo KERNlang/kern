@@ -12,6 +12,16 @@ const IMPLEMENTATION_SELECTION = Object.freeze({
   label: 'M4.3c implementation selection',
   source: readFileSync(new URL('./coverage-implementation-selection-provenance.json', import.meta.url)),
 });
+const CALL_SELECTION = Object.freeze({
+  digest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+  label: 'M4.5 call-expression selection',
+  source: readFileSync(new URL('./coverage-call-selection-provenance.json', import.meta.url)),
+});
+const SELECTION_CHAIN_DIGESTS = [
+  PROMOTED_SELECTION.digest,
+  IMPLEMENTATION_SELECTION.digest,
+  CALL_SELECTION.digest,
+];
 
 function fail(message) {
   throw new TypeError(`selection provenance rejection: ${message}`);
@@ -132,4 +142,53 @@ export function loadCanonicalizerSelectionProvenance() {
 
 export function loadCanonicalizerImplementationSelectionProvenance() {
   return loadPinnedSelectionProvenance(IMPLEMENTATION_SELECTION);
+}
+
+export function loadCanonicalizerCallSelectionProvenance() {
+  return loadPinnedSelectionProvenance(CALL_SELECTION);
+}
+
+export function validateCanonicalizerSelectionProvenanceChain(
+  selectionProvenances,
+  implementationSelectionProvenanceDigest,
+) {
+  if (!Array.isArray(selectionProvenances) || selectionProvenances.length !== SELECTION_CHAIN_DIGESTS.length) {
+    fail('selection provenance chain must contain the exact M4.5a history');
+  }
+  const validated = selectionProvenances.map((entry, index) => {
+    const value = record(entry, ['digest', 'record'], `selectionProvenances[${index}]`);
+    const provenance = validateCanonicalizerSelectionProvenance(value.record);
+    const canonical = canonicalSelectionProvenanceBytes(provenance);
+    const actualDigest = createHash('sha256').update(canonical).digest('hex');
+    if (value.digest !== SELECTION_CHAIN_DIGESTS[index] || value.digest !== actualDigest) {
+      fail(`selectionProvenances[${index}] must match the exact canonical history`);
+    }
+    return { digest: value.digest, record: provenance };
+  });
+  const families = validated.map(({ record: provenance }) => provenance.snapshot.selection.id);
+  if (new Set(families).size !== families.length) fail('selection provenance families must be unique');
+  if (new Set(validated.map(({ digest }) => digest)).size !== validated.length) {
+    fail('selection provenance digests must be unique');
+  }
+  if (
+    implementationSelectionProvenanceDigest !== CALL_SELECTION.digest ||
+    validated.filter(({ digest }) => digest === implementationSelectionProvenanceDigest).length !== 1
+  ) {
+    fail('implementation selection provenance digest must resolve exactly once');
+  }
+  return {
+    implementationSelectionProvenanceDigest,
+    selectionProvenances: validated,
+  };
+}
+
+export function loadCanonicalizerSelectionProvenanceChain() {
+  return validateCanonicalizerSelectionProvenanceChain(
+    [
+      loadCanonicalizerSelectionProvenance(),
+      loadCanonicalizerImplementationSelectionProvenance(),
+      loadCanonicalizerCallSelectionProvenance(),
+    ],
+    CALL_SELECTION.digest,
+  );
 }

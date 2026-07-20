@@ -1138,6 +1138,32 @@ trusted-publishing/provenance configuration is inspected.
     `review-1784473453151-59d825-kern-5-r2-m4-5-review-hardening`. The
     capability/evidence gate is closed; signed follow-up commit, rebase, and
     verified push remain external publication actions.
+  - [x] M4.5a call-expression selection handoff prerequisite: the exact
+    published M4.5 call-expression winner is frozen before any new KERN or
+    corpus byte. Canonical selection provenance now forms an ordered,
+    append-only three-record history for binary, conditional, and call
+    expression, with unique family/digest validation and a single digest
+    pointer to the current implementation authorization. Receipt and summary
+    advance to format 5; the policy, corpus, ranking, executable canonicalizer,
+    KIR/runtime/public contracts, and ownership claims remain unchanged. Nero
+    `nero-1784473503920-aoxj6q` correctly exposed tranche-boundary churn in the
+    first schema proposal, causing the stable append-only redesign. The
+    focused Node 22 gate passes 63 Node tests, 18 golden/idempotence/KIR
+    fixtures, five measured witnesses, three profile-limit fixtures, and 128
+    hostile fixtures. Live evidence remains six of 104 base-complete and
+    selects call-expression with two functions, one tool, 481 occurrences,
+    and the same two witnesses. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including repo consistency, lint, build,
+    workspace tests, infrastructure proofs, cross-target/native conformance,
+    capstones, app behavior, browser budget, KIR guards, source-runner
+    convergence, and the repeated canonicalizer evidence. Exact-tree review
+    `review-1784548446121-pw3ita` completed all six engines with zero
+    consensus-verified findings. Its one claimed blocker exposed an orphaned
+    CLI-generated JavaScript file in the old core `dist`; the clean worktree
+    correctly refreshes `compiledCoreDigest` from contaminated `f72c…` to
+    reproducible `592b…`, and passes the full wall with that receipt. The
+    capability/evidence gate is closed; signed commit, no-rewrite rebase, and
+    push remain external publication actions.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -12,6 +12,7 @@ import { baseExpressionProfileBlockers, profileBlockersForFunction } from './cov
 const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
+const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   selectionProvenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -35,12 +36,15 @@ test('M4.5 promotes the measured conditional family into one exact cumulative pr
 
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
-  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.4');
+  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.5');
   assert.deepEqual(receipt.base, policy.base);
-  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.4');
+  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.5');
   assert.deepEqual(summary.base, policy.base);
-  assert.equal(receipt.selectionProvenance.digest, BINARY_PROVENANCE_DIGEST);
-  assert.equal(receipt.implementationSelectionProvenance.digest, CONDITIONAL_PROVENANCE_DIGEST);
+  assert.deepEqual(
+    receipt.selectionProvenances.map(({ digest }) => digest),
+    [BINARY_PROVENANCE_DIGEST, CONDITIONAL_PROVENANCE_DIGEST, CALL_PROVENANCE_DIGEST],
+  );
+  assert.equal(receipt.implementationSelectionProvenanceDigest, CALL_PROVENANCE_DIGEST);
 });
 
 test('M4.5 rejects profile identity, facts, evidence, and candidate overlap drift', () => {

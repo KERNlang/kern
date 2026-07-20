@@ -9,8 +9,9 @@ const actual = summarizeCanonicalizerCoverage();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
 } else {
-  assert.equal(actual.selectionProvenance.digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
-  assert.deepEqual(actual.selectionProvenance.record.snapshot, {
+  assert.equal(actual.selectionProvenances.length, 3);
+  assert.equal(actual.selectionProvenances[0].digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
+  assert.deepEqual(actual.selectionProvenances[0].record.snapshot, {
     corpusMembers: 7,
     functionCount: 98,
     selection: {
@@ -27,10 +28,10 @@ if (process.argv.includes('--write')) {
     toolCount: 4,
   }, 'frozen M4.3a selection provenance must remain exact');
   assert.equal(
-    actual.implementationSelectionProvenance.digest,
+    actual.selectionProvenances[1].digest,
     'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
   );
-  assert.deepEqual(actual.implementationSelectionProvenance.record.snapshot, {
+  assert.deepEqual(actual.selectionProvenances[1].record.snapshot, {
     corpusMembers: 8,
     functionCount: 99,
     selection: {
@@ -45,6 +46,26 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.3c implementation selection provenance must remain exact');
+  assert.equal(
+    actual.selectionProvenances[2].digest,
+    '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+  );
+  assert.equal(actual.implementationSelectionProvenanceDigest, actual.selectionProvenances[2].digest);
+  assert.deepEqual(actual.selectionProvenances[2].record.snapshot, {
+    corpusMembers: 9,
+    functionCount: 104,
+    selection: {
+      completeFunctions: 2,
+      completeTools: 1,
+      id: 'call-expression',
+      occurrences: 481,
+      witnesses: [
+        'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
+        'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
+      ],
+    },
+    toolCount: 4,
+  }, 'frozen M4.5 call-expression selection provenance must remain exact');
   assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.5');
   assert.deepEqual(actual.base.promotions, [
     {

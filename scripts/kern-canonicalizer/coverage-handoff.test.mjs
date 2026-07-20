@@ -8,12 +8,16 @@ import {
 } from './coverage.mjs';
 import {
   canonicalSelectionProvenanceBytes,
+  loadCanonicalizerCallSelectionProvenance,
   loadCanonicalizerImplementationSelectionProvenance,
   loadCanonicalizerSelectionProvenance,
+  loadCanonicalizerSelectionProvenanceChain,
+  validateCanonicalizerSelectionProvenanceChain,
 } from './coverage-selection-provenance.mjs';
 
 const M43A_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const M43C_COMMIT = '736e2d1237b6d154b7abbf5f853103c459627424';
+const M45_COMMIT = '91a1f91509f39887c7e5f23b413da28e8fb03c22';
 const M43C_SELECTION = {
   completeFunctions: 2,
   completeTools: 1,
@@ -34,6 +38,57 @@ const M45_SELECTION = {
     'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
   ],
 };
+
+test('M4.5a freezes call-expression selection as a third immutable record', () => {
+  const call = loadCanonicalizerCallSelectionProvenance();
+  assert.equal(call.record.source.commit, M45_COMMIT);
+  assert.equal(
+    call.record.source.coverageSummarySha256,
+    '7baf457852184a7e6c2df54ab9ff2e7870e6b8cb5c58f2844187624c5ba75e50',
+  );
+  assert.deepEqual(call.record.snapshot, {
+    corpusMembers: 9,
+    functionCount: 104,
+    selection: M45_SELECTION,
+    toolCount: 4,
+  });
+  assert.deepEqual(
+    canonicalSelectionProvenanceBytes(call.record),
+    readFileSync(new URL('./coverage-call-selection-provenance.json', import.meta.url)),
+  );
+});
+
+test('M4.5a selection history and implementation pointer fail closed on drift', () => {
+  const chain = loadCanonicalizerSelectionProvenanceChain();
+  assert.equal(chain.implementationSelectionProvenanceDigest, chain.selectionProvenances[2].digest);
+  assert.deepEqual(chain.selectionProvenances.map(({ record }) => record.snapshot.selection.id), [
+    'binary-expression',
+    'conditional',
+    'call-expression',
+  ]);
+  const mutations = [
+    (copy) => { copy.selectionProvenances.reverse(); },
+    (copy) => { copy.selectionProvenances.pop(); },
+    (copy) => { copy.selectionProvenances[2].digest = '0'.repeat(64); },
+    (copy) => { copy.selectionProvenances[2].record.format = 'future'; },
+    (copy) => { copy.selectionProvenances[2].record.source.commit = '0'.repeat(40); },
+    (copy) => { copy.selectionProvenances[2].record.snapshot.functionCount += 1; },
+    (copy) => { copy.selectionProvenances[2].record.snapshot.selection.id = 'future'; },
+    (copy) => { copy.selectionProvenances[2].record.snapshot.selection.witnesses.reverse(); },
+    (copy) => { copy.implementationSelectionProvenanceDigest = chain.selectionProvenances[1].digest; },
+  ];
+  for (const mutate of mutations) {
+    const copy = structuredClone(chain);
+    mutate(copy);
+    assert.throws(
+      () => validateCanonicalizerSelectionProvenanceChain(
+        copy.selectionProvenances,
+        copy.implementationSelectionProvenanceDigest,
+      ),
+      /selection provenance rejection/u,
+    );
+  }
+});
 
 test('M4.3d freezes distinct promoted-base and implementation-selection provenance', () => {
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -61,12 +116,15 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
 test('M4.5 consumes frozen M4.3c provenance while live evidence advances', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
+  const promoted = loadCanonicalizerSelectionProvenance();
   const implementation = loadCanonicalizerImplementationSelectionProvenance();
-  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.4');
-  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.4');
-  assert.deepEqual(receipt.selectionProvenance, loadCanonicalizerSelectionProvenance());
-  assert.deepEqual(receipt.implementationSelectionProvenance, implementation);
-  assert.deepEqual(summary.implementationSelectionProvenance, implementation);
+  const call = loadCanonicalizerCallSelectionProvenance();
+  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.5');
+  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.5');
+  assert.deepEqual(receipt.selectionProvenances, [promoted, implementation, call]);
+  assert.deepEqual(summary.selectionProvenances, [promoted, implementation, call]);
+  assert.equal(receipt.implementationSelectionProvenanceDigest, call.digest);
+  assert.equal(summary.implementationSelectionProvenanceDigest, call.digest);
   assert.equal(implementation.record.snapshot.corpusMembers, 8);
   assert.equal(implementation.record.snapshot.functionCount, 99);
   assert.equal(receipt.corpus.length, 9);
@@ -76,6 +134,7 @@ test('M4.5 consumes frozen M4.3c provenance while live evidence advances', () =>
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
   assert.equal(receipt.baseCompleteFunctions, 6);
   assert.deepEqual(receipt.selection.winner, M45_SELECTION);
+  assert.deepEqual(receipt.selection.winner, call.record.snapshot.selection);
 });
 
 test('M4.5 promotes conditional without changing the exact M4.4 KERN capability', () => {

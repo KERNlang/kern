@@ -1,4 +1,4 @@
-const SUMMARY_FORMAT = 'kern.kir-canonicalizer.coverage-summary.4';
+const SUMMARY_FORMAT = 'kern.kir-canonicalizer.coverage-summary.5';
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -30,11 +30,11 @@ export function summarizeCoverageReceipt(receipt) {
     format: SUMMARY_FORMAT,
     functionCount: receipt.functions.length,
     functionFactsDigest: receipt.functionFactsDigest,
-    implementationSelectionProvenance: receipt.implementationSelectionProvenance,
+    implementationSelectionProvenanceDigest: receipt.implementationSelectionProvenanceDigest,
     policyDigest: receipt.policyDigest,
     profileDigest: receipt.profileDigest,
     selection: receipt.selection,
-    selectionProvenance: receipt.selectionProvenance,
+    selectionProvenances: receipt.selectionProvenances,
     toolCount: new Set(receipt.corpus.map(({ tool }) => tool)).size,
   };
 }

@@ -37,7 +37,7 @@ import { summarizeCoverageReceipt } from './coverage-summary.mjs';
 import { CANONICALIZER_COMPOSITE_PATH } from './composition.mjs';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.2';
-const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.4';
+const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.5';
 const EXPRESSION_KINDS = STRUCTURAL_EXPRESSION_KINDS;
 const AUTHENTICATED_DEPENDENCIES = requireAuthenticatedCoverageDependencies();
 const COVERAGE_POLICY_SOURCE = readFileSync(new URL('./coverage-policy.json', import.meta.url));
@@ -365,14 +365,19 @@ export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
-  const promotionProvenances = [
-    evidence.selectionProvenance,
-    evidence.implementationSelectionProvenance,
-  ];
-  const promotionEvidence = new Map(
-    promotionProvenances.map((provenance) => [provenance.record.snapshot.selection.id, provenance]),
+  const promotionEvidence = new Map(evidence.selectionProvenances.map((provenance) => [
+    provenance.record.snapshot.selection.id,
+    provenance,
+  ]));
+  if (promotionEvidence.size !== evidence.selectionProvenances.length) {
+    fail('selection provenance must contain unique families');
+  }
+  const implementationSelectionMatches = evidence.selectionProvenances.filter(
+    ({ digest: provenanceDigest }) => provenanceDigest === evidence.implementationSelectionProvenanceDigest,
   );
-  if (promotionEvidence.size !== promotionProvenances.length) fail('promotion evidence must select unique families');
+  if (implementationSelectionMatches.length !== 1) {
+    fail('implementation selection provenance digest must resolve exactly once');
+  }
   for (const promotion of policy.base.promotions) {
     const provenance = promotionEvidence.get(promotion.family);
     if (
@@ -428,11 +433,11 @@ export function measureCanonicalizerCoverage(policyInput) {
     format: RECEIPT_FORMAT,
     functionFactsDigest: digest(JSON.stringify(functions)),
     functions,
-    implementationSelectionProvenance: evidence.implementationSelectionProvenance,
+    implementationSelectionProvenanceDigest: evidence.implementationSelectionProvenanceDigest,
     policyDigest: digest(JSON.stringify(policy)),
     profileDigest: digest(PROFILE_SOURCE),
     selection,
-    selectionProvenance: evidence.selectionProvenance,
+    selectionProvenances: evidence.selectionProvenances,
   };
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   return receipt;
