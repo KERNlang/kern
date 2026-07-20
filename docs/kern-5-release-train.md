@@ -1342,7 +1342,10 @@ trusted-publishing/provenance configuration is inspected.
     class fixtures, 233 native assertions at 100% coverage, 39 validator
     verdicts, 40 whole-app fixtures across three legs, browser budget,
     KIR/runtime guards, source-runner convergence, and repeated canonicalizer
-    evidence. Full-roster terminal review
+    evidence. Preliminary automatically routed review
+    `review-1784577709996-drhnzx` completed both requested reviewers with zero
+    findings and remains preserved as superseded history. Full-roster terminal
+    review
     `review-1784577771218-s0mruf-kern-5-r2-m4-9-terminal-boundary` completed all
     six usable engines with zero verified, needs-check, or speculative
     findings. Its five nits do not alter the bounded fail-closed evidence; the
@@ -1369,10 +1372,16 @@ trusted-publishing/provenance configuration is inspected.
     coverage, 48 checker fixtures plus 36 hostile rejections, 39 validator
     verdicts, 40 whole-app fixtures across three legs, browser budget,
     KIR/runtime/ownership/convergence guards, and repeated canonicalizer
-    evidence. Automatically routed terminal review
-    `review-1784580066541-ki9752` completed both required independent reviewers
-    with zero verified, needs-check, or speculative findings. Its one editorial
-    nit is resolved in the sealed spec. No material finding remains unresolved.
+    evidence. Preliminary automatically routed terminal review
+    `review-1784580066541-ki9752` completed both requested independent
+    reviewers with zero verified, needs-check, or speculative findings and one
+    editorial nit. Superseding full-roster terminal review
+    `review-1784580218054-0u53yc-kern-5-r2-m4-10-terminal-boundar` completed
+    all six usable engines with zero verified, needs-check, or speculative
+    findings and eight non-blocking nits. The exact-count, line-citation, and
+    provenance nits are resolved in the sealed specs; import and current-value
+    label concerns were verified non-issues. No material finding remains
+    unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

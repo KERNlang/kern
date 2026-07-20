@@ -2,7 +2,7 @@
 
 **Status:** SEALED
 **Date:** 2026-07-20
-**Confidence:** 0.95
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -56,8 +56,8 @@ generation updates both derived artifacts.
 ## What Already Works
 
 [VERIFIED] Direct structured parameters are already parsed, type-preserving,
-runtime-bound, code-generated, and rejected when mixed with legacy text. Four
-earlier migrations exercise 34 direct parameter rows across assertion,
+runtime-bound, code-generated, and rejected when mixed with legacy text. Five
+earlier migrations exercise 38 direct parameter rows across assertion,
 checker, and validator sources; M4.10 adds no language feature.
 
 [VERIFIED] Canonicalizer tests parse each source member, enforce the under-500
@@ -76,7 +76,7 @@ returned zero hits on 2026-07-20). No checker fixture regeneration is required.
 
 | Behavior | Contract | Evidence | Tag |
 |---|---|---|---|
-| Exact source scope | Rewrite only `validnext`'s signature | helper source `:9-13` | VERIFIED |
+| Exact source scope | Rewrite only `validnext`'s signature | helper source `:9-10` | VERIFIED |
 | Parameter | one direct `param name=c type=string`, before handler | current signature plus direct-param grammar | VERIFIED |
 | Source isolation | Other 15 functions and the complete body/call/export remain byte-equivalent | exact source-diff oracle | VERIFIED |
 | Mixed-module validity | One direct-form target coexists with 15 legacy siblings | existing per-callable representation guard | VERIFIED |
@@ -188,12 +188,21 @@ fixtures across three legs, browser budget, KIR/runtime/ownership/convergence
 guards, and the repeated canonicalizer receipt at 20/104 with 82 blockers and
 no selected tranche.
 
-[VERIFIED] Automatically routed terminal review
-`review-1784580066541-ki9752` completed both required independent reviewers
-with role lenses and zero verified, needs-check, or speculative findings. Its
-one non-blocking editorial nit is resolved by labeling the immutable 165-line,
-19-complete source state as the M4.9 baseline. No material finding remains
-unresolved. This sealing metadata was not input to its own review.
+[VERIFIED] Preliminary automatically routed terminal review
+`review-1784580066541-ki9752` completed both requested independent reviewers
+with zero verified, needs-check, or speculative findings and one editorial
+nit. It remains recorded as preliminary evidence.
+
+[VERIFIED] Superseding full-roster terminal review
+`review-1784580218054-0u53yc-kern-5-r2-m4-10-terminal-boundar` completed all
+six usable engines with zero verified, needs-check, or speculative findings
+and eight non-blocking nits. Review-triggered audit confirmed the questioned
+imports are present and exercised by the passing wall, corrected the exact
+earlier-migration parameter count and source line citation, and preserves the
+preliminary M4.9 receipt as superseded history. The current-value assertion
+labels intentionally name M4.10 while the test title separately preserves the
+M4.5c origin. No material finding remains unresolved. This post-review sealing
+metadata was not input to its own review.
 
 ## Stop Conditions
 

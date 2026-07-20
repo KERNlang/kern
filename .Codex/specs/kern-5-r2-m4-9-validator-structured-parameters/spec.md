@@ -185,6 +185,11 @@ fixtures across three legs, browser budget, KIR/runtime guards, source-runner
 convergence, and repeated canonicalizer evidence at 19/104 with 83 legacy
 blockers and no selected tranche.
 
+[VERIFIED] Preliminary automatically routed terminal review
+`review-1784577709996-drhnzx` completed both requested reviewers with zero
+findings. It remains recorded as historical evidence and is superseded as the
+terminal gate by the full-roster run below.
+
 [VERIFIED] Full-roster terminal review
 `review-1784577771218-s0mruf-kern-5-r2-m4-9-terminal-boundary` completed all
 six usable engines with zero verified, needs-check, or speculative findings.
