@@ -1,0 +1,24 @@
+{
+  "format": "kern.kir-canonicalizer.selection-provenance.1",
+  "snapshot": {
+    "corpusMembers": 9,
+    "functionCount": 104,
+    "selection": {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "id": "member-expression",
+      "occurrences": 259,
+      "witnesses": [
+        "examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText"
+      ]
+    },
+    "toolCount": 4
+  },
+  "source": {
+    "canonicalizerSha256": "e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b",
+    "commit": "b2c653f6757f8af9996a59b998b3c52b9d033d29",
+    "coveragePolicySha256": "be9e50847de262ce4c9cb1d78a12fd410cf304d3cd294a45f7dff544e18a2584",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.5",
+    "coverageSummarySha256": "90af9577a59318c27c60e9209113532e39b14d83c993de07882e24ae434ea846"
+  }
+}

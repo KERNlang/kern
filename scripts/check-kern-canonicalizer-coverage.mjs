@@ -9,7 +9,7 @@ const actual = summarizeCanonicalizerCoverage();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
 } else {
-  assert.equal(actual.selectionProvenances.length, 3);
+  assert.equal(actual.selectionProvenances.length, 4);
   assert.equal(actual.selectionProvenances[0].digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
   assert.deepEqual(actual.selectionProvenances[0].record.snapshot, {
     corpusMembers: 7,
@@ -50,7 +50,6 @@ if (process.argv.includes('--write')) {
     actual.selectionProvenances[2].digest,
     '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
   );
-  assert.equal(actual.implementationSelectionProvenanceDigest, actual.selectionProvenances[2].digest);
   assert.deepEqual(actual.selectionProvenances[2].record.snapshot, {
     corpusMembers: 9,
     functionCount: 104,
@@ -66,6 +65,25 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.5 call-expression selection provenance must remain exact');
+  assert.equal(
+    actual.selectionProvenances[3].digest,
+    '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+  );
+  assert.equal(actual.implementationSelectionProvenanceDigest, actual.selectionProvenances[3].digest);
+  assert.deepEqual(actual.selectionProvenances[3].record.snapshot, {
+    corpusMembers: 9,
+    functionCount: 104,
+    selection: {
+      completeFunctions: 1,
+      completeTools: 1,
+      id: 'member-expression',
+      occurrences: 259,
+      witnesses: [
+        'examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText',
+      ],
+    },
+    toolCount: 4,
+  }, 'frozen M4.11 member-expression selection provenance must remain exact');
   assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.5c');
   assert.deepEqual(actual.base.promotions, [
     {

@@ -17,10 +17,16 @@ const CALL_SELECTION = Object.freeze({
   label: 'M4.5 call-expression selection',
   source: readFileSync(new URL('./coverage-call-selection-provenance.json', import.meta.url)),
 });
+const MEMBER_SELECTION = Object.freeze({
+  digest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+  label: 'M4.11 member-expression selection',
+  source: readFileSync(new URL('./coverage-member-expression-selection-provenance.json', import.meta.url)),
+});
 const SELECTION_CHAIN_DIGESTS = [
   PROMOTED_SELECTION.digest,
   IMPLEMENTATION_SELECTION.digest,
   CALL_SELECTION.digest,
+  MEMBER_SELECTION.digest,
 ];
 
 function fail(message) {
@@ -148,12 +154,16 @@ export function loadCanonicalizerCallSelectionProvenance() {
   return loadPinnedSelectionProvenance(CALL_SELECTION);
 }
 
+export function loadCanonicalizerMemberSelectionProvenance() {
+  return loadPinnedSelectionProvenance(MEMBER_SELECTION);
+}
+
 export function validateCanonicalizerSelectionProvenanceChain(
   selectionProvenances,
   implementationSelectionProvenanceDigest,
 ) {
   if (!Array.isArray(selectionProvenances) || selectionProvenances.length !== SELECTION_CHAIN_DIGESTS.length) {
-    fail('selection provenance chain must contain the exact M4.5a history');
+    fail('selection provenance chain must contain the exact M4.12 history');
   }
   const validated = selectionProvenances.map((entry, index) => {
     const value = record(entry, ['digest', 'record'], `selectionProvenances[${index}]`);
@@ -171,7 +181,7 @@ export function validateCanonicalizerSelectionProvenanceChain(
     fail('selection provenance digests must be unique');
   }
   if (
-    implementationSelectionProvenanceDigest !== CALL_SELECTION.digest ||
+    implementationSelectionProvenanceDigest !== MEMBER_SELECTION.digest ||
     validated.filter(({ digest }) => digest === implementationSelectionProvenanceDigest).length !== 1
   ) {
     fail('implementation selection provenance digest must resolve exactly once');
@@ -188,7 +198,8 @@ export function loadCanonicalizerSelectionProvenanceChain() {
       loadCanonicalizerSelectionProvenance(),
       loadCanonicalizerImplementationSelectionProvenance(),
       loadCanonicalizerCallSelectionProvenance(),
+      loadCanonicalizerMemberSelectionProvenance(),
     ],
-    CALL_SELECTION.digest,
+    MEMBER_SELECTION.digest,
   );
 }

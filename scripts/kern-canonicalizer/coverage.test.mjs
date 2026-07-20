@@ -110,7 +110,6 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     first.selectionProvenances[2].digest,
     '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
   );
-  assert.equal(first.implementationSelectionProvenanceDigest, first.selectionProvenances[2].digest);
   assert.deepEqual(first.selectionProvenances[2].record.snapshot, {
     corpusMembers: 9,
     functionCount: 104,
@@ -122,6 +121,25 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
       witnesses: [
         'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
         'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
+      ],
+    },
+    toolCount: 4,
+  });
+  assert.equal(
+    first.selectionProvenances[3].digest,
+    '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+  );
+  assert.equal(first.implementationSelectionProvenanceDigest, first.selectionProvenances[3].digest);
+  assert.deepEqual(first.selectionProvenances[3].record.snapshot, {
+    corpusMembers: 9,
+    functionCount: 104,
+    selection: {
+      completeFunctions: 1,
+      completeTools: 1,
+      id: 'member-expression',
+      occurrences: 259,
+      witnesses: [
+        'examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText',
       ],
     },
     toolCount: 4,

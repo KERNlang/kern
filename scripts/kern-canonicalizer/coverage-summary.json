@@ -156,14 +156,14 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "3b950631478ef867210efa7821344b92e84205fb99475aec72911dc209af137c",
-  "coverageImplementationDigest": "3951ab6b17599d269374156f2b638a1233d8bce1f824a556ec7a5f00152abecb",
+  "coverageImplementationDigest": "6f0f7138651b3119d378bc154a0169db5c2d58937f52c59464ebdabe6db6cc63",
   "coveragePolicyDigest": "be9e50847de262ce4c9cb1d78a12fd410cf304d3cd294a45f7dff544e18a2584",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
   "functionFactsDigest": "a211baef422868779a89b1b5d4eb7f722ec084a424a94243219ef9127390985e",
-  "implementationSelectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
+  "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
   "policyDigest": "6e805431cffd2d991b9ed05a800d570e1da499ba220db95aa45dbe60ba25d508",
   "profileDigest": "9ce6b03032d39d68be23318835a9d0ce3888aa6dacf984bd18e097260f421322",
   "selection": {
@@ -320,6 +320,33 @@
           "coveragePolicySha256": "363a6ebcdc27dd7801d6528bdbdb7f2fa7c3324a0a3187facf6f4120c503fcef",
           "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.4",
           "coverageSummarySha256": "7baf457852184a7e6c2df54ab9ff2e7870e6b8cb5c58f2844187624c5ba75e50"
+        }
+      }
+    },
+    {
+      "digest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
+      "record": {
+        "format": "kern.kir-canonicalizer.selection-provenance.1",
+        "snapshot": {
+          "corpusMembers": 9,
+          "functionCount": 104,
+          "selection": {
+            "completeFunctions": 1,
+            "completeTools": 1,
+            "id": "member-expression",
+            "occurrences": 259,
+            "witnesses": [
+              "examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText"
+            ]
+          },
+          "toolCount": 4
+        },
+        "source": {
+          "canonicalizerSha256": "e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b",
+          "commit": "b2c653f6757f8af9996a59b998b3c52b9d033d29",
+          "coveragePolicySha256": "be9e50847de262ce4c9cb1d78a12fd410cf304d3cd294a45f7dff544e18a2584",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.5",
+          "coverageSummarySha256": "90af9577a59318c27c60e9209113532e39b14d83c993de07882e24ae434ea846"
         }
       }
     }

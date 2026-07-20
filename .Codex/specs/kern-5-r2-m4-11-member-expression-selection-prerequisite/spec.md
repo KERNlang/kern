@@ -2,7 +2,7 @@
 
 **Status:** SEALED — READY TO PUBLISH
 **Date:** 2026-07-20
-**Confidence:** 0.98
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -15,7 +15,9 @@ candidate families at zero completions, and a `null` winner.
 signature change that creates the first post-call family winner: migrating only
 `examples/capstone-checker-subset/checker-while.kern#8:isPositiveSafeIntText`
 from `params="raw:string"` to one ordered direct `param` child produces profile
-rows 8/10/70 with no blocker. Base completion remains 20/104, `fn.params`
+rows 8/10/70 with no profile-row blocker. Base completion remains 20/104,
+because member access remains outside the base profile while becoming complete
+under the member-expression candidate. `fn.params`
 blockers fall to 81, and `member-expression` becomes the sole winner with one
 checker witness and 259 corpus occurrences.
 
@@ -247,6 +249,21 @@ flatten comparison found every non-location array
 byte-equivalent, equal `stmtLine`/`idxLine`/`callLine` lengths of 214/62/41,
 and zero mismatches against the required one-line offset from old source line
 96 onward. No material finding remains unresolved.
+
+[VERIFIED] Superseding full-roster terminal review
+`review-1784582618011-rl1t8z-kern-5-r2-m4-11-terminal-boundar` completed all
+six usable engines. Consensus reports zero verified findings, one needs-check
+item, zero speculative findings, and nine non-blocking nits. The sole
+needs-check item observed that the review gate was still pending in the tree
+being reviewed; this sealed receipt resolves that expected sequencing state.
+The confidence wording, post-seal M4.10 documentation amendment, and base-
+versus-candidate completion explanation are now explicit. The ordering nit is
+already pinned by exact canonical receipt ids. The migration-count nit compared
+different scopes: five pre-M4.10 migrations include the earlier diagnostic
+migration, while the handoff title counts the six targeted post-M4.5c slices
+M4.6 through M4.11. No material finding remains unresolved. Confidence rises
+to 0.99 after the full fitness wall and both terminal-review rounds. This
+post-review sealing metadata was not input to its own review.
 
 [VERIFIED] A second doctrine-triggered challenge,
 `nero-1784580580093-6mkbc1`, returned `FLAWED` at 15% after proposing four

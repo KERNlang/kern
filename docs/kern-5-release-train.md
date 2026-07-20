@@ -1411,8 +1411,45 @@ trusted-publishing/provenance configuration is inspected.
     verified, needs-check, or speculative findings and three non-blocking nits.
     The tense nit is fixed; the order and generated-line observations were
     resolved against canonical receipt ordering and exact old/new flatten
-    comparison. No material finding remains unresolved. This slice freezes no
-    new provenance and implements no member canonicalization.
+    comparison. Superseding full-roster review
+    `review-1784582618011-rl1t8z-kern-5-r2-m4-11-terminal-boundar` completed all
+    six usable engines with zero verified findings, one needs-check item, zero
+    speculative findings, and nine non-blocking nits. The needs-check item was
+    the intentionally pending review checkbox in the reviewed tree and is
+    resolved by the sealed receipt; documentation nits were clarified without
+    changing authenticated implementation bytes. No material finding remains
+    unresolved. This slice freezes no new provenance and implements no member
+    canonicalization.
+  - [x] M4.12 member-expression handoff evidence: the exact published M4.11
+    selection at commit `b2c653f6757f8af9996a59b998b3c52b9d033d29` is frozen
+    as a fourth append-only provenance record. Its canonical bytes hash to
+    `83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d`
+    and bind the exact format-5 summary, coverage policy, 32,310-byte
+    canonicalizer, 9-member/104-function/4-tool snapshot, and sole
+    `member-expression` witness at 1 function / 1 tool / 259 occurrences. The
+    chain remains ordered binary, conditional, call, member with unique ids and
+    digests; only the implementation-selection pointer moves to the fourth
+    record. Base promotions remain exactly binary, conditional, and call, so
+    this slice implements and promotes no member-expression behavior.
+    Repository-owned regeneration produces format-5 summary SHA-256
+    `cf01966cc48992ed638049f12e11b695935815a986784388b547a7b756443ee4`
+    while live coverage remains 20/104 with 81 `fn.params` blockers and the
+    exact M4.11 winner. The focused Node 22 canonicalizer gate passes all 68
+    structural tests plus 21 golden/idempotence/KIR, seven measured-witness,
+    three profile-limit, and 140 hostile fixtures. The exact implementation
+    tree passes the complete Node 22 `pnpm fitness:kern-5` wall, including all
+    workspace and infrastructure suites, 432 cross-target fixtures, 109 class
+    fixtures, 233 native assertions at 100% coverage, 48 checker fixtures plus
+    36 hostile rejections, 39 validator verdicts, 40 whole-app fixtures across
+    three legs, and all KIR/runtime/ownership/convergence guards. Full-roster
+    terminal review
+    `review-1784585011550-5ggags-kern-5-r2-m4-12-terminal-boundar` completed all
+    six usable engines with zero verified findings, zero needs-check findings,
+    two speculative findings, and ten non-blocking nits. Direct audit confirmed
+    the selection constant and both digests, and verified that milestone labels,
+    promotion-title scope, and witness-order mutations preserve distinct
+    source-measurement and freeze semantics. No material finding remains
+    unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

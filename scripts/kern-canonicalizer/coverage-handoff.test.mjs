@@ -11,6 +11,7 @@ import {
   canonicalSelectionProvenanceBytes,
   loadCanonicalizerCallSelectionProvenance,
   loadCanonicalizerImplementationSelectionProvenance,
+  loadCanonicalizerMemberSelectionProvenance,
   loadCanonicalizerSelectionProvenance,
   loadCanonicalizerSelectionProvenanceChain,
   validateCanonicalizerSelectionProvenanceChain,
@@ -19,6 +20,8 @@ import {
 const M43A_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const M43C_COMMIT = '736e2d1237b6d154b7abbf5f853103c459627424';
 const M45_COMMIT = '91a1f91509f39887c7e5f23b413da28e8fb03c22';
+const M411_COMMIT = 'b2c653f6757f8af9996a59b998b3c52b9d033d29';
+const M412_DIGEST = '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d';
 const M43C_SELECTION = {
   completeFunctions: 2,
   completeTools: 1,
@@ -67,24 +70,53 @@ test('M4.5a freezes call-expression selection as a third immutable record', () =
   );
 });
 
-test('M4.5a selection history and implementation pointer fail closed on drift', () => {
+test('M4.12 freezes member-expression selection as a fourth immutable record', () => {
+  const member = loadCanonicalizerMemberSelectionProvenance();
+  assert.equal(member.digest, M412_DIGEST);
+  assert.deepEqual(member.record.source, {
+    canonicalizerSha256: 'e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b',
+    commit: M411_COMMIT,
+    coveragePolicySha256: 'be9e50847de262ce4c9cb1d78a12fd410cf304d3cd294a45f7dff544e18a2584',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.5',
+    coverageSummarySha256: '90af9577a59318c27c60e9209113532e39b14d83c993de07882e24ae434ea846',
+  });
+  assert.deepEqual(member.record.snapshot, {
+    corpusMembers: 9,
+    functionCount: 104,
+    selection: M411_SELECTION,
+    toolCount: 4,
+  });
+  assert.deepEqual(
+    canonicalSelectionProvenanceBytes(member.record),
+    readFileSync(new URL('./coverage-member-expression-selection-provenance.json', import.meta.url)),
+  );
+});
+
+test('M4.12 selection history and member implementation pointer fail closed on drift', () => {
   const chain = loadCanonicalizerSelectionProvenanceChain();
-  assert.equal(chain.implementationSelectionProvenanceDigest, chain.selectionProvenances[2].digest);
+  assert.equal(chain.selectionProvenances.length, 4);
+  assert.equal(chain.implementationSelectionProvenanceDigest, chain.selectionProvenances[3].digest);
   assert.deepEqual(chain.selectionProvenances.map(({ record }) => record.snapshot.selection.id), [
     'binary-expression',
     'conditional',
     'call-expression',
+    'member-expression',
   ]);
+  assert.equal(chain.selectionProvenances[3].digest, M412_DIGEST);
   const mutations = [
     (copy) => { copy.selectionProvenances.reverse(); },
     (copy) => { copy.selectionProvenances.pop(); },
-    (copy) => { copy.selectionProvenances[2].digest = '0'.repeat(64); },
-    (copy) => { copy.selectionProvenances[2].record.format = 'future'; },
-    (copy) => { copy.selectionProvenances[2].record.source.commit = '0'.repeat(40); },
-    (copy) => { copy.selectionProvenances[2].record.snapshot.functionCount += 1; },
-    (copy) => { copy.selectionProvenances[2].record.snapshot.selection.id = 'future'; },
+    (copy) => { copy.selectionProvenances[3].digest = '0'.repeat(64); },
+    (copy) => { copy.selectionProvenances[3].record.format = 'future'; },
+    (copy) => { copy.selectionProvenances[3].record.source.commit = '0'.repeat(40); },
+    (copy) => { copy.selectionProvenances[3].record.source.coverageSummarySha256 = '0'.repeat(64); },
+    (copy) => { copy.selectionProvenances[3].record.snapshot.functionCount += 1; },
+    (copy) => { copy.selectionProvenances[3].record.snapshot.selection.id = 'call-expression'; },
+    (copy) => { copy.selectionProvenances[3].record.snapshot.selection.witnesses.push(
+      copy.selectionProvenances[3].record.snapshot.selection.witnesses[0],
+    ); },
     (copy) => { copy.selectionProvenances[2].record.snapshot.selection.witnesses.reverse(); },
-    (copy) => { copy.implementationSelectionProvenanceDigest = chain.selectionProvenances[1].digest; },
+    (copy) => { copy.implementationSelectionProvenanceDigest = chain.selectionProvenances[2].digest; },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(chain);
@@ -128,12 +160,15 @@ test('the current corpus consumes frozen M4.5c provenance after six targeted par
   const promoted = loadCanonicalizerSelectionProvenance();
   const implementation = loadCanonicalizerImplementationSelectionProvenance();
   const call = loadCanonicalizerCallSelectionProvenance();
+  const member = loadCanonicalizerMemberSelectionProvenance();
   assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.5');
   assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.5');
-  assert.deepEqual(receipt.selectionProvenances, [promoted, implementation, call]);
-  assert.deepEqual(summary.selectionProvenances, [promoted, implementation, call]);
-  assert.equal(receipt.implementationSelectionProvenanceDigest, call.digest);
-  assert.equal(summary.implementationSelectionProvenanceDigest, call.digest);
+  assert.deepEqual(receipt.selectionProvenances, [promoted, implementation, call, member]);
+  assert.deepEqual(summary.selectionProvenances, [promoted, implementation, call, member]);
+  assert.equal(receipt.selectionProvenances.length, 4);
+  assert.equal(summary.selectionProvenances.length, 4);
+  assert.equal(receipt.implementationSelectionProvenanceDigest, member.digest);
+  assert.equal(summary.implementationSelectionProvenanceDigest, member.digest);
   assert.equal(implementation.record.snapshot.corpusMembers, 8);
   assert.equal(implementation.record.snapshot.functionCount, 99);
   assert.equal(receipt.corpus.length, 9);

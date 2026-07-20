@@ -16,6 +16,7 @@ const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.5c';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
+const MEMBER_PROVENANCE_DIGEST = '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   selectionProvenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -50,9 +51,14 @@ test('M4.5c promotes the measured call family into one exact cumulative profile'
   assert.deepEqual(summary.base, policy.base);
   assert.deepEqual(
     receipt.selectionProvenances.map(({ digest }) => digest),
-    [BINARY_PROVENANCE_DIGEST, CONDITIONAL_PROVENANCE_DIGEST, CALL_PROVENANCE_DIGEST],
+    [
+      BINARY_PROVENANCE_DIGEST,
+      CONDITIONAL_PROVENANCE_DIGEST,
+      CALL_PROVENANCE_DIGEST,
+      MEMBER_PROVENANCE_DIGEST,
+    ],
   );
-  assert.equal(receipt.implementationSelectionProvenanceDigest, CALL_PROVENANCE_DIGEST);
+  assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
 });
 
 test('M4.5c rejects profile identity, facts, evidence, and candidate overlap drift', () => {

@@ -204,6 +204,17 @@ labels intentionally name M4.10 while the test title separately preserves the
 M4.5c origin. No material finding remains unresolved. This post-review sealing
 metadata was not input to its own review.
 
+## Post-Seal Evidence Amendment
+
+[VERIFIED] The next-slice documentation receipt corrected three M4.10 evidence
+details after the preliminary seal: confidence now reflects the completed full
+wall and six-engine review, the five pre-M4.10 migrations contain 38 direct
+parameter rows, and `validnext`'s direct parameter occupies source lines 9-10.
+It also retained the preliminary review as superseded history and recorded the
+full-roster receipt above. These are documentation-only corrections; the
+published M4.10 implementation, authenticated receipts, and measured result
+did not change.
+
 ## Stop Conditions
 
 - Completion gain or blocker reduction is not exactly one.
