@@ -6,7 +6,8 @@ fn name=validfirst params="c:string" returns=boolean export=true
       return value="true"
     return value="c == \"_\" || c == \"$\""
 
-fn name=validnext params="c:string" returns=boolean export=true
+fn name=validnext returns=boolean export=true
+  param name=c type=string
   handler lang="kern"
     if cond="validfirst(c)"
       return value="true"

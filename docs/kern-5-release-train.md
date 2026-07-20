@@ -1348,6 +1348,31 @@ trusted-publishing/provenance configuration is inspected.
     findings. Its five nits do not alter the bounded fail-closed evidence; the
     accurate baseline-wording nit is resolved in the sealed spec. No material
     finding remains unresolved.
+  - [x] M4.10 final isolated structured-parameter prerequisite: authenticated
+    read-only measurement found exactly one remaining function that becomes
+    base-complete through parameter representation alone. The selected boundary
+    migrates only `validnext` in the canonicalizer expression helper: its one
+    `c:string` parameter completes the function while the other 15 helper
+    functions remain internally consistent legacy siblings. The helper is
+    exactly 166 lines; repository-owned composition generation authenticates a
+    6,357-byte member and 32,310-byte composite. Authenticated completion
+    advances from 19 to 20 of 104 and `fn.params` blockers fall from 83 to 82;
+    the target profile is exactly 6/9/53. All eight remaining families still
+    complete zero functions and the winner remains `null`. The focused Node 22
+    canonicalizer gate passes all 67 tests, including composition rejection,
+    frozen provenance, exact coverage, profile, and hostile boundaries.
+    Validator source/main and checker main/numeric fixtures remain
+    byte-identical. The exact implementation tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including repository consistency, lint,
+    production build, all workspace and infrastructure suites, 432
+    cross-target fixtures, 109 class fixtures, 233 native assertions at 100%
+    coverage, 48 checker fixtures plus 36 hostile rejections, 39 validator
+    verdicts, 40 whole-app fixtures across three legs, browser budget,
+    KIR/runtime/ownership/convergence guards, and repeated canonicalizer
+    evidence. Automatically routed terminal review
+    `review-1784580066541-ki9752` completed both required independent reviewers
+    with zero verified, needs-check, or speculative findings. Its one editorial
+    nit is resolved in the sealed spec. No material finding remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

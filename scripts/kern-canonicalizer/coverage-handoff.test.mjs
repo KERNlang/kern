@@ -113,7 +113,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus consumes frozen M4.5c provenance after four targeted parameter migrations', () => {
+test('the current corpus consumes frozen M4.5c provenance after five targeted parameter migrations', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -132,7 +132,7 @@ test('the current corpus consumes frozen M4.5c provenance after four targeted pa
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 19);
+  assert.equal(receipt.baseCompleteFunctions, 20);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
@@ -151,11 +151,11 @@ test('M4.5c promotes exact call capability without rewriting selection evidence'
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 32301, 'M4.5b must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 32310, 'M4.10 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '279725b92d959ddbc734f096749d904fde36934ef4a1c73769e87a84e6e72087',
-    'M4.5b must bind the exact live KERN capability digest',
+    'e2930f10fddfbfc2682d420ec61e494a7171f051801455336f213af2e719e59b',
+    'M4.10 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));

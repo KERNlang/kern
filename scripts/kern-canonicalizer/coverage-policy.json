@@ -58,7 +58,7 @@
       "tool": "checker"
     },
     {
-      "digest": "c5bbf6412e1ca4fb8af40f8042331e2084f2f5950f490b83d8220b1b8e17c39c",
+      "digest": "0f26a889dc98604f419b12b3afa9f1d3ac305dc97fd3464c1534f0dc3cdd6f02",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
