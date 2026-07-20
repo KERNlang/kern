@@ -1285,6 +1285,38 @@ trusted-publishing/provenance configuration is inspected.
     usable engines with zero verified findings. Its one needs-check item is
     resolved by the exhaustive 3-direct/15-legacy partition, which covers all
     18 functions and mechanically excludes mixed parameter forms.
+  - [x] M4.8 targeted checker structured-parameter prerequisite: exact
+    read-only measurement found eight remaining functions that become
+    base-complete after structured-parameter migration. Corrected boundary
+    selection migrates only `acceptLine`, `isSafeIntText`,
+    `elseRejectDetail`, and `isPrintNumberText` in `checker.kern`: six ordered
+    parameter rows complete four functions while the other 20 functions remain
+    internally consistent legacy siblings. Full-roster brainstorm
+    `brainstorm-1784573693847-hlks2n-kern-5-r2-m4-8-parameter-scope` initially
+    synthesized the three-function validator alternative on the false premise
+    that it avoided checker fixture regeneration. Repository evidence shows
+    the checker fixture embeds both validator and checker sources, so checker
+    dominates: the same six-row and generated-evidence cost completes one more
+    function, leaves 140 rather than 29 lines of source headroom, and avoids an
+    additional validator gate. The source is exactly 360 lines; authenticated
+    completion advances from 12 to 16 of 104 and `fn.params` blockers fall
+    from 90 to 86. Exact target rows are 4/7/20, 4/7/21, 6/10/36, and 4/6/20.
+    All eight remaining families still complete zero functions and the winner
+    remains `null`. Focused Node 22 evidence passes 67 canonicalizer tests, 21
+    golden/idempotence/KIR fixtures, seven measured witnesses, three
+    profile-limit fixtures, 140 hostile fixtures, checker adapter 3/3, checker
+    parity 48/48, all 36 hostile checker attempts, and all 23 direct
+    safe-integer cases. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall, including repository consistency, lint, build,
+    every workspace and infrastructure suite, 432 cross-target fixtures, 109
+    class fixtures, 233 native assertions at 100% coverage, 39 validator
+    verdicts, 40 whole-app fixtures across three legs, browser budget,
+    KIR/runtime guards, source-runner convergence, and repeated canonicalizer
+    evidence. Automatically routed terminal review
+    `review-1784574989078-5m4n95` completed both required independent seats
+    with zero verified, needs-check, or speculative findings; its six
+    low-severity maintainability notes do not alter the bounded evidence or
+    fail-closed digest contract. No material finding remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

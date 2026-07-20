@@ -3,7 +3,8 @@ use path="./checker-while"
   from name=checkerElseRejectDetail kind=fn as=checkerElseRejectDetail
   from name=checkerWhileRejectDetail kind=fn as=checkerWhileRejectDetail
 
-fn name=acceptLine params="path:string" returns=string export=true
+fn name=acceptLine returns=string export=true
+  param name=path type=string
   handler lang="kern"
     return value="path + \":1:1|T10_MODULE|accept|ok\""
 
@@ -41,11 +42,15 @@ fn name=isSurfaceKind params="kind:string" returns=boolean
       return value="true"
     return value="false"
 
-fn name=isSafeIntText params="raw:string" returns=boolean export=true
+fn name=isSafeIntText returns=boolean export=true
+  param name=raw type=string
   handler lang="kern"
     return value="checkerSafeIntText(raw)"
 
-fn name=elseRejectDetail params="row:number,stmtKind:string[],stmtParent:number[]" returns=string
+fn name=elseRejectDetail returns=string
+  param name=row type=number
+  param name=stmtKind type="string[]"
+  param name=stmtParent type="number[]"
   handler lang="kern"
     return value="checkerElseRejectDetail(row, stmtKind, stmtParent)"
 
@@ -53,7 +58,8 @@ fn name=whileRejectDetail params="row:number,stmtKind:string[],stmtFn:string[],s
   handler lang="kern"
     return value="checkerWhileRejectDetail(row, stmtKind, stmtFn, stmtParent, stmtName, stmtTarget, stmtExprKind, stmtExprName, stmtExprNum, stmtExprLeftKind, stmtExprLeftName, stmtExprLeftNum, stmtExprLeftMemberObject, stmtExprLeftMemberProp, stmtExprRightKind, stmtExprRightName, stmtExprRightNum, stmtExprRightMemberObject, stmtExprRightMemberProp, paramFn, paramName, paramType)"
 
-fn name=isPrintNumberText params="raw:string" returns=boolean
+fn name=isPrintNumberText returns=boolean
+  param name=raw type=string
   handler lang="kern"
     return value="isSafeIntText(raw)"
 

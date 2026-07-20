@@ -97,4 +97,57 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 10, properties: 14, values: 49 } },
     ],
   );
+
+  const checkerPath = 'examples/capstone-checker-subset/checker.kern';
+  const checkerSource = readFileSync(new URL(`../../${checkerPath}`, import.meta.url), 'utf8');
+  const checkerDocument = parseDocumentWithDiagnostics(checkerSource);
+  assert.deepEqual(checkerDocument.diagnostics, []);
+  const checkerRoots = checkerDocument.root.children.filter(({ type }) => type === 'fn');
+  const checkerTargetNames = ['acceptLine', 'isSafeIntText', 'elseRejectDetail', 'isPrintNumberText'];
+  const checkerTargets = checkerRoots.filter(({ props }) => checkerTargetNames.includes(props.name));
+  const checkerLegacySiblings = checkerRoots.filter(({ props }) => !checkerTargetNames.includes(props.name));
+  assert.equal(checkerSource.split('\n').length - 1, 360);
+  assert.equal(checkerRoots.length, 24);
+  assert.deepEqual(checkerTargets.map(({ props }) => props.name), checkerTargetNames);
+  assert.equal(checkerTargets.every(({ props }) => props.params === undefined), true);
+  assert.deepEqual(
+    checkerTargets.map(({ children }) => children
+      .filter(({ type }) => type === 'param')
+      .map(({ props }) => [props.name, props.type])),
+    [
+      [['path', 'string']],
+      [['raw', 'string']],
+      [['row', 'number'], ['stmtKind', 'string[]'], ['stmtParent', 'number[]']],
+      [['raw', 'string']],
+    ],
+  );
+  assert.equal(checkerLegacySiblings.length, 20);
+  assert.equal(checkerLegacySiblings.every(({ props, children }) =>
+    typeof props.params === 'string' &&
+    props.params.length > 0 &&
+    children.every(({ type }) => type !== 'param')), true);
+  const checkerFunctions = receipt.functions.filter(({ id }) =>
+    id.startsWith(`${checkerPath}#`) && checkerTargetNames.some((name) => id.endsWith(`:${name}`)));
+  assert.deepEqual(checkerFunctions.map(({ id }) => id), [
+    `${checkerPath}#1:acceptLine`,
+    `${checkerPath}#4:isSafeIntText`,
+    `${checkerPath}#5:elseRejectDetail`,
+    `${checkerPath}#7:isPrintNumberText`,
+  ]);
+  assert.equal(checkerFunctions.every(({ excludedProperties }) =>
+    !excludedProperties.includes('fn.params')), true);
+  assert.equal(
+    checkerFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences)
+      .filter((kind) => kind === 'param').length,
+    6,
+  );
+  assert.deepEqual(
+    checkerFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
+    [
+      { profileBlockers: [], profileRows: { nodes: 4, properties: 7, values: 20 } },
+      { profileBlockers: [], profileRows: { nodes: 4, properties: 7, values: 21 } },
+      { profileBlockers: [], profileRows: { nodes: 6, properties: 10, values: 36 } },
+      { profileBlockers: [], profileRows: { nodes: 4, properties: 6, values: 20 } },
+    ],
+  );
 }

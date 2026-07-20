@@ -161,8 +161,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     14,
   );
   assertStructuredParameterMigrations(first);
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 90);
-  assert.equal(first.baseCompleteFunctions, 12);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 86);
+  assert.equal(first.baseCompleteFunctions, 16);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
