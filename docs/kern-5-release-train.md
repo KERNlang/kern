@@ -1449,7 +1449,11 @@ trusted-publishing/provenance configuration is inspected.
     the selection constant and both digests, and verified that milestone labels,
     promotion-title scope, and witness-order mutations preserve distinct
     source-measurement and freeze semantics. No material finding remains
-    unresolved.
+    unresolved. Supplemental automatically routed review
+    `review-1784585131496-22fuex` completed 2/2 identities with zero verified,
+    needs-check, or speculative findings and one non-blocking nit. It directly
+    authenticated the historical M4.11 hash; a Git-history-dependent CI oracle
+    was rejected in favor of the hermetic checked-in record and digest.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

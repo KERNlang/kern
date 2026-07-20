@@ -174,6 +174,15 @@ member record uses duplication because reversing one element is a no-op. No
 material finding remains unresolved. This post-review sealing metadata was not
 input to its own review.
 
+[VERIFIED] Supplemental automatically routed review
+`review-1784585131496-22fuex` completed both selected independent identities
+with zero verified, needs-check, or speculative findings and one non-blocking
+nit. The reviewer directly authenticated the historical M4.11 commit and
+summary hash. Its optional suggestion to derive the historical hash through
+`git show` is rejected for this slice: the checked-in canonical record and
+hardcoded digest are the hermetic contract, while a Git-history oracle would
+make the gate depend on clone depth. No material finding remains unresolved.
+
 [VERIFIED] The M4.10 post-seal amendment and M4.11 superseding terminal-review
 receipt carried into this slice are documentation-only results from completed
 review `review-1784582618011-rl1t8z-kern-5-r2-m4-11-terminal-boundar`. They do
