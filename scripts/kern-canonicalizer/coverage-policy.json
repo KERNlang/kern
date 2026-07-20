@@ -66,7 +66,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "ee583055ee047e1a63d870c533b2bab0db7af27cc4c3ba1bfbaa14163810cf7b",
+      "digest": "d781d06324ec2da1ae617f5dd743e6a720b72f6ee3d03b9ddd7170fe3be48821",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

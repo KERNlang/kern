@@ -77,20 +77,20 @@ if (process.argv.includes('--write')) {
       selectionProvenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
     },
   ], 'M4.5 must cite the frozen binary and conditional selections');
-  assert.equal(actual.corpusMembers, 9, 'live M4.5 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.5 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.5 tool count must remain exact');
+  assert.equal(actual.corpusMembers, 9, 'live M4.5b handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.5b authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.5b tool count must remain exact');
   assert.equal(actual.baseCompleteFunctions, 6, 'conditional promotion must complete exactly six base functions');
   assert.deepEqual(actual.selection.winner, {
     completeFunctions: 2,
     completeTools: 1,
     id: 'call-expression',
-    occurrences: 481,
+    occurrences: 492,
     witnesses: [
       'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
       'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
     ],
-  }, 'live M4.5 call-expression measurement must remain exact and unimplemented');
+  }, 'live M4.5b call-expression implementation measurement must remain exact');
   assertCoverageSummary(summaryUrl, actual);
 }
 const leadingBlocker = actual.blockers[0];

@@ -1,4 +1,5 @@
 import { BINARY_HOSTILE_FIXTURES, BINARY_VALID_FIXTURES } from './binary-fixtures.mjs';
+import { CALL_HOSTILE_FIXTURES, CALL_VALID_FIXTURES } from './call-fixtures.mjs';
 import {
   CONDITIONAL_HOSTILE_FIXTURES,
   CONDITIONAL_VALID_FIXTURES,
@@ -162,6 +163,7 @@ export const VALID_FIXTURES = [
   },
   ...BINARY_VALID_FIXTURES,
   ...CONDITIONAL_VALID_FIXTURES,
+  ...CALL_VALID_FIXTURES,
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
   PROFILE_BOUNDARY_FIXTURE,
 ];
@@ -205,6 +207,7 @@ function appendRootTypeValue(tables, kind) {
 export const HOSTILE_FIXTURES = [
   ...SEMANTIC_BOUNDARY_FIXTURES,
   ...CONDITIONAL_HOSTILE_FIXTURES,
+  ...CALL_HOSTILE_FIXTURES,
   {
     id: 'empty-root-list',
     base: 'shuffled-identifier',

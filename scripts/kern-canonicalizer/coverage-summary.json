@@ -117,16 +117,16 @@
     }
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
-  "canonicalizerDigest": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc",
+  "canonicalizerDigest": "279725b92d959ddbc734f096749d904fde36934ef4a1c73769e87a84e6e72087",
   "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
   "compiledCoreDigest": "1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54",
   "composition": {
-    "digest": "ee57fa56541594169054a19ea1506daa7974e3c811764af5c6446cade095e7a8",
+    "digest": "6331d09a62df5f74c4274955d39dc1af6ba6f409778d3f765cc4c23d90299c2d",
     "record": {
       "composite": {
-        "bytes": 30866,
+        "bytes": 32301,
         "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
-        "sha256": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc"
+        "sha256": "279725b92d959ddbc734f096749d904fde36934ef4a1c73769e87a84e6e72087"
       },
       "format": "kern.canonicalizer.composition.1",
       "members": [
@@ -141,25 +141,25 @@
           "sha256": "d29c747624b6dc0347c896cd0978c8059e44125ea2afef893c3d6ed3eb953e38"
         },
         {
-          "bytes": 19010,
+          "bytes": 20445,
           "path": "examples/kern-canonicalizer/canonicalizer.kern",
-          "sha256": "ee583055ee047e1a63d870c533b2bab0db7af27cc4c3ba1bfbaa14163810cf7b"
+          "sha256": "d781d06324ec2da1ae617f5dd743e6a720b72f6ee3d03b9ddd7170fe3be48821"
         }
       ],
       "recipe": "concat-ordered-members-exact-bytes.1"
     }
   },
   "corpusMembers": 9,
-  "corpusDigest": "1296e409218bc11a966330cc57576fbd6e8a74ea3ffe9149adeb3b5ba678da39",
-  "coverageImplementationDigest": "693bfc811f961cf0843d2dcc3edee49b45c0c5b2e29e650f0776e344f79b6796",
-  "coveragePolicyDigest": "363a6ebcdc27dd7801d6528bdbdb7f2fa7c3324a0a3187facf6f4120c503fcef",
+  "corpusDigest": "f2f472d5e9324467cb7a47b886a68781c31771efd68290372279718374d9c3c7",
+  "coverageImplementationDigest": "47e2ac78e1e3dcf10c533121baa2b8c43a7d70b6860077e60a577fe167008148",
+  "coveragePolicyDigest": "76bd75143db3d1c3615a4d0ccbe0b5685fd774a2ef193efa80017dcefba4f6b6",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
-  "functionFactsDigest": "3e55dd11fe8a098e675894a91ea9f3e13a9b2cc9e0ef60a3f8cb6de656dc7b08",
+  "functionFactsDigest": "977e2e7f86b4f585a559ecb2996cfd6647a097d719998e0682ea93b08c1cbf74",
   "implementationSelectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
-  "policyDigest": "53606e88a7a1b8482e734a8900fec15c3f4a6bdc80f7d038dd91280bdd8ff59c",
+  "policyDigest": "7a50ced2fb345631e02226d92f203defb69d873d797cc3a12f129db20e3b2fd3",
   "profileDigest": "c8532569870157b285f3397f54d6db5d590ac30450675e1f48f7fd2796c1e519",
   "selection": {
     "ranking": [
@@ -167,7 +167,7 @@
         "completeFunctions": 2,
         "completeTools": 1,
         "id": "call-expression",
-        "occurrences": 481,
+        "occurrences": 492,
         "witnesses": [
           "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
           "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
@@ -177,7 +177,7 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "binding",
-        "occurrences": 705,
+        "occurrences": 735,
         "witnesses": []
       },
       {
@@ -191,7 +191,7 @@
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "counted-iteration",
-        "occurrences": 464,
+        "occurrences": 468,
         "witnesses": []
       },
       {
@@ -234,7 +234,7 @@
       "completeFunctions": 2,
       "completeTools": 1,
       "id": "call-expression",
-      "occurrences": 481,
+      "occurrences": 492,
       "witnesses": [
         "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
         "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"

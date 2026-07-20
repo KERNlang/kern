@@ -1164,6 +1164,30 @@ trusted-publishing/provenance configuration is inspected.
     reproducible `592b…`, and passes the full wall with that receipt. The
     capability/evidence gate is closed; signed commit, no-rewrite rebase, and
     push remain external publication actions.
+  - [x] M4.5b call-expression canonicalizer capability: the KERN-authored
+    `exprsource` now validates the exact structural `{args, callee, optional}`
+    call record and recursively emits non-optional callees and ordered
+    arguments. It deliberately rejects `optional=true` until member/index
+    chain semantics are designed, while member and index callees remain
+    fail-closed through their unpromoted expression families. Contract
+    tribunal `tribunal-1784555533734-ntsxox-kern-5-r2-m4-5b-call-contract`
+    selected this dependency-closed boundary over witness-shaped direct calls
+    and unsafe optional-call emission. The intended RED failed on the sealed
+    `pathAppendIndex` witness before implementation. Three valid call fixtures,
+    twelve hostile mutations, both measured witnesses, recursive calls, nested
+    arguments, and binary callees now pass. The focused Node 22 gate passes 64
+    Node tests, 21 golden/idempotence/KIR fixtures, seven measured witnesses,
+    three profile-limit fixtures, and 140 hostile fixtures. Immutable M4.5a
+    provenance remains 481 call occurrences while live implementation evidence
+    advances to 492; call-expression stays selected and unpromoted at six of
+    104 base-complete functions. The exact tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall. Review-driven hardening adds exact live byte
+    count and SHA-256 bindings plus dangling callee/argument-id mutations.
+    Final exact-tree review
+    `review-1784559503294-8nuqnc-kern-5-r2-m4-5b-call-expression-` completed
+    all six usable engines with zero verified, needs-check, or speculative
+    findings. Publication remains pending; the next slice owns promotion and
+    remeasurement.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

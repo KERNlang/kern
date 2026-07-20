@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -37,6 +38,10 @@ const M45_SELECTION = {
     'examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex',
     'examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch',
   ],
+};
+const M45B_SELECTION = {
+  ...M45_SELECTION,
+  occurrences: 492,
 };
 
 test('M4.5a freezes call-expression selection as a third immutable record', () => {
@@ -133,11 +138,11 @@ test('M4.5 consumes frozen M4.3c provenance while live evidence advances', () =>
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
   assert.equal(receipt.baseCompleteFunctions, 6);
-  assert.deepEqual(receipt.selection.winner, M45_SELECTION);
-  assert.deepEqual(receipt.selection.winner, call.record.snapshot.selection);
+  assert.deepEqual(receipt.selection.winner, M45B_SELECTION);
+  assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.5 promotes conditional without changing the exact M4.4 KERN capability', () => {
+test('M4.5b changes live call capability without rewriting M4.4 selection evidence', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -147,10 +152,17 @@ test('M4.5 promotes conditional without changing the exact M4.4 KERN capability'
   assert.match(selectionSource, /export function rankCanonicalizerFamilies/u);
   assert.ok(implementationSource.split('\n').length - 1 < 450);
   assert.equal(
-    canonicalizerSource.length,
-    30866,
-    'M4.4 must bind the exact three-member conditional canonicalizer bytes',
+    loadCanonicalizerCallSelectionProvenance().record.source.canonicalizerSha256,
+    'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
+    'M4.5a must retain the exact pre-call implementation selection bytes',
   );
+  assert.equal(canonicalizerSource.length, 32301, 'M4.5b must bind the exact live KERN capability byte count');
+  assert.equal(
+    createHash('sha256').update(canonicalizerSource).digest('hex'),
+    '279725b92d959ddbc734f096749d904fde36934ef4a1c73769e87a84e6e72087',
+    'M4.5b must bind the exact live KERN capability digest',
+  );
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.5');

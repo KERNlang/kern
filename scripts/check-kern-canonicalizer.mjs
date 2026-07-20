@@ -33,6 +33,8 @@ const SELECTED_WITNESSES = [
   'reasonKeyMismatch',
   'pathAppendKey',
   'failResult',
+  'pathAppendIndex',
+  'reasonLengthMismatch',
 ];
 const fixtureById = new Map(VALID_FIXTURES.map((fixture) => [fixture.id, fixture]));
 

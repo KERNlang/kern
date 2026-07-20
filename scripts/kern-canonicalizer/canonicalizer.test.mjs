@@ -75,10 +75,27 @@ test('binary ownership stays in main and mechanically matches the structural ope
   assert.deepEqual(new Set(kernOperators), new Set(catalogOperators));
 });
 
+test('call validation and emission stay in the KERN-owned expression source', () => {
+  assert.equal(helperSource.includes('\\"call\\"'), false);
+  const callStart = mainSource.indexOf('if cond="kind == \\"call\\""');
+  const callEnd = mainSource.indexOf('if cond="kind != \\"list\\""', callStart);
+  assert.ok(callStart >= 0 && callEnd > callStart, 'missing KERN-owned call branch');
+  const callBranch = mainSource.slice(callStart, callEnd);
+  for (const field of ['args', 'callee', 'optional']) {
+    assert.ok(
+      callBranch.includes(`recordfield(fieldsId, \\"${field}\\", valueParent, valueRole)`),
+      `call branch omitted ${field}`,
+    );
+  }
+  assert.ok(callBranch.includes('numberat(optionalId, valueBool) != 0'), 'optional calls must remain fail-closed');
+  assert.ok(callBranch.includes('exprsource(calleeId'), 'call callee must use recursive expression ownership');
+  assert.ok(callBranch.includes('exprsource(argId'), 'call args must use recursive expression ownership');
+});
+
 test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
-    !id.startsWith('binary-') && !id.startsWith('conditional-'));
+    !id.startsWith('binary-') && !id.startsWith('conditional-') && !id.startsWith('call-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);
