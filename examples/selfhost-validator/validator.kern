@@ -8,7 +8,8 @@ fn name=charokfirst params="c:string" returns=boolean export=true
       return value="true"
     return value="false"
 
-fn name=charoknext params="c:string" returns=boolean export=true
+fn name=charoknext returns=boolean export=true
+  param name=c type=string
   handler lang="kern"
     if cond="charokfirst(c)"
       return value="true"
@@ -108,13 +109,18 @@ fn name=isportable params="name:string" returns=boolean export=true
       return value="false"
     return value="true"
 
-fn name=localname params="alias:string,imported:string" returns=string export=true
+fn name=localname returns=string export=true
+  param name=alias type=string
+  param name=imported type=string
   handler lang="kern"
     if cond="alias == \"\""
       return value="imported"
     return value="alias"
 
-fn name=failline params="code:string,subject:string,rowId:number" returns=string export=true
+fn name=failline returns=string export=true
+  param name=code type=string
+  param name=subject type=string
+  param name=rowId type=number
   handler lang="kern"
     return value="\"FAIL|\" + code + \"|\" + subject + \"#\" + String(rowId)"
 

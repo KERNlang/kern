@@ -76,7 +76,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "a54013ee9523d290a525d839ee6c0fae979c9fcb71ef2e46418b37c7d13ab464",
+      "digest": "a46ab0d4376777f00180dfa8dcded00d2559770c57793773988ade29d542587a",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

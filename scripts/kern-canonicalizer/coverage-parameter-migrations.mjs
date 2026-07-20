@@ -150,4 +150,54 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 4, properties: 6, values: 20 } },
     ],
   );
+
+  const validatorPath = 'examples/selfhost-validator/validator.kern';
+  const validatorSource = readFileSync(new URL(`../../${validatorPath}`, import.meta.url), 'utf8');
+  const validatorDocument = parseDocumentWithDiagnostics(validatorSource);
+  assert.deepEqual(validatorDocument.diagnostics, []);
+  const validatorRoots = validatorDocument.root.children.filter(({ type }) => type === 'fn');
+  const validatorTargetNames = ['charoknext', 'localname', 'failline'];
+  const validatorTargets = validatorRoots.filter(({ props }) => validatorTargetNames.includes(props.name));
+  const validatorLegacySiblings = validatorRoots.filter(({ props }) => !validatorTargetNames.includes(props.name));
+  assert.equal(validatorSource.split('\n').length - 1, 471);
+  assert.equal(validatorRoots.length, 21);
+  assert.deepEqual(validatorTargets.map(({ props }) => props.name), validatorTargetNames);
+  assert.equal(validatorTargets.every(({ props }) => props.params === undefined), true);
+  assert.deepEqual(
+    validatorTargets.map(({ children }) => children
+      .filter(({ type }) => type === 'param')
+      .map(({ props }) => [props.name, props.type])),
+    [
+      [['c', 'string']],
+      [['alias', 'string'], ['imported', 'string']],
+      [['code', 'string'], ['subject', 'string'], ['rowId', 'number']],
+    ],
+  );
+  assert.equal(validatorLegacySiblings.length, 18);
+  assert.equal(validatorLegacySiblings.every(({ props, children }) =>
+    typeof props.params === 'string' &&
+    props.params.length > 0 &&
+    children.every(({ type }) => type !== 'param')), true);
+  const validatorFunctions = receipt.functions.filter(({ id }) =>
+    id.startsWith(`${validatorPath}#`) && validatorTargetNames.some((name) => id.endsWith(`:${name}`)));
+  assert.deepEqual(validatorFunctions.map(({ id }) => id), [
+    `${validatorPath}#1:charoknext`,
+    `${validatorPath}#4:localname`,
+    `${validatorPath}#5:failline`,
+  ]);
+  assert.equal(validatorFunctions.every(({ excludedProperties }) =>
+    !excludedProperties.includes('fn.params')), true);
+  assert.equal(
+    validatorFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences)
+      .filter((kind) => kind === 'param').length,
+    6,
+  );
+  assert.deepEqual(
+    validatorFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
+    [
+      { profileBlockers: [], profileRows: { nodes: 8, properties: 11, values: 61 } },
+      { profileBlockers: [], profileRows: { nodes: 7, properties: 11, values: 31 } },
+      { profileBlockers: [], profileRows: { nodes: 6, properties: 11, values: 67 } },
+    ],
+  );
 }

@@ -62,10 +62,10 @@
       "return.value"
     ]
   },
-  "baseCompleteFunctions": 16,
+  "baseCompleteFunctions": 19,
   "blockers": [
     {
-      "count": 86,
+      "count": 83,
       "id": "fn.params"
     },
     {
@@ -155,16 +155,16 @@
     }
   },
   "corpusMembers": 9,
-  "corpusDigest": "43a044d401f40a991ec857d4abb414b0a922131534595643113e809f9ca19f1e",
-  "coverageImplementationDigest": "562c5812c708760d9948d4322506880dbe6c2e190dbe47552ec4a9017db6fd72",
-  "coveragePolicyDigest": "a269394f908a36bdf1c11200950abfb747ed73a02b130cc5d3c10ea148e58ff2",
+  "corpusDigest": "cce715fed9a086541a13beca2be38385df167a9a96680eb6679fb79eedaa985c",
+  "coverageImplementationDigest": "2d6ce07e1c610bd8147e7f75d46aac5787bacd18740732b2e820dd6e9d929957",
+  "coveragePolicyDigest": "b6749c8f4b4692130264d259bb90f23789d65e29489f749b97a5d2e48f5460a6",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.5",
   "functionCount": 104,
-  "functionFactsDigest": "f6d341b082a98a3ab7a37bd8731a8820e2e408b7b759f2bc22cab7865188849f",
+  "functionFactsDigest": "551a5c5653f250d00c8c585271bfc7586a9810d7cfd509b409b10542f5e2ff53",
   "implementationSelectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
-  "policyDigest": "066dbf0f376d226a325edc54a6478ba4d98a78c4f1901c8417e8ceea5ded949a",
+  "policyDigest": "1df9a8ff42beecca5f0637c44a520b6dc60ee5f8557423ad13d4f32374b159c6",
   "profileDigest": "9ce6b03032d39d68be23318835a9d0ce3888aa6dacf984bd18e097260f421322",
   "selection": {
     "ranking": [

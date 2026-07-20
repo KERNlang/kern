@@ -81,16 +81,16 @@ if (process.argv.includes('--write')) {
       selectionProvenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
     },
   ], 'M4.5c must cite the frozen binary, conditional, and call selections');
-  assert.equal(actual.corpusMembers, 9, 'live M4.8 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.8 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.8 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 16, 'live M4.8 base completion must remain exactly 16/104');
+  assert.equal(actual.corpusMembers, 9, 'live M4.9 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.9 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.9 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 19, 'live M4.9 base completion must remain exactly 19/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    86,
-    'live M4.8 fn.params blocker count must remain exactly 86',
+    83,
+    'live M4.9 fn.params blocker count must remain exactly 83',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.8 measurement must have no single-family winner');
+  assert.equal(actual.selection.winner, null, 'live M4.9 measurement must have no single-family winner');
   assertCoverageSummary(summaryUrl, actual);
 }
 const leadingBlocker = actual.blockers[0];
