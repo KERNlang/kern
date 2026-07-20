@@ -45,9 +45,12 @@ export {
   assertPortableDecimalLiteral,
   DECIMAL_DIV_ZERO_FAILCLOSE,
   DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE,
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_SCALE_FAILCLOSE,
   DECIMAL_TS_PACKAGE,
+  decimalPowFailMessage,
   decimalScaleFailMessage,
   isPortableDecimalLiteral,
 } from '../decimal/contract.js';
@@ -55,6 +58,7 @@ export {
 import {
   DECIMAL_DIV_ZERO_FAILCLOSE,
   DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_TS_PACKAGE,
 } from '../decimal/contract.js';
@@ -66,11 +70,7 @@ import {
   decimalOfLiteralValue as decimalOfLiteralValueShared,
 } from '../decimal/probe-gates.js';
 
-export {
-  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
-  decimalPowFailMessage,
-  decimalZeroDivisorFailMessage,
-} from '../decimal/probe-gates.js';
+export { decimalZeroDivisorFailMessage } from '../decimal/probe-gates.js';
 
 /** Render the TS-leg preamble that a `Decimal.*` lowering requires: the
  *  `decimal.js` import PLUS a one-time global context configuration that mirrors
@@ -224,6 +224,7 @@ export function decimalOpsHelpersTS(): string {
     '  return a.mod(b);',
     '}',
     'function __k_decimal_pow_int(a: Decimal, b: Decimal): Decimal {',
+    `  if (!a.isZero() && a.isNegative()) throw new Error(${JSON.stringify(DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE)});`,
     `  if (a.isZero() && b.lt(0)) throw new Error(${JSON.stringify(DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE)});`,
     '  if (a.isZero() && b.isZero()) return new Decimal(1);',
     '  return a.pow(b);',
@@ -257,6 +258,8 @@ export const KERN_DECIMAL_OPS_HELPER_PY = [
   '    return a % b',
   '',
   'def __k_decimal_pow_int(a, b):',
+  '    if not a.is_zero() and a.is_signed():',
+  `        raise Exception(${pyStr(DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE)})`,
   '    if a.is_zero() and b < 0:',
   `        raise Exception(${pyStr(DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE)})`,
   '    if a.is_zero() and b.is_zero():',
@@ -264,15 +267,10 @@ export const KERN_DECIMAL_OPS_HELPER_PY = [
   '    return a ** b',
 ].join('\n');
 
-/** Render a Python single-quoted string literal for the helper body. The KERN
- *  diagnostic strings contain only ASCII letters/spaces/parens (no quote, no
- *  backslash), so a plain single-quote wrap is byte-safe and keeps the emitted
- *  helper readable; assert the precondition defensively. */
+/** Render a Python single-quoted string literal for the helper body. */
 function pyStr(s: string): string {
-  if (s.includes("'") || s.includes('\\') || s.includes('\n')) {
-    throw new Error(`decimal-contract: diagnostic string is not single-quote-safe: ${s}`);
-  }
-  return `'${s}'`;
+  const escaped = s.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('\n', '\\n');
+  return `'${escaped}'`;
 }
 
 /** A MINIMAL structural view of a value node, satisfied by the shared `ValueIR`

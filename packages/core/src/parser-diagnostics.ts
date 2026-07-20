@@ -1,6 +1,6 @@
 /** @internal Parser diagnostics infrastructure — not part of the public API. */
 
-import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime-state.js';
 import type { DiagnosticCategory, ParseDiagnostic, ParseErrorCode } from './types.js';
 
 export interface ParseState {

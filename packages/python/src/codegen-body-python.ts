@@ -45,11 +45,15 @@ import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
   assertNoDecimalOperator,
+  assertNotPortablePowerHelperBinding,
+  assertPortablePowerOperand,
   classifyRegexLiteralIndexReadFailClose,
   classifyRegexLiteralMemberReadFailClose,
   decimalBareConstructionFailMessage,
   emitStringKeyArray,
   expandRegexIFold,
+  flattenPortablePowerChain,
+  forEachValueIRChild,
   instanceofRhsPythonType,
   instanceofRhsRejectReasonForName,
   isHostNamespaceRoot,
@@ -59,6 +63,8 @@ import {
   isSupportedAssignOperator,
   isZeroWidthCapableRegex,
   KERN_DECIMAL_OPS_HELPER_PY,
+  KERN_POWER_HELPER_PY,
+  KERN_POWER_HELPER_PY_NAME,
   KERN_STDLIB_MODULES,
   KERN_TEXT_OPS_HELPER_PY,
   lookupStdlibCall,
@@ -94,6 +100,7 @@ import {
   validateDecimalOperands,
   validateDecimalPowArgs,
   validateRegexNamedGroupsPortable,
+  visitValueIRTree,
 } from '@kernlang/core';
 // Slice 0.9 — the TypeScript-AST closure helpers + classifier live on the Node
 // subpath (the barrel is browser-safe). Python codegen is Node-side and parses
@@ -128,7 +135,7 @@ import {
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
 import { DOT_DICT_SHIM_PY } from './targets/python.js';
-import { mapTsTypeToPython } from './type-map.js';
+import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
 /** Parse options for Python codegen — always inject the TypeScript-backed
  *  closure classifier so block-bodied arrows parse (slice 0.9). */
@@ -221,7 +228,11 @@ export interface BodyEmitOptions {
    * TS body-ts.ts. Production codegen never sets this. See
    * packages/core/src/ir/semantics/python-leg.ts for the runtime contract.
    */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  traceHooks?: {
+    eachIterNext?: boolean;
+    forIterNext?: boolean;
+    letAssign?: boolean;
+  };
   /** Coercion-slice opt-out for the helper-less Ground/React declarative
    *  layer. Defaults to `true` (native KERN bodies + expression unit tests
    *  get full JS value→string coercion, injecting helpers function-locally).
@@ -307,7 +318,11 @@ interface BodyEmitContext {
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
   /** PR-3b differential-harness opt-in (see BodyEmitOptions.traceHooks). */
-  traceHooks?: { eachIterNext?: boolean; forIterNext?: boolean; letAssign?: boolean };
+  traceHooks?: {
+    eachIterNext?: boolean;
+    forIterNext?: boolean;
+    letAssign?: boolean;
+  };
   /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
    *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
    *  HTTPException` in route mode), and BOTH bypass the enclosing
@@ -396,7 +411,10 @@ interface BodyEmitContext {
    *  the `>=` reject cannot misfire on a nonlocal-written capture. (A write to a
    *  binding that IS a per-iteration capture is rejected earlier as
    *  `closure-pinned-write`, so the two paths stay disjoint.) */
-  loopLaterAssignFrames: Array<{ assignLast: Map<string, number>; current: number }>;
+  loopLaterAssignFrames: Array<{
+    assignLast: Map<string, number>;
+    current: number;
+  }>;
 }
 
 const INDENT_STEP = '    ';
@@ -517,6 +535,10 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
   // pushes its own scope on top; we pop ours after it returns.
   const outerBindings = options?.outerBindings ?? [];
   if (outerBindings.length > 0) {
+    for (const name of outerBindings) {
+      assertNotPortablePowerHelperBinding(name);
+      assertNotPortablePowerHelperBinding(toSnakeCase(name));
+    }
     ctx.localScopes.push(new Map(outerBindings.map((n) => [n, 'const' as const])));
     // `null` is the existing "no active regex binding" sentinel — consumed
     // by `lookupRegexBinding` (returns null when the scope has the name but
@@ -542,7 +564,12 @@ export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options
         'Internal codegen error: block-arrow closure def(s) were not flushed (a statement emitter bypassed the emitChildrenPy hoist point).',
       );
     }
-    return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation, helpers: ctx.helpers };
+    return {
+      code,
+      imports: ctx.imports,
+      usedPropagation: ctx.usedPropagation,
+      helpers: ctx.helpers,
+    };
   } finally {
     if (outerBindings.length > 0) {
       ctx.localScopes.pop();
@@ -640,6 +667,10 @@ function emitChildrenPy(
   isLoopBody = false,
 ): string[] {
   const lines: string[] = [];
+  for (const [name] of initialBindings) {
+    assertNotPortablePowerHelperBinding(name);
+    assertNotPortablePowerHelperBinding(toSnakeCase(name));
+  }
   ctx.localScopes.push(new Map(initialBindings));
   ctx.regexScopes.push(new Map(initialBindings.map(([name]) => [name, null])));
   ctx.recordScopes.push(new Map(initialBindings.map(([name]) => [name, false])));
@@ -875,6 +906,8 @@ function emitChildrenPy(
         for (const sl of inner) lines.push(sl);
         if (catchNode !== null) {
           const errName = String(catchNode.props?.name ?? 'e');
+          assertNotPortablePowerHelperBinding(errName);
+          assertNotPortablePowerHelperBinding(toSnakeCase(errName));
           lines.push(`${indent}except Exception as ${errName}:`);
           // Error-substrate Slice 1 — mark `errName` as a caught binding for the
           // duration of the catch body so a `<errName>.message` read lowers to
@@ -983,7 +1016,9 @@ function emitChildrenPy(
             lines.push(`${indent}for ${k} in ${iterableExpr}:`);
             if (ctx.traceHooks?.eachIterNext) {
               lines.push(
-                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(k)}, "value": ${k}})`,
+                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(
+                  k,
+                )}, "value": ${k}})`,
               );
             }
             const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[k, 'const']], true);
@@ -995,7 +1030,9 @@ function emitChildrenPy(
             lines.push(`${indent}for ${v} in ${iterableExpr}:`);
             if (ctx.traceHooks?.eachIterNext) {
               lines.push(
-                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(v)}, "value": ${v}})`,
+                `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(
+                  v,
+                )}, "value": ${v}})`,
               );
             }
             const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, [[v, 'const']], true);
@@ -1042,7 +1079,9 @@ function emitChildrenPy(
         }
         if (ctx.traceHooks?.eachIterNext) {
           lines.push(
-            `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(primaryBindingPy)}, "value": ${primaryBindingPy}})`,
+            `${indent}${INDENT_STEP}_kern_trace({"op": "iter-next", "binding": ${JSON.stringify(
+              primaryBindingPy,
+            )}, "value": ${primaryBindingPy}})`,
           );
         }
         const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP, initialBindings, true);
@@ -1427,6 +1466,7 @@ function emitSetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const name = String(rawName);
   const pythonName = ctx.symbolMap[name] ?? name;
+  assertPythonPortablePowerBinding(name, pythonName);
   const valueIR = parseExpr(String(rawTo));
   if (valueIR.kind === 'propagate') {
     throw new Error(
@@ -1647,7 +1687,12 @@ function emitCoalescePy(node: IRNode, ctx: BodyEmitContext): string[] {
 function buildNullishCoalesceIR(values: ValueIR[]): ValueIR {
   if (values.length === 1) return values[0];
   const [left, ...rest] = values;
-  return { kind: 'binary', op: '??', left, right: buildNullishCoalesceIR(rest) };
+  return {
+    kind: 'binary',
+    op: '??',
+    left,
+    right: buildNullishCoalesceIR(rest),
+  };
 }
 
 function emitFirstTruthyOperandPy(valueIR: ValueIR, ctx: BodyEmitContext): string {
@@ -1780,6 +1825,9 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (!isAssignableTarget(targetIR)) {
     throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
   }
+  if (targetIR.kind === 'ident') {
+    assertPythonPortablePowerBinding(targetIR.name, ctx.symbolMap[targetIR.name] ?? targetIR.name);
+  }
   assertAssignableLocalTarget(targetIR, ctx);
   applyArrayMutationAssignPy(targetIR, ctx);
   // Python lacks `++` / `--`; lower postfix mutation to the canonical compound
@@ -1826,6 +1874,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
 }
 
 function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' | 'let' | 'cell'): void {
+  assertPythonPortablePowerBinding(name, ctx.symbolMap[name] ?? name);
   const scope = ctx.localScopes.at(-1);
   if (!scope) return;
   if (scope.has(name)) {
@@ -1835,6 +1884,13 @@ function declareLocalBinding(ctx: BodyEmitContext, name: string, kind: 'const' |
   setRegexBinding(ctx, name, null);
   setRecordBinding(ctx, name, false);
   setArrayBindingStatus(ctx, name, null);
+}
+
+function assertPythonPortablePowerBinding(authoredName: string, emittedName: string = authoredName): void {
+  assertNotPortablePowerHelperBinding(authoredName);
+  assertNotPortablePowerHelperBinding(toSnakeCase(authoredName));
+  assertNotPortablePowerHelperBinding(emittedName);
+  assertNotPortablePowerHelperBinding(toSnakeCase(emittedName));
 }
 
 function setRegexBinding(
@@ -2341,6 +2397,8 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
       const cp = (child.props ?? {}) as Record<string, unknown>;
       const name = String(cp.name ?? '');
       if (!name) throw new Error('body-statement `binding` requires `name=`.');
+      assertNotPortablePowerHelperBinding(name);
+      assertNotPortablePowerHelperBinding(toSnakeCase(name));
       const key = cp.key === undefined || cp.key === '' ? name : String(cp.key);
       lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)}${miss})`);
     }
@@ -2359,6 +2417,8 @@ function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
         const cp = (child.props ?? {}) as Record<string, unknown>;
         const name = String(cp.name ?? '');
         if (!name) throw new Error('body-statement `element` requires `name=`.');
+        assertNotPortablePowerHelperBinding(name);
+        assertNotPortablePowerHelperBinding(toSnakeCase(name));
         const index = Number.parseInt(String(cp.index ?? ''), 10);
         if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
         return {
@@ -2392,6 +2452,7 @@ function emitFmtPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const rawName = String(props.name);
   const name = ctx.symbolMap[rawName] ?? rawName;
+  assertPythonPortablePowerBinding(rawName, name);
   const lines = [`${name} = ${fstring}`];
   // Differential-harness opt-in: observe the formatted binding via the same
   // {op:assign} event let/assign emit. Production callers set no traceHooks.
@@ -2782,48 +2843,20 @@ function applyArrayMutationAssignPy(target: ValueIR, ctx: BodyEmitContext): void
   applyArrayMutationTargetPy(target, ctx);
 }
 
-function forEachValueIRChildPy(node: ValueIR, visit: (child: ValueIR) => void): void {
-  if (node.kind === 'member') visit(node.object);
-  else if (node.kind === 'index') {
-    visit(node.object);
-    visit(node.index);
-  } else if (node.kind === 'call') {
-    visit(node.callee);
-    for (const arg of node.args) visit(arg);
-  } else if (node.kind === 'binary') {
-    visit(node.left);
-    visit(node.right);
-  } else if (
-    node.kind === 'unary' ||
-    node.kind === 'spread' ||
-    node.kind === 'await' ||
-    node.kind === 'new' ||
-    node.kind === 'propagate'
-  ) {
-    visit(node.argument);
-  } else if (node.kind === 'typeAssert' || node.kind === 'nonNull') visit(node.expression);
-  else if (node.kind === 'conditional') {
-    visit(node.test);
-    visit(node.consequent);
-    visit(node.alternate);
-  } else if (node.kind === 'tmplLit') for (const expr of node.expressions) visit(expr);
-  else if (node.kind === 'objectLit') {
-    for (const entry of node.entries) {
-      if ('kind' in entry && entry.kind === 'spread') visit(entry.argument);
-      else visit((entry as { value: ValueIR }).value);
-    }
-  } else if (node.kind === 'arrayLit') for (const item of node.items) visit(item);
-  else if (node.kind === 'lambda' && node.body) visit(node.body as ValueIR);
-}
-
 function applyArrayMutationsInExpressionPy(node: ValueIR, ctx: BodyEmitContext, preserveFreshPush = false): void {
   applyArrayMutationDoPy(node, ctx, preserveFreshPush);
   // Only a direct `do xs.push(<scalar>)` statement certifies the push-built freshness chain.
   // Nested pushes inside a larger expression are still mutation expressions and must stale.
-  forEachValueIRChildPy(node, (child) => applyArrayMutationsInExpressionPy(child, ctx));
+  const children: ValueIR[] = [];
+  forEachValueIRChild(node, (child) => children.push(child));
+  for (const child of children) visitValueIRTree(child, (descendant) => applyArrayMutationDoPy(descendant, ctx));
 }
 
 function assertRecordArrayFieldReadsProvenPy(node: ValueIR, ctx: BodyEmitContext): void {
+  visitValueIRTree(node, (current) => assertRecordArrayFieldReadProvenPy(current, ctx));
+}
+
+function assertRecordArrayFieldReadProvenPy(node: ValueIR, ctx: BodyEmitContext): void {
   if (
     node.kind === 'member' &&
     node.object.kind === 'ident' &&
@@ -2840,7 +2873,6 @@ function assertRecordArrayFieldReadsProvenPy(node: ValueIR, ctx: BodyEmitContext
   ) {
     throw new Error(`record array field "${node.object.name}.${node.property}" is not proven on every branch`);
   }
-  forEachValueIRChildPy(node, (child) => assertRecordArrayFieldReadsProvenPy(child, ctx));
 }
 
 function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext, options: { preserveFreshPush?: boolean } = {}): string {
@@ -2934,7 +2966,10 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext, options: { preserveF
       // registry-precedence hardening is also v2.
       const arg = node.argument;
       if (arg.kind === 'call' && arg.callee.kind === 'ident' && arg.callee.name === 'Error') {
-        const remapped: ValueIR = { ...arg, callee: { ...arg.callee, name: 'Exception' } };
+        const remapped: ValueIR = {
+          ...arg,
+          callee: { ...arg.callee, name: 'Exception' },
+        };
         return emitPyExprCtx(remapped, ctx);
       }
       // `new Error` WITHOUT parens is valid JS (≡ `new Error()`) and parses as
@@ -3002,6 +3037,24 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext, options: { preserveF
       return out;
     }
     case 'binary': {
+      if (node.op === '**') {
+        const operands = flattenPortablePowerChain(node);
+        for (const operand of operands) assertPortablePowerOperand(operand);
+        const emitted = operands.map((operand) => emitPyExprCtx(operand, ctx));
+        if (ctx.coerceJsValues) {
+          ctx.helpers.add(KERN_POWER_HELPER_PY);
+          return `${KERN_POWER_HELPER_PY_NAME}([${emitted.join(', ')}])`;
+        }
+        return emitted
+          .map((value, index) => {
+            const side = index === emitted.length - 1 ? 'right' : 'left';
+            const operand = operands[index];
+            return needsLowPrecedenceOperandParens(operand) || needsBinaryParens(operand, node.op, side)
+              ? `(${value})`
+              : value;
+          })
+          .join(' ** ');
+      }
       // DECIMAL Slice 2 (item 3) — fail closed on `+`/`-`/`*` over a syntactically-
       // proven Decimal operand (`Decimal.of(...)`/`Decimal.<m>(...)`), the SAME
       // decision the TS leg makes (shared `assertNoDecimalOperator` + message), so
@@ -3444,6 +3497,10 @@ function emitPyTypeof(argument: ValueIR, ctx: BodyEmitContext): string {
 
 function emitLambdaPy(node: Extract<ValueIR, { kind: 'lambda' }>, ctx: BodyEmitContext): string {
   const names = node.params.map((p) => p.name);
+  for (const name of names) {
+    assertNotPortablePowerHelperBinding(name);
+    assertNotPortablePowerHelperBinding(toSnakeCase(name));
+  }
   if (node.bodyBlock) {
     return emitBlockClosurePy(node, names, ctx);
   }
@@ -3509,6 +3566,7 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // param (`(x) => { x = x + 1 }`) must not be reported as a written FREE
       // name. The lowerer excludes both params and block-locals.
       paramNames: names,
+      validateBindingName: (name) => assertPythonPortablePowerBinding(name, resolveLocalRename(ctx, name)),
       // Bare write TARGETS resolve through the SAME rename machinery reads use
       // — a write to a shadow-renamed capture must target the renamed binding
       // (`__k_shadow_x_N = …`), not the outer one (probe-verified silent
@@ -3537,7 +3595,9 @@ function emitBlockClosurePy(node: Extract<ValueIR, { kind: 'lambda' }>, names: s
       // The commit-A gate already accepted this block, so a lowering failure
       // here is gate/lowerer drift — surface it loudly.
       throw new Error(
-        `Internal codegen error: block-arrow closure passed the v1 gate but failed to lower (${lowered.reason ?? 'unknown'}).`,
+        `Internal codegen error: block-arrow closure passed the v1 gate but failed to lower (${
+          lowered.reason ?? 'unknown'
+        }).`,
       );
     }
     // Slice-2 loop-variable pinning. JS closures capture variables BY
@@ -3860,7 +3920,11 @@ function lowerOptionalLink(inner: GuardedExpr, objectNode: ValueIR, ctx: BodyEmi
     // the walrus form: RECV evaluated exactly once (as the call argument), the
     // short-circuit branch yields the sentinel, single-eval preserved.
     const presence = optionalPresenceTest(tmp, ctx);
-    return { guard: presence, branchRef: tmp, lambdaBind: { param: tmp, arg: inner.expr } };
+    return {
+      guard: presence,
+      branchRef: tmp,
+      lambdaBind: { param: tmp, arg: inner.expr },
+    };
   }
   const presence = optionalPresenceTest(`${tmp} := ${inner.expr}`, ctx);
   return { guard: presence, branchRef: tmp };
@@ -3881,7 +3945,10 @@ function provenRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { rec
   if (node.object.kind !== 'ident') return null;
   if (!lookupRecordBinding(ctx, node.object.name)) return null;
   if (isParenthesized(node.object)) return null;
-  return { record: emitScopedIdentPy(ctx, node.object.name), field: node.property };
+  return {
+    record: emitScopedIdentPy(ctx, node.object.name),
+    field: node.property,
+  };
 }
 
 function nestedRecordFieldReceiverPy(node: ValueIR, ctx: BodyEmitContext): { record: string; field: string } | null {
@@ -3958,11 +4025,16 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
         ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
         return {
           guard: null,
-          expr: `_kern_nested_no_property(${JSON.stringify(`${nested.record}.${nested.field}`)}, ${JSON.stringify(node.property)})`,
+          expr: `_kern_nested_no_property(${JSON.stringify(
+            `${nested.record}.${nested.field}`,
+          )}, ${JSON.stringify(node.property)})`,
         };
       }
       ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
-      return { guard: null, expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)})` };
+      return {
+        guard: null,
+        expr: `_kern_nested_array_value(${nested.record}, ${JSON.stringify(nested.field)})`,
+      };
     }
     const nonArrayNested = nestedRecordFieldNonArrayReceiverPy(obj, ctx);
     if (nonArrayNested !== null) {
@@ -3971,7 +4043,9 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
         ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
         return {
           guard: null,
-          expr: `_kern_nested_no_property(${JSON.stringify(`${nonArrayNested.record}.${nonArrayNested.field}`)}, ${JSON.stringify(node.property)})`,
+          expr: `_kern_nested_no_property(${JSON.stringify(
+            `${nonArrayNested.record}.${nonArrayNested.field}`,
+          )}, ${JSON.stringify(node.property)})`,
         };
       }
       ctx.helpers.add(KERN_NESTED_ARRAY_HELPER_PY);
@@ -4027,7 +4101,10 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     const inner: GuardedExpr =
       obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
         ? lowerChain(obj, ctx)
-        : { guard: null, expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)) };
+        : {
+            guard: null,
+            expr: wrapCompoundRootExpr(obj, emitPyExprCtx(obj, ctx)),
+          };
     // Nested-values slice-1 — a PROVEN record binding's single-level member
     // read must stay an ATTRIBUTE read even for shared array property names
     // (`r.length` is the scalar FIELD "length" on a __DotDict, never len(r));
@@ -4087,13 +4164,17 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       if (!isSafeIntegerLiteralIndex(node.index)) {
         return {
           guard: null,
-          expr: `_kern_nested_array_value(${nonArrayNested.record}, ${JSON.stringify(nonArrayNested.field)}, "__kern_invalid_index__")`,
+          expr: `_kern_nested_array_value(${nonArrayNested.record}, ${JSON.stringify(
+            nonArrayNested.field,
+          )}, "__kern_invalid_index__")`,
         };
       }
       const literalIndex = node.index as Extract<ValueIR, { kind: 'numLit' }>;
       return {
         guard: null,
-        expr: `_kern_nested_array_value(${nonArrayNested.record}, ${JSON.stringify(nonArrayNested.field)}, ${literalIndex.raw})`,
+        expr: `_kern_nested_array_value(${
+          nonArrayNested.record
+        }, ${JSON.stringify(nonArrayNested.field)}, ${literalIndex.raw})`,
       };
     }
     // Slice 2 review fix — the bracket (`index`) form of a regex-literal
@@ -4134,10 +4215,18 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       // A non-pure receiver is bound once; the index expression appears only in
       // the selected branch, matching JS `?.[]`.
       const opt = lowerOptionalLink(inner, node.object, ctx);
-      return { guard: opt.guard, expr: `${opt.branchRef}[${index}]`, lambdaBind: opt.lambdaBind };
+      return {
+        guard: opt.guard,
+        expr: `${opt.branchRef}[${index}]`,
+        lambdaBind: opt.lambdaBind,
+      };
     }
     const wrapped = needsIndexReceiverParens(node.object) ? `(${inner.expr})` : inner.expr;
-    return { guard: inner.guard, expr: `${wrapped}[${index}]`, lambdaBind: inner.lambdaBind };
+    return {
+      guard: inner.guard,
+      expr: `${wrapped}[${index}]`,
+      lambdaBind: inner.lambdaBind,
+    };
   }
   // node.kind === 'call'
   if (node.optional) {
@@ -4156,7 +4245,9 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
       return {
         guard: null,
-        expr: `_kern_nested_no_property(${JSON.stringify(`${nestedRecv.record}.${nestedRecv.field}`)}, ${JSON.stringify(node.callee.property)})`,
+        expr: `_kern_nested_no_property(${JSON.stringify(
+          `${nestedRecv.record}.${nestedRecv.field}`,
+        )}, ${JSON.stringify(node.callee.property)})`,
       };
     }
     const nonArrayNested = nestedRecordFieldNonArrayReceiverPy(node.callee.object, ctx);
@@ -4164,7 +4255,9 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
       ctx.helpers.add(KERN_NESTED_NO_PROPERTY_HELPER_PY);
       return {
         guard: null,
-        expr: `_kern_nested_no_property(${JSON.stringify(`${nonArrayNested.record}.${nonArrayNested.field}`)}, ${JSON.stringify(node.callee.property)})`,
+        expr: `_kern_nested_no_property(${JSON.stringify(
+          `${nonArrayNested.record}.${nonArrayNested.field}`,
+        )}, ${JSON.stringify(node.callee.property)})`,
       };
     }
   }
@@ -4247,7 +4340,11 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
           })(),
         };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
-  return { guard: inner.guard, expr: `${inner.expr}(${args})`, lambdaBind: inner.lambdaBind };
+  return {
+    guard: inner.guard,
+    expr: `${inner.expr}(${args})`,
+    lambdaBind: inner.lambdaBind,
+  };
 }
 
 /**
@@ -4299,7 +4396,9 @@ function lowerPortableArrayCallPython(call: Extract<ValueIR, { kind: 'call' }>, 
   if (recv.guard !== null) return null;
   const recvExpr = embedsReceiverInGenexp ? parenthesizeIterable(recv.expr) : recv.expr;
   const args = call.args.map((a) => (callee.property === 'fill' ? emitPyArrayFillArg(a, ctx) : emitPyExprCtx(a, ctx)));
-  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args, { sentinelMiss: ctx.coerceJsValues });
+  const lowered = lowerPortableArrayMethodPy(recvExpr, callee.property, args, {
+    sentinelMiss: ctx.coerceJsValues,
+  });
   if (lowered !== null && callee.property === 'fill') {
     ctx.helpers.add(KERN_JS_ARRAY_HELPERS_PY);
   }
@@ -4687,7 +4786,10 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
       throw new Error(REGEX_TEST_G_FAILCLOSE);
     }
     ctx.imports.add('re');
-    return `(__k_re.search(${pyRegexPattern(receiverRegex)}, ${emitPyExprCtx(call.args[0], ctx)}, ${pyRegexFlags(receiverRegex.flags)}) is not None)`;
+    return `(__k_re.search(${pyRegexPattern(receiverRegex)}, ${emitPyExprCtx(
+      call.args[0],
+      ctx,
+    )}, ${pyRegexFlags(receiverRegex.flags)}) is not None)`;
   }
   if (callee.property === 'exec' && receiverRegex !== null) {
     // .exec drives a JS-only stateful `while ((m = re.exec(s)))` loop; fail-close
@@ -4723,7 +4825,10 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
     }
     ctx.imports.add('re');
     ctx.helpers.add(KERN_REGEX_MATCHALL_HELPER_PY);
-    return `_kern_regex_matchall(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
+    return `_kern_regex_matchall(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, ${pyRegexFlags(
+      firstArgRegex.flags,
+      { allowGlobal: true },
+    )})`;
   }
 
   // `.split(s)` — IN-CORE for a non-zero-width pattern with NO limit arg (capture
@@ -4737,7 +4842,10 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
       throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
     }
     ctx.imports.add('re');
-    return `__k_re.split(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(callee.object, ctx)}, flags=${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
+    return `__k_re.split(${pyRegexPattern(firstArgRegex)}, ${emitPyExprCtx(
+      callee.object,
+      ctx,
+    )}, flags=${pyRegexFlags(firstArgRegex.flags, { allowGlobal: true })})`;
   }
 
   // `.replace(s, r)` — no /g: FIRST match only (count=1); /g: ALL (count=0).
@@ -4746,7 +4854,12 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
     ctx.imports.add('re');
     const count = replaceRegex.flags.includes('g') ? '0' : '1';
     const repl = emitPyReplArg(call.args[1], replaceRegex, ctx);
-    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(callee.object, ctx)}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(
+      callee.object,
+      ctx,
+    )}, count=${count}, flags=${pyRegexFlags(replaceRegex.flags, {
+      allowGlobal: true,
+    })})`;
   }
 
   // `.replaceAll(s, r)` — requires /g (a non-global replaceAll throws TypeError in
@@ -4757,7 +4870,12 @@ function lowerRegexCallPython(call: Extract<ValueIR, { kind: 'call' }>, ctx: Bod
     }
     ctx.imports.add('re');
     const repl = emitPyReplArg(call.args[1], replaceRegex, ctx);
-    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(callee.object, ctx)}, count=0, flags=${pyRegexFlags(replaceRegex.flags, { allowGlobal: true })})`;
+    return `__k_re.sub(${pyRegexPattern(replaceRegex)}, ${repl}, ${emitPyExprCtx(
+      callee.object,
+      ctx,
+    )}, count=0, flags=${pyRegexFlags(replaceRegex.flags, {
+      allowGlobal: true,
+    })})`;
   }
 
   return null;
@@ -5355,6 +5473,8 @@ function lowerListLambdaPython(
   // hoists a local def in commit B).
   if (!callback.body) return null;
   const name = callback.params[0].name;
+  assertNotPortablePowerHelperBinding(name);
+  assertNotPortablePowerHelperBinding(toSnakeCase(name));
   const previous = new Set(ctx.shadowedSymbols);
   ctx.shadowedSymbols.add(name);
   try {
@@ -5375,7 +5495,13 @@ function lowerListLambdaPython(
  *  parenthesize the LOWERED tree so the emitted Python reproduces the JS-shaped
  *  grouping (e.g. `a << (b & 31)` must keep the mask parens, since Python's
  *  `<<` binds tighter than `&`). */
-const PY_BITWISE_PREC: Record<string, number> = { '|': 1, '^': 2, '&': 3, '<<': 4, '>>': 4 };
+const PY_BITWISE_PREC: Record<string, number> = {
+  '|': 1,
+  '^': 2,
+  '&': 3,
+  '<<': 4,
+  '>>': 4,
+};
 
 /**
  * Slice 6 — emit an ALREADY-LOWERED bitwise/shift tree to a Python string.
@@ -5482,7 +5608,12 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
       // left-to-right — matching JS evaluation-once order without temporaries.
       if (node.op === '|' || node.op === '&' || node.op === '^') {
         // a <op> b  ->  _kern_to_int32(_kern_to_int32(a) <op> _kern_to_int32(b))
-        return wrapInToInt32({ kind: 'binary', op: node.op, left: wrapInToInt32(left), right: wrapInToInt32(right) });
+        return wrapInToInt32({
+          kind: 'binary',
+          op: node.op,
+          left: wrapInToInt32(left),
+          right: wrapInToInt32(right),
+        });
       }
       if (node.op === '<<' || node.op === '>>') {
         // a <op> b  ->  _kern_to_int32(_kern_to_int32(a) <op> (_kern_to_uint32(b) & 31))
@@ -5519,16 +5650,27 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
       const argument = lowerBitwiseAndModuloAST(node.argument);
       if (node.op === '~') {
         // ~a  ->  _kern_to_int32(~_kern_to_int32(a))
-        return wrapInToInt32({ kind: 'unary', op: '~', argument: wrapInToInt32(argument) });
+        return wrapInToInt32({
+          kind: 'unary',
+          op: '~',
+          argument: wrapInToInt32(argument),
+        });
       }
       return { ...node, argument };
     }
     case 'tmplLit':
-      return { ...node, expressions: node.expressions.map(lowerBitwiseAndModuloAST) };
+      return {
+        ...node,
+        expressions: node.expressions.map(lowerBitwiseAndModuloAST),
+      };
     case 'member':
       return { ...node, object: lowerBitwiseAndModuloAST(node.object) };
     case 'index':
-      return { ...node, object: lowerBitwiseAndModuloAST(node.object), index: lowerBitwiseAndModuloAST(node.index) };
+      return {
+        ...node,
+        object: lowerBitwiseAndModuloAST(node.object),
+        index: lowerBitwiseAndModuloAST(node.index),
+      };
     case 'call':
       return {
         ...node,
@@ -5557,8 +5699,14 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
         ...node,
         entries: node.entries.map((e) =>
           'kind' in e && (e as any).kind === 'spread'
-            ? { kind: 'spread', argument: lowerBitwiseAndModuloAST((e as any).argument) }
-            : { ...(e as any), value: lowerBitwiseAndModuloAST((e as any).value) },
+            ? {
+                kind: 'spread',
+                argument: lowerBitwiseAndModuloAST((e as any).argument),
+              }
+            : {
+                ...(e as any),
+                value: lowerBitwiseAndModuloAST((e as any).value),
+              },
         ),
       };
     case 'arrayLit':
@@ -5578,12 +5726,22 @@ export function lowerBitwiseAndModuloAST(node: ValueIR): ValueIR {
 /** Slice 6 — wrap `node` in a `_kern_to_int32(...)` call (the landed slice-0.75
  *  ToInt32 helper). Emits the operator-level coercion the S6 contract mandates. */
 function wrapInToInt32(node: ValueIR): ValueIR {
-  return { kind: 'call', callee: { kind: 'ident', name: '_kern_to_int32' }, args: [node], optional: false };
+  return {
+    kind: 'call',
+    callee: { kind: 'ident', name: '_kern_to_int32' },
+    args: [node],
+    optional: false,
+  };
 }
 
 /** Slice 6 — wrap `node` in a `_kern_to_uint32(...)` call (slice-0.75 ToUint32). */
 function wrapInToUint32(node: ValueIR): ValueIR {
-  return { kind: 'call', callee: { kind: 'ident', name: '_kern_to_uint32' }, args: [node], optional: false };
+  return {
+    kind: 'call',
+    callee: { kind: 'ident', name: '_kern_to_uint32' },
+    args: [node],
+    optional: false,
+  };
 }
 
 /** Slice 6 — JS masks every shift count with `& 31` after ToUint32. Emits

@@ -5,6 +5,7 @@ import {
   type CoreFixtureValue,
   evaluateCoreContractOperation,
 } from '../core-contracts/index.js';
+import { collectCoreShapeFacts } from '../core-shape-facts.js';
 import type { SemanticEnv } from '../ir/semantics/index.js';
 import {
   decimalNamespaceMethod,
@@ -14,8 +15,10 @@ import {
   makeDecimalValue,
 } from '../ir/semantics/portable-scalar.js';
 import { numberToInt32, numberToUint32 } from '../ir/semantics/to-numeric.js';
+import { assertNoMixedParameterDeclarations } from '../parameter-declarations.js';
 import { parseExpression } from '../parser-expression.js';
 import { splitPortableExpressionList } from '../portable-expression-list.js';
+import { flattenPortablePowerChain, foldPortablePowerChain } from '../portable-power.js';
 import type { IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
 import {
@@ -23,7 +26,7 @@ import {
   coreFixtureValueToKernValue,
   kernValueToCoreFixtureValue,
 } from './contract-adapter.js';
-import { collectCoreShapeFacts, validateCoreShape } from './shape-validator.js';
+import { validateCoreShape } from './shape-validator.js';
 import { brandValue, KERN_VALUE_BRAND } from './value-brand.js';
 
 const INTEGER_INDEX_RE = /^(0|[1-9]\d*)$/;
@@ -573,6 +576,10 @@ function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: CoreRuntime
     const left = evalValueIR(node.left, env);
     return isNullish(left) ? evalValueIR(node.right, env) : left;
   }
+  if (node.op === '**') {
+    const values = flattenPortablePowerChain(node).map((operand) => evalValueIR(operand, env));
+    return foldPortablePowerChain(values, (base, exponent) => evalNumberBinary('**', base, exponent));
+  }
 
   const left = evalValueIR(node.left, env);
   const right = evalValueIR(node.right, env);
@@ -680,6 +687,8 @@ function evalNumberBinary(op: string, left: KernValue, right: KernValue): KernVa
       return dispatchCoreContractOperation('Number.divide', [left.value, right.value]);
     case '%':
       return dispatchCoreContractOperation('Number.remainder', [left.value, right.value]);
+    case '**':
+      return dispatchCoreContractOperation('Number.power', [left.value, right.value]);
     default:
       throw new Error(`KERN core runtime unsupported numeric operator: ${op}`);
   }
@@ -2103,6 +2112,7 @@ function runtimeChildren(node: IRNode): IRNode[] {
 }
 
 function runtimeParams(node: IRNode): RuntimeParam[] {
+  assertNoMixedParameterDeclarations(node);
   const childParams =
     node.children
       ?.filter((child) => child.type === 'param')

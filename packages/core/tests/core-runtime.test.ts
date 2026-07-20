@@ -1,24 +1,25 @@
 import {
-  CORE_FIXTURE_FUNCTION,
-  CORE_FIXTURE_UNDEFINED,
   CoreRuntimeContractAdapterError,
+  coreFixtureValueToKernValue,
+  kernValueToCoreFixtureValue,
+  roundTripKernContractDataValue,
+} from '../src/core-runtime/contract-adapter.js';
+import {
   CoreRuntimeEnv,
   callCoreFunction,
-  coreFixtureValueToKernValue,
   createCoreRuntimeEnv,
   evalCoreExpression,
   fromHostValue,
   kBoolean,
   kernTruthy,
-  kernValueToCoreFixtureValue,
   kNull,
   kNumber,
   kString,
   kUndefined,
-  roundTripKernContractDataValue,
   runCoreRuntime,
   toHostValue,
-} from '../src/index.js';
+} from '../src/core-runtime/index.js';
+import { CORE_FIXTURE_FUNCTION, CORE_FIXTURE_UNDEFINED } from '../src/index.js';
 import { parse } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
@@ -211,6 +212,8 @@ describe('KERN core runtime values and expressions', () => {
     expect(toHostValue(evalCoreExpression('2 + 3', env))).toBe(5);
     expect(toHostValue(evalCoreExpression('5 - 3', env))).toBe(2);
     expect(toHostValue(evalCoreExpression('3 * 4', env))).toBe(12);
+    expect(toHostValue(evalCoreExpression('2 ** 10', env))).toBe(1024);
+    expect(toHostValue(evalCoreExpression('2 ** 3 ** 2', env))).toBe(512);
     expect(toHostValue(evalCoreExpression('5 / 2', env))).toBe(2.5);
     expect(toHostValue(evalCoreExpression('-3', env))).toBe(-3);
     expect(toHostValue(evalCoreExpression('-5 % 2', env))).toBe(-1);
@@ -221,6 +224,10 @@ describe('KERN core runtime values and expressions', () => {
     expect(toHostValue(evalCoreExpression('2 >= 3', env))).toBe(false);
     expect(() => evalCoreExpression('1 / 0', env)).toThrow('Number.divide division by zero.');
     expect(() => evalCoreExpression('1 % 0', env)).toThrow('Number.remainder division by zero.');
+    expect(() => evalCoreExpression('2 ** -1', env)).toThrow(
+      'portable: ** requires a safe-integer base and nonnegative safe-integer exponent',
+    );
+    expect(() => evalCoreExpression('2 ** 53', env)).toThrow('portable: ** result exceeds the safe-integer domain');
   });
 
   test('string ordered comparisons dispatch through KERN core contracts in the VM', () => {
@@ -1850,6 +1857,25 @@ describe('KERN core runtime functions', () => {
     };
     const result = callCoreFunction(fnNode, []);
     expect(toHostValue(result.value)).toBe('hi world');
+  });
+
+  test('mixed legacy and structured parameters fail before runtime binding', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'ambiguous', params: 'legacy:number', returns: 'number' },
+      children: [
+        { type: 'param', props: { name: 'structured', type: 'number' } },
+        {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'return', props: { value: 'structured' } }],
+        },
+      ],
+    };
+
+    expect(() => callCoreFunction(fnNode, [kNumber(7)])).toThrow(
+      'Callable cannot combine legacy `params=` with structured `param` children.',
+    );
   });
 
   test('structured default prop quoting is supported', () => {

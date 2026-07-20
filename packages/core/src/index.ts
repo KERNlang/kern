@@ -40,6 +40,7 @@ export {
   DECIMAL_MOD_ZERO_FAILCLOSE,
   DECIMAL_NON_DECIMAL_OPERAND_FAILCLOSE,
   DECIMAL_OPERATOR_FAILCLOSE,
+  DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE,
   DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
   DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
   DECIMAL_SCALE_FAILCLOSE,
@@ -177,11 +178,13 @@ export {
   validateRegexNamedGroupsPortable,
   validateReplStringForTS,
 } from './codegen/regex-normalize.js';
+export { findTypeScriptSfcScriptBlock } from './codegen/sfc-script.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
   detectKernStdlibUsage,
   emittedCodeUsesLooseEq,
+  emittedCodeUsesPower,
   emittedCodeUsesTextOps,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
@@ -340,37 +343,8 @@ export {
   STRING_CONTRACT,
   UNDEFINED_CONTRACT,
 } from './core-contracts/index.js';
-export {
-  CoreRuntimeContractAdapterError,
-  coreFixtureValueToKernValue,
-  kernValueToCoreFixtureValue,
-  roundTripKernContractDataValue,
-} from './core-runtime/contract-adapter.js';
-export type {
-  CoreCompletion,
-  CoreRuntimeResult,
-  CreateCoreRuntimeEnvOptions,
-  KernBuiltinValue,
-  KernFunctionValue,
-  KernValue,
-  RuntimeParam,
-} from './core-runtime/index.js';
-// KERN Core Runtime
-export {
-  CoreRuntimeEnv,
-  callCoreFunction,
-  createCoreRuntimeEnv,
-  evalCoreExpression,
-  fromHostValue,
-  kBoolean,
-  kernTruthy,
-  kNull,
-  kNumber,
-  kString,
-  kUndefined,
-  runCoreRuntime,
-  toHostValue,
-} from './core-runtime/index.js';
+// Runtime-neutral declared-shape analysis. Value execution and runtime shape
+// validation stay quarantined inside core-runtime.
 export type {
   CoreShapeDiagnostic,
   CoreShapeDiagnosticCode,
@@ -379,8 +353,8 @@ export type {
   CoreShapeIndexerFact,
   CoreShapeInterfaceFact,
   CoreShapeValidationResult,
-} from './core-runtime/shape-validator.js';
-export { assertCoreShape, collectCoreShapeFacts, validateCoreShape } from './core-runtime/shape-validator.js';
+} from './core-shape-facts.js';
+export { collectCoreShapeFacts } from './core-shape-facts.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
@@ -423,6 +397,7 @@ export {
   parseExternalNamedBinding,
   signatureMapForSidecarPackage,
 } from './external-symbols.js';
+export { toSnakeCaseIdentifier } from './identifier-case.js';
 export type {
   CapabilityEffect,
   CapabilityRuntime,
@@ -479,10 +454,6 @@ export {
   emptyTrace,
   eventsEqual,
   makeEnv,
-  ReferenceRunnerError,
-  referenceRun,
-  referenceRunSequence,
-  registerAllContracts,
   registerContract,
   serializeJson,
   serializeMarkdown,
@@ -491,13 +462,13 @@ export {
 } from './ir/semantics/index.js';
 export type { RegExpValue } from './ir/semantics/portable-regex.js';
 export {
-  evalRegexTestExpression,
   isRegExpValue,
   isRegexTestExpression,
   isRunnerNativeRegexFailClose,
   makeRegExpValue,
   REGEXP_VALUE_TAG,
 } from './ir/semantics/portable-regex.js';
+export { evalRegexTestExpression } from './ir/semantics/portable-regex-reference.js';
 // Runner-native Decimal (Slice 1) — the ReferenceRunner executes `Decimal.of/add/
 // mul` natively as a third "leg" of the decimal differential oracle, computing on a
 // local pinned decimal.js constructor and rendering through the canonical
@@ -507,6 +478,8 @@ export {
   isDecimalExpression,
   isSafeIntegerLiteralIndex,
 } from './ir/semantics/portable-scalar.js';
+export { ReferenceRunnerError, referenceRun, referenceRunSequence } from './ir/semantics/reference-runner.js';
+export { registerAllContracts } from './ir/semantics/register-all.js';
 // Harness symbols stay on `.` for backward compatibility, but are now sourced
 // from the test-only `./ir/semantics/testing.js` barrel (NOT the runtime
 // `./ir/semantics/index.js`), so the runtime barrel no longer re-exports the
@@ -623,6 +596,13 @@ export type {
 } from './node-props.js';
 // Typed node props
 export { propsOf, propsUntyped } from './node-props.js';
+export type { MixedParameterDeclarationViolation } from './parameter-declarations.js';
+export {
+  assertNoMixedParameterDeclarations,
+  hasMixedParameterDeclarations,
+  MIXED_PARAMETER_DECLARATION_MESSAGE,
+  mixedParameterDeclarationViolation,
+} from './parameter-declarations.js';
 export type { Token, TokenKind } from './parser.js';
 // Core
 export {
@@ -650,6 +630,23 @@ export { collectNativeEligibleHints, validateNativeEligible } from './parser-val
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExportSymbol, ModuleExports } from './parser-validate-propagation.js';
 export { splitPortableExpressionList } from './portable-expression-list.js';
+export type { PortablePowerErrorCode } from './portable-power.js';
+export {
+  assertNotPortablePowerHelperBinding,
+  assertPortablePowerOperand,
+  checkedPortablePower,
+  checkedPortablePowerChain,
+  flattenPortablePowerChain,
+  KERN_POWER_HELPER_JS,
+  KERN_POWER_HELPER_PY,
+  KERN_POWER_HELPER_PY_NAME,
+  KERN_POWER_HELPER_TS_NAME,
+  PORTABLE_POWER_OPERAND_ERROR,
+  PORTABLE_POWER_RESULT_ERROR,
+  PORTABLE_POWER_SPREAD_ERROR,
+  PortablePowerError,
+  portablePowerHelperTS,
+} from './portable-power.js';
 export type {
   PortablePredicateArrayOp,
   PortablePredicateCompareOp,
@@ -1061,6 +1058,7 @@ export {
 } from './utils.js';
 export type { BinaryOp, UnaryOp, ValueIR, ValueIRKind } from './value-ir.js';
 export { isParenthesized, isValueIR, markParenthesized } from './value-ir.js';
+export { forEachValueIRChild, someValueIRTree, visitValueIRTree } from './value-ir-walk.js';
 export type {
   NextjsOutputRules,
   NextjsVersionProfile,

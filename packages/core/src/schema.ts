@@ -25,7 +25,7 @@ import { type KernTarget, VALID_TARGETS } from './config.js';
 import { validateCapabilityMetadata, validateImportMetadata } from './import-metadata.js';
 import { parsePortablePredicateProp, validatePortablePredicateAST } from './portable-predicate.js';
 import { RAG_ASSERTION_KINDS } from './rag-assertions.js';
-import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime-state.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
 
@@ -1939,6 +1939,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'objectMerge',
       'objectOmit',
       'objectPick',
+      'capability',
+      'print',
       'return',
       'if',
       'else',

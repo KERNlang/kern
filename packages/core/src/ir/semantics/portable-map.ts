@@ -35,8 +35,9 @@
  */
 
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { getBinding, hasBinding, type SemanticEnv } from './index.js';
-import { evalPortableValue, isPortableBindingName, type PortableScalar } from './portable-scalar.js';
+import type { EvalPortableValue } from './portable-eval-types.js';
+import { isPortableBindingName, type PortableScalar } from './portable-scalar-domain.js';
+import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
 
 export type PortableMapValue = ReadonlyMap<string, PortableScalar>;
 
@@ -69,8 +70,8 @@ function requirePortableMapBinding(name: string, env: SemanticEnv, label: string
   return value;
 }
 
-function requireStringKey(node: ValueIR, env: SemanticEnv, label: string): string {
-  const key = evalPortableValue(node, env);
+function requireStringKey(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue, label: string): string {
+  const key = evaluate(node, env);
   if (typeof key !== 'string') throw new Error(`portable: ${label} key must be a string`);
   return key;
 }
@@ -85,6 +86,7 @@ function requireStringKey(node: ValueIR, env: SemanticEnv, label: string): strin
 export function evalMapReadCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
 ): PortableScalar | undefined {
   if (node.optional) return undefined;
   const callee = node.callee;
@@ -98,7 +100,7 @@ export function evalMapReadCall(
     throw new Error(`portable: ${label} first argument must be a bare map-binding identifier`);
   }
   const mapValue = requirePortableMapBinding(mapArg.name, env, label);
-  const key = requireStringKey(node.args[1], env, label);
+  const key = requireStringKey(node.args[1], env, evaluate, label);
   if (callee.property === 'has') return mapValue.has(key);
   if (!mapValue.has(key)) {
     throw new Error(`portable: ${label} on a missing key is outside the portable domain (use Map.has to probe first)`);
@@ -116,6 +118,7 @@ export function evalMapReadCall(
 export function resolveMapSetCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
 ): { targetName: string; newMap: PortableMapValue } | undefined {
   if (node.optional) return undefined;
   const callee = node.callee;
@@ -126,10 +129,20 @@ export function resolveMapSetCall(
   if (!isValueIR(mapArg) || mapArg.kind !== 'ident' || !isPortableBindingName(mapArg.name)) {
     throw new Error('portable: Map.set first argument must be a bare map-binding identifier');
   }
-  const current = requirePortableMapBinding(mapArg.name, env, 'Map.set');
-  const key = requireStringKey(node.args[1], env, 'Map.set');
-  const value = evalPortableValue(node.args[2], env);
+  return resolveParsedMapSet(mapArg.name, node.args[1], node.args[2], env, evaluate);
+}
+
+export function resolveParsedMapSet(
+  targetName: string,
+  keyNode: ValueIR,
+  valueNode: ValueIR,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+): { targetName: string; newMap: PortableMapValue } {
+  const current = requirePortableMapBinding(targetName, env, 'Map.set');
+  const key = requireStringKey(keyNode, env, evaluate, 'Map.set');
+  const value = evaluate(valueNode, env);
   const newMap = new Map(current);
   newMap.set(key, value);
-  return { targetName: mapArg.name, newMap };
+  return { targetName, newMap };
 }

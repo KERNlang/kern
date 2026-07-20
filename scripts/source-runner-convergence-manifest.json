@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "milestone": "KERN-5-R2-M3.31c",
+  "owned": [
+    {
+      "id": "do",
+      "kind": "node",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-do.test.ts"
+    },
+    {
+      "id": "expression-v1",
+      "kind": "node",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-expression-v1.test.ts"
+    },
+    {
+      "id": "each-pair-entry",
+      "kind": "node",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-each.test.ts"
+    },
+    {
+      "id": "lambda",
+      "kind": "node",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-lambda.test.ts"
+    },
+    {
+      "id": "helper-functions",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-helper.test.ts"
+    },
+    {
+      "id": "iteration-budget",
+      "kind": "configuration",
+      "status": "unified",
+      "evidence": "packages/core/tests/runner-iteration-budget.test.ts"
+    },
+    {
+      "id": "runner-class-direct-methods",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-method.test.ts"
+    },
+    {
+      "id": "non-root-environment",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-non-root.test.ts"
+    },
+    {
+      "id": "runner-class-pure-getters",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-getter.test.ts"
+    },
+    {
+      "id": "runner-class-constructorless-inheritance",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-inheritance.test.ts"
+    },
+    {
+      "id": "runner-class-resumable-frames",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-frame.test.ts"
+    },
+    {
+      "id": "runner-class-constructor-super-lifecycle",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-constructor-super.test.ts"
+    },
+    {
+      "id": "runner-class-super-method-dispatch",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-super-method.test.ts"
+    },
+    {
+      "id": "runner-class-virtual-this-method-dispatch",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-virtual-method.test.ts"
+    },
+    {
+      "id": "runner-class-pure-helper-calls",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-helper.test.ts"
+    },
+    {
+      "id": "runner-helper-pure-class-calls",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-helper-reverse.test.ts"
+    },
+    {
+      "id": "runner-helper-resumable-class-effects",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-helper-effects.test.ts"
+    },
+    {
+      "id": "runner-class-pre-super-constructor",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-class-pre-super.test.ts"
+    },
+    {
+      "id": "runner-classes-state",
+      "kind": "environment",
+      "status": "unified",
+      "evidence": "packages/core/tests/runtime-envelope-effect-machine-module-ownership.test.ts"
+    }
+  ],
+  "deferred": []
+}

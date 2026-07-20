@@ -46,8 +46,10 @@ import {
   textMalformedSurrogateFailMessage,
 } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { hasBinding, type SemanticEnv } from './index.js';
-import { evalPortableValue, type PortableScalar } from './portable-scalar.js';
+import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
+import type { EvalPortableValue } from './portable-eval-types.js';
+import type { PortableScalar } from './portable-scalar-domain.js';
+import { hasBinding, type SemanticEnv } from './semantic-env.js';
 
 function requireWellFormedString(value: PortableScalar, label: string): string {
   if (typeof value !== 'string') throw new Error(`portable: ${label} requires a string`);
@@ -83,6 +85,7 @@ const STRING_OP_ARITY: Readonly<Record<string, number>> = Object.freeze({
 export function evalStringOpCall(
   node: Extract<ValueIR, { kind: 'call' }>,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
 ): PortableScalar | undefined {
   if (node.optional) return undefined;
   const callee = node.callee;
@@ -97,13 +100,13 @@ export function evalStringOpCall(
 
   const receiverArg = node.args[0];
   if (!isValueIR(receiverArg)) throw new Error(`portable: ${label} requires a string receiver`);
-  const receiver = requireWellFormedString(evalPortableValue(receiverArg, env), label);
+  const receiver = requireWellFormedString(evaluate(receiverArg, env), label);
 
   switch (method) {
     case 'length':
       return textCodePoints(receiver).length;
     case 'charAt': {
-      const index = requireSafeIntegerArg(node.args[1], env, label);
+      const index = requireSafeIntegerArg(node.args[1], env, evaluate, label);
       const cps = textCodePoints(receiver);
       if (index < 0 || index >= cps.length) {
         throw new Error(`portable: ${label} index ${index} is out of bounds for a string of length ${cps.length}`);
@@ -111,8 +114,8 @@ export function evalStringOpCall(
       return cps[index];
     }
     case 'slice': {
-      const start = requireSafeIntegerArg(node.args[1], env, label);
-      const end = requireSafeIntegerArg(node.args[2], env, label);
+      const start = requireSafeIntegerArg(node.args[1], env, evaluate, label);
+      const end = requireSafeIntegerArg(node.args[2], env, evaluate, label);
       const cps = textCodePoints(receiver);
       if (start < 0 || end < 0 || start > cps.length || end > cps.length || start > end) {
         throw new Error(
@@ -122,11 +125,11 @@ export function evalStringOpCall(
       return cps.slice(start, end).join('');
     }
     case 'indexOf': {
-      const needle = requireWellFormedString(evalPortableValue(node.args[1], env), label);
+      const needle = requireWellFormedString(evaluate(node.args[1], env), label);
       return codePointIndexOf(textCodePoints(receiver), textCodePoints(needle));
     }
     case 'startsWith': {
-      const prefix = requireWellFormedString(evalPortableValue(node.args[1], env), label);
+      const prefix = requireWellFormedString(evaluate(node.args[1], env), label);
       return receiver.startsWith(prefix);
     }
     default:
@@ -134,9 +137,11 @@ export function evalStringOpCall(
   }
 }
 
-function requireSafeIntegerArg(node: ValueIR, env: SemanticEnv, label: string): number {
+function requireSafeIntegerArg(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue, label: string): number {
   // Float/int fence escape hatch (see `SemanticEnv`): bounds-checked, never printed.
-  const value = evalPortableValue(node, { ...env, intIndexCtx: true });
+  const indexEnv = { ...env, intIndexCtx: true };
+  copyInternalEffectMachineState(env, indexEnv);
+  const value = evaluate(node, indexEnv);
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
     throw new Error(`portable: ${label} index arguments must be safe integers`);
   }

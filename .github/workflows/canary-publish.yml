@@ -1,58 +1,38 @@
 name: Canary Publish
 
-# Publishes a canary build to npm for every GREEN commit on dev.
+# Manual-only KERN 5 canary publication from main.
 #
-# This workflow is gated on CI success via `workflow_run`: it fires only after
-# the "CI" workflow completes on dev, and the job runs only when that CI run
-# concluded successfully. That means the full test suite (build, tests,
-# test:kern, review, semantics harness) is exercised exactly once — by CI — and
-# the canary job never re-runs it. The canary job only rebuilds (publish needs
-# dist/) and publishes the exact commit CI tested.
-#
-# IMPORTANT: `workflow_run` triggers are read ONLY from the default branch
-# (main). This file must be merged to main before the trigger activates. Until
-# then, use the `workflow_dispatch` escape hatch to publish a canary manually.
+# Automatic publication stays disabled until the release pipeline can prove an
+# exact-SHA green CI attestation and resume safely after partial npm publication.
+# The operator must verify the selected main commit is green before dispatching.
 
 on:
-  workflow_run:
-    workflows: ['CI']
-    branches: [dev]
-    types: [completed]
   workflow_dispatch:
-    inputs:
-      npm_tag:
-        description: npm dist-tag to publish under
-        required: false
-        default: canary
-        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
   publish:
     name: Publish canary to npm
-    # Only publish green commits. Manual dispatch bypasses the CI gate (the
-    # operator owns that decision); workflow_run runs require conclusion=success.
     if: >-
       github.repository == 'KERNlang/kern' &&
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      github.event_name == 'workflow_dispatch' &&
+      github.ref_name == 'main'
     runs-on: ubuntu-latest
 
     env:
-      # The commit CI actually tested (workflow_run), or the dispatched ref.
-      BUILD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      BUILD_SHA: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v7
         with:
-          # Check out the exact commit CI validated, not the default-branch HEAD
-          # (github.sha lies on workflow_run events).
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v7
@@ -66,39 +46,28 @@ jobs:
           corepack prepare pnpm@10.32.1 --activate
           pnpm --version
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Python MCP SDK (for transpiler E2E tests)
+        run: pip install mcp
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Compute canary version
-        env:
-          NPM_TAG_INPUT: ${{ github.event.inputs.npm_tag || 'canary' }}
+        id: release-plan
         run: |
-          BASE_VERSION=$(jq -r '.version' package.json)
-          if ! printf '%s\n' "$BASE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Root package version must be stable semver, got $BASE_VERSION"
-            exit 1
-          fi
-
-          IFS=. read -r MAJOR MINOR PATCH <<EOF
-          $BASE_VERSION
-          EOF
-
-          NEXT_PATCH=$((PATCH + 1))
-          SHORT_SHA=$(printf '%s' "$BUILD_SHA" | cut -c1-8)
-          CANARY_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}-canary.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHORT_SHA}"
-          NPM_TAG="${NPM_TAG_INPUT:-canary}"
-
-          if ! printf '%s\n' "$NPM_TAG" | grep -Eq '^[A-Za-z0-9._-]+$'; then
-            echo "::error::npm tag contains invalid characters: $NPM_TAG"
-            exit 1
-          fi
-
-          echo "CANARY_VERSION=$CANARY_VERSION" >> "$GITHUB_ENV"
-          echo "NPM_TAG=$NPM_TAG" >> "$GITHUB_ENV"
-          echo "Canary version: $CANARY_VERSION"
-          echo "npm dist-tag: $NPM_TAG"
+          mkdir -p .release
+          node scripts/release/plan-cli.mjs \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" | tee .release/release-plan.json
 
       - name: Set package versions
+        env:
+          CANARY_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           tmp=$(mktemp)
           jq --arg v "$CANARY_VERSION" '.version = $v' package.json > "$tmp"
@@ -127,12 +96,119 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish dry run
-        run: pnpm -r publish --dry-run --no-git-checks --access public --tag "$NPM_TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Test
+        run: pnpm test
 
-      - name: Publish packages
-        run: pnpm -r publish --no-git-checks --access public --tag "$NPM_TAG"
+      - name: Native KERN Tests
+        run: pnpm test:kern
+
+      - name: Differential conformance
+        run: pnpm check:conformance
+
+      - name: Runner smoke
+        run: pnpm test:runner-smoke
+
+      - name: Recover bundle or pack new bundle
+        id: release-bundle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-pack \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload new bundle
+        id: release-bundle-upload
+        if: ${{ steps.release-bundle.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release-bundle.outputs.artifact-name }}
+          path: .release/bundle
+          retention-days: ${{ steps.release-bundle.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable bundle
+        if: ${{ steps.release-bundle.outputs.created == 'true' }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode confirm-bundle \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --artifact-id "${{ steps.release-bundle-upload.outputs.artifact-id }}" \
+            --artifact-digest "${{ steps.release-bundle-upload.outputs.artifact-digest }}"
+
+      - name: Reconcile versions and staging tags
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-reconcile \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Create Promotion Snapshot
+        id: promotion-snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-snapshot \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload Promotion Snapshot
+        id: promotion-snapshot-upload
+        if: ${{ steps.promotion-snapshot.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.promotion-snapshot.outputs.artifact-name }}
+          path: .release/${{ steps.promotion-snapshot.outputs.artifact-name }}.json
+          retention-days: ${{ steps.promotion-snapshot.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable promotion snapshot
+        if: ${{ steps.promotion-snapshot.outputs.created == 'true' }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode confirm-snapshot \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --artifact-id "${{ steps.promotion-snapshot-upload.outputs.artifact-id }}" \
+            --artifact-digest "${{ steps.promotion-snapshot-upload.outputs.artifact-digest }}"
+
+      - name: Promote public tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ steps.release-plan.outputs.dist_tag }}
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-promote \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --tag "$NPM_TAG"
+
+      - name: Run clean registry smoke tests
+        run: |
+          node scripts/release/registry-cli.mjs \
+            --mode publish-smoke \
+            --channel canary \
+            --sha "$BUILD_SHA" \
+            --run-number "$GITHUB_RUN_NUMBER"
+
+      - name: Upload Journal
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-journal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release/journal.json
+          if-no-files-found: ignore
+          include-hidden-files: true

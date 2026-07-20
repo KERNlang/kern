@@ -60,6 +60,142 @@ def raw():
     expect(routes.map((route) => route.payload.responseModel)).toEqual([undefined, undefined]);
   });
 
+  it('infers FastAPI response models from handler return annotations', () => {
+    const routes = routePayloads(`
+from typing import Any
+
+@router.get("/limits")
+def limits() -> dict[str, Any]:
+    return {"limit": 1}
+`);
+
+    expect(routes[0].payload.responseModel).toBe('dict[str, Any]');
+  });
+
+  it('does not infer a return model when response_model=None explicitly disables it', () => {
+    const routes = routePayloads(`
+@router.get("/raw", response_model=None)
+def raw() -> dict[str, bool]:
+    return {"ok": True}
+`);
+
+    expect(routes[0].payload.responseModel).toBeUndefined();
+  });
+
+  it('extracts response class and schema inclusion evidence', () => {
+    const routes = routePayloads(`
+from fastapi.responses import FileResponse, JSONResponse
+
+@router.get("/media", response_class=FileResponse)
+def media() -> FileResponse:
+    return FileResponse("media.jpg")
+
+@router.get("/association", include_in_schema=False)
+def association() -> JSONResponse:
+    return JSONResponse({"ok": True})
+
+@router.get("/typed-json", response_class=JSONResponse)
+def typed_json() -> TypedJsonOut:
+    return TypedJsonOut(ok=True)
+`);
+
+    expect(routes.map((route) => route.payload.responseClass)).toEqual([
+      'FileResponse',
+      'JSONResponse',
+      'JSONResponse',
+    ]);
+    expect(routes.map((route) => route.payload.responseModel)).toEqual([undefined, undefined, 'TypedJsonOut']);
+    expect(routes.map((route) => route.payload.includeInSchema)).toEqual([undefined, false, undefined]);
+  });
+
+  it('resolves imported router aliases to their source modules', () => {
+    const entries = routePayloads(`
+from fastapi import FastAPI
+from .web import \\
+    router as web_router
+
+app = FastAPI()
+app.include_router(router=web_router, prefix="/site", include_in_schema=False)
+`);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload.subtype).toBe('route-mount');
+    expect(entries[0].payload.sourceModule).toBe('.web');
+    expect(entries[0].payload.includeInSchema).toBe(false);
+  });
+
+  it('resolves sibling module imports without adding an extra relative dot', () => {
+    const entries = routePayloads(`
+from . import auth
+from .. import admin
+
+app.include_router(auth.router, prefix="/auth")
+app.include_router(admin.router, prefix="/admin")
+`);
+
+    expect(entries.map((entry) => entry.payload.sourceModule)).toEqual(['.auth', '..admin']);
+  });
+
+  it('does not duplicate modules from plain dotted imports', () => {
+    const entries = routePayloads(`
+import app.api.auth, app.api.admin, app.api.users as user_routes
+
+app.include_router(app.api.auth.router, prefix="/auth")
+app.include_router(app.api.admin.router, prefix="/admin")
+app.include_router(user_routes.router, prefix="/users")
+`);
+
+    expect(entries.map((entry) => entry.payload.sourceModule)).toEqual([
+      'app.api.auth',
+      'app.api.admin',
+      'app.api.users',
+    ]);
+  });
+
+  it('distinguishes imported router modules from imported router objects', () => {
+    const entries = routePayloads(`
+from app.api import auth_router
+from app.api.users import users_router
+
+app.include_router(auth_router.router, prefix="/auth")
+app.include_router(users_router, prefix="/users")
+`);
+
+    expect(entries.map((entry) => entry.payload.sourceModule)).toEqual(['app.api.auth_router', 'app.api.users']);
+  });
+
+  it('extracts a keyword router argument after other include_router keywords', () => {
+    const entries = routePayloads(`
+from . import auth
+
+app.include_router(prefix="""/auth""", include_in_schema=False, router=auth.router)
+`);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload.subtype).toBe('route-mount');
+    expect(entries[0].payload.name).toBe('/auth');
+    expect(entries[0].payload.routerName).toBe('router');
+    expect(entries[0].payload.sourceModule).toBe('.auth');
+    expect(entries[0].payload.includeInSchema).toBe(false);
+  });
+
+  it('ignores nested router keywords while resolving include_router arguments', () => {
+    const entries = routePayloads(`
+from . import auth
+
+app.include_router(
+    dependencies=[Depends(check(router=wrong_router, prefix="/wrong"))],
+    prefix="/auth",
+    router=auth.router,
+)
+`);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload.name).toBe('/auth');
+    expect(entries[0].payload.routerName).toBe('router');
+    expect(entries[0].payload.sourceModule).toBe('.auth');
+  });
+
   it('marks async def route handlers as async', () => {
     const routes = routePayloads(`
 @router.get("/users", response_model=UserOut)
@@ -68,6 +204,32 @@ async def list_users():
 `);
 
     expect(routes[0].payload.isAsync).toBe(true);
+  });
+
+  it('extracts a route path passed after other decorator keywords', () => {
+    const routes = routePayloads(`
+@router.get(summary="Users", path="/keyword-users", response_model=UserOut)
+def list_users():
+    return []
+`);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].payload.name).toBe('/keyword-users');
+  });
+
+  it('applies APIRouter-level prefix and schema exclusion', () => {
+    const routes = routePayloads(`
+from fastapi import APIRouter
+api_router = APIRouter(prefix="/api", include_in_schema=False)
+
+@api_router.get("/users")
+def list_users():
+    return []
+`);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].payload.name).toBe('/api/users');
+    expect(routes[0].payload.includeInSchema).toBe(false);
   });
 
   it('marks sync def route handlers as not async', () => {
@@ -146,6 +308,17 @@ def create():
 def create():
     return {"id": 1}
 `);
+    expect(routes[0].payload.successStatusCodesResolved).toBe(true);
+    expect(routes[0].payload.successStatusCodes).toEqual([200]);
+  });
+
+  it('ignores status_code text inside decorator descriptions', () => {
+    const routes = routePayloads(`
+@router.post("/items", description="Documentation mentions status_code=201)")
+def create():
+    return {}
+`);
+
     expect(routes[0].payload.successStatusCodesResolved).toBe(true);
     expect(routes[0].payload.successStatusCodes).toEqual([200]);
   });

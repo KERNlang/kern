@@ -26,7 +26,6 @@
  * `while ... else` are excluded.
  */
 
-import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import {
   childEnv,
@@ -39,37 +38,20 @@ import {
 import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
+import {
+  evaluateWhileConditionWithEvaluator,
+  WHILE_MAX_ITERATIONS,
+  whilePreconditionsWithEvaluator,
+} from './while-runtime.js';
 
-export const WHILE_MAX_ITERATIONS = 100_000;
-
-interface WhileProps {
-  cond?: unknown;
-}
-
-function evalStrictBoolean(cond: string, env: SemanticEnv): boolean {
-  const value = evalPortableValue(parseExpression(cond), env);
-  if (typeof value !== 'boolean') {
-    throw new Error('while: condition must evaluate to a strict boolean (no truthy/numeric/string conditions)');
-  }
-  return value;
-}
+export { WHILE_MAX_ITERATIONS } from './while-runtime.js';
 
 export function evaluateWhileCondition(ir: IRNode, env: SemanticEnv): boolean {
-  const cond = (ir.props as WhileProps)?.cond;
-  if (typeof cond !== 'string' || cond === '') {
-    throw new Error('while: cond= must be a non-empty string expression');
-  }
-  return evalStrictBoolean(cond, env);
+  return evaluateWhileConditionWithEvaluator(ir, env, evalPortableValue);
 }
 
 export function whilePreconditions(ir: IRNode, env: SemanticEnv): boolean {
-  if (!Array.isArray(ir.children)) return false;
-  try {
-    evaluateWhileCondition(ir, env);
-    return true;
-  } catch {
-    return false;
-  }
+  return whilePreconditionsWithEvaluator(ir, env, evalPortableValue);
 }
 
 function whileEffects(ir: IRNode, env: SemanticEnv): Trace {

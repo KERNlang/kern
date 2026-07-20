@@ -10,57 +10,10 @@ rag name=AnswerDocs retriever=DocsSearch citations=true
   grounding name=StrictGrounding requireCitations=true policy=strict maxContext=6000
   ragRetrieve name=FindDocs index=DocsIndex queryParam=question topK=1 output="RetrievedChunk[]"
 
-interface name=AnswerQuery
-  field name=question type=string
-  field name=retrieval type=string
-  field name=maxChars type=number
-
-class name=ResponseEnvelope
-  field name=text type=string
-  constructor
-    param name=text type=string
-    handler lang="kern"
-      assign target="this.text" value="text"
-  method name=body returns=string
-    handler lang="kern"
-      return value="this.text"
-
-class name=GroundedAnswer extends=ResponseEnvelope
-  field name=status type=string
-  constructor
-    param name=text type=string
-    param name=status type=string
-    handler lang="kern"
-      do value="super(text)"
-      assign target="this.status" value="status"
-  method name=grounding returns=string
-    handler lang="kern"
-      return value="this.status"
-
-fn name=makeQuery params="question:string" returns=AnswerQuery
+fn name=answerQuestion params="question:string" returns="string[]"
   handler lang="kern"
-    return value="{ question: question, retrieval: 'FindDocs', maxChars: 6000 }"
-
-fn name=answerMarkers returns=string[]
-  handler lang="kern"
-    return value="['__KERN_ANSWER_START__', '__KERN_ANSWER_END__', '__KERN_STATUS__', '__KERN_SOURCES_START__', '__KERN_SOURCES_END__']"
-
-fn name=answerQuestion returns=void
-  handler lang="kern"
-    capability namespace=app-http operation=queryParam name=question input="{ name: \"question\" }"
-    let name=query value="makeQuery(question)"
-    let name=markers value="answerMarkers()"
-    capability namespace=rag operation=retrieveAsync name=chunks input="{ question: query.question, retrieval: query.retrieval }"
-    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks, maxChars: query.maxChars }"
-    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText, question: query.question }"
-    capability namespace=rag operation=checkAnswer name=check input="{ query: query.question, answer: answer, chunks: chunks, requireCitations: true, minCitedChunks: 1, minGroundingCoverage: 0.85 }"
-    let name=result value="new GroundedAnswer(answer, check.status)"
-    print value="markers[0]"
-    print value="result.body()"
-    print value="markers[1]"
-    print value="markers[2]"
-    print value="result.grounding()"
-    print value="markers[3]"
-    each name=chunk in=chunks
-      print value="chunk.source"
-    print value="markers[4]"
+    capability namespace=rag operation=retrieveAsync name=chunks input="{ question: question, retrieval: 'FindDocs' }"
+    capability namespace=rag operation=promptContext name=context input="{ chunks: chunks }"
+    capability namespace=llm operation=complete name=answer input="{ prompt: context.safeText, question: question }"
+    capability namespace=rag operation=checkAnswer name=check input="{ query: question, answer: answer, chunks: chunks, requireCitations: true, minCitedChunks: 1, minGroundingCoverage: 0.85 }"
+    return value="[answer, check.status, check.sources[0]]"

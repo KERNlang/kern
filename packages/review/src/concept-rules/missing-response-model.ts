@@ -6,14 +6,19 @@
  * not currently surface an equivalent response-schema signal.
  */
 
+import { classifyFileRoleByPath } from '../file-role.js';
+import { isNonJsonFastApiResponseClass } from '../python-response-contract.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
-import { CROSS_STACK_HEURISTIC_CONFIDENCE, hasFastApiEvidence } from './cross-stack-utils.js';
+import { CROSS_STACK_HEURISTIC_CONFIDENCE, collectRoutesAcrossGraph, hasFastApiEvidence } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
 
 export function missingResponseModel(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   if (!hasFastApiEvidence(ctx.concepts)) return findings;
+  const fileRole = classifyFileRoleByPath(ctx.filePath);
+  if (fileRole === 'test') return findings;
+  const graphRoutes = ctx.allConcepts ? collectRoutesAcrossGraph(ctx.allConcepts) : undefined;
 
   for (const node of ctx.concepts.nodes) {
     if (node.kind !== 'entrypoint') continue;
@@ -21,6 +26,14 @@ export function missingResponseModel(ctx: ConceptRuleContext): ReviewFinding[] {
     if (node.payload.subtype !== 'route') continue;
     if (node.language !== 'py') continue;
     if (node.payload.responseModel) continue;
+    if (node.payload.includeInSchema === false) continue;
+    if (isNonJsonFastApiResponseClass(node.payload.responseClass)) continue;
+    const effectiveRoutes = graphRoutes?.filter((route) => route.node?.id === node.id);
+    if (fileRole === 'example') {
+      const publiclyMounted = effectiveRoutes?.some((route) => route.mounted && route.includeInSchema !== false);
+      if (!publiclyMounted) continue;
+    }
+    if (effectiveRoutes?.length && effectiveRoutes.every((route) => route.includeInSchema === false)) continue;
 
     findings.push({
       source: 'kern',

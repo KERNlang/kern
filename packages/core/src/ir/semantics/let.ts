@@ -85,7 +85,7 @@ function letPreconditions(ir: IRNode, env: SemanticEnv): boolean {
   try {
     const parsed = parseExpression(String(props.value));
     if (isArrayLiteralExpression(parsed)) {
-      evalArrayLiteralValue(parsed, env);
+      evalArrayLiteralValue(parsed, env, evalPortableValue);
       return true;
     }
     if (isRecordLiteralExpression(parsed)) {
@@ -125,7 +125,7 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   const parsed = parseExpression(String(props.value));
   const recordArrayFieldValue = evalRecordArrayFieldReferenceValue(parsed, env);
   const value = isArrayLiteralExpression(parsed)
-    ? evalArrayLiteralValue(parsed, env)
+    ? evalArrayLiteralValue(parsed, env, evalPortableValue)
     : isRecordLiteralExpression(parsed)
       ? evalRecordLiteralValue(parsed, env, { captureFreshArrayBindings: true })
       : recordArrayFieldValue !== undefined

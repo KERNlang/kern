@@ -6,10 +6,16 @@ import { tmpdir } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  assertRunnerBrowserBudgetLifecycle,
+  loadRunnerBrowserBudgetPolicy,
+} from './runner-browser-budget-policy.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = resolve(ROOT, 'packages/core/dist');
 const ENTRY = resolve(DIST, 'runner-browser.js');
+const BUDGET_POLICY_PATH = resolve(ROOT, 'scripts/runner-browser-budget-policy.json');
+const BUDGET_POLICY = loadRunnerBrowserBudgetPolicy(BUDGET_POLICY_PATH);
 const BROWSER_SMOKE_HTML = resolve(ROOT, 'examples/browser-runner-smoke/index.html');
 const BROWSER_SMOKE_MODULE = resolve(ROOT, 'examples/browser-runner-smoke/runner-smoke.mjs');
 const BROWSER_SMOKE_RUNNER_IMPORT = '../../packages/core/dist/runner-browser.js';
@@ -40,20 +46,19 @@ const FORBIDDEN_BARE_SPECIFIERS = new Set([
   'https',
 ]);
 
-// Re-baselined 2026-07-07 for the Stage-1 slice-2 fresh array record field
-// semantics: measured closure with the feature work is 1,219,111 raw / 286,443
-// gzip across 72 modules. The ceilings below keep the same ~5%
-// accidental-bloat margin policy as the 5.0/5.1 re-baselines (grant landed,
-// measured growth only -- never pre-grant). The import-graph invariant (no
-// `typescript`, no Node builtins) is unchanged and remains the hard boundary.
-const MAX_INTERNAL_RAW_BYTES = 1_281_000;
-const MAX_INTERNAL_GZIP_BYTES = 301_000;
-const MAX_COLD_IMPORT_EXECUTE_MS = 150;
-const MAX_BROWSER_IMPORT_EXECUTE_MS = 750;
-const COLD_START_RUNS = 5;
-const BROWSER_START_RUNS = 3;
+// M3.31a measures the canonical resumable class machine and legacy compatibility
+// engines both reachable through static ESM. The checked-in policy records the
+// measured transition closure and a fixed 5% accidental-bloat margin. When the legacy
+// module exits this graph, the lifecycle check below forces the ceilings back
+// to their pre-transition values instead of letting temporary headroom persist.
+const MAX_INTERNAL_RAW_BYTES = BUDGET_POLICY.limits.maxInternalRawBytes;
+const MAX_INTERNAL_GZIP_BYTES = BUDGET_POLICY.limits.maxInternalGzipBytes;
+const MAX_COLD_IMPORT_EXECUTE_MS = BUDGET_POLICY.limits.maxColdImportExecuteMs;
+const MAX_BROWSER_IMPORT_EXECUTE_MS = BUDGET_POLICY.limits.maxBrowserImportExecuteMs;
+const COLD_START_RUNS = BUDGET_POLICY.limits.coldStartRuns;
+const BROWSER_START_RUNS = BUDGET_POLICY.limits.browserStartRuns;
 const BROWSER_BUDGET_MODE = browserBudgetModeFromArgs() ?? process.env.KERN_BROWSER_BUDGET ?? 'auto';
-const CDP_TIMEOUT_MS = 10_000;
+const CDP_TIMEOUT_MS = BUDGET_POLICY.limits.cdpTimeoutMs;
 const ACTIVE_CHROME_SESSIONS = new Set();
 let shuttingDown = false;
 
@@ -74,6 +79,12 @@ if (!existsSync(ENTRY)) {
 checkBrowserSmokeFixture();
 
 const graph = walkGraph(ENTRY);
+try {
+  assertRunnerBrowserBudgetLifecycle(BUDGET_POLICY, graph.visited, DIST);
+} catch (error) {
+  console.error(`${error instanceof Error ? error.message : String(error)} in scripts/runner-browser-budget-policy.json`);
+  process.exit(1);
+}
 const bare = [...graph.bare].sort();
 const forbiddenBare = bare.filter((specifier) => FORBIDDEN_BARE_SPECIFIERS.has(specifier));
 if (JSON.stringify(bare) !== JSON.stringify(ALLOWED_BARE_SPECIFIERS)) {

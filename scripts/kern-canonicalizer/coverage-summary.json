@@ -1,0 +1,332 @@
+{
+  "base": {
+    "expressionKinds": [
+      "binary",
+      "boolean",
+      "identifier",
+      "integer",
+      "list",
+      "null",
+      "text"
+    ],
+    "id": "kern.kir-canonicalizer.profile.m4.5",
+    "nodeKinds": [
+      "else",
+      "fn",
+      "handler",
+      "if",
+      "param",
+      "return"
+    ],
+    "promotions": [
+      {
+        "family": "binary-expression",
+        "selectionProvenanceDigest": "35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027"
+      },
+      {
+        "family": "conditional",
+        "selectionProvenanceDigest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b"
+      }
+    ],
+    "propertyKeys": [
+      "fn.async",
+      "fn.effects",
+      "fn.export",
+      "fn.expr",
+      "fn.generics",
+      "fn.name",
+      "fn.params",
+      "fn.returns",
+      "fn.stream",
+      "handler.code",
+      "handler.lang",
+      "handler.reason",
+      "handler.review",
+      "if.cond",
+      "param.default",
+      "param.description",
+      "param.max",
+      "param.min",
+      "param.name",
+      "param.optional",
+      "param.required",
+      "param.type",
+      "param.value",
+      "param.variadic",
+      "return.trailingComment",
+      "return.value"
+    ]
+  },
+  "baseCompleteFunctions": 6,
+  "blockers": [
+    {
+      "count": 96,
+      "id": "fn.params"
+    },
+    {
+      "count": 52,
+      "id": "profile.rows.values"
+    },
+    {
+      "count": 15,
+      "id": "profile.rows.nodes"
+    },
+    {
+      "count": 13,
+      "id": "projection.limit-depth"
+    },
+    {
+      "count": 8,
+      "id": "profile.rows.properties"
+    },
+    {
+      "count": 1,
+      "id": "if.properties.cond.expression.text.character-u007f"
+    },
+    {
+      "count": 1,
+      "id": "if.properties.cond.expression.text.character-u0080"
+    },
+    {
+      "count": 1,
+      "id": "if.properties.cond.expression.text.character-u009f"
+    },
+    {
+      "count": 1,
+      "id": "if.properties.cond.expression.text.character-u2028"
+    },
+    {
+      "count": 1,
+      "id": "if.properties.cond.expression.text.character-u2029"
+    },
+    {
+      "count": 1,
+      "id": "if.properties.cond.expression.text.character-ufeff"
+    },
+    {
+      "count": 1,
+      "id": "projection.limit-nodes"
+    },
+    {
+      "count": 1,
+      "id": "projection.unknown-expression-kind"
+    },
+    {
+      "count": 1,
+      "id": "throw.value:unknown-expression-kind"
+    }
+  ],
+  "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
+  "canonicalizerDigest": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc",
+  "canonicalizerPolicyDigest": "87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2",
+  "compiledCoreDigest": "1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54",
+  "composition": {
+    "digest": "ee57fa56541594169054a19ea1506daa7974e3c811764af5c6446cade095e7a8",
+    "record": {
+      "composite": {
+        "bytes": 30866,
+        "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
+        "sha256": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc"
+      },
+      "format": "kern.canonicalizer.composition.1",
+      "members": [
+        {
+          "bytes": 6348,
+          "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+          "sha256": "c5bbf6412e1ca4fb8af40f8042331e2084f2f5950f490b83d8220b1b8e17c39c"
+        },
+        {
+          "bytes": 5508,
+          "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+          "sha256": "d29c747624b6dc0347c896cd0978c8059e44125ea2afef893c3d6ed3eb953e38"
+        },
+        {
+          "bytes": 19010,
+          "path": "examples/kern-canonicalizer/canonicalizer.kern",
+          "sha256": "ee583055ee047e1a63d870c533b2bab0db7af27cc4c3ba1bfbaa14163810cf7b"
+        }
+      ],
+      "recipe": "concat-ordered-members-exact-bytes.1"
+    }
+  },
+  "corpusMembers": 9,
+  "corpusDigest": "1296e409218bc11a966330cc57576fbd6e8a74ea3ffe9149adeb3b5ba678da39",
+  "coverageImplementationDigest": "693bfc811f961cf0843d2dcc3edee49b45c0c5b2e29e650f0776e344f79b6796",
+  "coveragePolicyDigest": "363a6ebcdc27dd7801d6528bdbdb7f2fa7c3324a0a3187facf6f4120c503fcef",
+  "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
+  "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
+  "format": "kern.kir-canonicalizer.coverage-summary.5",
+  "functionCount": 104,
+  "functionFactsDigest": "3e55dd11fe8a098e675894a91ea9f3e13a9b2cc9e0ef60a3f8cb6de656dc7b08",
+  "implementationSelectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
+  "policyDigest": "53606e88a7a1b8482e734a8900fec15c3f4a6bdc80f7d038dd91280bdd8ff59c",
+  "profileDigest": "c8532569870157b285f3397f54d6db5d590ac30450675e1f48f7fd2796c1e519",
+  "selection": {
+    "ranking": [
+      {
+        "completeFunctions": 2,
+        "completeTools": 1,
+        "id": "call-expression",
+        "occurrences": 481,
+        "witnesses": [
+          "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
+          "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
+        ]
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "binding",
+        "occurrences": 705,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "index-expression",
+        "occurrences": 494,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "counted-iteration",
+        "occurrences": 464,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "member-expression",
+        "occurrences": 259,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "do-statement",
+        "occurrences": 170,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "unary-expression",
+        "occurrences": 46,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "exception-flow",
+        "occurrences": 34,
+        "witnesses": []
+      },
+      {
+        "completeFunctions": 0,
+        "completeTools": 0,
+        "id": "while-iteration",
+        "occurrences": 2,
+        "witnesses": []
+      }
+    ],
+    "winner": {
+      "completeFunctions": 2,
+      "completeTools": 1,
+      "id": "call-expression",
+      "occurrences": 481,
+      "witnesses": [
+        "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
+        "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
+      ]
+    }
+  },
+  "selectionProvenances": [
+    {
+      "digest": "35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027",
+      "record": {
+        "format": "kern.kir-canonicalizer.selection-provenance.1",
+        "snapshot": {
+          "corpusMembers": 7,
+          "functionCount": 98,
+          "selection": {
+            "completeFunctions": 3,
+            "completeTools": 1,
+            "id": "binary-expression",
+            "occurrences": 941,
+            "witnesses": [
+              "examples/capstone-assertion-engine/diag.kern#4:reasonTypeMismatch",
+              "examples/capstone-assertion-engine/diag.kern#5:reasonValueMismatch",
+              "examples/capstone-assertion-engine/diag.kern#7:reasonKeyMismatch"
+            ]
+          },
+          "toolCount": 4
+        },
+        "source": {
+          "canonicalizerSha256": "2f0fec12660ba194c92371ce10121461e917258555a792b0b22ead8bc5c4f081",
+          "commit": "d3b7f04bbc1c7529925a956202fefdf7ac9a4983",
+          "coveragePolicySha256": "f414bdb8729d5a692cf01efa23c5166253723b6c1425baceb57cd03fa7500748",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.1",
+          "coverageSummarySha256": "573cab8673e1507de0047da6aec89d1ccc75103ae72064ea81af9a603ca842b8"
+        }
+      }
+    },
+    {
+      "digest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b",
+      "record": {
+        "format": "kern.kir-canonicalizer.selection-provenance.1",
+        "snapshot": {
+          "corpusMembers": 8,
+          "functionCount": 99,
+          "selection": {
+            "completeFunctions": 2,
+            "completeTools": 1,
+            "id": "conditional",
+            "occurrences": 1115,
+            "witnesses": [
+              "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
+              "examples/capstone-assertion-engine/diag.kern#3:failResult"
+            ]
+          },
+          "toolCount": 4
+        },
+        "source": {
+          "canonicalizerSha256": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5",
+          "commit": "736e2d1237b6d154b7abbf5f853103c459627424",
+          "coveragePolicySha256": "163629a32b2184f0fb27b6b58e6a95a5ccbcde846371d59d4dc0812d2a666b5c",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.3",
+          "coverageSummarySha256": "2f201a51f1a2d580f6cf4521ebfa6f1a896851edc069bcb20562ecc2f53de8ee"
+        }
+      }
+    },
+    {
+      "digest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
+      "record": {
+        "format": "kern.kir-canonicalizer.selection-provenance.1",
+        "snapshot": {
+          "corpusMembers": 9,
+          "functionCount": 104,
+          "selection": {
+            "completeFunctions": 2,
+            "completeTools": 1,
+            "id": "call-expression",
+            "occurrences": 481,
+            "witnesses": [
+              "examples/capstone-assertion-engine/diag.kern#1:pathAppendIndex",
+              "examples/capstone-assertion-engine/diag.kern#6:reasonLengthMismatch"
+            ]
+          },
+          "toolCount": 4
+        },
+        "source": {
+          "canonicalizerSha256": "d7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc",
+          "commit": "91a1f91509f39887c7e5f23b413da28e8fb03c22",
+          "coveragePolicySha256": "363a6ebcdc27dd7801d6528bdbdb7f2fa7c3324a0a3187facf6f4120c503fcef",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.4",
+          "coverageSummarySha256": "7baf457852184a7e6c2df54ab9ff2e7870e6b8cb5c58f2844187624c5ba75e50"
+        }
+      }
+    }
+  ],
+  "toolCount": 4
+}

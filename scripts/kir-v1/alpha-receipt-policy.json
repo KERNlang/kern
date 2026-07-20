@@ -1,0 +1,52 @@
+{
+  "format": "kern.kir.alpha-receipt.r1.5d.2",
+  "outputRoot": ".kern/kern-5-alpha-receipts",
+  "oracleTimeoutMs": 120000,
+  "maxCommandOutputBytes": 1048576,
+  "bindings": [
+    "packages/core/src/canonical-value/canonical.ts",
+    "packages/core/src/canonical-value/types.ts",
+    "packages/core/src/canonical-value/utf8.ts",
+    "packages/core/src/canonical-value/validate.ts",
+    "packages/core/src/kir-evidence/canonical.ts",
+    "packages/core/src/kir-evidence/types.ts",
+    "packages/core/src/kir-structural/canonical.ts",
+    "packages/core/src/kir-structural/catalog.generated.ts",
+    "packages/core/src/kir-structural/expression.ts",
+    "packages/core/src/kir-structural/handler-type.ts",
+    "packages/core/src/kir-structural/module-canonical.ts",
+    "packages/core/src/kir-structural/module-graph.ts",
+    "packages/core/src/kir-structural/module-path.ts",
+    "packages/core/src/kir-structural/module-types.ts",
+    "packages/core/src/kir-structural/node.ts",
+    "packages/core/src/kir-structural/types.ts",
+    "packages/core/src/portable-handler-type.ts",
+    "scripts/kir-structural/constitution.json",
+    "scripts/kir-v1/alpha-receipt-policy.json",
+    "scripts/kir-v1/coverage-witness-config.json",
+    "scripts/kir-v1/coverage-witness-ledger.json",
+    "scripts/kir-v1/eligibility.json"
+  ],
+  "oracles": [
+    { "id": "semantic-ownership", "argv": ["pnpm", "test:kern-semantic-ownership"] },
+    { "id": "kir-eligibility", "argv": ["pnpm", "test:kern-ir-eligibility"] },
+    { "id": "canonical-value", "argv": ["pnpm", "test:kern-canonical-value"] },
+    { "id": "structural-constitution", "argv": ["pnpm", "test:kern-kir-structural-constitution"] },
+    { "id": "structural-codec", "argv": ["pnpm", "test:kern-kir-structural-codec"] },
+    { "id": "module-graph", "argv": ["pnpm", "test:kern-kir-module-graph"] },
+    { "id": "coverage-closure", "argv": ["pnpm", "test:kern-kir-coverage-closure"] },
+    { "id": "diagnostic-location-evidence", "argv": ["pnpm", "test:kern-kir-evidence"] }
+  ],
+  "exclusions": [
+    { "id": "public-release", "reason": "deferred-to-r4" },
+    { "id": "runtime-handler-abi", "reason": "deferred-to-r2-m3" }
+  ],
+  "status": {
+    "alphaAccepted": true,
+    "kirV1Frozen": false,
+    "publicReaderExport": false,
+    "runtimeCutover": false,
+    "runtimeHandlerAbi": false,
+    "semanticSelfHosting": false
+  }
+}

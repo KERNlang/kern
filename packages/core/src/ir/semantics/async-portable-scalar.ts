@@ -1,4 +1,5 @@
-import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-plan.js';
+import { checkedPortablePowerChain, flattenPortablePowerChain } from '../../portable-power.js';
+import { CAPABILITY_DESCRIPTORS } from '../../runner-capability-catalog.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
   getBinding,
@@ -143,6 +144,13 @@ async function evalPortableBinaryAsync(
   if (node.op === '??') {
     const left = await evalPortableValueAsync(node.left, env, options);
     return left === null ? evalPortableValueAsync(node.right, env, options) : left;
+  }
+  if (node.op === '**') {
+    const values: PortableScalar[] = [];
+    for (const operand of flattenPortablePowerChain(node)) {
+      values.push(await evalPortableValueAsync(operand, env, options));
+    }
+    return checkedPortablePowerChain(values);
   }
 
   const left = await evalPortableValueAsync(node.left, env, options);

@@ -8,6 +8,7 @@ import type { ExprEmitContext } from '../codegen-expression.js';
 import { emitExpression } from '../codegen-expression.js';
 import { hasDirectSuperCtorCall } from '../constructor-super.js';
 import { propsOf } from '../node-props.js';
+import { assertNoMixedParameterDeclarations } from '../parameter-declarations.js';
 import { parseExpression } from '../parser-expression.js';
 import { type IRNode, isExprObject } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
@@ -851,24 +852,21 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: Param
 /**
  * Slice 3c — unified TS parameter-list emitter for any callable IR node.
  *
- * Reads the node's `param` children first (canonical, ValueIR-routed). If
- * none, falls back to the legacy `params="..."` string. If neither, returns
- * the fallback (default empty).
- *
- * Children win when present. Mixed mode is intentionally unsupported — a
- * signature is either fully-structured-children or fully-legacy-string.
- * Producers (importer, migrate-class-body) emit children all-or-nothing
- * per signature; consumers don't need to reconcile partial states.
+ * Reads the node's `param` children (canonical, ValueIR-routed) or falls back
+ * to the legacy `params="..."` string. Mixed mode fails closed so a direct IR
+ * consumer cannot silently choose one authored signature over the other.
  */
 export function emitParamList(node: IRNode, options?: ParamListOptions): string {
   const didValidate = beginIRHostNamespacesValidatedTS(node, { userBindings: options?.userBindings });
   try {
     const paramChildren = kids(node, 'param');
+    assertNoMixedParameterDeclarations(node);
+    const rawParams = p(node).params;
+    const hasLegacyParams = typeof rawParams === 'string' && rawParams.trim() !== '';
     if (paramChildren.length > 0) {
       return parseParamListFromChildren(paramChildren, options);
     }
-    const params = (p(node).params as string | undefined) ?? '';
-    if (params) return parseParamList(params, options);
+    if (hasLegacyParams) return parseParamList(rawParams, options);
     return options?.fallback ?? '';
   } finally {
     endIRHostNamespacesValidatedTS(node, didValidate);

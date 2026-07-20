@@ -1,0 +1,25 @@
+{
+  "format": "kern.kir-canonicalizer.selection-provenance.1",
+  "snapshot": {
+    "corpusMembers": 8,
+    "functionCount": 99,
+    "selection": {
+      "completeFunctions": 2,
+      "completeTools": 1,
+      "id": "conditional",
+      "occurrences": 1115,
+      "witnesses": [
+        "examples/capstone-assertion-engine/diag.kern#0:pathAppendKey",
+        "examples/capstone-assertion-engine/diag.kern#3:failResult"
+      ]
+    },
+    "toolCount": 4
+  },
+  "source": {
+    "canonicalizerSha256": "dab1023f45baa3161505715de7d4773f520a202992f0b69133b18939e6dd13c5",
+    "commit": "736e2d1237b6d154b7abbf5f853103c459627424",
+    "coveragePolicySha256": "163629a32b2184f0fb27b6b58e6a95a5ccbcde846371d59d4dc0812d2a666b5c",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.3",
+    "coverageSummarySha256": "2f201a51f1a2d580f6cf4521ebfa6f1a896851edc069bcb20562ecc2f53de8ee"
+  }
+}

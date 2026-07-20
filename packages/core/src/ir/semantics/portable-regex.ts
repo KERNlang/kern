@@ -20,8 +20,8 @@ import {
   validateReplStringForTS,
 } from '../../codegen/regex-normalize.js';
 import type { ValueIR } from '../../value-ir.js';
-import type { SemanticEnv } from './index.js';
-import { evalPortableValue } from './portable-scalar.js';
+import type { EvalPortableValue } from './portable-eval-types.js';
+import type { SemanticEnv } from './semantic-env.js';
 
 // SLICE-1 SEAM (review G): the tagged RegExpValue is DEFINED BUT UNWIRED — slice 1
 // binds NO handle because `.test` is TERMINAL (returns a bool directly). It exists
@@ -259,7 +259,7 @@ export function isRegexMatchExpression(node: ValueIR): boolean {
   return true;
 }
 
-export function evalRegexTestExpression(node: ValueIR, env: SemanticEnv): boolean {
+export function evalRegexTestExpression(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue): boolean {
   if (node.kind !== 'call' || node.callee.kind !== 'member') {
     throw new Error('portable-regex: expected regex.test(...) call');
   }
@@ -272,7 +272,7 @@ export function evalRegexTestExpression(node: ValueIR, env: SemanticEnv): boolea
     throw new Error(REGEX_TEST_G_FAILCLOSE);
   }
 
-  const arg = evalPortableValue(node.args[0], env);
+  const arg = evaluate(node.args[0], env);
   if (typeof arg !== 'string') {
     throw new Error('portable-regex: .test argument must evaluate to a string');
   }
@@ -287,6 +287,7 @@ export function evalRegexTestExpression(node: ValueIR, env: SemanticEnv): boolea
 export function evalRegexMatchExpression(
   node: ValueIR,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
 ): { full: string; groups: (string | null)[]; index: number; named: Record<string, string | null> } | null {
   if (node.kind !== 'call' || node.callee.kind !== 'member') {
     throw new Error('portable-regex: expected string.match(regex) call');
@@ -298,7 +299,7 @@ export function evalRegexMatchExpression(
   const { pattern, flags } = regex;
   validateRegexNamedGroupsPortable(pattern);
 
-  const subject = evalPortableValue(node.callee.object, env);
+  const subject = evaluate(node.callee.object, env);
   if (typeof subject !== 'string') {
     throw new Error('portable-regex: .match receiver must evaluate to a string');
   }
@@ -480,7 +481,11 @@ export function isRegexMatchAllExpression(node: ValueIR): boolean {
 // global matches are CERTIFIED: V8 `String.match` and CPython>=3.7 `re.finditer`
 // enumerate empty matches identically (the shipped matchAll emitter already relies
 // on CPython>=3.7).
-export function evalRegexGlobalMatchExpression(node: ValueIR, env: SemanticEnv): string[] | null {
+export function evalRegexGlobalMatchExpression(
+  node: ValueIR,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+): string[] | null {
   if (node.kind !== 'call' || node.callee.kind !== 'member') {
     throw new Error('portable-regex: expected string.match(/pat/g) call');
   }
@@ -491,7 +496,7 @@ export function evalRegexGlobalMatchExpression(node: ValueIR, env: SemanticEnv):
   const { pattern, flags } = regex;
   validateRegexNamedGroupsPortable(pattern);
 
-  const subject = evalPortableValue(node.callee.object, env);
+  const subject = evaluate(node.callee.object, env);
   if (typeof subject !== 'string') {
     throw new Error('portable-regex: .match receiver must evaluate to a string');
   }
@@ -512,6 +517,7 @@ export function evalRegexGlobalMatchExpression(node: ValueIR, env: SemanticEnv):
 export function evalRegexMatchAllExpression(
   node: ValueIR,
   env: SemanticEnv,
+  evaluate: EvalPortableValue,
 ): { full: string; groups: (string | null)[]; index: number }[] {
   if (node.kind !== 'call' || node.callee.kind !== 'member') {
     throw new Error('portable-regex: expected string.matchAll(/pat/g) call');
@@ -527,7 +533,7 @@ export function evalRegexMatchAllExpression(
   }
   validateRegexNamedGroupsPortable(pattern);
 
-  const subject = evalPortableValue(node.callee.object, env);
+  const subject = evaluate(node.callee.object, env);
   if (typeof subject !== 'string') {
     throw new Error('portable-regex: .matchAll receiver must evaluate to a string');
   }
@@ -626,7 +632,11 @@ export function isRegexReplaceExpression(node: ValueIR): boolean {
 // non-participating optional capture folded `undefined -> null`. A LIMIT 2nd arg and
 // a ZERO-WIDTH-capable pattern (including backref patterns) RE-ADMIT the shared
 // fail-close constants the emitters both produce.
-export function evalRegexSplitExpression(node: ValueIR, env: SemanticEnv): (string | null)[] {
+export function evalRegexSplitExpression(
+  node: ValueIR,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+): (string | null)[] {
   if (node.kind !== 'call' || node.callee.kind !== 'member') {
     throw new Error('portable-regex: expected string.split(/pat/) call');
   }
@@ -646,7 +656,7 @@ export function evalRegexSplitExpression(node: ValueIR, env: SemanticEnv): (stri
     throw new Error(REGEX_SPLIT_ZEROWIDTH_FAILCLOSE);
   }
 
-  const subject = evalPortableValue(node.callee.object, env);
+  const subject = evaluate(node.callee.object, env);
   if (typeof subject !== 'string') {
     throw new Error('portable-regex: .split receiver must evaluate to a string');
   }
@@ -670,7 +680,7 @@ export function evalRegexSplitExpression(node: ValueIR, env: SemanticEnv): (stri
 // `$<name>`, …) is validated by the SAME shared validator the TS emitter calls, so a
 // bad `$`-surface (`$\``/`$'`, OOR ref, bad name), a non-literal repl, and a
 // replaceAll-without-/g all RE-ADMIT the shared fail-close constants.
-export function evalRegexReplaceExpression(node: ValueIR, env: SemanticEnv): string {
+export function evalRegexReplaceExpression(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue): string {
   if (node.kind !== 'call' || node.callee.kind !== 'member') {
     throw new Error('portable-regex: expected string.replace(/pat/, "lit") call');
   }
@@ -696,7 +706,7 @@ export function evalRegexReplaceExpression(node: ValueIR, env: SemanticEnv): str
   validateReplStringForTS(replArg.value, regexCaptureMeta(pattern));
   validateRegexNamedGroupsPortable(pattern);
 
-  const subject = evalPortableValue(node.callee.object, env);
+  const subject = evaluate(node.callee.object, env);
   if (typeof subject !== 'string') {
     throw new Error('portable-regex: .replace receiver must evaluate to a string');
   }

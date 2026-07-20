@@ -3,7 +3,8 @@
  *
  *  Architecture (council + tribunal decided, Option B′ "TS-AST-grounded raw
  *  body"): the lambda IR carries the raw block text (`bodyBlock.raw`) for
- *  verbatim TS re-emit ONLY. Every analyzer/consumer reads the TS AST obtained
+ *  source-preserving TS re-emit. Native power expressions are rewritten by
+ *  AST spans before emission; every analyzer/consumer reads the TS AST obtained
  *  through `parseClosureBlockAst` here — never scans the string. The IR does
  *  NOT store the `ts.Block` (serialization safety); this helper recomputes it
  *  (cheap; memoized via a module-level `Map`).
@@ -44,6 +45,13 @@
  *  Widening the gate is a future slice. */
 
 import ts from 'typescript';
+import { normalizeClosureExpressionSource } from './closure-expression-normalize.js';
+import {
+  assertClosurePowerRewriteLimits,
+  type ClosurePowerRewriteLimits,
+  DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+  isClosurePowerTreeWithinLimits,
+} from './closure-power-policy.js';
 import { classifyRegexLiteralAccessFailClose, REGEX_HOST_REGEXP_FAILCLOSE } from './codegen/regex-normalize.js';
 
 /** Memoize parsed blocks. Keyed by the raw (trimmed) source. A `null` value is
@@ -64,10 +72,123 @@ export function parseClosureBlockAst(raw: string): ts.Block | null {
   return result;
 }
 
+export interface ClosurePowerRewritePlan {
+  leading: string;
+  trailing: string;
+  trimmed: string;
+  writtenNames: string[];
+  expressions: Array<{ start: number; end: number; source: string }>;
+}
+
+export function isClosureBlockPowerWithinLimits(
+  block: ts.Block,
+  limits: Readonly<ClosurePowerRewriteLimits> = DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+): boolean {
+  return isClosurePowerTreeWithinLimits<ts.Node>(
+    block,
+    (node) => ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken,
+    (node, visit) => ts.forEachChild(node, visit),
+    limits,
+  );
+}
+
+/** Build the source-preserving rewrite plan for outermost power expressions
+ *  while collecting every bare name that the block can bind or overwrite. */
+export function analyzeClosurePowerRewrite(
+  raw: string,
+  limits: Readonly<ClosurePowerRewriteLimits> = DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+): ClosurePowerRewritePlan | null {
+  assertClosurePowerRewriteLimits(limits);
+  const leading = raw.match(/^\s*/u)?.[0] ?? '';
+  const trailing = raw.match(/\s*$/u)?.[0] ?? '';
+  const trimmed = raw.trim();
+  const block = parseClosureBlockAst(trimmed);
+  if (!block) return null;
+  if (!isClosureBlockPowerWithinLimits(block, limits)) return null;
+  const sourceFile = block.getSourceFile();
+  const blockStart = block.getStart(sourceFile);
+  const writtenNames = new Set<string>();
+  const expressions: ClosurePowerRewritePlan['expressions'] = [];
+
+  const isPower = (node: ts.Node): node is ts.BinaryExpression =>
+    ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken;
+  const writeIdentifier = (target: ts.Expression): ts.Identifier | undefined => {
+    let current = target;
+    while (
+      ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isNonNullExpression(current)
+    ) {
+      current = current.expression;
+    }
+    return ts.isIdentifier(current) ? current : undefined;
+  };
+  const stack: Array<{ node: ts.Node; beneathSelectedPower: boolean }> = [];
+  const pushChildren = (node: ts.Node, beneathSelectedPower: boolean): void => {
+    const children: ts.Node[] = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({ node: children[index], beneathSelectedPower });
+    }
+  };
+  pushChildren(block, false);
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (!entry) continue;
+    const { node, beneathSelectedPower } = entry;
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) writtenNames.add(node.name.text);
+    if (ts.isBinaryExpression(node)) {
+      const op = node.operatorToken.kind;
+      const target = writeIdentifier(node.left);
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment && target) {
+        writtenNames.add(target.text);
+      }
+    }
+    if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      const target = writeIdentifier(node.operand);
+      if (target) writtenNames.add(target.text);
+    }
+    if ((ts.isForInStatement(node) || ts.isForOfStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) {
+      const target = writeIdentifier(node.initializer);
+      if (target) writtenNames.add(target.text);
+    }
+    const selectedPower = isPower(node) && !beneathSelectedPower;
+    if (selectedPower) {
+      expressions.push({
+        start: node.getStart(sourceFile) - blockStart,
+        end: node.getEnd() - blockStart,
+        source: normalizeClosureExpressionSource(ts, node),
+      });
+    }
+    // Descendants of a selected outer power are still scanned for bindings and
+    // writes, but they must not become overlapping rewrite spans themselves.
+    pushChildren(node, beneathSelectedPower || selectedPower);
+  }
+  return {
+    leading,
+    trailing,
+    trimmed,
+    writtenNames: [...writtenNames],
+    expressions,
+  };
+}
+
 function parseClosureBlockUncached(trimmed: string): ts.Block | null {
   if (trimmed.length < 2 || trimmed[0] !== '{' || trimmed[trimmed.length - 1] !== '}') return null;
   const source = `function __kern_closure__() ${trimmed}`;
-  const sf = ts.createSourceFile('__kern_closure__.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let sf: ts.SourceFile;
+  try {
+    sf = ts.createSourceFile('__kern_closure__.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  } catch {
+    return null;
+  }
   const diags = (sf as unknown as { parseDiagnostics?: ts.Diagnostic[] }).parseDiagnostics;
   if (diags && diags.length > 0) return null;
   const fn = sf.statements[0];
@@ -177,7 +298,12 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
     }
     if (ts.isPropertyAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: propertyAccessMemberLabel(node), locallyShadowed: isLocal(root) });
+      if (root)
+        accesses.push({
+          root,
+          member: propertyAccessMemberLabel(node),
+          locallyShadowed: isLocal(root),
+        });
     } else if (ts.isElementAccessExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
       if (root)
@@ -188,7 +314,12 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
         });
     } else if (ts.isNewExpression(node)) {
       const root = leftmostIdentifierName(node.expression);
-      if (root) accesses.push({ root, member: 'constructor', locallyShadowed: isLocal(root) });
+      if (root)
+        accesses.push({
+          root,
+          member: 'constructor',
+          locallyShadowed: isLocal(root),
+        });
     } else if (ts.isCallExpression(node)) {
       // GAP 2 — the callee may be wrapped in paren/as/satisfies/non-null/legacy
       // type-assert forms, or be the right operand of a comma (sequence)
@@ -198,7 +329,11 @@ export function collectClosureBlockMemberAccesses(raw: string): ClosureBlockMemb
       // nothing, exactly as the prior bare-identifier guard did).
       const callee = unwrapCallCalleeExpression(node.expression);
       if (ts.isIdentifier(callee)) {
-        accesses.push({ root: callee.text, member: 'call', locallyShadowed: isLocal(callee.text) });
+        accesses.push({
+          root: callee.text,
+          member: 'call',
+          locallyShadowed: isLocal(callee.text),
+        });
       }
     }
     ts.forEachChild(node, visit);
@@ -388,7 +523,12 @@ export function collectClosureBlockRegexHostViolations(raw: string): ClosureBloc
       const flags = regexLiteralFlags(receiver);
       const message = classifyRegexLiteralAccessFailClose(property, isDottedCallee, flags);
       if (message !== null) {
-        violations.push({ kind: 'regexLiteralAccess', root: 'RegExp', locallyShadowed: false, message });
+        violations.push({
+          kind: 'regexLiteralAccess',
+          root: 'RegExp',
+          locallyShadowed: false,
+          message,
+        });
       }
       // Do NOT blindly `forEachChild` into this already-classified access: the
       // regexLit RECEIVER (`node.expression`) has no child violation, and
@@ -466,7 +606,10 @@ export function collectClosureBlockTypeofOperands(raw: string): ClosureBlockType
       // recorded as the underlying `Date` — matching the ValueIR legs' unwrap.
       const operand = unwrapRegexReceiverTS(node.expression);
       if (ts.isIdentifier(operand)) {
-        operands.push({ name: operand.text, locallyShadowed: isLocal(operand.text) });
+        operands.push({
+          name: operand.text,
+          locallyShadowed: isLocal(operand.text),
+        });
       }
     }
     ts.forEachChild(node, visit);
@@ -625,11 +768,12 @@ function elementAccessMemberLabel(argument: ts.Expression | undefined): string {
   return argument && ts.isStringLiteralLike(argument) ? argument.text : '[computed]';
 }
 
-/** Collect the raw source text of every CALL expression nested anywhere in a
+/** Collect normalized runtime source for every CALL expression nested in a
  *  closure block, via the shared TS AST (`parseClosureBlockAst`) — never a
- *  string scan. Returned to consumers that re-parse each call into their own
- *  IR (the TS body emitter's bound-regex-method fail-close), so those callers
- *  need no static `typescript` import of their own. Keeping the `ts` AST walk
+ *  string scan. Runtime-no-op TypeScript syntax and comments are removed before
+ *  consumers re-parse each call into their own IR (the TS body emitter's
+ *  bound-regex-method fail-close), so those callers need no static `typescript`
+ *  import of their own. Keeping the `ts` AST walk
  *  quarantined in this Node-only module is what keeps `body-ts.js` OFF the
  *  browser-spine TS-importer pin (`browser-spine-import-graph.test.ts`). A
  *  parse failure yields an empty list (the gate already rejected such bodies,
@@ -638,11 +782,18 @@ export function collectClosureBlockCallTexts(raw: string): string[] {
   const block = parseClosureBlockAst(raw);
   if (block === null) return [];
   const texts: string[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node)) texts.push(node.getText());
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(block, visit);
+  const nodes: ts.Node[] = [];
+  ts.forEachChild(block, (child) => {
+    nodes.push(child);
+  });
+  while (nodes.length > 0) {
+    const node = nodes.pop();
+    if (!node) continue;
+    if (ts.isCallExpression(node)) texts.push(normalizeClosureExpressionSource(ts, node));
+    ts.forEachChild(node, (child) => {
+      nodes.push(child);
+    });
+  }
   return texts;
 }
 
@@ -976,9 +1127,14 @@ function isAcceptedBranch(node: ts.Statement): boolean {
  *  PINNED per-iteration loop capture passes the gate but is rejected LOUDLY at
  *  Python emission (`closure-pinned-write`) — the single-statement gate cannot
  *  see the enclosing loop header (eligibility≢lowerability, by design). */
-export function classifyClosureBlock(raw: string): null | string {
+export function classifyClosureBlock(
+  raw: string,
+  limits: Readonly<ClosurePowerRewriteLimits> = DEFAULT_CLOSURE_POWER_REWRITE_LIMITS,
+): null | string {
+  assertClosurePowerRewriteLimits(limits);
   const block = parseClosureBlockAst(raw);
   if (block === null) return 'closure-parse-error';
+  if (!isClosureBlockPowerWithinLimits(block, limits)) return 'closure-parse-error';
 
   // Whole-block walk for unsupported constructs (this/await/loops/…).
   const constructReason = findUnsupportedConstruct(block);

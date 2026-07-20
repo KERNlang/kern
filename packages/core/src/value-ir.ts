@@ -50,7 +50,8 @@ export type ValueIR =
        *  `bodyBlock` — exactly one is present. */
       body?: ValueIR;
       /** Block-bodied arrow (`x => { … }`). Raw TS text INCLUDING the outer
-       *  braces, for verbatim TS re-emit only. Every analyzer reads the TS AST
+       *  braces, for source-preserving TS re-emit. Native operator lowerings
+       *  may replace exact AST spans before emission. Every analyzer reads the TS AST
        *  via `parseClosureBlockAst`, never this string. Its EXISTENCE in the IR
        *  implies it passed the v1 closure gate (the parser validates at parse
        *  time, fail-closed). Mutually exclusive with `body`. */

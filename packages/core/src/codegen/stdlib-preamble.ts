@@ -28,10 +28,15 @@
  *      The explicit `union name=X kind=result …` form already works on
  *      every target. */
 
+import { KERN_POWER_HELPER_TS_NAME, portablePowerHelperTS } from '../portable-power.js';
 import type { IRNode } from '../types.js';
 import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
+import { emittedCodeCallsIdentifier } from './emitted-helper-call.js';
+import { findTypeScriptSfcScriptBlock } from './sfc-script.js';
 import { textOpsHelpersTS } from './text-contract.js';
+
+export { findTypeScriptSfcScriptBlock } from './sfc-script.js';
 
 export interface KernStdlibUsage {
   /** Module references `Result<…>` somewhere in a type annotation. */
@@ -75,6 +80,8 @@ export interface KernStdlibUsage {
    *  same reasoning `emittedCodeUsesLooseEq` documents). Optional for
    *  back-compat with callers that only build the result/option flags. */
   textOps?: boolean;
+  /** Emitted native KERN output calls the checked integer-power helper. */
+  power?: boolean;
 }
 
 /** Regex anchored on word boundary + opening angle so a user identifier
@@ -142,6 +149,11 @@ const TEXT_OPS_CALL_TOKENS = [
 
 export function emittedCodeUsesTextOps(code: string): boolean {
   return TEXT_OPS_CALL_TOKENS.some((token) => code.includes(token));
+}
+
+/** Detection equals emission for the private checked-power call site. */
+export function emittedCodeUsesPower(code: string, sourceKind: 'ts' | 'tsx' = 'ts'): boolean {
+  return emittedCodeCallsIdentifier(code, KERN_POWER_HELPER_TS_NAME, sourceKind);
 }
 
 /** DECIMAL Slice 2 (Finding 1 — remediation) — blank out comment and
@@ -423,7 +435,17 @@ const KERN_LOOSE_EQ_HELPER = ['function __kern_loose_eq(a: unknown, b: unknown):
 export const KERN_LOOSE_EQ_HELPER_JS = ['function __kern_loose_eq(a, b) {', ...KERN_LOOSE_EQ_BODY].join('\n');
 
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
-  if (!usage.result && !usage.option && !usage.unwrap && !usage.decimal && !usage.looseEq && !usage.textOps) return [];
+  if (
+    !usage.result &&
+    !usage.option &&
+    !usage.unwrap &&
+    !usage.decimal &&
+    !usage.looseEq &&
+    !usage.textOps &&
+    !usage.power
+  ) {
+    return [];
+  }
 
   const lines: string[] = [];
   // DECIMAL Slice 2 (Finding 1) — the `decimal.js` import + canonical-context
@@ -450,6 +472,12 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
     // `push('')` below already supplies the single blank line that separates a
     // decimal-ONLY preamble from user code. Pushing it here too produced a stray
     // DOUBLE blank line in the decimal-only path (Slice 2 nit fix).
+    if (usage.power || usage.textOps || usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
+  }
+
+  if (usage.power) {
+    lines.push('// ── KERN checked integer power (auto-emitted) ───────────────────────');
+    lines.push(...portablePowerHelperTS().split('\n'));
     if (usage.textOps || usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
   }
 
@@ -533,18 +561,10 @@ const DIRECTIVE_RE = /^\s*['"]use [a-z]+['"];?\s*(?:\/\/.*|\/\*[\s\S]*?\*\/)?\s*
  *  not load-bearing. */
 export function injectKernStdlibPreambleIntoSFC(code: string, preamble: string[]): string {
   if (preamble.length === 0) return code;
-  // Match the opening `<script ... lang="ts" ...>` tag — `setup` may appear
-  // before or after `lang`, attribute quotes can be single or double, and
-  // additional attributes (e.g. `name="...">`) are tolerated.
-  const scriptOpen = /<script\b[^>]*\blang\s*=\s*["']ts["'][^>]*>/i;
-  const match = code.match(scriptOpen);
-  if (!match) return code;
-  const tagEnd = (match.index ?? 0) + match[0].length;
-  // Skip a single trailing newline if present so the preamble lands on
-  // its own line rather than directly after the `>`.
-  const afterTag = code[tagEnd] === '\n' ? tagEnd + 1 : tagEnd;
-  const before = code.slice(0, afterTag);
-  const after = code.slice(afterTag);
+  const script = findTypeScriptSfcScriptBlock(code);
+  if (!script) return code;
+  const before = code.slice(0, script.contentStart);
+  const after = code.slice(script.contentStart);
   return `${before}${preamble.join('\n')}\n${after}`;
 }
 

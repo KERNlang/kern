@@ -24,18 +24,10 @@
 
 import type { ValueIR } from '../../value-ir.js';
 import type { SemanticEnv } from './index.js';
-import { CAUGHT_ERROR_TAG, type CaughtErrorValue, evalPortableValue } from './portable-scalar.js';
+import { evalPortableValue } from './portable-scalar.js';
 import type { CanonicalError } from './trace.js';
 
-/** Build a tagged caught-error value from a canonical error that carries an
- *  evaluated literal `message`. Returns `null` for an error WITHOUT a literal
- *  message (an implicit/primitive throw modeled by messagePattern) — those are
- *  out of this slice's domain, so the catch binding stays unset and any read of
- *  it abstains. */
-export function makeCaughtErrorValue(error: CanonicalError): CaughtErrorValue | null {
-  if (typeof error.message !== 'string') return null;
-  return Object.freeze({ [CAUGHT_ERROR_TAG]: true as const, kind: error.kind, message: error.message });
-}
+export { makeCaughtErrorValue } from './caught-error.js';
 
 /** True iff `node` is the canonical explicit-throw shape `new Error(<arg>)` —
  *  a `new` whose argument is a CALL of the bare `Error` ident with exactly one

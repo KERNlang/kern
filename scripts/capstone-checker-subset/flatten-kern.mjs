@@ -1,9 +1,14 @@
 import { parseDocument } from '../../packages/core/dist/parser.js';
 import { parseExpression } from '../../packages/core/dist/parser-expression.js';
+import {
+  hasMixedParameterDeclarations,
+  MIXED_PARAMETER_DECLARATION_MESSAGE,
+} from '../../packages/core/dist/parameter-declarations.js';
 
 export const DATA_ARRAYS = Object.freeze([
   ['stmtKind', 'string'],
   ['stmtFn', 'string'],
+  ['stmtParent', 'number'],
   ['stmtLine', 'number'],
   ['stmtCol', 'number'],
   ['stmtName', 'string'],
@@ -12,6 +17,16 @@ export const DATA_ARRAYS = Object.freeze([
   ['stmtTemplate', 'string'],
   ['stmtExprKind', 'string'],
   ['stmtExprName', 'string'],
+  ['stmtExprLeftKind', 'string'],
+  ['stmtExprLeftName', 'string'],
+  ['stmtExprLeftNum', 'string'],
+  ['stmtExprLeftMemberObject', 'string'],
+  ['stmtExprLeftMemberProp', 'string'],
+  ['stmtExprRightKind', 'string'],
+  ['stmtExprRightName', 'string'],
+  ['stmtExprRightNum', 'string'],
+  ['stmtExprRightMemberObject', 'string'],
+  ['stmtExprRightMemberProp', 'string'],
   ['stmtExprNum', 'string'],
   ['stmtExprCall', 'string'],
   ['stmtExprMemberObject', 'string'],
@@ -46,6 +61,7 @@ export const DATA_ARRAYS = Object.freeze([
   ['argRightNum', 'string'],
   ['paramFn', 'string'],
   ['paramName', 'string'],
+  ['paramType', 'string'],
   ['paramOrdinal', 'number'],
 ]);
 
@@ -70,15 +86,25 @@ function visitIr(node, out, currentFn, currentStmt) {
   let stmtIndex = currentStmt;
   let nextFn = currentFn;
   if (node.type !== 'document' && node.type !== 'handler') {
-    stmtIndex = pushStmt(out, node, currentFn);
+    stmtIndex = pushStmt(out, node, currentFn, currentStmt);
   }
 
   if (node.type === 'fn') {
     nextFn = stringProp(node, 'name');
-    const params = parseParams(stringProp(node, 'params'));
+    const rawParams = stringProp(node, 'params');
+    const paramChildren = Array.isArray(node.children)
+      ? node.children.filter((child) => child?.type === 'param')
+      : [];
+    if (hasMixedParameterDeclarations(node)) {
+      throw new TypeError(MIXED_PARAMETER_DECLARATION_MESSAGE);
+    }
+    const params = paramChildren.length > 0
+      ? paramChildren.map((param) => structuredParamEntry(param))
+      : parseParamEntries(rawParams);
     params.forEach((param, ordinal) => {
       out.paramFn.push(nextFn);
-      out.paramName.push(param);
+      out.paramName.push(param.name);
+      out.paramType.push(param.type);
       out.paramOrdinal.push(ordinal);
     });
   }
@@ -90,17 +116,37 @@ function visitIr(node, out, currentFn, currentStmt) {
   }
 
   if (Array.isArray(node.children)) {
-    for (const child of node.children) visitIr(child, out, nextFn, stmtIndex);
+    for (const child of node.children) {
+      if (node.type === 'fn' && child?.type === 'param') continue;
+      visitIr(child, out, nextFn, stmtIndex);
+    }
   }
 }
 
-function pushStmt(out, node, currentFn) {
+function structuredParamEntry(node) {
+  const props = node.props ?? {};
+  const unsupportedProps = Object.keys(props).filter((key) => key !== 'name' && key !== 'type');
+  if (unsupportedProps.length > 0 || (Array.isArray(node.children) && node.children.length > 0)) {
+    throw new TypeError('checker parameter facts support only `name` and `type`');
+  }
+  const name = stringProp(node, 'name').trim();
+  const rawType = props.type;
+  if (name === '' || (rawType !== undefined && typeof rawType !== 'string')) {
+    throw new TypeError('checker structured parameter requires a string `name` and optional string `type`');
+  }
+  return { name, type: typeof rawType === 'string' ? rawType.trim() : '' };
+}
+
+function pushStmt(out, node, currentFn, parentStmt) {
   const props = node.props ?? {};
   const primary = primaryExpression(props);
   const summary = primary ? summarizeExpression(primary) : emptySummary();
+  const left = primary?.kind === 'binary' ? summarizeExpression(primary.left) : emptySummary();
+  const right = primary?.kind === 'binary' ? summarizeExpression(primary.right) : emptySummary();
   const index = out.stmtKind.length;
   out.stmtKind.push(node.type ?? '');
   out.stmtFn.push(node.type === 'fn' ? stringProp(node, 'name') : currentFn);
+  out.stmtParent.push(parentStmt);
   out.stmtLine.push(node.loc?.line ?? 0);
   out.stmtCol.push(node.loc?.col ?? 0);
   out.stmtName.push(stringProp(node, 'name'));
@@ -109,6 +155,16 @@ function pushStmt(out, node, currentFn) {
   out.stmtTemplate.push(stringProp(node, 'template'));
   out.stmtExprKind.push(summary.kind);
   out.stmtExprName.push(summary.name);
+  out.stmtExprLeftKind.push(left.kind);
+  out.stmtExprLeftName.push(left.name);
+  out.stmtExprLeftNum.push(left.num);
+  out.stmtExprLeftMemberObject.push(left.memberObject);
+  out.stmtExprLeftMemberProp.push(left.memberProp);
+  out.stmtExprRightKind.push(right.kind);
+  out.stmtExprRightName.push(right.name);
+  out.stmtExprRightNum.push(right.num);
+  out.stmtExprRightMemberObject.push(right.memberObject);
+  out.stmtExprRightMemberProp.push(right.memberProp);
   out.stmtExprNum.push(summary.num);
   out.stmtExprCall.push(summary.call);
   out.stmtExprMemberObject.push(summary.memberObject);
@@ -264,12 +320,20 @@ function stringProp(node, name) {
 }
 
 export function parseParams(raw) {
+  return parseParamEntries(raw).map((param) => param.name);
+}
+
+function parseParamEntries(raw) {
   if (!raw) return [];
   return splitTopLevel(raw, ',')
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => part.split(':')[0]?.trim() ?? '')
-    .filter(Boolean);
+    .map((part) => {
+      const separator = part.indexOf(':');
+      if (separator < 0) return { name: part, type: '' };
+      return { name: part.slice(0, separator).trim(), type: part.slice(separator + 1).trim() };
+    })
+    .filter((param) => param.name !== '');
 }
 
 function splitTopLevel(raw, delimiter) {

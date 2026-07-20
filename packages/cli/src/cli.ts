@@ -49,6 +49,11 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
 
 async function main(): Promise<void> {
   try {
+    if (cmd === '--help' || cmd === '-h') {
+      printHelp();
+      return;
+    }
+
     // Route evolve commands (evolve + evolve:*)
     if (cmd === 'evolve' || cmd?.startsWith('evolve:')) {
       await routeEvolve(args);

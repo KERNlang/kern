@@ -5,6 +5,7 @@
 
 import {
   detectKernStdlibUsage,
+  emittedCodeUsesPower,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
@@ -244,6 +245,38 @@ describe('detectKernStdlibUsage', () => {
 describe('kernStdlibPreamble', () => {
   test('returns empty preamble when nothing is used', () => {
     expect(kernStdlibPreamble({ result: false, option: false })).toEqual([]);
+  });
+
+  test('detects emitted checked-power calls and injects one private helper', () => {
+    expect(emittedCodeUsesPower('return __kern_pow_int([a, b]);')).toBe(true);
+    expect(emittedCodeUsesPower('return a ** b;')).toBe(false);
+    expect(emittedCodeUsesPower('return "__kern_pow_int([fake])";')).toBe(false);
+    expect(emittedCodeUsesPower('// __kern_pow_int([fake])\nreturn 1;')).toBe(false);
+    expect(emittedCodeUsesPower('return `__kern_pow_int([fake])`;')).toBe(false);
+    expect(emittedCodeUsesPower('return /__kern_pow_int([x])/;')).toBe(false);
+    expect(emittedCodeUsesPower('return `${__kern_pow_int([a, b])}`;')).toBe(true);
+    expect(emittedCodeUsesPower('const view = <Box>__kern_pow_int([fake])</Box>;', 'tsx')).toBe(true);
+    const out = kernStdlibPreamble({ result: false, option: false, power: true }).join('\n');
+    expect(out.match(/const __kern_pow_int = \(/g)).toHaveLength(1);
+    expect(out).toContain('const maxSafe = 9007199254740991;');
+    expect(out).not.toMatch(/\b(?:Number|Math|Object)\./u);
+    expect(out).not.toContain('new Error');
+  });
+
+  test('detects deeply nested template calls without recursive scanner overflow', () => {
+    let code = '__kern_pow_int([a, b])';
+    for (let depth = 0; depth < 5_000; depth += 1) code = `\`\${${code}}\``;
+    expect(emittedCodeUsesPower(code)).toBe(true);
+  });
+
+  test('distinguishes direct helper calls from inert regex and property syntax', () => {
+    expect(emittedCodeUsesPower('if (ok) /__kern_pow_int([x])/.test(s);')).toBe(false);
+    expect(emittedCodeUsesPower('if (ok) {} /__kern_pow_int([x])/.test(s);')).toBe(false);
+    expect(emittedCodeUsesPower('object.__kern_pow_int([a, b]);')).toBe(false);
+    expect(emittedCodeUsesPower('obj.yield / 2; __kern_pow_int([a, b]);')).toBe(true);
+    expect(emittedCodeUsesPower('const π = 1; return π / __kern_pow_int([a, b]);')).toBe(true);
+    expect(emittedCodeUsesPower('const x = { a: 1 } / __kern_pow_int([a, b]);')).toBe(true);
+    expect(emittedCodeUsesPower('return true && { a: 1 } / __kern_pow_int([a, b]);')).toBe(true);
   });
 
   test('emits only the Result alias when Option is unused', () => {

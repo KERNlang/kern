@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "milestone": "KERN-5-R2-M3.31a",
+    "measuredRawBytes": 1477446,
+    "measuredGzipBytes": 320266,
+    "measuredModules": 146
+  },
+  "limits": {
+    "maxInternalRawBytes": 1551318,
+    "maxInternalGzipBytes": 336279,
+    "maxColdImportExecuteMs": 150,
+    "maxBrowserImportExecuteMs": 750,
+    "coldStartRuns": 5,
+    "browserStartRuns": 3,
+    "cdpTimeoutMs": 10000
+  },
+  "transition": {
+    "legacyModule": "runtime-envelope/source-runner-legacy.js",
+    "preTransitionMaxInternalRawBytes": 1281000,
+    "preTransitionMaxInternalGzipBytes": 301000
+  }
+}

@@ -829,7 +829,7 @@ describe('@kernlang/core/runner source executor', () => {
     ).resolves.toBe('ok\n');
   });
 
-  test('async descriptor handlers fail closed for capability calls inside class methods', async () => {
+  test('async descriptor handlers resume capability calls inside owned class methods', async () => {
     const source = [
       'class name=RemoteLabel',
       '  method name=read returns=string',
@@ -859,11 +859,11 @@ describe('@kernlang/core/runner source executor', () => {
           },
         },
       ),
-    ).rejects.toThrow(KernRunnerError);
-    expect(calls).toBe(0);
+    ).resolves.toBe('ok\n');
+    expect(calls).toBe(1);
   });
 
-  test('async descriptor handlers fail closed for capability calls inside constructors', async () => {
+  test('async descriptor handlers resume capability calls inside owned constructors', async () => {
     const source = [
       'class name=RemoteLabel',
       '  field name=value type=string',
@@ -897,8 +897,8 @@ describe('@kernlang/core/runner source executor', () => {
           },
         },
       ),
-    ).rejects.toThrow(KernRunnerError);
-    expect(calls).toBe(0);
+    ).resolves.toBe('ok\n');
+    expect(calls).toBe(1);
   });
 
   test('async descriptor handlers fail closed for async class field and super initializer paths', async () => {
@@ -3995,7 +3995,8 @@ describe('@kernlang/core/runner source executor', () => {
   test('recovers if an embedder clears the public contract registry between runs', () => {
     expect(executeKernSource(mainProgram(['print value="1"']))).toBe('1\n');
     CONTRACT_REGISTRY.clear();
-    expect(executeKernSource(mainProgram(['print value="2"']))).toBe('2\n');
+    expect(executeKernSource(mainProgram(['lambda expr="2"']))).toBe('2\n');
+    expect(CONTRACT_REGISTRY.has('print')).toBe(true);
   });
 
   test('recovers if an embedder leaves the public contract registry partially populated', () => {
@@ -4012,8 +4013,9 @@ describe('@kernlang/core/runner source executor', () => {
     CONTRACT_REGISTRY.set(custom.nodeType, custom);
 
     try {
-      expect(executeKernSource(mainProgram(['print value="2"']))).toBe('2\n');
+      expect(executeKernSource(mainProgram(['lambda expr="2"']))).toBe('2\n');
       expect(CONTRACT_REGISTRY.get(custom.nodeType)).toBe(custom);
+      expect(CONTRACT_REGISTRY.has('print')).toBe(true);
     } finally {
       CONTRACT_REGISTRY.delete(custom.nodeType);
     }

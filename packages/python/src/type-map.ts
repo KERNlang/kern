@@ -2,6 +2,8 @@
  * TypeScript type strings → Python type strings
  */
 
+import { toSnakeCaseIdentifier } from '@kernlang/core';
+
 const SIMPLE_MAP: Record<string, string> = {
   string: 'str',
   number: 'float',
@@ -311,10 +313,7 @@ function splitTopLevel(s: string, separator: string): string[] {
 
 /** Convert a camelCase or PascalCase identifier to snake_case. */
 export function toSnakeCase(name: string): string {
-  return name
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-    .toLowerCase();
+  return toSnakeCaseIdentifier(name);
 }
 
 const PY_RESERVED_BINDINGS = new Set([

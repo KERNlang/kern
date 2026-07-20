@@ -7,6 +7,10 @@ on:
         description: Release version without the leading v
         required: true
         type: string
+      channel:
+        description: Release channel
+        required: true
+        type: string
       publish:
         description: Publish packages and sync versions back to dev
         required: true
@@ -16,7 +20,6 @@ jobs:
   release:
     name: ${{ inputs.publish && 'Publish to npm' || 'Release Preflight' }}
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,9 +47,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Compute Release Plan
+        id: release-plan
+        run: |
+          mkdir -p .release
+          node scripts/release/plan-cli.mjs \
+            --channel "${{ inputs.channel }}" \
+            --version "${{ inputs.version }}" \
+            --sha "$GITHUB_SHA" > .release/release-plan.json
+          cat .release/release-plan.json
+
       - name: Set package versions
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           tmp=$(mktemp)
           jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
@@ -79,67 +92,123 @@ jobs:
         run: pnpm build
 
       - name: Test
-        if: ${{ !inputs.publish }}
         run: pnpm test
 
       - name: Native KERN Tests
-        if: ${{ !inputs.publish }}
         run: pnpm test:kern
 
-      - name: Publish dry run
+      - name: Differential conformance
+        run: pnpm check:conformance
+
+      - name: Runner smoke
+        run: pnpm test:runner-smoke
+
+      - name: Recover bundle or pack new bundle
+        id: release-bundle
         if: ${{ inputs.publish }}
-        run: pnpm -r publish --dry-run --no-git-checks --access public
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release/registry-cli.mjs --mode publish-pack --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Upload new bundle
+        id: release-bundle-upload
+        if: ${{ inputs.publish && steps.release-bundle.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release-bundle.outputs.artifact-name }}
+          path: .release/bundle
+          retention-days: ${{ steps.release-bundle.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable bundle
+        if: ${{ inputs.publish && steps.release-bundle.outputs.created == 'true' }}
+        run: >-
+          node scripts/release/registry-cli.mjs
+          --mode confirm-bundle
+          --channel "${{ inputs.channel }}"
+          --version "${{ inputs.version }}"
+          --sha "$GITHUB_SHA"
+          --artifact-id "${{ steps.release-bundle-upload.outputs.artifact-id }}"
+          --artifact-digest "${{ steps.release-bundle-upload.outputs.artifact-digest }}"
+
+      - name: Reconcile versions and staging tags
+        if: ${{ inputs.publish }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/release/registry-cli.mjs --mode publish-reconcile --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
 
-      - name: Publish packages
+      - name: Create Promotion Snapshot
+        id: promotion-snapshot
         if: ${{ inputs.publish }}
-        run: pnpm -r publish --no-git-checks --access public
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release/registry-cli.mjs --mode publish-snapshot --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Upload Promotion Snapshot
+        id: promotion-snapshot-upload
+        if: ${{ inputs.publish && steps.promotion-snapshot.outputs.created == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.promotion-snapshot.outputs.artifact-name }}
+          path: .release/${{ steps.promotion-snapshot.outputs.artifact-name }}.json
+          retention-days: ${{ steps.promotion-snapshot.outputs.retention-days }}
+          if-no-files-found: error
+          include-hidden-files: true
+
+      - name: Confirm durable promotion snapshot
+        if: ${{ inputs.publish && steps.promotion-snapshot.outputs.created == 'true' }}
+        run: >-
+          node scripts/release/registry-cli.mjs
+          --mode confirm-snapshot
+          --channel "${{ inputs.channel }}"
+          --version "${{ inputs.version }}"
+          --sha "$GITHUB_SHA"
+          --artifact-id "${{ steps.promotion-snapshot-upload.outputs.artifact-id }}"
+          --artifact-digest "${{ steps.promotion-snapshot-upload.outputs.artifact-digest }}"
+
+      - name: Promote public tags
+        id: publish-promote
+        if: ${{ inputs.publish }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DIST_TAG: ${{ steps.release-plan.outputs.dist_tag }}
+        run: node scripts/release/registry-cli.mjs --mode publish-promote --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA" --tag "$DIST_TAG"
 
-      - name: Verify published packages on npm
+      - name: Run clean registry smoke tests
+        id: publish-smoke
         if: ${{ inputs.publish }}
+        run: node scripts/release/registry-cli.mjs --mode publish-smoke --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Contain failed post-promotion smoke
+        if: ${{ failure() && inputs.publish && steps.publish-promote.outcome == 'success' && steps.publish-smoke.outcome == 'failure' }}
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          VERSION="$RELEASE_VERSION"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: >-
+          node scripts/release/registry-cli.mjs
+          --mode publish-recover
+          --channel "${{ inputs.channel }}"
+          --version "${{ inputs.version }}"
+          --sha "$GITHUB_SHA"
+          --recovery-reason post-promotion-smoke-failed
 
-          for pkg in packages/*/package.json; do
-            NAME=$(jq -r '.name' "$pkg")
-            PRIVATE=$(jq -r '.private // false' "$pkg")
-
-            if [ "$PRIVATE" = "true" ]; then
-              continue
-            fi
-
-            ENCODED_NAME=$(node -p "encodeURIComponent(process.argv[1])" "$NAME")
-            PUBLISHED=false
-
-            for attempt in 1 2 3 4 5 6; do
-              if curl -fsS "https://registry.npmjs.org/$ENCODED_NAME/$VERSION" > /dev/null; then
-                PUBLISHED=true
-                break
-              fi
-              sleep 10
-            done
-
-            if [ "$PUBLISHED" != "true" ]; then
-              echo "::error::Package $NAME@$VERSION is not available from the npm registry after publish"
-              exit 1
-            fi
-          done
-
-      - name: Publish dry run
+      - name: Run Artifact Wall
         if: ${{ !inputs.publish }}
-        run: pnpm -r publish --dry-run --no-git-checks --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/release/registry-cli.mjs --mode preflight --channel "${{ inputs.channel }}" --version "${{ inputs.version }}" --sha "$GITHUB_SHA"
+
+      - name: Upload Journal
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-journal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release/journal.json
+          if-no-files-found: ignore
+          include-hidden-files: true
 
       - name: Sync versions back to dev
-        if: ${{ inputs.publish }}
+        if: ${{ success() && inputs.publish && steps.release-plan.outputs.syncs_dev == 'true' }}
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

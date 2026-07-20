@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.1/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.2/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -7,7 +7,13 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["packages/*/src/**/*.ts", "packages/*/tests/**/*.ts", "!packages/*/src/generated"]
+    "includes": [
+      "packages/*/src/**/*.ts",
+      "packages/*/tests/**/*.ts",
+      "scripts/kern-5-fitness.mjs",
+      "scripts/kern-5-fitness.test.mjs",
+      "!packages/*/src/generated"
+    ]
   },
   "formatter": {
     "enabled": true,

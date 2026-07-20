@@ -296,12 +296,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.asyncBoundaryRequired).toBe(true);
     expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
     expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'unsupported',
-      }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('treats class getters read from member expressions as executable capability reachability', () => {
@@ -448,6 +443,7 @@ describe('@kernlang/core/runner capability preflight', () => {
 
     expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['storage.get']);
     expect(analysis.missingProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('treats constructors in member-call receiver expressions as executable reachability', () => {
@@ -472,7 +468,7 @@ describe('@kernlang/core/runner capability preflight', () => {
     expect(analysis.missingProviders).toEqual([]);
   });
 
-  test('treats inherited methods and base constructors as executable capability reachability', () => {
+  test('owns inherited async methods and no-arg base constructors in capability reachability', () => {
     const source = [
       'class name=Base',
       '  constructor',
@@ -500,12 +496,33 @@ describe('@kernlang/core/runner capability preflight', () => {
     ]);
     expect(analysis.missingProviders).toEqual([]);
     expect(analysis.missingAsyncProviders).toEqual([]);
-    expect(analysis.unsupportedAsyncExecutions).toEqual([
-      expect.objectContaining({
-        id: 'llm.complete',
-        reason: 'unsupported',
-      }),
-    ]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
+  });
+
+  test('owns async base methods reached through super dispatch in capability planning', () => {
+    const source = [
+      'class name=Base',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      capability namespace=llm operation=complete name=answer input="{ prompt: \\"base\\" }"',
+      '      return value="answer"',
+      'class name=Derived extends=Base',
+      '  method name=read returns=string',
+      '    handler lang="kern"',
+      '      return value="super.read()"',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    let name=item value="new Derived()"',
+      '    print value="item.read()"',
+    ].join('\n');
+
+    const analysis = analyzeKernSourceCapabilities(source, {
+      providedAsyncCapabilities: ['llm.complete'],
+    });
+
+    expect(analysis.executableRequirements.map((requirement) => requirement.id)).toEqual(['llm.complete']);
+    expect(analysis.missingAsyncProviders).toEqual([]);
+    expect(analysis.unsupportedAsyncExecutions).toEqual([]);
   });
 
   test('treats class field initializers and super-call arguments as constructor reachability', () => {

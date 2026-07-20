@@ -1,0 +1,32 @@
+# GENERATED FILE - do not hand-edit.
+# Regenerate with: node scripts/capstone-checker-subset/gen-fixtures-kern.mjs
+# Source of truth: SAFE_INTEGER_TEXT_CASES in scripts/capstone-checker-subset/fixtures.mjs
+
+use path="./checker"
+  from name=isSafeIntText kind=fn as=isSafeIntText
+
+fn name=main returns=void
+  handler lang="kern"
+    print value="\"0:\" + String(isSafeIntText(\"0\"))"
+    print value="\"1:\" + String(isSafeIntText(\"1\"))"
+    print value="\"2:\" + String(isSafeIntText(\"42\"))"
+    print value="\"3:\" + String(isSafeIntText(\"9007199254740990\"))"
+    print value="\"4:\" + String(isSafeIntText(\"9007199254740991\"))"
+    print value="\"5:\" + String(isSafeIntText(\"-1\"))"
+    print value="\"6:\" + String(isSafeIntText(\"-42\"))"
+    print value="\"7:\" + String(isSafeIntText(\"-9007199254740991\"))"
+    print value="\"8:\" + String(isSafeIntText(\"\"))"
+    print value="\"9:\" + String(isSafeIntText(\"+1\"))"
+    print value="\"10:\" + String(isSafeIntText(\"-0\"))"
+    print value="\"11:\" + String(isSafeIntText(\"00\"))"
+    print value="\"12:\" + String(isSafeIntText(\"01\"))"
+    print value="\"13:\" + String(isSafeIntText(\"-01\"))"
+    print value="\"14:\" + String(isSafeIntText(\"1.0\"))"
+    print value="\"15:\" + String(isSafeIntText(\"1e3\"))"
+    print value="\"16:\" + String(isSafeIntText(\" 1\"))"
+    print value="\"17:\" + String(isSafeIntText(\"1 \"))"
+    print value="\"18:\" + String(isSafeIntText(\"NaN\"))"
+    print value="\"19:\" + String(isSafeIntText(\"Infinity\"))"
+    print value="\"20:\" + String(isSafeIntText(\"9007199254740992\"))"
+    print value="\"21:\" + String(isSafeIntText(\"-9007199254740992\"))"
+    print value="\"22:\" + String(isSafeIntText(\"99999999999999999\"))"

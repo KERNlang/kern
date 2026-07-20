@@ -1,154 +1,40 @@
-import { parseExpression } from '../../parser-expression.js';
-import {
-  assertRuntimeCapabilityValue,
-  invokeRunnerCapability,
-  KernCapabilityError,
-  type RuntimeCapabilityValue,
-} from '../../runner-capabilities.js';
+import type { RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
-import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
-  defineBinding,
-  getBinding,
-  hasBinding,
-  hasOwnBinding,
-  type NodeContract,
-  type NodeFixture,
-  registerContract,
-  type SemanticEnv,
-} from './index.js';
-import { isArrayLiteralExpression } from './portable-array.js';
-import { evalPortableValue, isPortableBindingName, isRecordLiteralExpression } from './portable-scalar.js';
+  capabilityInputWithEvaluator,
+  type PreparedInternalCapabilityEffect,
+  prepareInternalCapabilityEffectWithEvaluator,
+  resumeInternalCapabilityEffect,
+} from './capability-runtime.js';
+import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import { invokeInternalRuntimeCapabilitySync } from './internal-capability-interceptor.js';
+import { evalPortableValue } from './portable-scalar.js';
 import type { Trace } from './trace.js';
 
-interface CapabilityProps {
-  namespace?: unknown;
-  operation?: unknown;
-  name?: unknown;
-  input?: unknown;
-}
-
-function asCapabilityProps(ir: IRNode): CapabilityProps {
-  return (ir.props ?? {}) as CapabilityProps;
-}
-
-export function isCapabilityToken(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_-]*$/.test(value);
-}
+export type { PreparedInternalCapabilityEffect } from './capability-runtime.js';
+export { isCapabilityToken, resumeInternalCapabilityEffect } from './capability-runtime.js';
 
 export function capabilityInput(ir: IRNode, env: SemanticEnv): RuntimeCapabilityValue | undefined {
-  if (!Object.hasOwn(ir.props ?? {}, 'input')) return undefined;
-  const raw = asCapabilityProps(ir).input;
-  if (typeof raw !== 'string') return assertRuntimeCapabilityValue(raw, 'capability input');
-  const parsed = parseExpression(raw);
-  if (isArrayLiteralExpression(parsed))
-    return assertRuntimeCapabilityValue(evalCapabilityInputArray(parsed, env), 'capability input');
-  if (isRecordLiteralExpression(parsed))
-    return assertRuntimeCapabilityValue(evalCapabilityInputRecord(parsed, env), 'capability input');
-  if (parsed.kind === 'ident')
-    return assertRuntimeCapabilityValue(capabilityInputBinding(parsed.name, env), 'capability input');
-  if (!isValueIR(parsed)) throw new Error('capability: input must be a portable value expression');
-  return assertRuntimeCapabilityValue(evalPortableValue(parsed, env), 'capability input');
-}
-
-const RESERVED_CAPABILITY_INPUT_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
-
-function evalCapabilityInputValue(node: ValueIR, env: SemanticEnv): unknown {
-  if (isRecordLiteralExpression(node)) return evalCapabilityInputRecord(node, env);
-  if (isArrayLiteralExpression(node)) return evalCapabilityInputArray(node, env);
-  if (node.kind === 'ident') return capabilityInputBinding(node.name, env);
-  return evalPortableValue(node, env);
-}
-
-function capabilityInputBinding(name: string, env: SemanticEnv): unknown {
-  if (!isPortableBindingName(name)) {
-    throw new Error(`capability input: binding "${name}" is outside the portable capability input domain`);
-  }
-  if (!hasBinding(env, name)) throw new Error(`capability input: binding "${name}" not found`);
-  return getBinding(env, name);
-}
-
-function evalCapabilityInputRecord(
-  node: Extract<ValueIR, { kind: 'objectLit' }>,
-  env: SemanticEnv,
-): RuntimeCapabilityValue {
-  const out: Record<string, RuntimeCapabilityValue> = Object.create(null);
-  for (const entry of node.entries) {
-    if ('kind' in entry) {
-      throw new Error('capability input: object spreads are outside the portable capability input domain');
-    }
-    if ('rawKey' in entry && entry.rawKey !== undefined) {
-      throw new Error('capability input: numeric record keys are outside the portable capability input domain');
-    }
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.key)) {
-      throw new Error('capability input: record keys must be identifier-like strings');
-    }
-    if (RESERVED_CAPABILITY_INPUT_KEYS.has(entry.key)) {
-      throw new Error(`capability input: reserved key "${entry.key}" is outside the portable capability input domain`);
-    }
-    if (Object.hasOwn(out, entry.key)) {
-      throw new Error(`capability input: duplicate key "${entry.key}" is outside the portable capability input domain`);
-    }
-    out[entry.key] = assertRuntimeCapabilityValue(evalCapabilityInputValue(entry.value, env), 'capability input');
-  }
-  return Object.freeze(out);
-}
-
-function evalCapabilityInputArray(
-  node: Extract<ValueIR, { kind: 'arrayLit' }>,
-  env: SemanticEnv,
-): RuntimeCapabilityValue {
-  const out: RuntimeCapabilityValue[] = [];
-  for (let index = 0; index < node.items.length; index += 1) {
-    if (!(index in node.items)) {
-      throw new Error('capability input: array literal items must not contain sparse holes');
-    }
-    out.push(assertRuntimeCapabilityValue(evalCapabilityInputValue(node.items[index], env), 'capability input'));
-  }
-  return Object.freeze(out);
+  return capabilityInputWithEvaluator(ir, env, evalPortableValue);
 }
 
 function capabilityPreconditions(ir: IRNode, env: SemanticEnv): boolean {
-  const props = asCapabilityProps(ir);
-  if (!isCapabilityToken(props.namespace) || !isCapabilityToken(props.operation)) return false;
-  if (props.name !== undefined && props.name !== '') {
-    if (!isPortableBindingName(props.name)) return false;
-    if (hasOwnBinding(env, props.name)) return false;
-  }
   try {
-    capabilityInput(ir, env);
+    prepareInternalCapabilityEffect(ir, env);
     return true;
   } catch {
     return false;
   }
 }
 
+export function prepareInternalCapabilityEffect(ir: IRNode, env: SemanticEnv): PreparedInternalCapabilityEffect {
+  return prepareInternalCapabilityEffectWithEvaluator(ir, env, evalPortableValue);
+}
+
 function capabilityEffects(ir: IRNode, env: SemanticEnv): Trace {
-  const props = asCapabilityProps(ir);
-  if (!isCapabilityToken(props.namespace) || !isCapabilityToken(props.operation)) {
-    throw new KernCapabilityError(
-      String(props.namespace ?? ''),
-      String(props.operation ?? ''),
-      'capability node is malformed',
-    );
-  }
-  const namespace = props.namespace;
-  const operation = props.operation;
-  const input = capabilityInput(ir, env);
-  const result = invokeRunnerCapability(env.capabilities, { namespace, operation, input }, env.capabilityContext);
-  const events: Trace['events'] = [{ op: 'capability', namespace, operation, input, result }];
-  if (props.name !== undefined && props.name !== '') {
-    if (result === undefined) {
-      throw new KernCapabilityError(
-        namespace,
-        operation,
-        `capability: ${namespace}.${operation} returned no value for name=${String(props.name)}`,
-      );
-    }
-    defineBinding(env, props.name as string, result);
-    events.push({ op: 'assign', target: props.name as string, value: result });
-  }
-  return { events, completion: { kind: 'normal' } };
+  const prepared = prepareInternalCapabilityEffect(ir, env);
+  const result = invokeInternalRuntimeCapabilitySync(env, prepared.call);
+  return resumeInternalCapabilityEffect(prepared, result, env);
 }
 
 const FIXTURES: readonly NodeFixture[] = Object.freeze([]);

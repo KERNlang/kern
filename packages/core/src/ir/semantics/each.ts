@@ -41,253 +41,28 @@
  *   - lazy / infinite iterables (the runner materializes through `for...of`)
  */
 
-import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
-import { isParenthesized, isValueIR } from '../../value-ir.js';
+import { eachPreconditions, eachRuntimeSteps } from './each-runtime.js';
 import {
   childEnv,
   defineBinding,
-  getBinding,
-  hasBinding,
   markRepeatableLoopBody,
   type NodeContract,
   type NodeFixture,
-  recordArrayFieldsForBinding,
   registerContract,
   type SemanticEnv,
 } from './index.js';
-import { evalRecordArrayFieldReferenceValue, isPortableScalar } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
-export type EachShape = 'array' | 'array-indexed' | 'pair-sync' | 'pair-async' | 'entry-key' | 'entry-value';
-
-export interface EachProps {
-  name?: string;
-  index?: string;
-  pairKey?: string;
-  pairValue?: string;
-  entryKey?: string;
-  entryValue?: string;
-  entries?: boolean;
-  await?: boolean;
-  in?: string;
-  type?: string;
-  key?: string;
-}
-
-function asEachProps(ir: IRNode): EachProps {
-  return (ir.props ?? {}) as EachProps;
-}
-
-/**
- * Detect the iteration shape from props. Returns null if no shape matches OR
- * if multiple shape-defining props are mixed (which is a precondition failure
- * in the contract). Pure: never reads bindings or environment.
- */
-export function detectEachShape(p: EachProps): EachShape | null {
-  const hasName = typeof p.name === 'string';
-  const hasIndex = typeof p.index === 'string';
-  const hasPairKey = typeof p.pairKey === 'string';
-  const hasPairValue = typeof p.pairValue === 'string';
-  const hasEntryKey = typeof p.entryKey === 'string';
-  const hasEntryValue = typeof p.entryValue === 'string';
-  const isAwait = p.await === true;
-  const isEntries = p.entries === true;
-
-  // Array and pair modes must be mutually exclusive with the entry surface —
-  // `entries=true` is an entry-mode marker only.
-  const arrayMode = hasName && !hasPairKey && !hasPairValue && !hasEntryKey && !hasEntryValue && !isEntries;
-  const pairMode = hasPairKey && hasPairValue && !hasName && !hasEntryKey && !hasEntryValue && !hasIndex && !isEntries;
-  const entryKeyMode = hasEntryKey && !hasName && !hasPairKey && !hasPairValue && !hasEntryValue && !hasIndex;
-  const entryValueMode = hasEntryValue && !hasName && !hasPairKey && !hasPairValue && !hasEntryKey && !hasIndex;
-
-  if (arrayMode) {
-    // `await=true` over an array has no defined shape in PR-2. The emitter
-    // could plausibly select `for await (const x of arr)` — but the
-    // observable trace for an array of resolved values is identical to the
-    // sync form, so allowing it would silently strip the await flag from
-    // codegen. Reject explicitly; PR-3's audit decides whether async-array
-    // is its own shape.
-    if (isAwait) return null;
-    return hasIndex ? 'array-indexed' : 'array';
-  }
-  if (pairMode) return isAwait ? 'pair-async' : 'pair-sync';
-  // Entry modes are sync-only — `await=true` over object keys/values is not
-  // a supported KERN shape.
-  if (entryKeyMode && isEntries && !isAwait) return 'entry-key';
-  if (entryValueMode && isEntries && !isAwait) return 'entry-value';
-  return null;
-}
-
-export function eachPreconditions(ir: IRNode, _env: SemanticEnv): boolean {
-  const p = asEachProps(ir);
-  if (typeof p.in !== 'string') return false;
-  const shape = detectEachShape(p);
-  if (shape === null) return false;
-  if (!Array.isArray(ir.children) || ir.children.length === 0) return false;
-  return true;
-}
-
-export interface EachIterationStep {
-  bindings: Array<[string, unknown]>;
-  /** The "primary" binding surfaced in the `iter-next` trace event. */
-  primary: [string, unknown];
-}
-
-/**
- * Guard entry-mode collections against silent zero-iteration bugs. `Object.keys(42)`
- * returns `[]` without throwing — indistinguishable from a real empty object — so
- * a buggy IR feeding a non-object into entry mode would pass the reference runner
- * with no diagnostic. Reject anything that isn't a plain object.
- */
-function assertPlainObject(collection: unknown, shape: string): void {
-  if (
-    typeof collection !== 'object' ||
-    collection === null ||
-    Array.isArray(collection) ||
-    collection instanceof Map ||
-    collection instanceof Set
-  ) {
-    throw new Error(`each ${shape} mode: \`in=\` must resolve to a plain object`);
-  }
-}
-
-function assertNestedIterationScalarElements(collection: readonly unknown[], label: string): void {
-  for (const item of collection) {
-    if (!isPortableScalar(item)) {
-      throw new Error(`each: ${label} elements must be portable scalars`);
-    }
-  }
-}
-
-function resolveEachCollection(inRaw: string, env: SemanticEnv): unknown {
-  if (hasBinding(env, inRaw)) {
-    const collection = getBinding(env, inRaw);
-    if (collection === null || collection === undefined) {
-      throw new Error(`each: binding "${inRaw}" is nullish`);
-    }
-    return collection;
-  }
-
-  const expr = parseExpression(inRaw);
-  if (expr.kind === 'ident') {
-    throw new Error(`each: binding "${expr.name}" not found in env`);
-  }
-  if (
-    expr.kind === 'member' &&
-    !expr.optional &&
-    isValueIR(expr.object) &&
-    expr.object.kind === 'ident' &&
-    !isParenthesized(expr.object)
-  ) {
-    const fields = recordArrayFieldsForBinding(env, expr.object.name);
-    if (fields === undefined || !fields.has(expr.property)) {
-      throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" is not proven`);
-    }
-    const collection = evalRecordArrayFieldReferenceValue(expr, env);
-    if (collection === undefined) {
-      throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" must be an array`);
-    }
-    assertNestedIterationScalarElements(collection, `${expr.object.name}.${expr.property}`);
-    return collection;
-  }
-
-  throw new Error('each: `in=` must resolve to an array binding or proven record array field');
-}
-
-/** Yields one IterationStep per loop iteration, in observable order. */
-function* iterateCollection(shape: EachShape, collection: unknown, p: EachProps): Generator<EachIterationStep> {
-  switch (shape) {
-    case 'array': {
-      const arr = collection as unknown[];
-      const name = p.name as string;
-      for (const value of arr) {
-        yield { bindings: [[name, value]], primary: [name, value] };
-      }
-      return;
-    }
-    case 'array-indexed': {
-      const arr = collection as unknown[];
-      const name = p.name as string;
-      const idx = p.index as string;
-      let i = 0;
-      for (const value of arr) {
-        yield {
-          bindings: [
-            [name, value],
-            [idx, i],
-          ],
-          primary: [name, value],
-        };
-        i += 1;
-      }
-      return;
-    }
-    case 'pair-sync':
-    case 'pair-async': {
-      const kName = p.pairKey as string;
-      const vName = p.pairValue as string;
-      if (collection instanceof Map) {
-        for (const [k, v] of collection) {
-          yield {
-            bindings: [
-              [kName, k],
-              [vName, v],
-            ],
-            primary: [vName, v],
-          };
-        }
-      } else if (Array.isArray(collection)) {
-        for (const pair of collection) {
-          if (!Array.isArray(pair) || pair.length !== 2) {
-            throw new Error('each pair-mode array element is not a [k, v] tuple');
-          }
-          const [k, v] = pair as [unknown, unknown];
-          yield {
-            bindings: [
-              [kName, k],
-              [vName, v],
-            ],
-            primary: [vName, v],
-          };
-        }
-      } else {
-        throw new Error('each pair-mode `in=` must resolve to a Map or array of [k, v] pairs');
-      }
-      return;
-    }
-    case 'entry-key': {
-      const name = p.entryKey as string;
-      assertPlainObject(collection, 'entry-key');
-      const obj = collection as Record<string, unknown>;
-      for (const k of Object.keys(obj)) {
-        yield { bindings: [[name, k]], primary: [name, k] };
-      }
-      return;
-    }
-    case 'entry-value': {
-      const name = p.entryValue as string;
-      assertPlainObject(collection, 'entry-value');
-      const obj = collection as Record<string, unknown>;
-      for (const v of Object.values(obj)) {
-        yield { bindings: [[name, v]], primary: [name, v] };
-      }
-      return;
-    }
-  }
-}
-
-export function eachRuntimeSteps(ir: IRNode, env: SemanticEnv): readonly EachIterationStep[] {
-  const p = asEachProps(ir);
-  const shape = detectEachShape(p);
-  if (shape === null) {
-    throw new Error('each: invariant violated — preconditions passed but shape is null');
-  }
-  const inName = p.in as string;
-  const collection = resolveEachCollection(inName, env);
-  return Array.from(iterateCollection(shape, collection, p));
-}
+export type { EachIterationStep, EachProps, EachShape } from './each-runtime.js';
+export {
+  detectEachShape,
+  eachPreconditions,
+  eachRuntimeSteps,
+  eachShapePreconditions,
+  iterateEachRuntimeSteps,
+} from './each-runtime.js';
 
 function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
   const out: Trace = emptyTrace();

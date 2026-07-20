@@ -16,20 +16,14 @@ import {
   collectCoverageGaps,
   collectExternalBoundaries,
   collectSidecarManifests,
-  detectKernStdlibUsage,
   detectReactHookDeps,
   detectTarget,
-  emittedCodeUsesLooseEq,
-  emittedCodeUsesTextOps,
   expandTemplateNode,
   generateCoreNode,
-  injectKernStdlibPreamble,
-  injectKernStdlibPreambleIntoSFC,
   injectReactHookImports,
   isCoreNode,
   isTemplateNode,
   KERN_VERSION,
-  kernStdlibPreamble,
   parseWithDiagnostics,
   registerTemplate,
   resolveConfig,
@@ -51,7 +45,10 @@ import { transpileNuxt, transpileVue } from '@kernlang/vue';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { createJiti } from 'jiti';
 import { basename, dirname, relative, resolve } from 'path';
+import { applyKernStdlibPreamble, isTsArtifactPath, isTypeScriptFamilyTarget } from './stdlib-preamble-postpass.js';
 import { transpileCliApp } from './transpiler-cli.js';
+
+export { getOutputExtension } from './target-output-extension.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -673,30 +670,6 @@ export function parseWithJSONDiagnostics(
   };
 }
 
-// ── Output extension helper ─────────────────────────────────────────────
-
-/** Get the output file extension for a given target. Deduplicates the ternary chain. */
-export function getOutputExtension(target: KernTarget): string {
-  switch (target) {
-    case 'fastapi':
-    case 'python':
-      return '.py';
-    case 'go':
-      return '.go';
-    case 'vue':
-    case 'nuxt':
-      return '.vue';
-    case 'lib':
-    case 'express':
-    case 'cli':
-    case 'terminal':
-    case 'mcp':
-      return '.ts';
-    default:
-      return '.tsx';
-  }
-}
-
 const PYTHON_KEYWORDS = new Set([
   'False',
   'None',
@@ -1060,121 +1033,6 @@ function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/
   return { code, sourceMap: [], irTokenCount: 0, tsTokenCount: 0, tokenReduction: 0 };
 }
 
-/** Slice 4 layer 2 — apply the Result / Option preamble post-transpile.
- *
- *  Lifted from `transpileLib` so every TS-family target picks up the compact
- *  form without each transpiler needing its own integration. FastAPI is
- *  excluded (Python).
- *
- *  Slice 4 follow-up — Vue / Nuxt SFC outputs route through
- *  `injectKernStdlibPreambleIntoSFC`, which inserts the preamble INSIDE
- *  the `<script setup lang="ts">` block instead of before it. The earlier
- *  blanket pre-injection broke `.vue` parse because raw `type Result<…>`
- *  text appeared ahead of the SFC. Plain TS-family targets continue to
- *  use `injectKernStdlibPreamble` (which knows about `'use client'`,
- *  hashbangs, and JSDoc).
- *
- *  Multi-artifact targets (express routes, structured Next.js, etc.) get the
- *  preamble injected into every artifact whose path ends in `.ts` / `.tsx`
- *  / `.mts` / `.cts`, since each route file independently references types
- *  in its handlers. Structured Vue / Nuxt artifacts use the SFC injector
- *  for `.vue` files. */
-const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
-  'lib',
-  'native',
-  'web',
-  'tailwind',
-  'mcp',
-  'express',
-  'cli',
-  'terminal',
-  'ink',
-  'nextjs',
-]);
-
-const SFC_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>(['vue', 'nuxt']);
-
-function isTsArtifactPath(path: string): boolean {
-  return path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.mts') || path.endsWith('.cts');
-}
-
-function isSfcArtifactPath(path: string): boolean {
-  return path.endsWith('.vue');
-}
-
-function applyKernStdlibPreamble(
-  ast: IRNode,
-  target: KernTarget,
-  result: import('@kernlang/core').TranspileResult,
-): import('@kernlang/core').TranspileResult {
-  const isSfc = SFC_TARGETS.has(target);
-  if (!TS_FAMILY_TARGETS.has(target) && !isSfc) return result;
-
-  const usage = detectKernStdlibUsage(ast);
-  // D1b — `looseEq` is determined by what the emitter ACTUALLY produced, not an IR
-  // text-scan: the `__kern_loose_eq(` token in the emitted output. Scanned BEFORE the
-  // preamble is injected (the helper def itself contains the token), over `result.code`
-  // plus every TS artifact. This makes detection == emission exactly, closing the
-  // IR-walk divergence (`==` inside `${…}` interpolations / structured-IR fixtures).
-  if (
-    emittedCodeUsesLooseEq(result.code) ||
-    (result.artifacts?.some((art) => isTsArtifactPath(art.path) && emittedCodeUsesLooseEq(art.content)) ?? false)
-  ) {
-    usage.looseEq = true;
-  }
-  // KERN 4.5.0 item 3 — same "detection == emission" pattern as `looseEq` above:
-  // an emitted `__kern_text_*(` call means a `Text.length`/`charAt`/`slice`/
-  // `indexOf`/`startsWith` lowering fired somewhere in this module, so the
-  // code-point-ops helper block must be injected.
-  //
-  // Unlike the `looseEq` scan above, this one ALSO scans `.vue` SFC artifacts
-  // (agon review, verified): empirically, today's vue/nuxt transpilers never
-  // route a `lang="kern"` handler through the KERN-stdlib lowering (they emit
-  // RAW handler text via `handlerCode` — zero `emitNativeKernBody*` imports in
-  // packages/vue), and the only `.vue` artifacts the CLI dispatch produces
-  // (nuxt page/layout) are byte-identical copies of `result.code`, which IS
-  // scanned — so a Text.* lowering that ONLY lives in a `.vue` artifact is
-  // UNREACHABLE via `transpileForTarget` today. The `.vue` scan is a cheap
-  // defensive closure of that latent hole for when structured-vue output
-  // (`buildVueStructuredArtifacts`, whose non-entry `.vue` artifacts are NOT
-  // copies of `result.code`) gets wired into the dispatch. Injection is
-  // already SFC-safe: `.vue` artifacts route through
-  // `injectKernStdlibPreambleIntoSFC`, which inserts INSIDE the
-  // `<script lang="ts">` block (or safely drops the preamble when no TS
-  // script block exists — never before the SFC, which broke .vue parse
-  // historically). The `looseEq` scan above shares this latent shape but is
-  // pre-existing behavior, left unchanged deliberately (follow-up finding).
-  if (
-    emittedCodeUsesTextOps(result.code) ||
-    (result.artifacts?.some(
-      (art) => (isTsArtifactPath(art.path) || isSfcArtifactPath(art.path)) && emittedCodeUsesTextOps(art.content),
-    ) ??
-      false)
-  ) {
-    usage.textOps = true;
-  }
-  const preamble = kernStdlibPreamble(usage);
-  if (preamble.length === 0) return result;
-
-  const inject = isSfc ? injectKernStdlibPreambleIntoSFC : injectKernStdlibPreamble;
-  const updatedCode = inject(result.code, preamble);
-  const updatedArtifacts = result.artifacts?.map((art) => {
-    if (isSfcArtifactPath(art.path)) {
-      return { ...art, content: injectKernStdlibPreambleIntoSFC(art.content, preamble) };
-    }
-    if (isTsArtifactPath(art.path)) {
-      return { ...art, content: injectKernStdlibPreamble(art.content, preamble) };
-    }
-    return art;
-  });
-
-  return {
-    ...result,
-    code: updatedCode,
-    ...(updatedArtifacts ? { artifacts: updatedArtifacts } : {}),
-  };
-}
-
 // ── Transpile dispatch ───────────────────────────────────────────────────
 
 function dispatchTranspile(target: KernTarget, ast: IRNode, cfg: ResolvedKernConfig) {
@@ -1228,7 +1086,7 @@ function applyReactHookImports(
   target: KernTarget,
   result: import('@kernlang/core').TranspileResult,
 ): import('@kernlang/core').TranspileResult {
-  if (!TS_FAMILY_TARGETS.has(target)) return result;
+  if (!isTypeScriptFamilyTarget(target)) return result;
   const deps = detectReactHookDeps(ast);
   if (deps.size === 0) return result;
   const updatedCode = injectReactHookImports(result.code, deps);

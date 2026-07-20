@@ -113,7 +113,7 @@ function resolveDo(ir: IRNode, env: SemanticEnv): ResolvedDo {
           isPushBuiltFreshArrayBinding(env, targetName) && isFreshnessPreservingPushElement(elementExpr),
       };
     }
-    const mapSet = resolveMapSetCall(parsed, env);
+    const mapSet = resolveMapSetCall(parsed, env, evalPortableValue);
     if (mapSet) return { kind: 'map-set', targetName: mapSet.targetName, newMap: mapSet.newMap };
   }
   throw new Error('do: only "<array>.push(<element>)" and "Map.set(<map>, <key>, <value>)" are supported');
@@ -134,7 +134,7 @@ function pushCallTarget(node: ValueIR): { targetName: string; elementExpr: Value
  *  domain) or a nested array literal, matching `portable-array.ts`'s element
  *  domain — the SAME domain an array LITERAL's own items may hold. */
 function evalPortableArrayElement(node: ValueIR, env: SemanticEnv): PortableArrayElement {
-  if (isArrayLiteralExpression(node)) return evalArrayLiteralValue(node, env);
+  if (isArrayLiteralExpression(node)) return evalArrayLiteralValue(node, env, evalPortableValue);
   return evalPortableValue(node, env);
 }
 

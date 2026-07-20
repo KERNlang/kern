@@ -1,7 +1,35 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { REVIEW_FIXTURES } from './review-fixtures.mjs';
+
 export const ROOT = resolve(new URL('../..', import.meta.url).pathname);
+
+export const SAFE_INTEGER_TEXT_CASES = Object.freeze([
+  ['0', true],
+  ['1', true],
+  ['42', true],
+  ['9007199254740990', true],
+  ['9007199254740991', true],
+  ['-1', true],
+  ['-42', true],
+  ['-9007199254740991', true],
+  ['', false],
+  ['+1', false],
+  ['-0', false],
+  ['00', false],
+  ['01', false],
+  ['-01', false],
+  ['1.0', false],
+  ['1e3', false],
+  [' 1', false],
+  ['1 ', false],
+  ['NaN', false],
+  ['Infinity', false],
+  ['9007199254740992', false],
+  ['-9007199254740992', false],
+  ['99999999999999999', false],
+]);
 
 function repoFile(path) {
   return {
@@ -18,7 +46,7 @@ function inline(path, source) {
 }
 
 /**
- * T10 v1 corpus.
+ * T10 v2 corpus.
  *
  * Accept fixtures prove the checker accepts the T8 capstone assertion engine
  * itself and a tiny Map/set/get witness. Reject fixtures are the documented
@@ -80,6 +108,224 @@ fn name=safeint params="raw:string" returns=boolean
 fn name=main returns=void
   handler lang="kern"
     print value="safeint(\\"9007199254740991\\")"
+`,
+    ),
+  },
+  {
+    id: 'accept-selfhost-validator',
+    expected: 'accept',
+    ...repoFile('examples/selfhost-validator/validator.kern'),
+  },
+  {
+    id: 'accept-selfhost-validator-main',
+    expected: 'accept',
+    runnable: true,
+    ...repoFile('examples/selfhost-validator/main.kern'),
+  },
+  {
+    id: 'accept-checker-self-source',
+    expected: 'accept',
+    ...repoFile('examples/capstone-checker-subset/checker.kern'),
+  },
+  {
+    id: 'accept-checker-while-source',
+    expected: 'accept',
+    ...repoFile('examples/capstone-checker-subset/checker-while.kern'),
+  },
+  {
+    id: 'accept-valid-nested-else',
+    expected: 'accept',
+    runnable: true,
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/accept-valid-nested-else.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    let name=n value="1"
+    if cond="n == 1"
+      if cond="n < 2"
+        print value="\\"yes\\""
+      else
+        print value="\\"inner-no\\""
+    else
+      print value="\\"outer-no\\""
+`,
+    ),
+  },
+  {
+    id: 'accept-canonical-safe-integers',
+    expected: 'accept',
+    runnable: true,
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/accept-canonical-safe-integers.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    print value="42"
+    print value="9007199254740991"
+    print value="-9007199254740991"
+`,
+    ),
+  },
+  {
+    id: 'reject-orphan-else',
+    expected: 'reject',
+    why: 'an else without a preceding sibling if is structurally invalid',
+    expectedRejects: ['T10_ELSE|reject|orphan_else'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-orphan-else.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    else
+      print value="\\"bad\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-duplicate-else',
+    expected: 'reject',
+    why: 'a second else cannot pair with the same if',
+    expectedRejects: ['T10_ELSE|reject|duplicate_else'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-duplicate-else.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    if cond="true"
+      print value="\\"yes\\""
+    else
+      print value="\\"no\\""
+    else
+      print value="\\"duplicate\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-else-after-while',
+    expected: 'reject',
+    why: 'KERN excludes Python-style while-else',
+    expectedRejects: ['T10_ELSE|reject|invalid_predecessor'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-else-after-while.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    while cond="false"
+      print value="\\"never\\""
+    else
+      print value="\\"bad\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-empty-else',
+    expected: 'reject',
+    why: 'an else must contain a direct body statement',
+    expectedRejects: ['T10_ELSE|reject|empty_body'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-empty-else.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    if cond="true"
+      print value="\\"yes\\""
+    else
+    print value="\\"after\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-descendant-if-before-else',
+    expected: 'reject',
+    why: 'a nested descendant if cannot make an else following while valid',
+    expectedRejects: ['T10_ELSE|reject|invalid_predecessor'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-descendant-if-before-else.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    while cond="false"
+      if cond="true"
+        print value="\\"nested\\""
+    else
+      print value="\\"bad\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-while-literal-true',
+    expected: 'reject',
+    why: 'a literal-true loop is statically nonterminating',
+    expectedRejects: ['T10_WHILE|reject|literal_true'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-while-literal-true.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    while cond="true"
+      print value="\\"forever\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-while-number-condition',
+    expected: 'reject',
+    why: 'while conditions are strict boolean, not truthy numbers',
+    expectedRejects: ['T10_WHILE|reject|non_boolean_condition'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-while-number-condition.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    while cond="1"
+      print value="\\"bad\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-while-string-condition',
+    expected: 'reject',
+    why: 'while conditions are strict boolean, not truthy strings',
+    expectedRejects: ['T10_WHILE|reject|non_boolean_condition'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-while-string-condition.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    while cond="\\"yes\\""
+      print value="\\"bad\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-while-ident-condition',
+    expected: 'reject',
+    why: 'a bare identifier has no static boolean proof in the v2 row schema',
+    expectedRejects: ['T10_WHILE|reject|non_boolean_condition'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-while-ident-condition.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    let name=ready value="false"
+    while cond="ready"
+      print value="\\"bad\\""
+`,
+    ),
+  },
+  {
+    id: 'reject-while-empty-body',
+    expected: 'reject',
+    why: 'an empty loop has no progress witness',
+    expectedRejects: ['T10_WHILE|reject|empty_body'],
+    ...inline(
+      'examples/capstone-checker-subset/fixtures/reject-while-empty-body.kern',
+      `
+fn name=main returns=void
+  handler lang="kern"
+    while cond="false"
+    print value="\\"after\\""
 `,
     ),
   },
@@ -242,6 +488,7 @@ fn name=main returns=void
 `,
     ),
   },
+  ...REVIEW_FIXTURES,
 ]);
 
 export const RED_TEAM_ATTEMPTS = Object.freeze(

@@ -7,14 +7,18 @@
  * Phase 3 of the review pipeline.
  */
 
+import { createRequire } from 'node:module';
 import { execFileSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { Node, type Project, type SourceFile, SyntaxKind, type Node as TsMorphNode, type Type } from 'ts-morph';
 import { createProject, findTsConfig } from './inferrer.js';
 import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
+import { isTestLikeFilePath, isTestRunnerGlobalCannotFindName } from './test-runner-noise.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
+
+const packageRequire = createRequire(import.meta.url);
 
 function optionalPackageName(...parts: string[]): string {
   return parts.join('');
@@ -278,6 +282,28 @@ export function runTSCDiagnostics(
       const isNodeGlobalUnresolved =
         (code === 2304 || code === 2552 || code === 2503 || code === 2584) &&
         (isNodeGlobalCannotFindName(messageStr) || isWebRuntimeGlobalCannotFindName(messageStr));
+      // TS2582 / TS2593 — "Cannot find name 'describe'. Do you need to install
+      // type definitions for a test runner?" TS emits these two codes ONLY for
+      // its hardcoded test-runner name list (describe / suite / it / test /
+      // beforeEach / afterEach / …): 2582 when no @types/jest|mocha is
+      // installed, 2593 when installed but absent from the tsconfig `types`
+      // field. Both mean the host's test-runner ambient types
+      // (types: ["jest"], vitest globals) aren't reachable from review's
+      // ad-hoc Project — the same class as TS2580/TS2591 for @types/node.
+      // Globals NOT on TS's hint list (expect, jest, vi, …) fall through as
+      // plain TS2304/TS2552, and namespace-position uses (`let m: jest.Mock`)
+      // as TS2503. ALL legs are gated to test-like files (.test./.spec./
+      // __tests__/setup files), so a stray test-runner global in production
+      // code still surfaces (codex review caught that 2582/2593 fire for
+      // describe/it in any file, not just tests; agy caught the 2503 leg).
+      // kern-guard flagged every describe/it/expect in a React-Native repo
+      // whose local `pnpm typecheck` was clean (456/456 tests) — pure sandbox
+      // noise from the missing `types: ["jest"]`.
+      const isTestRunnerGlobalUnresolved =
+        (code === 2582 ||
+          code === 2593 ||
+          ((code === 2304 || code === 2552 || code === 2503) && isTestRunnerGlobalCannotFindName(messageStr))) &&
+        isTestLikeFilePath(filePath);
       // TS2741 "Property 'children' is missing" on a JSX user-component call
       // site is environmental whenever the JSX global namespace is broken in
       // the same file. Without `JSX.ElementChildrenAttribute`, TS does not
@@ -343,6 +369,7 @@ export function runTSCDiagnostics(
         (isLoadingNoise ||
           isEnvironmentalNoise ||
           isNodeGlobalUnresolved ||
+          isTestRunnerGlobalUnresolved ||
           isJsxChildrenInferenceNoise ||
           isBrokenJsxRuntimeNoise ||
           isUnresolvedImportErosionCascade ||
@@ -1002,7 +1029,13 @@ function normalizeDiagnosticPath(filePath: string): string {
 function findTscBin(startDir: string): string | undefined {
   const fromStart = findTscBinFrom(startDir);
   if (fromStart) return fromStart;
-  return findTscBinFrom(process.cwd());
+  const fromCwd = findTscBinFrom(process.cwd());
+  if (fromCwd) return fromCwd;
+  try {
+    return packageRequire.resolve('typescript/bin/tsc');
+  } catch {
+    return undefined;
+  }
 }
 
 function findTscBinFrom(startDir: string): string | undefined {

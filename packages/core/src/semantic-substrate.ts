@@ -12,7 +12,7 @@ import {
   type CoreTypeContract,
   contractToGraphEdges,
 } from './core-contracts/index.js';
-import { type CoreShapeFacts, collectCoreShapeFacts } from './core-runtime/shape-validator.js';
+import { type CoreShapeFacts, collectCoreShapeFacts } from './core-shape-facts.js';
 import type { NodeContract } from './ir/semantics/index.js';
 import { snapshotRegistry } from './ir/semantics/index.js';
 import { RAG_EMITTED_BOUNDARY, type RagEmittedBoundary } from './rag-emitted-boundary.js';

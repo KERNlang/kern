@@ -1,3 +1,8 @@
+use path="./checker-while"
+  from name=checkerSafeIntText kind=fn as=checkerSafeIntText
+  from name=checkerElseRejectDetail kind=fn as=checkerElseRejectDetail
+  from name=checkerWhileRejectDetail kind=fn as=checkerWhileRejectDetail
+
 fn name=acceptLine params="path:string" returns=string export=true
   handler lang="kern"
     return value="path + \":1:1|T10_MODULE|accept|ok\""
@@ -24,6 +29,10 @@ fn name=isSurfaceKind params="kind:string" returns=boolean
       return value="true"
     if cond="kind == \"if\""
       return value="true"
+    if cond="kind == \"else\""
+      return value="true"
+    if cond="kind == \"while\""
+      return value="true"
     if cond="kind == \"return\""
       return value="true"
     if cond="kind == \"print\""
@@ -32,22 +41,17 @@ fn name=isSurfaceKind params="kind:string" returns=boolean
       return value="true"
     return value="false"
 
-fn name=isSafeIntText params="raw:string" returns=boolean
+fn name=isSafeIntText params="raw:string" returns=boolean export=true
   handler lang="kern"
-    # Conservative t10.v1 numeric literal boundary. The TS reference still
-    # calls printContract; this KERN side accepts only literals needed by the
-    # frozen capstone/red-team corpus and rejects wider numerics fail-closed.
-    if cond="raw == \"-1\""
-      return value="true"
-    if cond="raw == \"0\""
-      return value="true"
-    if cond="raw == \"1\""
-      return value="true"
-    if cond="raw == \"2\""
-      return value="true"
-    if cond="raw == \"3\""
-      return value="true"
-    return value="false"
+    return value="checkerSafeIntText(raw)"
+
+fn name=elseRejectDetail params="row:number,stmtKind:string[],stmtParent:number[]" returns=string
+  handler lang="kern"
+    return value="checkerElseRejectDetail(row, stmtKind, stmtParent)"
+
+fn name=whileRejectDetail params="row:number,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtName:string[],stmtTarget:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprNum:string[],stmtExprLeftKind:string[],stmtExprLeftName:string[],stmtExprLeftNum:string[],stmtExprLeftMemberObject:string[],stmtExprLeftMemberProp:string[],stmtExprRightKind:string[],stmtExprRightName:string[],stmtExprRightNum:string[],stmtExprRightMemberObject:string[],stmtExprRightMemberProp:string[],paramFn:string[],paramName:string[],paramType:string[]" returns=string
+  handler lang="kern"
+    return value="checkerWhileRejectDetail(row, stmtKind, stmtFn, stmtParent, stmtName, stmtTarget, stmtExprKind, stmtExprName, stmtExprNum, stmtExprLeftKind, stmtExprLeftName, stmtExprLeftNum, stmtExprLeftMemberObject, stmtExprLeftMemberProp, stmtExprRightKind, stmtExprRightName, stmtExprRightNum, stmtExprRightMemberObject, stmtExprRightMemberProp, paramFn, paramName, paramType)"
 
 fn name=isPrintNumberText params="raw:string" returns=boolean
   handler lang="kern"
@@ -72,10 +76,12 @@ fn name=isUserCallable params="name:string,stmtKind:string[],stmtName:string[],s
         if cond="stmtName[i] == name"
           return value="true"
       if cond="stmtKind[i] == \"from\""
-        if cond="stmtName[i] == name"
-          return value="true"
+        # An aliased import binds only its local target, never both names.
         if cond="stmtTarget[i] == name"
           return value="true"
+        if cond="stmtTarget[i] == \"\""
+          if cond="stmtName[i] == name"
+            return value="true"
     return value="false"
 
 fn name=isForCounter params="fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtName:string[]" returns=boolean
@@ -96,6 +102,18 @@ fn name=isAssigned params="fnName:string,binding:string,stmtKind:string[],stmtFn
             return value="true"
     return value="false"
 
+fn name=isIndexRebound params="fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[]" returns=boolean
+  handler lang="kern"
+    for name=i from=0 to="stmtKind.length"
+      if cond="stmtFn[i] == fnName"
+        if cond="stmtKind[i] == \"assign\""
+          if cond="stmtTarget[i] == binding"
+            return value="true"
+        if cond="stmtKind[i] == \"let\""
+          if cond="stmtName[i] == binding"
+            return value="true"
+    return value="false"
+
 fn name=paramOrdinalOf params="fnName:string,binding:string,paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=number
   handler lang="kern"
     for name=i from=0 to="paramFn.length"
@@ -111,10 +129,10 @@ fn name=termProvenanced params="fnName:string,kind:string,name:string,num:string
     if cond="kind != \"ident\""
       return value="false"
     if cond="isForCounter(fnName, name, stmtKind, stmtFn, stmtName)"
-      if cond="!isAssigned(fnName, name, stmtKind, stmtFn, stmtTarget)"
+      if cond="!isIndexRebound(fnName, name, stmtKind, stmtFn, stmtName, stmtTarget)"
         return value="true"
     if cond="paramOrdinalOf(fnName, name, paramFn, paramName, paramOrdinal) >= 0"
-      if cond="!isAssigned(fnName, name, stmtKind, stmtFn, stmtTarget)"
+      if cond="!isIndexRebound(fnName, name, stmtKind, stmtFn, stmtName, stmtTarget)"
         return value="true"
     return value="false"
 
@@ -135,14 +153,12 @@ fn name=argProvenanced params="fnName:string,argId:number,argKind:string[],argNa
     if cond="argKind[argId] == \"binary\""
       if cond="argOp[argId] == \"+\""
         if cond="termProvenanced(fnName, argLeftKind[argId], argLeftName[argId], argLeftNum[argId], stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
-          return value="true"
-        if cond="termProvenanced(fnName, argRightKind[argId], argRightName[argId], argRightNum[argId], stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
-          return value="true"
+          if cond="termProvenanced(fnName, argRightKind[argId], argRightName[argId], argRightNum[argId], stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
+            return value="true"
       if cond="argOp[argId] == \"-\""
         if cond="termProvenanced(fnName, argLeftKind[argId], argLeftName[argId], argLeftNum[argId], stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
-          return value="true"
-        if cond="termProvenanced(fnName, argRightKind[argId], argRightName[argId], argRightNum[argId], stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
-          return value="true"
+          if cond="termProvenanced(fnName, argRightKind[argId], argRightName[argId], argRightNum[argId], stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
+            return value="true"
     return value="false"
 
 fn name=paramCallsitesOk params="callee:string,ordinal:number,callName:string[],callFn:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],argNum:string[],argOp:string[],argLeftKind:string[],argLeftName:string[],argLeftNum:string[],argRightKind:string[],argRightName:string[],argRightNum:string[],stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[],paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=boolean
@@ -171,11 +187,11 @@ fn name=indexRejectDetail params="fnName:string,indexKind:string,indexName:strin
     if cond="indexKind != \"ident\""
       return value="\"unsupported_index_expr\""
     if cond="isForCounter(fnName, indexName, stmtKind, stmtFn, stmtName)"
-      if cond="!isAssigned(fnName, indexName, stmtKind, stmtFn, stmtTarget)"
+      if cond="!isIndexRebound(fnName, indexName, stmtKind, stmtFn, stmtName, stmtTarget)"
         return value="\"\""
     let name=ord value="paramOrdinalOf(fnName, indexName, paramFn, paramName, paramOrdinal)"
     if cond="ord >= 0"
-      if cond="!isAssigned(fnName, indexName, stmtKind, stmtFn, stmtTarget)"
+      if cond="!isIndexRebound(fnName, indexName, stmtKind, stmtFn, stmtName, stmtTarget)"
         if cond="paramCallsitesOk(fnName, ord, callName, callFn, argCall, argOrdinal, argKind, argName, argNum, argOp, argLeftKind, argLeftName, argLeftNum, argRightKind, argRightName, argRightNum, stmtKind, stmtFn, stmtName, stmtTarget, paramFn, paramName, paramOrdinal)"
           return value="\"\""
     return value="\"missing_provenance\""
@@ -272,7 +288,7 @@ fn name=callRejectCode params="callId:number,callName:string[],callStmtKind:stri
       return value="\"\""
     return value="\"T10_SURFACE|unsupported_call\""
 
-fn name=checkModule params="path:string,stmtKind:string[],stmtFn:string[],stmtLine:number[],stmtCol:number[],stmtName:string[],stmtTarget:string[],stmtValue:string[],stmtTemplate:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprNum:string[],stmtExprCall:string[],stmtExprMemberObject:string[],stmtExprMemberProp:string[],stmtExprArgCount:number[],idxStmt:number[],idxFn:string[],idxLine:number[],idxCol:number[],idxIndexKind:string[],idxIndexName:string[],callStmt:number[],callFn:string[],callStmtKind:string[],callLine:number[],callCol:number[],callName:string[],callMemberObject:string[],callMemberProp:string[],callArgCount:number[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],argNum:string[],argOp:string[],argLeftKind:string[],argLeftName:string[],argLeftNum:string[],argRightKind:string[],argRightName:string[],argRightNum:string[],paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=string[] export=true
+fn name=checkModule params="path:string,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtLine:number[],stmtCol:number[],stmtName:string[],stmtTarget:string[],stmtValue:string[],stmtTemplate:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprLeftKind:string[],stmtExprLeftName:string[],stmtExprLeftNum:string[],stmtExprLeftMemberObject:string[],stmtExprLeftMemberProp:string[],stmtExprRightKind:string[],stmtExprRightName:string[],stmtExprRightNum:string[],stmtExprRightMemberObject:string[],stmtExprRightMemberProp:string[],stmtExprNum:string[],stmtExprCall:string[],stmtExprMemberObject:string[],stmtExprMemberProp:string[],stmtExprArgCount:number[],idxStmt:number[],idxFn:string[],idxLine:number[],idxCol:number[],idxIndexKind:string[],idxIndexName:string[],callStmt:number[],callFn:string[],callStmtKind:string[],callLine:number[],callCol:number[],callName:string[],callMemberObject:string[],callMemberProp:string[],callArgCount:number[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],argNum:string[],argOp:string[],argLeftKind:string[],argLeftName:string[],argLeftNum:string[],argRightKind:string[],argRightName:string[],argRightNum:string[],paramFn:string[],paramName:string[],paramType:string[],paramOrdinal:number[]" returns=string[] export=true
   handler lang="kern"
     let name=out value="[]"
     for name=i from=0 to="stmtKind.length"
@@ -302,6 +318,14 @@ fn name=checkModule params="path:string,stmtKind:string[],stmtFn:string[],stmtLi
         if cond="stmtExprMemberProp[i] != \"push\""
           if cond="stmtExprCall[i] != \"Map.set\""
             do value="out.push(rejectLine(path, stmtLine[i], stmtCol[i], \"T10_EFFECT\", \"unsupported_do\"))"
+      if cond="stmtKind[i] == \"else\""
+        let name=elseDetail value="elseRejectDetail(i, stmtKind, stmtParent)"
+        if cond="elseDetail != \"\""
+          do value="out.push(rejectLine(path, stmtLine[i], stmtCol[i], \"T10_ELSE\", elseDetail))"
+      if cond="stmtKind[i] == \"while\""
+        let name=whileDetail value="whileRejectDetail(i, stmtKind, stmtFn, stmtParent, stmtName, stmtTarget, stmtExprKind, stmtExprName, stmtExprNum, stmtExprLeftKind, stmtExprLeftName, stmtExprLeftNum, stmtExprLeftMemberObject, stmtExprLeftMemberProp, stmtExprRightKind, stmtExprRightName, stmtExprRightNum, stmtExprRightMemberObject, stmtExprRightMemberProp, paramFn, paramName, paramType)"
+        if cond="whileDetail != \"\""
+          do value="out.push(rejectLine(path, stmtLine[i], stmtCol[i], \"T10_WHILE\", whileDetail))"
     for name=c from=0 to="callName.length"
       let name=callVerdict value="callRejectCode(c, callName, callStmtKind, callMemberObject, callMemberProp, stmtKind, stmtName, stmtTarget, callStmt, callFn, argCall, argOrdinal, argKind, argName, stmtFn)"
       if cond="callVerdict != \"\""

@@ -62,7 +62,7 @@ export type CoreFixtureValue =
   | { readonly [key: string]: CoreFixtureValue };
 
 export type CoreFixtureError = {
-  readonly code: 'strict-type' | 'division-by-zero';
+  readonly code: 'strict-type' | 'division-by-zero' | 'invalid-power';
   readonly message: string;
 };
 

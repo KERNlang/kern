@@ -17,13 +17,10 @@
 
 import { analysisClosureClassifier } from './closure-classifier.js';
 import { hasDirectSuperCtorCall } from './constructor-super.js';
-import {
-  type CoreShapeDiagnostic,
-  type CoreShapeInterfaceFact,
-  collectCoreShapeFacts,
-} from './core-runtime/shape-validator.js';
+import { type CoreShapeDiagnostic, type CoreShapeInterfaceFact, collectCoreShapeFacts } from './core-shape-facts.js';
 import { collectExternalImportSymbols, type ExternalImportSymbolTable } from './external-symbols.js';
 import { importRegistryOf } from './import-metadata.js';
+import { mixedParameterDeclarationViolation } from './parameter-declarations.js';
 import { parseExpression } from './parser-expression.js';
 import { RAG_ASSERTION_KIND_SET, RAG_ASSERTION_KINDS } from './rag-assertions.js';
 import {
@@ -504,6 +501,9 @@ function validateNode(
   ancestry: string[],
   ancestorNodes: IRNode[],
 ): void {
+  const parameterViolation = mixedParameterDeclarationViolation(node);
+  if (parameterViolation) violations.push(parameterViolation);
+
   // ── Machine transition cross-ref ───────────────────────────────────
   if (node.type === 'machine' && node.children) {
     const stateNames = new Set<string>();

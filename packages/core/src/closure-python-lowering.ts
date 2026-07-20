@@ -2,12 +2,18 @@ import ts from 'typescript';
 import {
   bindingPatternIdentifierNames,
   CLOSURE_ASSIGN_OPERATORS,
+  isClosureBlockPowerWithinLimits,
   parseClosureBlockAst,
 } from './closure-eligibility.js';
+import { normalizeClosureExpressionSource } from './closure-expression-normalize.js';
 
 export interface LowerJsClosureBodyToPythonOptions {
   lowerExpression(expr: string): string;
   lowerCondition?(expr: string): string;
+  /** Validate every parameter, local declaration, and bare write target before
+   *  it can become a Python binding. Required so consumers cannot silently omit
+   *  generated-helper reservations. */
+  validateBindingName(name: string): void;
   /** The closure's own parameter names. A bare-identifier write to a param (or
    *  to a block-LOCAL declared inside the closure) is a def-local plain
    *  assignment — it must NOT be reported as a written FREE name (no
@@ -93,17 +99,35 @@ export function lowerJsClosureBodyToPython(
   opts: LowerJsClosureBodyToPythonOptions,
 ): LowerJsClosureBodyToPythonResult {
   // Shared block parse — single source of truth with the v1 closure gate
-  // (`closure-eligibility.ts`). The block carries its own SourceFile (created
-  // with parent nodes), which we need for `expr.getText(sf)`.
+  // (`closure-eligibility.ts`).
   const block = parseClosureBlockAst(body);
-  if (!block) return { ok: false, lines: [], reason: 'parse', writtenFreeNames: new Set() };
-  const sf = block.getSourceFile();
+  if (!block)
+    return {
+      ok: false,
+      lines: [],
+      reason: 'parse',
+      writtenFreeNames: new Set(),
+    };
+  if (!isClosureBlockPowerWithinLimits(block))
+    return {
+      ok: false,
+      lines: [],
+      reason: 'parse',
+      writtenFreeNames: new Set(),
+    };
   if (hasUnsupportedNestedConstruct(block))
-    return { ok: false, lines: [], reason: 'unsupported-nested', writtenFreeNames: new Set() };
+    return {
+      ok: false,
+      lines: [],
+      reason: 'unsupported-nested',
+      writtenFreeNames: new Set(),
+    };
 
-  const lowerExpr = (expr: ts.Expression): string => opts.lowerExpression(expr.getText(sf));
+  const lowerExpr = (expr: ts.Expression): string => opts.lowerExpression(normalizeClosureExpressionSource(ts, expr));
   const lowerCond = (expr: ts.Expression): string =>
-    opts.lowerCondition ? opts.lowerCondition(expr.getText(sf)) : `js_truthy(${lowerExpr(expr)})`;
+    opts.lowerCondition
+      ? opts.lowerCondition(normalizeClosureExpressionSource(ts, expr))
+      : `js_truthy(${lowerExpr(expr)})`;
 
   // A bare-identifier write needs `nonlocal` (it is FREE) only when its name is
   // neither a closure PARAM nor a block-LOCAL declared inside the body. Collect
@@ -111,10 +135,14 @@ export function lowerJsClosureBodyToPython(
   // `collectLocalDeclaredNames` in the gate (identifier-named let/const only;
   // destructuring never reaches here — the gate rejects it).
   const paramNames = new Set(opts.paramNames ?? []);
+  for (const name of paramNames) opts.validateBindingName(name);
   const declaredLocals = new Set<string>();
   {
     const collect = (node: ts.Node): void => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) declaredLocals.add(node.name.text);
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+        opts.validateBindingName(node.name.text);
+        declaredLocals.add(node.name.text);
+      }
       ts.forEachChild(node, collect);
     };
     ts.forEachChild(block, collect);
@@ -166,6 +194,7 @@ export function lowerJsClosureBodyToPython(
     const target = expr.left;
     const rhs = lowerExpr(expr.right);
     if (ts.isIdentifier(target)) {
+      opts.validateBindingName(target.text);
       recordIfFree(target.text);
       return [`${indent}${lowerTarget(target.text)} ${pyOp} ${rhs}`];
     }
@@ -186,6 +215,7 @@ export function lowerJsClosureBodyToPython(
     if (expr.operator !== ts.SyntaxKind.PlusPlusToken && expr.operator !== ts.SyntaxKind.MinusMinusToken) return null;
     const step = expr.operator === ts.SyntaxKind.PlusPlusToken ? '+=' : '-=';
     if (ts.isIdentifier(expr.operand)) {
+      opts.validateBindingName(expr.operand.text);
       recordIfFree(expr.operand.text);
       return [`${indent}${lowerTarget(expr.operand.text)} ${step} 1`];
     }
@@ -279,7 +309,9 @@ export function lowerJsClosureBodyToPython(
         if (!ts.isIdentifier(decl.name) || decl.initializer) return null;
         target = decl.name.text;
       } else if (ts.isIdentifier(initializer)) {
-        target = initializer.text;
+        opts.validateBindingName(initializer.text);
+        recordIfFree(initializer.text);
+        target = lowerTarget(initializer.text);
       }
       if (!target) return null;
       const bodyLines = emitStatementBody(stmt.statement, `${indent}    `);
@@ -342,6 +374,12 @@ export function lowerJsClosureBodyToPython(
   const nonEmptyBody = (lines: string[], indent: string): string[] => (lines.length > 0 ? lines : [`${indent}pass`]);
 
   const lines = emitBlock(block, '    ');
-  if (!lines) return { ok: false, lines: [], reason: 'unsupported-statement', writtenFreeNames: new Set() };
+  if (!lines)
+    return {
+      ok: false,
+      lines: [],
+      reason: 'unsupported-statement',
+      writtenFreeNames: new Set(),
+    };
   return { ok: true, lines, writtenFreeNames };
 }

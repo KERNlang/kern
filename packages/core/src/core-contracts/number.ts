@@ -129,6 +129,40 @@ export const NUMBER_CONTRACT = {
       },
     },
     {
+      id: 'Number.power',
+      kind: 'method',
+      args: ['Number', 'Number'],
+      returns: 'Number',
+      lowers: {
+        kern: 'Number.power($0, $1)',
+        ts: '__kern_pow_int([$0, $1])',
+        python: '_kern_pow_int([$0, $1])',
+      },
+      fixtures: [
+        { args: [2, 10], returns: 1024 },
+        { args: [-2, 3], returns: -8 },
+        { args: [0, 0], returns: 1 },
+        {
+          args: [2, -1],
+          throws: {
+            code: 'invalid-power',
+            message: 'portable: ** requires a safe-integer base and nonnegative safe-integer exponent',
+          },
+        },
+        {
+          args: [2, 53],
+          throws: {
+            code: 'invalid-power',
+            message: 'portable: ** result exceeds the safe-integer domain',
+          },
+        },
+      ],
+      review: {
+        summary: 'Checked integer exponentiation over the finite safe-integer KERN Number domain.',
+        graph: ['Number', 'strict', 'portable'],
+      },
+    },
+    {
       id: 'Number.lessThan',
       kind: 'method',
       args: ['Number', 'Number'],

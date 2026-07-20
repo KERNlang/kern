@@ -18,117 +18,38 @@
  *   disagree on empty container truthiness.
  */
 
-import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import {
-  getBinding,
-  hasBinding,
-  type NodeContract,
-  type NodeFixture,
-  registerContract,
-  type SemanticEnv,
-} from './index.js';
+  evaluateIfConditionWithEvaluator,
+  type IfProps,
+  ifPreconditionsWithEvaluator,
+  validateIfNodeWithEvaluator,
+} from './if-runtime.js';
+import { type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
 import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
-export interface IfProps {
-  cond?: string;
-  __pairedElse?: IRNode;
+export type { IfProps } from './if-runtime.js';
+export { portableTruthy } from './if-runtime.js';
+
+export function evaluateIfCondition(ir: IRNode, env: SemanticEnv): boolean {
+  return evaluateIfConditionWithEvaluator(ir, env, evalPortableValue);
 }
 
-function asIfProps(ir: IRNode): IfProps {
-  return (ir.props ?? {}) as IfProps;
-}
-
-function ifPreconditions(ir: IRNode, env: SemanticEnv): boolean {
-  return validateIfNode(ir, env);
+export function ifPreconditions(ir: IRNode, env: SemanticEnv): boolean {
+  return ifPreconditionsWithEvaluator(ir, env, evalPortableValue);
 }
 
 export function validateIfNode(ir: IRNode, env: SemanticEnv): boolean {
-  const p = asIfProps(ir);
-  if (typeof p.cond !== 'string' || p.cond.trim().length === 0) return false;
-  try {
-    portableTruthy(conditionValue(p.cond, env));
-  } catch {
-    return false;
-  }
-  if (p.__pairedElse !== undefined && !validateElseNode(p.__pairedElse, env)) return false;
-  return true;
-}
-
-function validateElseNode(ir: IRNode, env: SemanticEnv): boolean {
-  if (ir.type !== 'else') return false;
-  const children = ir.children ?? [];
-  if (children.length === 1 && children[0].type === 'if') return validateIfNode(children[0], env);
-  if (children.length === 2 && children[0].type === 'if' && children[1].type === 'else') {
-    const pairedIf: IRNode = {
-      ...children[0],
-      props: {
-        ...(children[0].props ?? {}),
-        __pairedElse: children[1],
-      },
-    };
-    return validateIfNode(pairedIf, env);
-  }
-  return true;
-}
-
-function conditionValue(cond: string, env: SemanticEnv): unknown {
-  const trimmed = cond.trim();
-  if (trimmed === 'true' || trimmed === 'True') return true;
-  if (trimmed === 'false' || trimmed === 'False') return false;
-  if (trimmed === 'null' || trimmed === 'undefined' || trimmed === 'None') return null;
-  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return parseStringLiteral(trimmed);
-  }
-  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed)) {
-    if (!hasBinding(env, trimmed)) {
-      throw new Error(`if: binding "${trimmed}" not found in env`);
-    }
-    return getBinding(env, trimmed);
-  }
-  if (trimmed.startsWith('!')) return !portableTruthy(conditionValue(trimmed.slice(1), env));
-  // Full expression condition (comparisons, boolean composition, member reads):
-  // evaluate through the portable expression evaluator — the same one `while` and
-  // `let`/`assign` use — so `if cond="x > 3"` no longer abstains. `portableTruthy`
-  // still fences the RESULT to the JS/Python-agreeing truthiness domain
-  // (bool/number/string), abstaining on divergent values (arrays/objects), so a
-  // non-portable condition fails closed rather than picking one host's answer.
-  return evalPortableValue(parseExpression(trimmed), env);
-}
-
-function parseStringLiteral(text: string): string {
-  if (text.startsWith('"')) return JSON.parse(text) as string;
-  const inner = text.slice(1, -1);
-  return inner.replace(/\\'/g, "'").replace(/\\\\/g, '\\');
-}
-
-export function portableTruthy(value: unknown): boolean {
-  if (value === null || value === undefined) return false;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('if: condition number must be finite');
-    return value !== 0;
-  }
-  if (typeof value === 'string') return value.length > 0;
-  throw new Error('if: condition value is outside the portable truthiness domain');
-}
-
-export function evaluateIfCondition(ir: IRNode, env: SemanticEnv): boolean {
-  const p = asIfProps(ir);
-  if (typeof p.cond !== 'string' || p.cond.trim().length === 0) {
-    throw new Error('if: cond= must be a non-empty string expression');
-  }
-  return portableTruthy(conditionValue(p.cond, env));
+  return validateIfNodeWithEvaluator(ir, env, evalPortableValue);
 }
 
 function ifEffects(ir: IRNode, env: SemanticEnv): Trace {
   if (evaluateIfCondition(ir, env)) {
     return referenceRunSequence(ir.children ?? [], env);
   }
-  const p = asIfProps(ir);
+  const p = (ir.props ?? {}) as IfProps;
   const elseNode = p.__pairedElse;
   if (elseNode) return referenceRunSequence(elseNode.children ?? [], env);
   return emptyTrace();

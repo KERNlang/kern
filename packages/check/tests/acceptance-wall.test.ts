@@ -33,7 +33,7 @@
  *   M4 (a corpus file silently drops out of the wall) → guarded by the exact
  *      `PARSE_FAILURE_ALLOWLIST` deep-equal below.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from '../../../scripts/node-test-compat.ts';
@@ -46,14 +46,15 @@ import { checkProgram } from '../dist/walk.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** Repo root: packages/check/tests → ../../.. */
 const REPO_ROOT = join(HERE, '..', '..', '..');
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', '.claude']);
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', '.claude', '.pnpm-store', '.release']);
 
 /** Deterministic (sorted) recursive walk for `*.kern` FILES (not directories —
  *  `.kern` directories exist in the repo and must NOT be collected). */
 function collectKernFiles(dir: string, out: string[]): void {
   for (const name of readdirSync(dir).sort()) {
     const full = join(dir, name);
-    const st = statSync(full);
+    const st = lstatSync(full);
+    if (st.isSymbolicLink()) continue;
     if (st.isDirectory()) {
       if (EXCLUDE_DIRS.has(name)) continue;
       collectKernFiles(full, out);

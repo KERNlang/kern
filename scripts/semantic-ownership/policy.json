@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "proofLabel": "BOOTSTRAP-DEPENDENT",
+  "claims": {
+    "runtimeCutover": false,
+    "kirV1Frozen": false,
+    "publicReaderExport": false,
+    "semanticSelfHosting": false
+  },
+  "forbiddenCanonicalRoles": ["bootstrap-authority", "differential-oracle", "internal-oracle"],
+  "canonicalSource": "source-input",
+  "canonicalSink": "host-capability-boundary",
+  "components": [
+    { "id": "source-input", "role": "external-input", "status": "current" },
+    { "id": "kern-frontend", "role": "planned-owner", "status": "planned" },
+    { "id": "kir-reader-candidate", "role": "internal-data-boundary", "status": "internal-candidate" },
+    { "id": "kern-interpreter", "role": "planned-semantic-owner", "status": "planned" },
+    { "id": "host-capability-boundary", "role": "host-boundary", "status": "planned" },
+    { "id": "ts-source-runtime", "role": "bootstrap-authority", "status": "current" },
+    { "id": "ts-async-source-runtime", "role": "bootstrap-authority", "status": "current" },
+    { "id": "source-runner-selector", "role": "bootstrap-authority", "status": "current" },
+    { "id": "source-runner-legacy", "role": "bootstrap-authority", "status": "current" },
+    { "id": "internal-runtime-engine", "role": "internal-oracle", "status": "current" },
+    { "id": "reference-runner", "role": "differential-oracle", "status": "current" },
+    { "id": "async-reference-runner", "role": "differential-oracle", "status": "current" },
+    { "id": "cli-run", "role": "bootstrap-authority", "status": "current" },
+    { "id": "kern-checker-v2", "role": "internal-oracle", "status": "current" },
+    { "id": "kern-module-validator", "role": "internal-oracle", "status": "current" }
+  ],
+  "contracts": [
+    { "id": "source-frontend", "owner": "kern-frontend", "status": "planned" },
+    { "id": "semantic-kir-reader", "owner": "kir-reader-candidate", "status": "internal-candidate" },
+    { "id": "semantic-execution", "owner": "kern-interpreter", "status": "planned" },
+    { "id": "host-capability-dispatch", "owner": "host-capability-boundary", "status": "planned" }
+  ],
+  "canonicalEdges": [
+    { "from": "source-input", "to": "kern-frontend" },
+    { "from": "kern-frontend", "to": "kir-reader-candidate" },
+    { "from": "kir-reader-candidate", "to": "kern-interpreter" },
+    { "from": "kern-interpreter", "to": "host-capability-boundary" }
+  ],
+  "currentWitnesses": [
+    {
+      "id": "sync-runtime-to-source-selector",
+      "from": "ts-source-runtime",
+      "to": "source-runner-selector",
+      "path": "packages/core/src/runner.ts",
+      "evidence": "assigned-imported-call:executeSourceRunnerSync:executeSourceRunnerSync:./runtime-envelope/source-runner-engine.js:executeParsedKernHandler:trace"
+    },
+    {
+      "id": "async-runtime-to-source-selector",
+      "from": "ts-async-source-runtime",
+      "to": "source-runner-selector",
+      "path": "packages/core/src/runner.ts",
+      "evidence": "assigned-imported-call:executeSourceRunnerAsync:executeSourceRunnerAsync:./runtime-envelope/source-runner-engine.js:executeKernSourceAsyncWithEntry:trace"
+    },
+    {
+      "id": "selector-sync-to-internal-runtime",
+      "from": "source-runner-selector",
+      "to": "internal-runtime-engine",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runInternalRuntimeEngineSync:runInternalRuntimeEngineSync:./internal-engine.js:executeSourceRunnerSync"
+    },
+    {
+      "id": "selector-sync-to-legacy",
+      "from": "source-runner-selector",
+      "to": "source-runner-legacy",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runSourceRunnerLegacySync:runSourceRunnerLegacySync:./source-runner-legacy.js:executeSourceRunnerSync"
+    },
+    {
+      "id": "selector-async-to-internal-runtime",
+      "from": "source-runner-selector",
+      "to": "internal-runtime-engine",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runInternalRuntimeEngineAsync:runInternalRuntimeEngineAsync:./internal-engine.js:executeSourceRunnerAsync"
+    },
+    {
+      "id": "selector-async-to-legacy",
+      "from": "source-runner-selector",
+      "to": "source-runner-legacy",
+      "path": "packages/core/src/runtime-envelope/source-runner-engine.ts",
+      "evidence": "returned-imported-call:runSourceRunnerLegacyAsync:runSourceRunnerLegacyAsync:./source-runner-legacy.js:executeSourceRunnerAsync"
+    },
+    {
+      "id": "legacy-sync-to-reference-runner",
+      "from": "source-runner-legacy",
+      "to": "reference-runner",
+      "path": "packages/core/src/runtime-envelope/source-runner-legacy.ts",
+      "evidence": "returned-imported-call:referenceRunSequence:referenceRunSequence:../ir/semantics/reference-runner.js:runSourceRunnerLegacySync"
+    },
+    {
+      "id": "legacy-async-to-async-reference-runner",
+      "from": "source-runner-legacy",
+      "to": "async-reference-runner",
+      "path": "packages/core/src/runtime-envelope/source-runner-legacy.ts",
+      "evidence": "returned-imported-call:asyncReferenceRunSequence:asyncReferenceRunSequence:../ir/semantics/async-reference-runner.js:runSourceRunnerLegacyAsync"
+    },
+    {
+      "id": "async-fallback-to-reference-runner",
+      "from": "async-reference-runner",
+      "to": "reference-runner",
+      "path": "packages/core/src/ir/semantics/async-reference-runner.ts",
+      "evidence": "returned-imported-call:referenceRun:referenceRun:./reference-runner.js:asyncReferenceRun"
+    },
+    {
+      "id": "cli-to-source-runtime",
+      "from": "cli-run",
+      "to": "ts-source-runtime",
+      "path": "packages/cli/src/commands/run.ts",
+      "evidence": "returned-imported-call:executeKernSource:executeKernSourceFromRunner:@kernlang/core/runner:executeKernSource"
+    },
+    {
+      "id": "checker-to-cli",
+      "from": "kern-checker-v2",
+      "to": "cli-run",
+      "path": "scripts/check-capstone-checker-subset.mjs",
+      "evidence": "call-array:spawnSync:1:CLI,run,target:process.execPath"
+    },
+    {
+      "id": "validator-to-cli",
+      "from": "kern-module-validator",
+      "to": "cli-run",
+      "path": "scripts/check-selfhost-validator.mjs",
+      "evidence": "call-array:spawnSync:1:CLI,run,MAIN_KERN:process.execPath"
+    }
+  ],
+  "readerBinding": {
+    "path": "packages/core/src/kir-reader-candidate/types.ts",
+    "includes": "export const KIR_READER_CANDIDATE_FORMAT = 'kern.semantic-kir.probe.1' as const;",
+    "format": "kern.semantic-kir.probe.1",
+    "status": "internal-candidate"
+  },
+  "readerContainment": {
+    "token": "kir-reader-candidate",
+    "absentFrom": [
+      "packages/core/package.json",
+      "packages/core/src/index.ts",
+      "packages/core/src/runner.ts",
+      "packages/core/src/runner-browser.ts"
+    ],
+    "entrypoints": [
+      "packages/core/src/index.ts",
+      "packages/core/src/runner.ts",
+      "packages/core/src/runner-browser.ts"
+    ]
+  }
+}
