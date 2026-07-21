@@ -1,0 +1,38 @@
+{
+  "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+  "snapshot": {
+    "baseline": {
+      "baseCompleteFunctions": 32,
+      "baseId": "kern.kir-canonicalizer.profile.m4.25",
+      "corpusMembers": 9,
+      "functionCount": 104,
+      "legacyParameterBlockers": 70,
+      "toolCount": 4
+    },
+    "minimumFamilyCount": 1,
+    "selectedPrerequisite": {
+      "catalogFacts": 1,
+      "family": "unary-expression",
+      "occurrences": 48
+    },
+    "winningClosure": {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "families": [
+        "unary-expression"
+      ],
+      "migratedParameterRows": 2,
+      "occurrences": 48,
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat"
+      ]
+    }
+  },
+  "source": {
+    "commit": "e22a02418f14b6de9619b08b63281abdbc002ef1",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+    "coverageSummarySha256": "276c3d0a0673cf22027f65b9c532a79be4e018749aa7b8d50d421defd125271c",
+    "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.2",
+    "prerequisiteSummarySha256": "8a1bc1d5082760c0cf81a38f71225761ac8bf22accac34ee0ddb7207abb7dffb"
+  }
+}

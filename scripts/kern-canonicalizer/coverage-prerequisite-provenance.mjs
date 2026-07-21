@@ -26,6 +26,12 @@ const BINDING_PREREQUISITE = Object.freeze({
     new URL('./coverage-binding-prerequisite-provenance.json', import.meta.url),
   ),
 });
+const UNARY_PREREQUISITE = Object.freeze({
+  digest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
+  source: readFileSync(
+    new URL('./coverage-unary-prerequisite-provenance.json', import.meta.url),
+  ),
+});
 
 function fail(message) {
   throw new TypeError(`prerequisite provenance rejection: ${message}`);
@@ -268,14 +274,26 @@ export function loadCanonicalizerBindingPrerequisiteProvenance() {
   );
 }
 
+export function validateCanonicalizerUnaryPrerequisiteHandoff(input) {
+  return validateExactPrerequisiteHandoff(input, UNARY_PREREQUISITE, 'unary expression');
+}
+
+export function loadCanonicalizerUnaryPrerequisiteProvenance() {
+  return loadExactPrerequisiteProvenance(
+    UNARY_PREREQUISITE,
+    validateCanonicalizerUnaryPrerequisiteHandoff,
+  );
+}
+
 export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
-  if (!Array.isArray(input) || input.length !== 3) {
-    fail('prerequisite provenance chain must contain exactly three records');
+  if (!Array.isArray(input) || input.length !== 4) {
+    fail('prerequisite provenance chain must contain exactly four records');
   }
   const validators = [
     validateCanonicalizerIndexPrerequisiteHandoff,
     validateCanonicalizerCountedIterationPrerequisiteHandoff,
     validateCanonicalizerBindingPrerequisiteHandoff,
+    validateCanonicalizerUnaryPrerequisiteHandoff,
   ];
   return input.map((entry, index) => {
     const row = record(entry, ['digest', 'record'], `chain[${index}]`);
@@ -291,5 +309,6 @@ export function loadCanonicalizerPrerequisiteProvenanceChain() {
     loadCanonicalizerIndexPrerequisiteProvenance(),
     loadCanonicalizerCountedIterationPrerequisiteProvenance(),
     loadCanonicalizerBindingPrerequisiteProvenance(),
+    loadCanonicalizerUnaryPrerequisiteProvenance(),
   ]);
 }

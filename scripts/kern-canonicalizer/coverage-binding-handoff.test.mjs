@@ -61,12 +61,12 @@ test('M4.23 freezes the exact published binding prerequisite independently', () 
   );
 });
 
-test('M4.23 prerequisite history is an exact ordered three-record chain', () => {
+test('M4.23 prerequisite history remains the exact ordered three-record prefix', () => {
   const index = loadCanonicalizerIndexPrerequisiteProvenance();
   const counted = loadCanonicalizerCountedIterationPrerequisiteProvenance();
   const binding = loadCanonicalizerBindingPrerequisiteProvenance();
   const chain = loadCanonicalizerPrerequisiteProvenanceChain();
-  assert.deepEqual(chain, [index, counted, binding]);
+  assert.deepEqual(chain.slice(0, 3), [index, counted, binding]);
 
   const mutations = [
     (copy) => { copy.reverse(); },

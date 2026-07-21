@@ -1926,8 +1926,39 @@ trusted-publishing/provenance configuration is inspected.
     receipts restored implementation digest `8a22fa8e68c94910f16382cf761965b8331279d44b87e0a0219948fca963770c`
     and the exact 33/33 focused gate. Remaining findings are non-material
     future assertion-refactoring and process nits.
-    Review-discovered coverage now directly proves the counterfactual
-    partitioner distinguishes base-ready from residual blocked facts.
+  - [x] M4.27 unary-expression prerequisite handoff: published M4.26 commit
+    `e22a02418f14b6de9619b08b63281abdbc002ef1` is frozen as the fourth exact
+    prerequisite record. The 1,214-byte canonical record has SHA-256
+    `e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5`
+    and binds coverage summary
+    `276c3d0a0673cf22027f65b9c532a79be4e018749aa7b8d50d421defd125271c`,
+    prerequisite summary
+    `8a1bc1d5082760c0cf81a38f71225761ac8bf22accac34ee0ddb7207abb7dffb`,
+    the 32/104 M4.25 baseline with 70 legacy blockers, and the exact singleton
+    unary closure: one canonicalizer function, one tool, two parameter rows,
+    one catalog fact, 48 occurrences, and witness `numberat`. The authenticated
+    chain is exactly index, counted iteration, binding, unary while live
+    implementation provenance remains binding. Historical record bytes, KERN
+    composite, policy, profile, registry, corpus, function facts, and semantic
+    measurement remain unchanged. Regenerated coverage and prerequisite
+    summary SHA-256 values are
+    `79a0b773b85eb44fac193d7ee50f4f7161dc44b8affc4ce85fb59767eb32ce40`
+    and `a3cc02fedb90c211c3621a06daad7ba0bb3c4323a6747d046a9bdbfdf1913e32`;
+    implementation digest is
+    `2fd49ffdc1e07c9eda5e7830b411117485b26ae9a95acdf466910749c1d2190a`.
+    The focused Node 22 canonicalizer gate passes 91/91 structural and
+    authentication tests plus all 40 runtime fixtures, eight witnesses, three
+    profile-limit fixtures, 202 hostile fixtures, and the exact terminal check.
+    The complete Node 22 KERN 5 fitness wall passes on the same tree: every
+    workspace, release, and infrastructure gate; 432/432 cross-target and
+    109/109 class fixtures; 233/233 native contracts at 100%; 40 whole-app
+    fixtures across three legs with Express/FastAPI boot; runner/browser
+    budgets; checker, validator, KIR, runtime, ownership, and convergence
+    gates; and the repeated canonicalizer 91/91 plus 40/8/3/202 terminal
+    fixtures with exact 32/104 coverage and unary still next. Terminal Agon
+    review `review-1784637760933-cyd05w-kern-5-r2-m4-27-unary-prerequisi`
+    completed with the exact `claude,codex,agy` roster: 3/3 engines succeeded
+    with zero findings.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -94,7 +94,7 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.prerequisiteProvenances.length, 3);
+  assert.equal(actual.prerequisiteProvenances.length, 4);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
     family: 'binding',
@@ -227,6 +227,43 @@ if (process.argv.includes('--write')) {
     catalogFacts: 6,
     family: 'binding',
     occurrences: 801,
+  });
+  assert.equal(
+    prerequisiteHandoffs[3].digest,
+    'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
+  );
+  assert.deepEqual(prerequisiteHandoffs[3].record.source, {
+    commit: 'e22a02418f14b6de9619b08b63281abdbc002ef1',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
+    coverageSummarySha256: '276c3d0a0673cf22027f65b9c532a79be4e018749aa7b8d50d421defd125271c',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.2',
+    prerequisiteSummarySha256: '8a1bc1d5082760c0cf81a38f71225761ac8bf22accac34ee0ddb7207abb7dffb',
+  });
+  assert.deepEqual(prerequisiteHandoffs[3].record.snapshot, {
+    baseline: {
+      baseCompleteFunctions: 32,
+      baseId: 'kern.kir-canonicalizer.profile.m4.25',
+      corpusMembers: 9,
+      functionCount: 104,
+      legacyParameterBlockers: 70,
+      toolCount: 4,
+    },
+    minimumFamilyCount: 1,
+    selectedPrerequisite: {
+      catalogFacts: 1,
+      family: 'unary-expression',
+      occurrences: 48,
+    },
+    winningClosure: {
+      completeFunctions: 1,
+      completeTools: 1,
+      families: ['unary-expression'],
+      migratedParameterRows: 2,
+      occurrences: 48,
+      witnesses: [
+        'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat',
+      ],
+    },
   });
 }
 const leadingBlocker = actual.blockers[0];
