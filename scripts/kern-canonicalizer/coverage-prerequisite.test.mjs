@@ -12,38 +12,32 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.20 preserves counted iteration as the exact live prerequisite', () => {
+test('M4.21 separates parameter-ready completions from residual structural ranking', () => {
   const actual = measureCanonicalizerPrerequisite();
-  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.1');
+  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 21,
-    baseId: 'kern.kir-canonicalizer.profile.m4.18',
+    baseId: 'kern.kir-canonicalizer.profile.m4.21',
     canonicalizerDigest: '55c1b597a8912af545c348c57329d9aef0174590dbe4ba64310484806a8c1307',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
     corpusDigest: '748b696b685ea7e2abad6576d1a0936ec9d94b3d6c8280bf5fb99f3295db83c4',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'ede4213ce6a909d820545b92e1d48d34e0575bc22ef26c9683d6d16df3ffb05d',
+    coveragePolicyDigest: 'bb4a60b56bf42ea4a75465d84c1b35a7dd9a9ee9599ce418dfb440803c1d7f15',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
     functionFactsDigest: '26a60b7625d78185e19ccbc34462738b948d4ba1f9d54647a002ec9ba3db7c67',
     legacyParameterBlockers: 81,
-    profileDigest: 'a147a2a25ca0126e35edc2b0e4973608863fd38ac806cc3a99c17fe8a6fdec75',
+    profileDigest: 'fb441ef45e9efaf6124537e15fc73a87b9f63249ba7d555bb8c6360e162cb8af',
     toolCount: 4,
   });
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
   assert.equal(actual.minimumFamilyCount, 1);
-  assert.deepEqual(actual.prerequisiteRanking, [
-    { catalogFacts: 4, family: 'counted-iteration', occurrences: 468 },
-  ]);
-  assert.deepEqual(actual.ranking, [
-    {
-      completeFunctions: 6,
-      completeTools: 3,
-      families: ['counted-iteration'],
-      migratedParameterRows: 14,
-      occurrences: 468,
-      witnesses: [
+  assert.deepEqual(actual.parameterMigration, {
+    completeFunctions: 6,
+    completeTools: 3,
+    migratedParameterRows: 14,
+    witnesses: [
         {
           id: 'examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild',
           parameterRows: 2,
@@ -80,14 +74,75 @@ test('M4.20 preserves counted iteration as the exact live prerequisite', () => {
           profileRows: { nodes: 9, properties: 16, values: 66 },
           tool: 'validator',
         },
+    ],
+  });
+  assert.deepEqual(actual.prerequisiteRanking, [
+    { catalogFacts: 6, family: 'binding', occurrences: 801 },
+  ]);
+  assert.deepEqual(actual.ranking, [
+    {
+      completeFunctions: 5,
+      completeTools: 2,
+      families: ['binding'],
+      migratedParameterRows: 9,
+      occurrences: 801,
+      witnesses: [
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#11:childcount',
+          parameterRows: 2,
+          profileRows: { nodes: 9, properties: 17, values: 71 },
+          tool: 'canonicalizer',
+        },
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#13:valuechildcount',
+          parameterRows: 2,
+          profileRows: { nodes: 9, properties: 17, values: 71 },
+          tool: 'canonicalizer',
+        },
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#7:propcount',
+          parameterRows: 2,
+          profileRows: { nodes: 9, properties: 17, values: 71 },
+          tool: 'canonicalizer',
+        },
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
+          parameterRows: 1,
+          profileRows: { nodes: 7, properties: 14, values: 42 },
+          tool: 'canonicalizer',
+        },
+        {
+          id: 'examples/selfhost-validator/validator.kern#9:paramcount',
+          parameterRows: 2,
+          profileRows: { nodes: 9, properties: 17, values: 71 },
+          tool: 'validator',
+        },
+      ],
+    },
+    {
+      completeFunctions: 1,
+      completeTools: 1,
+      families: ['unary-expression'],
+      migratedParameterRows: 2,
+      occurrences: 48,
+      witnesses: [
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat',
+          parameterRows: 2,
+          profileRows: { nodes: 8, properties: 14, values: 66 },
+          tool: 'canonicalizer',
+        },
       ],
     },
   ]);
   assert.deepEqual(actual.selectedPrerequisite, {
-    catalogFacts: 4,
-    family: 'counted-iteration',
-    occurrences: 468,
+    catalogFacts: 6,
+    family: 'binding',
+    occurrences: 801,
   });
+  const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
+  const residualIds = actual.ranking.flatMap(({ witnesses }) => witnesses.map(({ id }) => id));
+  assert.equal(residualIds.some((id) => readyIds.has(id)), false);
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);

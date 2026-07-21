@@ -97,11 +97,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.prerequisiteProvenances.length, 2);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
-    family: 'index-expression',
-    provenanceDigest: prerequisiteHandoffs[0].digest,
+    family: 'counted-iteration',
+    provenanceDigest: prerequisiteHandoffs[1].digest,
     provenanceKind: 'prerequisite',
   });
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.18');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.21');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -128,36 +128,54 @@ if (process.argv.includes('--write')) {
       provenanceDigest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.18 must cite four selections and the frozen index prerequisite');
-  assert.equal(actual.corpusMembers, 9, 'live M4.18 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.18 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.18 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 21, 'live M4.18 base completion must remain exactly 21/104');
+    {
+      family: 'counted-iteration',
+      provenanceDigest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.21 must cite four selections and both frozen prerequisites');
+  assert.equal(actual.corpusMembers, 9, 'live M4.21 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.21 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.21 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 21, 'live M4.21 base completion must remain exactly 21/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     81,
-    'live M4.18 fn.params blocker count must remain exactly 81',
+    'live M4.21 fn.params blocker count must remain exactly 81',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.18 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.21 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
       { completeFunctions: 0, completeTools: 0, id: 'binding' },
-      { completeFunctions: 0, completeTools: 0, id: 'counted-iteration' },
       { completeFunctions: 0, completeTools: 0, id: 'do-statement' },
       { completeFunctions: 0, completeTools: 0, id: 'unary-expression' },
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.18 zero-completion ranking must remain exact',
+    'live M4.21 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
+  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.equal(prerequisite.minimumFamilyCount, 1);
-  assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 4,
-    family: 'counted-iteration',
-    occurrences: 468,
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 6,
+    completeTools: 3,
+    migratedParameterRows: 14,
+    witnesses: prerequisite.parameterMigration.witnesses,
   });
+  assert.equal(prerequisite.parameterMigration.witnesses.length, 6);
+  assert.deepEqual(prerequisite.selectedPrerequisite, {
+    catalogFacts: 6,
+    family: 'binding',
+    occurrences: 801,
+  });
+  const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
+  assert.equal(
+    prerequisite.ranking.flatMap(({ witnesses }) => witnesses).some(({ id }) => parameterReadyIds.has(id)),
+    false,
+    'parameter-ready functions must not receive residual structural-family credit',
+  );
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
   assert.equal(
     prerequisiteHandoffs[0].digest,
@@ -197,6 +215,7 @@ process.stdout.write(
   `KERN canonicalizer coverage: ${actual.baseCompleteFunctions}/${actual.functionCount} base-complete; ` +
   `${leadingBlocker ? `${leadingBlocker.count} blocked by ${leadingBlocker.id}` : 'no profile blockers'}; ` +
   `${formatCoverageWinnerStatus(actual.selection.winner)}; ` +
-  `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
+  `${prerequisite.parameterMigration.completeFunctions} functions/${prerequisite.parameterMigration.migratedParameterRows} rows ` +
+  `parameter-ready; next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
   `${prerequisite.minimumFamilyCount}-family closure.\n`,
 );

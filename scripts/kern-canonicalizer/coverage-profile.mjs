@@ -13,6 +13,7 @@ import { StructuralKirError } from '../../packages/core/dist/kir-structural/type
 import { flattenKirRoots } from './flatten.mjs';
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
+const CROSS_TARGET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const INTEGER = /^(?:0|[1-9][0-9]*)$/u;
 const RESERVED_EXPRESSION_IDENTIFIERS = new Set([
   'await', 'false', 'new', 'none', 'null', 'true', 'typeof', 'undefined',
@@ -27,7 +28,7 @@ const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
   'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.18';
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.21';
 const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -54,11 +55,17 @@ const BASE_PROMOTIONS = [
     provenanceDigest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
     provenanceKind: 'prerequisite',
   },
+  {
+    family: 'counted-iteration',
+    provenanceDigest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
+    provenanceKind: 'prerequisite',
+  },
 ];
-const BASE_NODE_KINDS = ['else', 'fn', 'handler', 'if', 'param', 'return'];
+const BASE_NODE_KINDS = ['else', 'fn', 'for', 'handler', 'if', 'param', 'return'];
 const BASE_PROPERTIES = Object.freeze({
   else: { optional: [], required: [] },
   fn: { optional: ['export'], required: ['name', 'returns'] },
+  for: { optional: [], required: ['from', 'name', 'to'] },
   handler: { optional: [], required: ['lang'] },
   if: { optional: [], required: ['cond'] },
   param: { optional: [], required: ['name', 'type'] },
@@ -66,7 +73,7 @@ const BASE_PROPERTIES = Object.freeze({
 });
 const BASE_PROPERTY_KEYS = BASE_NODE_KINDS.flatMap((kind) =>
   Object.keys(STRUCTURAL_KIR_NODE_CATALOG.get(kind)?.properties ?? {}).map((key) => `${kind}.${key}`)
-).sort();
+).filter((identity) => identity !== 'for.step').sort();
 const PROFILE_LIMIT_KEYS = ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'];
 const PROFILE_ROW_KEYS = ['nodes', 'properties', 'values'];
 const STATEMENT_CONTAINERS = new Set(['else', 'for', 'handler', 'if', 'while']);
@@ -92,7 +99,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.18 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.21 cumulative profile');
   }
   return base;
 }
@@ -289,6 +296,13 @@ function collectProfileBlockersForFunction(root, base, profileLimits, profileRow
         if (!Object.hasOwn(node.props ?? {}, key)) add(`${node.type}.properties.${key}`, node);
       }
       for (const key of includedUnexpectedProperties(node, profile)) add(`${node.type}.properties.${key}`, node);
+    }
+    if (
+      node.type === 'for' &&
+      Object.hasOwn(node.props ?? {}, 'name') &&
+      (typeof node.props.name !== 'string' || !CROSS_TARGET_IDENTIFIER.test(node.props.name))
+    ) {
+      add('for.properties.name.value', node);
     }
     if ((node.type === 'param' || node.type === 'return') && (node.children?.length ?? 0) !== 0) {
       add(`${node.type}.children`, node);

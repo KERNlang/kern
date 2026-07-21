@@ -12,12 +12,14 @@ import {
   canonicalProfileRowsForFunction,
   handlerChildProfilesForFunction,
   profileBlockersForFunction,
-  recursiveStatementNodeKinds,
 } from './coverage-profile.mjs';
-import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
+import {
+  canonicalizerCompletionProfile,
+  canonicalizerFunctionCompletes,
+} from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
-const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.1';
+const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.2';
 const PORTABLE_PARAMETER_TYPES = new Set([
   'boolean', 'boolean[]', 'number', 'number[]', 'string', 'string[]',
 ]);
@@ -160,28 +162,8 @@ function familyOccurrences(family, functions) {
   );
 }
 
-function combinedProfile(base, families) {
-  const baseNodes = new Set(base.nodeKinds);
-  return {
-    baseNodeKinds: baseNodes,
-    expressionKinds: new Set([
-      ...base.expressionKinds,
-      ...families.flatMap(({ expressionKinds }) => expressionKinds),
-    ]),
-    nodeKinds: new Set([
-      ...base.nodeKinds,
-      ...families.flatMap(({ nodeKinds }) => nodeKinds),
-    ]),
-    propertyKeys: new Set(families.flatMap(({ propertyKeys }) => propertyKeys)),
-    statementNodeKinds: new Set([
-      ...recursiveStatementNodeKinds(base.nodeKinds),
-      ...families.flatMap(({ nodeKinds }) => nodeKinds),
-    ]),
-  };
-}
-
 function closureRow(base, families, migrated, functions, profileLimits) {
-  const profile = combinedProfile(base, families);
+  const profile = canonicalizerCompletionProfile(base, families);
   const witnesses = migrated
     .filter((fn) => canonicalizerFunctionCompletes(profile, fn, profileLimits))
     .map((fn) => ({
@@ -219,6 +201,36 @@ function selectClosures(policy, migrated, functions, profileLimits) {
   fail('no active-family closure completes a counterfactual function');
 }
 
+function partitionMigratedFunctions(base, migrated, profileLimits) {
+  const profile = canonicalizerCompletionProfile(base, []);
+  const parameterReady = [];
+  const residual = [];
+  for (const fn of migrated) {
+    const partition = canonicalizerFunctionCompletes(profile, fn, profileLimits)
+      ? parameterReady
+      : residual;
+    partition.push(fn);
+  }
+  return { parameterReady, residual };
+}
+
+function parameterMigrationRow(parameterReady) {
+  const witnesses = parameterReady
+    .map((fn) => ({
+      id: fn.id,
+      parameterRows: fn.parameterRows,
+      profileRows: fn.profileRows,
+      tool: fn.tool,
+    }))
+    .sort((left, right) => compareText(left.id, right.id));
+  return {
+    completeFunctions: witnesses.length,
+    completeTools: new Set(witnesses.map(({ tool }) => tool)).size,
+    migratedParameterRows: witnesses.reduce((total, { parameterRows }) => total + parameterRows, 0),
+    witnesses,
+  };
+}
+
 function prerequisiteRanking(winningClosure, policy, functions) {
   return winningClosure.families
     .map((id) => {
@@ -245,9 +257,15 @@ export function measureCanonicalizerPrerequisite() {
   const migrated = receipt.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
     .map((fact) => migrateFunctionFact(fact, roots.get(fact.id), policy.base, canonicalizerPolicy));
+  const { parameterReady, residual } = partitionMigratedFunctions(
+    policy.base,
+    migrated,
+    canonicalizerPolicy.profileLimits,
+  );
+  if (residual.length === 0) fail('no residual functions remain after base-only parameter migration');
   const selection = selectClosures(
     policy,
-    migrated,
+    residual,
     receipt.functions,
     canonicalizerPolicy.profileLimits,
   );
@@ -271,6 +289,7 @@ export function measureCanonicalizerPrerequisite() {
     },
     format: FORMAT,
     minimumFamilyCount: selection.minimumFamilyCount,
+    parameterMigration: parameterMigrationRow(parameterReady),
     prerequisiteRanking: prerequisites,
     ranking: selection.ranking,
     selectedPrerequisite: prerequisites[0],

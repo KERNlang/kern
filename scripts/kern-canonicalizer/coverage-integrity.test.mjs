@@ -27,6 +27,12 @@ function corpusPath(path) {
   return relative(process.cwd(), path).split(sep).join('/');
 }
 
+function repositoryCorpusFixture(prefix) {
+  // Keep transient corpus data outside the implementation tree: other test
+  // workers authenticate that tree recursively while these fixtures are live.
+  return mkdtempSync(join(process.cwd(), `.kern-canonicalizer-${prefix}-`));
+}
+
 function compiledCoreDigest() {
   const root = resolve(process.cwd(), 'packages/core/dist');
   const files = [];
@@ -79,7 +85,7 @@ function coverageFact(overrides = {}) {
 }
 
 test('handwritten corpus admission rejects every repository generated header variant', () => {
-  const directory = mkdtempSync(join(process.cwd(), 'scripts/kern-canonicalizer/.generated-header-'));
+  const directory = repositoryCorpusFixture('generated-header');
   try {
     for (const [index, source] of [
       '\ufeff \t# GENERATED FILE — do not hand-edit.\n',
@@ -186,7 +192,7 @@ test('coverage summary checks require canonical bytes in a regular file', async 
 });
 
 test('profile-only rejection becomes the first unsupported fact', () => {
-  const directory = mkdtempSync(join(process.cwd(), 'scripts/kern-canonicalizer/.profile-fact-'));
+  const directory = repositoryCorpusFixture('profile-fact');
   try {
     const source = [
       'fn name=profileGap returns=string async=true',
@@ -217,7 +223,7 @@ test('profile-only rejection becomes the first unsupported fact', () => {
 });
 
 test('profile-only firstUnsupported follows authored traversal order', () => {
-  const directory = mkdtempSync(join(process.cwd(), 'scripts/kern-canonicalizer/.profile-order-'));
+  const directory = repositoryCorpusFixture('profile-order');
   try {
     const source = [
       'fn name=profileOrder returns=string stream=true async=true',
@@ -248,7 +254,7 @@ test('profile-only firstUnsupported follows authored traversal order', () => {
 });
 
 test('firstUnsupported orders root profile blockers before descendant structural blockers', () => {
-  const directory = mkdtempSync(join(process.cwd(), 'scripts/kern-canonicalizer/.combined-order-'));
+  const directory = repositoryCorpusFixture('combined-order');
   try {
     const source = [
       'fn name=combinedOrder returns=void async=true',

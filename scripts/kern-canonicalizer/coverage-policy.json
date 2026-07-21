@@ -2,8 +2,8 @@
   "format": "kern.kir-canonicalizer.coverage-policy.3",
   "base": {
     "expressionKinds": ["binary", "boolean", "call", "identifier", "index", "integer", "list", "member", "null", "text"],
-    "id": "kern.kir-canonicalizer.profile.m4.18",
-    "nodeKinds": ["else", "fn", "handler", "if", "param", "return"],
+    "id": "kern.kir-canonicalizer.profile.m4.21",
+    "nodeKinds": ["else", "fn", "for", "handler", "if", "param", "return"],
     "promotions": [
       {
         "family": "binary-expression",
@@ -29,10 +29,16 @@
         "family": "index-expression",
         "provenanceDigest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "counted-iteration",
+        "provenanceDigest": "af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
       "fn.async", "fn.effects", "fn.export", "fn.expr", "fn.generics", "fn.name", "fn.params", "fn.returns", "fn.stream",
+      "for.from", "for.name", "for.to",
       "handler.code", "handler.lang", "handler.reason", "handler.review",
       "if.cond",
       "param.default", "param.description", "param.max", "param.min", "param.name", "param.optional", "param.required", "param.type", "param.value", "param.variadic",
@@ -97,7 +103,6 @@
   ],
   "families": [
     { "expressionKinds": [], "id": "binding", "nodeKinds": ["assign", "let"], "propertyKeys": ["assign.target", "assign.value", "let.name", "let.value"] },
-    { "expressionKinds": [], "id": "counted-iteration", "nodeKinds": ["for"], "propertyKeys": ["for.from", "for.name", "for.to"] },
     { "expressionKinds": [], "id": "do-statement", "nodeKinds": ["do"], "propertyKeys": ["do.value"] },
     { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
     { "expressionKinds": ["unary"], "id": "unary-expression", "nodeKinds": [], "propertyKeys": [] },

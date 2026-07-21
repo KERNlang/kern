@@ -24,12 +24,12 @@ import {
   canonicalProfileRowsForFunction,
   firstUnsupportedByAuthoredOrder,
   handlerChildProfilesForFunction,
-  recursiveStatementNodeKinds,
   validateCoverageBase,
 } from './coverage-profile.mjs';
 import { canonicalizerPolicySource, loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
 import {
+  canonicalizerCompletionProfile,
   canonicalizerFunctionCompletes,
   rankCanonicalizerFamilies,
 } from './coverage-selection.mjs';
@@ -425,13 +425,7 @@ export function measureCanonicalizerCoverage(policyInput) {
   const constitution = loadValidatedRuntimeConstitutionSource();
   const familyRegistry = coverageFamilyRegistrySource();
   const boundCanonicalizerPolicySource = canonicalizerPolicySource();
-  const baseProfile = {
-    baseNodeKinds: new Set(policy.base.nodeKinds),
-    expressionKinds: new Set(policy.base.expressionKinds),
-    nodeKinds: new Set(policy.base.nodeKinds),
-    propertyKeys: new Set(),
-    statementNodeKinds: new Set(recursiveStatementNodeKinds(policy.base.nodeKinds)),
-  };
+  const baseProfile = canonicalizerCompletionProfile(policy.base, []);
   const receipt = {
     base: policy.base,
     baseCompleteFunctions: functions.filter((fn) =>

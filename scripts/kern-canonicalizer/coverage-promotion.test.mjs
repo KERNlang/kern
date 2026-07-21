@@ -12,7 +12,7 @@ import { baseExpressionProfileBlockers, profileBlockersForFunction } from './cov
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.18';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.21';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
@@ -44,24 +44,41 @@ const INDEX_PROMOTION = {
   provenanceDigest: INDEX_PROVENANCE_DIGEST,
   provenanceKind: 'prerequisite',
 };
+const COUNTED_ITERATION_PROMOTION = {
+  family: 'counted-iteration',
+  provenanceDigest: COUNTED_ITERATION_PROVENANCE_DIGEST,
+  provenanceKind: 'prerequisite',
+};
 
-test('M4.18 promotes index through exact prerequisite provenance', () => {
+test('M4.21 promotes counted iteration through exact prerequisite provenance', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, PROFILE_ID);
-  assert.deepEqual(policy.base.nodeKinds, ['else', 'fn', 'handler', 'if', 'param', 'return']);
+  assert.deepEqual(policy.base.nodeKinds, ['else', 'fn', 'for', 'handler', 'if', 'param', 'return']);
   assert.deepEqual(policy.base.expressionKinds, [
     'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
   ]);
   assert.deepEqual(
     policy.base.promotions,
-    [BINARY_PROMOTION, CONDITIONAL_PROMOTION, CALL_PROMOTION, MEMBER_PROMOTION, INDEX_PROMOTION],
+    [
+      BINARY_PROMOTION,
+      CONDITIONAL_PROMOTION,
+      CALL_PROMOTION,
+      MEMBER_PROMOTION,
+      INDEX_PROMOTION,
+      COUNTED_ITERATION_PROMOTION,
+    ],
   );
   assert.equal(policy.families.some(({ id }) => id === 'binary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
+  assert.equal(policy.base.propertyKeys.includes('for.from'), true);
+  assert.equal(policy.base.propertyKeys.includes('for.name'), true);
+  assert.equal(policy.base.propertyKeys.includes('for.to'), true);
+  assert.equal(policy.base.propertyKeys.includes('for.step'), false);
 
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
@@ -79,20 +96,20 @@ test('M4.18 promotes index through exact prerequisite provenance', () => {
     ],
   );
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
-  assert.deepEqual(receipt.implementationProvenance, INDEX_PROMOTION);
-  assert.deepEqual(summary.implementationProvenance, INDEX_PROMOTION);
+  assert.deepEqual(receipt.implementationProvenance, COUNTED_ITERATION_PROMOTION);
+  assert.deepEqual(summary.implementationProvenance, COUNTED_ITERATION_PROMOTION);
   assert.deepEqual(
     receipt.prerequisiteProvenances.map(({ digest }) => digest),
     [INDEX_PROVENANCE_DIGEST, COUNTED_ITERATION_PROVENANCE_DIGEST],
   );
   assert.deepEqual(summary.prerequisiteProvenances, receipt.prerequisiteProvenances);
   assert.equal(
-    receipt.prerequisiteProvenances[0].record.snapshot.selectedPrerequisite.family,
-    'index-expression',
+    receipt.prerequisiteProvenances[1].record.snapshot.selectedPrerequisite.family,
+    'counted-iteration',
   );
 });
 
-test('M4.18 rejects profile identity, typed evidence, and candidate overlap drift', () => {
+test('M4.21 rejects profile identity, typed evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.2'; },
@@ -106,21 +123,32 @@ test('M4.18 rejects profile identity, typed evidence, and candidate overlap drif
     (copy) => { copy.base.promotions[2].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[3].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[4].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[5].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[0].provenanceKind = 'prerequisite'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'future'; },
+    (copy) => { copy.base.promotions[5].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions.reverse(); },
     (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CALL_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(MEMBER_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(INDEX_PROMOTION)); },
+    (copy) => { copy.base.promotions.push(structuredClone(COUNTED_ITERATION_PROMOTION)); },
     (copy) => {
       copy.families.unshift({
         expressionKinds: ['index'],
         id: 'index-expression',
         nodeKinds: [],
         propertyKeys: [],
+      });
+    },
+    (copy) => {
+      copy.families.unshift({
+        expressionKinds: [],
+        id: 'counted-iteration',
+        nodeKinds: ['for'],
+        propertyKeys: ['for.from', 'for.name', 'for.to'],
       });
     },
   ];
@@ -259,6 +287,40 @@ test('the promoted index profile admits only exact recursive non-optional indice
     }),
   ]) {
     assert.deepEqual(baseExpressionProfileBlockers(malformed, base), ['expression.index.shape']);
+  }
+});
+
+test('the promoted counted-iteration profile admits only exact default-step loops', () => {
+  const base = loadCoveragePolicy().base;
+  const returned = (value) => ({ children: [], props: { value }, type: 'return' });
+  const loop = {
+    children: [returned('i')],
+    props: { from: '0', name: 'i', to: 'limit' },
+    type: 'for',
+  };
+  const functionRoot = {
+    children: [
+      { children: [loop, returned('limit')], props: { lang: 'kern' }, type: 'handler' },
+    ],
+    props: { name: 'lastIndex', returns: 'number' },
+    type: 'fn',
+  };
+  assert.deepEqual(profileBlockersForFunction(functionRoot, base), []);
+  const emptyBody = structuredClone(functionRoot);
+  emptyBody.children[0].children[0].children = [];
+  assert.deepEqual(profileBlockersForFunction(emptyBody, base), []);
+
+  const mutations = [
+    ['missing-from', (copy) => { delete copy.children[0].children[0].props.from; }],
+    ['explicit-step', (copy) => { copy.children[0].children[0].props.step = '1'; }],
+    ['future-property', (copy) => { copy.children[0].children[0].props.future = 'x'; }],
+    ['dollar-name', (copy) => { copy.children[0].children[0].props.name = '$i'; }],
+    ['malformed-name', (copy) => { copy.children[0].children[0].props.name = '1i'; }],
+  ];
+  for (const [label, mutate] of mutations) {
+    const copy = structuredClone(functionRoot);
+    mutate(copy);
+    assert.notDeepEqual(profileBlockersForFunction(copy, base), [], label);
   }
 });
 

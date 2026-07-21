@@ -1716,6 +1716,42 @@ trusted-publishing/provenance configuration is inspected.
     a shared helper module. The post-review focused gate passes all 81 tests,
     36 exact runtime fixtures, and 179 hostile mutations while production KERN
     bytes and both immutable prerequisite records remain unchanged.
+  - [x] M4.21 counted-iteration promotion and parameter-ready remeasurement:
+    coverage profile `kern.kir-canonicalizer.profile.m4.21` promotes the exact
+    default-step `for` capability through immutable M4.19 prerequisite digest
+    `af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b`.
+    The base admits only `for.from`, `for.name`, and `for.to` with portable
+    cross-target names; explicit `for.step` remains outside the profile.
+    Counted iteration leaves the active-family registry and becomes the live
+    implementation pointer while all four selection and both prerequisite
+    records remain byte-identical. Live prerequisite summary format 2 now
+    separates the six base-only parameter-ready functions across three tools
+    and 14 rows from residual structural ranking, preventing an unrelated
+    singleton from receiving false completion credit. Binding is the honest
+    next prerequisite at five functions, two tools, nine rows, and 801
+    occurrences; unary is the only other completing singleton at one function,
+    one tool, two rows, and 48 occurrences. Coverage-policy, coverage-summary,
+    and prerequisite-summary SHA-256 values are
+    `bb4a60b56bf42ea4a75465d84c1b35a7dd9a9ee9599ce418dfb440803c1d7f15`,
+    `23f7fc2ebea695a4d0182590171da4e871eb5172fe842309a9297ef994ce3df3`,
+    and
+    `cf00b028374005140d0aa4add87496684d08439a9e7711a2986b80ffdcff41e8`.
+    Authenticated KERN composition remains exactly 36,410 bytes at
+    `55c1b597a8912af545c348c57329d9aef0174590dbe4ba64310484806a8c1307`.
+    The focused Node 22 canonicalizer gate passes all 82 tests, 36 exact
+    runtime fixtures, and 179 hostile mutations. The complete Node 22
+    `pnpm fitness:kern-5` wall passed all workspace and infrastructure suites,
+    432/432 cross-target fixtures, 109/109 class fixtures, 233 native assertions
+    at 100% declared coverage, 40 whole-app fixtures across three legs, browser
+    budgets, and every KIR/runtime/ownership/convergence gate before its repeated
+    canonicalizer stage exposed a test-only transient-directory race. Corpus
+    fixtures now remain outside the authenticated implementation tree; the
+    concurrent fresh-process reproducer passed twice and the complete
+    canonicalizer gate passed afterward. High-risk review
+    `review-1784616172647-5cd21c` completed all six usable engines with zero
+    verified findings. Targeted review `review-1784618742992-n5ktt4`
+    subsequently completed both automatically routed identities with zero
+    substantive findings before publication.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

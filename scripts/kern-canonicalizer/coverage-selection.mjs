@@ -48,25 +48,30 @@ export function canonicalizerFunctionCompletes(profile, fn, profileLimits) {
     });
 }
 
-export function rankCanonicalizerFamilies(policy, functions, profileLimits) {
-  const baseNodes = new Set(policy.base.nodeKinds);
-  const baseExpressions = new Set(policy.base.expressionKinds);
-  const baseStatementNodes = new Set(recursiveStatementNodeKinds(policy.base.nodeKinds));
-  const baseProfile = {
+export function canonicalizerCompletionProfile(base, families) {
+  const baseNodes = new Set(base.nodeKinds);
+  return {
     baseNodeKinds: baseNodes,
-    expressionKinds: baseExpressions,
-    nodeKinds: baseNodes,
-    propertyKeys: new Set(),
-    statementNodeKinds: baseStatementNodes,
+    expressionKinds: new Set([
+      ...base.expressionKinds,
+      ...families.flatMap(({ expressionKinds }) => expressionKinds),
+    ]),
+    nodeKinds: new Set([
+      ...base.nodeKinds,
+      ...families.flatMap(({ nodeKinds }) => nodeKinds),
+    ]),
+    propertyKeys: new Set(families.flatMap(({ propertyKeys }) => propertyKeys)),
+    statementNodeKinds: new Set([
+      ...recursiveStatementNodeKinds(base.nodeKinds),
+      ...families.flatMap(({ nodeKinds }) => nodeKinds),
+    ]),
   };
+}
+
+export function rankCanonicalizerFamilies(policy, functions, profileLimits) {
+  const baseProfile = canonicalizerCompletionProfile(policy.base, []);
   const ranking = policy.families.map((family) => {
-    const profile = {
-      baseNodeKinds: baseNodes,
-      expressionKinds: new Set([...baseExpressions, ...family.expressionKinds]),
-      nodeKinds: new Set([...baseNodes, ...family.nodeKinds]),
-      propertyKeys: new Set(family.propertyKeys),
-      statementNodeKinds: new Set([...baseStatementNodes, ...family.nodeKinds]),
-    };
+    const profile = canonicalizerCompletionProfile(policy.base, [family]);
     const newlyComplete = functions.filter((fn) =>
       !canonicalizerFunctionCompletes(baseProfile, fn, profileLimits) &&
       canonicalizerFunctionCompletes(profile, fn, profileLimits),

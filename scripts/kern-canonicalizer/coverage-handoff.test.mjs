@@ -368,7 +368,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves both provenance histories after index promotion', () => {
+test('the current corpus preserves both provenance histories after counted-iteration promotion', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -387,8 +387,8 @@ test('the current corpus preserves both provenance histories after index promoti
   assert.deepEqual(receipt.prerequisiteProvenances, prerequisites);
   assert.deepEqual(summary.prerequisiteProvenances, prerequisites);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'index-expression',
-    provenanceDigest: prerequisites[0].digest,
+    family: 'counted-iteration',
+    provenanceDigest: prerequisites[1].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -404,7 +404,7 @@ test('the current corpus preserves both provenance histories after index promoti
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.20 preserves index promotion while binding the live counted-iteration capability', () => {
+test('M4.21 promotes the live counted-iteration capability from its frozen prerequisite', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -418,11 +418,11 @@ test('M4.20 preserves index promotion while binding the live counted-iteration c
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 36410, 'M4.20 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 36410, 'M4.21 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
     '55c1b597a8912af545c348c57329d9aef0174590dbe4ba64310484806a8c1307',
-    'M4.20 must bind the exact live KERN capability digest',
+    'M4.21 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
@@ -430,16 +430,16 @@ test('M4.20 preserves index promotion while binding the live counted-iteration c
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.18');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.21');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), true);
+  assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
-  assert.equal(policy.base.nodeKinds.includes('for'), false);
+  assert.equal(policy.base.nodeKinds.includes('for'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,
@@ -461,4 +461,7 @@ test('M4.20 preserves index promotion while binding the live counted-iteration c
   assert.equal(policy.base.promotions[4].family, 'index-expression');
   assert.equal(policy.base.promotions[4].provenanceDigest, M416_DIGEST);
   assert.equal(policy.base.promotions[4].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[5].family, 'counted-iteration');
+  assert.equal(policy.base.promotions[5].provenanceDigest, M419_DIGEST);
+  assert.equal(policy.base.promotions[5].provenanceKind, 'prerequisite');
 });

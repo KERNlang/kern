@@ -12,10 +12,11 @@
       "null",
       "text"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.18",
+    "id": "kern.kir-canonicalizer.profile.m4.21",
     "nodeKinds": [
       "else",
       "fn",
+      "for",
       "handler",
       "if",
       "param",
@@ -46,6 +47,11 @@
         "family": "index-expression",
         "provenanceDigest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "counted-iteration",
+        "provenanceDigest": "af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
@@ -58,6 +64,9 @@
       "fn.params",
       "fn.returns",
       "fn.stream",
+      "for.from",
+      "for.name",
+      "for.to",
       "handler.code",
       "handler.lang",
       "handler.reason",
@@ -171,21 +180,21 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "748b696b685ea7e2abad6576d1a0936ec9d94b3d6c8280bf5fb99f3295db83c4",
-  "coverageImplementationDigest": "6183f2368cd15b7ed7a254589de2788ea18c404762dcbf9112443a44320b7a34",
-  "coveragePolicyDigest": "ede4213ce6a909d820545b92e1d48d34e0575bc22ef26c9683d6d16df3ffb05d",
+  "coverageImplementationDigest": "6dffd8b4ef3a70f3d948eba758d8c8d515e7127537235d8054e436036a7b0c1f",
+  "coveragePolicyDigest": "bb4a60b56bf42ea4a75465d84c1b35a7dd9a9ee9599ce418dfb440803c1d7f15",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 104,
   "functionFactsDigest": "26a60b7625d78185e19ccbc34462738b948d4ba1f9d54647a002ec9ba3db7c67",
   "implementationProvenance": {
-    "family": "index-expression",
-    "provenanceDigest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
+    "family": "counted-iteration",
+    "provenanceDigest": "af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "88ba6f0a26f9524a6e15f1851175884e5759d10a405a4bfb617ce04f112f7813",
-  "profileDigest": "a147a2a25ca0126e35edc2b0e4973608863fd38ac806cc3a99c17fe8a6fdec75",
+  "policyDigest": "4fc3e8a52b9e239ff0afc835ab87a03eae1a4df18cab0536b90509e8f4b93010",
+  "profileDigest": "fb441ef45e9efaf6124537e15fc73a87b9f63249ba7d555bb8c6360e162cb8af",
   "prerequisiteProvenances": [
     {
       "digest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
@@ -288,13 +297,6 @@
         "completeTools": 0,
         "id": "binding",
         "occurrences": 801,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "counted-iteration",
-        "occurrences": 468,
         "witnesses": []
       },
       {
