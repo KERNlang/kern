@@ -1622,6 +1622,31 @@ trusted-publishing/provenance configuration is inspected.
     every KIR/runtime/ownership/convergence guard. Terminal high-risk
     role-lens review `review-1784601165188-9lbhq4` completed all six usable
     engines with zero verified findings and no unresolved material issue.
+  - [x] M4.18 index-expression promotion and remeasurement: coverage policy 3
+    replaces the selection-only promotion field with exact typed provenance,
+    preserving four immutable selection records while promoting index through
+    the immutable M4.16 prerequisite digest
+    `3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869`.
+    Profile `kern.kir-canonicalizer.profile.m4.18` adds exact recursive
+    non-optional index validation, removes index from active candidates, and
+    leaves the M4.17 KERN executable byte-identical. Authenticated format-6
+    remeasurement remains 21/104 with 81 legacy parameter blockers and a null
+    ordinary winner. The live counterfactual prerequisite collapses from the
+    two-family M4.15 closure to counted iteration alone: six functions, three
+    tools, 14 migrated parameter rows, and 468 occurrences. Coverage and
+    prerequisite summary SHA-256 values are
+    `6e75ecfe710b9e4ba5ca8df2b5bb0080260a786f37674f5c938db8a5373db1a9`
+    and
+    `0759e372fa2c10e61bc341518be2b67121772757835107f0bbedc3399a3b3ded`.
+    The focused Node 22 gate passes all 77 structural/authentication tests, 32
+    runtime fixtures, eight witnesses, three limit fixtures, and 166 hostile
+    mutations. The complete Node 22 `pnpm fitness:kern-5` wall passes on the
+    exact integrated tree, including all workspace and infrastructure suites,
+    432/432 cross-target fixtures, 109/109 class fixtures, native KERN at 100%
+    coverage, and every KIR/runtime/ownership/convergence guard. Terminal
+    high-risk role-lens review `review-1784604232493-2zm0ma` completed all six
+    usable engines with zero verified, needs-check, or speculative findings
+    and no unresolved material issue.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
