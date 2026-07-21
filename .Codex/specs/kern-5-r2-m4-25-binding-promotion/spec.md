@@ -1,6 +1,6 @@
 # KERN 5 R2 M4.25 — Binding Promotion and Parameter-Ready Remeasurement
 
-**Status:** REVIEWED — PUBLICATION READY
+**Status:** COMPLETE
 **Date:** 2026-07-21
 **Confidence:** 0.96
 
@@ -153,7 +153,7 @@ all historical records, and the 104-function/four-tool denominator.
 - [x] Complete `pnpm fitness:kern-5` wall passes.
 - [x] Full usable-roster high-risk terminal review has no unresolved material
       finding.
-- [ ] Signed commit is fetched/rebased before one atomic `--no-verify` push to
+- [x] Signed commit is fetched/rebased before one atomic `--no-verify` push to
       the fresh feature ref and explicitly authorized `main`.
 
 ## Stop Conditions
@@ -225,3 +225,16 @@ M4.25 receipts.
 `review-1784631411129-sr8uax-kern-5-r2-m4-25-binding-promotio` completed with
 the exact `claude,codex,agy` roster: 3/3 engines succeeded and reported zero
 verified, needs-check, speculative, or nit findings.
+
+[VERIFIED] An additional high-risk Agon review run
+`review-1784631406278-9iplpf` routed all six then-usable non-excluded identities
+with no shortfall. Its one claimed blocker incorrectly assumed authored source
+strings bypass `projectExpressionText`; the exact binding admission/mutation
+test proves `state.value` is an admitted member root while call and binary
+roots reject. The related `let.kind` concern is disproved by exact
+unexpected-property validation. Remaining findings were non-material cleanup
+or performance nits.
+
+[VERIFIED] M4.25 was published as signed commit
+`f56cb91e0bce3aa328b6020809d18312fdc6dc36` to both `origin/main` and
+`origin/feat/kern-5-r2-m4-25-binding-promotion` after fetch/rebase.

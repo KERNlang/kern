@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves both provenance histories after frozen parameter migration', () => {
+test('the current corpus preserves selection and prerequisite histories after M4.26 migration', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -382,12 +382,12 @@ test('the current corpus preserves both provenance histories after frozen parame
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 27);
+  assert.equal(receipt.baseCompleteFunctions, 32);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.25 promotes the exact M4.24 binding capability without changing KERN bytes', () => {
+test('M4.26 preserves exact M4.25 binding promotion through parameter migration', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -402,11 +402,11 @@ test('M4.25 promotes the exact M4.24 binding capability without changing KERN by
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 39340, 'M4.24 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 39430, 'M4.26 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8',
-    'M4.24 must bind the exact live KERN capability digest',
+    '5337c271465e710261901af18fe55d19a6e69a62f976d0d0fe44df209c4a2974',
+    'M4.26 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);

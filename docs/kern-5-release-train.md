@@ -1880,10 +1880,54 @@ trusted-publishing/provenance configuration is inspected.
     fixtures; 233/233 native fixtures at 100% coverage; 40 whole-app fixtures
     across three legs; runner/browser budgets; checker, validator, KIR,
     runtime, ownership, and convergence contracts; and the repeated
-    canonicalizer gate on the final M4.25 tree. Terminal Agon review run
-    `review-1784631411129-sr8uax-kern-5-r2-m4-25-binding-promotio` used the
-    exact `claude,codex,agy` roster; 3/3 engines succeeded with zero verified,
-    needs-check, speculative, or nit findings.
+    canonicalizer gate on the final M4.25 tree. Terminal Agon review
+    `review-1784631411129-sr8uax-kern-5-r2-m4-25-binding-promotio` completed
+    with the exact `claude,codex,agy` roster: 3/3 succeeded with zero findings.
+    An additional high-risk review `review-1784631406278-9iplpf` routed all six
+    then-usable non-excluded identities
+    with no shortfall. Its one claimed blocker incorrectly assumed authored
+    source strings bypass `projectExpressionText`; the exact binding
+    admission/mutation test proves `state.value` is an admitted member root
+    while call and binary targets reject. The related `let.kind` concern is
+    disproved by exact unexpected-property validation. Remaining findings are
+    non-material cleanup/performance nits. Signed commit
+    `f56cb91e0bce3aa328b6020809d18312fdc6dc36` is published on both `main` and
+    `feat/kern-5-r2-m4-25-binding-promotion`.
+  - [x] M4.26 frozen binding parameter migration: exactly the five M4.25
+    base-only witnesses now use direct ordered `param` children. `propcount`,
+    `childcount`, `valuechildcount`, `indentation`, and `paramcount` lose only
+    their legacy `fn.params` headers and gain nine equivalent rows; bodies,
+    calls, root ordering, M4.25 profile, active families, and all immutable
+    provenance remain unchanged. Expression helpers are 174 lines, statement
+    helpers 146, and validator 481. Repository writers regenerate the checker
+    consumer and the 39,430-byte canonicalizer composite at SHA-256
+    `5337c271465e710261901af18fe55d19a6e69a62f976d0d0fe44df209c4a2974`;
+    canonicalizer main and numeric checker remain byte-identical. The three
+    changed handwritten source digests are
+    `3b5c6affbb2232c5bd0cfcf2d73fdb2141b22ca50e074ff750f926798620d417`,
+    `cc4e9aaafc55269e1278d354776c67924737d32e1824413708cb01a6ac2f4f62`,
+    and `95ba4b55a80f939f3e04bc9b53dd244c5100e19e9e4c0d40d577bf5ec4f4cbe4`.
+    Policy, coverage-summary, and prerequisite-summary file SHA-256 values are
+    `9a1175b209c38ee0a56ef2da8ee114170e87455e6a0ccd79a3f838dd8558e653`,
+    `d1b8de698fb76227e586fd3e101895f0a0cd1c5c204fc0edb79a838fef2a2fbf`,
+    and `df2316b3ec0d1fa169640bea723483574332ef43174341471537065bcceb5e12`.
+    Live coverage is 32/104 with 70 `fn.params` blockers, no ordinary winner,
+    and an empty base-only migration queue. Unary expression remains the next
+    one-family prerequisite at 48 occurrences with `numberat` as the single
+    two-row witness. The complete Node 22 `pnpm fitness:kern-5` wall passes on
+    the final implementation tree, including all workspace, release-policy,
+    cross-target, class, native, whole-app, checker, validator, KIR, runtime,
+    ownership, convergence, browser-budget, and repeated canonicalizer gates.
+    Automatic high-risk role-lens review `review-1784634663411-o7v3xc` routed
+    all six usable non-excluded identities with no exclusions or shortfall;
+    all six returned and none reported a blocker. The only count-correction
+    claim reflected an out-of-scope test injected by an earlier auxiliary
+    review process; removing that contamination and regenerating its stale
+    receipts restored implementation digest `8a22fa8e68c94910f16382cf761965b8331279d44b87e0a0219948fca963770c`
+    and the exact 33/33 focused gate. Remaining findings are non-material
+    future assertion-refactoring and process nits.
+    Review-discovered coverage now directly proves the counterfactual
+    partitioner distinguishes base-ready from residual blocked facts.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

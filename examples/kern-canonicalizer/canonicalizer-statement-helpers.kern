@@ -1,4 +1,5 @@
-fn name=indentation params="level:number" returns=string export=true
+fn name=indentation returns=string export=true
+  param name=level type=number
   handler lang="kern"
     let name=out value="\"\""
     for name=i from=0 to="level"

@@ -84,13 +84,13 @@
       "tool": "checker"
     },
     {
-      "digest": "5eb8a3e6ee2e1e83fd11781efda73dac3892838b737aba35ea748891ef2aab77",
+      "digest": "3b5c6affbb2232c5bd0cfcf2d73fdb2141b22ca50e074ff750f926798620d417",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
     },
     {
-      "digest": "b951d517b9b9373e15ed5c1d0969ee2baf17f594aa1c007d7413091f88965e6b",
+      "digest": "cc4e9aaafc55269e1278d354776c67924737d32e1824413708cb01a6ac2f4f62",
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -102,7 +102,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "e31d87a157b5c5cf8ee9dbfbb42c2c5a94fe20e0e6d245daab2f74b373b16ee1",
+      "digest": "95ba4b55a80f939f3e04bc9b53dd244c5100e19e9e4c0d40d577bf5ec4f4cbe4",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

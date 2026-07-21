@@ -1,20 +1,20 @@
 {
   "composite": {
-    "bytes": 39340,
+    "bytes": 39430,
     "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
-    "sha256": "fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8"
+    "sha256": "5337c271465e710261901af18fe55d19a6e69a62f976d0d0fe44df209c4a2974"
   },
   "format": "kern.canonicalizer.composition.1",
   "members": [
     {
-      "bytes": 6384,
+      "bytes": 6465,
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
-      "sha256": "5eb8a3e6ee2e1e83fd11781efda73dac3892838b737aba35ea748891ef2aab77"
+      "sha256": "3b5c6affbb2232c5bd0cfcf2d73fdb2141b22ca50e074ff750f926798620d417"
     },
     {
-      "bytes": 10274,
+      "bytes": 10283,
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
-      "sha256": "b951d517b9b9373e15ed5c1d0969ee2baf17f594aa1c007d7413091f88965e6b"
+      "sha256": "cc4e9aaafc55269e1278d354776c67924737d32e1824413708cb01a6ac2f4f62"
     },
     {
       "bytes": 22682,

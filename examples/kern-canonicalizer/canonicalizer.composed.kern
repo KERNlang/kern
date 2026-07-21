@@ -86,7 +86,9 @@ fn name=structuralname params="value:string" returns=string export=true
         return value="quotesource(value)"
     return value="value"
 
-fn name=propcount params="node:number,propNode:number[]" returns=number export=true
+fn name=propcount returns=number export=true
+  param name=node type=number
+  param name=propNode type=number[]
   handler lang="kern"
     let name=count value="0"
     for name=i from=0 to="propNode.length"
@@ -120,7 +122,9 @@ fn name=propid params="node:number,key:string,propNode:number[],propKey:string[]
         assign target=result value="propValue[i]"
     return value="result"
 
-fn name=childcount params="parent:number,nodeParent:number[]" returns=number export=true
+fn name=childcount returns=number export=true
+  param name=parent type=number
+  param name=nodeParent type=number[]
   handler lang="kern"
     let name=count value="0"
     for name=i from=0 to="nodeParent.length"
@@ -138,7 +142,9 @@ fn name=childat params="parent:number,order:number,nodeParent:number[],nodeOrder
         assign target=result value="i + 1"
     return value="result"
 
-fn name=valuechildcount params="parent:number,valueParent:number[]" returns=number export=true
+fn name=valuechildcount returns=number export=true
+  param name=parent type=number
+  param name=valueParent type=number[]
   handler lang="kern"
     let name=count value="0"
     for name=i from=0 to="valueParent.length"
@@ -166,7 +172,8 @@ fn name=recordfield params="parent:number,key:string,valueParent:number[],valueR
           return value="-1"
         assign target=result value="i + 1"
     return value="result"
-fn name=indentation params="level:number" returns=string export=true
+fn name=indentation returns=string export=true
+  param name=level type=number
   handler lang="kern"
     let name=out value="\"\""
     for name=i from=0 to="level"

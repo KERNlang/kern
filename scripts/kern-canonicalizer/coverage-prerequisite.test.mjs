@@ -12,63 +12,32 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.25 promotes binding and remeasures the exact parameter-ready tranche', () => {
+test('M4.26 migrates the exact binding parameter-ready tranche', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 27,
+    baseCompleteFunctions: 32,
     baseId: 'kern.kir-canonicalizer.profile.m4.25',
-    canonicalizerDigest: 'fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8',
+    canonicalizerDigest: '5337c271465e710261901af18fe55d19a6e69a62f976d0d0fe44df209c4a2974',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: '6f2c1cd95868919456c1a819cffd7f2e322c26feabde2b725f4bd5914aa691be',
+    corpusDigest: 'a99e6773a47023bb6b833f6dd34b1d9c475888be99924dac07f13b2c1ba58e7c',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '4b8888e4e1f64b8356949f1b823f80e5a84c0594b1a864cdd7804d805ac13991',
+    coveragePolicyDigest: '9a1175b209c38ee0a56ef2da8ee114170e87455e6a0ccd79a3f838dd8558e653',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'c67b0c064c2bac2d5c3021a83202b7efd01ac84ec1cb2f2b1a54b69879c71819',
-    legacyParameterBlockers: 75,
+    functionFactsDigest: '68a20ac32504a4c079e778b75dd613a224a1d03113ba31db41bd3c2a880d127f',
+    legacyParameterBlockers: 70,
     profileDigest: '366123a03fa2d444347f740b77a53e0a8b1b9de668fd681c5167ce1365c97dd7',
     toolCount: 4,
   });
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
   assert.equal(actual.minimumFamilyCount, 1);
   assert.deepEqual(actual.parameterMigration, {
-    completeFunctions: 5,
-    completeTools: 2,
-    migratedParameterRows: 9,
-    witnesses: [
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#11:childcount',
-        parameterRows: 2,
-        profileRows: { nodes: 9, properties: 17, values: 71 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#13:valuechildcount',
-        parameterRows: 2,
-        profileRows: { nodes: 9, properties: 17, values: 71 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#7:propcount',
-        parameterRows: 2,
-        profileRows: { nodes: 9, properties: 17, values: 71 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
-        parameterRows: 1,
-        profileRows: { nodes: 7, properties: 14, values: 42 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/selfhost-validator/validator.kern#9:paramcount',
-        parameterRows: 2,
-        profileRows: { nodes: 9, properties: 17, values: 71 },
-        tool: 'validator',
-      },
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.deepEqual(actual.prerequisiteRanking, [
     { catalogFacts: 1, family: 'unary-expression', occurrences: 48 },

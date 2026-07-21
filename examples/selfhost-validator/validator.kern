@@ -152,7 +152,9 @@ fn name=contained params="root:string,candidate:string" returns=boolean export=t
       return value="true"
     return value="Text.startsWith(candidate, root + \"/\")"
 
-fn name=paramcount params="fnRow:number,paramFn:number[]" returns=number export=true
+fn name=paramcount returns=number export=true
+  param name=fnRow type=number
+  param name=paramFn type=number[]
   handler lang="kern"
     let name=count value="0"
     for name=i4 from=0 to="paramFn.length"

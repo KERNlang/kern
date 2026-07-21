@@ -178,11 +178,12 @@ export function assertStructuredParameterMigrations(receipt) {
     'failline',
     'rootpath',
     'statusof',
+    'paramcount',
     'containsid',
   ];
   const validatorTargets = validatorRoots.filter(({ props }) => validatorTargetNames.includes(props.name));
   const validatorLegacySiblings = validatorRoots.filter(({ props }) => !validatorTargetNames.includes(props.name));
-  assert.equal(validatorSource.split('\n').length - 1, 479);
+  assert.equal(validatorSource.split('\n').length - 1, 481);
   assert.equal(validatorRoots.length, 21);
   assert.deepEqual(validatorTargets.map(({ props }) => props.name), validatorTargetNames);
   assert.equal(validatorTargets.every(({ props }) => props.params === undefined), true);
@@ -196,10 +197,11 @@ export function assertStructuredParameterMigrations(receipt) {
       [['code', 'string'], ['subject', 'string'], ['rowId', 'number']],
       [['module', 'number'], ['moduleId', 'number[]'], ['moduleRoot', 'string[]']],
       [['module', 'number'], ['moduleId', 'number[]'], ['moduleStatus', 'string[]']],
+      [['fnRow', 'number'], ['paramFn', 'number[]']],
       [['xs', 'number[]'], ['id', 'number']],
     ],
   );
-  assert.equal(validatorLegacySiblings.length, 15);
+  assert.equal(validatorLegacySiblings.length, 14);
   assert.equal(validatorLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -213,13 +215,14 @@ export function assertStructuredParameterMigrations(receipt) {
     `${validatorPath}#5:failline`,
     `${validatorPath}#6:rootpath`,
     `${validatorPath}#7:statusof`,
+    `${validatorPath}#9:paramcount`,
   ]);
   assert.equal(validatorFunctions.every(({ excludedProperties }) =>
     !excludedProperties.includes('fn.params')), true);
   assert.equal(
     validatorFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences)
       .filter((kind) => kind === 'param').length,
-    14,
+    16,
   );
   assert.deepEqual(
     validatorFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
@@ -230,6 +233,7 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 6, properties: 11, values: 67 } },
       { profileBlockers: [], profileRows: { nodes: 9, properties: 16, values: 66 } },
       { profileBlockers: [], profileRows: { nodes: 9, properties: 16, values: 66 } },
+      { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
     ],
   );
 
@@ -238,12 +242,18 @@ export function assertStructuredParameterMigrations(receipt) {
   const expressionHelperDocument = parseDocumentWithDiagnostics(expressionHelperSource);
   assert.deepEqual(expressionHelperDocument.diagnostics, []);
   const expressionHelperRoots = expressionHelperDocument.root.children.filter(({ type }) => type === 'fn');
-  const expressionHelperTargetNames = ['validnext', 'stringat'];
+  const expressionHelperTargetNames = [
+    'validnext',
+    'propcount',
+    'stringat',
+    'childcount',
+    'valuechildcount',
+  ];
   const expressionHelperTargets = expressionHelperRoots.filter(({ props }) =>
     expressionHelperTargetNames.includes(props.name));
   const expressionHelperLegacySiblings = expressionHelperRoots.filter(({ props }) =>
     !expressionHelperTargetNames.includes(props.name));
-  assert.equal(expressionHelperSource.split('\n').length - 1, 168);
+  assert.equal(expressionHelperSource.split('\n').length - 1, 174);
   assert.equal(expressionHelperRoots.length, 16);
   assert.deepEqual(expressionHelperTargets.map(({ props }) => props.name), expressionHelperTargetNames);
   assert.equal(expressionHelperTargets.every(({ props }) => props.params === undefined), true);
@@ -253,10 +263,13 @@ export function assertStructuredParameterMigrations(receipt) {
       .map(({ props }) => [props.name, props.type])),
     [
       [['c', 'string']],
+      [['node', 'number'], ['propNode', 'number[]']],
       [['id', 'number'], ['values', 'string[]']],
+      [['parent', 'number'], ['nodeParent', 'number[]']],
+      [['parent', 'number'], ['valueParent', 'number[]']],
     ],
   );
-  assert.equal(expressionHelperLegacySiblings.length, 14);
+  assert.equal(expressionHelperLegacySiblings.length, 11);
   assert.equal(expressionHelperLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -265,7 +278,10 @@ export function assertStructuredParameterMigrations(receipt) {
     expressionHelperTargetNames.some((name) => id.endsWith(`:${name}`)) &&
     id.startsWith(`${expressionHelperPath}#`));
   assert.deepEqual(expressionHelperFunctions.map(({ id }) => id), [
+    `${expressionHelperPath}#11:childcount`,
+    `${expressionHelperPath}#13:valuechildcount`,
     `${expressionHelperPath}#1:validnext`,
+    `${expressionHelperPath}#7:propcount`,
     `${expressionHelperPath}#8:stringat`,
   ]);
   assert.equal(expressionHelperFunctions.every(({ excludedProperties }) =>
@@ -273,13 +289,41 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.equal(
     expressionHelperFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences)
       .filter((kind) => kind === 'param').length,
-    3,
+    9,
   );
   assert.deepEqual(
     expressionHelperFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
     [
+      { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
+      { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
       { profileBlockers: [], profileRows: { nodes: 6, properties: 9, values: 53 } },
+      { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
       { profileBlockers: [], profileRows: { nodes: 8, properties: 14, values: 62 } },
     ],
+  );
+
+  const statementHelperPath = 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern';
+  const statementHelperSource = readFileSync(new URL(`../../${statementHelperPath}`, import.meta.url), 'utf8');
+  const statementHelperDocument = parseDocumentWithDiagnostics(statementHelperSource);
+  assert.deepEqual(statementHelperDocument.diagnostics, []);
+  const statementHelperRoots = statementHelperDocument.root.children.filter(({ type }) => type === 'fn');
+  const indentation = statementHelperRoots.find(({ props }) => props.name === 'indentation');
+  assert.equal(statementHelperSource.split('\n').length - 1, 146);
+  assert.equal(indentation?.props.params, undefined);
+  assert.deepEqual(
+    indentation?.children.filter(({ type }) => type === 'param').map(({ props }) => [props.name, props.type]),
+    [['level', 'number']],
+  );
+  assert.equal(statementHelperRoots.filter(({ props }) => props.name !== 'indentation').every(({ props, children }) =>
+    typeof props.params === 'string' &&
+    props.params.length > 0 &&
+    children.every(({ type }) => type !== 'param')), true);
+  const indentationFact = receipt.functions.find(({ id }) =>
+    id === `${statementHelperPath}#0:indentation`);
+  assert.equal(indentationFact?.excludedProperties.includes('fn.params'), false);
+  assert.equal(indentationFact?.nodeOccurrences.filter((kind) => kind === 'param').length, 1);
+  assert.deepEqual(
+    { profileBlockers: indentationFact?.profileBlockers, profileRows: indentationFact?.profileRows },
+    { profileBlockers: [], profileRows: { nodes: 7, properties: 14, values: 42 } },
   );
 }

@@ -138,17 +138,17 @@ if (process.argv.includes('--write')) {
       provenanceDigest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.25 must preserve the seven promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.25 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.25 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.25 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 27, 'live M4.25 base completion must remain exactly 27/104');
+  ], 'M4.26 must preserve the seven promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.26 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.26 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.26 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 32, 'live M4.26 base completion must remain exactly 32/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    75,
-    'live M4.25 fn.params blocker count must remain exactly 75',
+    70,
+    'live M4.26 fn.params blocker count must remain exactly 70',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.25 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.26 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
@@ -157,25 +157,17 @@ if (process.argv.includes('--write')) {
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.25 residual zero-completion ranking must remain exact',
+    'live M4.26 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 5,
-    completeTools: 2,
-    migratedParameterRows: 9,
-    witnesses: prerequisite.parameterMigration.witnesses,
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
-  assert.equal(prerequisite.parameterMigration.witnesses.length, 5);
-  assert.deepEqual(prerequisite.parameterMigration.witnesses.map(({ id }) => id), [
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#11:childcount',
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#13:valuechildcount',
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#7:propcount',
-    'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
-    'examples/selfhost-validator/validator.kern#9:paramcount',
-  ]);
   assert.deepEqual(prerequisite.selectedPrerequisite, {
     catalogFacts: 1,
     family: 'unary-expression',
