@@ -60,21 +60,19 @@ describe('Slice 2 — host `RegExp` construction fails-close SYMMETRICALLY (byte
   // kills: naive_py_verbatim — a Python impl that lets `new RegExp(...)` /
   // `RegExp(...)` fall through to a verbatim `RegExp(...)` (runtime NameError)
   // instead of a compile-time fail-close.
-  test.each([
-    'new RegExp("a")',
-    'RegExp("a", "g")',
-    'new RegExp(someVar)',
-    'RegExp(getPattern())',
-  ])('%s throws the SAME shared message on TS and Python', (src) => {
-    const t = ts(src);
-    const p = py(src);
-    expect(t.ok).toBe(false);
-    expect(p.ok).toBe(false);
-    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    // The parity invariant, asserted directly: TS message === Python message.
-    expect(p.message).toBe(t.message);
-  });
+  test.each(['new RegExp("a")', 'RegExp("a", "g")', 'new RegExp(someVar)', 'RegExp(getPattern())'])(
+    '%s throws the SAME shared message on TS and Python',
+    (src) => {
+      const t = ts(src);
+      const p = py(src);
+      expect(t.ok).toBe(false);
+      expect(p.ok).toBe(false);
+      expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      // The parity invariant, asserted directly: TS message === Python message.
+      expect(p.message).toBe(t.message);
+    },
+  );
 
   test('`new RegExp("\\\\d")` fails-close even on a CONSTANT string (escape-pipeline divergence)', () => {
     // The JS string already collapsed `"\\d"` → `\d`; the Python target never sees
@@ -120,19 +118,18 @@ describe('Slice 2 — host-root statics, value-position, and literal-property re
   // `lowerChain` `index` branch previously lowered `/x/["source"]` to
   // `__k_re.compile("x", …)["source"]` (invalid at runtime) — a verified bypass on
   // BOTH targets. Now fails-close byte-identically with the shared regex message.
-  test.each([
-    '/x/["source"]',
-    '/x/["flags"]',
-    '/x/["test"](s)',
-  ])('regex-literal BRACKET read %s fails-close symmetrically (shared regex message)', (src) => {
-    const t = ts(src);
-    const p = py(src);
-    expect(t.ok).toBe(false);
-    expect(p.ok).toBe(false);
-    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(p.message).toBe(t.message);
-  });
+  test.each(['/x/["source"]', '/x/["flags"]', '/x/["test"](s)'])(
+    'regex-literal BRACKET read %s fails-close symmetrically (shared regex message)',
+    (src) => {
+      const t = ts(src);
+      const p = py(src);
+      expect(t.ok).toBe(false);
+      expect(p.ok).toBe(false);
+      expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(p.message).toBe(t.message);
+    },
+  );
 });
 
 describe('Slice 2 — BLOCK-BODIED arrow bypass (review fix #2)', () => {
@@ -211,18 +208,18 @@ describe('Slice 2 — BLOCK-BODIED arrow bypass (review fix #2)', () => {
 
   // ROUND 3 — value-position shapes (property value + shorthand) fail-close on
   // BOTH targets, byte-identically.
-  test.each([
-    '() => ({ x: RegExp })',
-    '() => ({ RegExp })',
-  ])('block-bodied arrow %s (value/shorthand) fails-close symmetrically', (src) => {
-    const t = bodyEmitTS(src);
-    const p = bodyEmitPy(src);
-    expect(t.ok).toBe(false);
-    expect(p.ok).toBe(false);
-    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(p.message).toBe(t.message);
-  });
+  test.each(['() => ({ x: RegExp })', '() => ({ RegExp })'])(
+    'block-bodied arrow %s (value/shorthand) fails-close symmetrically',
+    (src) => {
+      const t = bodyEmitTS(src);
+      const p = bodyEmitPy(src);
+      expect(t.ok).toBe(false);
+      expect(p.ok).toBe(false);
+      expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(p.message).toBe(t.message);
+    },
+  );
 
   // ROUND 3 — MUST-NOT-OVER-FIRE on EITHER target: a portable method callee, a
   // block-local TDZ reference, and an erased type annotation.
@@ -272,14 +269,13 @@ describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () =>
   });
 
   // In-core literal regex methods — the certified portable surface STAYS working.
-  test.each([
-    '/lit/.test(s)',
-    's.replace(/a/g, "b")',
-    's.match(/([0-9]+)/)',
-  ])('in-core literal method %s still transpiles on BOTH targets', (src) => {
-    expect(ts(src).ok).toBe(true);
-    expect(py(src).ok).toBe(true);
-  });
+  test.each(['/lit/.test(s)', 's.replace(/a/g, "b")', 's.match(/([0-9]+)/)'])(
+    'in-core literal method %s still transpiles on BOTH targets',
+    (src) => {
+      expect(ts(src).ok).toBe(true);
+      expect(py(src).ok).toBe(true);
+    },
+  );
 });
 
 describe('Slice 2 — alias soundness at BODY level (construction-first)', () => {
@@ -426,18 +422,17 @@ describe('Slice 2 — WRAPPED regex-literal receiver, cross-target (round 5)', (
   // WRAPPED PORTABLE — `(/x/).test(s)` / `(/x/ as any).test(s)` stay portable and
   // ACCEPT, lowering IDENTICALLY to the bare `/x/.test(s)` on each target (the
   // wrapper is type-only and erased). TS → `/x/.test(s)`, Python → `re.search`.
-  test.each([
-    '(/x/).test(s)',
-    '(/x/ as any).test(s)',
-    '((/x/)).test(s)',
-  ])('wrapped portable %s ACCEPTS and lowers like bare `/x/.test(s)` on both targets', (src) => {
-    const t = ts(src);
-    const p = py(src);
-    expect(t.ok).toBe(true);
-    expect(p.ok).toBe(true);
-    expect(t.message).toBe(ts('/x/.test(s)').message);
-    expect(p.message).toBe(py('/x/.test(s)').message);
-  });
+  test.each(['(/x/).test(s)', '(/x/ as any).test(s)', '((/x/)).test(s)'])(
+    'wrapped portable %s ACCEPTS and lowers like bare `/x/.test(s)` on both targets',
+    (src) => {
+      const t = ts(src);
+      const p = py(src);
+      expect(t.ok).toBe(true);
+      expect(p.ok).toBe(true);
+      expect(t.message).toBe(ts('/x/.test(s)').message);
+      expect(p.message).toBe(py('/x/.test(s)').message);
+    },
+  );
 
   // Block-body parity for the wrapped forms (the TS-AST closure leg).
   const wrapBodyTS = (arrow: string): { ok: boolean; message: string } => {
@@ -499,32 +494,30 @@ describe('Slice 2 — `typeof <host root>` fail-close SYMMETRICALLY (round 6)', 
   // way (Python `typeof` ladder over a nonexistent name) and now fail-close with
   // the GENERIC host message on both targets — byte-identical modulo the target
   // LABEL (`TypeScript` vs `Python`), the only intended per-target difference.
-  test.each([
-    'typeof Date',
-    'typeof process',
-    'typeof console',
-  ])('%s FAILS-CLOSE with the generic host message on both targets', (src) => {
-    const t = ts(src);
-    const p = py(src);
-    expect(t.ok).toBe(false);
-    expect(p.ok).toBe(false);
-    expect(t.message).toMatch(/Unsupported host namespace/);
-    expect(p.message).toMatch(/Unsupported host namespace/);
-    // Same diagnostic on both legs apart from the target label.
-    expect(t.message.replace('TypeScript', 'X')).toBe(p.message.replace('Python', 'X'));
-  });
+  test.each(['typeof Date', 'typeof process', 'typeof console'])(
+    '%s FAILS-CLOSE with the generic host message on both targets',
+    (src) => {
+      const t = ts(src);
+      const p = py(src);
+      expect(t.ok).toBe(false);
+      expect(p.ok).toBe(false);
+      expect(t.message).toMatch(/Unsupported host namespace/);
+      expect(p.message).toMatch(/Unsupported host namespace/);
+      // Same diagnostic on both legs apart from the target label.
+      expect(t.message.replace('TypeScript', 'X')).toBe(p.message.replace('Python', 'X'));
+    },
+  );
 
   // A NON-host-root operand keeps working on both targets (feature detection):
   // `window`/`document` are NOT host roots, so the SSR `typeof window` idiom and a
   // plain user local are not over-rejected.
-  test.each([
-    'typeof userLocal',
-    'typeof window',
-    'typeof document',
-  ])('%s is NOT over-rejected on either target', (src) => {
-    expect(ts(src).ok).toBe(true);
-    expect(py(src).ok).toBe(true);
-  });
+  test.each(['typeof userLocal', 'typeof window', 'typeof document'])(
+    '%s is NOT over-rejected on either target',
+    (src) => {
+      expect(ts(src).ok).toBe(true);
+      expect(py(src).ok).toBe(true);
+    },
+  );
 
   // …but `typeof RegExp.prototype` reads a MEMBER (a launder) and still
   // fails-close on both targets — `typeof` does not blanket-exempt member reads.
@@ -563,30 +556,27 @@ describe('Slice 2 — WRAPPED `typeof <host root>` fail-close, cross-target (rou
   });
 
   // Wrapped `RegExp` → the shared regex message on both targets.
-  test.each([
-    'typeof (RegExp)',
-    'typeof (RegExp as any)',
-    'typeof (RegExp!)',
-  ])('%s FAILS-CLOSE with the SAME regex message on TS and Python', (src) => {
-    const t = ts(src);
-    const p = py(src);
-    expect(t.ok).toBe(false);
-    expect(p.ok).toBe(false);
-    expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    expect(t.message).toBe(p.message);
-  });
+  test.each(['typeof (RegExp)', 'typeof (RegExp as any)', 'typeof (RegExp!)'])(
+    '%s FAILS-CLOSE with the SAME regex message on TS and Python',
+    (src) => {
+      const t = ts(src);
+      const p = py(src);
+      expect(t.ok).toBe(false);
+      expect(p.ok).toBe(false);
+      expect(t.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(p.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      expect(t.message).toBe(p.message);
+    },
+  );
 
   // A wrapped NON-host operand is NOT over-rejected on either target.
-  test.each([
-    'typeof (userLocal)',
-    'typeof (userLocal as any)',
-    'typeof (window)',
-    'typeof (window as any)',
-  ])('%s is NOT over-rejected on either target', (src) => {
-    expect(ts(src).ok).toBe(true);
-    expect(py(src).ok).toBe(true);
-  });
+  test.each(['typeof (userLocal)', 'typeof (userLocal as any)', 'typeof (window)', 'typeof (window as any)'])(
+    '%s is NOT over-rejected on either target',
+    (src) => {
+      expect(ts(src).ok).toBe(true);
+      expect(py(src).ok).toBe(true);
+    },
+  );
 });
 
 describe('Slice 2 — block-scope `RegExp` shadow honored IDENTICALLY (round 7 — block-scope hook now REQUIRED)', () => {
@@ -671,11 +661,11 @@ describe('Slice 2 — block-scope `RegExp` shadow honored IDENTICALLY (round 7 �
 describe('Slice 2 — OVER-REJECTION fixes, cross-target (round 5)', () => {
   // A wrapped NON-regex receiver is unaffected — emits/validates as an ordinary
   // member read on both targets (no regex fail-close, no message substitution).
-  test.each([
-    '(someVar).source',
-    '(someVar as any).source',
-  ])('wrapped NON-regex receiver %s is unaffected on both targets', (src) => {
-    expect(ts(src).ok).toBe(true);
-    expect(py(src).ok).toBe(true);
-  });
+  test.each(['(someVar).source', '(someVar as any).source'])(
+    'wrapped NON-regex receiver %s is unaffected on both targets',
+    (src) => {
+      expect(ts(src).ok).toBe(true);
+      expect(py(src).ok).toBe(true);
+    },
+  );
 });

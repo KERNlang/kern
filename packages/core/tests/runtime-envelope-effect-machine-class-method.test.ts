@@ -282,18 +282,21 @@ describe('M3.27 direct same-root class methods', () => {
         children: [{ type: 'return', props: { value: 'box.read() + 1' } }],
       },
     ],
-  ] as const)('routes a direct method call in a nested %s to compatibility before provider dispatch', (_label, body) => {
-    let providerCalls = 0;
-    const nodes: readonly IRNode[] = [
-      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-      { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
-      body,
-    ];
-    const env = methodClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
+  ] as const)(
+    'routes a direct method call in a nested %s to compatibility before provider dispatch',
+    (_label, body) => {
+      let providerCalls = 0;
+      const nodes: readonly IRNode[] = [
+        { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+        { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
+        body,
+      ];
+      const env = methodClassEnv({ capabilities: { storage: { get: () => ++providerCalls } } });
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(providerCalls).toBe(0);
-  });
+      expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+      expect(providerCalls).toBe(0);
+    },
+  );
 
   test.each([
     ['missing return', []],

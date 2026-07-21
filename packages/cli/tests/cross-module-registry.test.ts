@@ -83,9 +83,11 @@ describe('cross-module registry — end-to-end', () => {
     expect(code).toContain('const __k_t1 = parseUser(raw);');
     expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
     expect(code).toContain('const u = __k_t1.value;');
-    expect(
-      (result.root.children?.[0] as { props?: Record<string, unknown>; children?: unknown[] }).children?.[0],
-    ).toMatchObject({
+    const firstChild = result.root.children?.[0] as {
+      props?: Record<string, unknown>;
+      children?: unknown[];
+    };
+    expect(firstChild.children?.[0]).toMatchObject({
       type: 'from',
       props: { name: 'parseUser', kind: 'fn' },
     });
@@ -225,9 +227,11 @@ describe('cross-module registry — end-to-end', () => {
 
     expect(code).toContain('const __k_t1 = parseUser(raw);');
     expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
-    expect(
-      (result.root.children?.[0] as { props?: Record<string, unknown>; children?: unknown[] }).children?.[0],
-    ).toMatchObject({
+    const firstChild = result.root.children?.[0] as {
+      props?: Record<string, unknown>;
+      children?: unknown[];
+    };
+    expect(firstChild.children?.[0]).toMatchObject({
       type: 'from',
       props: { name: 'parseUser', kind: 'fn' },
     });

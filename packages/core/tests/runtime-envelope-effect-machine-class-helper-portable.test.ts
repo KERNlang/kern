@@ -73,32 +73,34 @@ describe('M3.31b2b2 portable class-helper arguments', () => {
     });
   });
 
-  test.each([
-    'any',
-    'number',
-  ])('rejects a composite helper return from a scalar class frame (%s contract)', (returns) => {
-    let providerCalls = 0;
-    const env = classHelperEnv({
-      capabilities: { storage: { get: () => ++providerCalls } },
-      classes: [
-        {
-          constructor: undefined,
-          fields: [],
-          getters: new Map(),
-          methods: new Map([['read', member('Reader', 'read', [{ type: 'return', props: { value: 'makeItems()' } }])]]),
-          name: 'Reader',
-        },
-      ],
-      helpers: [helper('makeItems', [], [{ type: 'return', props: { value: '[1]' } }], returns)],
-    });
-    const nodes: readonly IRNode[] = [
-      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-      { type: 'let', props: { name: 'reader', value: 'new Reader()' } },
-      { type: 'return', props: { value: 'reader.read()' } },
-    ];
+  test.each(['any', 'number'])(
+    'rejects a composite helper return from a scalar class frame (%s contract)',
+    (returns) => {
+      let providerCalls = 0;
+      const env = classHelperEnv({
+        capabilities: { storage: { get: () => ++providerCalls } },
+        classes: [
+          {
+            constructor: undefined,
+            fields: [],
+            getters: new Map(),
+            methods: new Map([
+              ['read', member('Reader', 'read', [{ type: 'return', props: { value: 'makeItems()' } }])],
+            ]),
+            name: 'Reader',
+          },
+        ],
+        helpers: [helper('makeItems', [], [{ type: 'return', props: { value: '[1]' } }], returns)],
+      });
+      const nodes: readonly IRNode[] = [
+        { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+        { type: 'let', props: { name: 'reader', value: 'new Reader()' } },
+        { type: 'return', props: { value: 'reader.read()' } },
+      ];
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(() => executeSourceRunnerSync(nodes, env, { policy: 'machine-only' })).toThrow();
-    expect(providerCalls).toBe(0);
-  });
+      expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+      expect(() => executeSourceRunnerSync(nodes, env, { policy: 'machine-only' })).toThrow();
+      expect(providerCalls).toBe(0);
+    },
+  );
 });

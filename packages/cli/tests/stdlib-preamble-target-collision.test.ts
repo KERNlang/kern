@@ -82,12 +82,12 @@ describe('checked-power target binding safety', () => {
     expect(result.code).toContain('return __kern_pow_int([base, 2]);');
   });
 
-  test.each([
-    'return "__kern_pow_int([fake])";',
-    '// __kern_pow_int([fake])\n    return "safe";',
-  ])('does not inject the generated helper for an inert raw-handler mention: %s', (body) => {
-    const source = ['fn name=inert returns=string export=true', '  handler <<<', `    ${body}`, '  >>>'].join('\n');
+  test.each(['return "__kern_pow_int([fake])";', '// __kern_pow_int([fake])\n    return "safe";'])(
+    'does not inject the generated helper for an inert raw-handler mention: %s',
+    (body) => {
+      const source = ['fn name=inert returns=string export=true', '  handler <<<', `    ${body}`, '  >>>'].join('\n');
 
-    expect(compile(source, 'lib').code).not.toContain('const __kern_pow_int = (');
-  });
+      expect(compile(source, 'lib').code).not.toContain('const __kern_pow_int = (');
+    },
+  );
 });

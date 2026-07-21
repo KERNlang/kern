@@ -210,20 +210,21 @@ describe('D1b — NO-FAIL-OPEN by construction: emitted-code detection == emissi
       ]),
     ],
   ];
-  test.each(
-    bodies.map((b) => [b[0], b[1]] as const),
-  )('IF %s emits the helper THEN looseEq is set (def present)', (_name, handler) => {
-    const code = emitNativeKernBodyTSWithImports(handler).code;
-    const emits = code.includes('__kern_loose_eq(');
-    const flagged = emittedCodeUsesLooseEq(code);
-    // emits ⟹ flagged (true by construction — both read the same emitted token).
-    expect(emits && !flagged).toBe(false);
-    if (emits) {
-      // The injection site sets looseEq from the emitted code; the preamble carries the def.
-      const preamble = kernStdlibPreamble({ result: false, option: false, looseEq: flagged }).join('\n');
-      expect(preamble).toContain('function __kern_loose_eq');
-    }
-  });
+  test.each(bodies.map((b) => [b[0], b[1]] as const))(
+    'IF %s emits the helper THEN looseEq is set (def present)',
+    (_name, handler) => {
+      const code = emitNativeKernBodyTSWithImports(handler).code;
+      const emits = code.includes('__kern_loose_eq(');
+      const flagged = emittedCodeUsesLooseEq(code);
+      // emits ⟹ flagged (true by construction — both read the same emitted token).
+      expect(emits && !flagged).toBe(false);
+      if (emits) {
+        // The injection site sets looseEq from the emitted code; the preamble carries the def.
+        const preamble = kernStdlibPreamble({ result: false, option: false, looseEq: flagged }).join('\n');
+        expect(preamble).toContain('function __kern_loose_eq');
+      }
+    },
+  );
 
   test('a `==` ONLY in a template STATIC segment (not interpolated) does NOT flag', () => {
     // `` `a == b` `` — the `==` is literal text, never lowered, so no helper is needed.

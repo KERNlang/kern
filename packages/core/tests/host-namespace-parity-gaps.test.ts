@@ -51,39 +51,32 @@ function validateConstIR(src: string, userBindings: string[] = []): { ok: boolea
 
 describe('GAP 1 — IR-validate ↔ emit parity against the single KERN_STDLIB registry', () => {
   // Portable members emit and validate cleanly on both paths.
-  test.each([
-    'Number.isFinite(x)',
-    'Math.max(1, 2)',
-    'JSON.parse(s)',
-    'Object.keys(x)',
-    'Array.isArray(x)',
-  ])('portable %s passes both emit and IR-validate', (src) => {
-    expect(emitTopLevel(src).ok).toBe(true);
-    expect(validateConstIR(src, ['x', 's']).ok).toBe(true);
-  });
+  test.each(['Number.isFinite(x)', 'Math.max(1, 2)', 'JSON.parse(s)', 'Object.keys(x)', 'Array.isArray(x)'])(
+    'portable %s passes both emit and IR-validate',
+    (src) => {
+      expect(emitTopLevel(src).ok).toBe(true);
+      expect(validateConstIR(src, ['x', 's']).ok).toBe(true);
+    },
+  );
 
   // Unknown members on stdlib roots must FAIL on BOTH paths (the drift the gap
   // closed: the validator previously PASSED these for the emitter to throw on).
-  test.each([
-    'Number.foo()',
-    'Math.bogus(1)',
-    'JSON.weird(s)',
-    'Object.nope(x)',
-    'Number.MAX_SAFE_INTEGER',
-  ])('unknown stdlib member %s fails-closed on both emit and IR-validate', (src) => {
-    expect(emitTopLevel(src).ok).toBe(false);
-    expect(validateConstIR(src, ['x', 's']).ok).toBe(false);
-  });
+  test.each(['Number.foo()', 'Math.bogus(1)', 'JSON.weird(s)', 'Object.nope(x)', 'Number.MAX_SAFE_INTEGER'])(
+    'unknown stdlib member %s fails-closed on both emit and IR-validate',
+    (src) => {
+      expect(emitTopLevel(src).ok).toBe(false);
+      expect(validateConstIR(src, ['x', 's']).ok).toBe(false);
+    },
+  );
 
   // Non-stdlib host roots fail-closed identically on both paths.
-  test.each([
-    'process.exit()',
-    'console.log(x)',
-    'String.fromCharCode(65)',
-  ])('host root %s fails-closed on both emit and IR-validate', (src) => {
-    expect(emitTopLevel(src).ok).toBe(false);
-    expect(validateConstIR(src, ['x']).ok).toBe(false);
-  });
+  test.each(['process.exit()', 'console.log(x)', 'String.fromCharCode(65)'])(
+    'host root %s fails-closed on both emit and IR-validate',
+    (src) => {
+      expect(emitTopLevel(src).ok).toBe(false);
+      expect(validateConstIR(src, ['x']).ok).toBe(false);
+    },
+  );
 
   // The IR-validate unknown-member diagnostic mirrors the emit diagnostic.
   test('unknown stdlib member surfaces the same "Unknown KERN-stdlib" diagnostic from validation', () => {

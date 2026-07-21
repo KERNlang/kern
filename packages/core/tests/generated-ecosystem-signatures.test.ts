@@ -41,18 +41,12 @@ describe('generated ecosystem-signatures behavior', () => {
     });
   });
 
-  it.each([
-    undefined,
-    null,
-    '',
-    '   ',
-    '{bad json}',
-    'missingSeparator',
-    'bad-name:() => void',
-    'ok:',
-  ])('returns undefined for invalid signature map %p', (value) => {
-    expect(generated.parseExternalSignatureMap(value)).toBeUndefined();
-  });
+  it.each([undefined, null, '', '   ', '{bad json}', 'missingSeparator', 'bad-name:() => void', 'ok:'])(
+    'returns undefined for invalid signature map %p',
+    (value) => {
+      expect(generated.parseExternalSignatureMap(value)).toBeUndefined();
+    },
+  );
 
   it('keeps compact parser separators inside escaped quoted strings', () => {
     expect(

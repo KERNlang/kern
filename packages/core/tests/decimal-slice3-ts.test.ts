@@ -400,10 +400,11 @@ describe('Decimal Slice 3 (remediation) — usage detector ↔ KERN_STDLIB.Decim
     if (method === 'pow') return 'Decimal.of("2"), Decimal.of("3")';
     return 'Decimal.of("1"), Decimal.of("2")';
   };
-  test.each(
-    Object.keys(KERN_STDLIB.Decimal),
-  )('Decimal.%s usage flips usage.decimal (regex in lockstep with the table)', (method) => {
-    const usage = detectKernStdlibUsage(kernHandlerUsing(`Decimal.${method}(${sampleArgsFor(method)})`));
-    expect(usage.decimal).toBe(true);
-  });
+  test.each(Object.keys(KERN_STDLIB.Decimal))(
+    'Decimal.%s usage flips usage.decimal (regex in lockstep with the table)',
+    (method) => {
+      const usage = detectKernStdlibUsage(kernHandlerUsing(`Decimal.${method}(${sampleArgsFor(method)})`));
+      expect(usage.decimal).toBe(true);
+    },
+  );
 });

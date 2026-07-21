@@ -144,26 +144,24 @@ describe('M3.31b2c2 resumable helper-to-class effects', () => {
       helperName: 'field',
       paramName: 'record',
     },
-  ])('resumes helper descendants inside composite argument: $helperName', ({
-    bodyValue,
-    expression,
-    helperName,
-    paramName,
-  }) => {
-    let providerCalls = 0;
-    const env = remoteMethodEnv(() => {
-      providerCalls += 1;
-      return 5;
-    }, [helper(helperName, [paramName], [{ type: 'return', props: { value: bodyValue } }])]);
-    const nodes: readonly IRNode[] = [{ type: 'return', props: { value: expression } }];
+  ])(
+    'resumes helper descendants inside composite argument: $helperName',
+    ({ bodyValue, expression, helperName, paramName }) => {
+      let providerCalls = 0;
+      const env = remoteMethodEnv(() => {
+        providerCalls += 1;
+        return 5;
+      }, [helper(helperName, [paramName], [{ type: 'return', props: { value: bodyValue } }])]);
+      const nodes: readonly IRNode[] = [{ type: 'return', props: { value: expression } }];
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
-    expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
-      kind: 'return',
-      value: 5,
-    });
-    expect(providerCalls).toBe(1);
-  });
+      expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.machine);
+      expect(executeSourceRunnerSync(nodes, env, { policy: 'machine-only' }).completion).toEqual({
+        kind: 'return',
+        value: 5,
+      });
+      expect(providerCalls).toBe(1);
+    },
+  );
 
   test('never memoizes observable helper/class effects', () => {
     let providerCalls = 0;
