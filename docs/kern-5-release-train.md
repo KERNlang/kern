@@ -2137,6 +2137,40 @@ trusted-publishing/provenance configuration is inspected.
     explicit past-tense M4.31 labeling. The performance finding was reproduced
     at the timings above and bound as pre-cutover work, leaving no unresolved
     material M4.32 finding.
+  - [x] M4.33 frozen value-band parameter migration: the exact authenticated
+    M4.32 cohort is consumed without a policy, body, call, return, KIR, runtime,
+    ABI, family, or corpus-membership change. Exactly 12 functions across five
+    handwritten sources lose legacy `fn.params` and gain 44 ordered direct
+    parameter rows. Base completion advances from 33/104 to 45/104,
+    `fn.params` blockers fall from 69 to 57, and the base-only parameter queue
+    becomes empty. The residual selection remains exactly one `do-statement`
+    witness, `examples/selfhost-validator/validator.kern#14:appendid`, with two
+    counterfactual rows and 176 occurrences. The live coverage and prerequisite
+    receipt SHA-256 values are
+    `8550b80e0a98da57f26a9c78ac762b0049cc02146202b278e817bf07051d774a`
+    and `d8c2fdd07c96ce6548edd1121ae0eea1596c14a52f25d4caab15cf259edf1e1c`;
+    policy SHA-256 is
+    `cc4b84c8655a458890edb6c7b79a07a5c1af7997db172a559c7cdeec47ff33b6`
+    and the authenticated coverage implementation digest is
+    `3e47fea76a74d98bf742777d486a6b2f898d569bee01c1526942b87f6f1271c4`;
+    the historical M4.31 handoff remains byte-identical at
+    `160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076`.
+    The regenerated canonicalizer composite is 40,459 bytes at
+    `e58663c3bdc552faa094b8318650f8791f30056ceea81a4888293fc64f348101`.
+    Focused behavior gates pass 13/13 assertion-engine, 48/48 checker, and
+    39/39 validator fixtures; canonicalizer gates pass 99/99 tests, 48 runtime
+    fixtures, eight witnesses, three profile-limit fixtures, and 218 hostile
+    mutations. The complete Node 22 `fitness:kern-5` wall passes on the exact
+    integrated tree. Automatic high-risk role-lens review
+    `review-1784669163876-ojpnpj` first exposed the new guard's omission from
+    the supplied diff; complete-diff review `review-1784669744046-mlgid4`
+    finished 6/6 and then found a real parameter-after-handler guard gap. RED
+    reproduced it, the exact-prefix and immediate-handler checks now kill it,
+    and targeted security confirmation
+    `review-1784669870369-4xtdh7-kern-5-r2-m4-33-value-band-param` returned no
+    finding on the hardened tree. No material review finding remains. The next
+    slice freezes the exact do-statement prerequisite before any implementation
+    or promotion.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

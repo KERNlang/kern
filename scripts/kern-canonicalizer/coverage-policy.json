@@ -59,7 +59,7 @@
   },
   "corpus": [
     {
-      "digest": "ff5fdbc8c9f63f592c930c04a14f77379b13279bedb71dcb20a7907d40a3db2a",
+      "digest": "3f2deb4f9defee02126107fd5b5adcae915a0d03e515bb2d27a41ff89ab4aabd",
       "path": "examples/capstone-assertion-engine/compare.kern",
       "sourceKind": "handwritten",
       "tool": "assertion-engine"
@@ -77,19 +77,19 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "42c20bb13243a582cb0632934934e02bf45075385b3e1ac699f68c7a01ace372",
+      "digest": "25b047708b20db3f292523414fc87fc571cffa7dad4051edae6bc219d7166cbb",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
     },
     {
-      "digest": "af5d394b6ea121646bc3edb35c8be2a140fbc09d8ae56fbdf3651c97659f887b",
+      "digest": "3761995d062daaaefecae3b35a21f6642848d63764f53653a59f4c70c4ac81fe",
       "path": "examples/capstone-checker-subset/checker.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
     },
     {
-      "digest": "55c8a6e54bc4442ee91af43eb7fc4fb0c2fad325d48477710bbbcce7e138ba91",
+      "digest": "f42bca77f6271cbd6292f2e11c2249cff269a9b9e67b29c5cce9e16d7ee512e4",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -107,7 +107,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "95ba4b55a80f939f3e04bc9b53dd244c5100e19e9e4c0d40d577bf5ec4f4cbe4",
+      "digest": "91028ca731e7054d72339bff91e86c2bac5bf271e8895732e9cd157c80a2f920",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

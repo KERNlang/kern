@@ -98,6 +98,16 @@ fn name=compareNode params="pA:number[],kA:string[],xA:number[],tA:string[],vA:s
       return value="failResult(path, reasonValueMismatch(vA[idxA], vB[idxB]))"
     return value="passResult()"
 
-fn name=compareTrees params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[]" returns=string export=true
+fn name=compareTrees returns=string export=true
+  param name=pA type=number[]
+  param name=kA type=string[]
+  param name=xA type=number[]
+  param name=tA type=string[]
+  param name=vA type=string[]
+  param name=pB type=number[]
+  param name=kB type=string[]
+  param name=xB type=number[]
+  param name=tB type=string[]
+  param name=vB type=string[]
   handler lang="kern"
     return value="compareNode(pA, kA, xA, tA, vA, pB, kB, xB, tB, vB, 0, 0, \"\")"

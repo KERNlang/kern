@@ -151,17 +151,17 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.32 must preserve the eight promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.32 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.32 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.32 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 33, 'live M4.32 base completion must remain exactly 33/104');
+  ], 'M4.33 must preserve the eight promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.33 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.33 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.33 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 45, 'live M4.33 base completion must remain exactly 45/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    69,
-    'live M4.32 fn.params blocker count must remain exactly 69',
+    57,
+    'live M4.33 fn.params blocker count must remain exactly 57',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.32 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.33 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
@@ -169,37 +169,17 @@ if (process.argv.includes('--write')) {
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.32 residual zero-completion ranking must remain exact',
+    'live M4.33 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'selected');
   assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.equal(prerequisite.exhaustion, null);
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 12);
-  assert.equal(prerequisite.parameterMigration.completeTools, 4);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 44);
-  assert.deepEqual(
-    prerequisite.parameterMigration.witnesses.map(
-      ({ id, parameterRows, profileRows, tool }) => [
-        id, parameterRows, profileRows.nodes, profileRows.properties, profileRows.values, tool,
-      ],
-    ),
-    [
-      ['examples/capstone-assertion-engine/compare.kern#5:compareTrees', 10, 13, 25, 106, 'assertion-engine'],
-      ['examples/capstone-checker-subset/checker-while.kern#3:previousSiblingKind', 3, 10, 18, 77, 'checker'],
-      ['examples/capstone-checker-subset/checker-while.kern#7:functionRow', 3, 9, 15, 85, 'checker'],
-      ['examples/capstone-checker-subset/checker.kern#10:isForCounter', 5, 13, 21, 104, 'checker'],
-      ['examples/capstone-checker-subset/checker.kern#11:isAssigned', 5, 13, 21, 104, 'checker'],
-      ['examples/capstone-checker-subset/checker.kern#13:paramOrdinalOf', 5, 12, 20, 96, 'checker'],
-      ['examples/capstone-checker-subset/checker.kern#15:argIndexOf', 4, 11, 18, 84, 'checker'],
-      ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#0:validfirst', 1, 8, 11, 100, 'canonicalizer'],
-      ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname', 1, 10, 16, 104, 'canonicalizer'],
-      ['examples/selfhost-validator/validator.kern#0:charokfirst', 1, 10, 13, 92, 'validator'],
-      ['examples/selfhost-validator/validator.kern#16:classrow', 4, 11, 19, 89, 'validator'],
-      ['examples/selfhost-validator/validator.kern#8:contained', 2, 9, 13, 73, 'validator'],
-    ],
-  );
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
+  assert.equal(prerequisite.parameterMigration.completeTools, 0);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
+  assert.deepEqual(prerequisite.parameterMigration.witnesses, []);
   assert.deepEqual(prerequisite.selectedPrerequisite, {
     catalogFacts: 2,
     family: 'do-statement',

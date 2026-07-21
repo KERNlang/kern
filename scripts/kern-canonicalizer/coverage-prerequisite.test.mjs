@@ -13,28 +13,10 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 12,
-  completeTools: 4,
-  migratedParameterRows: 44,
-  witnesses: [
-    ['examples/capstone-assertion-engine/compare.kern#5:compareTrees', 10, 13, 25, 106, 'assertion-engine'],
-    ['examples/capstone-checker-subset/checker-while.kern#3:previousSiblingKind', 3, 10, 18, 77, 'checker'],
-    ['examples/capstone-checker-subset/checker-while.kern#7:functionRow', 3, 9, 15, 85, 'checker'],
-    ['examples/capstone-checker-subset/checker.kern#10:isForCounter', 5, 13, 21, 104, 'checker'],
-    ['examples/capstone-checker-subset/checker.kern#11:isAssigned', 5, 13, 21, 104, 'checker'],
-    ['examples/capstone-checker-subset/checker.kern#13:paramOrdinalOf', 5, 12, 20, 96, 'checker'],
-    ['examples/capstone-checker-subset/checker.kern#15:argIndexOf', 4, 11, 18, 84, 'checker'],
-    ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#0:validfirst', 1, 8, 11, 100, 'canonicalizer'],
-    ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname', 1, 10, 16, 104, 'canonicalizer'],
-    ['examples/selfhost-validator/validator.kern#0:charokfirst', 1, 10, 13, 92, 'validator'],
-    ['examples/selfhost-validator/validator.kern#16:classrow', 4, 11, 19, 89, 'validator'],
-    ['examples/selfhost-validator/validator.kern#8:contained', 2, 9, 13, 73, 'validator'],
-  ].map(([id, parameterRows, nodes, properties, values, tool]) => ({
-    id,
-    parameterRows,
-    profileRows: { nodes, properties, values },
-    tool,
-  })),
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
 const EXPECTED_DO_SELECTION = {
@@ -54,7 +36,7 @@ const EXPECTED_DO_SELECTION = {
   }],
 };
 
-test('M4.32 exposes the exact 12-function queue and disjoint residual do winner', () => {
+test('M4.33 consumes the exact value-band queue and preserves the disjoint residual do winner', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'selected');
@@ -89,7 +71,9 @@ test('format 3 rejects selection, migration, overlap, and baseline drift', () =>
     (copy) => { copy.parameterMigration.completeFunctions = 11; },
     (copy) => { copy.parameterMigration.completeTools = 3; },
     (copy) => { copy.parameterMigration.migratedParameterRows = 43; },
-    (copy) => { copy.parameterMigration.witnesses.pop(); },
+    (copy) => {
+      copy.parameterMigration.witnesses.push(structuredClone(copy.ranking[0].witnesses[0]));
+    },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(actual);
@@ -100,29 +84,34 @@ test('format 3 rejects selection, migration, overlap, and baseline drift', () =>
     );
   }
   const overlapping = structuredClone(actual);
-  overlapping.ranking[0].witnesses[0] = structuredClone(overlapping.parameterMigration.witnesses[0]);
+  overlapping.parameterMigration = {
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 2,
+    witnesses: [structuredClone(overlapping.ranking[0].witnesses[0])],
+  };
   assert.throws(
     () => validateCanonicalizerPrerequisiteSummary(overlapping),
     /selected format-3 summary must contain a positive winning closure/u,
   );
 });
 
-test('M4.32 binds the exact authenticated profile-promotion transition', () => {
+test('M4.33 binds the exact authenticated value-band parameter transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 33,
+    baseCompleteFunctions: 45,
     baseId: 'kern.kir-canonicalizer.profile.m4.29',
-    canonicalizerDigest: 'bf2b2c1f1e8fa85174d72503d836b3a305467af20c560a6e9f037ac616b97bb5',
+    canonicalizerDigest: 'e58663c3bdc552faa094b8318650f8791f30056ceea81a4888293fc64f348101',
     canonicalizerPolicyDigest: '9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: '5a92fbd4a085bc73827818fd1de0c614e889550b60df7eaa7f6404f31660805e',
+    corpusDigest: '4dcb97ac0c9ddf1fdc7fd2c95750677d78281ef46dd74136136f6fee91732886',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '6c19138011e493a28444fca1899c1c9418b292f30f0aff0ab7e02341d9a50f67',
+    coveragePolicyDigest: 'cc4b84c8655a458890edb6c7b79a07a5c1af7997db172a559c7cdeec47ff33b6',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'bcd5f6e2ec5c4b4c15b1329bb7de3ddbd829f4c870e30beaac0b67db19546614',
-    legacyParameterBlockers: 69,
+    functionFactsDigest: '6ff19ad0a49dee08484278a51c27053be780e82f681194fd0d35840fca1ec23c',
+    legacyParameterBlockers: 57,
     profileDigest: '2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa',
     toolCount: 4,
   });

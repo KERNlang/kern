@@ -1,4 +1,5 @@
-fn name=validfirst params="c:string" returns=boolean export=true
+fn name=validfirst returns=boolean export=true
+  param name=c type=string
   handler lang="kern"
     if cond="c >= \"A\" && c <= \"Z\""
       return value="true"
@@ -76,7 +77,8 @@ fn name=quotesource params="value:string" returns=string export=true
                 assign target=out value="out + c"
     return value="out + \"\\\"\""
 
-fn name=structuralname params="value:string" returns=string export=true
+fn name=structuralname returns=string export=true
+  param name=value type=string
   handler lang="kern"
     if cond="!valididentifier(value)"
       return value="\"\""

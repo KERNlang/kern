@@ -33,6 +33,7 @@ import {
   formatHistoricalResidualAnalysisStatus,
 } from './coverage-status.mjs';
 import { assertStructuredParameterMigrations } from './coverage-parameter-migrations.mjs';
+import { assertValueBandParameterMigrations } from './coverage-value-band-parameter-migrations.mjs';
 import { VALID_FIXTURES } from './fixtures.mjs';
 
 function canonicalExpression(kind, fields) {
@@ -207,8 +208,9 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     14,
   );
   assertStructuredParameterMigrations(first);
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 69);
-  assert.equal(first.baseCompleteFunctions, 33);
+  assertValueBandParameterMigrations(first);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 57);
+  assert.equal(first.baseCompleteFunctions, 45);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),

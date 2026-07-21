@@ -1,17 +1,17 @@
 {
   "baseline": {
-    "baseCompleteFunctions": 33,
+    "baseCompleteFunctions": 45,
     "baseId": "kern.kir-canonicalizer.profile.m4.29",
-    "canonicalizerDigest": "bf2b2c1f1e8fa85174d72503d836b3a305467af20c560a6e9f037ac616b97bb5",
+    "canonicalizerDigest": "e58663c3bdc552faa094b8318650f8791f30056ceea81a4888293fc64f348101",
     "canonicalizerPolicyDigest": "9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279",
     "compiledCoreDigest": "1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54",
-    "corpusDigest": "5a92fbd4a085bc73827818fd1de0c614e889550b60df7eaa7f6404f31660805e",
-    "coverageImplementationDigest": "216067ddd4c3833aa13485d26184326a9bec318d454c744e6dff7d51cffce4ba",
-    "coveragePolicyDigest": "6c19138011e493a28444fca1899c1c9418b292f30f0aff0ab7e02341d9a50f67",
+    "corpusDigest": "4dcb97ac0c9ddf1fdc7fd2c95750677d78281ef46dd74136136f6fee91732886",
+    "coverageImplementationDigest": "3e47fea76a74d98bf742777d486a6b2f898d569bee01c1526942b87f6f1271c4",
+    "coveragePolicyDigest": "cc4b84c8655a458890edb6c7b79a07a5c1af7997db172a559c7cdeec47ff33b6",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 104,
-    "functionFactsDigest": "bcd5f6e2ec5c4b4c15b1329bb7de3ddbd829f4c870e30beaac0b67db19546614",
-    "legacyParameterBlockers": 69,
+    "functionFactsDigest": "6ff19ad0a49dee08484278a51c27053be780e82f681194fd0d35840fca1ec23c",
+    "legacyParameterBlockers": 57,
     "profileDigest": "2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa",
     "toolCount": 4
   },
@@ -20,131 +20,10 @@
   "minimumFamilyCount": 1,
   "outcome": "selected",
   "parameterMigration": {
-    "completeFunctions": 12,
-    "completeTools": 4,
-    "migratedParameterRows": 44,
-    "witnesses": [
-      {
-        "id": "examples/capstone-assertion-engine/compare.kern#5:compareTrees",
-        "parameterRows": 10,
-        "profileRows": {
-          "nodes": 13,
-          "properties": 25,
-          "values": 106
-        },
-        "tool": "assertion-engine"
-      },
-      {
-        "id": "examples/capstone-checker-subset/checker-while.kern#3:previousSiblingKind",
-        "parameterRows": 3,
-        "profileRows": {
-          "nodes": 10,
-          "properties": 18,
-          "values": 77
-        },
-        "tool": "checker"
-      },
-      {
-        "id": "examples/capstone-checker-subset/checker-while.kern#7:functionRow",
-        "parameterRows": 3,
-        "profileRows": {
-          "nodes": 9,
-          "properties": 15,
-          "values": 85
-        },
-        "tool": "checker"
-      },
-      {
-        "id": "examples/capstone-checker-subset/checker.kern#10:isForCounter",
-        "parameterRows": 5,
-        "profileRows": {
-          "nodes": 13,
-          "properties": 21,
-          "values": 104
-        },
-        "tool": "checker"
-      },
-      {
-        "id": "examples/capstone-checker-subset/checker.kern#11:isAssigned",
-        "parameterRows": 5,
-        "profileRows": {
-          "nodes": 13,
-          "properties": 21,
-          "values": 104
-        },
-        "tool": "checker"
-      },
-      {
-        "id": "examples/capstone-checker-subset/checker.kern#13:paramOrdinalOf",
-        "parameterRows": 5,
-        "profileRows": {
-          "nodes": 12,
-          "properties": 20,
-          "values": 96
-        },
-        "tool": "checker"
-      },
-      {
-        "id": "examples/capstone-checker-subset/checker.kern#15:argIndexOf",
-        "parameterRows": 4,
-        "profileRows": {
-          "nodes": 11,
-          "properties": 18,
-          "values": 84
-        },
-        "tool": "checker"
-      },
-      {
-        "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#0:validfirst",
-        "parameterRows": 1,
-        "profileRows": {
-          "nodes": 8,
-          "properties": 11,
-          "values": 100
-        },
-        "tool": "canonicalizer"
-      },
-      {
-        "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname",
-        "parameterRows": 1,
-        "profileRows": {
-          "nodes": 10,
-          "properties": 16,
-          "values": 104
-        },
-        "tool": "canonicalizer"
-      },
-      {
-        "id": "examples/selfhost-validator/validator.kern#0:charokfirst",
-        "parameterRows": 1,
-        "profileRows": {
-          "nodes": 10,
-          "properties": 13,
-          "values": 92
-        },
-        "tool": "validator"
-      },
-      {
-        "id": "examples/selfhost-validator/validator.kern#16:classrow",
-        "parameterRows": 4,
-        "profileRows": {
-          "nodes": 11,
-          "properties": 19,
-          "values": 89
-        },
-        "tool": "validator"
-      },
-      {
-        "id": "examples/selfhost-validator/validator.kern#8:contained",
-        "parameterRows": 2,
-        "profileRows": {
-          "nodes": 9,
-          "properties": 13,
-          "values": 73
-        },
-        "tool": "validator"
-      }
-    ]
+    "completeFunctions": 0,
+    "completeTools": 0,
+    "migratedParameterRows": 0,
+    "witnesses": []
   },
   "prerequisiteRanking": [
     {

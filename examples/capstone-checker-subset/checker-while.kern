@@ -47,7 +47,10 @@ fn name=checkerSafeIntText params="raw:string" returns=boolean export=true
           return value="false"
     return value="isSafeMagnitude(raw, start)"
 
-fn name=previousSiblingKind params="row:number,stmtKind:string[],stmtParent:number[]" returns=string
+fn name=previousSiblingKind returns=string
+  param name=row type=number
+  param name=stmtKind type=string[]
+  param name=stmtParent type=number[]
   handler lang="kern"
     let name=previous value="\"\""
     for name=i from=0 to="row"
@@ -88,7 +91,10 @@ fn name=subtreeEnd returns=number
           return value="i"
     return value="stmtParent.length"
 
-fn name=functionRow params="fnName:string,stmtKind:string[],stmtName:string[]" returns=number
+fn name=functionRow returns=number
+  param name=fnName type=string
+  param name=stmtKind type=string[]
+  param name=stmtName type=string[]
   handler lang="kern"
     for name=i from=0 to="stmtKind.length"
       if cond="stmtKind[i] == \"fn\" && stmtName[i] == fnName"

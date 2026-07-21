@@ -90,7 +90,12 @@ fn name=isUserCallable params="name:string,stmtKind:string[],stmtName:string[],s
             return value="true"
     return value="false"
 
-fn name=isForCounter params="fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtName:string[]" returns=boolean
+fn name=isForCounter returns=boolean
+  param name=fnName type=string
+  param name=binding type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtName type=string[]
   handler lang="kern"
     for name=i from=0 to="stmtKind.length"
       if cond="stmtFn[i] == fnName"
@@ -99,7 +104,12 @@ fn name=isForCounter params="fnName:string,binding:string,stmtKind:string[],stmt
             return value="true"
     return value="false"
 
-fn name=isAssigned params="fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtTarget:string[]" returns=boolean
+fn name=isAssigned returns=boolean
+  param name=fnName type=string
+  param name=binding type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtTarget type=string[]
   handler lang="kern"
     for name=i from=0 to="stmtKind.length"
       if cond="stmtFn[i] == fnName"
@@ -120,7 +130,12 @@ fn name=isIndexRebound params="fnName:string,binding:string,stmtKind:string[],st
             return value="true"
     return value="false"
 
-fn name=paramOrdinalOf params="fnName:string,binding:string,paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=number
+fn name=paramOrdinalOf returns=number
+  param name=fnName type=string
+  param name=binding type=string
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramOrdinal type=number[]
   handler lang="kern"
     for name=i from=0 to="paramFn.length"
       if cond="paramFn[i] == fnName"
@@ -142,7 +157,11 @@ fn name=termProvenanced params="fnName:string,kind:string,name:string,num:string
         return value="true"
     return value="false"
 
-fn name=argIndexOf params="callId:number,ordinal:number,argCall:number[],argOrdinal:number[]" returns=number
+fn name=argIndexOf returns=number
+  param name=callId type=number
+  param name=ordinal type=number
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
   handler lang="kern"
     for name=i from=0 to="argCall.length"
       if cond="argCall[i] == callId"
