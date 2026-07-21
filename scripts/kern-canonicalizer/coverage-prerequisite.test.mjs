@@ -12,21 +12,21 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.26 migrates the exact binding parameter-ready tranche', () => {
+test('M4.28 preserves the exact unary prerequisite after implementation', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 32,
     baseId: 'kern.kir-canonicalizer.profile.m4.25',
-    canonicalizerDigest: '5337c271465e710261901af18fe55d19a6e69a62f976d0d0fe44df209c4a2974',
+    canonicalizerDigest: '178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: 'a99e6773a47023bb6b833f6dd34b1d9c475888be99924dac07f13b2c1ba58e7c',
+    corpusDigest: 'ef7c9faf6ae57e70c4652dd47998eba5af1829f4a32869f37df48798fdda5362',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '9a1175b209c38ee0a56ef2da8ee114170e87455e6a0ccd79a3f838dd8558e653',
+    coveragePolicyDigest: '33680d7f1aefebb4efa3bc8c40102f2669436042677779627807ed0274357cb6',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '68a20ac32504a4c079e778b75dd613a224a1d03113ba31db41bd3c2a880d127f',
+    functionFactsDigest: '0520434b1f0bd9ea0671037872167f859d8615b1fd942269d3503371c87a6f72',
     legacyParameterBlockers: 70,
     profileDigest: '366123a03fa2d444347f740b77a53e0a8b1b9de668fd681c5167ce1365c97dd7',
     toolCount: 4,
@@ -40,7 +40,7 @@ test('M4.26 migrates the exact binding parameter-ready tranche', () => {
     witnesses: [],
   });
   assert.deepEqual(actual.prerequisiteRanking, [
-    { catalogFacts: 1, family: 'unary-expression', occurrences: 48 },
+    { catalogFacts: 1, family: 'unary-expression', occurrences: 49 },
   ]);
   assert.deepEqual(actual.ranking, [
     {
@@ -48,7 +48,7 @@ test('M4.26 migrates the exact binding parameter-ready tranche', () => {
       completeTools: 1,
       families: ['unary-expression'],
       migratedParameterRows: 2,
-      occurrences: 48,
+      occurrences: 49,
       witnesses: [
         {
           id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat',
@@ -62,7 +62,7 @@ test('M4.26 migrates the exact binding parameter-ready tranche', () => {
   assert.deepEqual(actual.selectedPrerequisite, {
     catalogFacts: 1,
     family: 'unary-expression',
-    occurrences: 48,
+    occurrences: 49,
   });
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
   const residualIds = actual.ranking.flatMap(({ witnesses }) => witnesses.map(({ id }) => id));

@@ -1926,6 +1926,8 @@ trusted-publishing/provenance configuration is inspected.
     receipts restored implementation digest `8a22fa8e68c94910f16382cf761965b8331279d44b87e0a0219948fca963770c`
     and the exact 33/33 focused gate. Remaining findings are non-material
     future assertion-refactoring and process nits.
+    Review-discovered coverage now directly proves the counterfactual
+    partitioner distinguishes base-ready from residual blocked facts.
   - [x] M4.27 unary-expression prerequisite handoff: published M4.26 commit
     `e22a02418f14b6de9619b08b63281abdbc002ef1` is frozen as the fourth exact
     prerequisite record. The 1,214-byte canonical record has SHA-256
@@ -1959,6 +1961,41 @@ trusted-publishing/provenance configuration is inspected.
     review `review-1784637760933-cyd05w-kern-5-r2-m4-27-unary-prerequisi`
     completed with the exact `claude,codex,agy` roster: 3/3 engines succeeded
     with zero findings.
+  - [x] M4.28 unary-expression canonicalizer tranche: KERN `exprsource` now
+    owns exact fail-closed validation and universally grouped source emission
+    for parser-portable unary `!`, `-`, `~`, and `typeof`. It rejects unary
+    `+`, `void`, negative zero, malformed shapes, unsupported arguments, and
+    invalid recursion without events or partial output. The authenticated
+    composite is 40,414 bytes at SHA-256
+    `178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a`;
+    handwritten main is 23,666 bytes at
+    `5472494a26004621d1ac76b0571432462c74da88563e4e3fca9ca7a2394a42e2`.
+    Policy, coverage-summary, and prerequisite-summary file SHA-256 values are
+    `33680d7f1aefebb4efa3bc8c40102f2669436042677779627807ed0274357cb6`,
+    `d1e3f21ca3efab4f28aff136e83e1fedd3f52e8e7c7d374d4a1f4fa40043e9c4`,
+    and `fabfd3b802db25c0788e6f46582f471a8860bf54a02c8c4d23dc67e4b5aa2ac7`;
+    implementation digest is
+    `f2799971b9cb44932b5ca874740f59a860635bef31c2de4dc34ce6b39c6a2775`.
+    The focused Node 22 canonicalizer gate passes 92/92 tests plus 48 exact
+    runtime fixtures, eight witnesses, three profile limits, and 218 hostile
+    fixtures. Live coverage remains 32/104 with 70 legacy blockers and unary
+    unpromoted; immutable M4.27 provenance remains exact at 48 occurrences
+    while the live corpus observes 49 after implementation. The complete Node
+    22 `pnpm fitness:kern-5` wall passes on the exact integrated tree after
+    test-only review hardening, including every workspace, release-policy, and
+    infrastructure gate; 432/432 cross-target, 109/109 class, 233/233 native,
+    and 40 whole-app fixtures; and the repeated 92/92 plus 48/8/3/218
+    canonicalizer terminal gate. Review hardening corrects the helper
+    ownership escape needle and directly proves fail-closed rejection of a
+    negative-integer KIR argument with unchanged production hashes and
+    coverage.
+    Required high-risk role-lens review `review-1784641872553-abfibk` routed
+    all six usable non-excluded identities with no exclusions or shortfall;
+    all six returned, with zero material findings and one deferred fixture-DRY
+    nit. Exact-final targeted review
+    `review-1784644332568-66l4h5-kern-5-r2-m4-28-unary-canonicali` then
+    completed 3/3 with zero blocking, correctness, or security findings and one
+    deferred negative-zero structural-hardening nit.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

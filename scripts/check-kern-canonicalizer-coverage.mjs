@@ -171,7 +171,7 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.selectedPrerequisite, {
     catalogFacts: 1,
     family: 'unary-expression',
-    occurrences: 48,
+    occurrences: 49,
   });
   const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
   assert.equal(

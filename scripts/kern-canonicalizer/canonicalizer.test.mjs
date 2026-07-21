@@ -140,6 +140,39 @@ test('binary ownership stays in main and mechanically matches the structural ope
   assert.deepEqual(new Set(kernOperators), new Set(catalogOperators));
 });
 
+test('unary validation and emission stay in the KERN-owned expression source', () => {
+  assert.equal(helperSource.includes('\\"unary\\"'), false);
+  const unaryStart = mainSource.indexOf('if cond="kind == \\"unary\\""');
+  const unaryEnd = mainSource.indexOf('if cond="kind == \\"member\\""', unaryStart);
+  assert.ok(unaryStart >= 0 && unaryEnd > unaryStart, 'missing KERN-owned unary branch');
+  const unaryBranch = mainSource.slice(unaryStart, unaryEnd);
+  for (const field of ['argument', 'op']) {
+    assert.ok(
+      unaryBranch.includes(`recordfield(fieldsId, \\"${field}\\", valueParent, valueRole)`),
+      `unary branch omitted ${field}`,
+    );
+  }
+  for (const operator of ['!', '-', '~', 'typeof']) {
+    assert.ok(unaryBranch.includes(`op == \\"${operator}\\"`), `unary branch omitted ${operator}`);
+  }
+  assert.ok(unaryBranch.includes('valuechildcount(fieldsId, valueParent) != 2'), 'unary must reject extra fields');
+  assert.ok(unaryBranch.includes('stringat(opId, valueTag) != \\"text\\"'), 'unary op must remain text');
+  assert.ok(unaryBranch.includes('if cond="!validUnaryOp"'), 'unary must reject every non-portable operator');
+  assert.ok(unaryBranch.includes('exprsource(argumentId'), 'unary argument must use recursive expression ownership');
+  assert.ok(
+    unaryBranch.includes('argument == \\"\\" || (op == \\"-\\" && argument == \\"0\\")'),
+    'unary must reject recursive failure and negative zero',
+  );
+  assert.ok(
+    unaryBranch.includes('\\"(\\" + op + \\" \\" + argument + \\")\\"'),
+    'typeof emission must own source spacing and grouping',
+  );
+  assert.ok(
+    unaryBranch.includes('\\"(\\" + op + argument + \\")\\"'),
+    'symbolic unary emission must own grouping',
+  );
+});
+
 test('call validation and emission stay in the KERN-owned expression source', () => {
   assert.equal(helperSource.includes('\\"call\\"'), false);
   const callStart = mainSource.indexOf('if cond="kind == \\"call\\""');
@@ -200,7 +233,8 @@ test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
     !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-') &&
-    !id.startsWith('counted-iteration-') && !id.startsWith('binding-'));
+    !id.startsWith('counted-iteration-') && !id.startsWith('binding-') &&
+    !id.startsWith('unary-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

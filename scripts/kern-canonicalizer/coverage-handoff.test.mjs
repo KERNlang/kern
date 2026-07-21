@@ -387,7 +387,7 @@ test('the current corpus preserves selection and four-record prerequisite histor
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.26 preserves exact M4.25 binding promotion through parameter migration', () => {
+test('M4.28 preserves exact M4.25 binding promotion through unary implementation', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -402,12 +402,13 @@ test('M4.26 preserves exact M4.25 binding promotion through parameter migration'
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 39430, 'M4.26 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 40414, 'M4.28 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '5337c271465e710261901af18fe55d19a6e69a62f976d0d0fe44df209c4a2974',
-    'M4.26 must bind the exact live KERN capability digest',
+    '178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a',
+    'M4.28 must bind the exact live KERN capability digest',
   );
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\""/u);
