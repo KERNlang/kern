@@ -370,8 +370,8 @@ test('the current corpus preserves both provenance histories after frozen parame
   assert.deepEqual(receipt.prerequisiteProvenances, prerequisites);
   assert.deepEqual(summary.prerequisiteProvenances, prerequisites);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'counted-iteration',
-    provenanceDigest: prerequisites[1].digest,
+    family: 'binding',
+    provenanceDigest: prerequisites[2].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -387,9 +387,10 @@ test('the current corpus preserves both provenance histories after frozen parame
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.24 retains the promoted counted-iteration capability after binding implementation', () => {
+test('M4.25 promotes the exact M4.24 binding capability without changing KERN bytes', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
+  const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
   const canonicalizerSource = readFileSync(
     new URL('../../examples/kern-canonicalizer/canonicalizer.composed.kern', import.meta.url),
   );
@@ -413,16 +414,19 @@ test('M4.24 retains the promoted counted-iteration capability after binding impl
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.21');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.25');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
   assert.equal(policy.base.nodeKinds.includes('for'), true);
+  assert.equal(policy.base.nodeKinds.includes('let'), true);
+  assert.equal(policy.base.nodeKinds.includes('assign'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,
@@ -447,4 +451,7 @@ test('M4.24 retains the promoted counted-iteration capability after binding impl
   assert.equal(policy.base.promotions[5].family, 'counted-iteration');
   assert.equal(policy.base.promotions[5].provenanceDigest, M419_DIGEST);
   assert.equal(policy.base.promotions[5].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[6].family, 'binding');
+  assert.equal(policy.base.promotions[6].provenanceDigest, prerequisites[2].digest);
+  assert.equal(policy.base.promotions[6].provenanceKind, 'prerequisite');
 });

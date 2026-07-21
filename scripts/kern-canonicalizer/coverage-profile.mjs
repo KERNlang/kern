@@ -28,7 +28,7 @@ const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
   'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.21';
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.25';
 const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -60,24 +60,41 @@ const BASE_PROMOTIONS = [
     provenanceDigest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
     provenanceKind: 'prerequisite',
   },
+  {
+    family: 'binding',
+    provenanceDigest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
+    provenanceKind: 'prerequisite',
+  },
 ];
-const BASE_NODE_KINDS = ['else', 'fn', 'for', 'handler', 'if', 'param', 'return'];
+const BASE_NODE_KINDS = ['assign', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return'];
 const BASE_PROPERTIES = Object.freeze({
+  assign: { optional: [], required: ['target', 'value'] },
   else: { optional: [], required: [] },
   fn: { optional: ['export'], required: ['name', 'returns'] },
   for: { optional: [], required: ['from', 'name', 'to'] },
   handler: { optional: [], required: ['lang'] },
   if: { optional: [], required: ['cond'] },
+  let: { optional: [], required: ['name', 'value'] },
   param: { optional: [], required: ['name', 'type'] },
   return: { optional: ['value'], required: [] },
 });
+const BASE_EXCLUDED_PROPERTY_IDENTITIES = new Set([
+  'assign.op',
+  'assign.trailingComment',
+  'for.step',
+  'let.expr',
+  'let.kind',
+  'let.trailingComment',
+  'let.type',
+]);
 const BASE_PROPERTY_KEYS = BASE_NODE_KINDS.flatMap((kind) =>
   Object.keys(STRUCTURAL_KIR_NODE_CATALOG.get(kind)?.properties ?? {}).map((key) => `${kind}.${key}`)
-).filter((identity) => identity !== 'for.step').sort();
+).filter((identity) => !BASE_EXCLUDED_PROPERTY_IDENTITIES.has(identity)).sort();
 const PROFILE_LIMIT_KEYS = ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'];
 const PROFILE_ROW_KEYS = ['nodes', 'properties', 'values'];
 const STATEMENT_CONTAINERS = new Set(['else', 'for', 'handler', 'if', 'while']);
 const STATEMENT_KINDS = new Set(['assign', 'do', 'else', 'for', 'if', 'let', 'return', 'throw', 'while']);
+const ASSIGNMENT_TARGET_KINDS = new Set(['identifier', 'index', 'member']);
 
 export function recursiveStatementNodeKinds(nodeKinds) {
   return nodeKinds.filter((kind) => kind !== 'return' && STATEMENT_KINDS.has(kind));
@@ -99,7 +116,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.21 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.25 cumulative profile');
   }
   return base;
 }
@@ -304,6 +321,13 @@ function collectProfileBlockersForFunction(root, base, profileLimits, profileRow
     ) {
       add('for.properties.name.value', node);
     }
+    if (
+      node.type === 'let' &&
+      Object.hasOwn(node.props ?? {}, 'name') &&
+      (typeof node.props.name !== 'string' || !IDENTIFIER.test(node.props.name))
+    ) {
+      add('let.properties.name.value', node);
+    }
     if ((node.type === 'param' || node.type === 'return') && (node.children?.length ?? 0) !== 0) {
       add(`${node.type}.children`, node);
     }
@@ -316,6 +340,12 @@ function collectProfileBlockersForFunction(root, base, profileLimits, profileRow
       } catch (error) {
         if (error instanceof StructuralKirError || error instanceof CanonicalValueDecodeError) continue;
         throw error;
+      }
+      if (node.type === 'assign' && key === 'target') {
+        const targetKind = canonicalRecord(projected)?.get('kind');
+        if (targetKind?.tag !== 'text' || !ASSIGNMENT_TARGET_KINDS.has(targetKind.value)) {
+          add('assign.properties.target.root', node);
+        }
       }
       for (const blocker of baseExpressionProfileBlockers(projected, base)) {
         add(`${node.type}.properties.${key}.${blocker}`, node);

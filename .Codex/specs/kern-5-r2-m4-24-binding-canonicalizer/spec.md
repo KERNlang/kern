@@ -217,7 +217,14 @@ contracts, and the repeated canonicalizer gate with 40 runtime fixtures,
 eight witnesses, three profile-limit fixtures, 202 hostile fixtures, and the
 exact 27/104 coverage receipt.
 
-[VERIFIED] Terminal role-lens review
-`review-1784628432958-bn36kt-kern-5-r2-m4-24-binding-canonica` completed the
-strict `claude,codex,agy` roster: 3/3 engines succeeded with zero verified,
-needs-check, speculative, or nit findings.
+[VERIFIED] High-risk role-lens review `review-1784628519839-yy1k63`
+completed all six usable non-excluded identities with no routing shortfall and
+no unresolved material finding. One reviewer claimed the non-assignable-target
+hostile mutation swapped two identifier expressions; direct inspection of the
+decoded fixture proves the pre-mutation roots are `target=identifier` and
+`value=binary`, while the post-mutation roots are `target=binary` and
+`value=identifier`. The 202-case hostile runtime gate therefore exercises and
+rejects the intended supported-but-nonassignable binary target. A low-confidence
+generic fixture-helper extraction and the remaining documentation/test nits are
+deliberately deferred because they do not affect correctness and would widen
+this authenticated tranche.

@@ -97,11 +97,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.prerequisiteProvenances.length, 3);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
-    family: 'counted-iteration',
-    provenanceDigest: prerequisiteHandoffs[1].digest,
+    family: 'binding',
+    provenanceDigest: prerequisiteHandoffs[2].digest,
     provenanceKind: 'prerequisite',
   });
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.21');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.25');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -133,41 +133,53 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.24 must preserve the six promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.24 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.24 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.24 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 27, 'live M4.24 base completion must remain exactly 27/104');
+    {
+      family: 'binding',
+      provenanceDigest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.25 must preserve the seven promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.25 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.25 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.25 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 27, 'live M4.25 base completion must remain exactly 27/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     75,
-    'live M4.24 fn.params blocker count must remain exactly 75',
+    'live M4.25 fn.params blocker count must remain exactly 75',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.24 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.25 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
-      { completeFunctions: 0, completeTools: 0, id: 'binding' },
       { completeFunctions: 0, completeTools: 0, id: 'do-statement' },
       { completeFunctions: 0, completeTools: 0, id: 'unary-expression' },
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.24 residual zero-completion ranking must remain exact',
+    'live M4.25 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 5,
+    completeTools: 2,
+    migratedParameterRows: 9,
+    witnesses: prerequisite.parameterMigration.witnesses,
   });
+  assert.equal(prerequisite.parameterMigration.witnesses.length, 5);
+  assert.deepEqual(prerequisite.parameterMigration.witnesses.map(({ id }) => id), [
+    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#11:childcount',
+    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#13:valuechildcount',
+    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#7:propcount',
+    'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
+    'examples/selfhost-validator/validator.kern#9:paramcount',
+  ]);
   assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 6,
-    family: 'binding',
-    occurrences: 852,
+    catalogFacts: 1,
+    family: 'unary-expression',
+    occurrences: 48,
   });
   const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
   assert.equal(

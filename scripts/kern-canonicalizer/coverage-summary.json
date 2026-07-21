@@ -12,13 +12,15 @@
       "null",
       "text"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.21",
+    "id": "kern.kir-canonicalizer.profile.m4.25",
     "nodeKinds": [
+      "assign",
       "else",
       "fn",
       "for",
       "handler",
       "if",
+      "let",
       "param",
       "return"
     ],
@@ -52,9 +54,16 @@
         "family": "counted-iteration",
         "provenanceDigest": "af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "binding",
+        "provenanceDigest": "00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
+      "assign.target",
+      "assign.value",
       "fn.async",
       "fn.effects",
       "fn.export",
@@ -72,6 +81,8 @@
       "handler.reason",
       "handler.review",
       "if.cond",
+      "let.name",
+      "let.value",
       "param.default",
       "param.description",
       "param.max",
@@ -180,21 +191,21 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "6f2c1cd95868919456c1a819cffd7f2e322c26feabde2b725f4bd5914aa691be",
-  "coverageImplementationDigest": "441ba058c75fad8f8fcbccda4fbaa9ea1f01185a172119513141744aa345357c",
-  "coveragePolicyDigest": "29b5cae01b6e8573b2cbb632d2e968398c002c5b948a6855f2983fc47ba316e4",
+  "coverageImplementationDigest": "f693c5b77ac9238cdb299cdc8231871f64d70f90cd2a1f0f61c9a2f0bcc4d203",
+  "coveragePolicyDigest": "4b8888e4e1f64b8356949f1b823f80e5a84c0594b1a864cdd7804d805ac13991",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 104,
-  "functionFactsDigest": "61773cf256964c20d32a1e549b5e1ad48e97c6191d51b94f72b5b98349479087",
+  "functionFactsDigest": "c67b0c064c2bac2d5c3021a83202b7efd01ac84ec1cb2f2b1a54b69879c71819",
   "implementationProvenance": {
-    "family": "counted-iteration",
-    "provenanceDigest": "af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b",
+    "family": "binding",
+    "provenanceDigest": "00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "755f95fdcbff4299fcc647b970c03381128d9dd653138d6ff68cb3f462d5046e",
-  "profileDigest": "fb441ef45e9efaf6124537e15fc73a87b9f63249ba7d555bb8c6360e162cb8af",
+  "policyDigest": "58c690423db2f3ce687ff821f40cffec6e37b74022bbd4fd5297eb5a5513491b",
+  "profileDigest": "366123a03fa2d444347f740b77a53e0a8b1b9de668fd681c5167ce1365c97dd7",
   "prerequisiteProvenances": [
     {
       "digest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
@@ -337,13 +348,6 @@
   ],
   "selection": {
     "ranking": [
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "binding",
-        "occurrences": 852,
-        "witnesses": []
-      },
       {
         "completeFunctions": 0,
         "completeTools": 0,

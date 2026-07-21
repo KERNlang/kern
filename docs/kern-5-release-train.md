@@ -1842,10 +1842,48 @@ trusted-publishing/provenance configuration is inspected.
     fixtures, 109/109 class fixtures, 233/233 native fixtures, 40 whole-app
     fixtures across three legs, the checker/validator/KIR/runtime contracts,
     and the repeated canonicalizer gate on the final implementation tree.
-    Terminal role-lens review
-    `review-1784628432958-bn36kt-kern-5-r2-m4-24-binding-canonica` completed
-    the strict `claude,codex,agy` roster: 3/3 engines succeeded with zero
-    verified, needs-check, speculative, or nit findings.
+    High-risk role-lens review `review-1784628519839-yy1k63` completed all six
+    usable non-excluded identities with no routing shortfall and no unresolved
+    material finding. Its claimed blocker was disproved against decoded KIR:
+    `binding-assign-nonassignable-target` changes the assignment roots from
+    `target=identifier`/`value=binary` to
+    `target=binary`/`value=identifier`, and the complete hostile runner proves
+    that supported-but-nonassignable target rejects. The suggested generic
+    fixture-helper extraction and remaining nits are deferred because they do
+    not affect correctness and would widen this authenticated tranche.
+  - [x] M4.25 binding promotion and parameter-ready remeasurement: cumulative
+    profile `kern.kir-canonicalizer.profile.m4.25` now promotes the exact
+    direct-binding family through immutable M4.23 prerequisite digest
+    `00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab`.
+    Binding is removed from active families and becomes the implementation
+    pointer; do, exception, unary, and while retain their relative order. The
+    promoted profile admits only leaf `let` with structural `name` plus
+    recursive `value`, and leaf `assign` with recursive `target`/`value` plus
+    an identifier, member, or index target root. The KERN executable remains
+    byte-identical at 39,340 bytes and SHA-256
+    `fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8`.
+    Policy, coverage-summary, and prerequisite-summary file SHA-256 values are
+    `4b8888e4e1f64b8356949f1b823f80e5a84c0594b1a864cdd7804d805ac13991`,
+    `377d43bdf852e7981c0a6ca80927c862700982833df7b14de7d2b1e2f3e6c0df`,
+    and
+    `e62f14054d00cf76ca0e362c88b453a9777d415a9c131f16f38602580f530260`.
+    Live measurement remains 27/104 base-complete with 75 legacy parameter
+    blockers and no ordinary winner, while the exact five-function/two-tool/
+    nine-row binding witness set becomes parameter-ready. Residual ranking
+    selects unary expression as the next one-family prerequisite at 48
+    occurrences, with `numberat` as its one two-row witness. The focused Node
+    22 gate passes all 88 structural/authentication/profile tests, 40 runtime
+    fixtures, eight measured witnesses, three profile-limit fixtures, 202
+    hostile fixtures, and the final exact coverage check. The complete Node 22
+    `pnpm fitness:kern-5` wall passes every workspace, release-policy, and
+    infrastructure gate; 432/432 cross-target fixtures; 109/109 class
+    fixtures; 233/233 native fixtures at 100% coverage; 40 whole-app fixtures
+    across three legs; runner/browser budgets; checker, validator, KIR,
+    runtime, ownership, and convergence contracts; and the repeated
+    canonicalizer gate on the final M4.25 tree. Terminal Agon review run
+    `review-1784631411129-sr8uax-kern-5-r2-m4-25-binding-promotio` used the
+    exact `claude,codex,agy` roster; 3/3 engines succeeded with zero verified,
+    needs-check, speculative, or nit findings.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

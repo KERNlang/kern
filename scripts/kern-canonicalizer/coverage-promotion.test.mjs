@@ -12,7 +12,7 @@ import { baseExpressionProfileBlockers, profileBlockersForFunction } from './cov
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.21';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.25';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
@@ -50,12 +50,17 @@ const COUNTED_ITERATION_PROMOTION = {
   provenanceDigest: COUNTED_ITERATION_PROVENANCE_DIGEST,
   provenanceKind: 'prerequisite',
 };
+const BINDING_PROMOTION = {
+  family: 'binding',
+  provenanceDigest: BINDING_PROVENANCE_DIGEST,
+  provenanceKind: 'prerequisite',
+};
 
-test('M4.21 promotes counted iteration through exact prerequisite provenance', () => {
+test('M4.25 promotes binding through exact prerequisite provenance', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, PROFILE_ID);
-  assert.deepEqual(policy.base.nodeKinds, ['else', 'fn', 'for', 'handler', 'if', 'param', 'return']);
+  assert.deepEqual(policy.base.nodeKinds, ['assign', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return']);
   assert.deepEqual(policy.base.expressionKinds, [
     'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
   ]);
@@ -68,6 +73,7 @@ test('M4.21 promotes counted iteration through exact prerequisite provenance', (
       MEMBER_PROMOTION,
       INDEX_PROMOTION,
       COUNTED_ITERATION_PROMOTION,
+      BINDING_PROMOTION,
     ],
   );
   assert.equal(policy.families.some(({ id }) => id === 'binary-expression'), false);
@@ -76,10 +82,17 @@ test('M4.21 promotes counted iteration through exact prerequisite provenance', (
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.base.propertyKeys.includes('for.from'), true);
   assert.equal(policy.base.propertyKeys.includes('for.name'), true);
   assert.equal(policy.base.propertyKeys.includes('for.to'), true);
   assert.equal(policy.base.propertyKeys.includes('for.step'), false);
+  for (const property of ['assign.target', 'assign.value', 'let.name', 'let.value']) {
+    assert.equal(policy.base.propertyKeys.includes(property), true);
+  }
+  for (const property of ['assign.op', 'assign.trailingComment', 'let.kind', 'let.trailingComment']) {
+    assert.equal(policy.base.propertyKeys.includes(property), false);
+  }
 
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
@@ -97,8 +110,8 @@ test('M4.21 promotes counted iteration through exact prerequisite provenance', (
     ],
   );
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
-  assert.deepEqual(receipt.implementationProvenance, COUNTED_ITERATION_PROMOTION);
-  assert.deepEqual(summary.implementationProvenance, COUNTED_ITERATION_PROMOTION);
+  assert.deepEqual(receipt.implementationProvenance, BINDING_PROMOTION);
+  assert.deepEqual(summary.implementationProvenance, BINDING_PROMOTION);
   assert.deepEqual(
     receipt.prerequisiteProvenances.map(({ digest }) => digest),
     [INDEX_PROVENANCE_DIGEST, COUNTED_ITERATION_PROVENANCE_DIGEST, BINDING_PROVENANCE_DIGEST],
@@ -110,7 +123,7 @@ test('M4.21 promotes counted iteration through exact prerequisite provenance', (
   );
 });
 
-test('M4.21 rejects profile identity, typed evidence, and candidate overlap drift', () => {
+test('M4.25 rejects profile identity, typed evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.2'; },
@@ -125,10 +138,12 @@ test('M4.21 rejects profile identity, typed evidence, and candidate overlap drif
     (copy) => { copy.base.promotions[3].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[4].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[5].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[6].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[0].provenanceKind = 'prerequisite'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'future'; },
     (copy) => { copy.base.promotions[5].provenanceKind = 'selection'; },
+    (copy) => { copy.base.promotions[6].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions.reverse(); },
     (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
@@ -136,6 +151,7 @@ test('M4.21 rejects profile identity, typed evidence, and candidate overlap drif
     (copy) => { copy.base.promotions.push(structuredClone(MEMBER_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(INDEX_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(COUNTED_ITERATION_PROMOTION)); },
+    (copy) => { copy.base.promotions.push(structuredClone(BINDING_PROMOTION)); },
     (copy) => {
       copy.families.unshift({
         expressionKinds: ['index'],
@@ -150,6 +166,14 @@ test('M4.21 rejects profile identity, typed evidence, and candidate overlap drif
         id: 'counted-iteration',
         nodeKinds: ['for'],
         propertyKeys: ['for.from', 'for.name', 'for.to'],
+      });
+    },
+    (copy) => {
+      copy.families.unshift({
+        expressionKinds: [],
+        id: 'binding',
+        nodeKinds: ['assign', 'let'],
+        propertyKeys: ['assign.target', 'assign.value', 'let.name', 'let.value'],
       });
     },
   ];
