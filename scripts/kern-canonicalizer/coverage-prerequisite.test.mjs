@@ -1,0 +1,153 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import test from 'node:test';
+
+import {
+  measureCanonicalizerPrerequisite,
+  migrateLegacyFunctionForPrerequisite,
+  parseLegacyParametersForPrerequisite,
+} from './coverage-prerequisite.mjs';
+import { assertCoverageSummary } from './coverage-summary-writer.mjs';
+
+const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
+
+test('M4.15 measures the exact minimum multi-family dependency closure', () => {
+  const actual = measureCanonicalizerPrerequisite();
+  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.1');
+  assert.deepEqual(actual.baseline, {
+    baseCompleteFunctions: 21,
+    baseId: 'kern.kir-canonicalizer.profile.m4.14',
+    canonicalizerDigest: 'b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a',
+    corpusDigest: 'c30d61d0458fd48a9243a71f8de8690e002fc7a3a6e1e49833c9549a031544d6',
+    coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
+    coveragePolicyDigest: '2a5413c0e40540f51b0213adfee3f00f91e293dde0070666ed3244a714d25b26',
+    familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
+    functionCount: 104,
+    functionFactsDigest: 'f739d0a766a7ad7ef549a2a6e667ced42a31eec7bc91fa0e30b3baff4db8ff38',
+    legacyParameterBlockers: 81,
+    profileDigest: 'c1c0caf0595fcba87e27fa3b8319244bbbd04d107c063bfcd638c42c667fef33',
+    toolCount: 4,
+  });
+  assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
+  assert.equal(actual.minimumFamilyCount, 2);
+  assert.deepEqual(actual.prerequisiteRanking, [
+    { catalogFacts: 1, family: 'index-expression', occurrences: 494 },
+    { catalogFacts: 4, family: 'counted-iteration', occurrences: 468 },
+  ]);
+  assert.deepEqual(actual.ranking, [
+    {
+      completeFunctions: 6,
+      completeTools: 3,
+      families: ['counted-iteration', 'index-expression'],
+      migratedParameterRows: 14,
+      occurrences: 962,
+      witnesses: [
+        {
+          id: 'examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild',
+          parameterRows: 2,
+          profileRows: { nodes: 8, properties: 13, values: 53 },
+          tool: 'checker',
+        },
+        {
+          id: 'examples/capstone-checker-subset/checker-while.kern#6:subtreeEnd',
+          parameterRows: 2,
+          profileRows: { nodes: 9, properties: 14, values: 70 },
+          tool: 'checker',
+        },
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#8:stringat',
+          parameterRows: 2,
+          profileRows: { nodes: 8, properties: 14, values: 62 },
+          tool: 'canonicalizer',
+        },
+        {
+          id: 'examples/selfhost-validator/validator.kern#13:containsid',
+          parameterRows: 2,
+          profileRows: { nodes: 8, properties: 14, values: 54 },
+          tool: 'validator',
+        },
+        {
+          id: 'examples/selfhost-validator/validator.kern#6:rootpath',
+          parameterRows: 3,
+          profileRows: { nodes: 9, properties: 16, values: 66 },
+          tool: 'validator',
+        },
+        {
+          id: 'examples/selfhost-validator/validator.kern#7:statusof',
+          parameterRows: 3,
+          profileRows: { nodes: 9, properties: 16, values: 66 },
+          tool: 'validator',
+        },
+      ],
+    },
+    {
+      completeFunctions: 1,
+      completeTools: 1,
+      families: ['binding', 'counted-iteration'],
+      migratedParameterRows: 1,
+      occurrences: 1218,
+      witnesses: [
+        {
+          id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
+          parameterRows: 1,
+          profileRows: { nodes: 7, properties: 14, values: 42 },
+          tool: 'canonicalizer',
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(actual.selectedPrerequisite, {
+    catalogFacts: 1,
+    family: 'index-expression',
+    occurrences: 494,
+  });
+  const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
+  assert.deepEqual(actual, checkedIn);
+  assertCoverageSummary(summaryUrl, actual);
+});
+
+test('M4.15 prerequisite measurement is stable in a fresh process', () => {
+  const fresh = spawnSync(process.execPath, [
+    '--input-type=module',
+    '-e',
+    "import {measureCanonicalizerPrerequisite} from './scripts/kern-canonicalizer/coverage-prerequisite.mjs'; process.stdout.write(JSON.stringify(measureCanonicalizerPrerequisite()))",
+  ], {
+    cwd: new URL('../../', import.meta.url),
+    encoding: 'utf8',
+    env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
+  });
+  assert.equal(fresh.status, 0, fresh.stderr);
+  assert.deepEqual(JSON.parse(fresh.stdout), measureCanonicalizerPrerequisite());
+});
+
+test('M4.15 counterfactual parameters fail closed outside exact portable pairs', () => {
+  assert.deepEqual(parseLegacyParametersForPrerequisite('raw:string,n:number[]'), [
+    { name: 'raw', type: 'string' },
+    { name: 'n', type: 'number[]' },
+  ]);
+  for (const raw of [
+    '',
+    'raw',
+    'raw:string:extra',
+    'raw:string,raw:number',
+    'bad-name:string',
+    'raw:unknown',
+  ]) {
+    assert.throws(
+      () => parseLegacyParametersForPrerequisite(raw),
+      /coverage prerequisite rejection/u,
+    );
+  }
+  assert.throws(
+    () => migrateLegacyFunctionForPrerequisite({
+      children: [
+        { children: [], props: { name: 'direct', type: 'string' }, type: 'param' },
+        { children: [], props: { lang: 'kern' }, type: 'handler' },
+      ],
+      props: { name: 'mixed', params: 'legacy:string', returns: 'void' },
+      type: 'fn',
+    }),
+    /legacy function must be a function without direct parameter children/u,
+  );
+});

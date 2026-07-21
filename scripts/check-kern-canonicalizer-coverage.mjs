@@ -1,13 +1,20 @@
 import assert from 'node:assert/strict';
 
 import { summarizeCanonicalizerCoverage } from './kern-canonicalizer/coverage.mjs';
+import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import { formatCoverageWinnerStatus } from './kern-canonicalizer/coverage-status.mjs';
 
 const summaryUrl = new URL('./kern-canonicalizer/coverage-summary.json', import.meta.url);
+const prerequisiteSummaryUrl = new URL(
+  './kern-canonicalizer/coverage-prerequisite-summary.json',
+  import.meta.url,
+);
 const actual = summarizeCanonicalizerCoverage();
+const prerequisite = measureCanonicalizerPrerequisite();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
+  writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
 } else {
   assert.equal(actual.selectionProvenances.length, 4);
   assert.equal(actual.selectionProvenances[0].digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
@@ -127,10 +134,19 @@ if (process.argv.includes('--write')) {
     'live M4.14 zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
+  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.deepEqual(prerequisite.selectedPrerequisite, {
+    catalogFacts: 1,
+    family: 'index-expression',
+    occurrences: 494,
+  });
+  assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
 }
 const leadingBlocker = actual.blockers[0];
 process.stdout.write(
   `KERN canonicalizer coverage: ${actual.baseCompleteFunctions}/${actual.functionCount} base-complete; ` +
   `${leadingBlocker ? `${leadingBlocker.count} blocked by ${leadingBlocker.id}` : 'no profile blockers'}; ` +
-  `${formatCoverageWinnerStatus(actual.selection.winner)}.\n`,
+  `${formatCoverageWinnerStatus(actual.selection.winner)}; ` +
+  `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
+  `${prerequisite.minimumFamilyCount}-family closure.\n`,
 );

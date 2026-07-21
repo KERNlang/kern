@@ -1520,6 +1520,41 @@ trusted-publishing/provenance configuration is inspected.
     needs-check items were resolved as intentional separation between
     root-identifier and dot-property policy, and as an out-of-scope
     cross-family validator refactor. No material finding remains unresolved.
+  - [x] M4.15 multi-family dependency prerequisite: after M4.14 leaves no
+    single-family winner, an authenticated in-memory migration of all 81
+    legacy `fn.params` signatures proves the minimum completing closure has
+    two active families. `counted-iteration` plus `index-expression` completes
+    six functions across checker, canonicalizer, and validator with 14 direct
+    parameter rows and 962 observed family occurrences. The only other
+    completing pair, binding plus counted iteration, completes one
+    canonicalizer function with one migrated parameter row and 1,218
+    occurrences. Within the winning pair, index expression is the exact next
+    prerequisite because it owns one catalog fact versus counted iteration's
+    node plus three required properties. This is ordering evidence only: no
+    source signature changes, family merge, ordinary selection provenance,
+    implementation, or promotion occurs. The canonical prerequisite receipt
+    SHA-256 is
+    `54146de715b207e507d56e303937d0531d8832a5ced3e162b0288be83865f49f`;
+    regenerated ordinary format-5 summary SHA-256 is
+    `12b26731a6f686f55e8e80736bbb6bdd7bbcb5e7ed514be9628885ddd8ef627c`.
+    Exact mixed legacy/direct parameters now reject before counterfactual
+    credit. The focused Node 22 gate passes 73 structural/authentication tests
+    plus 27 golden/idempotence/KIR, eight measured-witness, three
+    profile-limit, and 156 hostile fixtures. The exact tree passes the complete
+    Node 22 `pnpm fitness:kern-5` wall, including all workspace and
+    infrastructure suites, 432 cross-target fixtures, 109 class fixtures, 233
+    native assertions at 100% coverage, 48 checker fixtures plus 36 hostile
+    rejections, 39 validator verdicts, 40 whole-app fixtures across three legs,
+    browser budget, and every KIR/runtime/ownership/convergence guard.
+    Full-roster terminal review
+    `review-1784593242913-wo6j0u-kern-5-r2-m4-15-terminal-boundar` completed all
+    six usable engines with one verified finding, one needs-check item, zero
+    speculative findings, and 12 nits. The verified finding inspected a stale
+    scratch copy with a free `base`; the current source passes `policy.base`,
+    and both focused and full gates repeatedly execute the path. The shared
+    corpus-loader extraction was deferred because current duplicated ownership
+    fails closed and changing the authenticated ordinary coverage core would
+    widen this evidence-only slice. No material finding remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
