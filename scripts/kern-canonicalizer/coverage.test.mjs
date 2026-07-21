@@ -145,8 +145,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     toolCount: 4,
   });
   assert.deepEqual(first.implementationProvenance, {
-    family: 'binding',
-    provenanceDigest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
+    family: 'unary-expression',
+    provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(
@@ -198,11 +198,10 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [0, 0, 0, 0],
+    [0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
     'do-statement',
-    'unary-expression',
     'exception-flow',
     'while-iteration',
   ]);
@@ -285,8 +284,8 @@ test('coverage closure rejects missing observed facts and unobserved claims', ()
   const policy = loadCoveragePolicy();
   const measured = measureCanonicalizerCoverage(policy);
   const missing = structuredClone(policy);
-  missing.families = missing.families.filter(({ id }) => id !== 'unary-expression');
-  assert.throws(() => assertCoverageClosed(missing, measured.functions), /unclaimed expression kind unary/u);
+  missing.families = missing.families.filter(({ id }) => id !== 'while-iteration');
+  assert.throws(() => assertCoverageClosed(missing, measured.functions), /unclaimed node kind while/u);
   assert.throws(
     () => assertCoverageClosed(policy, measured.functions.filter(({ nodeKinds }) => !nodeKinds.includes('while'))),
     /unobserved node kind while/u,

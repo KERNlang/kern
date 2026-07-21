@@ -25,10 +25,11 @@ const PARAMETER_TYPES = new Set([
   'boolean', 'boolean[]', 'number', 'number[]', 'string', 'string[]',
 ]);
 const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
+const PORTABLE_UNARY_OPERATORS = new Set(['!', '-', '~', 'typeof']);
 const BASE_EXPRESSION_KINDS = [
-  'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
+  'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text', 'unary',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.25';
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.29';
 const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -63,6 +64,11 @@ const BASE_PROMOTIONS = [
   {
     family: 'binding',
     provenanceDigest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
+    provenanceKind: 'prerequisite',
+  },
+  {
+    family: 'unary-expression',
+    provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
     provenanceKind: 'prerequisite',
   },
 ];
@@ -116,7 +122,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.25 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.29 cumulative profile');
   }
   return base;
 }
@@ -220,6 +226,16 @@ function localBaseExpressionBlocker(value) {
       throw error;
     }
     return fields.get('optional')?.value === false ? null : 'expression.index.optional';
+  }
+  if (kind.value === 'unary') {
+    try {
+      validateExpressionValue(value, '$.unary');
+    } catch (error) {
+      if (error instanceof StructuralKirError) return 'expression.unary.shape';
+      throw error;
+    }
+    const operator = fields.get('op').value;
+    return PORTABLE_UNARY_OPERATORS.has(operator) ? null : `expression.unary.operator.${operator}`;
   }
   if (kind.value !== 'list') return `expression.${kind.value}.profile`;
   const items = fields.get('items');

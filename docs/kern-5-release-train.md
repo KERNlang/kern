@@ -1996,6 +1996,55 @@ trusted-publishing/provenance configuration is inspected.
     `review-1784644332568-66l4h5-kern-5-r2-m4-28-unary-canonicali` then
     completed 3/3 with zero blocking, correctness, or security findings and one
     deferred negative-zero structural-hardening nit.
+  - [x] M4.29 unary-expression promotion and bounded prerequisite exhaustion:
+    the cumulative base advances to `kern.kir-canonicalizer.profile.m4.29`
+    through exact immutable M4.27 prerequisite provenance
+    `e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5`.
+    Its local profile admits only recursively valid `!`, `-`, `~`, and
+    `typeof`, keeps negative zero rejected, removes unary from active families,
+    and leaves the KERN composite byte-identical at 40,414 bytes and SHA-256
+    `178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a`.
+    Policy, coverage-summary, and prerequisite-summary file SHA-256 values are
+    `d2bee244fce9cfeae7c3fe327bcdbc694bac1b631c910d7a459dd3a79a4de636`,
+    `8c31aeb81b5523899eb66ac771e783fadb28f8a2102c5a6d0eb4632008b5c082`,
+    and `d1d44548a3d332489ce17ac55ca69bd89e196d48373f03f58416ca7617948821`;
+    coverage implementation and profile digests are
+    `b8d6102c904311628111720d5383c2f75989cbf22e76dd4106acad7f14635cba`
+    and `2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa`.
+    Live coverage remains 32/104 with 70 legacy parameter blockers. Exact
+    counterfactual measurement makes `numberat` the only base-ready migration
+    witness at one function, one tool, and two parameter rows. None of the
+    remaining 69 functions completes under any of the seven non-empty closures
+    of do, exception, and while, so format 3 records explicit
+    `bounded-exhaustion`, a null minimum/selection, the derived reason census,
+    and assignment digest
+    `7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c`.
+    This is exhaustion only within the authenticated current profile, corpus,
+    projection, registry, and limits; it is not KERN 5 completion. A mandatory
+    six-engine confidence-gate brainstorm
+    `brainstorm-1784645342548-1oulrm-kern-5-m4-29-prerequisite-exhaus`
+    changed the initial format-2/null design into this discriminated and
+    authenticated terminal outcome. The
+    focused Node 22 gate passes 95/95 structural/authentication/profile tests,
+    48 runtime fixtures, eight measured witnesses, three profile limits, and
+    218 hostile fixtures. The complete `pnpm fitness:kern-5` wall passes on the
+    same tree, including every workspace, release-policy, cross-target, native,
+    whole-app, browser-budget, KIR, runtime, ownership, convergence, diff, and
+    repeated canonicalizer gate. The next action is the digest-bound exact
+    `numberat` parameter migration. Initial high-risk role-lens review
+    `review-1784648104213-k92ywc-kern-5-r2-m4-29-unary-promotion` completed
+    6/6 and exposed two material authentication/consumer gaps. The final tree
+    binds every format-3 baseline, witness, and policy field exactly, admits
+    format 3 through the generic provenance consumer, and mutation-kills both
+    fixes. Exact-final high-risk role-lens review
+    `review-1784651102229-a55dcn-kern-5-r2-m4-29-exact-final` completed 6/6
+    with zero verified, needs-check, or speculative findings; fourteen
+    diagnostic, naming, comment, tracking, or test-clarity nits were deferred.
+    After final authentication hardening regenerated the implementation and
+    receipt digests, the complete Node 22 fitness wall passed again on the
+    exact tree. Targeted security/correctness/overall confirmation
+    `review-1784653499792-znrm3j-kern-5-r2-m4-29-unary-promotion-` completed
+    3/3 with no findings.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

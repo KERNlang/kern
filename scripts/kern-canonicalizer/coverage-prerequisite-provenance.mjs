@@ -9,6 +9,7 @@ const COVERAGE_SUMMARY_FORMATS = new Set([
 const PREREQUISITE_SUMMARY_FORMATS = new Set([
   'kern.kir-canonicalizer.prerequisite-summary.1',
   'kern.kir-canonicalizer.prerequisite-summary.2',
+  'kern.kir-canonicalizer.prerequisite-summary.3',
 ]);
 const INDEX_PREREQUISITE = Object.freeze({
   digest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',

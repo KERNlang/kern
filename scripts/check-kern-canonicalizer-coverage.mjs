@@ -97,11 +97,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.prerequisiteProvenances.length, 4);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
-    family: 'binding',
-    provenanceDigest: prerequisiteHandoffs[2].digest,
+    family: 'unary-expression',
+    provenanceDigest: prerequisiteHandoffs[3].digest,
     provenanceKind: 'prerequisite',
   });
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.25');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.29');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -138,41 +138,74 @@ if (process.argv.includes('--write')) {
       provenanceDigest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.26 must preserve the seven promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.26 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.26 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.26 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 32, 'live M4.26 base completion must remain exactly 32/104');
+    {
+      family: 'unary-expression',
+      provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.29 must preserve the eight promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.29 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.29 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.29 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 32, 'live M4.29 base completion must remain exactly 32/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     70,
-    'live M4.26 fn.params blocker count must remain exactly 70',
+    'live M4.29 fn.params blocker count must remain exactly 70',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.26 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.29 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
       { completeFunctions: 0, completeTools: 0, id: 'do-statement' },
-      { completeFunctions: 0, completeTools: 0, id: 'unary-expression' },
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.26 residual zero-completion ranking must remain exact',
+    'live M4.29 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
-  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
-  assert.equal(prerequisite.minimumFamilyCount, 1);
+  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.minimumFamilyCount, null);
+  assert.deepEqual(prerequisite.exhaustion, {
+    activeFamilies: ['do-statement', 'exception-flow', 'while-iteration'],
+    completingClosureCount: 0,
+    evaluatedNonEmptyClosureCount: 7,
+    reasonAssignmentsDigest: '7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c',
+    reasonCounts: [
+      { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u009f' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
+      { count: 27, id: 'profile.rows.nodes' },
+      { count: 23, id: 'profile.rows.properties' },
+      { count: 53, id: 'profile.rows.values' },
+      { count: 14, id: 'projection.limit-depth' },
+      { count: 1, id: 'projection.limit-nodes' },
+      { count: 1, id: 'projection.unknown-expression-kind' },
+      { count: 1, id: 'throw.value:unknown-expression-kind' },
+    ],
+    residualFunctionCount: 69,
+    scope: 'current-bounded-profile',
+  });
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 2,
+    witnesses: [
+      {
+        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat',
+        parameterRows: 2,
+        profileRows: { nodes: 8, properties: 14, values: 66 },
+        tool: 'canonicalizer',
+      },
+    ],
   });
-  assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 1,
-    family: 'unary-expression',
-    occurrences: 49,
-  });
+  assert.equal(prerequisite.selectedPrerequisite, null);
+  assert.deepEqual(prerequisite.prerequisiteRanking, []);
+  assert.deepEqual(prerequisite.ranking, []);
   const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
   assert.equal(
     prerequisite.ranking.flatMap(({ witnesses }) => witnesses).some(({ id }) => parameterReadyIds.has(id)),
@@ -272,6 +305,9 @@ process.stdout.write(
   `${leadingBlocker ? `${leadingBlocker.count} blocked by ${leadingBlocker.id}` : 'no profile blockers'}; ` +
   `${formatCoverageWinnerStatus(actual.selection.winner)}; ` +
   `${prerequisite.parameterMigration.completeFunctions} functions/${prerequisite.parameterMigration.migratedParameterRows} rows ` +
-  `parameter-ready; next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
-  `${prerequisite.minimumFamilyCount}-family closure.\n`,
+  `parameter-ready; ` +
+  (prerequisite.selectedPrerequisite === null
+    ? 'bounded active-family exhaustion; next action parameter migration.\n'
+    : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
+      `${prerequisite.minimumFamilyCount}-family closure.\n`),
 );

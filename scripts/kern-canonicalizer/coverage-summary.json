@@ -10,9 +10,10 @@
       "list",
       "member",
       "null",
-      "text"
+      "text",
+      "unary"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.25",
+    "id": "kern.kir-canonicalizer.profile.m4.29",
     "nodeKinds": [
       "assign",
       "else",
@@ -58,6 +59,11 @@
       {
         "family": "binding",
         "provenanceDigest": "00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab",
+        "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "unary-expression",
+        "provenanceDigest": "e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5",
         "provenanceKind": "prerequisite"
       }
     ],
@@ -191,21 +197,21 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "ef7c9faf6ae57e70c4652dd47998eba5af1829f4a32869f37df48798fdda5362",
-  "coverageImplementationDigest": "f2799971b9cb44932b5ca874740f59a860635bef31c2de4dc34ce6b39c6a2775",
-  "coveragePolicyDigest": "33680d7f1aefebb4efa3bc8c40102f2669436042677779627807ed0274357cb6",
+  "coverageImplementationDigest": "b8d6102c904311628111720d5383c2f75989cbf22e76dd4106acad7f14635cba",
+  "coveragePolicyDigest": "d2bee244fce9cfeae7c3fe327bcdbc694bac1b631c910d7a459dd3a79a4de636",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 104,
   "functionFactsDigest": "0520434b1f0bd9ea0671037872167f859d8615b1fd942269d3503371c87a6f72",
   "implementationProvenance": {
-    "family": "binding",
-    "provenanceDigest": "00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab",
+    "family": "unary-expression",
+    "provenanceDigest": "e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "9b7b071765aa261c3daeb860251bb1926b51230eb1c2d15a377819cbf19a9bd4",
-  "profileDigest": "366123a03fa2d444347f740b77a53e0a8b1b9de668fd681c5167ce1365c97dd7",
+  "policyDigest": "42867c736f7de05fa979b572316495428d567a56768e32f2072feb3064cfc388",
+  "profileDigest": "2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa",
   "prerequisiteProvenances": [
     {
       "digest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
@@ -394,13 +400,6 @@
         "completeTools": 0,
         "id": "do-statement",
         "occurrences": 176,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "unary-expression",
-        "occurrences": 49,
         "witnesses": []
       },
       {

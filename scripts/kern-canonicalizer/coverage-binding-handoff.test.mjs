@@ -108,11 +108,13 @@ test('M4.23 exact handoff pin rejects structurally valid causal drift', () => {
   }
 });
 
-test('generic provenance accepts only historical prerequisite summary formats 1 and 2', () => {
+test('generic provenance accepts selected prerequisite summary formats 1 through 3', () => {
   const counted = structuredClone(loadCanonicalizerCountedIterationPrerequisiteProvenance().record);
   counted.source.prerequisiteSummaryFormat = 'kern.kir-canonicalizer.prerequisite-summary.2';
   assert.doesNotThrow(() => validateCanonicalizerPrerequisiteProvenance(counted));
   counted.source.prerequisiteSummaryFormat = 'kern.kir-canonicalizer.prerequisite-summary.3';
+  assert.doesNotThrow(() => validateCanonicalizerPrerequisiteProvenance(counted));
+  counted.source.prerequisiteSummaryFormat = 'kern.kir-canonicalizer.prerequisite-summary.4';
   assert.throws(
     () => validateCanonicalizerPrerequisiteProvenance(counted),
     /prerequisite provenance rejection/u,

@@ -1,8 +1,8 @@
 {
   "format": "kern.kir-canonicalizer.coverage-policy.3",
   "base": {
-    "expressionKinds": ["binary", "boolean", "call", "identifier", "index", "integer", "list", "member", "null", "text"],
-    "id": "kern.kir-canonicalizer.profile.m4.25",
+    "expressionKinds": ["binary", "boolean", "call", "identifier", "index", "integer", "list", "member", "null", "text", "unary"],
+    "id": "kern.kir-canonicalizer.profile.m4.29",
     "nodeKinds": ["assign", "else", "fn", "for", "handler", "if", "let", "param", "return"],
     "promotions": [
       {
@@ -38,6 +38,11 @@
       {
         "family": "binding",
         "provenanceDigest": "00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab",
+        "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "unary-expression",
+        "provenanceDigest": "e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5",
         "provenanceKind": "prerequisite"
       }
     ],
@@ -111,7 +116,6 @@
   "families": [
     { "expressionKinds": [], "id": "do-statement", "nodeKinds": ["do"], "propertyKeys": ["do.value"] },
     { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
-    { "expressionKinds": ["unary"], "id": "unary-expression", "nodeKinds": [], "propertyKeys": [] },
     { "expressionKinds": [], "id": "while-iteration", "nodeKinds": ["while"], "propertyKeys": ["while.cond"] }
   ]
 }

@@ -183,7 +183,7 @@ test('M4.16 prerequisite schema rejects each structural invariant independently'
     (copy) => { copy.source.coverageSummaryFormat = 'kern.kir-canonicalizer.coverage-summary.7'; },
     (copy) => { copy.source.coverageSummarySha256 = 'malformed'; },
     (copy) => {
-      copy.source.prerequisiteSummaryFormat = 'kern.kir-canonicalizer.prerequisite-summary.3';
+      copy.source.prerequisiteSummaryFormat = 'kern.kir-canonicalizer.prerequisite-summary.4';
     },
     (copy) => { copy.source.prerequisiteSummarySha256 = 'malformed'; },
     (copy) => { copy.snapshot.minimumFamilyCount = 1; },
@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and four-record prerequisite history after M4.27', () => {
+test('the current corpus preserves selection and four-record prerequisite history after M4.29', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -370,8 +370,8 @@ test('the current corpus preserves selection and four-record prerequisite histor
   assert.deepEqual(receipt.prerequisiteProvenances, prerequisites);
   assert.deepEqual(summary.prerequisiteProvenances, prerequisites);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'binding',
-    provenanceDigest: prerequisites[2].digest,
+    family: 'unary-expression',
+    provenanceDigest: prerequisites[3].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -387,7 +387,7 @@ test('the current corpus preserves selection and four-record prerequisite histor
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.28 preserves exact M4.25 binding promotion through unary implementation', () => {
+test('M4.29 promotes unary through exact M4.27 provenance without changing KERN bytes', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -402,11 +402,11 @@ test('M4.28 preserves exact M4.25 binding promotion through unary implementation
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 40414, 'M4.28 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 40414, 'M4.29 must preserve the exact M4.28 KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
     '178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a',
-    'M4.28 must bind the exact live KERN capability digest',
+    'M4.29 must preserve the exact M4.28 KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
@@ -415,14 +415,16 @@ test('M4.28 preserves exact M4.25 binding promotion through unary implementation
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.25');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.29');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
+  assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
   assert.equal(policy.base.nodeKinds.includes('for'), true);
@@ -455,4 +457,7 @@ test('M4.28 preserves exact M4.25 binding promotion through unary implementation
   assert.equal(policy.base.promotions[6].family, 'binding');
   assert.equal(policy.base.promotions[6].provenanceDigest, prerequisites[2].digest);
   assert.equal(policy.base.promotions[6].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[7].family, 'unary-expression');
+  assert.equal(policy.base.promotions[7].provenanceDigest, prerequisites[3].digest);
+  assert.equal(policy.base.promotions[7].provenanceKind, 'prerequisite');
 });
