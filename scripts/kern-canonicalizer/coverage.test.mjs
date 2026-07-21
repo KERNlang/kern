@@ -30,7 +30,7 @@ import {
 } from './composition.mjs';
 import {
   formatCoverageWinnerStatus,
-  formatResidualAnalysisStatus,
+  formatHistoricalResidualAnalysisStatus,
 } from './coverage-status.mjs';
 import { assertStructuredParameterMigrations } from './coverage-parameter-migrations.mjs';
 import { VALID_FIXTURES } from './fixtures.mjs';
@@ -56,15 +56,15 @@ test('coverage status reports a null winner without throwing after receipt write
   assert.equal(formatCoverageWinnerStatus(null), 'no tranche selected');
   assert.equal(formatCoverageWinnerStatus({ id: 'binary-expression' }), 'binary-expression tranche selected');
   assert.equal(
-    formatResidualAnalysisStatus(null),
-    'Residual analysis found no actionable profile widening.',
+    formatHistoricalResidualAnalysisStatus(null),
+    'M4.31 historical analysis found no actionable profile widening.',
   );
   assert.equal(
-    formatResidualAnalysisStatus({
+    formatHistoricalResidualAnalysisStatus({
       changedLimits: ['maxValueRows'],
       completeFunctions: 12,
     }),
-    'Residual analysis selects 12 functions by maxValueRows widening.',
+    'M4.31 historical analysis selected 12 functions by maxValueRows widening.',
   );
 });
 
@@ -373,7 +373,7 @@ test('the base text-expression profile enforces the KERN quotesource character c
   }
 });
 
-test('the exact M4.1 profile rejects a function above its node-row ceiling', () => {
+test('M4.32 preserves rejection above the unchanged node and property ceilings', () => {
   const parsed = parseDocumentWithDiagnostics([
     'fn name=tooManyRows returns=void',
     ...Array.from({ length: 14 }, (_, index) => `  param name=p${index} type=number`),
@@ -386,9 +386,7 @@ test('the exact M4.1 profile rejects a function above its node-row ceiling', () 
     loadCanonicalizerPolicy().profileLimits,
     { nodes: 17, properties: 31, values: 73 },
   );
-  assert.ok(blockers.includes('profile.rows.nodes'));
-  assert.ok(blockers.includes('profile.rows.properties'));
-  assert.ok(blockers.includes('profile.rows.values'));
+  assert.deepEqual(blockers, ['profile.rows.nodes', 'profile.rows.properties']);
 });
 
 test('profile node ceilings use the codec-measured row count', () => {

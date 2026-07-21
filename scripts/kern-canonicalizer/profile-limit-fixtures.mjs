@@ -3,21 +3,35 @@ function lines(...items) {
 }
 
 const BOUNDARY_PARAMETERS = Array.from({ length: 13 }, (_, index) => `  param name=p${index} type=number`);
+const VALUE_BOUNDARY_PARAMETERS = Array.from(
+  { length: 13 },
+  (_, index) => `  param name=p${index} type=${index < 2 ? '"number[]"' : 'number'}`,
+);
+const VALUE_BOUNDARY_GOLDEN_PARAMETERS = Array.from(
+  { length: 13 },
+  (_, index) => `  param name=p${index} type=${index < 2 ? 'number[]' : 'number'}`,
+);
+const OVER_VALUE_PARAMETERS = Array.from(
+  { length: 13 },
+  (_, index) => `  param name=p${index} type=${index < 3 ? '"number[]"' : 'number'}`,
+);
+const FOURTEEN_VALUES = Array.from({ length: 14 }, (_, index) => index).join(',');
+const FOURTEEN_GOLDEN_VALUES = Array.from({ length: 14 }, (_, index) => index).join(', ');
 
 export const PROFILE_BOUNDARY_FIXTURE = {
   id: 'profile-row-boundary',
-  expectedRows: { nodes: 16, properties: 30, values: 72 },
+  expectedRows: { nodes: 16, properties: 30, values: 106 },
   source: lines(
     'fn name=bounded returns="number[]"',
-    ...BOUNDARY_PARAMETERS,
+    ...VALUE_BOUNDARY_PARAMETERS,
     '  handler lang=kern',
-    '    return value="[0,1,2,3,4,5]"',
+    `    return value="[${FOURTEEN_VALUES}]"`,
   ),
   golden: lines(
     'fn name=bounded returns=number[]',
-    ...BOUNDARY_PARAMETERS,
+    ...VALUE_BOUNDARY_GOLDEN_PARAMETERS,
     '  handler lang="kern"',
-    '    return value="[0, 1, 2, 3, 4, 5]"',
+    `    return value="[${FOURTEEN_GOLDEN_VALUES}]"`,
   ),
 };
 
@@ -50,12 +64,12 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-value-row-limit',
-    expectedRows: { nodes: 16, properties: 30, values: 76 },
+    expectedRows: { nodes: 16, properties: 30, values: 107 },
     source: lines(
       'fn name=values returns="number[]"',
-      ...BOUNDARY_PARAMETERS,
+      ...OVER_VALUE_PARAMETERS,
       '  handler lang=kern',
-      '    return value="[0,1,2,3,4,5,6]"',
+      `    return value="[${FOURTEEN_VALUES}]"`,
     ),
   },
 ];

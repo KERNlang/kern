@@ -2093,6 +2093,50 @@ trusted-publishing/provenance configuration is inspected.
     and `160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076`.
     The next action is a separately reviewed M4.32 value-row profile
     promotion, not an implicit limit change inside this analysis slice.
+  - [x] M4.32 authenticated value-row profile promotion: the only admission
+    change raises `maxValueRows` from 72 to the M4.31-selected 106 while node
+    and property ceilings remain exactly 16 and 30. KERN source, its 40,441-byte
+    composite at
+    `bf2b2c1f1e8fa85174d72503d836b3a305467af20c560a6e9f037ac616b97bb5`,
+    the runtime envelope, KIR, ABI, corpus, base profile, and active structural
+    families remain unchanged. The exact 16/30/106 construction executes and
+    canonicalizes idempotently; changing one additional parameter type produces
+    16/30/107 and fails closed without events or a partial result. M4.31's
+    residual-analysis receipt is now an immutable published handoff pinned to
+    commit `fdf55cfb52616ef9bdf006a42f6a58a56a10b7c1` and remains byte-identical at
+    `160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076`;
+    coverage writes cannot regenerate it. The M4.32 policy, coverage, and
+    prerequisite receipt SHA-256 values are
+    `9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279`,
+    `5f2519ef25f7e66564a684485eb4a1c5c7b0b40946d9b1dff40bd03d73f3ae08`,
+    and `274819d899252c815d9caeb9203077a4c5dca29003070c61108cb920444b1e79`;
+    implementation digest is
+    `216067ddd4c3833aa13485d26184326a9bec318d454c744e6dff7d51cffce4ba`.
+    Live coverage remains honestly 33/104 with 69 legacy-parameter blockers,
+    while the frozen next queue becomes exactly 12 functions, four tools, and
+    44 parameter rows. The remaining partition selects one disjoint
+    `do-statement` witness, `appendid`; terminal guidance deliberately
+    prioritizes consuming the authenticated parameter queue. The focused Node
+    22 canonicalizer gate passes 98/98 structural/authentication tests plus
+    48 exact runtime fixtures, eight witnesses, three profile-limit fixtures,
+    and 218 hostile mutations. The complete Node 22 `pnpm fitness:kern-5`
+    wall passes on the exact integrated tree, including every workspace and
+    infrastructure suite, 432/432 cross-target fixtures, 109/109 class
+    fixtures, 233/233 native assertions at 100% declared coverage, 40
+    whole-app fixtures across three legs, browser budgets, and every repeated
+    KIR/runtime/ownership/convergence/canonicalizer gate. Review performance
+    reproduction measured the synchronous exact boundary at 4.636 seconds for
+    16/30/72 and 14.089 seconds for 16/30/106. That is accepted only as bounded
+    internal evidence: no later profile widening is allowed, and the quadratic
+    table validator requires an explicit budgeted optimization before runtime
+    cutover or RC. High-risk role-lens review
+    `review-1784665356538-orqubl` completed all six usable non-excluded seats.
+    Its apparent blocking missing-import finding was rejected against the
+    current file and repeated fresh-process passes; the import already exists.
+    The stale live/historical status ambiguity was genuine and is fixed with
+    explicit past-tense M4.31 labeling. The performance finding was reproduced
+    at the timings above and bound as pre-cutover work, leaving no unresolved
+    material M4.32 finding.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { summarizeCanonicalizerCoverage } from './kern-canonicalizer/coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
-import { measureCanonicalizerResidualAnalysis } from './kern-canonicalizer/coverage-residual-analysis.mjs';
+import {
+  loadCanonicalizerResidualAnalysisHandoff,
+} from './kern-canonicalizer/coverage-residual-analysis.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
-  formatResidualAnalysisStatus,
+  formatHistoricalResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
 const summaryUrl = new URL('./kern-canonicalizer/coverage-summary.json', import.meta.url);
@@ -15,18 +17,14 @@ const prerequisiteSummaryUrl = new URL(
   './kern-canonicalizer/coverage-prerequisite-summary.json',
   import.meta.url,
 );
-const residualAnalysisUrl = new URL(
-  './kern-canonicalizer/coverage-residual-analysis.json',
-  import.meta.url,
-);
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
-const residualAnalysis = measureCanonicalizerResidualAnalysis();
+const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
+const residualAnalysis = residualAnalysisHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
-  writeCoverageSummary(residualAnalysisUrl, residualAnalysis);
 } else {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
@@ -153,17 +151,17 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.30 must preserve the eight promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.30 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.30 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.30 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 33, 'live M4.30 base completion must remain exactly 33/104');
+  ], 'M4.32 must preserve the eight promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.32 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.32 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.32 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 33, 'live M4.32 base completion must remain exactly 33/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     69,
-    'live M4.30 fn.params blocker count must remain exactly 69',
+    'live M4.32 fn.params blocker count must remain exactly 69',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.30 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.32 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
@@ -171,44 +169,56 @@ if (process.argv.includes('--write')) {
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.30 residual zero-completion ranking must remain exact',
+    'live M4.32 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.exhaustion, {
-    activeFamilies: ['do-statement', 'exception-flow', 'while-iteration'],
-    completingClosureCount: 0,
-    evaluatedNonEmptyClosureCount: 7,
-    reasonAssignmentsDigest: '7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c',
-    reasonCounts: [
-      { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
-      { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
-      { count: 1, id: 'if.properties.cond.expression.text.character-u009f' },
-      { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
-      { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
-      { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
-      { count: 27, id: 'profile.rows.nodes' },
-      { count: 23, id: 'profile.rows.properties' },
-      { count: 53, id: 'profile.rows.values' },
-      { count: 14, id: 'projection.limit-depth' },
-      { count: 1, id: 'projection.limit-nodes' },
-      { count: 1, id: 'projection.unknown-expression-kind' },
-      { count: 1, id: 'throw.value:unknown-expression-kind' },
+  assert.equal(prerequisite.outcome, 'selected');
+  assert.equal(prerequisite.minimumFamilyCount, 1);
+  assert.equal(prerequisite.exhaustion, null);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 12);
+  assert.equal(prerequisite.parameterMigration.completeTools, 4);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 44);
+  assert.deepEqual(
+    prerequisite.parameterMigration.witnesses.map(
+      ({ id, parameterRows, profileRows, tool }) => [
+        id, parameterRows, profileRows.nodes, profileRows.properties, profileRows.values, tool,
+      ],
+    ),
+    [
+      ['examples/capstone-assertion-engine/compare.kern#5:compareTrees', 10, 13, 25, 106, 'assertion-engine'],
+      ['examples/capstone-checker-subset/checker-while.kern#3:previousSiblingKind', 3, 10, 18, 77, 'checker'],
+      ['examples/capstone-checker-subset/checker-while.kern#7:functionRow', 3, 9, 15, 85, 'checker'],
+      ['examples/capstone-checker-subset/checker.kern#10:isForCounter', 5, 13, 21, 104, 'checker'],
+      ['examples/capstone-checker-subset/checker.kern#11:isAssigned', 5, 13, 21, 104, 'checker'],
+      ['examples/capstone-checker-subset/checker.kern#13:paramOrdinalOf', 5, 12, 20, 96, 'checker'],
+      ['examples/capstone-checker-subset/checker.kern#15:argIndexOf', 4, 11, 18, 84, 'checker'],
+      ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#0:validfirst', 1, 8, 11, 100, 'canonicalizer'],
+      ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname', 1, 10, 16, 104, 'canonicalizer'],
+      ['examples/selfhost-validator/validator.kern#0:charokfirst', 1, 10, 13, 92, 'validator'],
+      ['examples/selfhost-validator/validator.kern#16:classrow', 4, 11, 19, 89, 'validator'],
+      ['examples/selfhost-validator/validator.kern#8:contained', 2, 9, 13, 73, 'validator'],
     ],
-    residualFunctionCount: 69,
-    scope: 'current-bounded-profile',
+  );
+  assert.deepEqual(prerequisite.selectedPrerequisite, {
+    catalogFacts: 2,
+    family: 'do-statement',
+    occurrences: 176,
   });
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.prerequisiteRanking, []);
-  assert.deepEqual(prerequisite.ranking, []);
+  assert.deepEqual(prerequisite.prerequisiteRanking, [prerequisite.selectedPrerequisite]);
+  assert.deepEqual(prerequisite.ranking, [{
+    completeFunctions: 1,
+    completeTools: 1,
+    families: ['do-statement'],
+    migratedParameterRows: 2,
+    occurrences: 176,
+    witnesses: [{
+      id: 'examples/selfhost-validator/validator.kern#14:appendid',
+      parameterRows: 2,
+      profileRows: { nodes: 9, properties: 16, values: 80 },
+      tool: 'validator',
+    }],
+  }]);
   const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
   assert.equal(
     prerequisite.ranking.flatMap(({ witnesses }) => witnesses).some(({ id }) => parameterReadyIds.has(id)),
@@ -216,15 +226,32 @@ if (process.argv.includes('--write')) {
     'parameter-ready functions must not receive residual structural-family credit',
   );
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
+  assert.equal(
+    residualAnalysisHandoff.digest,
+    '160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076',
+  );
+  assert.equal(
+    residualAnalysisHandoff.sourceCommit,
+    'fdf55cfb52616ef9bdf006a42f6a58a56a10b7c1',
+  );
   assert.equal(residualAnalysis.format, 'kern.kir-canonicalizer.residual-analysis.1');
   assert.equal(residualAnalysis.assignments.length, 69);
-  assert.equal(residualAnalysis.assignmentsDigest, prerequisite.exhaustion.reasonAssignmentsDigest);
+  assert.equal(
+    residualAnalysis.assignmentsDigest,
+    '7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c',
+  );
   assert.equal(
     residualAnalysis.baseline.coverageImplementationDigest,
-    actual.coverageImplementationDigest,
+    '0c9f9c2ef46d8a9d3620e72fe12f24e5c111da531a72caa56b6988bc2ddc65b6',
   );
-  assert.equal(residualAnalysis.baseline.coveragePolicyDigest, actual.coveragePolicyDigest);
-  assert.equal(residualAnalysis.baseline.functionFactsDigest, actual.functionFactsDigest);
+  assert.equal(
+    residualAnalysis.baseline.coveragePolicyDigest,
+    '6c19138011e493a28444fca1899c1c9418b292f30f0aff0ab7e02341d9a50f67',
+  );
+  assert.equal(
+    residualAnalysis.baseline.functionFactsDigest,
+    '74187341fcce01494d0e5cf4f5f85a4c422084197660a47ad91ba3bbf3421299',
+  );
   assert.equal(residualAnalysis.frontier.evaluatedObservedSettings, 50);
   assert.equal(residualAnalysis.frontier.profileRowsAvailableFunctions, 53);
   assert.equal(residualAnalysis.frontier.actionableCandidates.length, 50);
@@ -249,7 +276,6 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#8:contained',
     ],
   });
-  assertCoverageSummary(residualAnalysisUrl, residualAnalysis);
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -343,11 +369,11 @@ process.stdout.write(
   `${formatCoverageWinnerStatus(actual.selection.winner)}; ` +
   `${prerequisite.parameterMigration.completeFunctions} functions/${prerequisite.parameterMigration.migratedParameterRows} rows ` +
   `parameter-ready; ` +
-  (prerequisite.selectedPrerequisite === null
-    ? prerequisite.parameterMigration.completeFunctions > 0
-      ? 'bounded active-family exhaustion; next action parameter migration.'
-      : 'bounded active-family exhaustion; next action residual blocker analysis.'
+  (prerequisite.parameterMigration.completeFunctions > 0
+    ? 'next action parameter migration.'
+    : prerequisite.selectedPrerequisite === null
+      ? 'bounded active-family exhaustion; next action residual blocker analysis.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
-  ` ${formatResidualAnalysisStatus(residualAnalysis.selectedNextAction)}\n`,
+  ` ${formatHistoricalResidualAnalysisStatus(residualAnalysis.selectedNextAction)}\n`,
 );

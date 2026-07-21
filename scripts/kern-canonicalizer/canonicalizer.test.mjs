@@ -228,9 +228,10 @@ test('index validation and emission stay in the KERN-owned expression source', (
   assert.ok(indexBranch.includes('object + \\"[\\" + index + \\"]\\"'), 'index emission must preserve bracket syntax');
 });
 
-test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
+test('the pre-M4.3b semantic golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
+    id !== 'profile-row-boundary' &&
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
     !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-') &&
     !id.startsWith('counted-iteration-') && !id.startsWith('binding-') &&
@@ -239,8 +240,8 @@ test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);
   }
-  assert.equal(nonBinary.length, 11);
-  assert.equal(hash.digest('hex'), '92b55c08bb450e81b19a7f19257afd6e85b406eeb0657c207bdb0df91f68c176');
+  assert.equal(nonBinary.length, 10);
+  assert.equal(hash.digest('hex'), '4da70a0ae431d6e25f9142ad9d2c1b74d781eccccdc5df437f455e528cdf7590');
 });
 
 test('the admitted table profile is policy-owned and enforced by KERN', () => {
@@ -250,7 +251,7 @@ test('the admitted table profile is policy-owned and enforced by KERN', () => {
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
-    maxValueRows: 72,
+    maxValueRows: 106,
   });
   assert.deepEqual(policy.expansionLimits, {
     kirToSourceMaxFactor: 4,

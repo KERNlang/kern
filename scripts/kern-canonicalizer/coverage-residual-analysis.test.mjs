@@ -4,78 +4,73 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  measureCanonicalizerResidualAnalysis,
-  validateCanonicalizerResidualAnalysis,
+  loadCanonicalizerResidualAnalysisHandoff,
+  validateCanonicalizerResidualAnalysisHandoff,
 } from './coverage-residual-analysis.mjs';
-import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-residual-analysis.json', import.meta.url);
 
-test('M4.31 publishes exact residual assignments and a measured profile frontier', () => {
-  const actual = measureCanonicalizerResidualAnalysis();
-  assert.equal(actual.format, 'kern.kir-canonicalizer.residual-analysis.1');
-  assert.equal(actual.baseline.baseId, 'kern.kir-canonicalizer.profile.m4.29');
-  assert.equal(actual.baseline.baseCompleteFunctions, 33);
-  assert.equal(actual.baseline.legacyParameterBlockers, 69);
-  assert.equal(actual.baseline.residualFunctionCount, 69);
-  assert.deepEqual(actual.baseline.currentProfileLimits, {
+test('M4.31 residual analysis is an exact immutable historical handoff', () => {
+  const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
+  const handoff = loadCanonicalizerResidualAnalysisHandoff();
+  assert.equal(handoff.sourceCommit, 'fdf55cfb52616ef9bdf006a42f6a58a56a10b7c1');
+  assert.equal(handoff.digest, '160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076');
+  assert.deepEqual(handoff.record, checkedIn);
+  assert.equal(handoff.record.format, 'kern.kir-canonicalizer.residual-analysis.1');
+  assert.equal(handoff.record.assignments.length, 69);
+  assert.equal(
+    handoff.record.assignmentsDigest,
+    '7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c',
+  );
+  assert.deepEqual(handoff.record.baseline.currentProfileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
     maxValueRows: 72,
   });
-  assert.equal(
-    actual.assignmentsDigest,
-    '7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c',
-  );
-  assert.equal(actual.assignments.length, 69);
-  assert.equal(new Set(actual.assignments.map(({ id }) => id)).size, 69);
-  assert.ok(actual.assignments.every(({ reasons }) => reasons.length > 0));
-  assert.ok(actual.frontier.evaluatedObservedSettings > 0);
-  assert.equal(actual.frontier.evaluatedObservedSettings, 50);
-  assert.equal(actual.frontier.profileRowsAvailableFunctions, 53);
-  assert.equal(actual.frontier.actionableCandidates.length, 50);
-  assert.deepEqual(actual.selectedNextAction, actual.frontier.actionableCandidates[0]);
-  assert.deepEqual({
-    changedLimits: actual.selectedNextAction.changedLimits,
-    completeFunctions: actual.selectedNextAction.completeFunctions,
-    completeTools: actual.selectedNextAction.completeTools,
-    limits: actual.selectedNextAction.limits,
-    totalDelta: actual.selectedNextAction.totalDelta,
-  }, {
+  assert.deepEqual(handoff.record.selectedNextAction, {
     changedLimits: ['maxValueRows'],
     completeFunctions: 12,
     completeTools: 4,
     limits: { maxNodeRows: 16, maxPropertyRows: 30, maxValueRows: 106 },
     totalDelta: 34,
+    witnesses: [
+      'examples/capstone-assertion-engine/compare.kern#5:compareTrees',
+      'examples/capstone-checker-subset/checker-while.kern#3:previousSiblingKind',
+      'examples/capstone-checker-subset/checker-while.kern#7:functionRow',
+      'examples/capstone-checker-subset/checker.kern#10:isForCounter',
+      'examples/capstone-checker-subset/checker.kern#11:isAssigned',
+      'examples/capstone-checker-subset/checker.kern#13:paramOrdinalOf',
+      'examples/capstone-checker-subset/checker.kern#15:argIndexOf',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#0:validfirst',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname',
+      'examples/selfhost-validator/validator.kern#0:charokfirst',
+      'examples/selfhost-validator/validator.kern#16:classrow',
+      'examples/selfhost-validator/validator.kern#8:contained',
+    ],
   });
-  assert.deepEqual(actual.selectedNextAction.witnesses, [
-    'examples/capstone-assertion-engine/compare.kern#5:compareTrees',
-    'examples/capstone-checker-subset/checker-while.kern#3:previousSiblingKind',
-    'examples/capstone-checker-subset/checker-while.kern#7:functionRow',
-    'examples/capstone-checker-subset/checker.kern#10:isForCounter',
-    'examples/capstone-checker-subset/checker.kern#11:isAssigned',
-    'examples/capstone-checker-subset/checker.kern#13:paramOrdinalOf',
-    'examples/capstone-checker-subset/checker.kern#15:argIndexOf',
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#0:validfirst',
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname',
-    'examples/selfhost-validator/validator.kern#0:charokfirst',
-    'examples/selfhost-validator/validator.kern#16:classrow',
-    'examples/selfhost-validator/validator.kern#8:contained',
-  ]);
-  const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
-  assert.deepEqual(actual, checkedIn);
-  assertCoverageSummary(summaryUrl, actual);
-  assert.deepEqual(validateCanonicalizerResidualAnalysis(checkedIn), checkedIn);
+  assert.deepEqual(validateCanonicalizerResidualAnalysisHandoff(checkedIn), handoff);
 });
 
-test('residual analysis rejects assignment, candidate, ranking, and baseline drift', () => {
-  const actual = measureCanonicalizerResidualAnalysis();
+test('M4.31 handoff rejects assignment, frontier, selection, and baseline drift', () => {
+  const actual = loadCanonicalizerResidualAnalysisHandoff().record;
   const mutations = [
+    (copy) => { copy.format = 'kern.kir-canonicalizer.residual-analysis.2'; },
     (copy) => { copy.future = true; },
+    (copy) => { copy.assignmentsDigest = '0'.repeat(64); },
+    (copy) => { copy.assignments.pop(); },
+    (copy) => { copy.assignments.reverse(); },
+    (copy) => { copy.assignments[0].id = copy.assignments[1].id; },
+    (copy) => { copy.assignments[0].tool = 'invented'; },
     (copy) => { copy.assignments[0].reasons.pop(); },
+    (copy) => { copy.assignments[2].profileRows.values += 1; },
+    (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coverageImplementationDigest = '0'.repeat(64); },
+    (copy) => { copy.baseline.currentProfileLimits.maxValueRows += 1; },
+    (copy) => { copy.frontier.evaluatedObservedSettings -= 1; },
     (copy) => { copy.frontier.actionableCandidates.reverse(); },
+    (copy) => { copy.frontier.actionableCandidates[0].changedLimits = ['maxNodeRows']; },
     (copy) => { copy.frontier.actionableCandidates[0].limits.maxValueRows -= 1; },
+    (copy) => { copy.frontier.actionableCandidates[0].totalDelta -= 1; },
     (copy) => { copy.frontier.actionableCandidates[0].witnesses.pop(); },
     (copy) => { copy.selectedNextAction = null; },
   ];
@@ -83,22 +78,22 @@ test('residual analysis rejects assignment, candidate, ranking, and baseline dri
     const copy = structuredClone(actual);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerResidualAnalysis(copy),
-      /coverage residual analysis rejection/u,
+      () => validateCanonicalizerResidualAnalysisHandoff(copy),
+      /coverage residual analysis handoff rejection/u,
     );
   }
 });
 
-test('residual analysis reproduces byte-identically in a fresh process', () => {
+test('M4.31 historical handoff loads byte-identically in a fresh process', () => {
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {measureCanonicalizerResidualAnalysis} from './scripts/kern-canonicalizer/coverage-residual-analysis.mjs'; process.stdout.write(JSON.stringify(measureCanonicalizerResidualAnalysis()))",
+    "import {loadCanonicalizerResidualAnalysisHandoff as load} from './scripts/kern-canonicalizer/coverage-residual-analysis.mjs'; const h=load(); process.stdout.write(JSON.stringify({digest:h.digest,record:h.record,sourceCommit:h.sourceCommit}))",
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), measureCanonicalizerResidualAnalysis());
+  assert.deepEqual(JSON.parse(fresh.stdout), loadCanonicalizerResidualAnalysisHandoff());
 });
