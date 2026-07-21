@@ -16,7 +16,9 @@ import {
   resolveImportedTypeNodesForFile,
 } from '../src/lib/cross-module-registry.js';
 
-function findHandlerCode(node: { type: string; props?: Record<string, unknown>; children?: unknown[] }): string | null {
+type NodeShape = { props?: Record<string, unknown>; children?: unknown[] };
+
+function findHandlerCode(node: { type: string } & NodeShape): string | null {
   if (node.type === 'handler' && typeof node.props?.code === 'string') {
     return node.props.code as string;
   }
@@ -83,10 +85,7 @@ describe('cross-module registry — end-to-end', () => {
     expect(code).toContain('const __k_t1 = parseUser(raw);');
     expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
     expect(code).toContain('const u = __k_t1.value;');
-    const firstChild = result.root.children?.[0] as {
-      props?: Record<string, unknown>;
-      children?: unknown[];
-    };
+    const firstChild = result.root.children?.[0] as NodeShape;
     expect(firstChild.children?.[0]).toMatchObject({
       type: 'from',
       props: { name: 'parseUser', kind: 'fn' },
@@ -227,10 +226,7 @@ describe('cross-module registry — end-to-end', () => {
 
     expect(code).toContain('const __k_t1 = parseUser(raw);');
     expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
-    const firstChild = result.root.children?.[0] as {
-      props?: Record<string, unknown>;
-      children?: unknown[];
-    };
+    const firstChild = result.root.children?.[0] as NodeShape;
     expect(firstChild.children?.[0]).toMatchObject({
       type: 'from',
       props: { name: 'parseUser', kind: 'fn' },
