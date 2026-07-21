@@ -59,7 +59,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   const first = measureCanonicalizerCoverage(policy);
   const second = measureCanonicalizerCoverage(policy);
   assert.deepEqual(second, first);
-  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.5');
+  assert.equal(first.format, 'kern.kir-canonicalizer.coverage-receipt.6');
   const composition = verifyCanonicalizerComposition();
   assert.deepEqual(first.composition.record, composition.record);
   assert.equal(
@@ -144,6 +144,16 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     },
     toolCount: 4,
   });
+  assert.deepEqual(first.implementationProvenance, {
+    family: 'index-expression',
+    provenanceDigest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+    provenanceKind: 'prerequisite',
+  });
+  assert.equal(first.prerequisiteProvenances.length, 1);
+  assert.equal(
+    first.prerequisiteProvenances[0].digest,
+    '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+  );
   assert.equal(
     first.canonicalizerPolicyDigest,
     createHash('sha256').update(readFileSync(new URL('./policy.json', import.meta.url))).digest('hex'),
@@ -184,11 +194,10 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.equal(first.selection.winner, null);
   assert.deepEqual(
     first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0],
   );
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
     'binding',
-    'index-expression',
     'counted-iteration',
     'do-statement',
     'unary-expression',
@@ -274,8 +283,8 @@ test('coverage closure rejects missing observed facts and unobserved claims', ()
   const policy = loadCoveragePolicy();
   const measured = measureCanonicalizerCoverage(policy);
   const missing = structuredClone(policy);
-  missing.families = missing.families.filter(({ id }) => id !== 'index-expression');
-  assert.throws(() => assertCoverageClosed(missing, measured.functions), /unclaimed expression kind index/u);
+  missing.families = missing.families.filter(({ id }) => id !== 'unary-expression');
+  assert.throws(() => assertCoverageClosed(missing, measured.functions), /unclaimed expression kind unary/u);
   assert.throws(
     () => assertCoverageClosed(policy, measured.functions.filter(({ nodeKinds }) => !nodeKinds.includes('while'))),
     /unobserved node kind while/u,

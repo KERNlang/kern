@@ -5,13 +5,14 @@
       "boolean",
       "call",
       "identifier",
+      "index",
       "integer",
       "list",
       "member",
       "null",
       "text"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.14",
+    "id": "kern.kir-canonicalizer.profile.m4.18",
     "nodeKinds": [
       "else",
       "fn",
@@ -23,19 +24,28 @@
     "promotions": [
       {
         "family": "binary-expression",
-        "selectionProvenanceDigest": "35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027"
+        "provenanceDigest": "35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027",
+        "provenanceKind": "selection"
       },
       {
         "family": "conditional",
-        "selectionProvenanceDigest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b"
+        "provenanceDigest": "fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b",
+        "provenanceKind": "selection"
       },
       {
         "family": "call-expression",
-        "selectionProvenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605"
+        "provenanceDigest": "7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605",
+        "provenanceKind": "selection"
       },
       {
         "family": "member-expression",
-        "selectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d"
+        "provenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
+        "provenanceKind": "selection"
+      },
+      {
+        "family": "index-expression",
+        "provenanceDigest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
@@ -161,16 +171,70 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "c1f9c8f75d2f714b850c3851be4547289876f10e2896b6b9a5ab5e4b6fec43ef",
-  "coverageImplementationDigest": "482397bcf37caf790c8923de14167ffe3d5ed985f718f5d397dcd8d7478ba7d1",
-  "coveragePolicyDigest": "260a27ee4a8faa1490185d233c8da2e8004692c8ed326f00cc2bdb3a522f11b0",
+  "coverageImplementationDigest": "cf0d320c8a99d4c03ca975ab9363af42d05c8522f8ab656f86256e8cc7d3ed83",
+  "coveragePolicyDigest": "d317f1368761e24b64025ef9cfccb1571acf387cf0021a6e5721d245f3f5ba17",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
-  "format": "kern.kir-canonicalizer.coverage-summary.5",
+  "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 104,
   "functionFactsDigest": "26af920d9b7627417e0696892b5f7fe1dc2b99d2db4d4c2584ac828329038096",
+  "implementationProvenance": {
+    "family": "index-expression",
+    "provenanceDigest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
+    "provenanceKind": "prerequisite"
+  },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "b267b0827acaafa1d6f4fa80a3dca9a74458a08dbbb6fe6458162173baf742b4",
-  "profileDigest": "c1c0caf0595fcba87e27fa3b8319244bbbd04d107c063bfcd638c42c667fef33",
+  "policyDigest": "11c551080ea09417ef855856b693d57714902afd3dbd9bddd8b937be96c27f19",
+  "profileDigest": "a147a2a25ca0126e35edc2b0e4973608863fd38ac806cc3a99c17fe8a6fdec75",
+  "prerequisiteProvenances": [
+    {
+      "digest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
+      "record": {
+        "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+        "snapshot": {
+          "baseline": {
+            "baseCompleteFunctions": 21,
+            "baseId": "kern.kir-canonicalizer.profile.m4.14",
+            "corpusMembers": 9,
+            "functionCount": 104,
+            "legacyParameterBlockers": 81,
+            "toolCount": 4
+          },
+          "minimumFamilyCount": 2,
+          "selectedPrerequisite": {
+            "catalogFacts": 1,
+            "family": "index-expression",
+            "occurrences": 494
+          },
+          "winningClosure": {
+            "completeFunctions": 6,
+            "completeTools": 3,
+            "families": [
+              "counted-iteration",
+              "index-expression"
+            ],
+            "migratedParameterRows": 14,
+            "occurrences": 962,
+            "witnesses": [
+              "examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild",
+              "examples/capstone-checker-subset/checker-while.kern#6:subtreeEnd",
+              "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#8:stringat",
+              "examples/selfhost-validator/validator.kern#13:containsid",
+              "examples/selfhost-validator/validator.kern#6:rootpath",
+              "examples/selfhost-validator/validator.kern#7:statusof"
+            ]
+          }
+        },
+        "source": {
+          "commit": "003f3222b23d7543b529186957a67feeb72009b0",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.5",
+          "coverageSummarySha256": "12b26731a6f686f55e8e80736bbb6bdd7bbcb5e7ed514be9628885ddd8ef627c",
+          "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.1",
+          "prerequisiteSummarySha256": "54146de715b207e507d56e303937d0531d8832a5ced3e162b0288be83865f49f"
+        }
+      }
+    }
+  ],
   "selection": {
     "ranking": [
       {
@@ -178,13 +242,6 @@
         "completeTools": 0,
         "id": "binding",
         "occurrences": 765,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "index-expression",
-        "occurrences": 494,
         "witnesses": []
       },
       {

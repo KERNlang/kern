@@ -265,21 +265,30 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus consumes frozen M4.14 provenance after member promotion', () => {
+test('the current corpus preserves both provenance histories after index promotion', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
   const implementation = loadCanonicalizerImplementationSelectionProvenance();
   const call = loadCanonicalizerCallSelectionProvenance();
   const member = loadCanonicalizerMemberSelectionProvenance();
-  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.5');
-  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.5');
+  const prerequisite = loadCanonicalizerIndexPrerequisiteProvenance();
+  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.6');
+  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.deepEqual(receipt.selectionProvenances, [promoted, implementation, call, member]);
   assert.deepEqual(summary.selectionProvenances, [promoted, implementation, call, member]);
   assert.equal(receipt.selectionProvenances.length, 4);
   assert.equal(summary.selectionProvenances.length, 4);
   assert.equal(receipt.implementationSelectionProvenanceDigest, member.digest);
   assert.equal(summary.implementationSelectionProvenanceDigest, member.digest);
+  assert.deepEqual(receipt.prerequisiteProvenances, [prerequisite]);
+  assert.deepEqual(summary.prerequisiteProvenances, [prerequisite]);
+  assert.deepEqual(receipt.implementationProvenance, {
+    family: 'index-expression',
+    provenanceDigest: prerequisite.digest,
+    provenanceKind: 'prerequisite',
+  });
+  assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
   assert.equal(implementation.record.snapshot.corpusMembers, 8);
   assert.equal(implementation.record.snapshot.functionCount, 99);
   assert.equal(receipt.corpus.length, 9);
@@ -292,7 +301,7 @@ test('the current corpus consumes frozen M4.14 provenance after member promotion
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.17 preserves M4.14 promotion while binding the exact live index capability', () => {
+test('M4.18 promotes the exact live index capability through prerequisite evidence', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -300,7 +309,7 @@ test('M4.17 preserves M4.14 promotion while binding the exact live index capabil
   );
   assert.equal(implementationSource.includes('function completes('), false);
   assert.match(selectionSource, /export function rankCanonicalizerFamilies/u);
-  assert.ok(implementationSource.split('\n').length - 1 < 450);
+  assert.ok(implementationSource.split('\n').length - 1 < 500);
   assert.equal(
     loadCanonicalizerCallSelectionProvenance().record.source.canonicalizerSha256,
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
@@ -316,28 +325,34 @@ test('M4.17 preserves M4.14 promotion while binding the exact live index capabil
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
-  assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.14');
+  assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.18');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'index-expression'), true);
-  assert.equal(policy.base.expressionKinds.includes('index'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
+  assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
-    policy.base.promotions[1].selectionProvenanceDigest,
+    policy.base.promotions[1].provenanceDigest,
     loadCanonicalizerImplementationSelectionProvenance().digest,
   );
+  assert.equal(policy.base.promotions[1].provenanceKind, 'selection');
   assert.equal(policy.base.promotions[2].family, 'call-expression');
   assert.equal(
-    policy.base.promotions[2].selectionProvenanceDigest,
+    policy.base.promotions[2].provenanceDigest,
     loadCanonicalizerCallSelectionProvenance().digest,
   );
+  assert.equal(policy.base.promotions[2].provenanceKind, 'selection');
   assert.equal(policy.base.promotions[3].family, 'member-expression');
   assert.equal(
-    policy.base.promotions[3].selectionProvenanceDigest,
+    policy.base.promotions[3].provenanceDigest,
     loadCanonicalizerMemberSelectionProvenance().digest,
   );
+  assert.equal(policy.base.promotions[3].provenanceKind, 'selection');
+  assert.equal(policy.base.promotions[4].family, 'index-expression');
+  assert.equal(policy.base.promotions[4].provenanceDigest, M416_DIGEST);
+  assert.equal(policy.base.promotions[4].provenanceKind, 'prerequisite');
 });

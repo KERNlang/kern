@@ -25,25 +25,34 @@ const PARAMETER_TYPES = new Set([
 ]);
 const RETURN_TYPES = new Set([...PARAMETER_TYPES, 'void']);
 const BASE_EXPRESSION_KINDS = [
-  'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'member', 'null', 'text',
+  'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
 ];
-const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.14';
+const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.18';
 const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
-    selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+    provenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+    provenanceKind: 'selection',
   },
   {
     family: 'conditional',
-    selectionProvenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+    provenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+    provenanceKind: 'selection',
   },
   {
     family: 'call-expression',
-    selectionProvenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+    provenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+    provenanceKind: 'selection',
   },
   {
     family: 'member-expression',
-    selectionProvenanceDigest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+    provenanceDigest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+    provenanceKind: 'selection',
+  },
+  {
+    family: 'index-expression',
+    provenanceDigest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+    provenanceKind: 'prerequisite',
   },
 ];
 const BASE_NODE_KINDS = ['else', 'fn', 'handler', 'if', 'param', 'return'];
@@ -83,7 +92,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.14 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.18 cumulative profile');
   }
   return base;
 }
@@ -178,6 +187,15 @@ function localBaseExpressionBlocker(value) {
     return FORBIDDEN_MEMBER_PROPERTIES.has(property)
       ? `expression.member.property.${property}`
       : null;
+  }
+  if (kind.value === 'index') {
+    try {
+      validateExpressionValue(value, '$.index');
+    } catch (error) {
+      if (error instanceof StructuralKirError) return 'expression.index.shape';
+      throw error;
+    }
+    return fields.get('optional')?.value === false ? null : 'expression.index.optional';
   }
   if (kind.value !== 'list') return `expression.${kind.value}.profile`;
   const items = fields.get('items');

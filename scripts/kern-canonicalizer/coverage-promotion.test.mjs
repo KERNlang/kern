@@ -12,50 +12,61 @@ import { baseExpressionProfileBlockers, profileBlockersForFunction } from './cov
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.14';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.18';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
 const MEMBER_PROVENANCE_DIGEST = '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d';
+const INDEX_PROVENANCE_DIGEST = '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
-  selectionProvenanceDigest: BINARY_PROVENANCE_DIGEST,
+  provenanceDigest: BINARY_PROVENANCE_DIGEST,
+  provenanceKind: 'selection',
 };
 const CONDITIONAL_PROMOTION = {
   family: 'conditional',
-  selectionProvenanceDigest: CONDITIONAL_PROVENANCE_DIGEST,
+  provenanceDigest: CONDITIONAL_PROVENANCE_DIGEST,
+  provenanceKind: 'selection',
 };
 const CALL_PROMOTION = {
   family: 'call-expression',
-  selectionProvenanceDigest: CALL_PROVENANCE_DIGEST,
+  provenanceDigest: CALL_PROVENANCE_DIGEST,
+  provenanceKind: 'selection',
 };
 const MEMBER_PROMOTION = {
   family: 'member-expression',
-  selectionProvenanceDigest: MEMBER_PROVENANCE_DIGEST,
+  provenanceDigest: MEMBER_PROVENANCE_DIGEST,
+  provenanceKind: 'selection',
+};
+const INDEX_PROMOTION = {
+  family: 'index-expression',
+  provenanceDigest: INDEX_PROVENANCE_DIGEST,
+  provenanceKind: 'prerequisite',
 };
 
-test('M4.14 promotes the measured member family into one exact cumulative profile', () => {
+test('M4.18 promotes index through exact prerequisite provenance', () => {
   const policy = loadCoveragePolicy();
-  assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
+  assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, PROFILE_ID);
   assert.deepEqual(policy.base.nodeKinds, ['else', 'fn', 'handler', 'if', 'param', 'return']);
   assert.deepEqual(policy.base.expressionKinds, [
-    'binary', 'boolean', 'call', 'identifier', 'integer', 'list', 'member', 'null', 'text',
+    'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text',
   ]);
   assert.deepEqual(
     policy.base.promotions,
-    [BINARY_PROMOTION, CONDITIONAL_PROMOTION, CALL_PROMOTION, MEMBER_PROMOTION],
+    [BINARY_PROMOTION, CONDITIONAL_PROMOTION, CALL_PROMOTION, MEMBER_PROMOTION, INDEX_PROMOTION],
   );
   assert.equal(policy.families.some(({ id }) => id === 'binary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
 
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
-  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.5');
+  assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.6');
   assert.deepEqual(receipt.base, policy.base);
-  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.5');
+  assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.deepEqual(summary.base, policy.base);
   assert.deepEqual(
     receipt.selectionProvenances.map(({ digest }) => digest),
@@ -67,30 +78,44 @@ test('M4.14 promotes the measured member family into one exact cumulative profil
     ],
   );
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
+  assert.deepEqual(receipt.implementationProvenance, INDEX_PROMOTION);
+  assert.deepEqual(summary.implementationProvenance, INDEX_PROMOTION);
+  assert.equal(receipt.prerequisiteProvenances.length, 1);
+  assert.equal(receipt.prerequisiteProvenances[0].digest, INDEX_PROVENANCE_DIGEST);
+  assert.equal(summary.prerequisiteProvenances[0].digest, INDEX_PROVENANCE_DIGEST);
+  assert.equal(
+    receipt.prerequisiteProvenances[0].record.snapshot.selectedPrerequisite.family,
+    'index-expression',
+  );
 });
 
-test('M4.14 rejects profile identity, facts, evidence, and candidate overlap drift', () => {
+test('M4.18 rejects profile identity, typed evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
-    (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.1'; },
+    (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.2'; },
     (copy) => { copy.base.future = true; },
     (copy) => { copy.base.id = 'kern.kir-canonicalizer.profile.future'; },
     (copy) => { copy.base.expressionKinds.shift(); },
     (copy) => { copy.base.nodeKinds.shift(); },
     (copy) => { copy.base.promotions.pop(); },
-    (copy) => { copy.base.promotions[0].selectionProvenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[1].selectionProvenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[2].selectionProvenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[3].selectionProvenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[0].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[1].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[2].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[3].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[4].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[0].provenanceKind = 'prerequisite'; },
+    (copy) => { copy.base.promotions[4].provenanceKind = 'selection'; },
+    (copy) => { copy.base.promotions[4].provenanceKind = 'future'; },
     (copy) => { copy.base.promotions.reverse(); },
     (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CALL_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(MEMBER_PROMOTION)); },
+    (copy) => { copy.base.promotions.push(structuredClone(INDEX_PROMOTION)); },
     (copy) => {
       copy.families.unshift({
-        expressionKinds: ['member'],
-        id: 'member-expression',
+        expressionKinds: ['index'],
+        id: 'index-expression',
         nodeKinds: [],
         propertyKeys: [],
       });
@@ -130,6 +155,11 @@ const member = (object, property = 'value', optional = { tag: 'bool', value: fal
   object,
   optional,
   property: { tag: 'text', value: property },
+});
+const indexExpression = (object, index, optional = { tag: 'bool', value: false }) => expression('index', {
+  index,
+  object,
+  optional,
 });
 
 function baseCompletionProfile(base) {
@@ -183,15 +213,16 @@ test('the promoted call profile admits only exact recursive non-optional calls',
   }
 });
 
-test('the promoted member profile keeps index dependencies outside the base', () => {
+test('the promoted index profile admits only exact recursive non-optional indices', () => {
   const base = loadCoveragePolicy().base;
   const optional = { tag: 'bool', value: false };
-  const index = expression('index', {
-    index: expression('integer', { value: { tag: 'int', value: '0' } }),
-    object: identifier('items'),
-    optional,
-  });
-  for (const candidate of [member(index, 'length', optional), call(identifier('consume'), [index])]) {
+  const integer = expression('integer', { value: { tag: 'int', value: '0' } });
+  const nested = indexExpression(indexExpression(identifier('matrix'), integer), integer);
+  for (const candidate of [
+    nested,
+    member(nested, 'length', optional),
+    call(identifier('consume'), [nested]),
+  ]) {
     assert.deepEqual(baseExpressionProfileBlockers(candidate, base), []);
     const expressionKinds = [...new Set(collectCanonicalExpressionKinds(candidate))];
     assert.equal(
@@ -200,20 +231,42 @@ test('the promoted member profile keeps index dependencies outside the base', ()
         expressionOnlyFact(expressionKinds),
         loadCanonicalizerPolicy().profileLimits,
       ),
-      false,
+      true,
     );
+  }
+  assert.deepEqual(
+    baseExpressionProfileBlockers(indexExpression(identifier('items'), integer, { tag: 'bool', value: true }), base),
+    ['expression.index.optional'],
+  );
+  assert.deepEqual(
+    baseExpressionProfileBlockers(
+      indexExpression(indexExpression(identifier('items'), integer, { tag: 'bool', value: true }), integer),
+      base,
+    ),
+    ['expression.index.optional'],
+  );
+  for (const malformed of [
+    expression('index', { index: integer, object: identifier('items') }),
+    indexExpression(identifier('items'), integer, { tag: 'text', value: 'false' }),
+    expression('index', {
+      future: { tag: 'null' },
+      index: integer,
+      object: identifier('items'),
+      optional,
+    }),
+  ]) {
+    assert.deepEqual(baseExpressionProfileBlockers(malformed, base), ['expression.index.shape']);
   }
 });
 
 test('a future base expression kind fails closed until it has an exact local profile', () => {
   const base = structuredClone(loadCoveragePolicy().base);
-  base.expressionKinds.push('index');
-  const index = expression('index', {
-    index: expression('integer', { value: { tag: 'int', value: '0' } }),
-    object: identifier('items'),
-    optional: { tag: 'bool', value: false },
+  base.expressionKinds.push('unary');
+  const unary = expression('unary', {
+    argument: identifier('value'),
+    op: { tag: 'text', value: '!' },
   });
-  assert.deepEqual(baseExpressionProfileBlockers(index, base), ['expression.index.profile']);
+  assert.deepEqual(baseExpressionProfileBlockers(unary, base), ['expression.unary.profile']);
 });
 
 test('the promoted member profile admits only exact recursive non-optional parser-safe members', () => {

@@ -18,6 +18,7 @@ if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
 } else {
+  assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
   assert.equal(actual.selectionProvenances[0].digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
   assert.deepEqual(actual.selectionProvenances[0].record.snapshot, {
@@ -93,54 +94,69 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.14');
+  assert.equal(actual.prerequisiteProvenances.length, 1);
+  assert.deepEqual(actual.prerequisiteProvenances[0], prerequisiteHandoff);
+  assert.deepEqual(actual.implementationProvenance, {
+    family: 'index-expression',
+    provenanceDigest: prerequisiteHandoff.digest,
+    provenanceKind: 'prerequisite',
+  });
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.18');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
-      selectionProvenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+      provenanceDigest: '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027',
+      provenanceKind: 'selection',
     },
     {
       family: 'conditional',
-      selectionProvenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+      provenanceDigest: 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b',
+      provenanceKind: 'selection',
     },
     {
       family: 'call-expression',
-      selectionProvenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+      provenanceDigest: '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605',
+      provenanceKind: 'selection',
     },
     {
       family: 'member-expression',
-      selectionProvenanceDigest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+      provenanceDigest: '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d',
+      provenanceKind: 'selection',
     },
-  ], 'M4.14 must cite the frozen binary, conditional, call, and member selections');
-  assert.equal(actual.corpusMembers, 9, 'live M4.14 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.14 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.14 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 21, 'live M4.14 base completion must remain exactly 21/104');
+    {
+      family: 'index-expression',
+      provenanceDigest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.18 must cite four selections and the frozen index prerequisite');
+  assert.equal(actual.corpusMembers, 9, 'live M4.18 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.18 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.18 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 21, 'live M4.18 base completion must remain exactly 21/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     81,
-    'live M4.14 fn.params blocker count must remain exactly 81',
+    'live M4.18 fn.params blocker count must remain exactly 81',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.14 measurement must have no single-family winner');
+  assert.equal(actual.selection.winner, null, 'live M4.18 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
       { completeFunctions: 0, completeTools: 0, id: 'binding' },
-      { completeFunctions: 0, completeTools: 0, id: 'index-expression' },
       { completeFunctions: 0, completeTools: 0, id: 'counted-iteration' },
       { completeFunctions: 0, completeTools: 0, id: 'do-statement' },
       { completeFunctions: 0, completeTools: 0, id: 'unary-expression' },
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.14 zero-completion ranking must remain exact',
+    'live M4.18 zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
-  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 1,
-    family: 'index-expression',
-    occurrences: 494,
+    catalogFacts: 4,
+    family: 'counted-iteration',
+    occurrences: 468,
   });
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
   assert.equal(

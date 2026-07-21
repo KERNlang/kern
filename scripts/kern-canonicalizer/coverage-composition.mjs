@@ -7,6 +7,7 @@ import {
 import {
   loadCanonicalizerSelectionProvenanceChain,
 } from './coverage-selection-provenance.mjs';
+import { loadCanonicalizerIndexPrerequisiteProvenance } from './coverage-prerequisite-provenance.mjs';
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -16,11 +17,13 @@ function digest(value) {
 export function loadCanonicalizerCoverageEvidence() {
   const verified = verifyCanonicalizerComposition();
   const selectionEvidence = loadCanonicalizerSelectionProvenanceChain();
+  const prerequisiteProvenances = [loadCanonicalizerIndexPrerequisiteProvenance()];
   return {
     composition: {
       digest: digest(canonicalCompositionRecordBytes(verified.record)),
       record: verified.record,
     },
+    prerequisiteProvenances,
     ...selectionEvidence,
     source: verified.compositeBytes,
   };

@@ -36,8 +36,8 @@ import {
 import { summarizeCoverageReceipt } from './coverage-summary.mjs';
 import { CANONICALIZER_COMPOSITE_PATH } from './composition.mjs';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
-const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.2';
-const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.5';
+const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.3';
+const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.6';
 const EXPRESSION_KINDS = STRUCTURAL_EXPRESSION_KINDS;
 const AUTHENTICATED_DEPENDENCIES = requireAuthenticatedCoverageDependencies();
 const COVERAGE_POLICY_SOURCE = readFileSync(new URL('./coverage-policy.json', import.meta.url));
@@ -158,14 +158,22 @@ export function validateCoveragePolicy(input, options = {}) {
   );
   if (!Array.isArray(baseInput.promotions)) fail('base.promotions must be an array');
   const promotions = baseInput.promotions.map((entry, index) => {
-    const row = record(entry, ['family', 'selectionProvenanceDigest'], `base.promotions[${index}]`);
-    const family = text(row.family, `base.promotions[${index}].family`);
-    const selectionProvenanceDigest = text(
-      row.selectionProvenanceDigest,
-      `base.promotions[${index}].selectionProvenanceDigest`,
+    const row = record(
+      entry,
+      ['family', 'provenanceDigest', 'provenanceKind'],
+      `base.promotions[${index}]`,
     );
-    if (!/^[0-9a-f]{64}$/u.test(selectionProvenanceDigest)) fail('promotion digest must be lowercase SHA-256');
-    return { family, selectionProvenanceDigest };
+    const family = text(row.family, `base.promotions[${index}].family`);
+    const provenanceDigest = text(
+      row.provenanceDigest,
+      `base.promotions[${index}].provenanceDigest`,
+    );
+    const provenanceKind = text(row.provenanceKind, `base.promotions[${index}].provenanceKind`);
+    if (!/^[0-9a-f]{64}$/u.test(provenanceDigest)) fail('promotion digest must be lowercase SHA-256');
+    if (provenanceKind !== 'selection' && provenanceKind !== 'prerequisite') {
+      fail('promotion provenance kind must be selection or prerequisite');
+    }
+    return { family, provenanceDigest, provenanceKind };
   });
   if (new Set(promotions.map(({ family }) => family)).size !== promotions.length) {
     fail('base.promotions must contain unique families');
@@ -365,12 +373,19 @@ export function measureCanonicalizerCoverage(policyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
-  const promotionEvidence = new Map(evidence.selectionProvenances.map((provenance) => [
+  const selectionPromotionEvidence = new Map(evidence.selectionProvenances.map((provenance) => [
     provenance.record.snapshot.selection.id,
     provenance,
   ]));
-  if (promotionEvidence.size !== evidence.selectionProvenances.length) {
+  if (selectionPromotionEvidence.size !== evidence.selectionProvenances.length) {
     fail('selection provenance must contain unique families');
+  }
+  const prerequisitePromotionEvidence = new Map(evidence.prerequisiteProvenances.map((provenance) => [
+    provenance.record.snapshot.selectedPrerequisite.family,
+    provenance,
+  ]));
+  if (prerequisitePromotionEvidence.size !== evidence.prerequisiteProvenances.length) {
+    fail('prerequisite provenance must contain unique families');
   }
   const implementationSelectionMatches = evidence.selectionProvenances.filter(
     ({ digest: provenanceDigest }) => provenanceDigest === evidence.implementationSelectionProvenanceDigest,
@@ -379,11 +394,14 @@ export function measureCanonicalizerCoverage(policyInput) {
     fail('implementation selection provenance digest must resolve exactly once');
   }
   for (const promotion of policy.base.promotions) {
-    const provenance = promotionEvidence.get(promotion.family);
+    const evidenceByFamily = promotion.provenanceKind === 'selection'
+      ? selectionPromotionEvidence
+      : prerequisitePromotionEvidence;
+    const provenance = evidenceByFamily.get(promotion.family);
     if (
       provenance === undefined ||
-      promotion.selectionProvenanceDigest !== provenance.digest
-    ) fail('base promotion must cite the authenticated selection provenance');
+      promotion.provenanceDigest !== provenance.digest
+    ) fail('base promotion must cite authenticated provenance of its declared kind');
   }
   const canonicalizerPolicy = loadCanonicalizerPolicy();
   const functions = [];
@@ -433,9 +451,11 @@ export function measureCanonicalizerCoverage(policyInput) {
     format: RECEIPT_FORMAT,
     functionFactsDigest: digest(JSON.stringify(functions)),
     functions,
+    implementationProvenance: policy.base.promotions.at(-1),
     implementationSelectionProvenanceDigest: evidence.implementationSelectionProvenanceDigest,
     policyDigest: digest(JSON.stringify(policy)),
     profileDigest: digest(PROFILE_SOURCE),
+    prerequisiteProvenances: evidence.prerequisiteProvenances,
     selection,
     selectionProvenances: evidence.selectionProvenances,
   };

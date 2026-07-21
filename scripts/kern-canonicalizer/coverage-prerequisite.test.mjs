@@ -12,38 +12,37 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('the live prerequisite measurement preserves the exact M4.15 minimum closure', () => {
+test('M4.18 collapses the live prerequisite to counted iteration alone', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.1');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 21,
-    baseId: 'kern.kir-canonicalizer.profile.m4.14',
+    baseId: 'kern.kir-canonicalizer.profile.m4.18',
     canonicalizerDigest: '37b081f3ff01320b96cf7482d096999f4121429d700e8f8fe0852f2f8e1e9308',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
     corpusDigest: 'c1f9c8f75d2f714b850c3851be4547289876f10e2896b6b9a5ab5e4b6fec43ef',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '260a27ee4a8faa1490185d233c8da2e8004692c8ed326f00cc2bdb3a522f11b0',
+    coveragePolicyDigest: 'd317f1368761e24b64025ef9cfccb1571acf387cf0021a6e5721d245f3f5ba17',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
     functionFactsDigest: '26af920d9b7627417e0696892b5f7fe1dc2b99d2db4d4c2584ac828329038096',
     legacyParameterBlockers: 81,
-    profileDigest: 'c1c0caf0595fcba87e27fa3b8319244bbbd04d107c063bfcd638c42c667fef33',
+    profileDigest: 'a147a2a25ca0126e35edc2b0e4973608863fd38ac806cc3a99c17fe8a6fdec75',
     toolCount: 4,
   });
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
-  assert.equal(actual.minimumFamilyCount, 2);
+  assert.equal(actual.minimumFamilyCount, 1);
   assert.deepEqual(actual.prerequisiteRanking, [
-    { catalogFacts: 1, family: 'index-expression', occurrences: 494 },
     { catalogFacts: 4, family: 'counted-iteration', occurrences: 468 },
   ]);
   assert.deepEqual(actual.ranking, [
     {
       completeFunctions: 6,
       completeTools: 3,
-      families: ['counted-iteration', 'index-expression'],
+      families: ['counted-iteration'],
       migratedParameterRows: 14,
-      occurrences: 962,
+      occurrences: 468,
       witnesses: [
         {
           id: 'examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild',
@@ -83,26 +82,11 @@ test('the live prerequisite measurement preserves the exact M4.15 minimum closur
         },
       ],
     },
-    {
-      completeFunctions: 1,
-      completeTools: 1,
-      families: ['binding', 'counted-iteration'],
-      migratedParameterRows: 1,
-      occurrences: 1233,
-      witnesses: [
-        {
-          id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
-          parameterRows: 1,
-          profileRows: { nodes: 7, properties: 14, values: 42 },
-          tool: 'canonicalizer',
-        },
-      ],
-    },
   ]);
   assert.deepEqual(actual.selectedPrerequisite, {
-    catalogFacts: 1,
-    family: 'index-expression',
-    occurrences: 494,
+    catalogFacts: 4,
+    family: 'counted-iteration',
+    occurrences: 468,
   });
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
