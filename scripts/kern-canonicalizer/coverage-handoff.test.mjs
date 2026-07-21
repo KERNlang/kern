@@ -387,7 +387,7 @@ test('the current corpus preserves both provenance histories after frozen parame
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.22 retains the promoted counted-iteration capability after parameter migration', () => {
+test('M4.24 retains the promoted counted-iteration capability after binding implementation', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -401,11 +401,11 @@ test('M4.22 retains the promoted counted-iteration capability after parameter mi
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 36437, 'M4.22 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 39340, 'M4.24 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '0eb8771b873f1b44f7dbe8754b27f159268da5115dcf288e59a627d62f366064',
-    'M4.22 must bind the exact live KERN capability digest',
+    'fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8',
+    'M4.24 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);

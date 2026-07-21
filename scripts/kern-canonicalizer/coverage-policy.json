@@ -83,7 +83,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "b30350be41f066109263c9fc8022e963e4aad3298425fbdbfe2480811f8a36bc",
+      "digest": "b951d517b9b9373e15ed5c1d0969ee2baf17f594aa1c007d7413091f88965e6b",
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

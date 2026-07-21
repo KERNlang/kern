@@ -133,17 +133,17 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.23 must preserve the six promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.22 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.22 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.22 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 27, 'live M4.22 base completion must remain exactly 27/104');
+  ], 'M4.24 must preserve the six promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.24 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.24 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.24 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 27, 'live M4.24 base completion must remain exactly 27/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     75,
-    'live M4.22 fn.params blocker count must remain exactly 75',
+    'live M4.24 fn.params blocker count must remain exactly 75',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.22 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.24 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
@@ -153,7 +153,7 @@ if (process.argv.includes('--write')) {
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.22 residual zero-completion ranking must remain exact',
+    'live M4.24 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
@@ -167,7 +167,7 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.selectedPrerequisite, {
     catalogFacts: 6,
     family: 'binding',
-    occurrences: 801,
+    occurrences: 852,
   });
   const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
   assert.equal(

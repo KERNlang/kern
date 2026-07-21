@@ -1811,6 +1811,41 @@ trusted-publishing/provenance configuration is inspected.
     handoff tests passed afterward; three suggested DRY refactors remain
     deliberately deferred because explicit family pins are the fail-closed
     evidence boundary in this slice.
+  - [x] M4.24 binding canonicalizer tranche: the KERN-authored statement
+    member now owns exact `let` and direct `assign` validation and canonical
+    emission. The admitted shape is exactly `let.name`/`let.value` and
+    `assign.target`/`assign.value`; optional declaration metadata, assignment
+    operators, future properties, malformed names, non-assignable targets,
+    unsupported expressions, and children fail closed without partial output.
+    Four new valid fixtures raise the runtime corpus to 40 exact
+    golden/KIR/idempotence cases; 23 new hostile mutations raise fail-closed
+    coverage to 202 cases. Authenticated composition is 39,340 bytes at
+    SHA-256
+    `fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8`.
+    Coverage-policy, coverage-summary, and prerequisite-summary SHA-256 values
+    are
+    `29b5cae01b6e8573b2cbb632d2e968398c002c5b948a6855f2983fc47ba316e4`,
+    `d0dcae5a55cb5984bcca6d8c698000a8137302bba4fd3e1cb34027d8c73cab54`,
+    and
+    `20c82af0928a6c16755bfa1c81a527b2d1da4f03665f895c4ee9893a14390893`.
+    Binding deliberately remains unpromoted: live coverage stays 27/104 with
+    75 legacy parameter blockers, no ordinary winner, and no parameter-ready
+    row. The same five-function, two-tool, nine-row singleton remains next;
+    its live occurrence count rises from the immutable M4.23 value of 801 to
+    852 because the KERN implementation itself contains binding nodes. All
+    three prerequisite records remain byte-identical and the implementation
+    pointer remains counted iteration. The focused Node 22 gate passes all 87
+    structural/authentication/profile tests, 40 runtime fixtures, eight
+    measured witnesses, three limit fixtures, 202 hostile mutations, and the
+    exact final coverage check. The complete Node 22 `pnpm fitness:kern-5`
+    wall passes every workspace and release-policy gate, 432/432 cross-target
+    fixtures, 109/109 class fixtures, 233/233 native fixtures, 40 whole-app
+    fixtures across three legs, the checker/validator/KIR/runtime contracts,
+    and the repeated canonicalizer gate on the final implementation tree.
+    Terminal role-lens review
+    `review-1784628432958-bn36kt-kern-5-r2-m4-24-binding-canonica` completed
+    the strict `claude,codex,agy` roster: 3/3 engines succeeded with zero
+    verified, needs-check, speculative, or nit findings.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

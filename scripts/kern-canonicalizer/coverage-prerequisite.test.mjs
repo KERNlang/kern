@@ -12,21 +12,21 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.22 consumes the frozen parameter-ready tranche and preserves residual ranking', () => {
+test('M4.24 preserves the frozen parameter result and remeasures residual binding evidence', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 27,
     baseId: 'kern.kir-canonicalizer.profile.m4.21',
-    canonicalizerDigest: '0eb8771b873f1b44f7dbe8754b27f159268da5115dcf288e59a627d62f366064',
+    canonicalizerDigest: 'fbc7cd4a38910b7fb4f97ce6b4ebb843da0ebc4543d069958652e40932e54fa8',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: 'e612418828f0636e3fb2843e1c57fb5bf6cd26bdfc3f547b1cb9aa7e6e813394',
+    corpusDigest: '6f2c1cd95868919456c1a819cffd7f2e322c26feabde2b725f4bd5914aa691be',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '7651b89e6a37025994a5bd5700f702508da6272c6aa66a47852633f021d4e5b7',
+    coveragePolicyDigest: '29b5cae01b6e8573b2cbb632d2e968398c002c5b948a6855f2983fc47ba316e4',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'bcabf9e047a9eae9c7fc24bfebfd7442b568436eada1c6307da32eb0df5ea2b7',
+    functionFactsDigest: '61773cf256964c20d32a1e549b5e1ad48e97c6191d51b94f72b5b98349479087',
     legacyParameterBlockers: 75,
     profileDigest: 'fb441ef45e9efaf6124537e15fc73a87b9f63249ba7d555bb8c6360e162cb8af',
     toolCount: 4,
@@ -40,7 +40,7 @@ test('M4.22 consumes the frozen parameter-ready tranche and preserves residual r
     witnesses: [],
   });
   assert.deepEqual(actual.prerequisiteRanking, [
-    { catalogFacts: 6, family: 'binding', occurrences: 801 },
+    { catalogFacts: 6, family: 'binding', occurrences: 852 },
   ]);
   assert.deepEqual(actual.ranking, [
     {
@@ -48,7 +48,7 @@ test('M4.22 consumes the frozen parameter-ready tranche and preserves residual r
       completeTools: 2,
       families: ['binding'],
       migratedParameterRows: 9,
-      occurrences: 801,
+      occurrences: 852,
       witnesses: [
         {
           id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#11:childcount',
@@ -101,7 +101,7 @@ test('M4.22 consumes the frozen parameter-ready tranche and preserves residual r
   assert.deepEqual(actual.selectedPrerequisite, {
     catalogFacts: 6,
     family: 'binding',
-    occurrences: 801,
+    occurrences: 852,
   });
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
   const residualIds = actual.ranking.flatMap(({ witnesses }) => witnesses.map(({ id }) => id));
