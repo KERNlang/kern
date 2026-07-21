@@ -65,7 +65,7 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "8cfd1d757b1f407d6e862b915f7de707a253c3b886e7b4bb34ab5d86123138a4",
+      "digest": "42c20bb13243a582cb0632934934e02bf45075385b3e1ac699f68c7a01ace372",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
@@ -77,7 +77,7 @@
       "tool": "checker"
     },
     {
-      "digest": "0f26a889dc98604f419b12b3afa9f1d3ac305dc97fd3464c1534f0dc3cdd6f02",
+      "digest": "5eb8a3e6ee2e1e83fd11781efda73dac3892838b737aba35ea748891ef2aab77",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -95,7 +95,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "a46ab0d4376777f00180dfa8dcded00d2559770c57793773988ade29d542587a",
+      "digest": "e31d87a157b5c5cf8ee9dbfbb42c2c5a94fe20e0e6d245daab2f74b373b16ee1",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

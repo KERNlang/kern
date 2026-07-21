@@ -12,69 +12,32 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.21 separates parameter-ready completions from residual structural ranking', () => {
+test('M4.22 consumes the frozen parameter-ready tranche and preserves residual ranking', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 21,
+    baseCompleteFunctions: 27,
     baseId: 'kern.kir-canonicalizer.profile.m4.21',
-    canonicalizerDigest: '55c1b597a8912af545c348c57329d9aef0174590dbe4ba64310484806a8c1307',
+    canonicalizerDigest: '0eb8771b873f1b44f7dbe8754b27f159268da5115dcf288e59a627d62f366064',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: '748b696b685ea7e2abad6576d1a0936ec9d94b3d6c8280bf5fb99f3295db83c4',
+    corpusDigest: 'e612418828f0636e3fb2843e1c57fb5bf6cd26bdfc3f547b1cb9aa7e6e813394',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'bb4a60b56bf42ea4a75465d84c1b35a7dd9a9ee9599ce418dfb440803c1d7f15',
+    coveragePolicyDigest: '7651b89e6a37025994a5bd5700f702508da6272c6aa66a47852633f021d4e5b7',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '26a60b7625d78185e19ccbc34462738b948d4ba1f9d54647a002ec9ba3db7c67',
-    legacyParameterBlockers: 81,
+    functionFactsDigest: 'bcabf9e047a9eae9c7fc24bfebfd7442b568436eada1c6307da32eb0df5ea2b7',
+    legacyParameterBlockers: 75,
     profileDigest: 'fb441ef45e9efaf6124537e15fc73a87b9f63249ba7d555bb8c6360e162cb8af',
     toolCount: 4,
   });
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
   assert.equal(actual.minimumFamilyCount, 1);
   assert.deepEqual(actual.parameterMigration, {
-    completeFunctions: 6,
-    completeTools: 3,
-    migratedParameterRows: 14,
-    witnesses: [
-        {
-          id: 'examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild',
-          parameterRows: 2,
-          profileRows: { nodes: 8, properties: 13, values: 53 },
-          tool: 'checker',
-        },
-        {
-          id: 'examples/capstone-checker-subset/checker-while.kern#6:subtreeEnd',
-          parameterRows: 2,
-          profileRows: { nodes: 9, properties: 14, values: 70 },
-          tool: 'checker',
-        },
-        {
-          id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#8:stringat',
-          parameterRows: 2,
-          profileRows: { nodes: 8, properties: 14, values: 62 },
-          tool: 'canonicalizer',
-        },
-        {
-          id: 'examples/selfhost-validator/validator.kern#13:containsid',
-          parameterRows: 2,
-          profileRows: { nodes: 8, properties: 14, values: 54 },
-          tool: 'validator',
-        },
-        {
-          id: 'examples/selfhost-validator/validator.kern#6:rootpath',
-          parameterRows: 3,
-          profileRows: { nodes: 9, properties: 16, values: 66 },
-          tool: 'validator',
-        },
-        {
-          id: 'examples/selfhost-validator/validator.kern#7:statusof',
-          parameterRows: 3,
-          profileRows: { nodes: 9, properties: 16, values: 66 },
-          tool: 'validator',
-        },
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.deepEqual(actual.prerequisiteRanking, [
     { catalogFacts: 6, family: 'binding', occurrences: 801 },

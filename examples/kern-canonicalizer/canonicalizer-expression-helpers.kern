@@ -94,7 +94,9 @@ fn name=propcount params="node:number,propNode:number[]" returns=number export=t
         assign target=count value="count + 1"
     return value="count"
 
-fn name=stringat params="id:number,values:string[]" returns=string export=true
+fn name=stringat returns=string export=true
+  param name=id type=number
+  param name=values type=string[]
   handler lang="kern"
     for name=i from=0 to="values.length"
       if cond="i + 1 == id"

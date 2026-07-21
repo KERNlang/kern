@@ -124,14 +124,20 @@ fn name=failline returns=string export=true
   handler lang="kern"
     return value="\"FAIL|\" + code + \"|\" + subject + \"#\" + String(rowId)"
 
-fn name=rootpath params="module:number,moduleId:number[],moduleRoot:string[]" returns=string export=true
+fn name=rootpath returns=string export=true
+  param name=module type=number
+  param name=moduleId type=number[]
+  param name=moduleRoot type=string[]
   handler lang="kern"
     for name=i2 from=0 to="moduleId.length"
       if cond="moduleId[i2] == module"
         return value="moduleRoot[i2]"
     return value="\"\""
 
-fn name=statusof params="module:number,moduleId:number[],moduleStatus:string[]" returns=string export=true
+fn name=statusof returns=string export=true
+  param name=module type=number
+  param name=moduleId type=number[]
+  param name=moduleStatus type=string[]
   handler lang="kern"
     for name=i3 from=0 to="moduleId.length"
       if cond="moduleId[i3] == module"
@@ -203,7 +209,9 @@ fn name=ownexportkind params="module:number,name:string,fnModule:number[],fnName
             return value="\"class\""
     return value="\"\""
 
-fn name=containsid params="xs:number[],id:number" returns=boolean export=true
+fn name=containsid returns=boolean export=true
+  param name=xs type=number[]
+  param name=id type=number
   handler lang="kern"
     for name=i7 from=0 to="xs.length"
       if cond="xs[i7] == id"

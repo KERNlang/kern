@@ -1752,6 +1752,36 @@ trusted-publishing/provenance configuration is inspected.
     verified findings. Targeted review `review-1784618742992-n5ktt4`
     subsequently completed both automatically routed identities with zero
     substantive findings before publication.
+  - [x] M4.22 frozen parameter-ready migration: the exact six-function,
+    14-row cohort authenticated by M4.21 now uses ordered direct `param`
+    children in checker, canonicalizer, and validator source. Function bodies,
+    calls, returns, exports, and root order remain unchanged. Generated checker
+    and canonicalizer consumers were rebuilt by repository writers; the
+    numeric checker fixture, statement helper, canonicalizer main, and all
+    immutable selection/prerequisite records remain byte-identical. The
+    authenticated composition is 36,437 bytes at SHA-256
+    `0eb8771b873f1b44f7dbe8754b27f159268da5115dcf288e59a627d62f366064`.
+    Coverage now measures exactly 27/104 base-complete with 75 remaining
+    `fn.params` blockers, a null ordinary winner, and zero remaining base-only
+    parameter-ready functions or rows. Binding remains the honest next
+    one-family prerequisite at five functions, two tools, nine parameter rows,
+    and 801 occurrences; unary remains unchanged at one function, one tool,
+    two rows, and 48 occurrences. Coverage-policy, coverage-summary, and
+    prerequisite-summary SHA-256 values are
+    `7651b89e6a37025994a5bd5700f702508da6272c6aa66a47852633f021d4e5b7`,
+    `9cfabe1ea53540a69d3ba4aa4444a2578f9d0c992c53f17a63826600abf2434a`,
+    and
+    `44b2ce6e4542770cad06201a7d1cc9763a01b2960ce4ef654657b7d455836c8f`.
+    Focused coverage/composition tests pass 46/46, checker parity passes 48/48
+    with 36 hostile attempts rejected, validator parity passes 39/39, and the
+    canonicalizer passes all 82 structural/authentication tests, 36 runtime
+    fixtures, 8 measured witnesses, 3 profile-limit fixtures, and 179 hostile
+    fixtures. The complete Node 22 `pnpm fitness:kern-5` wall passed every
+    workspace, infrastructure, conformance, native, runner, whole-app,
+    browser, KIR/runtime, convergence, and repeated canonicalizer gate.
+    High-risk role-lens review `review-1784621539302-7wo5z1` completed all six
+    usable non-excluded identities with zero verified, needs-check,
+    speculative, or nit findings and no routing shortfall.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

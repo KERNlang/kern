@@ -55,7 +55,9 @@ fn name=previousSiblingKind params="row:number,stmtKind:string[],stmtParent:numb
         assign target=previous value="stmtKind[i]"
     return value="previous"
 
-fn name=hasDirectChild params="row:number,stmtParent:number[]" returns=boolean
+fn name=hasDirectChild returns=boolean
+  param name=row type=number
+  param name=stmtParent type=number[]
   handler lang="kern"
     for name=i from=0 to="stmtParent.length"
       if cond="stmtParent[i] == row"
@@ -75,7 +77,9 @@ fn name=checkerElseRejectDetail params="row:number,stmtKind:string[],stmtParent:
       return value="\"empty_body\""
     return value="\"\""
 
-fn name=subtreeEnd params="row:number,stmtParent:number[]" returns=number
+fn name=subtreeEnd returns=number
+  param name=row type=number
+  param name=stmtParent type=number[]
   handler lang="kern"
     # Preorder descendants are contiguous and their parent row is >= row.
     for name=i from=0 to="stmtParent.length"

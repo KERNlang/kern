@@ -134,16 +134,16 @@ if (process.argv.includes('--write')) {
       provenanceKind: 'prerequisite',
     },
   ], 'M4.21 must cite four selections and both frozen prerequisites');
-  assert.equal(actual.corpusMembers, 9, 'live M4.21 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.21 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.21 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 21, 'live M4.21 base completion must remain exactly 21/104');
+  assert.equal(actual.corpusMembers, 9, 'live M4.22 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.22 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.22 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 27, 'live M4.22 base completion must remain exactly 27/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    81,
-    'live M4.21 fn.params blocker count must remain exactly 81',
+    75,
+    'live M4.22 fn.params blocker count must remain exactly 75',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.21 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.22 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
@@ -153,18 +153,17 @@ if (process.argv.includes('--write')) {
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.21 residual zero-completion ranking must remain exact',
+    'live M4.22 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.2');
   assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 6,
-    completeTools: 3,
-    migratedParameterRows: 14,
-    witnesses: prerequisite.parameterMigration.witnesses,
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
-  assert.equal(prerequisite.parameterMigration.witnesses.length, 6);
   assert.deepEqual(prerequisite.selectedPrerequisite, {
     catalogFacts: 6,
     family: 'binding',
