@@ -215,14 +215,14 @@ describe('M3.23 internal effect-machine lambda ownership', () => {
     expect(() => runInternalEffectMachineSync([ir], makeEnv())).toThrow();
   });
 
-  test.each([
-    '(2 ** 3) && missing',
-    '2 ** 3 ? missing : 0',
-  ])('checked power does not hide a reachable missing binding during preflight: %s', (expr) => {
-    expect(() => assertLambdaPreflight({ type: 'lambda', props: { expr } }, makeEnv(), new Set(), true)).toThrow(
-      /missing.*binding|binding.*missing/i,
-    );
-  });
+  test.each(['(2 ** 3) && missing', '2 ** 3 ? missing : 0'])(
+    'checked power does not hide a reachable missing binding during preflight: %s',
+    (expr) => {
+      expect(() => assertLambdaPreflight({ type: 'lambda', props: { expr } }, makeEnv(), new Set(), true)).toThrow(
+        /missing.*binding|binding.*missing/i,
+      );
+    },
+  );
 
   test('fails closed for wrong collection types at runtime/preflight', () => {
     const ir = { type: 'lambda', props: { expr: 'List.map(1, x => x)' } };

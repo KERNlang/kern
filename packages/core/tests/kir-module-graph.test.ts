@@ -213,16 +213,10 @@ describe('internal structural KIR module graph', () => {
     expect(failure([...modules].reverse())).toEqual(failure(modules));
   });
 
-  test.each([
-    'C:/main.kern',
-    'C:main.kern',
-    '/main.kern',
-    './main.kern',
-    '../main.kern',
-    'main',
-    'a//b.kern',
-  ])('rejects unsafe module id %s', (id) =>
-    expectModuleCode(() => encodeModuleKir([{ id, roots: [] }], limits), 'invalid-module-id'));
+  test.each(['C:/main.kern', 'C:main.kern', '/main.kern', './main.kern', '../main.kern', 'main', 'a//b.kern'])(
+    'rejects unsafe module id %s',
+    (id) => expectModuleCode(() => encodeModuleKir([{ id, roots: [] }], limits), 'invalid-module-id'),
+  );
 
   test('rejects import resolution that escapes the artifact root', () => {
     expectModuleCode(

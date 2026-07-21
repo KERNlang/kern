@@ -27,22 +27,12 @@ describe.each(migrateLiteralImplementations)('migrate-literals ($label)', (imple
   const { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } = implementation;
 
   describe('isInlineSafeLiteral', () => {
-    it.each([
-      '42',
-      '-17',
-      '3.14',
-      '0xFF',
-      '0b1010',
-      '0o77',
-      '1e3',
-      '1_000_000',
-      'true',
-      'false',
-      'null',
-      'undefined',
-    ])('accepts %s', (input) => {
-      expect(isInlineSafeLiteral(input)).toBe(true);
-    });
+    it.each(['42', '-17', '3.14', '0xFF', '0b1010', '0o77', '1e3', '1_000_000', 'true', 'false', 'null', 'undefined'])(
+      'accepts %s',
+      (input) => {
+        expect(isInlineSafeLiteral(input)).toBe(true);
+      },
+    );
 
     it.each(['"hello"', 'foo', '60 * 60', '{}', '[]', '', '   '])('rejects %s', (input) => {
       expect(isInlineSafeLiteral(input)).toBe(false);

@@ -49,11 +49,12 @@ describe('generated migrate-literals behavior', () => {
     ['const', 'x }} y', { category: 'detected' }],
     ['fn', 'x }} y', { category: 'detected' }],
     [undefined, '42', { category: 'detected' }],
-  ] satisfies Array<
-    [string | undefined, string, ReturnType<typeof generated.classifyHandlerGap>]
-  >)('classifyHandlerGap(%p, %p) returns %p', (parentType, body, expected) => {
-    expect(generated.classifyHandlerGap(parentType, body)).toEqual(expected);
-  });
+  ] satisfies Array<[string | undefined, string, ReturnType<typeof generated.classifyHandlerGap>]>)(
+    'classifyHandlerGap(%p, %p) returns %p',
+    (parentType, body, expected) => {
+      expect(generated.classifyHandlerGap(parentType, body)).toEqual(expected);
+    },
+  );
 
   it('migrate-literals facade delegates all generated exports', () => {
     expect(facade.isInlineSafeLiteral('42')).toBe(generated.isInlineSafeLiteral('42'));

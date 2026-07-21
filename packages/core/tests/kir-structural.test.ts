@@ -119,7 +119,8 @@ describe('internal structural KIR writer and bounded reader', () => {
     ['new User()', 'unknown-expression-kind'],
     ['x as User', 'unknown-expression-kind'],
   ] as const)('rejects expression outside the closed catalog: %s', (source, code) =>
-    expectStructuralCode(() => encodeStructuralKir(letNode(source), limits), code));
+    expectStructuralCode(() => encodeStructuralKir(letNode(source), limits), code),
+  );
 
   test('lowers exact structured runtime-handler types into semantic KIR', () => {
     const artifact = decodeStructuralKir(

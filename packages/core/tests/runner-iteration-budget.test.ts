@@ -94,22 +94,18 @@ describe('public runner iteration-budget ownership', () => {
     expect(executeKernSource(helper, budgetOptions(2))).toBe('2\n');
   });
 
-  test.each([
-    0,
-    -1,
-    1.5,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    Number.MAX_SAFE_INTEGER + 1,
-  ])('rejects invalid budget %p before a capability provider executes', (iterationBudget) => {
-    let calls = 0;
-    const program = mainProgram(['capability namespace=storage operation=get name=value input=""key""']);
-    expect(() =>
-      executeKernSource(program, {
-        ...budgetOptions(iterationBudget),
-        capabilities: { storage: { get: () => ++calls } },
-      }),
-    ).toThrow(/invalid-iteration-budget/u);
-    expect(calls).toBe(0);
-  });
+  test.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid budget %p before a capability provider executes',
+    (iterationBudget) => {
+      let calls = 0;
+      const program = mainProgram(['capability namespace=storage operation=get name=value input=""key""']);
+      expect(() =>
+        executeKernSource(program, {
+          ...budgetOptions(iterationBudget),
+          capabilities: { storage: { get: () => ++calls } },
+        }),
+      ).toThrow(/invalid-iteration-budget/u);
+      expect(calls).toBe(0);
+    },
+  );
 });

@@ -70,7 +70,8 @@ describe('lowerFixtureToKernIR', () => {
     const node: IRNode = { type: '__trace', props: { event: { op: 'stdout', text: 'x' } } };
     const lowered = lowerFixtureToKernIR(node);
     expect(lowered.type).toBe('do');
-    expect((lowered.props?.value as string).startsWith('__kernTrace(')).toBe(true);
+    const loweredValue = lowered.props?.value as string;
+    expect(loweredValue.startsWith('__kernTrace(')).toBe(true);
   });
 
   it('translates return to throw new __KernReturn(...)', () => {

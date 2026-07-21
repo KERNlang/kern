@@ -2385,25 +2385,18 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toBe(['for (const user: User of users) {', '  count += user.score;', '}'].join('\n'));
   });
 
-  test.each([
-    '-=',
-    '*=',
-    '/=',
-    '%=',
-    '**=',
-    '&=',
-    '^=',
-    '<<=',
-    '>>=',
-  ])('compound assignment %s compiles byte-equivalent through body assign op', (op) => {
-    const source = ['fn name=mutate returns=void', '  handler <<<', `    value ${op} delta;`, '  >>>'].join('\n');
-    const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(1);
+  test.each(['-=', '*=', '/=', '%=', '**=', '&=', '^=', '<<=', '>>='])(
+    'compound assignment %s compiles byte-equivalent through body assign op',
+    (op) => {
+      const source = ['fn name=mutate returns=void', '  handler <<<', `    value ${op} delta;`, '  >>>'].join('\n');
+      const result = rewriteNativeHandlers(source);
+      expect(result.hits).toHaveLength(1);
 
-    const handler = findHandler(parseDocumentStrict(result.output));
-    const ts = emitNativeKernBodyTS(handler as IRNode);
-    expect(ts).toBe(`value ${op} delta;`);
-  });
+      const handler = findHandler(parseDocumentStrict(result.output));
+      const ts = emitNativeKernBodyTS(handler as IRNode);
+      expect(ts).toBe(`value ${op} delta;`);
+    },
+  );
 
   test('this assignment compiles byte-equivalent through body assign', () => {
     const source = ['fn name=mutate returns=void', '  handler <<<', '    this.value = "ready";', '  >>>'].join('\n');

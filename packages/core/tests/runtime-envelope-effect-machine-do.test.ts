@@ -166,21 +166,18 @@ describe('M3.20 effect-machine do ownership', () => {
     expect(tracesEqual(sync, asyncTrace)).toBe(true);
   });
 
-  test.each([
-    'items?.push(1)',
-    'items.push()',
-    'items.push(1, 2)',
-    'Map.set(values, "key")',
-    'arbitraryEffect()',
-  ])('fails closed for unsupported discarded expression %s', (value) => {
-    expect(() =>
-      run([
-        { type: 'let', props: { name: 'items', value: '[]' } },
-        { type: 'let', props: { name: 'values', value: 'new Map()' } },
-        { type: 'do', props: { value } },
-      ]),
-    ).toThrow();
-  });
+  test.each(['items?.push(1)', 'items.push()', 'items.push(1, 2)', 'Map.set(values, "key")', 'arbitraryEffect()'])(
+    'fails closed for unsupported discarded expression %s',
+    (value) => {
+      expect(() =>
+        run([
+          { type: 'let', props: { name: 'items', value: '[]' } },
+          { type: 'let', props: { name: 'values', value: 'new Map()' } },
+          { type: 'do', props: { value } },
+        ]),
+      ).toThrow();
+    },
+  );
 
   test('rejects captured-array mutation', () => {
     expect(() =>

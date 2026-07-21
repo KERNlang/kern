@@ -120,34 +120,32 @@ describe('Slice 2 — FAIL-CLOSE on the host `RegExp` constructor/global (TS emi
   // close through the GENERIC host-namespace machinery once RegExp is reserved
   // (one diagnostic per site; the regex-specific message is reserved for the
   // construction/value/literal-property positions the generic screen misses).
-  test.each([
-    'RegExp.prototype',
-    'RegExp.$1',
-    'RegExp.lastMatch',
-  ])('host-root member %s fails-closed (generic host-namespace message)', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toMatch(/Unsupported host namespace/);
-    const val = validateIR(src);
-    expect(val.ok).toBe(false);
-    expect(val.message).toMatch(/Unsupported host namespace/);
-  });
+  test.each(['RegExp.prototype', 'RegExp.$1', 'RegExp.lastMatch'])(
+    'host-root member %s fails-closed (generic host-namespace message)',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toMatch(/Unsupported host namespace/);
+      const val = validateIR(src);
+      expect(val.ok).toBe(false);
+      expect(val.message).toMatch(/Unsupported host namespace/);
+    },
+  );
 
   // `/x/.source` / `/x/.flags` on a REGEX LITERAL — launders the pattern/flags
   // back into a string. Regex-path-specific; the generic machinery does not see a
   // host-namespace ROOT here (the receiver is a literal, not an ident).
-  test.each([
-    '/x/.source',
-    '/x/.flags',
-    '/abc/gi.source',
-  ])('regex-literal property read %s fails-closed with the shared regex message on both legs', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    const val = validateIR(src);
-    expect(val.ok).toBe(false);
-    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-  });
+  test.each(['/x/.source', '/x/.flags', '/abc/gi.source'])(
+    'regex-literal property read %s fails-closed with the shared regex message on both legs',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      const val = validateIR(src);
+      expect(val.ok).toBe(false);
+      expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    },
+  );
 
   // REVIEW FIX #1 — the BRACKET (`index`) form of a regex-literal property read.
   // `/x/["source"]` / `/x/["flags"]` launder the pattern/flags to a string exactly
@@ -156,19 +154,17 @@ describe('Slice 2 — FAIL-CLOSE on the host `RegExp` constructor/global (TS emi
   // `member` branch did), so they BYPASSED Slice 2 entirely — verified against the
   // built code. They now fail-close byte-identically on BOTH legs. A COMPUTED
   // index (`/x/[k]`) is unknowable and also fails-close.
-  test.each([
-    '/x/["source"]',
-    '/x/["flags"]',
-    '/x/["test"](s)',
-    '/abc/gi["source"]',
-  ])('regex-literal BRACKET read %s fails-closed with the shared regex message on both legs', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    const val = validateIR(src);
-    expect(val.ok).toBe(false);
-    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-  });
+  test.each(['/x/["source"]', '/x/["flags"]', '/x/["test"](s)', '/abc/gi["source"]'])(
+    'regex-literal BRACKET read %s fails-closed with the shared regex message on both legs',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      const val = validateIR(src);
+      expect(val.ok).toBe(false);
+      expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    },
+  );
 
   // REVIEW FIX #2 — BLOCK-BODIED arrows. The bare-value guard and the
   // regex-literal-read guard previously fired only OUTSIDE block bodies: a
@@ -204,17 +200,17 @@ describe('Slice 2 — FAIL-CLOSE on the host `RegExp` constructor/global (TS emi
   // REVIEW FIX #2 (round 3) — value-position shapes the bare-`RegExp` screen must
   // ALSO catch inside a block body: an object PROPERTY VALUE and a SHORTHAND
   // property are value references (the expression-level path fails-close both).
-  test.each([
-    '() => ({ x: RegExp })',
-    '() => ({ RegExp })',
-  ])('block-bodied arrow %s (RegExp in value/shorthand position) fails-closed', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    const val = validateIR(src);
-    expect(val.ok).toBe(false);
-    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-  });
+  test.each(['() => ({ x: RegExp })', '() => ({ RegExp })'])(
+    'block-bodied arrow %s (RegExp in value/shorthand position) fails-closed',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      const val = validateIR(src);
+      expect(val.ok).toBe(false);
+      expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    },
+  );
 
   // REVIEW FIX #2 (round 3) — NESTED-block shadow scoping. A `const RegExp`
   // declared ONLY inside a nested block shadows references WITHIN that block,
@@ -245,12 +241,12 @@ describe('Slice 2 — FAIL-CLOSE on the host `RegExp` constructor/global (TS emi
   // (`/x/.test(s)`) is handled by the call path and must NOT be over-rejected by
   // the block walk. A TYPE-ANNOTATION reference (`const x: RegExp = /a/`) is an
   // erased type, not a value use, and must NOT fire either.
-  test.each([
-    '() => { return /x/.test(s); }',
-    '() => { const x: RegExp = /a/; return x; }',
-  ])('block-bodied arrow %s does NOT fire (portable method / erased type)', (src) => {
-    expect(emitTS(src).ok).toBe(true);
-  });
+  test.each(['() => { return /x/.test(s); }', '() => { const x: RegExp = /a/; return x; }'])(
+    'block-bodied arrow %s does NOT fire (portable method / erased type)',
+    (src) => {
+      expect(emitTS(src).ok).toBe(true);
+    },
+  );
 
   // REVIEW FIX #2 (round 3) — ONLY the DOTTED method call is portable. A
   // BRACKET-form call (`/x/["test"](s)`) is NOT lowered by `lowerRegexCallTS`
@@ -308,14 +304,12 @@ describe('Slice 2 — MUST-NOT-FIRE (resolver, not a textual name-check)', () =>
 
   // In-core literal regex methods — the certified portable surface (Slices 1/3/4/5)
   // STAYS working; Slice 2 must not close it.
-  test.each([
-    '/lit/.test(s)',
-    's.replace(/a/g, "b")',
-    's.match(/([0-9]+)/)',
-    's.split(/,/)',
-  ])('in-core literal method %s still transpiles (TS emit)', (src) => {
-    expect(emitTS(src).ok).toBe(true);
-  });
+  test.each(['/lit/.test(s)', 's.replace(/a/g, "b")', 's.match(/([0-9]+)/)', 's.split(/,/)'])(
+    'in-core literal method %s still transpiles (TS emit)',
+    (src) => {
+      expect(emitTS(src).ok).toBe(true);
+    },
+  );
 });
 
 describe('Slice 2 — non-portable literal-receiver METHOD pins the regex message', () => {
@@ -427,13 +421,13 @@ describe('Slice 2 — CONVERGENT classifier unification (round 4)', () => {
   // a block-local `RegExp`, so a later `return RegExp` reference is the local (NOT
   // the host) and must NOT fire. The TS walk honors it via the shared
   // binding-pattern extraction.
-  test.each([
-    '{ const { RegExp } = x; return RegExp; }',
-    '{ const [RegExp] = arr; return RegExp; }',
-  ])('destructured `RegExp` shadow does NOT fire the bare-value screen: %s', (raw) => {
-    const firing = collectClosureBlockRegexHostViolations(raw).filter((v) => !v.locallyShadowed);
-    expect(firing).toHaveLength(0);
-  });
+  test.each(['{ const { RegExp } = x; return RegExp; }', '{ const [RegExp] = arr; return RegExp; }'])(
+    'destructured `RegExp` shadow does NOT fire the bare-value screen: %s',
+    (raw) => {
+      const firing = collectClosureBlockRegexHostViolations(raw).filter((v) => !v.locallyShadowed);
+      expect(firing).toHaveLength(0);
+    },
+  );
 
   // `/x/[k]` — the access itself fails-close ONCE (computed index), but the index
   // EXPRESSION `k` is still walked for its OWN host violations (no double-reject of
@@ -525,16 +519,15 @@ describe('Slice 2 — WRAPPED regex-literal receiver fails-close (round 5)', () 
   // method (`(/x/).test(s)`) is still portable and ACCEPTS, lowering to the SAME
   // output as the bare `/x/.test(s)` (the wrapper is erased). Accepts identically
   // on TS-emit, IR-validate, AND the block-body closure leg.
-  test.each([
-    '(/x/).test(s)',
-    '(/x/ as any).test(s)',
-    '((/x/)).test(s)',
-  ])('wrapped portable %s ACCEPTS and lowers like the bare `/x/.test(s)`', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(true);
-    expect(emit.message).toBe(emitTS('/x/.test(s)').message); // identical TS lowering
-    expect(validateIR(src).ok).toBe(true);
-  });
+  test.each(['(/x/).test(s)', '(/x/ as any).test(s)', '((/x/)).test(s)'])(
+    'wrapped portable %s ACCEPTS and lowers like the bare `/x/.test(s)`',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(true);
+      expect(emit.message).toBe(emitTS('/x/.test(s)').message); // identical TS lowering
+      expect(validateIR(src).ok).toBe(true);
+    },
+  );
 
   test('wrapped portable `(/x/).test(s)` accepts in a block body too', () => {
     expect(emitTS('() => { return (/x/).test(s); }').ok).toBe(true);
@@ -564,35 +557,32 @@ describe('Slice 2 — `typeof <host root>` fail-close (round 6 — the round-5 c
   // nonexistent name) and now fail-close with the GENERIC host message on both
   // legs. (Bare VALUE refs `const c = Date` are deliberately left accepted — a
   // wider, separately-charted slice; this fix closes only the `typeof` divergence.)
-  test.each([
-    'typeof Date',
-    'typeof process',
-    'typeof console',
-  ])('%s FAILS-CLOSE with the generic host message on TS-emit + IR-validate', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toMatch(/Unsupported host namespace/);
-    const val = validateIR(src);
-    expect(val.ok).toBe(false);
-    expect(val.message).toMatch(/Unsupported host namespace/);
-    // The two legs emit the BYTE-IDENTICAL diagnostic (parity property).
-    expect(emit.message).toBe(val.message);
-  });
+  test.each(['typeof Date', 'typeof process', 'typeof console'])(
+    '%s FAILS-CLOSE with the generic host message on TS-emit + IR-validate',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toMatch(/Unsupported host namespace/);
+      const val = validateIR(src);
+      expect(val.ok).toBe(false);
+      expect(val.message).toMatch(/Unsupported host namespace/);
+      // The two legs emit the BYTE-IDENTICAL diagnostic (parity property).
+      expect(emit.message).toBe(val.message);
+    },
+  );
 
   // A NON-host-root operand (a user local / an undeclared feature-detection flag)
   // must NOT be over-rejected — `window`/`document`/`setTimeout` are not host
   // roots, so the canonical `typeof window === 'undefined'` SSR idiom keeps working.
-  test.each([
-    'typeof userLocal',
-    'typeof undeclaredFeatureFlag',
-    'typeof window',
-    'typeof document',
-  ])('%s is NOT over-rejected (emits native typeof) on TS-emit + IR-validate', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(true);
-    expect(emit.message).toBe(src); // native typeof, no reject
-    expect(validateIR(src).ok).toBe(true);
-  });
+  test.each(['typeof userLocal', 'typeof undeclaredFeatureFlag', 'typeof window', 'typeof document'])(
+    '%s is NOT over-rejected (emits native typeof) on TS-emit + IR-validate',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(true);
+      expect(emit.message).toBe(src); // native typeof, no reject
+      expect(validateIR(src).ok).toBe(true);
+    },
+  );
 
   // User shadowing — a `const Date = …` binding makes `Date` the user's value, so
   // `typeof Date` is accepted (honored identically on both legs).
@@ -612,23 +602,23 @@ describe('Slice 2 — `typeof <host root>` fail-close (round 6 — the round-5 c
     expect(collectClosureBlockRegexHostViolations('{ return typeof RegExp; }')).toHaveLength(1);
   });
 
-  test.each([
-    '() => { return typeof Date; }',
-    '() => { return typeof process; }',
-  ])('%s inside a block body fails-close with the generic host message', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toMatch(/Unsupported host namespace/);
-  });
+  test.each(['() => { return typeof Date; }', '() => { return typeof process; }'])(
+    '%s inside a block body fails-close with the generic host message',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toMatch(/Unsupported host namespace/);
+    },
+  );
 
   // …but a block-LOCAL shadow of a host root makes `typeof <name>` the user value
   // (accepted), and a non-host `typeof userLocal` inside a block is untouched.
-  test.each([
-    '() => { const Date = x; return typeof Date; }',
-    '() => { return typeof userLocal; }',
-  ])('%s inside a block body is accepted (shadowed / non-host operand)', (src) => {
-    expect(emitTS(src).ok).toBe(true);
-  });
+  test.each(['() => { const Date = x; return typeof Date; }', '() => { return typeof userLocal; }'])(
+    '%s inside a block body is accepted (shadowed / non-host operand)',
+    (src) => {
+      expect(emitTS(src).ok).toBe(true);
+    },
+  );
 
   // …and `typeof RegExp.prototype` reads a MEMBER (a launder), so it still
   // fails-close via the member-root screen — `typeof` does not blanket-exempt a
@@ -673,18 +663,17 @@ describe('Slice 2 — WRAPPED `typeof <host root>` fail-close (round 7 — close
 
   // A wrapped `RegExp` operand fails-close with the REGEX message (matching the bare
   // `typeof RegExp` round-6 case), not the generic host one.
-  test.each([
-    'typeof (RegExp)',
-    'typeof (RegExp as any)',
-    'typeof (RegExp!)',
-  ])('%s FAILS-CLOSE with the regex message on TS-emit + IR-validate', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-    const val = validateIR(src);
-    expect(val.ok).toBe(false);
-    expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
-  });
+  test.each(['typeof (RegExp)', 'typeof (RegExp as any)', 'typeof (RegExp!)'])(
+    '%s FAILS-CLOSE with the regex message on TS-emit + IR-validate',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+      const val = validateIR(src);
+      expect(val.ok).toBe(false);
+      expect(val.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
+    },
+  );
 
   // A wrapped NON-host operand must NOT be over-rejected — the wrappers are peeled
   // ONLY to DECIDE the host-root reject; the bare `userLocal`/`window` is accepted,
@@ -734,14 +723,14 @@ describe('Slice 2 — WRAPPED `typeof <host root>` fail-close (round 7 — close
   // with the generic host message, RegExp with the regex message (the regex walk
   // catches the wrapped `RegExp`), while a wrapped non-host / block-local-shadowed
   // operand is accepted.
-  test.each([
-    '() => { return typeof (Date as any); }',
-    '() => { return typeof (process!); }',
-  ])('block-bodied %s fails-close with the generic host message', (src) => {
-    const emit = emitTS(src);
-    expect(emit.ok).toBe(false);
-    expect(emit.message).toMatch(/Unsupported host namespace/);
-  });
+  test.each(['() => { return typeof (Date as any); }', '() => { return typeof (process!); }'])(
+    'block-bodied %s fails-close with the generic host message',
+    (src) => {
+      const emit = emitTS(src);
+      expect(emit.ok).toBe(false);
+      expect(emit.message).toMatch(/Unsupported host namespace/);
+    },
+  );
 
   test('block-bodied wrapped `typeof (RegExp as any)` fails-close with the regex message', () => {
     const emit = emitTS('() => { return typeof (RegExp as any); }');
@@ -749,25 +738,24 @@ describe('Slice 2 — WRAPPED `typeof <host root>` fail-close (round 7 — close
     expect(emit.message).toBe(REGEX_HOST_REGEXP_FAILCLOSE);
   });
 
-  test.each([
-    '() => { return typeof (userLocal as any); }',
-    '() => { const Date = x; return typeof (Date as any); }',
-  ])('block-bodied %s is accepted (non-host / shadowed wrapped operand)', (src) => {
-    expect(emitTS(src).ok).toBe(true);
-  });
+  test.each(['() => { return typeof (userLocal as any); }', '() => { const Date = x; return typeof (Date as any); }'])(
+    'block-bodied %s is accepted (non-host / shadowed wrapped operand)',
+    (src) => {
+      expect(emitTS(src).ok).toBe(true);
+    },
+  );
 });
 
 describe('Slice 2 — OVER-REJECTION fixes (round 5)', () => {
   // A wrapped NON-regex receiver (`(someVar).source`) is unaffected — no regex
   // fail-close; it emits/validates as an ordinary member read.
-  test.each([
-    '(someVar).source',
-    '(someVar as any).source',
-    '(obj.x!).flags',
-  ])('wrapped NON-regex receiver %s is unaffected (no regex fail-close)', (src) => {
-    expect(emitTS(src).ok).toBe(true);
-    expect(validateIR(src).ok).toBe(true);
-  });
+  test.each(['(someVar).source', '(someVar as any).source', '(obj.x!).flags'])(
+    'wrapped NON-regex receiver %s is unaffected (no regex fail-close)',
+    (src) => {
+      expect(emitTS(src).ok).toBe(true);
+      expect(validateIR(src).ok).toBe(true);
+    },
+  );
 });
 
 describe('Slice 2 — block-scope-aware member scan (round 6 — close the TS↔Python divergence)', () => {

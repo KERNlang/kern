@@ -59,49 +59,49 @@ describe('M3.15 PR review regressions', () => {
     expect(calls).toBe(0);
   });
 
-  test.each([
-    '(m + late) || 1',
-    '(m + late) ? 1 : 2',
-  ])('validates the definitely evaluated subtree of deferred expression %s before dispatch', (value) => {
-    let calls = 0;
-    const nodes: IRNode[] = [
-      { type: 'capability', props: { name: 'late', namespace: 'storage', operation: 'get' } },
-      { type: 'return', props: { value } },
-    ];
-    const env = makeEnv({
-      bindings: new Map([['m', new Map([['key', 1]])]]),
-      capabilities: { storage: { get: () => (calls += 1) } },
-    });
+  test.each(['(m + late) || 1', '(m + late) ? 1 : 2'])(
+    'validates the definitely evaluated subtree of deferred expression %s before dispatch',
+    (value) => {
+      let calls = 0;
+      const nodes: IRNode[] = [
+        { type: 'capability', props: { name: 'late', namespace: 'storage', operation: 'get' } },
+        { type: 'return', props: { value } },
+      ];
+      const env = makeEnv({
+        bindings: new Map([['m', new Map([['key', 1]])]]),
+        capabilities: { storage: { get: () => (calls += 1) } },
+      });
 
-    expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
-      diagnostics: [{ code: 'unsupported-runtime-input' }],
-      events: [],
-      outcome: 'failure',
-    });
-    expect(calls).toBe(0);
-  });
+      expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
+        diagnostics: [{ code: 'unsupported-runtime-input' }],
+        events: [],
+        outcome: 'failure',
+      });
+      expect(calls).toBe(0);
+    },
+  );
 
-  test.each([
-    '[m + late]',
-    '{ value: [m + late] }',
-  ])('validates deferred bindings nested in leaf composite %s before dispatch', (value) => {
-    let calls = 0;
-    const nodes: IRNode[] = [
-      { type: 'capability', props: { name: 'late', namespace: 'storage', operation: 'get' } },
-      { type: 'let', props: { name: 'result', value } },
-    ];
-    const env = makeEnv({
-      bindings: new Map([['m', new Map([['key', 1]])]]),
-      capabilities: { storage: { get: () => (calls += 1) } },
-    });
+  test.each(['[m + late]', '{ value: [m + late] }'])(
+    'validates deferred bindings nested in leaf composite %s before dispatch',
+    (value) => {
+      let calls = 0;
+      const nodes: IRNode[] = [
+        { type: 'capability', props: { name: 'late', namespace: 'storage', operation: 'get' } },
+        { type: 'let', props: { name: 'result', value } },
+      ];
+      const env = makeEnv({
+        bindings: new Map([['m', new Map([['key', 1]])]]),
+        capabilities: { storage: { get: () => (calls += 1) } },
+      });
 
-    expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
-      diagnostics: [{ code: 'unsupported-runtime-input' }],
-      events: [],
-      outcome: 'failure',
-    });
-    expect(calls).toBe(0);
-  });
+      expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
+        diagnostics: [{ code: 'unsupported-runtime-input' }],
+        events: [],
+        outcome: 'failure',
+      });
+      expect(calls).toBe(0);
+    },
+  );
 
   test('treats undefined as nullish while preflighting a deferred right operand', () => {
     let calls = 0;
@@ -194,11 +194,12 @@ describe('M3.15 PR review regressions', () => {
         },
       ],
     },
-  ] satisfies { nodes: IRNode[] }[])('does not value-evaluate siblings after an unconditional completion', ({
-    nodes,
-  }) => {
-    expect(() => runInternalEffectMachineSync(nodes, makeEnv(), machineOptions)).not.toThrow();
-  });
+  ] satisfies { nodes: IRNode[] }[])(
+    'does not value-evaluate siblings after an unconditional completion',
+    ({ nodes }) => {
+      expect(() => runInternalEffectMachineSync(nodes, makeEnv(), machineOptions)).not.toThrow();
+    },
+  );
 
   test('still shape-validates unreachable siblings', () => {
     const nodes: IRNode[] = [{ type: 'return', props: { value: '1' } }, { type: 'expression-v1' }];
@@ -304,18 +305,18 @@ describe('M3.15 PR review regressions', () => {
     expect(CONTRACT_REGISTRY.size).toBe(0);
   });
 
-  test.each([
-    { runnerSuperClass: 'HostBase' },
-    { runnerProtectedClassInstances: new WeakSet() },
-  ])('rejects class call-frame metadata at a machine root', (metadata) => {
-    const nodes: IRNode[] = [{ type: 'return', props: { value: '1' } }];
-    const env = makeEnv(metadata);
-    expect(isInternalEffectMachineEligible(nodes, env)).toBe(false);
-    expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
-      diagnostics: [{ code: 'unsupported-runtime-input' }],
-      outcome: 'failure',
-    });
-  });
+  test.each([{ runnerSuperClass: 'HostBase' }, { runnerProtectedClassInstances: new WeakSet() }])(
+    'rejects class call-frame metadata at a machine root',
+    (metadata) => {
+      const nodes: IRNode[] = [{ type: 'return', props: { value: '1' } }];
+      const env = makeEnv(metadata);
+      expect(isInternalEffectMachineEligible(nodes, env)).toBe(false);
+      expect(executeInternalRuntimeEnvelopeSync(nodes, env, enabled)).toMatchObject({
+        diagnostics: [{ code: 'unsupported-runtime-input' }],
+        outcome: 'failure',
+      });
+    },
+  );
 
   test.each([Symbol.iterator, 'values'] as const)('rejects a poisoned Map.prototype %s without invoking it', (key) => {
     const original = Object.getOwnPropertyDescriptor(Map.prototype, key);

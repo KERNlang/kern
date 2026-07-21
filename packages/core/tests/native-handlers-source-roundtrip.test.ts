@@ -334,25 +334,16 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     expect(() => parseDocumentStrict(src)).toThrow(/value-less|remove the `value=`/);
   });
 
-  test.each([
-    '+=',
-    '-=',
-    '*=',
-    '/=',
-    '%=',
-    '**=',
-    '&=',
-    '|=',
-    '^=',
-    '<<=',
-    '>>=',
-  ])('body-statement compound assign op %s decompiles re-parseably', (op) => {
-    const text = decompile({ type: 'assign', props: { target: 'value', op, value: 'delta' } }).code;
-    expect(text).toBe(`assign target=value op="${op}" value=delta`);
-    expect(() =>
-      parseDocumentStrict(['fn name=setValue returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
-    ).not.toThrow();
-  });
+  test.each(['+=', '-=', '*=', '/=', '%=', '**=', '&=', '|=', '^=', '<<=', '>>='])(
+    'body-statement compound assign op %s decompiles re-parseably',
+    (op) => {
+      const text = decompile({ type: 'assign', props: { target: 'value', op, value: 'delta' } }).code;
+      expect(text).toBe(`assign target=value op="${op}" value=delta`);
+      expect(() =>
+        parseDocumentStrict(['fn name=setValue returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+      ).not.toThrow();
+    },
+  );
 
   test('body-statement while round-trips', () => {
     const src = [

@@ -457,21 +457,20 @@ describe('M3.23 lambda review regressions', () => {
     expect(calls).toBe(1);
   });
 
-  test.each([
-    'List',
-    'null.value',
-    'undefined[0]',
-  ])('rejects deterministic runtime failure %s before an earlier capability', (expr) => {
-    let calls = 0;
-    const nodes = [
-      { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
-      { type: 'lambda', props: { expr } },
-    ];
-    const env = makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } });
+  test.each(['List', 'null.value', 'undefined[0]'])(
+    'rejects deterministic runtime failure %s before an earlier capability',
+    (expr) => {
+      let calls = 0;
+      const nodes = [
+        { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+        { type: 'lambda', props: { expr } },
+      ];
+      const env = makeEnv({ capabilities: { storage: { get: () => (calls += 1) } } });
 
-    expect(() => runInternalEffectMachineSync(nodes, env)).toThrow(InternalEffectMachineError);
-    expect(calls).toBe(0);
-  });
+      expect(() => runInternalEffectMachineSync(nodes, env)).toThrow(InternalEffectMachineError);
+      expect(calls).toBe(0);
+    },
+  );
 
   test('rejects recursive setup closures before an earlier capability', () => {
     let calls = 0;

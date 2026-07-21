@@ -277,16 +277,19 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     ['block marker after interpolation', '`${value}/*safe*/` == value', '/*safe*/'],
     ['line marker after interpolation', '`${value}//safe` == value', '//safe'],
     ['multiple interpolations', '`${value}/*safe*/${value}//tail` == value', '//tail'],
-  ])('portable closure power preserves template raw text with %s on both native targets', (_name, condition, marker) => {
-    const source = [
-      'fn name=closureTemplatePower params="value:string" returns=number export=true',
-      '  handler lang="kern"',
-      `    return value="List.map([value], value => { return (${condition} ? 2 : 3) ** 2; })[0]"`,
-    ].join('\n');
+  ])(
+    'portable closure power preserves template raw text with %s on both native targets',
+    (_name, condition, marker) => {
+      const source = [
+        'fn name=closureTemplatePower params="value:string" returns=number export=true',
+        '  handler lang="kern"',
+        `    return value="List.map([value], value => { return (${condition} ? 2 : 3) ** 2; })[0]"`,
+      ].join('\n');
 
-    expect(compile(source, 'lib')).toContain(marker);
-    expect(compile(source, 'fastapi')).toContain(marker);
-  });
+      expect(compile(source, 'lib')).toContain(marker);
+      expect(compile(source, 'fastapi')).toContain(marker);
+    },
+  );
 
   test.each([
     ['compact', 'identity<number /* type */>(2 ** 3) ** 2'],
@@ -303,20 +306,20 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(compile(source, 'fastapi')).toContain('return _kern_pow_int([identity(_kern_pow_int([2, 3])), 2])');
   });
 
-  test.each([
-    'lib',
-    'fastapi',
-  ] as const)('portable power compiles a 1,200-operand block closure iteratively on %s', (target) => {
-    const chain = new Array(1_200).fill('1').join(' ** ');
-    const source = [
-      'fn name=closurePowerChain returns=number export=true',
-      '  handler lang="kern"',
-      `    return value="List.map([1], x => { return ${chain}; })[0]"`,
-    ].join('\n');
+  test.each(['lib', 'fastapi'] as const)(
+    'portable power compiles a 1,200-operand block closure iteratively on %s',
+    (target) => {
+      const chain = new Array(1_200).fill('1').join(' ** ');
+      const source = [
+        'fn name=closurePowerChain returns=number export=true',
+        '  handler lang="kern"',
+        `    return value="List.map([1], x => { return ${chain}; })[0]"`,
+      ].join('\n');
 
-    const code = compile(source, target);
-    expect(code).toContain(target === 'lib' ? '__kern_pow_int([' : '_kern_pow_int([');
-  });
+      const code = compile(source, target);
+      expect(code).toContain(target === 'lib' ? '__kern_pow_int([' : '_kern_pow_int([');
+    },
+  );
 
   test('generated-helper analysis remains stack-safe on a deep raw TypeScript handler', () => {
     const chain = new Array(3_000).fill('value').join(' + ');
@@ -348,22 +351,22 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(() => compile(source, 'lib')).toThrow('Generated TypeScript helper safety analysis failed closed.');
   });
 
-  test.each([
-    'lib',
-    'fastapi',
-  ] as const)('portable power compiles a 10,001-operand chain iteratively on %s', (target) => {
-    const chain = new Array(10_001).fill('1').join(' ** ');
-    const source = [
-      'fn name=powerChain returns=number export=true',
-      '  handler lang="kern"',
-      `    return value="${chain}"`,
-    ].join('\n');
-    const code = compile(source, target);
-    const helperCall = target === 'lib' ? '__kern_pow_int(' : '_kern_pow_int(';
-    const returnLine = code.split('\n').find((line) => line.includes(`return ${helperCall}`)) ?? '';
-    expect(returnLine).not.toBe('');
-    expect(returnLine.slice(returnLine.indexOf(helperCall)).split(', ')).toHaveLength(10_001);
-  });
+  test.each(['lib', 'fastapi'] as const)(
+    'portable power compiles a 10,001-operand chain iteratively on %s',
+    (target) => {
+      const chain = new Array(10_001).fill('1').join(' ** ');
+      const source = [
+        'fn name=powerChain returns=number export=true',
+        '  handler lang="kern"',
+        `    return value="${chain}"`,
+      ].join('\n');
+      const code = compile(source, target);
+      const helperCall = target === 'lib' ? '__kern_pow_int(' : '_kern_pow_int(';
+      const returnLine = code.split('\n').find((line) => line.includes(`return ${helperCall}`)) ?? '';
+      expect(returnLine).not.toBe('');
+      expect(returnLine.slice(returnLine.indexOf(helperCall)).split(', ')).toHaveLength(10_001);
+    },
+  );
 
   test.each([
     [

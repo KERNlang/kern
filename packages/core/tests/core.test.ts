@@ -92,8 +92,9 @@ describe('Kern Core', () => {
       const textNode = ast.children?.find((c: any) => c.type === 'text');
       expect(textNode?.props?.value).toBeDefined();
       expect(typeof textNode?.props?.value).toBe('object');
-      expect((textNode?.props?.value as any).__expr).toBe(true);
-      expect((textNode?.props?.value as any).code).toContain('count + 1');
+      const exprValue = textNode?.props?.value as any;
+      expect(exprValue.__expr).toBe(true);
+      expect(exprValue.code).toContain('count + 1');
     });
 
     test('parses theme nodes with names', async () => {

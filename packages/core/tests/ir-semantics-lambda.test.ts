@@ -46,37 +46,39 @@ describe('lambda contract — fixtures', () => {
     );
   });
 
-  it.each(
-    lambdaContract.fixtures.map((f) => [f.description, f] as const),
-  )('reference fixture: %s', async (_desc, fixture) => {
-    const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
-    if (result.verdict !== 'pass') {
-      throw new Error(
-        `verdict=${result.verdict}\nfixture=${fixture.description}\nexpected=${JSON.stringify(
-          fixture.expected,
-          null,
-          2,
-        )}\nreference=${JSON.stringify(result.reference, null, 2)}`,
-      );
-    }
-    expect(result.verdict).toBe<Verdict>('pass');
-  });
+  it.each(lambdaContract.fixtures.map((f) => [f.description, f] as const))(
+    'reference fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { skipTs: true, skipPython: true });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\nfixture=${fixture.description}\nexpected=${JSON.stringify(
+            fixture.expected,
+            null,
+            2,
+          )}\nreference=${JSON.stringify(result.reference, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+  );
 
-  it.each(
-    lambdaContract.fixtures.map((f) => [f.description, f] as const),
-  )('TS differential fixture: %s', async (_desc, fixture) => {
-    const result = await runDifferential(fixture, { skipPython: true });
-    if (result.verdict !== 'pass') {
-      throw new Error(
-        `verdict=${result.verdict}\n` +
-          `fixture=${fixture.description}\n` +
-          `reference=${JSON.stringify(result.reference, null, 2)}\n` +
-          `ts=${JSON.stringify(result.ts, null, 2)}\n` +
-          `legError=${JSON.stringify(result.legError, null, 2)}`,
-      );
-    }
-    expect(result.verdict).toBe<Verdict>('pass');
-  });
+  it.each(lambdaContract.fixtures.map((f) => [f.description, f] as const))(
+    'TS differential fixture: %s',
+    async (_desc, fixture) => {
+      const result = await runDifferential(fixture, { skipPython: true });
+      if (result.verdict !== 'pass') {
+        throw new Error(
+          `verdict=${result.verdict}\n` +
+            `fixture=${fixture.description}\n` +
+            `reference=${JSON.stringify(result.reference, null, 2)}\n` +
+            `ts=${JSON.stringify(result.ts, null, 2)}\n` +
+            `legError=${JSON.stringify(result.legError, null, 2)}`,
+        );
+      }
+      expect(result.verdict).toBe<Verdict>('pass');
+    },
+  );
 });
 
 describe('lambda contract — malformed fixtures', () => {

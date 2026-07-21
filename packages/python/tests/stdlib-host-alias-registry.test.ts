@@ -400,13 +400,13 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
     ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
   });
 
-  test.each([
-    'Math.random()',
-    'Math["random"]()',
-  ])('%s stays reserved to the stdlib registry on both emitted targets', (expr) => {
-    expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
-    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
-  });
+  test.each(['Math.random()', 'Math["random"]()'])(
+    '%s stays reserved to the stdlib registry on both emitted targets',
+    (expr) => {
+      expect(() => emitNativeKernBodyTSWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
+      expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow(/Unknown KERN-stdlib method\/member/);
+    },
+  );
 
   // Milestone C, Slice 2 — host `RegExp` is no longer exempt: the exemption set is
   // now empty and `RegExp.<member>()` fails-close on both targets like any other
@@ -434,12 +434,12 @@ describeIfPython('Milestone A stdlib host aliases — reserved namespace and fai
     expect(emitNativeKernBodyPythonWithImports(handler).code).toContain('r = Date.now()');
   });
 
-  test.each([
-    'Array.from({ length: 1 }, (v, i) => i, { tag: "x" })',
-    'Math.max',
-  ])('%s is explicitly refused rather than silently wrong', (expr) => {
-    expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow();
-  });
+  test.each(['Array.from({ length: 1 }, (v, i) => i, { tag: "x" })', 'Math.max'])(
+    '%s is explicitly refused rather than silently wrong',
+    (expr) => {
+      expect(() => emitNativeKernBodyPythonWithImports(letHandler(expr))).toThrow();
+    },
+  );
 
   test('Array.from spread is refused on both targets', () => {
     const expr = parseExpression('Array.from(...args)');

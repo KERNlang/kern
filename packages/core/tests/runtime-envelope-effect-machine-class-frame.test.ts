@@ -383,24 +383,24 @@ describe('M3.31a resumable same-root class frames', () => {
     expect(providerCalls).toBe(0);
   });
 
-  test.each([
-    'this.value.extra',
-    'this.missing',
-  ])('rejects malformed or unavailable class assignment target %s before provider dispatch', (target) => {
-    let providerCalls = 0;
-    const env = frameClassEnv({
-      capabilities: { storage: { get: () => ++providerCalls } },
-      constructorBody: [
-        { type: 'capability', props: { name: 'answer', namespace: 'storage', operation: 'get' } },
-        { type: 'assign', props: { target, value: 'answer' } },
-      ],
-    });
-    const nodes: readonly IRNode[] = [
-      { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
-      { type: 'return', props: { value: 'box.value' } },
-    ];
+  test.each(['this.value.extra', 'this.missing'])(
+    'rejects malformed or unavailable class assignment target %s before provider dispatch',
+    (target) => {
+      let providerCalls = 0;
+      const env = frameClassEnv({
+        capabilities: { storage: { get: () => ++providerCalls } },
+        constructorBody: [
+          { type: 'capability', props: { name: 'answer', namespace: 'storage', operation: 'get' } },
+          { type: 'assign', props: { target, value: 'answer' } },
+        ],
+      });
+      const nodes: readonly IRNode[] = [
+        { type: 'let', props: { name: 'box', value: 'new Box(1)' } },
+        { type: 'return', props: { value: 'box.value' } },
+      ];
 
-    expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
-    expect(providerCalls).toBe(0);
-  });
+      expect(selectSourceRunnerEngine(nodes, env, {})).toBe(SOURCE_RUNNER_ENGINE.legacy);
+      expect(providerCalls).toBe(0);
+    },
+  );
 });

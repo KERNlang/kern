@@ -220,15 +220,15 @@ describe('host namespace checks in block-bodied lambda expressions (TS)', () => 
     );
   });
 
-  test.each([
-    'items.map((item) => new Date())',
-    'items.map((item) => { return new Date(); })',
-  ])('%s rejects unmapped constructor host roots', (value) => {
-    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
-    expect(() => emitNativeKernBodyTS(handler)).toThrow(
-      /Unsupported host namespace in TypeScript expression: Date\.(factory|constructor) .*not registered/,
-    );
-  });
+  test.each(['items.map((item) => new Date())', 'items.map((item) => { return new Date(); })'])(
+    '%s rejects unmapped constructor host roots',
+    (value) => {
+      const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+      expect(() => emitNativeKernBodyTS(handler)).toThrow(
+        /Unsupported host namespace in TypeScript expression: Date\.(factory|constructor) .*not registered/,
+      );
+    },
+  );
 
   test('block-bodied lambda parameter shadows a reserved host root', () => {
     const handler = makeHandler([
@@ -270,16 +270,15 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(lines.join('\n')).toContain('const r = Date.now();');
   });
 
-  test.each([
-    '(Date as any).now()',
-    'Date!.now()',
-    '(Date as any)["now"]()',
-  ])('%s rejects wrapped unmapped host-root receivers', (value) => {
-    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
-    expect(() => emitNativeKernBodyTS(handler)).toThrow(
-      /Unsupported host namespace in TypeScript expression: Date\.(now|\[computed\]) .*not registered/,
-    );
-  });
+  test.each(['(Date as any).now()', 'Date!.now()', '(Date as any)["now"]()'])(
+    '%s rejects wrapped unmapped host-root receivers',
+    (value) => {
+      const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+      expect(() => emitNativeKernBodyTS(handler)).toThrow(
+        /Unsupported host namespace in TypeScript expression: Date\.(now|\[computed\]) .*not registered/,
+      );
+    },
+  );
 
   test('type-only declarations do not shadow reserved host roots for later const values', () => {
     expect(() =>
@@ -402,22 +401,21 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     expect(lines.join('\n')).toContain('const r = Date.Now;');
   });
 
-  test.each([
-    'action',
-    'repository',
-    'cache',
-  ])('%s declarations shadow reserved host roots for later module expressions', (kind) => {
-    const declaration =
-      kind === 'repository'
-        ? { type: kind, props: { name: 'Date', model: 'Clock' }, children: [] }
-        : { type: kind, props: { name: 'Date' }, children: [] };
-    const lines = generateCoreNode({
-      type: 'module',
-      props: { name: `${kind}-shadow-host-root` },
-      children: [declaration as IRNode, { type: 'const', props: { name: 'r', value: 'Date.now()' } }],
-    });
-    expect(lines.join('\n')).toContain('const r = Date.now();');
-  });
+  test.each(['action', 'repository', 'cache'])(
+    '%s declarations shadow reserved host roots for later module expressions',
+    (kind) => {
+      const declaration =
+        kind === 'repository'
+          ? { type: kind, props: { name: 'Date', model: 'Clock' }, children: [] }
+          : { type: kind, props: { name: 'Date' }, children: [] };
+      const lines = generateCoreNode({
+        type: 'module',
+        props: { name: `${kind}-shadow-host-root` },
+        children: [declaration as IRNode, { type: 'const', props: { name: 'r', value: 'Date.now()' } }],
+      });
+      expect(lines.join('\n')).toContain('const r = Date.now();');
+    },
+  );
 
   test.each(['repository', 'cache'])('%s declarations do not shadow earlier module expressions', (kind) => {
     const declaration =
@@ -738,15 +736,15 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     ).toThrow(/Unsupported host namespace in TypeScript expression: Date\.now .*not registered/);
   });
 
-  test.each([
-    'new Date.factory()',
-    'new Date["factory"]()',
-  ])('%s rejects constructor expressions rooted in reserved host namespaces', (value) => {
-    const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
-    expect(() => emitNativeKernBodyTS(handler)).toThrow(
-      /Unsupported host namespace in TypeScript expression: Date\.(factory|constructor) .*not registered/,
-    );
-  });
+  test.each(['new Date.factory()', 'new Date["factory"]()'])(
+    '%s rejects constructor expressions rooted in reserved host namespaces',
+    (value) => {
+      const handler = makeHandler([{ type: 'let', props: { name: 'out', value } }]);
+      expect(() => emitNativeKernBodyTS(handler)).toThrow(
+        /Unsupported host namespace in TypeScript expression: Date\.(factory|constructor) .*not registered/,
+      );
+    },
+  );
 
   test('parse-failure fallback ships unparseable raw text verbatim (GAP 3)', () => {
     // GAP 3 — the const-value parse-FAILURE branch no longer runs the raw
@@ -795,17 +793,14 @@ describe('host namespace checks in top-level TypeScript expression props', () =>
     );
   });
 
-  test.each([
-    'Set.add(x)',
-    'Error.captureStackTrace(x)',
-    'String.raw(x)',
-    'Boolean.call(x)',
-    'Function.call(x)',
-  ])('raw fallback rejects host root %s', (source) => {
-    expect(() => validateRawHostNamespacesTS(source)).toThrow(
-      /Unsupported host namespace in TypeScript expression: (Set|Error|String|Boolean|Function)\./,
-    );
-  });
+  test.each(['Set.add(x)', 'Error.captureStackTrace(x)', 'String.raw(x)', 'Boolean.call(x)', 'Function.call(x)'])(
+    'raw fallback rejects host root %s',
+    (source) => {
+      expect(() => validateRawHostNamespacesTS(source)).toThrow(
+        /Unsupported host namespace in TypeScript expression: (Set|Error|String|Boolean|Function)\./,
+      );
+    },
+  );
 
   test('raw fallback permits the simple Error constructor escape hatch', () => {
     expect(() => validateRawHostNamespacesTS('new Error("boom")')).not.toThrow();
