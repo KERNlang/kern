@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
+import { isPortableBindingName } from '../../packages/core/dist/ir/semantics/portable-scalar-domain.js';
 
 import {
   loadCoveragePolicy,
@@ -17,7 +18,6 @@ import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.1';
-const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
 const PORTABLE_PARAMETER_TYPES = new Set([
   'boolean', 'boolean[]', 'number', 'number[]', 'string', 'string[]',
 ]);
@@ -37,7 +37,7 @@ function exactLegacyParameters(raw) {
     const parts = entry.split(':').map((part) => part.trim());
     if (
       parts.length !== 2 ||
-      !IDENTIFIER.test(parts[0]) ||
+      !isPortableBindingName(parts[0]) ||
       !PORTABLE_PARAMETER_TYPES.has(parts[1]) ||
       names.has(parts[0])
     ) {
@@ -257,6 +257,8 @@ export function measureCanonicalizerPrerequisite() {
       baseCompleteFunctions: receipt.baseCompleteFunctions,
       baseId: receipt.base.id,
       canonicalizerDigest: receipt.canonicalizerDigest,
+      canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
+      compiledCoreDigest: receipt.compiledCoreDigest,
       corpusDigest: receipt.corpusDigest,
       coverageImplementationDigest: receipt.coverageImplementationDigest,
       coveragePolicyDigest: receipt.coveragePolicyDigest,

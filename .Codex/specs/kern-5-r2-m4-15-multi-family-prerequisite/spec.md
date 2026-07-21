@@ -192,3 +192,20 @@ semantics. The alias, repeated small-corpus parsing, bounded seven-family
 combination enumeration, comment, and terminology nits are nonmaterial.
 
 [VERIFIED] No terminal-review finding remains unresolved for publication.
+
+## Supplemental Review Hardening
+
+[VERIFIED] A post-publication independent role review
+`review-1784593437144-5awnq5-kern-5-r2-m4-15-independent-term` identified
+one real fail-closed gap: the slice-local identifier regex admitted `$x`,
+reserved words, `__k*`, and `_kern*` even though KERN's canonical
+`isPortableBindingName` rejects them. It also correctly requested explicit
+`canonicalizerPolicyDigest` and `compiledCoreDigest` fields in the prerequisite
+baseline. The reported null-row dereference was false because
+`profileBlockersForFunction` deliberately accepts `null` projection rows.
+
+[VERIFIED] M4.16 closes both real items before freezing the next handoff: the
+counterfactual parser now delegates name admission to the canonical KERN
+predicate, hostile regressions cover all four classes, both dependency digests
+are receipt-bound, both live summaries are regenerated, and the focused gate
+passes. The M4.15 semantic result remains unchanged.

@@ -1554,7 +1554,49 @@ trusted-publishing/provenance configuration is inspected.
     and both focused and full gates repeatedly execute the path. The shared
     corpus-loader extraction was deferred because current duplicated ownership
     fails closed and changing the authenticated ordinary coverage core would
-    widen this evidence-only slice. No material finding remains unresolved.
+    widen this evidence-only slice. No material finding remained unresolved at
+    publication. Supplemental independent review
+    `review-1784593437144-5awnq5-kern-5-r2-m4-15-independent-term` later found
+    that the slice-local parameter identifier regex was wider than KERN's
+    canonical portable-binding predicate and that the prerequisite baseline
+    should expose its canonicalizer-policy and compiled-core digests directly.
+    M4.16 closes both items with hostile regressions and regenerated live
+    receipts; the M4.15 closure result and published causal hashes remain
+    unchanged.
+  - [x] M4.16 index-expression prerequisite handoff: a distinct canonical
+    `kern.kir-canonicalizer.prerequisite-provenance.1` record freezes published
+    M4.15 commit `003f3222b23d7543b529186957a67feeb72009b0`, its format-5
+    coverage-summary hash, its prerequisite-summary-1 hash, the exact 21/104
+    baseline with 81 legacy parameter blockers, the two-family minimum, the
+    six-function winning closure, and the one-fact index prerequisite. The
+    record SHA-256 is
+    `3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869`.
+    It remains separate from the four-record ordinary selection chain because
+    index alone has no truthful positive completion witness. The same tree
+    hardens M4.15 by using `isPortableBindingName`, rejecting dollar-prefixed,
+    reserved, `__k*`, and `_kern*` parameters, and binding the
+    canonicalizer-policy and compiled-core digests into the live prerequisite
+    receipt. Regenerated live coverage and prerequisite summary SHA-256 values
+    are respectively
+    `baa2567653c16e07bd6d4215540896f95d5adbfe891458ad7804591bd0efb4b5`
+    and
+    `12f839bc4ef6447423aa7e449049636c6a658d04acc3ea652c7ee895b6ebf725`;
+    semantic counts and ranking are unchanged. The focused Node 22 gate passes
+    76 structural/authentication tests plus 27 golden/idempotence/KIR, eight
+    measured-witness, three profile-limit, and 156 hostile fixtures. The exact
+    tree passes the complete Node 22 `pnpm fitness:kern-5` wall, including all
+    workspace and infrastructure suites, 432 cross-target fixtures, 109 class
+    fixtures, 233 native assertions at 100% coverage, 48 checker fixtures plus
+    36 hostile rejections, 39 validator verdicts, 40 whole-app fixtures across
+    three legs, browser budget, and every KIR/runtime/ownership/convergence
+    guard. Full-roster terminal review
+    `review-1784595745138-ulwrug-kern-5-r2-m4-16-terminal-boundar` completed all
+    six engines with no blocker. Its genuine test-quality finding was fixed by
+    separating 16 direct structural-validator mutations from six structurally
+    valid exact-digest mutations and by enforcing that completed tools cannot
+    exceed completed functions. Targeted post-fix correctness review
+    `review-1784597722970-iorlpt-kern-5-r2-m4-16-post-review-hard` completed
+    1/1 with zero findings. No material finding remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

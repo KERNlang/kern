@@ -1,0 +1,44 @@
+{
+  "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+  "snapshot": {
+    "baseline": {
+      "baseCompleteFunctions": 21,
+      "baseId": "kern.kir-canonicalizer.profile.m4.14",
+      "corpusMembers": 9,
+      "functionCount": 104,
+      "legacyParameterBlockers": 81,
+      "toolCount": 4
+    },
+    "minimumFamilyCount": 2,
+    "selectedPrerequisite": {
+      "catalogFacts": 1,
+      "family": "index-expression",
+      "occurrences": 494
+    },
+    "winningClosure": {
+      "completeFunctions": 6,
+      "completeTools": 3,
+      "families": [
+        "counted-iteration",
+        "index-expression"
+      ],
+      "migratedParameterRows": 14,
+      "occurrences": 962,
+      "witnesses": [
+        "examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild",
+        "examples/capstone-checker-subset/checker-while.kern#6:subtreeEnd",
+        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#8:stringat",
+        "examples/selfhost-validator/validator.kern#13:containsid",
+        "examples/selfhost-validator/validator.kern#6:rootpath",
+        "examples/selfhost-validator/validator.kern#7:statusof"
+      ]
+    }
+  },
+  "source": {
+    "commit": "003f3222b23d7543b529186957a67feeb72009b0",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.5",
+    "coverageSummarySha256": "12b26731a6f686f55e8e80736bbb6bdd7bbcb5e7ed514be9628885ddd8ef627c",
+    "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.1",
+    "prerequisiteSummarySha256": "54146de715b207e507d56e303937d0531d8832a5ced3e162b0288be83865f49f"
+  }
+}

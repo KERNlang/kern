@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { summarizeCanonicalizerCoverage } from './kern-canonicalizer/coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
+import { loadCanonicalizerIndexPrerequisiteProvenance } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import { formatCoverageWinnerStatus } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -12,6 +13,7 @@ const prerequisiteSummaryUrl = new URL(
 );
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
+const prerequisiteHandoff = loadCanonicalizerIndexPrerequisiteProvenance();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -141,6 +143,22 @@ if (process.argv.includes('--write')) {
     occurrences: 494,
   });
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
+  assert.equal(
+    prerequisiteHandoff.digest,
+    '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+  );
+  assert.deepEqual(prerequisiteHandoff.record.source, {
+    commit: '003f3222b23d7543b529186957a67feeb72009b0',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.5',
+    coverageSummarySha256: '12b26731a6f686f55e8e80736bbb6bdd7bbcb5e7ed514be9628885ddd8ef627c',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.1',
+    prerequisiteSummarySha256: '54146de715b207e507d56e303937d0531d8832a5ced3e162b0288be83865f49f',
+  });
+  assert.deepEqual(prerequisiteHandoff.record.snapshot.selectedPrerequisite, {
+    catalogFacts: 1,
+    family: 'index-expression',
+    occurrences: 494,
+  });
 }
 const leadingBlocker = actual.blockers[0];
 process.stdout.write(
