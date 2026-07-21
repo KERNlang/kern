@@ -171,7 +171,7 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "c1f9c8f75d2f714b850c3851be4547289876f10e2896b6b9a5ab5e4b6fec43ef",
-  "coverageImplementationDigest": "cf0d320c8a99d4c03ca975ab9363af42d05c8522f8ab656f86256e8cc7d3ed83",
+  "coverageImplementationDigest": "06e56d6d099acfba01303d404843b056862a9fb690e3b09b040e99204ad1c2c9",
   "coveragePolicyDigest": "d317f1368761e24b64025ef9cfccb1571acf387cf0021a6e5721d245f3f5ba17",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
@@ -231,6 +231,52 @@
           "coverageSummarySha256": "12b26731a6f686f55e8e80736bbb6bdd7bbcb5e7ed514be9628885ddd8ef627c",
           "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.1",
           "prerequisiteSummarySha256": "54146de715b207e507d56e303937d0531d8832a5ced3e162b0288be83865f49f"
+        }
+      }
+    },
+    {
+      "digest": "af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b",
+      "record": {
+        "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+        "snapshot": {
+          "baseline": {
+            "baseCompleteFunctions": 21,
+            "baseId": "kern.kir-canonicalizer.profile.m4.18",
+            "corpusMembers": 9,
+            "functionCount": 104,
+            "legacyParameterBlockers": 81,
+            "toolCount": 4
+          },
+          "minimumFamilyCount": 1,
+          "selectedPrerequisite": {
+            "catalogFacts": 4,
+            "family": "counted-iteration",
+            "occurrences": 468
+          },
+          "winningClosure": {
+            "completeFunctions": 6,
+            "completeTools": 3,
+            "families": [
+              "counted-iteration"
+            ],
+            "migratedParameterRows": 14,
+            "occurrences": 468,
+            "witnesses": [
+              "examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild",
+              "examples/capstone-checker-subset/checker-while.kern#6:subtreeEnd",
+              "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#8:stringat",
+              "examples/selfhost-validator/validator.kern#13:containsid",
+              "examples/selfhost-validator/validator.kern#6:rootpath",
+              "examples/selfhost-validator/validator.kern#7:statusof"
+            ]
+          }
+        },
+        "source": {
+          "commit": "8e6cc3a5b721923647a9b1564337d1fd7910edaa",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+          "coverageSummarySha256": "6e75ecfe710b9e4ba5ca8df2b5bb0080260a786f37674f5c938db8a5373db1a9",
+          "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.1",
+          "prerequisiteSummarySha256": "0759e372fa2c10e61bc341518be2b67121772757835107f0bbedc3399a3b3ded"
         }
       }
     }

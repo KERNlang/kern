@@ -149,10 +149,12 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     provenanceDigest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
     provenanceKind: 'prerequisite',
   });
-  assert.equal(first.prerequisiteProvenances.length, 1);
-  assert.equal(
-    first.prerequisiteProvenances[0].digest,
-    '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+  assert.deepEqual(
+    first.prerequisiteProvenances.map(({ digest }) => digest),
+    [
+      '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
+      'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
+    ],
   );
   assert.equal(
     first.canonicalizerPolicyDigest,

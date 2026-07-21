@@ -2,11 +2,20 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const FORMAT = 'kern.kir-canonicalizer.prerequisite-provenance.1';
-const COVERAGE_SUMMARY_FORMAT = 'kern.kir-canonicalizer.coverage-summary.5';
+const COVERAGE_SUMMARY_FORMATS = new Set([
+  'kern.kir-canonicalizer.coverage-summary.5',
+  'kern.kir-canonicalizer.coverage-summary.6',
+]);
 const PREREQUISITE_SUMMARY_FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.1';
 const INDEX_PREREQUISITE = Object.freeze({
   digest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
   source: readFileSync(new URL('./coverage-index-prerequisite-provenance.json', import.meta.url)),
+});
+const COUNTED_ITERATION_PREREQUISITE = Object.freeze({
+  digest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
+  source: readFileSync(
+    new URL('./coverage-counted-iteration-prerequisite-provenance.json', import.meta.url),
+  ),
 });
 
 function fail(message) {
@@ -165,8 +174,8 @@ export function validateCanonicalizerPrerequisiteProvenance(input) {
   }
   const commit = text(sourceInput.commit, 'source.commit');
   if (!/^[0-9a-f]{40}$/u.test(commit)) fail('source.commit must be a full lowercase git object id');
-  if (sourceInput.coverageSummaryFormat !== COVERAGE_SUMMARY_FORMAT) {
-    fail(`source.coverageSummaryFormat must be ${COVERAGE_SUMMARY_FORMAT}`);
+  if (!COVERAGE_SUMMARY_FORMATS.has(sourceInput.coverageSummaryFormat)) {
+    fail('source.coverageSummaryFormat must be a supported historical format');
   }
   if (sourceInput.prerequisiteSummaryFormat !== PREREQUISITE_SUMMARY_FORMAT) {
     fail(`source.prerequisiteSummaryFormat must be ${PREREQUISITE_SUMMARY_FORMAT}`);
@@ -181,7 +190,7 @@ export function validateCanonicalizerPrerequisiteProvenance(input) {
     },
     source: {
       commit,
-      coverageSummaryFormat: COVERAGE_SUMMARY_FORMAT,
+      coverageSummaryFormat: sourceInput.coverageSummaryFormat,
       coverageSummarySha256: sha256(sourceInput.coverageSummarySha256, 'source.coverageSummarySha256'),
       prerequisiteSummaryFormat: PREREQUISITE_SUMMARY_FORMAT,
       prerequisiteSummarySha256: sha256(
@@ -196,19 +205,69 @@ export function canonicalPrerequisiteProvenanceBytes(input) {
   return Buffer.from(`${JSON.stringify(validateCanonicalizerPrerequisiteProvenance(input), null, 2)}\n`);
 }
 
-export function validateCanonicalizerIndexPrerequisiteHandoff(input) {
+function validateExactPrerequisiteHandoff(input, expected, label) {
   const validated = validateCanonicalizerPrerequisiteProvenance(input);
   const canonical = Buffer.from(`${JSON.stringify(validated, null, 2)}\n`);
   const digest = createHash('sha256').update(canonical).digest('hex');
-  if (digest !== INDEX_PREREQUISITE.digest) fail('index handoff must match the exact M4.15 prerequisite');
+  if (digest !== expected.digest) fail(`${label} handoff must match its exact published prerequisite`);
   return { digest, record: validated };
 }
 
-export function loadCanonicalizerIndexPrerequisiteProvenance() {
-  const parsed = JSON.parse(INDEX_PREREQUISITE.source.toString('utf8'));
-  const handoff = validateCanonicalizerIndexPrerequisiteHandoff(parsed);
-  if (!INDEX_PREREQUISITE.source.equals(canonicalPrerequisiteProvenanceBytes(handoff.record))) {
+function loadExactPrerequisiteProvenance(expected, validate) {
+  const parsed = JSON.parse(expected.source.toString('utf8'));
+  const handoff = validate(parsed);
+  if (!expected.source.equals(canonicalPrerequisiteProvenanceBytes(handoff.record))) {
     fail('checked-in prerequisite provenance must use canonical JSON bytes');
   }
   return handoff;
+}
+
+export function validateCanonicalizerIndexPrerequisiteHandoff(input) {
+  return validateExactPrerequisiteHandoff(input, INDEX_PREREQUISITE, 'index');
+}
+
+export function loadCanonicalizerIndexPrerequisiteProvenance() {
+  return loadExactPrerequisiteProvenance(
+    INDEX_PREREQUISITE,
+    validateCanonicalizerIndexPrerequisiteHandoff,
+  );
+}
+
+export function validateCanonicalizerCountedIterationPrerequisiteHandoff(input) {
+  return validateExactPrerequisiteHandoff(
+    input,
+    COUNTED_ITERATION_PREREQUISITE,
+    'counted iteration',
+  );
+}
+
+export function loadCanonicalizerCountedIterationPrerequisiteProvenance() {
+  return loadExactPrerequisiteProvenance(
+    COUNTED_ITERATION_PREREQUISITE,
+    validateCanonicalizerCountedIterationPrerequisiteHandoff,
+  );
+}
+
+export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
+  if (!Array.isArray(input) || input.length !== 2) {
+    fail('prerequisite provenance chain must contain exactly two records');
+  }
+  const validators = [
+    validateCanonicalizerIndexPrerequisiteHandoff,
+    validateCanonicalizerCountedIterationPrerequisiteHandoff,
+  ];
+  return input.map((entry, index) => {
+    const row = record(entry, ['digest', 'record'], `chain[${index}]`);
+    const claimedDigest = sha256(row.digest, `chain[${index}].digest`);
+    const validated = validators[index](row.record);
+    if (claimedDigest !== validated.digest) fail(`chain[${index}] digest must match its record`);
+    return validated;
+  });
+}
+
+export function loadCanonicalizerPrerequisiteProvenanceChain() {
+  return validateCanonicalizerPrerequisiteProvenanceChain([
+    loadCanonicalizerIndexPrerequisiteProvenance(),
+    loadCanonicalizerCountedIterationPrerequisiteProvenance(),
+  ]);
 }

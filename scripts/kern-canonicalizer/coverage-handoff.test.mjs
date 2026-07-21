@@ -18,9 +18,13 @@ import {
 } from './coverage-selection-provenance.mjs';
 import {
   canonicalPrerequisiteProvenanceBytes,
+  loadCanonicalizerCountedIterationPrerequisiteProvenance,
   loadCanonicalizerIndexPrerequisiteProvenance,
+  loadCanonicalizerPrerequisiteProvenanceChain,
+  validateCanonicalizerCountedIterationPrerequisiteHandoff,
   validateCanonicalizerIndexPrerequisiteHandoff,
   validateCanonicalizerPrerequisiteProvenance,
+  validateCanonicalizerPrerequisiteProvenanceChain,
 } from './coverage-prerequisite-provenance.mjs';
 
 const M43A_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
@@ -30,6 +34,8 @@ const M411_COMMIT = 'b2c653f6757f8af9996a59b998b3c52b9d033d29';
 const M412_DIGEST = '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d';
 const M415_COMMIT = '003f3222b23d7543b529186957a67feeb72009b0';
 const M416_DIGEST = '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869';
+const M418_COMMIT = '8e6cc3a5b721923647a9b1564337d1fd7910edaa';
+const M419_DIGEST = 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b';
 const M43C_SELECTION = {
   completeFunctions: 2,
   completeTools: 1,
@@ -107,6 +113,78 @@ test('M4.16 freezes the exact published index prerequisite independently', () =>
   );
 });
 
+test('M4.19 freezes the exact published counted-iteration prerequisite independently', () => {
+  const handoff = loadCanonicalizerCountedIterationPrerequisiteProvenance();
+  assert.equal(handoff.digest, M419_DIGEST);
+  assert.deepEqual(handoff.record.source, {
+    commit: M418_COMMIT,
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
+    coverageSummarySha256: '6e75ecfe710b9e4ba5ca8df2b5bb0080260a786f37674f5c938db8a5373db1a9',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.1',
+    prerequisiteSummarySha256: '0759e372fa2c10e61bc341518be2b67121772757835107f0bbedc3399a3b3ded',
+  });
+  assert.deepEqual(handoff.record.snapshot, {
+    baseline: {
+      baseCompleteFunctions: 21,
+      baseId: 'kern.kir-canonicalizer.profile.m4.18',
+      corpusMembers: 9,
+      functionCount: 104,
+      legacyParameterBlockers: 81,
+      toolCount: 4,
+    },
+    minimumFamilyCount: 1,
+    selectedPrerequisite: {
+      catalogFacts: 4,
+      family: 'counted-iteration',
+      occurrences: 468,
+    },
+    winningClosure: {
+      completeFunctions: 6,
+      completeTools: 3,
+      families: ['counted-iteration'],
+      migratedParameterRows: 14,
+      occurrences: 468,
+      witnesses: [
+        'examples/capstone-checker-subset/checker-while.kern#4:hasDirectChild',
+        'examples/capstone-checker-subset/checker-while.kern#6:subtreeEnd',
+        'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#8:stringat',
+        'examples/selfhost-validator/validator.kern#13:containsid',
+        'examples/selfhost-validator/validator.kern#6:rootpath',
+        'examples/selfhost-validator/validator.kern#7:statusof',
+      ],
+    },
+  });
+  assert.deepEqual(
+    canonicalPrerequisiteProvenanceBytes(handoff.record),
+    readFileSync(
+      new URL('./coverage-counted-iteration-prerequisite-provenance.json', import.meta.url),
+    ),
+  );
+});
+
+test('M4.19 prerequisite history is an exact ordered two-record chain', () => {
+  const index = loadCanonicalizerIndexPrerequisiteProvenance();
+  const counted = loadCanonicalizerCountedIterationPrerequisiteProvenance();
+  const chain = loadCanonicalizerPrerequisiteProvenanceChain();
+  assert.deepEqual(chain, [index, counted]);
+  const mutations = [
+    (copy) => { copy.reverse(); },
+    (copy) => { copy.pop(); },
+    (copy) => { copy.push(copy[1]); },
+    (copy) => { copy[0].digest = '0'.repeat(64); },
+    (copy) => { copy[1].digest = '0'.repeat(64); },
+    (copy) => { copy[1].record.source.commit = '0'.repeat(40); },
+  ];
+  for (const mutate of mutations) {
+    const copy = structuredClone(chain);
+    mutate(copy);
+    assert.throws(
+      () => validateCanonicalizerPrerequisiteProvenanceChain(copy),
+      /prerequisite provenance rejection/u,
+    );
+  }
+});
+
 test('M4.16 prerequisite schema rejects each structural invariant independently', () => {
   const handoff = loadCanonicalizerIndexPrerequisiteProvenance();
   const mutations = [
@@ -119,7 +197,11 @@ test('M4.16 prerequisite schema rejects each structural invariant independently'
     (copy) => { copy.format = 'future'; },
     (copy) => { delete copy.source.commit; },
     (copy) => { copy.source.commit = 'malformed'; },
+    (copy) => { copy.source.coverageSummaryFormat = 'kern.kir-canonicalizer.coverage-summary.7'; },
     (copy) => { copy.source.coverageSummarySha256 = 'malformed'; },
+    (copy) => {
+      copy.source.prerequisiteSummaryFormat = 'kern.kir-canonicalizer.prerequisite-summary.2';
+    },
     (copy) => { copy.source.prerequisiteSummarySha256 = 'malformed'; },
     (copy) => { copy.snapshot.minimumFamilyCount = 1; },
     (copy) => { copy.snapshot.winningClosure.completeFunctions = 0; },
@@ -157,6 +239,27 @@ test('M4.16 exact handoff pin rejects structurally valid causal drift', () => {
     assert.doesNotThrow(() => validateCanonicalizerPrerequisiteProvenance(copy));
     assert.throws(
       () => validateCanonicalizerIndexPrerequisiteHandoff(copy),
+      /prerequisite provenance rejection/u,
+    );
+  }
+});
+
+test('M4.19 exact handoff pin rejects structurally valid causal drift', () => {
+  const handoff = loadCanonicalizerCountedIterationPrerequisiteProvenance();
+  const mutations = [
+    (copy) => { copy.source.commit = '0'.repeat(40); },
+    (copy) => { copy.source.coverageSummarySha256 = '0'.repeat(64); },
+    (copy) => { copy.source.prerequisiteSummarySha256 = '0'.repeat(64); },
+    (copy) => { copy.snapshot.baseline.baseId = 'kern.kir-canonicalizer.profile.m4.14'; },
+    (copy) => { copy.snapshot.selectedPrerequisite.occurrences += 1; },
+    (copy) => { copy.snapshot.winningClosure.migratedParameterRows += 1; },
+  ];
+  for (const mutate of mutations) {
+    const copy = structuredClone(handoff.record);
+    mutate(copy);
+    assert.doesNotThrow(() => validateCanonicalizerPrerequisiteProvenance(copy));
+    assert.throws(
+      () => validateCanonicalizerCountedIterationPrerequisiteHandoff(copy),
       /prerequisite provenance rejection/u,
     );
   }
@@ -272,7 +375,7 @@ test('the current corpus preserves both provenance histories after index promoti
   const implementation = loadCanonicalizerImplementationSelectionProvenance();
   const call = loadCanonicalizerCallSelectionProvenance();
   const member = loadCanonicalizerMemberSelectionProvenance();
-  const prerequisite = loadCanonicalizerIndexPrerequisiteProvenance();
+  const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
   assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.6');
   assert.equal(summary.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.deepEqual(receipt.selectionProvenances, [promoted, implementation, call, member]);
@@ -281,11 +384,11 @@ test('the current corpus preserves both provenance histories after index promoti
   assert.equal(summary.selectionProvenances.length, 4);
   assert.equal(receipt.implementationSelectionProvenanceDigest, member.digest);
   assert.equal(summary.implementationSelectionProvenanceDigest, member.digest);
-  assert.deepEqual(receipt.prerequisiteProvenances, [prerequisite]);
-  assert.deepEqual(summary.prerequisiteProvenances, [prerequisite]);
+  assert.deepEqual(receipt.prerequisiteProvenances, prerequisites);
+  assert.deepEqual(summary.prerequisiteProvenances, prerequisites);
   assert.deepEqual(receipt.implementationProvenance, {
     family: 'index-expression',
-    provenanceDigest: prerequisite.digest,
+    provenanceDigest: prerequisites[0].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);

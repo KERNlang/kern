@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { summarizeCanonicalizerCoverage } from './kern-canonicalizer/coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
-import { loadCanonicalizerIndexPrerequisiteProvenance } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
+import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import { formatCoverageWinnerStatus } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -13,7 +13,7 @@ const prerequisiteSummaryUrl = new URL(
 );
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
-const prerequisiteHandoff = loadCanonicalizerIndexPrerequisiteProvenance();
+const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -94,11 +94,11 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.prerequisiteProvenances.length, 1);
-  assert.deepEqual(actual.prerequisiteProvenances[0], prerequisiteHandoff);
+  assert.equal(actual.prerequisiteProvenances.length, 2);
+  assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
     family: 'index-expression',
-    provenanceDigest: prerequisiteHandoff.digest,
+    provenanceDigest: prerequisiteHandoffs[0].digest,
     provenanceKind: 'prerequisite',
   });
   assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.18');
@@ -160,20 +160,36 @@ if (process.argv.includes('--write')) {
   });
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
   assert.equal(
-    prerequisiteHandoff.digest,
+    prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
   );
-  assert.deepEqual(prerequisiteHandoff.record.source, {
+  assert.deepEqual(prerequisiteHandoffs[0].record.source, {
     commit: '003f3222b23d7543b529186957a67feeb72009b0',
     coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.5',
     coverageSummarySha256: '12b26731a6f686f55e8e80736bbb6bdd7bbcb5e7ed514be9628885ddd8ef627c',
     prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.1',
     prerequisiteSummarySha256: '54146de715b207e507d56e303937d0531d8832a5ced3e162b0288be83865f49f',
   });
-  assert.deepEqual(prerequisiteHandoff.record.snapshot.selectedPrerequisite, {
+  assert.deepEqual(prerequisiteHandoffs[0].record.snapshot.selectedPrerequisite, {
     catalogFacts: 1,
     family: 'index-expression',
     occurrences: 494,
+  });
+  assert.equal(
+    prerequisiteHandoffs[1].digest,
+    'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
+  );
+  assert.deepEqual(prerequisiteHandoffs[1].record.source, {
+    commit: '8e6cc3a5b721923647a9b1564337d1fd7910edaa',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
+    coverageSummarySha256: '6e75ecfe710b9e4ba5ca8df2b5bb0080260a786f37674f5c938db8a5373db1a9',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.1',
+    prerequisiteSummarySha256: '0759e372fa2c10e61bc341518be2b67121772757835107f0bbedc3399a3b3ded',
+  });
+  assert.deepEqual(prerequisiteHandoffs[1].record.snapshot.selectedPrerequisite, {
+    catalogFacts: 4,
+    family: 'counted-iteration',
+    occurrences: 468,
   });
 }
 const leadingBlocker = actual.blockers[0];

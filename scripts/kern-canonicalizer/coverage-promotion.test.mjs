@@ -18,6 +18,7 @@ const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a92
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
 const MEMBER_PROVENANCE_DIGEST = '83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d';
 const INDEX_PROVENANCE_DIGEST = '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869';
+const COUNTED_ITERATION_PROVENANCE_DIGEST = 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   provenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -80,9 +81,11 @@ test('M4.18 promotes index through exact prerequisite provenance', () => {
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
   assert.deepEqual(receipt.implementationProvenance, INDEX_PROMOTION);
   assert.deepEqual(summary.implementationProvenance, INDEX_PROMOTION);
-  assert.equal(receipt.prerequisiteProvenances.length, 1);
-  assert.equal(receipt.prerequisiteProvenances[0].digest, INDEX_PROVENANCE_DIGEST);
-  assert.equal(summary.prerequisiteProvenances[0].digest, INDEX_PROVENANCE_DIGEST);
+  assert.deepEqual(
+    receipt.prerequisiteProvenances.map(({ digest }) => digest),
+    [INDEX_PROVENANCE_DIGEST, COUNTED_ITERATION_PROVENANCE_DIGEST],
+  );
+  assert.deepEqual(summary.prerequisiteProvenances, receipt.prerequisiteProvenances);
   assert.equal(
     receipt.prerequisiteProvenances[0].record.snapshot.selectedPrerequisite.family,
     'index-expression',
