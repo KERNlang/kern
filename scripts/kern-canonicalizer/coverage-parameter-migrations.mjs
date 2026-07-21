@@ -246,6 +246,7 @@ export function assertStructuredParameterMigrations(receipt) {
     'validnext',
     'propcount',
     'stringat',
+    'numberat',
     'childcount',
     'valuechildcount',
   ];
@@ -253,7 +254,7 @@ export function assertStructuredParameterMigrations(receipt) {
     expressionHelperTargetNames.includes(props.name));
   const expressionHelperLegacySiblings = expressionHelperRoots.filter(({ props }) =>
     !expressionHelperTargetNames.includes(props.name));
-  assert.equal(expressionHelperSource.split('\n').length - 1, 174);
+  assert.equal(expressionHelperSource.split('\n').length - 1, 176);
   assert.equal(expressionHelperRoots.length, 16);
   assert.deepEqual(expressionHelperTargets.map(({ props }) => props.name), expressionHelperTargetNames);
   assert.equal(expressionHelperTargets.every(({ props }) => props.params === undefined), true);
@@ -265,11 +266,12 @@ export function assertStructuredParameterMigrations(receipt) {
       [['c', 'string']],
       [['node', 'number'], ['propNode', 'number[]']],
       [['id', 'number'], ['values', 'string[]']],
+      [['id', 'number'], ['values', 'number[]']],
       [['parent', 'number'], ['nodeParent', 'number[]']],
       [['parent', 'number'], ['valueParent', 'number[]']],
     ],
   );
-  assert.equal(expressionHelperLegacySiblings.length, 11);
+  assert.equal(expressionHelperLegacySiblings.length, 10);
   assert.equal(expressionHelperLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -283,13 +285,14 @@ export function assertStructuredParameterMigrations(receipt) {
     `${expressionHelperPath}#1:validnext`,
     `${expressionHelperPath}#7:propcount`,
     `${expressionHelperPath}#8:stringat`,
+    `${expressionHelperPath}#9:numberat`,
   ]);
   assert.equal(expressionHelperFunctions.every(({ excludedProperties }) =>
     !excludedProperties.includes('fn.params')), true);
   assert.equal(
     expressionHelperFunctions.flatMap(({ nodeOccurrences }) => nodeOccurrences)
       .filter((kind) => kind === 'param').length,
-    9,
+    11,
   );
   assert.deepEqual(
     expressionHelperFunctions.map(({ profileBlockers, profileRows }) => ({ profileBlockers, profileRows })),
@@ -299,6 +302,7 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 6, properties: 9, values: 53 } },
       { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
       { profileBlockers: [], profileRows: { nodes: 8, properties: 14, values: 62 } },
+      { profileBlockers: [], profileRows: { nodes: 8, properties: 14, values: 66 } },
     ],
   );
 

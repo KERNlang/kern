@@ -105,7 +105,9 @@ fn name=stringat returns=string export=true
         return value="values[i]"
     return value="\"\""
 
-fn name=numberat params="id:number,values:number[]" returns=number export=true
+fn name=numberat returns=number export=true
+  param name=id type=number
+  param name=values type=number[]
   handler lang="kern"
     for name=i from=0 to="values.length"
       if cond="i + 1 == id"

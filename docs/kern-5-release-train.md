@@ -2045,6 +2045,34 @@ trusted-publishing/provenance configuration is inspected.
     exact tree. Targeted security/correctness/overall confirmation
     `review-1784653499792-znrm3j-kern-5-r2-m4-29-unary-promotion-` completed
     3/3 with no findings.
+  - [x] M4.30 frozen unary parameter migration: published M4.29 receipt
+    `d1d44548a3d332489ce17ac55ca69bd89e196d48373f03f58416ca7617948821`
+    authenticates `canonicalizer-expression-helpers.kern#9:numberat` as the
+    sole base-ready legacy-parameter witness with ordered `id:number` and
+    `values:number[]` rows and counterfactual profile rows 8/14/66. M4.30
+    removes only its legacy `fn.params`, inserts those two direct parameter
+    children, and preserves the handler body, calls, root ordinal, M4.29 base,
+    active families, and every historical provenance record. Expression
+    helpers become 176 lines at
+    `55c8a6e54bc4442ee91af43eb7fc4fb0c2fad325d48477710bbbcce7e138ba91`;
+    main and statement-helper hashes remain exact. The repository writer
+    regenerates a 40,441-byte composite at
+    `bf2b2c1f1e8fa85174d72503d836b3a305467af20c560a6e9f037ac616b97bb5`.
+    Policy, coverage-summary, and prerequisite-summary SHA-256 values are
+    `6c19138011e493a28444fca1899c1c9418b292f30f0aff0ab7e02341d9a50f67`,
+    `2af38c98be269861f472182463df850b7111e40389acf0e49e1fc65e3c4b4c5b`,
+    and `9dd7d8e117deeb473c6d802d735e9e4fbdad7a8d8d34ac304ef4eea5c483501a`.
+    Live measurement is 33/104 with 69 `fn.params` blockers, no ordinary
+    winner, zero base-ready migrations, and the same authenticated
+    69-function bounded exhaustion. The focused gate passes 95/95 plus
+    48/8/3/218. The next action is residual blocker analysis, not another
+    structural-family or parameter-migration claim. High-risk role-lens review
+    `review-1784656775259-u4e3qa-kern-5-r2-m4-30-numberat-paramet` completed
+    6/6 and found one shared future-proofing gap: parameter-migration witnesses
+    no longer exercised residual-ranking disjointness after the queue became
+    empty. M4.30 restores the always-on invariant, adds a synthetic overlap
+    rejection, regenerates authenticated receipts, and passes the exact
+    focused gate again with no unresolved material finding.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

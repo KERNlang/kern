@@ -143,17 +143,17 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.29 must preserve the eight promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.29 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.29 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.29 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 32, 'live M4.29 base completion must remain exactly 32/104');
+  ], 'M4.30 must preserve the eight promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.30 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.30 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.30 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 33, 'live M4.30 base completion must remain exactly 33/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    70,
-    'live M4.29 fn.params blocker count must remain exactly 70',
+    69,
+    'live M4.30 fn.params blocker count must remain exactly 69',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.29 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.30 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
@@ -161,7 +161,7 @@ if (process.argv.includes('--write')) {
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.29 residual zero-completion ranking must remain exact',
+    'live M4.30 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
@@ -191,17 +191,10 @@ if (process.argv.includes('--write')) {
     scope: 'current-bounded-profile',
   });
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 2,
-    witnesses: [
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat',
-        parameterRows: 2,
-        profileRows: { nodes: 8, properties: 14, values: 66 },
-        tool: 'canonicalizer',
-      },
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -307,7 +300,9 @@ process.stdout.write(
   `${prerequisite.parameterMigration.completeFunctions} functions/${prerequisite.parameterMigration.migratedParameterRows} rows ` +
   `parameter-ready; ` +
   (prerequisite.selectedPrerequisite === null
-    ? 'bounded active-family exhaustion; next action parameter migration.\n'
+    ? prerequisite.parameterMigration.completeFunctions > 0
+      ? 'bounded active-family exhaustion; next action parameter migration.\n'
+      : 'bounded active-family exhaustion; next action residual blocker analysis.\n'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.\n`),
 );

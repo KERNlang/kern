@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and four-record prerequisite history after M4.29', () => {
+test('the current corpus preserves selection and four-record prerequisite history after M4.30', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -382,12 +382,12 @@ test('the current corpus preserves selection and four-record prerequisite histor
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 32);
+  assert.equal(receipt.baseCompleteFunctions, 33);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.29 promotes unary through exact M4.27 provenance without changing KERN bytes', () => {
+test('M4.30 preserves unary provenance while migrating the frozen parameter witness', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -402,11 +402,11 @@ test('M4.29 promotes unary through exact M4.27 provenance without changing KERN 
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 40414, 'M4.29 must preserve the exact M4.28 KERN byte count');
+  assert.equal(canonicalizerSource.length, 40441, 'M4.30 must bind the exact migrated KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a',
-    'M4.29 must preserve the exact M4.28 KERN digest',
+    'bf2b2c1f1e8fa85174d72503d836b3a305467af20c560a6e9f037ac616b97bb5',
+    'M4.30 must bind the exact migrated KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);

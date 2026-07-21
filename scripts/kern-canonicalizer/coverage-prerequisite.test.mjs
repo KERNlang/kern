@@ -13,7 +13,7 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.29 selects parameter migration without inventing a residual structural prerequisite', () => {
+test('M4.30 consumes the migration cohort without inventing a residual structural prerequisite', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -45,17 +45,10 @@ test('M4.29 selects parameter migration without inventing a residual structural 
     scope: 'current-bounded-profile',
   });
   assert.deepEqual(actual.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 2,
-    witnesses: [
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#9:numberat',
-        parameterRows: 2,
-        profileRows: { nodes: 8, properties: 14, values: 66 },
-        tool: 'canonicalizer',
-      },
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
 });
 
@@ -88,7 +81,7 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.witnesses[0].id = 'future'; },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(actual);
@@ -122,6 +115,17 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes', () => {
     () => validateCanonicalizerPrerequisiteSummary(selected),
     /summary must match authenticated measurement/u,
   );
+  const overlapping = structuredClone(selected);
+  overlapping.parameterMigration = {
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: [structuredClone(overlapping.ranking[0].witnesses[0])],
+  };
+  assert.throws(
+    () => validateCanonicalizerPrerequisiteSummary(overlapping),
+    /selected format-3 summary must contain a positive winning closure/u,
+  );
   for (const mutate of [
     (copy) => { copy.minimumFamilyCount = 2; },
     (copy) => { copy.selectedPrerequisite.family = 'future'; },
@@ -129,7 +133,6 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes', () => {
     (copy) => { copy.ranking[0].completeTools = 0; },
     (copy) => { copy.ranking[0].migratedParameterRows = 0; },
     (copy) => { copy.ranking[0].families = ['future']; },
-    (copy) => { copy.ranking[0].witnesses[0].id = actual.parameterMigration.witnesses[0].id; },
   ]) {
     const copy = structuredClone(selected);
     mutate(copy);
@@ -140,26 +143,27 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes', () => {
   }
 });
 
-test('M4.29 binds the exact authenticated parameter-migration transition', () => {
+test('M4.30 binds the exact authenticated parameter-migration transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 32,
+    baseCompleteFunctions: 33,
     baseId: 'kern.kir-canonicalizer.profile.m4.29',
-    canonicalizerDigest: '178f9ad3e90cae8de9aa3ee5963dfc6a1acd5c70853ac7904c6228548a1e251a',
+    canonicalizerDigest: 'bf2b2c1f1e8fa85174d72503d836b3a305467af20c560a6e9f037ac616b97bb5',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: 'ef7c9faf6ae57e70c4652dd47998eba5af1829f4a32869f37df48798fdda5362',
+    corpusDigest: '5a92fbd4a085bc73827818fd1de0c614e889550b60df7eaa7f6404f31660805e',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'd2bee244fce9cfeae7c3fe327bcdbc694bac1b631c910d7a459dd3a79a4de636',
+    coveragePolicyDigest: '6c19138011e493a28444fca1899c1c9418b292f30f0aff0ab7e02341d9a50f67',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '0520434b1f0bd9ea0671037872167f859d8615b1fd942269d3503371c87a6f72',
-    legacyParameterBlockers: 70,
+    functionFactsDigest: '74187341fcce01494d0e5cf4f5f85a4c422084197660a47ad91ba3bbf3421299',
+    legacyParameterBlockers: 69,
     profileDigest: '2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa',
     toolCount: 4,
   });
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(actual.parameterMigration.witnesses, []);
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
   const residualIds = actual.ranking.flatMap(({ witnesses }) => witnesses.map(({ id }) => id));
   assert.equal(residualIds.some((id) => readyIds.has(id)), false);

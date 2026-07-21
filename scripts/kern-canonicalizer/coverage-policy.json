@@ -89,7 +89,7 @@
       "tool": "checker"
     },
     {
-      "digest": "3b5c6affbb2232c5bd0cfcf2d73fdb2141b22ca50e074ff750f926798620d417",
+      "digest": "55c8a6e54bc4442ee91af43eb7fc4fb0c2fad325d48477710bbbcce7e138ba91",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
