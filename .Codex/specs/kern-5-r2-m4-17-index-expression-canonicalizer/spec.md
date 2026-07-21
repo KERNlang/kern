@@ -1,7 +1,7 @@
 # KERN 5 R2 M4.17 — Index-Expression Canonicalizer Tranche
 
-**Status:** REVIEWED — PUBLICATION PENDING  
-**Date:** 2026-07-21  
+**Status:** REVIEWED — PUBLICATION PENDING
+**Date:** 2026-07-21
 **Confidence:** 0.97
 
 ## Executive Summary
