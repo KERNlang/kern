@@ -75,7 +75,7 @@ export function migrateLegacyFunctionForPrerequisite(sourceRoot) {
   return { parameters, root };
 }
 
-function sourceFunctionRoots(policy) {
+export function sourceFunctionRoots(policy) {
   const roots = new Map();
   for (const member of policy.corpus) {
     const source = readCorpusMemberBytes(member.path);
@@ -101,7 +101,7 @@ function projectionCode(error) {
   return typeof error?.code === 'string' && error.code.length > 0 ? error.code : 'projection-error';
 }
 
-function migrateFunctionFact(fact, sourceRoot, base, canonicalizerPolicy) {
+export function migrateFunctionFact(fact, sourceRoot, base, canonicalizerPolicy) {
   if (sourceRoot === undefined) fail(`missing source function ${fact.id}`);
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   let profileRows = null;
@@ -211,7 +211,7 @@ function selectClosures(policy, migrated, functions, profileLimits) {
   };
 }
 
-function partitionMigratedFunctions(base, migrated, profileLimits) {
+export function partitionMigratedFunctions(base, migrated, profileLimits) {
   const profile = canonicalizerCompletionProfile(base, []);
   const parameterReady = [];
   const residual = [];

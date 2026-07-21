@@ -2073,6 +2073,26 @@ trusted-publishing/provenance configuration is inspected.
     empty. M4.30 restores the always-on invariant, adds a synthetic overlap
     rejection, regenerates authenticated receipts, and passes the exact
     focused gate again with no unresolved material finding.
+  - [x] M4.31 authenticated residual blocker analysis: the unchanged M4.29
+    base leaves 69 legacy-parameter functions after M4.30, but the bounded
+    exhaustion receipt previously authenticated only their aggregate reason
+    census. Format `kern.kir-canonicalizer.residual-analysis.1` now publishes
+    one exact assignment for every residual function, reproduces assignment
+    digest `7cd89ffda2d591cf9a82fa0f836d5b7f095887a33a9b4c843a117a0ab6734c1c`,
+    and binds the unchanged 33/104 baseline, 69 `fn.params` blockers, function
+    facts, coverage policy, and implementation bytes. Of the 69 functions, 53
+    expose counterfactual profile rows. The analysis derives 50 distinct
+    observed settings and 50 actionable candidates without changing KERN,
+    profile policy, the runtime, KIR, or ABI. Ranking first minimizes changed
+    axes, then maximizes cross-tool evidence, then minimizes total widening.
+    It selects value rows 72 to 106 with node/property limits unchanged: 12
+    functions complete across all four tools. The exact coverage,
+    prerequisite, and residual-analysis receipt SHA-256 values are
+    `668c7e1eec36107c02508535e79c15e5f707dfa4f8e22cc6ab459d95060291cd`,
+    `8c29baf2d234e95864819e41d6285a358dc8e23f3193b79f06d69be7d26d5ef6`,
+    and `160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076`.
+    The next action is a separately reviewed M4.32 value-row profile
+    promotion, not an implicit limit change inside this analysis slice.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

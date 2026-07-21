@@ -28,7 +28,10 @@ import {
   canonicalCompositionRecordBytes,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { formatCoverageWinnerStatus } from './coverage-status.mjs';
+import {
+  formatCoverageWinnerStatus,
+  formatResidualAnalysisStatus,
+} from './coverage-status.mjs';
 import { assertStructuredParameterMigrations } from './coverage-parameter-migrations.mjs';
 import { VALID_FIXTURES } from './fixtures.mjs';
 
@@ -52,6 +55,17 @@ function canonicalExpression(kind, fields) {
 test('coverage status reports a null winner without throwing after receipt writes', () => {
   assert.equal(formatCoverageWinnerStatus(null), 'no tranche selected');
   assert.equal(formatCoverageWinnerStatus({ id: 'binary-expression' }), 'binary-expression tranche selected');
+  assert.equal(
+    formatResidualAnalysisStatus(null),
+    'Residual analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatResidualAnalysisStatus({
+      changedLimits: ['maxValueRows'],
+      completeFunctions: 12,
+    }),
+    'Residual analysis selects 12 functions by maxValueRows widening.',
+  );
 });
 
 test('the handwritten corpus produces one deterministic catalog-bound selection receipt', () => {
