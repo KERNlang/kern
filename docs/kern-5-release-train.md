@@ -1647,6 +1647,36 @@ trusted-publishing/provenance configuration is inspected.
     high-risk role-lens review `review-1784604232493-2zm0ma` completed all six
     usable engines with zero verified, needs-check, or speculative findings
     and no unresolved material issue.
+  - [x] M4.19 counted-iteration prerequisite handoff: a second canonical
+    `kern.kir-canonicalizer.prerequisite-provenance.1` record freezes exact
+    published M4.18 commit `8e6cc3a5b721923647a9b1564337d1fd7910edaa`,
+    its format-6 coverage-summary hash, its prerequisite-summary-1 hash, the
+    21/104 baseline with 81 legacy parameter blockers, and the singleton
+    counted-iteration closure at six functions, three tools, 14 migrated
+    parameter rows, and 468 occurrences. The new record SHA-256 is
+    `af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b`.
+    Prerequisite history is now an exact ordered index/counting chain while
+    the M4.16 index record remains byte-identical and the current
+    implementation pointer remains index. Regenerated coverage and
+    prerequisite summary SHA-256 values are
+    `aaa9fa135565294eeb84269875242b5fde28ceafb9deb26e21a80eedf9a178d2`
+    and
+    `d53293f4fd5ab96efe5f4eeda74523e30961316be23ef07628521325f7536123`.
+    KERN composition and coverage-policy bytes remain unchanged. The focused
+    Node 22 gate passes all 80 structural/authentication/profile tests, 32
+    runtime fixtures, eight witnesses, three limit fixtures, and 166 hostile
+    mutations. After the final receipt regeneration, the complete Node 22
+    `pnpm fitness:kern-5` wall passes on the exact integrated tree, including
+    all workspace and infrastructure suites, 432/432 cross-target fixtures,
+    109/109 class fixtures, native KERN at 100% declared coverage, and both
+    repeated 80-test canonicalizer executions with exact receipt checks.
+    Initial high-risk role-lens review `review-1784607983468-z4t569` completed
+    five seats before the performance seat timed out; the automatic retry
+    `review-1784608629541-khr40o` completed all six usable engines with zero
+    verified or speculative findings and no unresolved material issue. Its two
+    needs-check items were rejected after verification: bounded repeat
+    validation preserves tamper detection for tiny records, and the exact
+    two-position chain is deliberately digest/family-bound and mutation-tested.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
