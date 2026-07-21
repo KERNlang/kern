@@ -58,6 +58,36 @@ test('conditional validation and emission stay in the KERN statement member', ()
   assert.ok(mainSource.includes('emitstatementlist'));
 });
 
+test('counted-iteration validation and emission stay in the KERN statement member', () => {
+  const validationStart = statementSource.indexOf('if cond="kind == \\"for\\""');
+  const validationEnd = statementSource.indexOf('\nfn name=emitstatementlist', validationStart);
+  assert.ok(validationStart >= 0 && validationEnd > validationStart, 'missing KERN-owned for validation branch');
+  const validationBranch = statementSource.slice(validationStart, validationEnd);
+  for (const property of ['from', 'name', 'to']) {
+    assert.ok(
+      validationBranch.includes(`propid(id, \\"${property}\\", propNode, propKey, propValue)`),
+      `for validation omitted ${property}`,
+    );
+  }
+  assert.ok(validationBranch.includes('propcount(id, propNode) != 3'), 'for must reject step and future properties');
+  assert.ok(validationBranch.includes('!valididentifier(name)'), 'for names must remain identifier-shaped');
+  assert.ok(validationBranch.includes('Text.indexOf(name, \\"$\\") >= 0'), 'for names must remain cross-target');
+  assert.ok(validationBranch.includes('validstatementlist(id'), 'for bodies must validate recursively');
+
+  const emissionStart = statementSource.indexOf('if cond="kind == \\"for\\""', validationEnd);
+  const emissionEnd = statementSource.indexOf('let name=children', emissionStart);
+  assert.ok(emissionStart >= 0 && emissionEnd > emissionStart, 'missing KERN-owned for emission branch');
+  const emissionBranch = statementSource.slice(emissionStart, emissionEnd);
+  for (const property of ['from', 'name', 'to']) {
+    assert.ok(
+      emissionBranch.includes(`propid(id, \\"${property}\\", propNode, propKey, propValue)`),
+      `for emission omitted ${property}`,
+    );
+  }
+  assert.ok(emissionBranch.includes('quotesource(fromExpression)'), 'for emission must quote canonical from source');
+  assert.ok(emissionBranch.includes('quotesource(toExpression)'), 'for emission must quote canonical to source');
+});
+
 test('binary ownership stays in main and mechanically matches the structural operator catalog', () => {
   assert.equal(helperSource.includes('validbinaryop'), false);
   assert.equal(helperSource.includes('\\"binary\\"'), false);
@@ -134,7 +164,8 @@ test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
-    !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-'));
+    !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-') &&
+    !id.startsWith('counted-iteration-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

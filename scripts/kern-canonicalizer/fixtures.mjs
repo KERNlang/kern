@@ -1,6 +1,14 @@
 import { BINARY_HOSTILE_FIXTURES, BINARY_VALID_FIXTURES } from './binary-fixtures.mjs';
 import { CALL_HOSTILE_FIXTURES, CALL_VALID_FIXTURES } from './call-fixtures.mjs';
 import { CONDITIONAL_HOSTILE_FIXTURES, CONDITIONAL_VALID_FIXTURES } from './conditional-fixtures.mjs';
+import { COUNTED_ITERATION_HOSTILE_FIXTURES, COUNTED_ITERATION_VALID_FIXTURES } from './counted-iteration-fixtures.mjs';
+import {
+  appendRootBoolValue,
+  appendRootTextValue,
+  appendRootTypeValue,
+  appendTextValue,
+  lines,
+} from './fixture-helpers.mjs';
 import { INDEX_HOSTILE_FIXTURES, INDEX_VALID_FIXTURES } from './index-fixtures.mjs';
 import { MEMBER_HOSTILE_FIXTURES, MEMBER_VALID_FIXTURES } from './member-fixtures.mjs';
 import { PROFILE_BOUNDARY_FIXTURE } from './profile-limit-fixtures.mjs';
@@ -9,10 +17,6 @@ import {
   REVIEW_BOUNDARY_FIXTURES,
 } from './review-boundary-fixtures.mjs';
 import { SEMANTIC_BOUNDARY_FIXTURES } from './semantic-boundary-fixtures.mjs';
-
-function lines(...items) {
-  return `${items.join('\n')}\n`;
-}
 
 export const VALID_FIXTURES = [
   {
@@ -165,45 +169,10 @@ export const VALID_FIXTURES = [
   ...CALL_VALID_FIXTURES,
   ...MEMBER_VALID_FIXTURES,
   ...INDEX_VALID_FIXTURES,
+  ...COUNTED_ITERATION_VALID_FIXTURES,
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
   PROFILE_BOUNDARY_FIXTURE,
 ];
-
-function appendTextValue(tables, text, parent = 0, role = '', order = 0) {
-  tables.valueTag.push('text');
-  tables.valueParent.push(parent);
-  tables.valueRole.push(role);
-  tables.valueOrder.push(order);
-  tables.valueText.push(text);
-  tables.valueBool.push(0);
-  return tables.valueTag.length;
-}
-
-function appendRootTextValue(tables, text) {
-  return appendTextValue(tables, text);
-}
-
-function appendRootBoolValue(tables, value) {
-  tables.valueTag.push('bool');
-  tables.valueParent.push(0);
-  tables.valueRole.push('');
-  tables.valueOrder.push(0);
-  tables.valueText.push('');
-  tables.valueBool.push(value ? 1 : 0);
-  return tables.valueTag.length;
-}
-
-function appendRootTypeValue(tables, kind) {
-  tables.valueTag.push('record');
-  tables.valueParent.push(0);
-  tables.valueRole.push('');
-  tables.valueOrder.push(0);
-  tables.valueText.push('');
-  tables.valueBool.push(0);
-  const id = tables.valueTag.length;
-  appendTextValue(tables, kind, id, 'record:kind', 0);
-  return id;
-}
 
 export const HOSTILE_FIXTURES = [
   ...SEMANTIC_BOUNDARY_FIXTURES,
@@ -211,6 +180,7 @@ export const HOSTILE_FIXTURES = [
   ...CALL_HOSTILE_FIXTURES,
   ...MEMBER_HOSTILE_FIXTURES,
   ...INDEX_HOSTILE_FIXTURES,
+  ...COUNTED_ITERATION_HOSTILE_FIXTURES,
   {
     id: 'empty-root-list',
     base: 'shuffled-identifier',

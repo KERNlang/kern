@@ -404,7 +404,7 @@ test('the current corpus preserves both provenance histories after index promoti
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.18 promotes the exact live index capability through prerequisite evidence', () => {
+test('M4.20 preserves index promotion while binding the live counted-iteration capability', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -418,15 +418,16 @@ test('M4.18 promotes the exact live index capability through prerequisite eviden
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 34547, 'M4.17 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 36410, 'M4.20 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '37b081f3ff01320b96cf7482d096999f4121429d700e8f8fe0852f2f8e1e9308',
-    'M4.17 must bind the exact live KERN capability digest',
+    '55c1b597a8912af545c348c57329d9aef0174590dbe4ba64310484806a8c1307',
+    'M4.20 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\""/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.18');
@@ -434,9 +435,11 @@ test('M4.18 promotes the exact live index capability through prerequisite eviden
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), true);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
+  assert.equal(policy.base.nodeKinds.includes('for'), false);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,

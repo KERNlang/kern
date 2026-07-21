@@ -1677,6 +1677,45 @@ trusted-publishing/provenance configuration is inspected.
     needs-check items were rejected after verification: bounded repeat
     validation preserves tamper detection for tiny records, and the exact
     two-position chain is deliberately digest/family-bound and mutation-tested.
+  - [x] M4.20 counted-iteration canonicalizer tranche: the KERN-authored
+    statement member now owns exact recursive default-step `for` validation
+    and emission for required `from`, `name`, and `to`. It rejects explicit
+    `step`, future or malformed properties, structural-only `$` names,
+    unsupported bounds and body statements, and invalid nested loops without
+    partial output. Four new valid fixtures raise the corpus to 36 exact
+    golden/KIR/idempotence fixtures; 13 hostile mutations raise fail-closed
+    coverage to 179 cases. The added witnesses cover parser-admitted empty loop
+    bodies plus malformed and non-text names. Authenticated composition is
+    36,410 bytes at
+    SHA-256
+    `55c1b597a8912af545c348c57329d9aef0174590dbe4ba64310484806a8c1307`;
+    coverage policy, coverage summary, and prerequisite summary SHA-256 values
+    are
+    `ede4213ce6a909d820545b92e1d48d34e0575bc22ef26c9683d6d16df3ffb05d`,
+    `927553eb48c7be6107a8fd00938ccf2df35a80dc0bbd9ee369ecc11f13bd9182`,
+    and
+    `927ef4b4229d9319e8312dafaa8a9ef348f6e9f2e5f7db453fd84389e3e36cc0`.
+    The focused Node 22 gate passes all 81 structural/authentication tests and
+    the complete runtime corpus. Counted iteration deliberately remains
+    unpromoted for M4.21: ordinary selection stays null at 21/104 with 81
+    legacy parameter blockers, while its authenticated singleton closure stays
+    exact at six functions, three tools, 14 migrated parameter rows, and 468
+    occurrences. Both immutable prerequisite records remain byte-identical.
+    The complete Node 22 `pnpm fitness:kern-5` wall passed after the production
+    KERN implementation and initial receipt regeneration, including all
+    workspace and infrastructure suites, release policy, 432/432 cross-target
+    fixtures, 109/109 class fixtures, 233 native assertions at 100% declared
+    coverage, 40 whole-app fixtures across three legs, browser budget, and
+    every repeated KIR/runtime/ownership, convergence, and canonicalizer gate.
+    High-risk role-lens review `review-1784612259232-nltnpu` completed all six
+    usable engines with zero verified or speculative findings. Its four
+    needs-check items were disposed against current source: generated
+    composition was not a duplicate handwritten owner; missing malformed and
+    non-text name witnesses were added; an empty-body fixture proved the
+    parser-supported round trip; and cosmetic line compression was replaced by
+    a shared helper module. The post-review focused gate passes all 81 tests,
+    36 exact runtime fixtures, and 179 hostile mutations while production KERN
+    bytes and both immutable prerequisite records remain unchanged.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
