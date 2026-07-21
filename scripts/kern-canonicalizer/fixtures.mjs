@@ -1,10 +1,8 @@
 import { BINARY_HOSTILE_FIXTURES, BINARY_VALID_FIXTURES } from './binary-fixtures.mjs';
 import { CALL_HOSTILE_FIXTURES, CALL_VALID_FIXTURES } from './call-fixtures.mjs';
+import { CONDITIONAL_HOSTILE_FIXTURES, CONDITIONAL_VALID_FIXTURES } from './conditional-fixtures.mjs';
+import { INDEX_HOSTILE_FIXTURES, INDEX_VALID_FIXTURES } from './index-fixtures.mjs';
 import { MEMBER_HOSTILE_FIXTURES, MEMBER_VALID_FIXTURES } from './member-fixtures.mjs';
-import {
-  CONDITIONAL_HOSTILE_FIXTURES,
-  CONDITIONAL_VALID_FIXTURES,
-} from './conditional-fixtures.mjs';
 import { PROFILE_BOUNDARY_FIXTURE } from './profile-limit-fixtures.mjs';
 import {
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
@@ -166,6 +164,7 @@ export const VALID_FIXTURES = [
   ...CONDITIONAL_VALID_FIXTURES,
   ...CALL_VALID_FIXTURES,
   ...MEMBER_VALID_FIXTURES,
+  ...INDEX_VALID_FIXTURES,
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
   PROFILE_BOUNDARY_FIXTURE,
 ];
@@ -211,6 +210,7 @@ export const HOSTILE_FIXTURES = [
   ...CONDITIONAL_HOSTILE_FIXTURES,
   ...CALL_HOSTILE_FIXTURES,
   ...MEMBER_HOSTILE_FIXTURES,
+  ...INDEX_HOSTILE_FIXTURES,
   {
     id: 'empty-root-list',
     base: 'shuffled-identifier',

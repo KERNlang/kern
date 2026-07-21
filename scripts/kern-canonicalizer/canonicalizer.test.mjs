@@ -112,11 +112,29 @@ test('member validation and emission stay in the KERN-owned expression source', 
   }
 });
 
+test('index validation and emission stay in the KERN-owned expression source', () => {
+  assert.equal(helperSource.includes('\\"index\\"'), false);
+  const indexStart = mainSource.indexOf('if cond="kind == \\"index\\""');
+  const indexEnd = mainSource.indexOf('if cond="kind == \\"call\\""', indexStart);
+  assert.ok(indexStart >= 0 && indexEnd > indexStart, 'missing KERN-owned index branch');
+  const indexBranch = mainSource.slice(indexStart, indexEnd);
+  for (const field of ['index', 'object', 'optional']) {
+    assert.ok(
+      indexBranch.includes('recordfield(fieldsId, \\"' + field + '\\", valueParent, valueRole)'),
+      'index branch omitted ' + field,
+    );
+  }
+  assert.ok(indexBranch.includes('numberat(optionalId, valueBool) != 0'), 'optional index must remain fail-closed');
+  assert.ok(indexBranch.includes('exprsource(objectId'), 'index object must use recursive expression ownership');
+  assert.ok(indexBranch.includes('exprsource(indexId'), 'index value must use recursive expression ownership');
+  assert.ok(indexBranch.includes('object + \\"[\\" + index + \\"]\\"'), 'index emission must preserve bracket syntax');
+});
+
 test('the pre-M4.3b non-binary golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
-    !id.startsWith('call-') && !id.startsWith('member-'));
+    !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

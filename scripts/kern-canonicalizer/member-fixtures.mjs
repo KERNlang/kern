@@ -248,7 +248,7 @@ export const MEMBER_HOSTILE_FIXTURES = [
     },
   })),
   {
-    id: 'member-unsupported-index-object',
+    id: 'member-malformed-index-object',
     base: 'member-direct-and-call',
     category: 'profile rejection',
     mutate(tables) {

@@ -12,21 +12,21 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 
-test('M4.15 measures the exact minimum multi-family dependency closure', () => {
+test('the live prerequisite measurement preserves the exact M4.15 minimum closure', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.1');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 21,
     baseId: 'kern.kir-canonicalizer.profile.m4.14',
-    canonicalizerDigest: 'b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a',
+    canonicalizerDigest: '37b081f3ff01320b96cf7482d096999f4121429d700e8f8fe0852f2f8e1e9308',
     canonicalizerPolicyDigest: '87463f6a56c75aeffc853c52923312a99b6ff864e9e37afe8d984c5704f917c2',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: 'c30d61d0458fd48a9243a71f8de8690e002fc7a3a6e1e49833c9549a031544d6',
+    corpusDigest: 'c1f9c8f75d2f714b850c3851be4547289876f10e2896b6b9a5ab5e4b6fec43ef',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '2a5413c0e40540f51b0213adfee3f00f91e293dde0070666ed3244a714d25b26',
+    coveragePolicyDigest: '260a27ee4a8faa1490185d233c8da2e8004692c8ed326f00cc2bdb3a522f11b0',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'f739d0a766a7ad7ef549a2a6e667ced42a31eec7bc91fa0e30b3baff4db8ff38',
+    functionFactsDigest: '26af920d9b7627417e0696892b5f7fe1dc2b99d2db4d4c2584ac828329038096',
     legacyParameterBlockers: 81,
     profileDigest: 'c1c0caf0595fcba87e27fa3b8319244bbbd04d107c063bfcd638c42c667fef33',
     toolCount: 4,
@@ -88,7 +88,7 @@ test('M4.15 measures the exact minimum multi-family dependency closure', () => {
       completeTools: 1,
       families: ['binding', 'counted-iteration'],
       migratedParameterRows: 1,
-      occurrences: 1218,
+      occurrences: 1233,
       witnesses: [
         {
           id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation',
@@ -109,7 +109,7 @@ test('M4.15 measures the exact minimum multi-family dependency closure', () => {
   assertCoverageSummary(summaryUrl, actual);
 });
 
-test('M4.15 prerequisite measurement is stable in a fresh process', () => {
+test('the live prerequisite measurement is stable in a fresh process', () => {
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',

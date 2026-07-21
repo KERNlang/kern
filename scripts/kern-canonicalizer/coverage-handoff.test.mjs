@@ -292,7 +292,7 @@ test('the current corpus consumes frozen M4.14 provenance after member promotion
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.14 promotes the exact M4.13 member capability without rewriting selection evidence', () => {
+test('M4.17 preserves M4.14 promotion while binding the exact live index capability', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const canonicalizerSource = readFileSync(
@@ -306,20 +306,23 @@ test('M4.14 promotes the exact M4.13 member capability without rewriting selecti
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 33571, 'M4.13 must bind the exact live KERN capability byte count');
+  assert.equal(canonicalizerSource.length, 34547, 'M4.17 must bind the exact live KERN capability byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'b22b359416deb5da970a2826738eb392d37d29807d48aefe946d8f8aafcffc0a',
-    'M4.13 must bind the exact live KERN capability digest',
+    '37b081f3ff01320b96cf7482d096999f4121429d700e8f8fe0852f2f8e1e9308',
+    'M4.17 must bind the exact live KERN capability digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.2');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.14');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'index-expression'), true);
+  assert.equal(policy.base.expressionKinds.includes('index'), false);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');

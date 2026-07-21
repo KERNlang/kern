@@ -1597,6 +1597,31 @@ trusted-publishing/provenance configuration is inspected.
     exceed completed functions. Targeted post-fix correctness review
     `review-1784597722970-iorlpt-kern-5-r2-m4-16-post-review-hard` completed
     1/1 with zero findings. No material finding remains unresolved.
+  - [x] M4.17 index-expression canonicalizer tranche: the KERN-authored
+    `exprsource` now owns the exact structural `{ index, object, optional }`
+    family, recursively canonicalizes both operands, emits bracket syntax, and
+    rejects optional, malformed, dangling, and unsupported nested values
+    without partial output. The implementation passes 32 exact
+    golden/idempotence/KIR fixtures, eight measured witnesses, three
+    profile-limit fixtures, 166 hostile mutations, and all 77 structural and
+    authentication tests. Authenticated composition is 34,547 bytes at
+    SHA-256
+    `37b081f3ff01320b96cf7482d096999f4121429d700e8f8fe0852f2f8e1e9308`;
+    live format-5 coverage and prerequisite-summary-1 SHA-256 values are
+    `fb883f3ed1a4820de75213313aa7f44edfb9f119afb0bdb134d70a78543e7cfa`
+    and
+    `b7cdd95ad4a023db2f0ce3bbd20c977193bdce08ba78f3e301a1d0a88a080960`.
+    Index remains unpromoted, ordinary selection remains null at 21/104 with
+    81 legacy parameter blockers, and the six-function winning prerequisite
+    closure remains exact. The second-place binding/counting closure rises
+    from 1,218 to 1,233 live occurrences because the new KERN branch adds 15
+    binding-family facts. Immutable M4.16 prerequisite provenance remains
+    byte-identical. The complete Node 22 `pnpm fitness:kern-5` wall passes,
+    including every workspace and infrastructure suite, 432 cross-target
+    fixtures, 109 class fixtures, 233 native assertions at 100% coverage, and
+    every KIR/runtime/ownership/convergence guard. Terminal high-risk
+    role-lens review `review-1784601165188-9lbhq4` completed all six usable
+    engines with zero verified findings and no unresolved material issue.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

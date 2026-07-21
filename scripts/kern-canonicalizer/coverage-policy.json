@@ -74,7 +74,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "3f33bd5d9ea6ecafc323035b5bce303b133d502f8b5c3fca4c8076da238c369a",
+      "digest": "c7bfb896a4905fe8ebfde0dabf821ac0e35da881f30a8d117b31aa90dea03b14",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

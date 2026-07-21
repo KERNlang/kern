@@ -198,7 +198,7 @@ export const CALL_HOSTILE_FIXTURES = [
     },
   },
   ...['member', 'index'].map((kind) => ({
-    id: `call-${kind}-callee-remains-unsupported`,
+    id: `call-${kind}-callee-malformed`,
     base: 'call-direct-and-nested',
     category: 'profile rejection',
     mutate(tables) {
