@@ -6,7 +6,10 @@ const COVERAGE_SUMMARY_FORMATS = new Set([
   'kern.kir-canonicalizer.coverage-summary.5',
   'kern.kir-canonicalizer.coverage-summary.6',
 ]);
-const PREREQUISITE_SUMMARY_FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.1';
+const PREREQUISITE_SUMMARY_FORMATS = new Set([
+  'kern.kir-canonicalizer.prerequisite-summary.1',
+  'kern.kir-canonicalizer.prerequisite-summary.2',
+]);
 const INDEX_PREREQUISITE = Object.freeze({
   digest: '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
   source: readFileSync(new URL('./coverage-index-prerequisite-provenance.json', import.meta.url)),
@@ -15,6 +18,12 @@ const COUNTED_ITERATION_PREREQUISITE = Object.freeze({
   digest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
   source: readFileSync(
     new URL('./coverage-counted-iteration-prerequisite-provenance.json', import.meta.url),
+  ),
+});
+const BINDING_PREREQUISITE = Object.freeze({
+  digest: '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
+  source: readFileSync(
+    new URL('./coverage-binding-prerequisite-provenance.json', import.meta.url),
   ),
 });
 
@@ -177,8 +186,8 @@ export function validateCanonicalizerPrerequisiteProvenance(input) {
   if (!COVERAGE_SUMMARY_FORMATS.has(sourceInput.coverageSummaryFormat)) {
     fail('source.coverageSummaryFormat must be a supported historical format');
   }
-  if (sourceInput.prerequisiteSummaryFormat !== PREREQUISITE_SUMMARY_FORMAT) {
-    fail(`source.prerequisiteSummaryFormat must be ${PREREQUISITE_SUMMARY_FORMAT}`);
+  if (!PREREQUISITE_SUMMARY_FORMATS.has(sourceInput.prerequisiteSummaryFormat)) {
+    fail('source.prerequisiteSummaryFormat must be a supported historical format');
   }
   return {
     format: FORMAT,
@@ -192,7 +201,7 @@ export function validateCanonicalizerPrerequisiteProvenance(input) {
       commit,
       coverageSummaryFormat: sourceInput.coverageSummaryFormat,
       coverageSummarySha256: sha256(sourceInput.coverageSummarySha256, 'source.coverageSummarySha256'),
-      prerequisiteSummaryFormat: PREREQUISITE_SUMMARY_FORMAT,
+      prerequisiteSummaryFormat: sourceInput.prerequisiteSummaryFormat,
       prerequisiteSummarySha256: sha256(
         sourceInput.prerequisiteSummarySha256,
         'source.prerequisiteSummarySha256',
@@ -248,13 +257,25 @@ export function loadCanonicalizerCountedIterationPrerequisiteProvenance() {
   );
 }
 
+export function validateCanonicalizerBindingPrerequisiteHandoff(input) {
+  return validateExactPrerequisiteHandoff(input, BINDING_PREREQUISITE, 'binding');
+}
+
+export function loadCanonicalizerBindingPrerequisiteProvenance() {
+  return loadExactPrerequisiteProvenance(
+    BINDING_PREREQUISITE,
+    validateCanonicalizerBindingPrerequisiteHandoff,
+  );
+}
+
 export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
-  if (!Array.isArray(input) || input.length !== 2) {
-    fail('prerequisite provenance chain must contain exactly two records');
+  if (!Array.isArray(input) || input.length !== 3) {
+    fail('prerequisite provenance chain must contain exactly three records');
   }
   const validators = [
     validateCanonicalizerIndexPrerequisiteHandoff,
     validateCanonicalizerCountedIterationPrerequisiteHandoff,
+    validateCanonicalizerBindingPrerequisiteHandoff,
   ];
   return input.map((entry, index) => {
     const row = record(entry, ['digest', 'record'], `chain[${index}]`);
@@ -269,5 +290,6 @@ export function loadCanonicalizerPrerequisiteProvenanceChain() {
   return validateCanonicalizerPrerequisiteProvenanceChain([
     loadCanonicalizerIndexPrerequisiteProvenance(),
     loadCanonicalizerCountedIterationPrerequisiteProvenance(),
+    loadCanonicalizerBindingPrerequisiteProvenance(),
   ]);
 }

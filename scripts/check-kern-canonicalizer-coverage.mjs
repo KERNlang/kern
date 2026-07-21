@@ -94,7 +94,7 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.prerequisiteProvenances.length, 2);
+  assert.equal(actual.prerequisiteProvenances.length, 3);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
     family: 'counted-iteration',
@@ -133,7 +133,7 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.21 must cite four selections and both frozen prerequisites');
+  ], 'M4.23 must preserve the six promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.22 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.22 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.22 tool count must remain exact');
@@ -207,6 +207,22 @@ if (process.argv.includes('--write')) {
     catalogFacts: 4,
     family: 'counted-iteration',
     occurrences: 468,
+  });
+  assert.equal(
+    prerequisiteHandoffs[2].digest,
+    '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
+  );
+  assert.deepEqual(prerequisiteHandoffs[2].record.source, {
+    commit: 'ca99949f28aca5c39f182f67a35b1342762cc6cd',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
+    coverageSummarySha256: '9cfabe1ea53540a69d3ba4aa4444a2578f9d0c992c53f17a63826600abf2434a',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.2',
+    prerequisiteSummarySha256: '44b2ce6e4542770cad06201a7d1cc9763a01b2960ce4ef654657b7d455836c8f',
+  });
+  assert.deepEqual(prerequisiteHandoffs[2].record.snapshot.selectedPrerequisite, {
+    catalogFacts: 6,
+    family: 'binding',
+    occurrences: 801,
   });
 }
 const leadingBlocker = actual.blockers[0];

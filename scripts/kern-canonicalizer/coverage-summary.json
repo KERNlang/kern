@@ -180,7 +180,7 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "e612418828f0636e3fb2843e1c57fb5bf6cd26bdfc3f547b1cb9aa7e6e813394",
-  "coverageImplementationDigest": "be96b8cc2b3a68af3d9adbc841ae09c8f268ff25ac0f9616160b20c7872eb14d",
+  "coverageImplementationDigest": "80d68043ef505fcc50c673f13eb5ea74c537e6acce58ffcd060c73212bb2f8fc",
   "coveragePolicyDigest": "7651b89e6a37025994a5bd5700f702508da6272c6aa66a47852633f021d4e5b7",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
@@ -286,6 +286,51 @@
           "coverageSummarySha256": "6e75ecfe710b9e4ba5ca8df2b5bb0080260a786f37674f5c938db8a5373db1a9",
           "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.1",
           "prerequisiteSummarySha256": "0759e372fa2c10e61bc341518be2b67121772757835107f0bbedc3399a3b3ded"
+        }
+      }
+    },
+    {
+      "digest": "00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab",
+      "record": {
+        "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+        "snapshot": {
+          "baseline": {
+            "baseCompleteFunctions": 27,
+            "baseId": "kern.kir-canonicalizer.profile.m4.21",
+            "corpusMembers": 9,
+            "functionCount": 104,
+            "legacyParameterBlockers": 75,
+            "toolCount": 4
+          },
+          "minimumFamilyCount": 1,
+          "selectedPrerequisite": {
+            "catalogFacts": 6,
+            "family": "binding",
+            "occurrences": 801
+          },
+          "winningClosure": {
+            "completeFunctions": 5,
+            "completeTools": 2,
+            "families": [
+              "binding"
+            ],
+            "migratedParameterRows": 9,
+            "occurrences": 801,
+            "witnesses": [
+              "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#11:childcount",
+              "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#13:valuechildcount",
+              "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#7:propcount",
+              "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#0:indentation",
+              "examples/selfhost-validator/validator.kern#9:paramcount"
+            ]
+          }
+        },
+        "source": {
+          "commit": "ca99949f28aca5c39f182f67a35b1342762cc6cd",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+          "coverageSummarySha256": "9cfabe1ea53540a69d3ba4aa4444a2578f9d0c992c53f17a63826600abf2434a",
+          "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.2",
+          "prerequisiteSummarySha256": "44b2ce6e4542770cad06201a7d1cc9763a01b2960ce4ef654657b7d455836c8f"
         }
       }
     }

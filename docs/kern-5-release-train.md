@@ -1782,6 +1782,35 @@ trusted-publishing/provenance configuration is inspected.
     High-risk role-lens review `review-1784621539302-7wo5z1` completed all six
     usable non-excluded identities with zero verified, needs-check,
     speculative, or nit findings and no routing shortfall.
+  - [x] M4.23 binding prerequisite handoff: the exact published M4.22 binding
+    result is frozen as the third canonical prerequisite-provenance record at
+    SHA-256
+    `00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab`.
+    Its source binds commit `ca99949f28aca5c39f182f67a35b1342762cc6cd`,
+    the published coverage/prerequisite summaries, profile M4.21, 27/104
+    base-complete functions, 75 legacy parameter blockers, and the exact
+    singleton binding closure: five functions across two tools, nine migrated
+    parameter rows, six catalog facts, and 801 occurrences. The prerequisite
+    chain is now exactly index, counted iteration, and binding; both historical
+    loaders remain exact, while the implementation pointer deliberately stays
+    on counted iteration. No KERN source, composition, policy, profile, family
+    registry, runtime ABI, or live semantic result changed. Regenerated
+    coverage-summary and prerequisite-summary SHA-256 values are
+    `7544fee6ffe3239b7f9851b364b72244f54f36585c8b946474aa2cbfcd5626e5`
+    and
+    `b118993d69f35b40a632dec123e49d9ea1628e400bc64d18ebea1d269063aa2e`.
+    The focused canonicalizer gate passes 86/86 structural/authentication
+    tests, 36 runtime fixtures, 8 measured witnesses, 3 profile-limit fixtures,
+    and 179 hostile fixtures. The complete Node 22 `pnpm fitness:kern-5` wall
+    passed every workspace, infrastructure, conformance, native, runner,
+    whole-app, browser, KIR/runtime, convergence, and repeated canonicalizer
+    gate. High-risk role-lens review `review-1784624663111-i58ebe` completed
+    all six usable non-excluded identities with zero verified, needs-check, or
+    speculative findings and no routing shortfall. Its one concrete nit, an
+    unused import left by the test extraction, was removed and the 16 affected
+    handoff tests passed afterward; three suggested DRY refactors remain
+    deliberately deferred because explicit family pins are the fail-closed
+    evidence boundary in this slice.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
