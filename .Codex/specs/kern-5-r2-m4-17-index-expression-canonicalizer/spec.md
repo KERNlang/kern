@@ -1,6 +1,6 @@
 # KERN 5 R2 M4.17 — Index-Expression Canonicalizer Tranche
 
-**Status:** REVIEWED — PUBLICATION PENDING
+**Status:** REVIEWED — PUBLICATION READY
 **Date:** 2026-07-21
 **Confidence:** 0.97
 
@@ -121,7 +121,7 @@ valid index fixture before any production KERN source is changed.
 - [x] Complete `pnpm fitness:kern-5` wall passes.
 - [x] Full usable-roster role-lens `agon review` has no unresolved material
       finding.
-- [ ] Signed commit is fetched/rebased before one `--no-verify` push to the
+- [x] Signed commit is fetched/rebased before one `--no-verify` push to the
       feature ref and explicitly authorized `main`.
 
 ## Stop Conditions
