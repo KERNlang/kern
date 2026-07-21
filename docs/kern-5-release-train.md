@@ -2168,9 +2168,42 @@ trusted-publishing/provenance configuration is inspected.
     reproduced it, the exact-prefix and immediate-handler checks now kill it,
     and targeted security confirmation
     `review-1784669870369-4xtdh7-kern-5-r2-m4-33-value-band-param` returned no
-    finding on the hardened tree. No material review finding remains. The next
-    slice freezes the exact do-statement prerequisite before any implementation
-    or promotion.
+    finding on the hardened tree. Final exact-diff review
+    `review-1784672564559-4cf8of-kern-5-r2-m4-33-value-band-param` completed 7/8
+    usable non-excluded seats with zero verified or needs-check findings;
+    OpenCode had a parse failure. Its lone speculative check-mode claim was
+    disproved against the current non-write assertion branch. No material
+    review finding remains. The next slice freezes the exact do-statement
+    prerequisite before any implementation or promotion.
+  - [x] M4.34 do-statement prerequisite handoff: the exact published M4.33
+    result is frozen as a fifth immutable prerequisite-provenance record. The
+    canonical record binds commit
+    `f91c92aa63524c65c261d1f34f2187c55455ea6b`, the published coverage and
+    prerequisite receipts, the unchanged M4.29 baseline, and the singleton
+    `examples/selfhost-validator/validator.kern#14:appendid` closure with one
+    function, one tool, two migrated parameter rows, two catalog facts, and
+    176 occurrences. Its SHA-256 is
+    `3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72`.
+    The ordered prerequisite chain is now exactly index, counted iteration,
+    binding, unary, and do; implementation provenance deliberately remains
+    unary at chain index 3. Regenerated coverage and prerequisite summary
+    SHA-256 values are
+    `017ba566b0648fe9a7eb9d10b4646bda267273abeb0223831040d59a1cfad9fe`
+    and `8f95372d6bd48f309a01efc045a2a2698bb38346169313d78b87b6e9c22a2a92`,
+    with authenticated implementation digest
+    `283ab5664e670b1efbeb32809aeae7a35ed17febfc4c3e7762e30253b760dd20`.
+    Policy and canonicalizer bytes remain unchanged. Focused integration is
+    38/38, the promotion regression is 9/9, and the complete canonicalizer
+    gate passes 102/102 tests plus 48 runtime fixtures, eight witnesses, three
+    profile-limit fixtures, and 218 hostile mutations. M4.35 may consume this
+    immutable handoff to implement do canonicalization; M4.34 does not migrate
+    `appendid`, implement do, or promote any family. The exact final-tree Node
+    22 `pnpm fitness:kern-5` wall passes. Automatic high-risk role-lens review
+    `review-1784675099637-as8in6` completed 6/6 usable non-excluded engines with
+    zero verified findings. Its two needs-check items were non-blocking
+    historical-mechanism refactor suggestions; positional validation and the
+    newest exact-chain test remain deliberately explicit for this evidence-only
+    slice. No material review finding remains.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

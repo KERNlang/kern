@@ -243,4 +243,10 @@ Claude security confirmation
 `review-1784669870369-4xtdh7-kern-5-r2-m4-33-value-band-param` returned zero
 findings on the hardened tree. Other review suggestions were verified as
 intentional generated composition, independent receipt authentication, or
-immutable historical pins. No material finding remains.
+immutable historical pins. Final exact-diff review
+`review-1784672564559-4cf8of-kern-5-r2-m4-33-value-band-param` completed 7/8
+usable non-excluded seats with zero verified or needs-check findings; OpenCode
+had a parse failure. Its lone low-confidence speculative claim was disproved
+against the current file: the pinned live assertions execute in the non-write
+branch, as the passing plain check-mode gate confirms. No material finding
+remains.

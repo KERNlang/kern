@@ -21,6 +21,7 @@ const INDEX_PROVENANCE_DIGEST = '3833955568710b89c7760bc579de5985d09b6c942ff006b
 const COUNTED_ITERATION_PROVENANCE_DIGEST = 'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b';
 const BINDING_PROVENANCE_DIGEST = '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab';
 const UNARY_PROVENANCE_DIGEST = 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5';
+const DO_PROVENANCE_DIGEST = '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   provenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -127,6 +128,7 @@ test('M4.29 promotes unary expression through exact prerequisite provenance', ()
       COUNTED_ITERATION_PROVENANCE_DIGEST,
       BINDING_PROVENANCE_DIGEST,
       UNARY_PROVENANCE_DIGEST,
+      DO_PROVENANCE_DIGEST,
     ],
   );
   assert.deepEqual(summary.prerequisiteProvenances, receipt.prerequisiteProvenances);

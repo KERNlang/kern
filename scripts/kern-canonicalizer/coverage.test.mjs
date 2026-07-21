@@ -171,6 +171,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
       'af26a9ccb4cfa8e320d88b8562a5c20c9e1f009a660a642ca2ae5916eab3c70b',
       '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab',
       'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
+      '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
     ],
   );
   assert.equal(

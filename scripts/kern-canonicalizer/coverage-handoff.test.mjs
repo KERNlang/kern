@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and four-record prerequisite history after M4.33', () => {
+test('the current corpus preserves selection and five-record prerequisite history after M4.34', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -369,6 +369,8 @@ test('the current corpus preserves selection and four-record prerequisite histor
   assert.equal(summary.implementationSelectionProvenanceDigest, member.digest);
   assert.deepEqual(receipt.prerequisiteProvenances, prerequisites);
   assert.deepEqual(summary.prerequisiteProvenances, prerequisites);
+  assert.equal(receipt.prerequisiteProvenances.length, 5);
+  assert.equal(summary.prerequisiteProvenances.length, 5);
   assert.deepEqual(receipt.implementationProvenance, {
     family: 'unary-expression',
     provenanceDigest: prerequisites[3].digest,
@@ -387,7 +389,7 @@ test('the current corpus preserves selection and four-record prerequisite histor
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.33 preserves unary provenance after consuming the frozen value-band parameter cohort', () => {
+test('M4.34 preserves unary implementation provenance after appending the do-statement handoff', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
