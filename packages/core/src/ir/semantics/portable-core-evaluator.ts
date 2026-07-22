@@ -94,6 +94,8 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
         }
         const listLength = evalListLength(node, env);
         if (listLength !== undefined) return listLength;
+        const listIndex = evalListIndex(node, env);
+        if (listIndex !== undefined) return listIndex;
         const map = evalMapReadCall(node, env, evaluate);
         if (map !== undefined) return map;
         const text = evalStringOpCall(node, env, evaluate);
@@ -193,6 +195,29 @@ export function createPortableEvaluator(host: PortableEvaluatorHost): PortableEv
     const value = getBinding(env, argument.name);
     if (!Array.isArray(value)) throw new Error(`portable: "${argument.name}" is not an array binding`);
     return value.length;
+  }
+
+  function evalListIndex(node: Extract<ValueIR, { kind: 'call' }>, env: SemanticEnv): PortableScalar | undefined {
+    if (node.optional) return undefined;
+    const callee = node.callee;
+    if (callee.kind !== 'member' || callee.optional || callee.property !== 'index') return undefined;
+    if (callee.object.kind !== 'ident' || callee.object.name !== 'List' || hasBinding(env, 'List')) return undefined;
+    if (node.args.length !== 2) throw new Error('portable: List.index expects exactly 2 arguments');
+    const listArgument = node.args[0];
+    if (!isValueIR(listArgument) || listArgument.kind !== 'ident' || !isPortableBindingName(listArgument.name)) {
+      throw new Error('portable: List.index first argument must be a bare array-binding identifier');
+    }
+    if (!hasBinding(env, listArgument.name)) {
+      throw new Error(`portable: binding "${listArgument.name}" not found`);
+    }
+    const list = getBinding(env, listArgument.name);
+    if (!Array.isArray(list)) {
+      throw new Error(`portable: "${listArgument.name}" is not an array binding (required by List.index)`);
+    }
+    const index = evaluate(node.args[1], env);
+    if (typeof index !== 'number') throw new Error('portable: List.index index must be a number');
+    if (!Number.isInteger(index) || index < 0 || index >= list.length || !Object.hasOwn(list, index)) return null;
+    return assertPortableScalar(list[index], `List.index element "${listArgument.name}[${index}]"`);
   }
 
   function evalBinary(node: Extract<ValueIR, { kind: 'binary' }>, env: SemanticEnv): PortableScalar {

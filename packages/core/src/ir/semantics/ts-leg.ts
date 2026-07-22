@@ -27,8 +27,10 @@
 
 import vm from 'node:vm';
 import { emitNativeKernBodyTS } from '../../codegen/body-ts.js';
+import { KERN_LIST_INDEX_HELPER_JS } from '../../codegen/list-contract.js';
 import {
   detectKernStdlibUsage,
+  emittedCodeUsesListIndex,
   emittedCodeUsesLooseEq,
   emittedCodeUsesPower,
   KERN_LOOSE_EQ_HELPER_JS,
@@ -139,6 +141,7 @@ export async function runTsEmitterLeg(fixture: FixtureForLeg, env: SemanticEnv):
   }
   const preamble = [
     emittedCodeUsesLooseEq(bodyCode) ? KERN_LOOSE_EQ_HELPER_JS : '',
+    emittedCodeUsesListIndex(bodyCode) ? KERN_LIST_INDEX_HELPER_JS : '',
     emittedCodeUsesPower(bodyCode) ? KERN_POWER_HELPER_JS : '',
   ]
     .filter(Boolean)

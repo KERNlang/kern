@@ -9,6 +9,8 @@ export const PORTABLE_POWER_RESULT_ERROR = 'portable: ** result exceeds the safe
 export const PORTABLE_POWER_SPREAD_ERROR = 'portable: ** does not accept spread operands';
 export const KERN_POWER_HELPER_TS_NAME = '__kern_pow_int';
 export const KERN_POWER_HELPER_PY_NAME = '_kern_pow_int';
+export const KERN_LIST_INDEX_HELPER_TS_NAME = '__kernListIndex';
+export const KERN_LIST_INDEX_HELPER_PY_NAME = '__kern_list_index';
 
 export type PortablePowerErrorCode = 'invalid-operands' | 'unsafe-result';
 
@@ -30,8 +32,12 @@ function failResult(): never {
   throw new PortablePowerError('unsafe-result', PORTABLE_POWER_RESULT_ERROR);
 }
 
-/** Reject user bindings that would capture a generated checked-power helper. */
+/** Reject user bindings that would capture a generated runtime helper.
+ *  The legacy export name remains the shared binding-validation chokepoint. */
 export function assertNotPortablePowerHelperBinding(name: string): void {
+  if (name === KERN_LIST_INDEX_HELPER_TS_NAME || toSnakeCaseIdentifier(name) === KERN_LIST_INDEX_HELPER_PY_NAME) {
+    throw new Error(`Binding "${name}" is reserved for the KERN strict List.index helper.`);
+  }
   if (name === KERN_POWER_HELPER_TS_NAME || toSnakeCaseIdentifier(name) === KERN_POWER_HELPER_PY_NAME) {
     throw new Error(`Binding "${name}" is reserved for the KERN portable power helper.`);
   }

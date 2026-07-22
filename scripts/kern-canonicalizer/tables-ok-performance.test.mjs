@@ -199,19 +199,19 @@ function recordChildren(tables, minimum = 2) {
   throw new Error(`missing record with ${minimum} children`);
 }
 
-test('M4.39 exact 15/24/154 witness has an authenticated iteration floor and regression budget', () => {
+test('M4.40 exact 15/24/154 witness has an authenticated indexed-lookup floor and promotion budget', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
-    maxValueRows: 106,
+    maxValueRows: 154,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
 
-  assert.notEqual(executeWitness(55_001).outcome, 'success');
-  assert.equal(executeWitness(55_002).outcome, 'success');
+  assert.notEqual(executeWitness(34_699).outcome, 'success');
+  assert.equal(executeWitness(34_700).outcome, 'success');
 
-  const envelope = executeWitness(56_000);
+  const envelope = executeWitness(40_000);
   assert.equal(envelope.outcome, 'success', JSON.stringify(envelope));
   assert.deepEqual(envelope.diagnostics, []);
   assert.deepEqual(envelope.events, []);

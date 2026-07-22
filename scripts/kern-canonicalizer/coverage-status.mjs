@@ -17,5 +17,5 @@ export function formatCurrentResidualAnalysisStatus(selectedNextAction) {
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   if (selectedNextAction === null) return 'M4.38 published analysis found no actionable profile widening.';
   return `M4.38 published analysis selected ${selectedNextAction.completeFunctions} functions by ` +
-    `${selectedNextAction.changedLimits.join('+')} widening; M4.39 keeps profile promotion performance-gated.`;
+    `${selectedNextAction.changedLimits.join('+')} widening; M4.40 authenticates the profile promotion.`;
 }

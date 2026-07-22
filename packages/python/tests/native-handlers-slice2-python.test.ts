@@ -57,6 +57,7 @@ describe('KERN-stdlib expansion — Python target', () => {
     ['Text.replace(s, "a", "b")', 's.replace("a", "b")'],
     // List
     ['List.length(xs)', 'len(xs)'],
+    ['List.index(xs, i)', '__kern_list_index(xs, i)'],
     ['List.isEmpty(xs)', 'len(xs) == 0'],
     ['List.includes(xs, x)', 'x in xs'],
     ['List.first(xs)', 'xs[0]'],
@@ -87,6 +88,22 @@ describe('KERN-stdlib expansion — Python target', () => {
     ['Number.isNaN(n)', '__k_math.isnan(n)'],
   ])('Python lowering: %s → %s', (kern, py) => {
     expect(emitPyExpression(parseExpression(kern))).toBe(py);
+  });
+});
+
+describe('KERN-stdlib namespace shadowing — Python target', () => {
+  test('a lexical List binding preserves List.index as an authored member call', () => {
+    const out = emitNativeKernBodyPython(
+      makeHandler([
+        { type: 'let', props: { name: 'List', value: '1' } },
+        { type: 'let', props: { name: 'xs', value: '[10]' } },
+        { type: 'return', props: { value: 'List.index(xs, 0)' } },
+      ]),
+    );
+
+    expect(out).toContain('List = 1');
+    expect(out).toContain('return List.index(xs, 0)');
+    expect(out).not.toContain('__kern_list_index');
   });
 });
 

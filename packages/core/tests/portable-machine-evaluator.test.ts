@@ -90,6 +90,40 @@ describe('portable machine evaluator', () => {
     expect(evaluate('Text.charAt("A😀B", 1)', bindings)).toBe('😀');
   });
 
+  test('owns strict List.index hits and nullish misses without weakening raw index provenance', () => {
+    const sparse = [1, 2, 3];
+    delete sparse[1];
+    const bindings = new Map<string, unknown>([
+      ['xs', Object.freeze([10, 20, 30])],
+      ['sparse', Object.freeze(sparse)],
+      ['id', 2],
+    ]);
+
+    expect(evaluate('List.index(xs, id - 1)', bindings)).toBe(20);
+    expect(evaluate('List.index(xs, -1)', bindings)).toBeNull();
+    expect(evaluate('List.index(xs, 1.5)', bindings)).toBeNull();
+    expect(evaluate('List.index(xs, 3)', bindings)).toBeNull();
+    expect(evaluate('List.index(sparse, 1)', bindings)).toBeNull();
+    expect(evaluate('List.index(xs, 3) ?? -1', bindings)).toBe(-1);
+    expect(() => evaluate('xs[id - 1]', bindings)).toThrow('array index must be');
+  });
+
+  test('List.index fails closed on invalid arguments and respects namespace shadowing', () => {
+    const bindings = new Map<string, unknown>([
+      ['xs', Object.freeze([10])],
+      ['notList', 1],
+      ['nan', Number.NaN],
+      ['infinity', Number.POSITIVE_INFINITY],
+    ]);
+
+    expect(() => evaluate('List.index(notList, 0)', bindings)).toThrow('List.index');
+    expect(() => evaluate('List.index(xs, "0")', bindings)).toThrow('List.index');
+    expect(() => evaluate('List.index(xs, nan)', bindings)).toThrow();
+    expect(() => evaluate('List.index(xs, infinity)', bindings)).toThrow();
+    expect(() => evaluate('List.index(xs)', bindings)).toThrow('List.index');
+    expect(() => evaluate('List.index(xs, 0)', new Map([...bindings, ['List', 1]]))).toThrow();
+  });
+
   test('fails closed on zero divisors and uses canonical scalar string coercion', () => {
     expect(() => evaluate('1 / 0')).toThrow('must evaluate to a portable scalar');
     expect(() => evaluate('1 % 0')).toThrow('must evaluate to a portable scalar');

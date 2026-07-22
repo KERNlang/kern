@@ -134,7 +134,7 @@ const EXPECTED_LINES_BY_PATH = new Map([
   ['examples/capstone-assertion-engine/compare.kern', 113],
   ['examples/capstone-checker-subset/checker-while.kern', 267],
   ['examples/capstone-checker-subset/checker.kern', 379],
-  ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 178],
+  ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 172],
   ['examples/selfhost-validator/validator.kern', 490],
 ]);
 

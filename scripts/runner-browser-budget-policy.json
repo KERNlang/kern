@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "baseline": {
-    "milestone": "KERN-5-R2-M3.31a",
-    "measuredRawBytes": 1477446,
-    "measuredGzipBytes": 320266,
-    "measuredModules": 146
+    "milestone": "KERN-5-R2-M4.40",
+    "measuredRawBytes": 1553103,
+    "measuredGzipBytes": 333617,
+    "measuredModules": 157
   },
   "limits": {
-    "maxInternalRawBytes": 1551318,
-    "maxInternalGzipBytes": 336279,
+    "maxInternalRawBytes": 1630758,
+    "maxInternalGzipBytes": 350298,
     "maxColdImportExecuteMs": 150,
     "maxBrowserImportExecuteMs": 750,
     "coldStartRuns": 5,

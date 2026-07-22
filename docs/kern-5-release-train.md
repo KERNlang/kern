@@ -2374,6 +2374,44 @@ trusted-publishing/provenance configuration is inspected.
     `fitness:kern-5` wall passed, including 432/432 cross-target fixtures,
     109/109 class fixtures, and 233/233 native KERN assertions at required
     100% coverage.
+  - [x] M4.40 canonicalizer indexed-lookup headroom and profile promotion:
+    the existing strict `List.index(List, Number)` contract now executes in
+    the portable source runner and lowers across native TS and Python with
+    identical hit, nullish-miss, type, arity, finite-number, shadowing, and
+    Python negative-index/boolean guards. Raw array indexing retains its
+    existing integer-provenance gate. Canonicalizer `stringat` and `numberat`
+    now perform one indexed lookup plus their published `""`/`-1` fallback,
+    removing both remaining linear scans without changing their one-based
+    public API. The exact 15/24/154 production witness floor falls from 55,002
+    to 34,700 iterations; it passes the precommitted 40,000 promotion budget
+    with 30,836 iterations, or 47.1%, of headroom below the unchanged 65,536
+    runtime ceiling. The active profile advances only `maxValueRows`, yielding
+    exact limits 16/30/154 and authenticating the M4.38 cohort of 11 functions,
+    three tools, and 39 structured parameter rows. The 43,272-byte composite
+    and expression helper authenticate at SHA-256
+    `de4710746e4c4c6ba30970577eefbdb284d282eaf58de30d78bfea45fa758080`
+    and `9329756e2373e5afc68903cafeb0043a9a50e3a07f7710a9f115d7628455726f`.
+    Live coverage and prerequisite receipts authenticate at
+    `1b4eaebc67bc0c1e9287259dce0de9feed453e06b68de60ef1348bdaed5e3819`
+    and `e298ccec225eb339b6a566ed1c607b2abf14d11c9719557a9dc29a4de7dec9c9`;
+    compiled core is bound at
+    `7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448`.
+    The browser policy resets its stale M3.31a baseline to the exact M4.40
+    graph: 157 modules, 1,553,103 raw bytes, and 333,617 gzip bytes, retaining
+    the fixed 5% bloat guard; the latest required measurement passed at an
+    89 ms browser median (89/89/95 ms samples).
+    Focused validation passes 112/112 canonicalizer tests plus 51/8/3/226
+    replay fixtures. The complete Node 22 `fitness:kern-5` wall passes,
+    including all 22 workspace projects, 434/434 cross-target fixtures,
+    109/109 class fixtures, 233/233 native KERN assertions at 100% coverage,
+    whole-app behavior, browser budgets, runtime/KIR ownership, and the
+    repeated terminal canonicalizer replay.
+    Automatic high-risk review
+    `review-1784707821710-ju7ajt-kern-5-r2-m4-40-final` found lexical `List`
+    shadowing and generated-helper collision defects; both are fixed with
+    regressions. Targeted post-fix review
+    `review-1784711104800-11arvy-kern-5-r2-m4-40-review-fixes` completed 1/1
+    with no findings.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

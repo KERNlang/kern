@@ -76,6 +76,7 @@ export {
   suggestStdlibMember,
   suggestStdlibMethod,
 } from './codegen/kern-stdlib.js';
+export { KERN_LIST_INDEX_HELPER_JS, listIndexHelperTS } from './codegen/list-contract.js';
 export type {
   PortableLogicIntent,
   PortableLogicPrimitive,
@@ -183,6 +184,7 @@ export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
   detectKernStdlibUsage,
+  emittedCodeUsesListIndex,
   emittedCodeUsesLooseEq,
   emittedCodeUsesPower,
   emittedCodeUsesTextOps,
@@ -637,6 +639,8 @@ export {
   checkedPortablePower,
   checkedPortablePowerChain,
   flattenPortablePowerChain,
+  KERN_LIST_INDEX_HELPER_PY_NAME,
+  KERN_LIST_INDEX_HELPER_TS_NAME,
   KERN_POWER_HELPER_JS,
   KERN_POWER_HELPER_PY,
   KERN_POWER_HELPER_PY_NAME,

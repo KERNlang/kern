@@ -134,6 +134,7 @@ import {
   lowerPortableArrayPropertyPy,
   sharedPortableMethodRequiresPureReceiver,
 } from './core/expr/list-ops.js';
+import { KERN_LIST_INDEX_HELPER_PY } from './list-contract-python.js';
 import { DOT_DICT_SHIM_PY } from './targets/python.js';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
@@ -4202,7 +4203,7 @@ function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
     // as unmapped — the label degrades to `[computed]`.
     if (obj.kind === 'ident') {
       const label = node.index.kind === 'strLit' ? node.index.value : '[computed]';
-      rejectKnownStdlibIndexPython(obj.name, label);
+      rejectKnownStdlibIndexPython(obj.name, label, ctx);
       rejectUnmappedHostNamespacePython(obj.name, label, ctx);
     }
     const inner: GuardedExpr =
@@ -5297,6 +5298,7 @@ function applyStdlibPropertyLoweringPython(
   if (member.optional) return null;
   if (member.object.kind !== 'ident') return null;
   const moduleName = member.object.name;
+  if (moduleName === 'List' && isProvenUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const propertyName = member.property;
   const entry = lookupStdlibProperty(moduleName, propertyName);
@@ -5313,7 +5315,8 @@ function applyStdlibPropertyLoweringPython(
   return entry.py;
 }
 
-function rejectKnownStdlibIndexPython(root: string, member: string): void {
+function rejectKnownStdlibIndexPython(root: string, member: string, ctx: BodyEmitContext): void {
+  if (root === 'List' && isProvenUserBinding(ctx, root)) return;
   if (!KERN_STDLIB_MODULES.has(root)) return;
   throwUnknownStdlibMemberPython(root, member);
 }
@@ -5323,6 +5326,7 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>, ctx
   if (callee.kind !== 'member') return null;
   if (callee.object.kind !== 'ident') return null;
   const moduleName = callee.object.name;
+  if (moduleName === 'List' && isProvenUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
   const entry = lookupStdlibCall(moduleName, methodName);
@@ -5418,6 +5422,11 @@ function registerStdlibRequirementPython(requirement: string | undefined, ctx: B
   }
   if (requirement === 'number-host') {
     ctx.helpers.add(KERN_JS_NUMBER_HELPERS_PY);
+    return;
+  }
+  if (requirement === 'list-index') {
+    ctx.helpers.add(KERN_NULLISH_HELPER_PY);
+    ctx.helpers.add(KERN_LIST_INDEX_HELPER_PY);
     return;
   }
   // DECIMAL Slice 3 — `Decimal.div/mod/pow` register the guarded-ops helper block

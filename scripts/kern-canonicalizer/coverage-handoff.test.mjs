@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and five-record prerequisite history after M4.37', () => {
+test('the current corpus preserves selection and five-record prerequisite history after M4.40', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -404,11 +404,11 @@ test('the current optimized executable preserves every M4.36-promoted family', (
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 43416, 'M4.39 must bind the exact optimized KERN byte count');
+  assert.equal(canonicalizerSource.length, 43272, 'M4.40 must bind the exact indexed-lookup KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '6851fddd986fe123bf33087b6ab0494c3601e62e9acf08571a9cb73fa6689ac9',
-    'M4.39 must bind the exact optimized KERN digest',
+    'de4710746e4c4c6ba30970577eefbdb284d282eaf58de30d78bfea45fa758080',
+    'M4.40 must bind the exact indexed-lookup KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);

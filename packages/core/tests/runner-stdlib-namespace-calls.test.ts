@@ -16,7 +16,7 @@
  */
 
 import { makeEnv, ReferenceRunnerError, referenceRunSequence, registerAllContracts } from '../src/index.js';
-import { executeKernSource, KernRunnerError } from '../src/runner.js';
+import { executeKernSource, executeKernSourceAsync, KernRunnerError } from '../src/runner.js';
 import type { IRNode } from '../src/types.js';
 
 beforeAll(() => {
@@ -74,6 +74,57 @@ describe('runner stdlib namespace calls — List.length', () => {
     expect(() => runStdout([letBind('List', '1'), letBind('xs', '[1]'), print('List.length(xs)')])).toThrow(
       ReferenceRunnerError,
     );
+  });
+});
+
+describe('runner stdlib namespace calls — List.index', () => {
+  it('reads a zero-based element and coalesces every miss class', () => {
+    expect(
+      executeKernSource(
+        mainProgram([
+          'let name=xs value="[10,20,30]"',
+          'print value="List.index(xs, 1)"',
+          'print value="List.index(xs, -1) ?? -1"',
+          'print value="List.index(xs, 1.5) ?? -1"',
+          'print value="List.index(xs, 3) ?? -1"',
+        ]),
+      ),
+    ).toBe('20\n-1\n-1\n-1\n');
+  });
+
+  it('accepts helper-parameter arithmetic without granting raw index provenance', () => {
+    const source = [
+      'fn name=lookup params="id:number,values:number[]" returns=number export=true',
+      '  handler lang="kern"',
+      '    return value="List.index(values, id - 1) ?? -1"',
+      '',
+      'fn name=main returns=void',
+      '  handler lang="kern"',
+      '    print value="lookup(2, [10,20,30])"',
+    ].join('\n');
+    expect(executeKernSource(source)).toBe('20\n');
+  });
+
+  it('matches sync and async source execution', async () => {
+    const source = mainProgram(['let name=xs value="[10,20,30]"', 'print value="List.index(xs, 2)"']);
+    expect(await executeKernSourceAsync(source)).toBe(executeKernSource(source));
+  });
+
+  it('fails closed on wrong arity, receiver, index type, and namespace shadowing', () => {
+    expect(() => executeKernSource(mainProgram(['let name=xs value="[1]"', 'print value="List.index(xs)"']))).toThrow(
+      KernRunnerError,
+    );
+    expect(() => executeKernSource(mainProgram(['let name=n value="1"', 'print value="List.index(n, 0)"']))).toThrow(
+      KernRunnerError,
+    );
+    expect(() =>
+      executeKernSource(mainProgram(['let name=xs value="[1]"', 'print value="List.index(xs, "0")"'])),
+    ).toThrow(KernRunnerError);
+    expect(() =>
+      executeKernSource(
+        mainProgram(['let name=List value="1"', 'let name=xs value="[1]"', 'print value="List.index(xs, 0)"']),
+      ),
+    ).toThrow(KernRunnerError);
   });
 });
 

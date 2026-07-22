@@ -406,7 +406,10 @@ function assertDeferredCall(
     assertDeferredMapCall(node, env, deferredBindings);
     return;
   }
-  if (namespace === 'List') return;
+  if (namespace === 'List') {
+    assertDeferredListCall(node, env, deferredBindings);
+    return;
+  }
   if (namespace === 'Decimal') {
     for (const argument of node.args) assertDeferredDecimalOperand(argument, env, deferredBindings);
     return;
@@ -416,6 +419,31 @@ function assertDeferredCall(
     return;
   }
   throw new Error(`portable machine: unsupported deferred namespace "${namespace}"`);
+}
+
+function assertDeferredListCall(
+  node: Extract<ValueIR, { kind: 'call' }>,
+  env: SemanticEnv,
+  deferredBindings: ReadonlySet<string>,
+): void {
+  const receiver = node.args[0];
+  if (!expressionRequiresDeferredMachinePreflight(receiver, env, deferredBindings)) {
+    if (receiver.kind !== 'ident' || !hasBinding(env, receiver.name)) {
+      throw new Error('portable: List receiver binding is missing');
+    }
+    if (!Array.isArray(getBinding(env, receiver.name))) {
+      throw new Error(`portable: "${receiver.name}" is not an array binding`);
+    }
+  }
+  if (node.callee.kind !== 'member' || node.callee.property !== 'index') return;
+  const index = node.args[1];
+  assertDeferredMachineScalarPreflight(index, env, deferredBindings);
+  if (
+    !expressionRequiresDeferredMachinePreflight(index, env, deferredBindings) &&
+    typeof evalPortableValue(index, env) !== 'number'
+  ) {
+    throw new Error('portable: List.index index must be a number');
+  }
 }
 
 function assertDeferredMapCall(

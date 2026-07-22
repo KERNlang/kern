@@ -18,7 +18,7 @@ function policyCopy() {
 
 test('checked-in runner browser budget policy is valid', () => {
   const policy = loadRunnerBrowserBudgetPolicy(POLICY_PATH);
-  assert.equal(policy.baseline.milestone, 'KERN-5-R2-M3.31a');
+  assert.equal(policy.baseline.milestone, 'KERN-5-R2-M4.40');
   assert.equal(policy.limits.maxInternalRawBytes, Math.round(policy.baseline.measuredRawBytes * 1.05));
   assert.equal(policy.limits.maxInternalGzipBytes, Math.round(policy.baseline.measuredGzipBytes * 1.05));
 });

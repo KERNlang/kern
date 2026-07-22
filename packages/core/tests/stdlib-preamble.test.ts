@@ -5,6 +5,7 @@
 
 import {
   detectKernStdlibUsage,
+  emittedCodeUsesListIndex,
   emittedCodeUsesPower,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
@@ -261,6 +262,13 @@ describe('kernStdlibPreamble', () => {
     expect(out).toContain('const maxSafe = 9007199254740991;');
     expect(out).not.toMatch(/\b(?:Number|Math|Object)\./u);
     expect(out).not.toContain('new Error');
+  });
+
+  test('detects only direct List.index helper calls in emitted TypeScript', () => {
+    expect(emittedCodeUsesListIndex('return __kernListIndex(values, index);')).toBe(true);
+    expect(emittedCodeUsesListIndex('return "__kernListIndex(fake, 0)";')).toBe(false);
+    expect(emittedCodeUsesListIndex('// __kernListIndex(fake, 0)\nreturn 1;')).toBe(false);
+    expect(emittedCodeUsesListIndex('object.__kernListIndex(values, index);')).toBe(false);
   });
 
   test('detects deeply nested template calls without recursive scanner overflow', () => {

@@ -46,11 +46,11 @@ const FORBIDDEN_BARE_SPECIFIERS = new Set([
   'https',
 ]);
 
-// M3.31a measures the canonical resumable class machine and legacy compatibility
-// engines both reachable through static ESM. The checked-in policy records the
-// measured transition closure and a fixed 5% accidental-bloat margin. When the legacy
-// module exits this graph, the lifecycle check below forces the ceilings back
-// to their pre-transition values instead of letting temporary headroom persist.
+// M4.40 measures the canonical resumable class machine, strict List.index
+// portable evaluation, and legacy compatibility engines reachable through
+// static ESM. The policy records that measured transition closure with a fixed
+// 5% accidental-bloat margin. When the legacy module exits this graph, the
+// lifecycle check below restores the lower pre-transition ceilings.
 const MAX_INTERNAL_RAW_BYTES = BUDGET_POLICY.limits.maxInternalRawBytes;
 const MAX_INTERNAL_GZIP_BYTES = BUDGET_POLICY.limits.maxInternalGzipBytes;
 const MAX_COLD_IMPORT_EXECUTE_MS = BUDGET_POLICY.limits.maxColdImportExecuteMs;

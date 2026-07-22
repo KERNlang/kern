@@ -100,6 +100,80 @@ describe('transpileLib — slice 4 stdlib preamble', () => {
   });
 });
 
+describe('transpileForTarget — strict List.index helper preamble', () => {
+  const SOURCE = [
+    'fn name=lookup params="values:number[],index:number" returns=number export=true',
+    '  handler lang="kern"',
+    '    return value="List.index(values, index) ?? -1"',
+  ].join('\n');
+
+  test('lib injects one TS helper definition above the lowered call', () => {
+    const code = compile(SOURCE, 'lib');
+    expect(code).toContain('__kernListIndex(values, index)');
+    expect(code).toContain('function __kernListIndex<T>(');
+    expect(code.indexOf('function __kernListIndex<T>(')).toBeLessThan(
+      code.lastIndexOf('__kernListIndex(values, index)'),
+    );
+    expect(code.match(/function __kernListIndex<T>\(/g)).toHaveLength(1);
+  });
+
+  test('fastapi uses the Python helper and never receives the TS helper', () => {
+    const code = compile(SOURCE, 'fastapi');
+    expect(code).toContain('def __kern_list_index(');
+    expect(code).toContain('__kern_list_index(values, index)');
+    expect(code).not.toContain('function __kernListIndex');
+  });
+
+  test('unrelated modules do not receive either helper', () => {
+    const code = compile(
+      ['fn name=identity params="value:number" returns=number', '  handler lang="kern"', '    return value=value'].join(
+        '\n',
+      ),
+      'lib',
+    );
+    expect(code).not.toContain('__kernListIndex');
+    expect(code).not.toContain('__kern_list_index');
+  });
+
+  test('an inert helper token in authored TypeScript does not inject the helper', () => {
+    const code = compile(
+      [
+        'fn name=label returns=string export=true',
+        '  handler <<<',
+        '    return "__kernListIndex(fake, 0)";',
+        '  >>>',
+      ].join('\n'),
+      'lib',
+    );
+    expect(code).toContain('"__kernListIndex(fake, 0)"');
+    expect(code).not.toContain('function __kernListIndex<T>');
+  });
+
+  test('authored TypeScript cannot define and call the generated helper', () => {
+    const source = [
+      'fn name=lookup returns=number export=true',
+      '  handler <<<',
+      '    function __kernListIndex(values, index) { return values[index]; }',
+      '    return __kernListIndex([1], 0);',
+      '  >>>',
+    ].join('\n');
+    expect(() => compile(source, 'lib')).toThrow(/reserved.*List\.index helper/i);
+  });
+
+  test.each([
+    ['lib', '__kernListIndex'],
+    ['fastapi', '__kern_list_index'],
+  ] as const)('%s rejects a KERN binding that captures its generated List.index helper', (target, name) => {
+    const source = [
+      'fn name=lookup returns=number export=true',
+      '  handler lang="kern"',
+      `    let name=${name} value=1`,
+      `    return value=${name}`,
+    ].join('\n');
+    expect(() => compile(source, target)).toThrow(/reserved.*List\.index helper/i);
+  });
+});
+
 describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
   // Cross-target verification — the dispatcher-level post-pass should apply
   // the preamble for TS-family targets and skip Python (FastAPI).

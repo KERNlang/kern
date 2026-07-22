@@ -72,13 +72,17 @@ function assertScalarCallShape(
     return;
   }
   if (namespace === 'List') {
+    const expectedArity = method === 'length' ? 1 : method === 'index' ? 2 : 0;
     if (
-      method !== 'length' ||
-      node.args.length !== 1 ||
+      expectedArity === 0 ||
+      node.args.length !== expectedArity ||
       node.args[0].kind !== 'ident' ||
       !isPortableBindingName(node.args[0].name)
     ) {
       fail('List call');
+    }
+    if (method === 'index') {
+      assertPortableMachineScalarShape(node.args[1], env, scalarHelperCall, portableHelperCall);
     }
     return;
   }

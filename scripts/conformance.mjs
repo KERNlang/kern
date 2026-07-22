@@ -46,6 +46,7 @@ const {
   emitNativeKernBodyTSWithImports,
   generateCoreNode,
   detectKernStdlibUsage,
+  emittedCodeUsesListIndex,
   emittedCodeUsesLooseEq,
   emittedCodeUsesTextOps,
   kernStdlibPreamble,
@@ -1522,6 +1523,18 @@ fn name=probe returns=boolean
     do value="Map.set(m, \\"a\\", 1)"
     return value="[List.length(xs), Map.get(m, \\"a\\"), Map.has(m, \\"a\\") ? 1 : 0, Map.has(m, \\"missing\\") ? 1 : 0]"`,
     expected: [3, 1, 1, 0] },
+  { kind: 'whole-file', name: 'whole-file: strict List.index hit and nullish misses round-trip',
+    kern: `fn name=lookup params="values:number[],id:number" returns=number
+  handler lang=kern
+    return value="List.index(values, id - 1) ?? -1"
+fn name=probe returns=number[]
+  handler lang=kern
+    let name=xs value="[10, 20, 30]"
+    return value="[lookup(xs, 2), List.index(xs, -1) ?? -1, List.index(xs, 1.5) ?? -1, List.index(xs, 3) ?? -1]"`,
+    expected: [20, -1, -1, -1] },
+  { kind: 'stmt', throws: true, name: 'stmt-throws: List.index rejects boolean indexes on both codegen legs',
+    params: [],
+    body: `let name=xs value="[10,20]"\nreturn value="List.index(xs, true)"` },
   // T3 traversal helper pins are GREEN-at-add regression coverage by lead verdict:
   // they lock the current flattened-tree traversal surface rather than proving a new capability.
   // Matching runner pins live in runner-source-executor.test.ts.
@@ -2516,6 +2529,7 @@ for (const fx of FIXTURES) {
       // call that needs the code-point-ops helper block resolved in this
       // isolated subprocess.
       if (emittedCodeUsesTextOps(ts.code)) usage.textOps = true;
+      if (emittedCodeUsesListIndex(ts.code)) usage.listIndex = true;
       const tsPreamble = kernStdlibPreamble(usage).join('\n');
       const tsSource = `${[...(ts.imports ?? [])].join('\n')}\n${tsPreamble}\nfunction __h(${names.join(', ')}: any): any {\n${ts.code}\n}\nconsole.log(JSON.stringify(__h(${fx.params.map((p) => JSON.stringify(p.value)).join(', ')})));`;
       writeFileSync(
@@ -2686,6 +2700,7 @@ for (const fx of FIXTURES) {
         if (emittedCodeUsesLooseEq(tsBody)) usage.looseEq = true;
         // KERN 4.5.0 item 3 — see the stmt-branch comment above; same pattern.
         if (emittedCodeUsesTextOps(tsBody)) usage.textOps = true;
+        if (emittedCodeUsesListIndex(tsBody)) usage.listIndex = true;
         const tsPreamble = kernStdlibPreamble(usage).join('\n');
         const tsSource = `${tsPreamble ? `${tsPreamble}\n` : ''}${tsBody}${probeLogTs}`;
         const tsFile = join(dir, 'whole-file.mjs');

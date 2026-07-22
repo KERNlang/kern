@@ -30,6 +30,7 @@ describe('KERN-stdlib expansion — Text+, List, Map, Number', () => {
     ['Text.replace(s, "a", "b")', 's.replaceAll("a", "b")'],
     // List
     ['List.length(xs)', 'xs.length'],
+    ['List.index(xs, i)', '__kernListIndex(xs, i)'],
     ['List.isEmpty(xs)', 'xs.length === 0'],
     ['List.includes(xs, x)', 'xs.includes(x)'],
     ['List.first(xs)', 'xs[0]'],
@@ -117,6 +118,22 @@ describe('parseExpression — arithmetic + comparison ops', () => {
 function makeHandler(children: IRNode[]): IRNode {
   return { type: 'handler', props: { lang: 'kern' }, children };
 }
+
+describe('KERN-stdlib namespace shadowing — TS target', () => {
+  test('a lexical List binding preserves List.index as an authored member call', () => {
+    const out = emitNativeKernBodyTS(
+      makeHandler([
+        { type: 'let', props: { name: 'List', value: '1' } },
+        { type: 'let', props: { name: 'xs', value: '[10]' } },
+        { type: 'return', props: { value: 'List.index(xs, 0)' } },
+      ]),
+    );
+
+    expect(out).toContain('const List = 1;');
+    expect(out).toContain('return List.index(xs, 0);');
+    expect(out).not.toContain('__kernListIndex');
+  });
+});
 
 describe('emitNativeKernBodyTS — if / else control flow', () => {
   test('plain if with single child', () => {

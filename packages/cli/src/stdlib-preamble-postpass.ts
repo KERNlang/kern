@@ -7,6 +7,7 @@ import {
   findTypeScriptSfcScriptBlock,
   injectKernStdlibPreamble,
   injectKernStdlibPreambleIntoSFC,
+  KERN_LIST_INDEX_HELPER_TS_NAME,
   KERN_POWER_HELPER_TS_NAME,
   kernStdlibPreamble,
 } from '@kernlang/core';
@@ -60,7 +61,16 @@ function injectForOutput(
   if (power && helperUsage.bindsOrWrites) {
     assertNotPortablePowerHelperBinding(KERN_POWER_HELPER_TS_NAME);
   }
-  const preamble = kernStdlibPreamble({ ...sharedUsage, power });
+  const listIndexUsage = analyzeTypeScriptGeneratedHelperUsage(
+    emittedTypeScript,
+    KERN_LIST_INDEX_HELPER_TS_NAME,
+    sourceKind,
+  );
+  const listIndex = listIndexUsage.calls;
+  if (listIndex && listIndexUsage.bindsOrWrites) {
+    assertNotPortablePowerHelperBinding(KERN_LIST_INDEX_HELPER_TS_NAME);
+  }
+  const preamble = kernStdlibPreamble({ ...sharedUsage, listIndex, power });
   return isSfc ? injectKernStdlibPreambleIntoSFC(code, preamble) : injectKernStdlibPreamble(code, preamble);
 }
 
@@ -90,7 +100,6 @@ export function applyKernStdlibPreamble(ast: IRNode, target: KernTarget, result:
   ) {
     usage.textOps = true;
   }
-
   const mainSourceKind: TypeScriptGeneratedSourceKind = getOutputExtension(target) === '.tsx' ? 'tsx' : 'ts';
   const updatedCode = injectForOutput(result.code, isSfcTarget, usage, mainSourceKind);
   const updatedArtifacts = result.artifacts?.map((artifact) => {

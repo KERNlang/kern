@@ -330,7 +330,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
           return nestedArrayLengthTS(nonArrayNested.record, nonArrayNested.field);
         }
       }
-      const stdlib = applyStdlibPropertyLoweringTS(node);
+      const stdlib = applyStdlibPropertyLoweringTS(node, ctx);
       if (stdlib !== null) return stdlib;
       // Slice 2 — a bare property READ on a regex LITERAL (`/x/.source`,
       // `/x/.flags`) launders the pattern/flags back into a string. Routed through
@@ -384,7 +384,7 @@ export function emitExpression(node: ValueIR, ctx?: ExprEmitContext): string {
           );
         }
       }
-      rejectKnownStdlibIndexTS(node);
+      rejectKnownStdlibIndexTS(node, ctx);
       // Slice 2 review fix — the bracket (`index`) form of a regex-literal
       // property access (`/x/["source"]`, `/x/["flags"]`, `/x/["test"](s)`)
       // must fail-close IDENTICALLY to the dotted member form. A STRING-literal
@@ -976,10 +976,14 @@ function isValidJSIdent(s: string): boolean {
  *  Args whose ValueIR is `binary`/`unary`/`spread` are wrapped in parens
  *  before template substitution so templates like `'$0.length'` produce
  *  correct precedence even when `$0` is `a + b` (→ `(a + b).length`). */
-function applyStdlibPropertyLoweringTS(member: Extract<ValueIR, { kind: 'member' }>): string | null {
+function applyStdlibPropertyLoweringTS(
+  member: Extract<ValueIR, { kind: 'member' }>,
+  ctx?: ExprEmitContext,
+): string | null {
   if (member.optional) return null;
   if (member.object.kind !== 'ident') return null;
   const moduleName = member.object.name;
+  if (moduleName === 'List' && isUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const entry = lookupStdlibProperty(moduleName, member.property);
   if (entry === null) {
@@ -994,9 +998,10 @@ function applyStdlibPropertyLoweringTS(member: Extract<ValueIR, { kind: 'member'
   return entry.ts;
 }
 
-function rejectKnownStdlibIndexTS(index: Extract<ValueIR, { kind: 'index' }>): void {
+function rejectKnownStdlibIndexTS(index: Extract<ValueIR, { kind: 'index' }>, ctx?: ExprEmitContext): void {
   if (index.object.kind !== 'ident') return;
   const moduleName = index.object.name;
+  if (moduleName === 'List' && isUserBinding(ctx, moduleName)) return;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return;
   const member = index.index.kind === 'strLit' ? index.index.value : '[computed]';
   throwUnknownStdlibMember(moduleName, member);
@@ -1007,6 +1012,7 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>, ctx?: E
   if (callee.kind !== 'member') return null;
   if (callee.object.kind !== 'ident') return null;
   const moduleName = callee.object.name;
+  if (moduleName === 'List' && isUserBinding(ctx, moduleName)) return null;
   if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
   const methodName = callee.property;
   const entry = lookupStdlibCall(moduleName, methodName);

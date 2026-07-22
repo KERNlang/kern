@@ -28,11 +28,12 @@
  *      The explicit `union name=X kind=result …` form already works on
  *      every target. */
 
-import { KERN_POWER_HELPER_TS_NAME, portablePowerHelperTS } from '../portable-power.js';
+import { KERN_LIST_INDEX_HELPER_TS_NAME, KERN_POWER_HELPER_TS_NAME, portablePowerHelperTS } from '../portable-power.js';
 import type { IRNode } from '../types.js';
 import { emitNativeKernBodyTSWithImports } from './body-ts.js';
 import { decimalImportLineTS, decimalOpsHelpersTS } from './decimal-contract.js';
 import { emittedCodeCallsIdentifier } from './emitted-helper-call.js';
+import { listIndexHelperTS } from './list-contract.js';
 import { findTypeScriptSfcScriptBlock } from './sfc-script.js';
 import { textOpsHelpersTS } from './text-contract.js';
 
@@ -80,6 +81,8 @@ export interface KernStdlibUsage {
    *  same reasoning `emittedCodeUsesLooseEq` documents). Optional for
    *  back-compat with callers that only build the result/option flags. */
   textOps?: boolean;
+  /** Emitted native KERN output calls the strict List.index helper. */
+  listIndex?: boolean;
   /** Emitted native KERN output calls the checked integer-power helper. */
   power?: boolean;
 }
@@ -149,6 +152,10 @@ const TEXT_OPS_CALL_TOKENS = [
 
 export function emittedCodeUsesTextOps(code: string): boolean {
   return TEXT_OPS_CALL_TOKENS.some((token) => code.includes(token));
+}
+
+export function emittedCodeUsesListIndex(code: string, sourceKind: 'ts' | 'tsx' = 'ts'): boolean {
+  return emittedCodeCallsIdentifier(code, KERN_LIST_INDEX_HELPER_TS_NAME, sourceKind);
 }
 
 /** Detection equals emission for the private checked-power call site. */
@@ -442,6 +449,7 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
     !usage.decimal &&
     !usage.looseEq &&
     !usage.textOps &&
+    !usage.listIndex &&
     !usage.power
   ) {
     return [];
@@ -472,13 +480,24 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
     // `push('')` below already supplies the single blank line that separates a
     // decimal-ONLY preamble from user code. Pushing it here too produced a stray
     // DOUBLE blank line in the decimal-only path (Slice 2 nit fix).
-    if (usage.power || usage.textOps || usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
+    if (
+      usage.power ||
+      usage.textOps ||
+      usage.listIndex ||
+      usage.result ||
+      usage.option ||
+      usage.unwrap ||
+      usage.looseEq
+    ) {
+      lines.push('');
+    }
   }
 
   if (usage.power) {
     lines.push('// ── KERN checked integer power (auto-emitted) ───────────────────────');
     lines.push(...portablePowerHelperTS().split('\n'));
-    if (usage.textOps || usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
+    if (usage.textOps || usage.listIndex || usage.result || usage.option || usage.unwrap || usage.looseEq)
+      lines.push('');
   }
 
   // KERN 4.5.0 item 3 — the Text code-point-ops helper block. No ESM import
@@ -489,6 +508,12 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   if (usage.textOps) {
     lines.push('// ── KERN Text code-point ops (auto-emitted) ─────────────────────────');
     lines.push(...textOpsHelpersTS().split('\n'));
+    if (usage.listIndex || usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
+  }
+
+  if (usage.listIndex) {
+    lines.push('// ── KERN strict List.index (auto-emitted) ───────────────────────────');
+    lines.push(...listIndexHelperTS().split('\n'));
     if (usage.result || usage.option || usage.unwrap || usage.looseEq) lines.push('');
   }
 

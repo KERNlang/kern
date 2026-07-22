@@ -45,6 +45,17 @@ test('the KERN canonicalizer members are parseable, bounded, and contain the sem
   }
 });
 
+test('one-based scalar table lookup delegates to strict List.index without a scan loop', () => {
+  const stringAt = /fn name=stringat[\s\S]*?(?=\nfn name=numberat)/u.exec(helperSource)?.[0];
+  const numberAt = /fn name=numberat[\s\S]*?(?=\nfn name=propid)/u.exec(helperSource)?.[0];
+  assert.ok(stringAt);
+  assert.ok(numberAt);
+  assert.equal(stringAt.includes('for name='), false);
+  assert.equal(numberAt.includes('for name='), false);
+  assert.ok(stringAt.includes('List.index(values, id - 1) ?? \\\"\\\"'));
+  assert.ok(numberAt.includes('List.index(values, id - 1) ?? -1'));
+});
+
 test('conditional validation and emission stay in the KERN statement member', () => {
   for (const owned of ['validstatementlist', 'validstatement', 'emitstatementlist', 'emitstatement']) {
     assert.ok(statementSource.includes(`fn name=${owned}`), `missing KERN-owned conditional helper ${owned}`);
@@ -269,7 +280,7 @@ test('the admitted table profile is policy-owned and enforced by KERN', () => {
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
-    maxValueRows: 106,
+    maxValueRows: 154,
   });
   assert.deepEqual(policy.expansionLimits, {
     kirToSourceMaxFactor: 4,

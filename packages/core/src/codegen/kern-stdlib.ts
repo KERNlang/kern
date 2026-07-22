@@ -114,6 +114,12 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
   },
   List: {
     length: { arity: 1, ts: '$0.length', py: 'len($0)' },
+    index: {
+      arity: 2,
+      ts: '__kernListIndex($0, $1)',
+      py: '__kern_list_index($0, $1)',
+      requires: { py: 'list-index' },
+    },
     isEmpty: { arity: 1, ts: '$0.length === 0', py: 'len($0) == 0' },
     includes: { arity: 2, ts: '$0.includes($1)', py: '$1 in $0' },
     first: { arity: 1, ts: '$0[0]', py: '$0[0]' },

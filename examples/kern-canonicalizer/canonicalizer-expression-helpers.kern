@@ -102,19 +102,13 @@ fn name=stringat returns=string export=true
   param name=id type=number
   param name=values type=string[]
   handler lang="kern"
-    for name=i from=0 to="values.length"
-      if cond="i + 1 == id"
-        return value="values[i]"
-    return value="\"\""
+    return value="List.index(values, id - 1) ?? \"\""
 
 fn name=numberat returns=number export=true
   param name=id type=number
   param name=values type=number[]
   handler lang="kern"
-    for name=i from=0 to="values.length"
-      if cond="i + 1 == id"
-        return value="values[i]"
-    return value="-1"
+    return value="List.index(values, id - 1) ?? -1"
 
 fn name=propid params="node:number,key:string,propNode:number[],propKey:string[],propValue:number[]" returns=number export=true
   handler lang="kern"

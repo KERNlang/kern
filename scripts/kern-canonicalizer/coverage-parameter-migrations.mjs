@@ -286,7 +286,7 @@ export function assertStructuredParameterMigrations(receipt) {
     expressionHelperTargetNames.includes(props.name));
   const expressionHelperLegacySiblings = expressionHelperRoots.filter(({ props }) =>
     !expressionHelperStructuredNames.has(props.name));
-  assert.equal(expressionHelperSource.split('\n').length - 1, 178);
+  assert.equal(expressionHelperSource.split('\n').length - 1, 172);
   assert.equal(expressionHelperRoots.length, 16);
   assert.deepEqual(expressionHelperTargets.map(({ props }) => props.name), expressionHelperTargetNames);
   assert.equal(expressionHelperTargets.every(({ props }) => props.params === undefined), true);
@@ -333,8 +333,8 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
       { profileBlockers: [], profileRows: { nodes: 6, properties: 9, values: 53 } },
       { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
-      { profileBlockers: [], profileRows: { nodes: 8, properties: 14, values: 62 } },
-      { profileBlockers: [], profileRows: { nodes: 8, properties: 14, values: 66 } },
+      { profileBlockers: [], profileRows: { nodes: 5, properties: 9, values: 50 } },
+      { profileBlockers: [], profileRows: { nodes: 5, properties: 9, values: 54 } },
     ],
   );
 
