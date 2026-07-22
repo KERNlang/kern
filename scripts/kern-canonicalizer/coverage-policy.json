@@ -83,19 +83,19 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "25b047708b20db3f292523414fc87fc571cffa7dad4051edae6bc219d7166cbb",
+      "digest": "6d42fe55e330523cf734fbe6476a3020f95271f68bdf2c9c14a2ed580d2b343f",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
     },
     {
-      "digest": "3761995d062daaaefecae3b35a21f6642848d63764f53653a59f4c70c4ac81fe",
+      "digest": "d52e8a601020cfb43d9740d4107fcb974f22e5ebbe64eb41a29f0dc4b9bba0bd",
       "path": "examples/capstone-checker-subset/checker.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
     },
     {
-      "digest": "9329756e2373e5afc68903cafeb0043a9a50e3a07f7710a9f115d7628455726f",
+      "digest": "1d4c95f4801dc3f7eae268872bf111f56b49a8a778576e463292daed4206b63f",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -113,7 +113,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "d0a458b709e8e3c2675f2b017623557679cb59007ca0012dd6c44b5ddbb8b7cd",
+      "digest": "0bb516e32a63802f9a23e0e93b5f55f942bd24c93b343a1678a6cbfcd2bccd56",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

@@ -162,101 +162,34 @@ if (process.argv.includes('--write')) {
       provenanceDigest: '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.40 must preserve the nine promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.40 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.40 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.40 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 46, 'live M4.40 base completion must remain exactly 46/104');
+  ], 'M4.41 must preserve the nine promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.41 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.41 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.41 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 57, 'live M4.41 base completion must remain exactly 57/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    56,
-    'live M4.40 fn.params blocker count must remain exactly 56',
+    45,
+    'live M4.41 fn.params blocker count must remain exactly 45',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.40 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.41 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.40 residual zero-completion ranking must remain exact',
+    'live M4.41 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 11,
-    completeTools: 3,
-    migratedParameterRows: 39,
-    witnesses: [
-      {
-        id: 'examples/capstone-checker-subset/checker-while.kern#10:isLengthType',
-        parameterRows: 1,
-        profileRows: { nodes: 9, properties: 12, values: 138 },
-        tool: 'checker',
-      },
-      {
-        id: 'examples/capstone-checker-subset/checker-while.kern#5:checkerElseRejectDetail',
-        parameterRows: 3,
-        profileRows: { nodes: 15, properties: 21, values: 115 },
-        tool: 'checker',
-      },
-      {
-        id: 'examples/capstone-checker-subset/checker.kern#19:mapArgToken',
-        parameterRows: 6,
-        profileRows: { nodes: 15, properties: 24, values: 120 },
-        tool: 'checker',
-      },
-      {
-        id: 'examples/capstone-checker-subset/checker.kern#8:isArrayBinding',
-        parameterRows: 6,
-        profileRows: { nodes: 15, properties: 24, values: 128 },
-        tool: 'checker',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#10:propid',
-        parameterRows: 5,
-        profileRows: { nodes: 14, properties: 25, values: 126 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#12:childat',
-        parameterRows: 4,
-        profileRows: { nodes: 13, properties: 23, values: 122 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#14:valuechildat',
-        parameterRows: 4,
-        profileRows: { nodes: 13, properties: 23, values: 122 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#15:recordfield',
-        parameterRows: 4,
-        profileRows: { nodes: 14, properties: 25, values: 135 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#2:valididentifier',
-        parameterRows: 1,
-        profileRows: { nodes: 10, properties: 16, values: 148 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#3:validexpressionidentifier',
-        parameterRows: 1,
-        profileRows: { nodes: 8, properties: 11, values: 149 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/selfhost-validator/validator.kern#18:hasimportcyclefrom',
-        parameterRows: 4,
-        profileRows: { nodes: 15, properties: 24, values: 154 },
-        tool: 'validator',
-      },
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -508,7 +441,7 @@ process.stdout.write(
   (prerequisite.parameterMigration.completeFunctions > 0
     ? 'next action parameter migration.'
     : prerequisite.selectedPrerequisite === null
-      ? 'bounded active-family exhaustion; published residual action remains performance-gated.'
+      ? 'bounded active-family exhaustion; next action current residual blocker analysis.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
   ` ${formatPublishedResidualAnalysisStatus(currentResidualAnalysis.selectedNextAction)}` +

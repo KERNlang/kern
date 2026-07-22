@@ -63,7 +63,13 @@ fn name=isPrintNumberText returns=boolean
   handler lang="kern"
     return value="isSafeIntText(raw)"
 
-fn name=isArrayBinding params="fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtName:string[],stmtExprKind:string[]" returns=boolean
+fn name=isArrayBinding returns=boolean
+  param name=fnName type=string
+  param name=binding type=string
+  param name=stmtKind type="string[]"
+  param name=stmtFn type="string[]"
+  param name=stmtName type="string[]"
+  param name=stmtExprKind type="string[]"
   handler lang="kern"
     for name=i from=0 to="stmtKind.length"
       if cond="stmtFn[i] == fnName"
@@ -221,7 +227,13 @@ fn name=indexRejectDetail params="fnName:string,indexKind:string,indexName:strin
           return value="\"\""
     return value="\"missing_provenance\""
 
-fn name=mapArgToken params="callId:number,ordinal:number,argCall:number[],argOrdinal:number[],argKind:string[],argName:string[]" returns=string
+fn name=mapArgToken returns=string
+  param name=callId type=number
+  param name=ordinal type=number
+  param name=argCall type="number[]"
+  param name=argOrdinal type="number[]"
+  param name=argKind type="string[]"
+  param name=argName type="string[]"
   handler lang="kern"
     for name=i from=0 to="argCall.length"
       if cond="argCall[i] == callId"

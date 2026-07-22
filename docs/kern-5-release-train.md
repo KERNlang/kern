@@ -2413,6 +2413,43 @@ trusted-publishing/provenance configuration is inspected.
     `review-1784711104800-11arvy-kern-5-r2-m4-40-review-fixes` completed 1/1
     with no findings.
 
+  - [x] M4.41 canonicalizer frozen 154-row parameter migration: the exact
+    M4.40-authenticated queue of 11 functions across checker, canonicalizer,
+    and validator sources now uses 39 ordered direct `param` children instead
+    of legacy `fn.params` strings. Function bodies, calls, root ordinals,
+    properties, siblings, profile limits, runtime, KIR, ABI, and public APIs
+    remain unchanged. An exact mutation guard rejects mixed representation,
+    missing, duplicated, reordered, renamed, mistyped, or post-handler
+    parameters plus identity, body, property, sibling, profile-row, and
+    generated-consumer drift.
+    Live coverage advances from 46/104 to 57/104 base-complete functions and
+    reduces legacy parameter blockers from 56 to 45. The parameter queue is
+    exactly empty at zero functions, tools, and rows; the same two active
+    structural families remain bounded-exhausted across three non-empty
+    closures and 45 residual functions, so the authenticated next action is
+    current residual-blocker analysis rather than an implicit promotion.
+    The 43,578-byte canonicalizer composite authenticates at SHA-256
+    `2b39f976b7eeb3e2cedc400821880a77edc11b99a72d0e24a28ddec8cabaeb4c`;
+    the regenerated checker fixture authenticates at
+    `d6a47919ef06a6cb6674d5ba94fbb706184ed7244c8d7d9015bb5d2e87b8301c`.
+    Live coverage and prerequisite receipts authenticate at
+    `eca4d82a8503d961270214a4bf69bca90873bfe624d49228b07ba5627d3f98c2`
+    and `1120312f40cb14247c351d732342ab2034db4f3ee0bc2391bc884d1e5cd3bde3`;
+    function facts bind at
+    `ca9702a70e92e79aa384c04a09e4ea835009e19f726671dead147f160b632ea8`.
+    Focused validation passes 113/113 canonicalizer tests plus 51/8/3/226
+    replay fixtures, 48/48 checker fixtures, and 39/39 validator verdicts.
+    The complete Node 22 `fitness:kern-5` wall passes, including all 22
+    workspace projects, 434/434 cross-target fixtures, 109/109 class fixtures,
+    233/233 native assertions at 100% coverage, whole-app behavior, runtime/KIR
+    ownership, and repeated canonicalizer replay. The required browser receipt
+    remains 157 modules, 1,553,103 raw bytes, and 333,617 gzip bytes at a 92 ms
+    median (88/92/93 ms samples). Automatic role-lens review
+    `review-1784714230963-a42g97-kern-5-r2-m4-41-final` completed 2/2 with no
+    material finding; its one line-count-confirmation nit was verified against
+    the exact 494-line validator pin. KERN 5 remains incomplete: M4.42 begins
+    the authenticated current residual-blocker analysis.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

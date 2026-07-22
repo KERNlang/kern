@@ -67,7 +67,10 @@ fn name=hasDirectChild returns=boolean
         return value="true"
     return value="false"
 
-fn name=checkerElseRejectDetail params="row:number,stmtKind:string[],stmtParent:number[]" returns=string export=true
+fn name=checkerElseRejectDetail returns=string export=true
+  param name=row type=number
+  param name=stmtKind type="string[]"
+  param name=stmtParent type="number[]"
   handler lang="kern"
     let name=previous value="previousSiblingKind(row, stmtKind, stmtParent)"
     if cond="previous == \"\""
@@ -150,7 +153,8 @@ fn name=numericBindingProven params="row:number,fnName:string,binding:string,req
                 assign target=stepped value="true"
     return value="declared && stepped"
 
-fn name=isLengthType params="raw:string" returns=boolean
+fn name=isLengthType returns=boolean
+  param name=raw type=string
   handler lang="kern"
     if cond="raw == \"string\""
       return value="true"

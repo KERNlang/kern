@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and five-record prerequisite history after M4.40', () => {
+test('the current corpus preserves selection and five-record prerequisite history after M4.41', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -384,7 +384,7 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 46);
+  assert.equal(receipt.baseCompleteFunctions, 57);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
@@ -404,11 +404,11 @@ test('the current optimized executable preserves every M4.36-promoted family', (
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 43272, 'M4.40 must bind the exact indexed-lookup KERN byte count');
+  assert.equal(canonicalizerSource.length, 43578, 'M4.41 must bind the exact parameter-migrated KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'de4710746e4c4c6ba30970577eefbdb284d282eaf58de30d78bfea45fa758080',
-    'M4.40 must bind the exact indexed-lookup KERN digest',
+    '2b39f976b7eeb3e2cedc400821880a77edc11b99a72d0e24a28ddec8cabaeb4c',
+    'M4.41 must bind the exact parameter-migrated KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);

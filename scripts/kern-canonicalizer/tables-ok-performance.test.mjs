@@ -9,7 +9,6 @@ import {
   KERN_RUNTIME_HANDLER_ABI,
 } from '../../packages/core/dist/runtime-handler.js';
 
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import {
   CANONICALIZER_COMPOSITE_PATH,
@@ -32,7 +31,7 @@ function exactWitness() {
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, 'hasimportcyclefrom', WITNESS_ID);
   assert.ok(sourceRoot, `missing ${WITNESS_ID}`);
-  const { root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
+  const root = sourceRoot;
   const policy = loadCanonicalizerPolicy();
   const bytes = encodeModuleKir([{ id: 'm4-39-witness.kern', roots: [root] }], policy.kirLimits);
   const decoded = decodeModuleKir(bytes, policy.kirLimits);
@@ -199,7 +198,7 @@ function recordChildren(tables, minimum = 2) {
   throw new Error(`missing record with ${minimum} children`);
 }
 
-test('M4.40 exact 15/24/154 witness has an authenticated indexed-lookup floor and promotion budget', () => {
+test('M4.41 exact 15/24/154 direct-parameter witness preserves the authenticated performance budget', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
@@ -231,7 +230,7 @@ test('M4.40 exact 15/24/154 witness has an authenticated indexed-lookup floor an
   );
 });
 
-test('M4.39 Map indexes preserve the frozen quadratic table decisions', () => {
+test('M4.41 preserves the M4.39 Map-index table decisions', () => {
   const base = exactWitness().tables;
   const nodeSiblings = siblingGroup(base.nodeParent);
   const valueSiblings = siblingGroup(base.valueParent, 2, true);

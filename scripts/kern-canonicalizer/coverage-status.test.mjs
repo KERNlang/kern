@@ -35,9 +35,9 @@ test('coverage status formats current and historical release decisions', () => {
   );
 });
 
-test('coverage status records the published M4.38 action and M4.40 promotion authority', () => {
+test('coverage status records the published M4.38 action through M4.41 queue consumption', () => {
   assert.equal(
     formatPublishedResidualAnalysisStatus({ completeFunctions: 11, changedLimits: ['maxValueRows'] }),
-    'M4.38 published analysis selected 11 functions by maxValueRows widening; M4.40 authenticates the profile promotion.',
+    'M4.38 published analysis selected 11 functions by maxValueRows widening; M4.40 authenticated the profile promotion; M4.41 consumes the parameter queue.',
   );
 });

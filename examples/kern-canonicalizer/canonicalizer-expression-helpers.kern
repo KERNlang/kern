@@ -14,7 +14,8 @@ fn name=validnext returns=boolean export=true
       return value="true"
     return value="c >= \"0\" && c <= \"9\""
 
-fn name=valididentifier params="value:string" returns=boolean export=true
+fn name=valididentifier returns=boolean export=true
+  param name=value type=string
   handler lang="kern"
     if cond="Text.length(value) == 0 || !validfirst(Text.charAt(value, 0))"
       return value="false"
@@ -24,7 +25,8 @@ fn name=valididentifier params="value:string" returns=boolean export=true
         return value="false"
     return value="true"
 
-fn name=validexpressionidentifier params="value:string" returns=boolean export=true
+fn name=validexpressionidentifier returns=boolean export=true
+  param name=value type=string
   handler lang="kern"
     if cond="value == \"true\" || value == \"false\" || value == \"null\" || value == \"none\" || value == \"undefined\""
       return value="false"
@@ -110,7 +112,12 @@ fn name=numberat returns=number export=true
   handler lang="kern"
     return value="List.index(values, id - 1) ?? -1"
 
-fn name=propid params="node:number,key:string,propNode:number[],propKey:string[],propValue:number[]" returns=number export=true
+fn name=propid returns=number export=true
+  param name=node type=number
+  param name=key type=string
+  param name=propNode type="number[]"
+  param name=propKey type="string[]"
+  param name=propValue type="number[]"
   handler lang="kern"
     let name=result value="0"
     for name=i from=0 to="propNode.length"
@@ -130,7 +137,11 @@ fn name=childcount returns=number export=true
         assign target=count value="count + 1"
     return value="count"
 
-fn name=childat params="parent:number,order:number,nodeParent:number[],nodeOrder:number[]" returns=number export=true
+fn name=childat returns=number export=true
+  param name=parent type=number
+  param name=order type=number
+  param name=nodeParent type="number[]"
+  param name=nodeOrder type="number[]"
   handler lang="kern"
     let name=result value="0"
     for name=i from=0 to="nodeParent.length"
@@ -150,7 +161,11 @@ fn name=valuechildcount returns=number export=true
         assign target=count value="count + 1"
     return value="count"
 
-fn name=valuechildat params="parent:number,order:number,valueParent:number[],valueOrder:number[]" returns=number export=true
+fn name=valuechildat returns=number export=true
+  param name=parent type=number
+  param name=order type=number
+  param name=valueParent type="number[]"
+  param name=valueOrder type="number[]"
   handler lang="kern"
     let name=result value="0"
     for name=i from=0 to="valueParent.length"
@@ -160,7 +175,11 @@ fn name=valuechildat params="parent:number,order:number,valueParent:number[],val
         assign target=result value="i + 1"
     return value="result"
 
-fn name=recordfield params="parent:number,key:string,valueParent:number[],valueRole:string[]" returns=number export=true
+fn name=recordfield returns=number export=true
+  param name=parent type=number
+  param name=key type=string
+  param name=valueParent type="number[]"
+  param name=valueRole type="string[]"
   handler lang="kern"
     let name=result value="0"
     let name=role value="\"record:\" + key"
