@@ -47,11 +47,11 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest('hex');
 }
 
-test('M4.48 promotes only the authenticated node-row ceiling', () => {
+test('M4.52 preserves the M4.48 node-row ceiling while property rows move', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 19,
-    maxPropertyRows: 30,
+    maxPropertyRows: 31,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);

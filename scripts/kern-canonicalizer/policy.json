@@ -25,7 +25,7 @@
   },
   "profileLimits": {
     "maxNodeRows": 19,
-    "maxPropertyRows": 30,
+    "maxPropertyRows": 31,
     "maxValueRows": 388
   }
 }

@@ -13,17 +13,22 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
+  completeFunctions: 1,
+  completeTools: 1,
+  migratedParameterRows: 6,
+  witnesses: [{
+    id: 'examples/selfhost-validator/validator.kern#17:classcyclefrom',
+    parameterRows: 6,
+    profileRows: { nodes: 19, properties: 31, values: 202 },
+    tool: 'validator',
+  }],
 };
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow', 'while-iteration'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 3,
-  reasonAssignmentsDigest: 'd3175ab22aaf82a3e37a5c439b4e603d3922e53224b649176c9940d9e04431dc',
+  reasonAssignmentsDigest: '158ee2e9ee592986fa70f10e7345a243db0b082f7949497275e2dce2141ae6c8',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -33,18 +38,18 @@ const EXPECTED_EXHAUSTION = {
     { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
     { count: 2, id: 'let.value:unknown-expression-kind' },
     { count: 22, id: 'profile.rows.nodes' },
-    { count: 23, id: 'profile.rows.properties' },
+    { count: 22, id: 'profile.rows.properties' },
     { count: 8, id: 'profile.rows.values' },
     { count: 12, id: 'projection.limit-depth' },
     { count: 1, id: 'projection.limit-nodes' },
     { count: 3, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
-  residualFunctionCount: 39,
+  residualFunctionCount: 38,
   scope: 'current-bounded-profile',
 };
 
-test('M4.49 consumes the authenticated 19-row parameter migration frontier', () => {
+test('M4.52 exposes the authenticated 31-property-row parameter migration frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -56,7 +61,7 @@ test('M4.49 consumes the authenticated 19-row parameter migration frontier', () 
   assert.equal(actual.selectedPrerequisite, null);
 });
 
-test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.49 migration', () => {
+test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.52 promotion', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -85,9 +90,9 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.49
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 1; },
-    (copy) => { copy.parameterMigration.completeTools = 1; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
+    (copy) => { copy.parameterMigration.completeFunctions = 2; },
+    (copy) => { copy.parameterMigration.completeTools = 2; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 7; },
     (copy) => {
       copy.parameterMigration.witnesses.push({
         id: 'examples/selfhost-validator/validator.kern#0:future',
@@ -130,14 +135,14 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.49
   );
 });
 
-test('M4.49 binds the exact consumed 19-row transition', () => {
+test('M4.52 binds the exact promoted 31-property-row transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 64,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
     canonicalizerDigest: '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5',
-    canonicalizerPolicyDigest: 'e5656d77ecce74230c0f300821323ffeacf944a9348a0137f6b9022ca1c02b5c',
+    canonicalizerPolicyDigest: '2cb2bcad0164b3457cf398c18a78d46fc1bbe9cd3ef5e9676996bd89f9b35c97',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
     corpusDigest: 'a918c5e489e4fa8046ad790a4502844b5b9fb0ed703d8c728e6ea4434d392092',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,

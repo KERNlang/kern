@@ -5,22 +5,20 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  loadPublishedCanonicalizerResidualAnalysisM450,
-} from './coverage-residual-analysis-m4-50.mjs';
-import {
-  loadCanonicalizerPropertyRowHeadroomM451,
-  measureCanonicalizerPropertyRowHeadroomM451,
-  validateCanonicalizerPropertyRowHeadroomM451,
+  loadPublishedCanonicalizerPropertyRowHeadroomM451,
+  validatePublishedCanonicalizerPropertyRowHeadroomM451,
 } from './property-row-headroom-m4-51.mjs';
 
 const summaryUrl = new URL('./property-row-headroom-m4-51.json', import.meta.url);
 const RECEIPT_DIGEST = 'c36711a885495d41b879bdcc364122f380dfde1a720a0985cdafbd78e067dfbe';
 
-test('M4.51 authenticates exact property-row structural headroom', () => {
+test('M4.51 freezes the exact published property-row headroom receipt', () => {
   const source = readFileSync(summaryUrl);
-  const receipt = loadCanonicalizerPropertyRowHeadroomM451();
+  const handoff = loadPublishedCanonicalizerPropertyRowHeadroomM451();
+  const receipt = handoff.record;
   assert.equal(createHash('sha256').update(source).digest('hex'), RECEIPT_DIGEST);
-  assert.deepEqual(receipt, measureCanonicalizerPropertyRowHeadroomM451());
+  assert.equal(handoff.digest, RECEIPT_DIGEST);
+  assert.equal(handoff.sourceCommit, '2e363bab008fd2f03ef21fdc1bcb0a2488bd0637');
   assert.equal(receipt.format, 'kern.kir-canonicalizer.property-row-headroom.1');
   assert.equal(receipt.artifactScope, 'structural-kir-function');
   assert.deepEqual(receipt.limits, {
@@ -46,16 +44,11 @@ test('M4.51 authenticates exact property-row structural headroom', () => {
     promotionHeadroom: 37_201,
     roundTrip: true,
   }]);
-  assert.equal(
-    receipt.source.residualAnalysisSha256,
-    '14fdff4dce865a79215eabdb02b05a29c62a66c633561e9643e2a46f38020e4f',
-  );
-  assert.equal(receipt.source.residualAnalysisSourceCommit, '8600d8110986b0ddf7772611fc29af3245ee7c1c');
   assert.deepEqual(receipt.moduleEnvelope, { disposition: 'not-claimed', maxDepth: 64 });
 });
 
-test('M4.51 receipt rejects evidence drift and decorated data', () => {
-  const actual = loadCanonicalizerPropertyRowHeadroomM451();
+test('M4.51 published digest rejects canonical and decorated drift', () => {
+  const published = loadPublishedCanonicalizerPropertyRowHeadroomM451().record;
   for (const mutate of [
     (copy) => { copy.format = 'kern.kir-canonicalizer.property-row-headroom.2'; },
     (copy) => { copy.future = true; },
@@ -64,35 +57,31 @@ test('M4.51 receipt rejects evidence drift and decorated data', () => {
     (copy) => { copy.witnesses[0].roundTrip = false; },
     (copy) => { copy.moduleEnvelope.disposition = 'proven'; },
   ]) {
-    const copy = structuredClone(actual);
+    const copy = structuredClone(published);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerPropertyRowHeadroomM451(copy),
+      () => validatePublishedCanonicalizerPropertyRowHeadroomM451(copy),
       /coverage M4\.51 property-row headroom rejection/u,
     );
   }
-  const decorated = structuredClone(actual);
+  const decorated = structuredClone(published);
   decorated[Symbol('hidden')] = true;
   assert.throws(
-    () => validateCanonicalizerPropertyRowHeadroomM451(decorated),
+    () => validatePublishedCanonicalizerPropertyRowHeadroomM451(decorated),
     /coverage M4\.51 property-row headroom rejection/u,
   );
 });
 
-test('M4.51 preserves M4.50 and reproduces in a fresh locale-independent process', () => {
-  assert.equal(
-    loadPublishedCanonicalizerResidualAnalysisM450().digest,
-    '14fdff4dce865a79215eabdb02b05a29c62a66c633561e9643e2a46f38020e4f',
-  );
+test('M4.51 loads byte-identically in a fresh locale-independent process', () => {
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {loadCanonicalizerPropertyRowHeadroomM451 as load} from './scripts/kern-canonicalizer/property-row-headroom-m4-51.mjs'; process.stdout.write(JSON.stringify(load()))",
+    "import {loadPublishedCanonicalizerPropertyRowHeadroomM451 as load} from './scripts/kern-canonicalizer/property-row-headroom-m4-51.mjs'; process.stdout.write(JSON.stringify(load()))",
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), loadCanonicalizerPropertyRowHeadroomM451());
+  assert.deepEqual(JSON.parse(fresh.stdout), loadPublishedCanonicalizerPropertyRowHeadroomM451());
 });

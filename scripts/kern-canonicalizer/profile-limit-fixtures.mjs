@@ -55,9 +55,9 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    expectedRows: { nodes: 16, properties: 31, values: 69 },
+    expectedRows: { nodes: 16, properties: 32, values: 70 },
     source: lines(
-      'fn name=properties returns="number[]" export=true',
+      'fn name=properties returns="number[]" export=true async=true',
       ...BOUNDARY_PARAMETERS,
       '  handler lang=kern',
       '    return value="[0,1,2,3,4]"',

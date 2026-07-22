@@ -44,15 +44,15 @@ test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 19,
-    maxPropertyRows: 30,
+    maxPropertyRows: 31,
     maxValueRows: 388,
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
-  assert.equal(prerequisite.parameterMigration.completeTools, 0);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 39);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
+  assert.equal(prerequisite.parameterMigration.completeTools, 1);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 6);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 38);
 });
 
 test('M4.45 target guard rejects signature, body, identity, fact, and profile drift', () => {

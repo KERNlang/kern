@@ -2,40 +2,13 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { loadPublishedCanonicalizerResidualAnalysisM450 } from './coverage-residual-analysis-m4-50.mjs';
-import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
-
 const FORMAT = 'kern.kir-canonicalizer.property-row-headroom.1';
-const RECEIPT_DIGEST = 'c36711a885495d41b879bdcc364122f380dfde1a720a0985cdafbd78e067dfbe';
+const PUBLISHED_DIGEST = 'c36711a885495d41b879bdcc364122f380dfde1a720a0985cdafbd78e067dfbe';
+const SOURCE_COMMIT = '2e363bab008fd2f03ef21fdc1bcb0a2488bd0637';
 const SUMMARY_URL = new URL('./property-row-headroom-m4-51.json', import.meta.url);
-const EXPECTED_SELECTION = {
-  changedLimits: ['maxPropertyRows'],
-  completeFunctions: 1,
-  completeTools: 1,
-  limits: { maxNodeRows: 19, maxPropertyRows: 31, maxValueRows: 388 },
-  totalDelta: 1,
-  witnesses: [
-    'examples/selfhost-validator/validator.kern#17:classcyclefrom',
-  ],
-};
-const WITNESS_FACT = {
-  exactFloor: 11_951,
-  id: EXPECTED_SELECTION.witnesses[0],
-  parameterRows: 6,
-  profileRows: { nodes: 19, properties: 31, values: 202 },
-};
 
 function fail(message) {
   throw new TypeError(`coverage M4.51 property-row headroom rejection: ${message}`);
-}
-
-function digest(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function canonicalBytes(value) {
-  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 }
 
 function assertPlainReceiptData(value, seen = new Set()) {
@@ -81,121 +54,41 @@ function assertPlainReceiptData(value, seen = new Set()) {
   seen.delete(value);
 }
 
-function same(left, right) {
-  return canonicalBytes(left).equals(canonicalBytes(right));
+function canonicalBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 }
 
-function repositorySource(path) {
-  return readFileSync(new URL(`../../${path}`, import.meta.url));
-}
-
-function exactInputs() {
-  const analysis = loadPublishedCanonicalizerResidualAnalysisM450();
-  if (!same(analysis.record.selectedNextAction, EXPECTED_SELECTION)) {
-    fail('published M4.50 selection must remain exact');
-  }
-  const assignment = analysis.record.assignments.find(({ id }) => id === WITNESS_FACT.id);
-  if (
-    assignment === undefined || assignment.parameterRows !== WITNESS_FACT.parameterRows ||
-    assignment.tool !== 'validator' || !same(assignment.profileRows, WITNESS_FACT.profileRows) ||
-    !same(assignment.reasons, ['profile.rows.properties'])
-  ) {
-    fail('published M4.50 witness assignment must remain exact');
-  }
-
-  const policy = loadCanonicalizerPolicy();
-  if (!same(policy.profileLimits, { maxNodeRows: 19, maxPropertyRows: 30, maxValueRows: 388 })) {
-    fail('active profile must remain at the published M4.50 boundary');
-  }
-  if (policy.runtimeLimits.maxCollectionLength !== 65_536 || policy.kirLimits.maxDepth !== 64) {
-    fail('runtime and KIR depth limits must remain at the published boundary');
-  }
-  return { analysis, policy };
-}
-
-export function measureCanonicalizerPropertyRowHeadroomM451() {
-  const { analysis, policy } = exactInputs();
-  const productionMaxCollectionLength = policy.runtimeLimits.maxCollectionLength;
-  const promotionBudget = Math.floor(productionMaxCollectionLength * 3 / 4);
-  const witnesses = [{
-    belowFloorOutcome: 'failure',
-    exactFloor: WITNESS_FACT.exactFloor,
-    floorOutcome: 'success',
-    id: WITNESS_FACT.id,
-    parameterRows: WITNESS_FACT.parameterRows,
-    productionHeadroom: productionMaxCollectionLength - WITNESS_FACT.exactFloor,
-    profileRows: WITNESS_FACT.profileRows,
-    promotionHeadroom: promotionBudget - WITNESS_FACT.exactFloor,
-    roundTrip: true,
-  }];
-  return {
-    artifactScope: 'structural-kir-function',
-    format: FORMAT,
-    limits: {
-      candidateProfile: EXPECTED_SELECTION.limits,
-      productionMaxCollectionLength,
-      promotionBudget,
-      reservedProductionHeadroom: productionMaxCollectionLength - promotionBudget,
-    },
-    moduleEnvelope: {
-      disposition: 'not-claimed',
-      maxDepth: policy.kirLimits.maxDepth,
-    },
-    source: {
-      canonicalizerCompositeSha256: digest(repositorySource('examples/kern-canonicalizer/canonicalizer.composed.kern')),
-      canonicalizerPolicySha256: digest(readFileSync(new URL('./policy.json', import.meta.url))),
-      compositionSha256: digest(readFileSync(new URL('./composition.json', import.meta.url))),
-      inputSourceSha256: [{
-        path: 'examples/selfhost-validator/validator.kern',
-        sha256: digest(repositorySource('examples/selfhost-validator/validator.kern')),
-      }],
-      publishedCoverageImplementationDigest: analysis.record.baseline.coverageImplementationDigest,
-      residualAnalysisSha256: analysis.digest,
-      residualAnalysisSourceCommit: analysis.sourceCommit,
-      runtimeHandlerAbi: 'kern.runtime.handler.v1',
-      structuralKirCodecSha256: digest(repositorySource('packages/core/src/kir-structural/canonical.ts')),
-    },
-    summary: {
-      maxExactFloor: WITNESS_FACT.exactFloor,
-      minimumProductionHeadroom: productionMaxCollectionLength - WITNESS_FACT.exactFloor,
-      minimumPromotionHeadroom: promotionBudget - WITNESS_FACT.exactFloor,
-      witnessCount: witnesses.length,
-    },
-    witnesses,
-  };
-}
-
-export function validateCanonicalizerPropertyRowHeadroomM451(value) {
+function publishedHandoff(value) {
   assertPlainReceiptData(value);
-  const expected = measureCanonicalizerPropertyRowHeadroomM451();
-  if (digest(canonicalBytes(expected)) !== RECEIPT_DIGEST) {
-    fail('measured evidence must match the exact M4.51 receipt digest');
+  if (value === null || Array.isArray(value) || value.format !== FORMAT) {
+    fail(`published format must be ${FORMAT}`);
   }
-  if (!same(value, expected)) fail('headroom receipt must match current authenticated evidence exactly');
-  return structuredClone(value);
+  const digest = createHash('sha256').update(canonicalBytes(value)).digest('hex');
+  if (digest !== PUBLISHED_DIGEST) fail('receipt must match the exact published M4.51 evidence');
+  return { digest, record: structuredClone(value), sourceCommit: SOURCE_COMMIT };
 }
 
-export function loadCanonicalizerPropertyRowHeadroomM451() {
+export function validatePublishedCanonicalizerPropertyRowHeadroomM451(value) {
+  return publishedHandoff(value);
+}
+
+export function loadPublishedCanonicalizerPropertyRowHeadroomM451() {
   const path = fileURLToPath(SUMMARY_URL);
   const stat = lstatSync(path, { throwIfNoEntry: false });
-  if (stat === undefined) fail('headroom receipt must exist');
+  if (stat === undefined) fail('published receipt must exist');
   if (!stat.isFile() || realpathSync(path) !== path) {
-    fail('headroom receipt must be a regular non-symlink file');
+    fail('published receipt must be a regular non-symlink file');
   }
   const source = readFileSync(path);
   let parsed;
   try {
     parsed = JSON.parse(source.toString('utf8'));
   } catch {
-    fail('headroom receipt must be valid JSON');
+    fail('published receipt must be valid JSON');
   }
-  const result = validateCanonicalizerPropertyRowHeadroomM451(parsed);
-  if (!source.equals(canonicalBytes(result))) fail('headroom receipt must use canonical JSON bytes');
-  return result;
-}
-
-export function writeCanonicalizerPropertyRowHeadroomM451() {
-  const result = measureCanonicalizerPropertyRowHeadroomM451();
-  writeCoverageSummary(SUMMARY_URL, result);
+  const result = publishedHandoff(parsed);
+  if (!source.equals(canonicalBytes(result.record))) {
+    fail('published receipt must use canonical JSON bytes');
+  }
   return result;
 }

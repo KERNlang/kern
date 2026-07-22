@@ -94,7 +94,7 @@ test('coverage status records the M4.50 recommendation and M4.51 headroom', () =
   );
   assert.equal(
     formatM451PropertyRowHeadroomStatus({ summary: { maxExactFloor: 11_951, witnessCount: 1 } }),
-    'M4.51 structural headroom authenticated 1 witness at an 11951 exact floor.',
+    'M4.51 structural headroom authenticated 1 witness at an 11951 exact floor; M4.52 authenticates the property-row profile promotion.',
   );
 });
 

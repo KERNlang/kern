@@ -52,7 +52,7 @@ export function formatM447NodeRowHeadroomStatus(receipt) {
 
 export function formatM451PropertyRowHeadroomStatus(receipt) {
   return `M4.51 structural headroom authenticated ${receipt.summary.witnessCount} witness at an ` +
-    `${receipt.summary.maxExactFloor} exact floor.`;
+    `${receipt.summary.maxExactFloor} exact floor; M4.52 authenticates the property-row profile promotion.`;
 }
 
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {

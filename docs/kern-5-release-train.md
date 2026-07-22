@@ -2827,6 +2827,37 @@ trusted-publishing/provenance configuration is inspected.
     `maxPropertyRows` from 30 to 31 and must freeze M4.51 as an immutable
     published handoff in the same change.
 
+  - [x] M4.52 promotes only `maxPropertyRows` from 30 to 31 and freezes M4.51
+    as an immutable published handoff pinned to source commit
+    `2e363bab008fd2f03ef21fdc1bcb0a2488bd0637`. The exact M4.51 receipt remains
+    byte-identical at
+    `c36711a885495d41b879bdcc364122f380dfde1a720a0985cdafbd78e067dfbe`;
+    its immutable loader authenticates at
+    `4d630be7927b6b94afbed7fb0d49f52a26b51e0316470f9c1472ece3296fd140`.
+    Base completion remains 64/104 and legacy `fn.params` blockers remain 39.
+    The promoted 19/31/388 profile exposes exactly one parameter-ready
+    validator function with six rows:
+    `examples/selfhost-validator/validator.kern#17:classcyclefrom` at
+    19/31/202. The exact hostile boundary is 32 property rows; no KERN source,
+    generated consumer, family, parser, runtime, KIR, ABI, package version, or
+    public API changes. Live coverage and prerequisite receipts authenticate
+    at
+    `75aab0c200dce0e2629fb654cd77951a17e315e889516204f032993cda62de62`
+    and
+    `220becc58afa59bb35f1fef2246038d7c7763b49db65d615f6c5725c87659c76`;
+    their shared implementation digest is
+    `9a2f9fff62a756def97ab7201ec1483e855442085f55099073f6fc611e938e4d`.
+    The focused suite passes 70/70, the complete canonicalizer gate passes
+    170/170 tests plus 51/8/3/226 replay fixtures, and the complete Node 22.22
+    `fitness:kern-5` wall passes. Required high-risk role-lens review
+    `review-1784759389980-rphvm4-kern-5-r2-m4-52` completed all 6/6 usable
+    independent reviewers with zero verified findings and zero blockers. Its
+    three needs-check observations were rejected after source verification:
+    independent exact literals are intentional release-proof boundaries, and
+    the M4.51 formatter follows the established evidence-to-promotion status
+    pattern. KERN 5 remains incomplete: after publication, M4.53 may migrate
+    only this frozen six-row queue.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
