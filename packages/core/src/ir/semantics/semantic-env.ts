@@ -340,6 +340,22 @@ export function assignBinding(env: SemanticEnv, name: string, value: unknown): v
   clearBindingProvenance(scope, name);
 }
 
+export function assignOwnedExactScalarMapBinding(
+  env: SemanticEnv,
+  name: string,
+  value: ReadonlyMap<string, string | number | boolean | null>,
+): void {
+  const scope = declaringScope(env, name) ?? env;
+  if (scope.bindings.get(name) !== value || !isOwnedExactSemanticMap(value)) {
+    throw new Error(`portable: Map.set requires the exact owned map binding "${name}"`);
+  }
+  // The effect-machine Map.set path admits only string keys and portable
+  // scalar values. The exact map identity is already machine-owned, so a
+  // whole-graph ownership walk here would rescan its growing prefix.
+  scope.bindings.set(name, value);
+  clearBindingProvenance(scope, name);
+}
+
 export function assignPushBuiltFreshArrayBinding(env: SemanticEnv, name: string, value: readonly unknown[]): void {
   // The freshness-preserving push path only appends portable scalars to an
   // already-owned array. Own the newly materialized array without rescanning

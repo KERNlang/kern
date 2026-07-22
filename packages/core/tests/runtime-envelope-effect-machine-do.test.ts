@@ -63,6 +63,27 @@ describe('M3.20 effect-machine do ownership', () => {
     );
   });
 
+  test('machine Map.set does not rescan the owned map during rebinding', () => {
+    const env = makeEnv({ bindings: new Map([['values', new Map([['existing', 0]])]]) });
+    const iterator = Map.prototype[Symbol.iterator];
+
+    Map.prototype[Symbol.iterator] = (): MapIterator<[unknown, unknown]> => {
+      throw new Error('owned Map prefix was rescanned');
+    };
+    try {
+      runInternalMachineDo({ type: 'do', props: { value: 'Map.set(values, "next", 1)' } }, env);
+    } finally {
+      Map.prototype[Symbol.iterator] = iterator;
+    }
+
+    expect(getBinding(env, 'values')).toEqual(
+      new Map([
+        ['existing', 0],
+        ['next', 1],
+      ]),
+    );
+  });
+
   test('rejects a Map alias before an in-place write can expose shared identity', () => {
     const env = makeEnv({ bindings: new Map([['values', new Map<string, unknown>()]]) });
     const values = getBinding(env, 'values');

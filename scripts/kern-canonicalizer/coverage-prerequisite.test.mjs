@@ -138,7 +138,7 @@ test('M4.37 binds the exact authenticated appendid migration transition', () => 
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
     canonicalizerDigest: '6851fddd986fe123bf33087b6ab0494c3601e62e9acf08571a9cb73fa6689ac9',
     canonicalizerPolicyDigest: '9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279',
-    compiledCoreDigest: 'a71e296db8e6f8ba988a18477bd55969b81d368c0ca524ac41edd3a89cc2bae1',
+    compiledCoreDigest: 'c7bbaeacc98f48905558175bbb075829845eea5af2e9a45e2a73b47aea6a75f5',
     corpusDigest: 'd21f087a5f31336e3164768a47d9940d914ec3124111f7125c70665a4b0017ec',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: 'eb408f1454f2e2b27cecfa58d5adb62d4b72a8b080bf665ed918901fa041341f',

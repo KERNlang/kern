@@ -2356,12 +2356,13 @@ trusted-publishing/provenance configuration is inspected.
     is 55,002. The 43,416-byte composite authenticates at SHA-256
     `6851fddd986fe123bf33087b6ab0494c3601e62e9acf08571a9cb73fa6689ac9`.
     Effect-machine writes update exact runtime-owned Maps in place instead of
-    copying their complete growing prefix; speculative generic preconditions
-    remain pure, assignment traces retain immutable Map snapshots, and a
-    regression proves Maps cannot be aliased by portable `let` before a write.
+    copying or ownership-walking their complete growing prefix; speculative
+    generic preconditions remain pure, assignment traces retain immutable Map
+    snapshots, and regressions prove Maps cannot be aliased by portable `let`
+    before a write or rescanned during the exact owned rebind.
     Live coverage and prerequisite receipts authenticate at
-    `e4d59a023a890ef25eba4092b208bf9884c2cc827ce4c43dc43d613ed069fc69`
-    and `79720dfc9bf1c5ca6eef26d866955678110c038358218687b206704e2a373448`;
+    `6d64f891592adac4dd59c3435f0343a7c5638db14c6c427a274be784a3883c4b`
+    and `91d42844781ed13406b66a1389d7198d122e75cd85df32284894bcd46cc97083`;
     the published M4.38 receipt remains byte-identical at
     `8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd`.
     Profile promotion remains performance-gated because the later validated

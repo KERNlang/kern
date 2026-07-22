@@ -1,6 +1,6 @@
 # KERN 5 R2 M4.39 Canonicalizer Budgeted Performance
 
-**Status:** READY TO PUBLISH
+**Status:** PUBLISHED; POST-PUBLISH RUNTIME FIX READY
 **Date:** 2026-07-22
 **Confidence:** 0.98
 
@@ -145,8 +145,9 @@ slice.
 - [x] Active profile remains exactly `16/30/106`; no profile promotion occurs.
 - [x] Focused and full Node 22 gates pass after the review-driven runtime fix.
 - [x] Independent high-risk review has no unresolved material finding.
-- [ ] Signed Agon commit is fetched/rebased before one atomic no-verify push to
-      the fresh feature ref and authorized `main`, and both refs are verified.
+- [x] Signed Agon commit `f16b81e3` was fetched/rebased before one atomic
+      no-verify push to the fresh feature ref and authorized `main`; both refs
+      resolved to the published commit.
 
 ## Stop Conditions
 
@@ -188,6 +189,25 @@ slice.
   generic precondition resolution pure, snapshots Map-valued assignment trace
   evidence, stores record roles directly by sibling order, and removes the
   obsolete live M4.38 analyzer behind the immutable published handoff.
+- Post-fix full-roster review
+  `review-1784699626179-0vt7am-kern-5-r2-m4-39-post-fix` found one remaining
+  uncharged quadratic path: the exact owned Map rebind still passed through
+  `assignBinding`, which ownership-walked the complete growing prefix. A RED
+  iterator-poison regression reproduced the scan; the machine path now uses
+  an identity-checked exact-owned scalar-Map rebind that preserves provenance
+  cleanup without a graph walk. The generic ID-helper scans reported by the
+  performance lens remain the already documented M4.40 work and do not widen
+  M4.39.
+- Final full-roster confirmation
+  `review-1784702046503-8i1uac-kern-5-r2-m4-39-final-post-fix` returned the
+  original Codex blocker reporter with no findings. Minimax's two blocking
+  claims were disproved against JavaScript Map semantics and the executable
+  regression: Map entries are internal slots rather than own properties, so
+  `Reflect.ownKeys` remains empty for a populated exact Map, and the test starts
+  with `existing -> 0`, poisons Map iteration, then successfully adds
+  `next -> 1`. The focused runtime tests and complete fitness wall both pass.
+  The push-copy observation is a pre-existing array path outside this
+  Map-indexed M4.39 slice. No material finding remains unresolved.
 - Targeted review-driven-fix confirmation
   `review-1784699556651-u2wyb3-kern-5-r2-m4-39-mapset-fix` completed 2/2
   independent reviews. Claude reported no findings. The `dist`-import concern
