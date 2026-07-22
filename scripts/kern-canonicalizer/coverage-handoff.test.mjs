@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and five-record prerequisite history after M4.34', () => {
+test('the current corpus preserves selection and five-record prerequisite history after M4.35', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -389,7 +389,7 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.34 preserves unary implementation provenance after appending the do-statement handoff', () => {
+test('M4.35 preserves unary implementation provenance while implementing do', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -404,12 +404,13 @@ test('M4.34 preserves unary implementation provenance after appending the do-sta
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 40459, 'M4.33 must bind the exact migrated KERN byte count');
+  assert.equal(canonicalizerSource.length, 41190, 'M4.35 must bind the exact do-capable KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'e58663c3bdc552faa094b8318650f8791f30056ceea81a4888293fc64f348101',
-    'M4.33 must bind the exact migrated KERN digest',
+    '40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3',
+    'M4.35 must bind the exact do-capable KERN digest',
   );
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
@@ -425,6 +426,7 @@ test('M4.34 preserves unary implementation provenance after appending the do-sta
   assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'do-statement'), true);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
@@ -432,6 +434,7 @@ test('M4.34 preserves unary implementation provenance after appending the do-sta
   assert.equal(policy.base.nodeKinds.includes('for'), true);
   assert.equal(policy.base.nodeKinds.includes('let'), true);
   assert.equal(policy.base.nodeKinds.includes('assign'), true);
+  assert.equal(policy.base.nodeKinds.includes('do'), false);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,

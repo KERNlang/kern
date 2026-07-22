@@ -20,13 +20,13 @@ const EXPECTED_PARAMETER_MIGRATION = {
 };
 
 const EXPECTED_DO_SELECTION = {
-  prerequisiteRanking: [{ catalogFacts: 2, family: 'do-statement', occurrences: 176 }],
+  prerequisiteRanking: [{ catalogFacts: 2, family: 'do-statement', occurrences: 178 }],
   ranking: [{
     completeFunctions: 1,
     completeTools: 1,
     families: ['do-statement'],
     migratedParameterRows: 2,
-    occurrences: 176,
+    occurrences: 178,
     witnesses: [{
       id: 'examples/selfhost-validator/validator.kern#14:appendid',
       parameterRows: 2,
@@ -36,7 +36,7 @@ const EXPECTED_DO_SELECTION = {
   }],
 };
 
-test('M4.33 consumes the exact value-band queue and preserves the disjoint residual do winner', () => {
+test('M4.35 implements do and preserves the exact residual prerequisite closure', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'selected');
@@ -96,21 +96,21 @@ test('format 3 rejects selection, migration, overlap, and baseline drift', () =>
   );
 });
 
-test('M4.33 binds the exact authenticated value-band parameter transition', () => {
+test('M4.35 binds the exact authenticated do implementation transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 45,
     baseId: 'kern.kir-canonicalizer.profile.m4.29',
-    canonicalizerDigest: 'e58663c3bdc552faa094b8318650f8791f30056ceea81a4888293fc64f348101',
+    canonicalizerDigest: '40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3',
     canonicalizerPolicyDigest: '9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: '4dcb97ac0c9ddf1fdc7fd2c95750677d78281ef46dd74136136f6fee91732886',
+    corpusDigest: '009f1bc18de3e630a626ad9ddb5eff2b511d6fb7f0badc2aa87bce4f4336ecc1',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'cc4b84c8655a458890edb6c7b79a07a5c1af7997db172a559c7cdeec47ff33b6',
+    coveragePolicyDigest: 'fa5cedd2be8cac69bf4798826848ccf445e6788738685e015be149f5d3df67a4',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '6ff19ad0a49dee08484278a51c27053be780e82f681194fd0d35840fca1ec23c',
+    functionFactsDigest: 'd22ac32bf2803f1f33b8ce6fad2f2c4ced0da4ef22a3bd6565beb98e97fee20c',
     legacyParameterBlockers: 57,
     profileDigest: '2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa',
     toolCount: 4,

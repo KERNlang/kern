@@ -2204,6 +2204,42 @@ trusted-publishing/provenance configuration is inspected.
     historical-mechanism refactor suggestions; positional validation and the
     newest exact-chain test remain deliberately explicit for this evidence-only
     slice. No material review finding remains.
+  - [x] M4.35 exact do-statement canonicalizer implementation: the immutable
+    M4.34 handoff is consumed without promoting do, migrating `appendid`, or
+    changing parser, structural KIR, runtime, ABI, public exports, profile, or
+    family registry. KERN now validates `do` as exactly one required `value`
+    expression with zero children and emits one canonical quoted `do value=`
+    line through the existing recursive expression owner. Three valid fixtures
+    cover direct calls, canonical argument spacing, and nested control flow;
+    eight hostile mutations cover missing, duplicate, excluded, future,
+    non-expression, unsupported-expression, and child-bearing forms. The
+    statement member is 158 lines and 11,014 bytes at
+    `475ec6bcaa3bcc3610a1dcb64cfa9175ee8faf00a20d458586b2003fd7009314`;
+    the authenticated composite is 41,190 bytes at
+    `40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3`.
+    Live do evidence rises from the immutable 176 to 178 while M4.29 remains
+    the base profile, coverage remains 45/104, `fn.params` blockers remain 57,
+    and unary remains implementation provenance. Policy, coverage, and
+    prerequisite receipt SHA-256 values are
+    `fa5cedd2be8cac69bf4798826848ccf445e6788738685e015be149f5d3df67a4`,
+    `3be607f15bcd762a24ece0dacf2816fded0dd9b57b082780fe2f6590bf27632a`,
+    and `e932f7f4c85f9aedc02b76ba13ea1e91033be0998303fc997ce067a7f617f832`;
+    implementation digest is
+    `5f25fd30c54b55a770b1bcce0828316d147f283e40ff68c67452ca7a6a1d457b`.
+    Focused Node 22 canonicalizer validation passes 103/103 tests, 51 exact
+    runtime fixtures, eight witnesses, three profile-limit fixtures, and 226
+    hostile mutations. The complete pre-review Node 22 `pnpm fitness:kern-5`
+    wall also passes, including the final canonicalizer replay at the exact
+    receipt-bound 45/104 state. Initial automatic high-risk role-lens review
+    `review-1784678742702-fdb847` completed all six usable non-excluded seats.
+    Five seats found no blocker; Kimi and Z.AI exposed one real fixture-
+    precision issue, now fixed by making the displaced expression's return
+    path valid so malformed `do.value` is the witness's only rejection cause.
+    The exact final-tree focused gate passes after regenerated authenticated
+    receipts; that hostile fixture is the only post-wall implementation change.
+    MiniMax's value-ID ordering and digest-authentication claims were disproved
+    against append-only allocation and live digest regeneration. No material
+    review finding remains.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

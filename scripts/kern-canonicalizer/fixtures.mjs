@@ -3,6 +3,7 @@ import { BINDING_HOSTILE_FIXTURES, BINDING_VALID_FIXTURES } from './binding-fixt
 import { CALL_HOSTILE_FIXTURES, CALL_VALID_FIXTURES } from './call-fixtures.mjs';
 import { CONDITIONAL_HOSTILE_FIXTURES, CONDITIONAL_VALID_FIXTURES } from './conditional-fixtures.mjs';
 import { COUNTED_ITERATION_HOSTILE_FIXTURES, COUNTED_ITERATION_VALID_FIXTURES } from './counted-iteration-fixtures.mjs';
+import { DO_HOSTILE_FIXTURES, DO_VALID_FIXTURES } from './do-fixtures.mjs';
 import {
   appendRootBoolValue,
   appendRootTextValue,
@@ -174,6 +175,7 @@ export const VALID_FIXTURES = [
   ...COUNTED_ITERATION_VALID_FIXTURES,
   ...BINDING_VALID_FIXTURES,
   ...UNARY_VALID_FIXTURES,
+  ...DO_VALID_FIXTURES,
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
   PROFILE_BOUNDARY_FIXTURE,
 ];
@@ -187,6 +189,7 @@ export const HOSTILE_FIXTURES = [
   ...COUNTED_ITERATION_HOSTILE_FIXTURES,
   ...BINDING_HOSTILE_FIXTURES,
   ...UNARY_HOSTILE_FIXTURES,
+  ...DO_HOSTILE_FIXTURES,
   {
     id: 'empty-root-list',
     base: 'shuffled-identifier',
