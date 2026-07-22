@@ -5,6 +5,7 @@ import {
   formatCurrentResidualAnalysisStatus,
   formatCoverageWinnerStatus,
   formatHistoricalResidualAnalysisStatus,
+  formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
 test('coverage status formats current and historical release decisions', () => {
@@ -31,5 +32,12 @@ test('coverage status formats current and historical release decisions', () => {
       completeFunctions: 11,
     }),
     'Current residual analysis selected 11 functions by maxValueRows widening.',
+  );
+});
+
+test('coverage status distinguishes the published M4.38 action from current promotion authority', () => {
+  assert.equal(
+    formatPublishedResidualAnalysisStatus({ completeFunctions: 11, changedLimits: ['maxValueRows'] }),
+    'M4.38 published analysis selected 11 functions by maxValueRows widening; M4.39 keeps profile promotion performance-gated.',
   );
 });

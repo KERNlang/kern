@@ -3,7 +3,7 @@ import {
   runInternalEffectMachineSync,
 } from '../src/ir/semantics/internal-effect-machine.js';
 import { runInternalMachineDo } from '../src/ir/semantics/internal-effect-machine-do.js';
-import { makeEnv } from '../src/ir/semantics/semantic-env.js';
+import { getBinding, makeEnv } from '../src/ir/semantics/semantic-env.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
 import type { IRNode } from '../src/types.js';
 
@@ -45,6 +45,38 @@ describe('M3.20 effect-machine do ownership', () => {
     ]);
     expect(trace.completion).toEqual({ kind: 'return', value: 2 });
     expect(trace.events).toHaveLength(1);
+  });
+
+  test('machine Map.set updates one owned map instead of cloning its growing prefix', () => {
+    const env = makeEnv({ bindings: new Map([['values', new Map<string, unknown>()]]) });
+    const values = getBinding(env, 'values');
+
+    runInternalMachineDo({ type: 'do', props: { value: 'Map.set(values, "a", 1)' } }, env);
+    runInternalMachineDo({ type: 'do', props: { value: 'Map.set(values, "b", 2)' } }, env);
+
+    expect(getBinding(env, 'values')).toBe(values);
+    expect(values).toEqual(
+      new Map([
+        ['a', 1],
+        ['b', 2],
+      ]),
+    );
+  });
+
+  test('rejects a Map alias before an in-place write can expose shared identity', () => {
+    const env = makeEnv({ bindings: new Map([['values', new Map<string, unknown>()]]) });
+    const values = getBinding(env, 'values');
+
+    expect(() =>
+      runInternalEffectMachineSync(
+        [
+          { type: 'let', props: { name: 'alias', value: 'values' } },
+          { type: 'do', props: { value: 'Map.set(alias, "key", 1)' } },
+        ],
+        env,
+      ),
+    ).toThrow('effect machine rejected let node');
+    expect(values).toEqual(new Map());
   });
 
   test('nested branch and try frames execute do through the same machine', () => {
@@ -124,6 +156,59 @@ describe('M3.20 effect-machine do ownership', () => {
       ),
     ).toThrow();
     expect(calls).toBe(0);
+  });
+
+  test('admits syntactically string-proven deferred Map.set keys in a loop', async () => {
+    const nodes: readonly IRNode[] = [
+      { type: 'let', props: { name: 'values', value: 'new Map()' } },
+      {
+        type: 'for',
+        props: { from: '0', name: 'i', to: '2' },
+        children: [
+          { type: 'do', props: { value: 'Map.set(values, String(i) + ":" + String(i), i)' } },
+          {
+            type: 'if',
+            props: { cond: 'Map.get(values, String(i) + ":" + String(i)) != i' },
+            children: [{ type: 'throw', props: { value: 'new Error("map write mismatch")' } }],
+          },
+        ],
+      },
+    ];
+    const sync = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: 2 });
+    const asyncTrace = await runInternalEffectMachineAsync(nodes, makeEnv(), { iterationBudget: 2 });
+    expect(sync).toEqual({
+      completion: { kind: 'normal' },
+      events: [
+        { op: 'assign', target: 'values', value: new Map() },
+        { binding: 'i', op: 'iter-next', value: 0 },
+        { binding: 'i', op: 'iter-next', value: 1 },
+      ],
+    });
+    expect(tracesEqual(sync, asyncTrace)).toBe(true);
+  });
+
+  test('rejects unproved deferred Map.set key shapes before an earlier capability effect', () => {
+    const keys = ['"row:" + i', '`row:${i}`', 'true ? String(i) : String(i)', 'String(i) as string'];
+    for (const key of keys) {
+      let calls = 0;
+      const env = makeEnv({ capabilities: { storage: { get: () => ++calls } } });
+      expect(() =>
+        runInternalEffectMachineSync(
+          [
+            { type: 'let', props: { name: 'values', value: 'new Map()' } },
+            { type: 'capability', props: { namespace: 'storage', operation: 'get' } },
+            {
+              type: 'for',
+              props: { from: '0', name: 'i', to: '1' },
+              children: [{ type: 'do', props: { value: `Map.set(values, ${key}, 1)` } }],
+            },
+          ],
+          env,
+          { iterationBudget: 1 },
+        ),
+      ).toThrow();
+      expect(calls).toBe(0);
+    }
   });
 
   test('rejects a shadowed Map namespace before an earlier capability effect', () => {

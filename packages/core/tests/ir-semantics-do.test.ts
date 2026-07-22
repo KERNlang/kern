@@ -21,6 +21,7 @@ import { _resetAssignContractForTest, registerAssignContract } from '../src/ir/s
 import { _resetDoContractForTest, doContract, registerDoContract } from '../src/ir/semantics/do.js';
 import { _resetLetContractForTest, registerLetContract } from '../src/ir/semantics/let.js';
 import { _resetPrimitivesForTest, registerPrimitives } from '../src/ir/semantics/primitives.js';
+import { getBinding } from '../src/ir/semantics/semantic-env.js';
 import type { IRNode } from '../src/types.js';
 
 beforeEach(() => {
@@ -138,6 +139,14 @@ describe('do contract — preconditions reject out-of-domain IR', () => {
 
   it('rejects push on an OBJECT-position expression (`ys[0].push(1)` — receiver is not a bare ident)', () => {
     mustReject({ type: 'do', props: { value: 'ys[0].push(1)' } });
+  });
+
+  it('keeps Map.set precondition evaluation pure', () => {
+    const env = makeEnv({ bindings: new Map([['m', new Map<string, unknown>()]]) });
+    const map = getBinding(env, 'm');
+
+    expect(doContract.preconditions({ type: 'do', props: { value: 'Map.set(m, "a", 1)' } }, env)).toBe(true);
+    expect(map).toEqual(new Map());
   });
 });
 

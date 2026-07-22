@@ -45,7 +45,7 @@ import {
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
-import { isEmptyMapConstructorCall } from './portable-map.js';
+import { isEmptyMapConstructorCall, isPortableMapValue } from './portable-map.js';
 import {
   evalRecordArrayFieldReferenceValue,
   evalRecordLiteralValue,
@@ -400,9 +400,10 @@ function runLet(node: IRNode, env: SemanticEnv): Trace {
   } else if (parsed.kind === 'ident' && defineArrayAliasBinding(env, name, parsed.name, value)) {
     // Alias metadata is handled by defineArrayAliasBinding.
   } else defineBinding(env, name, value);
+  const traceValue = isPortableMapValue(value) ? new Map(value) : value;
   return {
     completion: { kind: 'normal' },
-    events: [{ op: 'assign', target: name, value }],
+    events: [{ op: 'assign', target: name, value: traceValue }],
   };
 }
 

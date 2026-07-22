@@ -186,6 +186,32 @@ describe('M3.24 same-root helper machine ownership', () => {
     });
   });
 
+  test('admits helper-local Map writes whose deferred key is structurally string-safe', () => {
+    const nodes: readonly IRNode[] = [{ type: 'print', props: { value: 'lastValue(3)' } }];
+    const env = () =>
+      sameRootHelperEnv([
+        {
+          body: [
+            { type: 'let', props: { name: 'values', value: 'new Map()' } },
+            {
+              type: 'for',
+              props: { from: '0', name: 'i', to: 'count' },
+              children: [{ type: 'do', props: { value: 'Map.set(values, String(i), i)' } }],
+            },
+            { type: 'return', props: { value: 'Map.get(values, String(count - 1))' } },
+          ],
+          name: 'lastValue',
+          params: ['count'],
+        },
+      ]);
+
+    expect(selectSourceRunnerEngine(nodes, env(), { iterationBudget: 3 })).toBe(SOURCE_RUNNER_ENGINE.machine);
+    expect(executeSourceRunnerSync(nodes, env(), { iterationBudget: 3, policy: 'machine-only' })).toEqual({
+      completion: { kind: 'normal' },
+      events: [{ op: 'stdout', text: '2' }],
+    });
+  });
+
   test('preserves direct and mutual recursion through the 512-call contract', () => {
     const directNodes: readonly IRNode[] = [{ type: 'print', props: { value: 'countdown(511)' } }];
     const directEnv = sameRootHelperEnv([

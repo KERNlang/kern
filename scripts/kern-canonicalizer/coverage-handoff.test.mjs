@@ -389,7 +389,7 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.36 promotes do while preserving the exact M4.35 KERN executable', () => {
+test('the current optimized executable preserves every M4.36-promoted family', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -404,11 +404,11 @@ test('M4.36 promotes do while preserving the exact M4.35 KERN executable', () =>
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 41190, 'M4.35 must bind the exact do-capable KERN byte count');
+  assert.equal(canonicalizerSource.length, 43416, 'M4.39 must bind the exact optimized KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3',
-    'M4.35 must bind the exact do-capable KERN digest',
+    '6851fddd986fe123bf33087b6ab0494c3601e62e9acf08571a9cb73fa6689ac9',
+    'M4.39 must bind the exact optimized KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);

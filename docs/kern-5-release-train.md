@@ -2340,6 +2340,39 @@ trusted-publishing/provenance configuration is inspected.
     independently verified. Missing-file and hash claims were disproved
     against staged files and exact published blobs. No material finding
     remains unresolved.
+  - [x] M4.39 canonicalizer budgeted table validation: the quadratic
+    `tablesok` scans are replaced by deterministic Map indexes while retaining
+    every published table invariant and the exact `16/30/106` active profile.
+    Deferred `Map.set` keys are admitted only when syntax proves a string from
+    literals, exact `String(...)` calls, and recursively proved concatenations;
+    mixed, bare, template, conditional, asserted, and helper-returned keys
+    remain fail-closed. A frozen transcription of the old quadratic validator
+    agrees with the optimized KERN implementation across the exact production
+    witness plus delimiter/Unicode, duplicate, sparse, ownership, scalar-child,
+    list-role, and record-order mutations. The migrated
+    `validator.kern#18:hasimportcyclefrom` witness at 15/24/154 now returns exact
+    canonical bytes at an authenticated 56,000-iteration regression budget and
+    the unchanged 65,536 production ceiling; the measured full-handler floor
+    is 55,002. The 43,416-byte composite authenticates at SHA-256
+    `6851fddd986fe123bf33087b6ab0494c3601e62e9acf08571a9cb73fa6689ac9`.
+    Effect-machine writes update exact runtime-owned Maps in place instead of
+    copying their complete growing prefix; speculative generic preconditions
+    remain pure, assignment traces retain immutable Map snapshots, and a
+    regression proves Maps cannot be aliased by portable `let` before a write.
+    Live coverage and prerequisite receipts authenticate at
+    `e4d59a023a890ef25eba4092b208bf9884c2cc827ce4c43dc43d613ed069fc69`
+    and `79720dfc9bf1c5ca6eef26d866955678110c038358218687b206704e2a373448`;
+    the published M4.38 receipt remains byte-identical at
+    `8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd`.
+    Profile promotion remains performance-gated because the later validated
+    lookup and emission helpers leave only 10,534 iterations (16.07%) of
+    capacity; the next slice optimizes those helpers before any 154-row
+    promotion. The focused canonicalizer gate passed 111/111 tests, 51
+    golden/idempotence/KIR fixtures, 8 measured witnesses, 3 profile-limit
+    fixtures, and 226 hostile fixtures. The complete Node 22
+    `fitness:kern-5` wall passed, including 432/432 cross-target fixtures,
+    109/109 class fixtures, and 233/233 native KERN assertions at required
+    100% coverage.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

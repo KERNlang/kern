@@ -133,7 +133,7 @@ export function runInternalMachineDo(node: IRNode, env: SemanticEnv): Trace {
     }
     return emptyTrace();
   }
-  const resolved = resolveParsedMapSet(parsed.targetName, parsed.key, parsed.value, env, evalPortableValue);
+  const resolved = resolveParsedMapSet(parsed.targetName, parsed.key, parsed.value, env, evalPortableValue, true);
   assignBinding(env, resolved.targetName, resolved.newMap);
   return emptyTrace();
 }

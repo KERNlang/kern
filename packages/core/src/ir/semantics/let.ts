@@ -50,7 +50,7 @@ import {
   type SemanticEnv,
 } from './index.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
-import { isEmptyMapConstructorCall } from './portable-map.js';
+import { isEmptyMapConstructorCall, isPortableMapValue } from './portable-map.js';
 import {
   assertRunnerPortableValue,
   evalPortableValue,
@@ -152,7 +152,8 @@ function letEffects(ir: IRNode, env: SemanticEnv): Trace {
   } else if (isRecordLiteralExpression(parsed))
     defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
   else defineBinding(env, name, value);
-  return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  const traceValue = isPortableMapValue(value) ? new Map(value) : value;
+  return { events: [{ op: 'assign', target: name, value: traceValue }], completion: { kind: 'normal' } };
 }
 
 /** Proven nested-iteration fields: evaluated record fields whose value is an array

@@ -4,6 +4,7 @@ import { assertPortableDecimalPow } from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import { isSyntacticallyStringMapKey } from './deferred-map-key.js';
 import { expressionV1Parsed } from './expression-v1-runtime.js';
 import {
   internalMachineClassGetterForRead,
@@ -271,11 +272,12 @@ function assertDeferredDo(node: IRNode, env: SemanticEnv, deferredBindings: Read
     return;
   }
   if (!isPortableMapValue(target)) throw new Error(`portable: "${parsed.targetName}" is not a Map binding`);
-  if (expressionRequiresDeferredMachinePreflight(parsed.key, env, deferredBindings)) {
+  const deferredKey = expressionRequiresDeferredMachinePreflight(parsed.key, env, deferredBindings);
+  if (deferredKey && !isSyntacticallyStringMapKey(parsed.key)) {
     throw new Error('portable: Map key must be a known string before deferred input');
   }
   assertDeferredMachineScalarPreflight(parsed.key, env, deferredBindings);
-  if (typeof evalPortableValue(parsed.key, env) !== 'string') {
+  if (!deferredKey && typeof evalPortableValue(parsed.key, env) !== 'string') {
     throw new Error('portable: Map key must be a string');
   }
   assertDeferredMachineScalarPreflight(parsed.value, env, deferredBindings);

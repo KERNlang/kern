@@ -39,7 +39,7 @@ import {
 import { recordArrayFieldsFromValue } from './let.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
-import { isEmptyMapConstructorCall } from './portable-map.js';
+import { isEmptyMapConstructorCall, isPortableMapValue } from './portable-map.js';
 import {
   assertPortableRecordEntry,
   assertPortableScalar,
@@ -209,7 +209,8 @@ async function asyncLetEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   } else if (isRecordLiteralExpression(parsed))
     defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
   else defineBinding(env, name, value);
-  return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  const traceValue = isPortableMapValue(value) ? new Map(value) : value;
+  return { events: [{ op: 'assign', target: name, value: traceValue }], completion: { kind: 'normal' } };
 }
 
 async function asyncAssignEffects(ir: IRNode, env: SemanticEnv, options: AsyncReferenceRunnerOptions): Promise<Trace> {

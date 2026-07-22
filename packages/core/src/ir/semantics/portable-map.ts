@@ -26,18 +26,19 @@
  *     probe presence, and this predicate makes the REFERENCE runner abstain
  *     on the one input shape where the two other legs would visibly diverge
  *     if the raw result were ever printed/returned.
- *   - `Map.set` is a MUTATION and only certifies inside `do` (see do.ts) —
- *     Maps, like arrays, are plain values here with no observable shared
- *     identity (never cross a function-call boundary), so "set" is modeled
- *     as a functional rebind of the target identifier to a NEW Map (all
- *     existing entries plus the new/updated one), never a true in-place
- *     mutation of a shared object.
+ *   - `Map.set` is a MUTATION and only certifies inside `do` (see do.ts).
+ *     The effect-machine execution path may update an exact machine-owned Map
+ *     in place so a growing map remains O(1) per write. Maps cannot be aliased
+ *     by a portable `let` or cross helper argument/return boundaries, so an
+ *     admitted program has exclusive access to that owned identity. Generic
+ *     semantic resolution remains pure because preconditions invoke it
+ *     speculatively.
  */
 
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import { isPortableBindingName, type PortableScalar } from './portable-scalar-domain.js';
-import { getBinding, hasBinding, type SemanticEnv } from './semantic-env.js';
+import { getBinding, hasBinding, isOwnedExactSemanticMap, type SemanticEnv } from './semantic-env.js';
 
 export type PortableMapValue = ReadonlyMap<string, PortableScalar>;
 
@@ -110,7 +111,7 @@ export function evalMapReadCall(
 
 /**
  * `Map.set(<mapIdent>, <keyExpr>, <valueExpr>)` — recognized ONLY by `do`
- * (see do.ts). Returns the resolved target name + a NEW Map with the
+ * (see do.ts). Returns the resolved target name + the updated Map with the
  * key/value applied on top of the current entries, or `undefined` when
  * `node` is not this exact shape (three args, `Map` namespace, bare ident
  * receiver) so the caller can try other `do` shapes / fail closed itself.
@@ -138,11 +139,13 @@ export function resolveParsedMapSet(
   valueNode: ValueIR,
   env: SemanticEnv,
   evaluate: EvalPortableValue,
+  mutateOwned = false,
 ): { targetName: string; newMap: PortableMapValue } {
   const current = requirePortableMapBinding(targetName, env, 'Map.set');
   const key = requireStringKey(keyNode, env, evaluate, 'Map.set');
   const value = evaluate(valueNode, env);
-  const newMap = new Map(current);
+  const newMap =
+    mutateOwned && isOwnedExactSemanticMap(current) ? (current as Map<string, PortableScalar>) : new Map(current);
   newMap.set(key, value);
   return { targetName, newMap };
 }

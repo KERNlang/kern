@@ -1,32 +1,31 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  measureCanonicalizerResidualAnalysisM438,
-  validateCanonicalizerResidualAnalysisM438,
+  loadPublishedCanonicalizerResidualAnalysisM438,
+  validatePublishedCanonicalizerResidualAnalysisM438,
 } from './coverage-residual-analysis-m4-38.mjs';
 import { loadCanonicalizerResidualAnalysisHandoff } from './coverage-residual-analysis.mjs';
 import { formatCurrentResidualAnalysisStatus } from './coverage-status.mjs';
-import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
-const summaryUrl = new URL('./coverage-residual-analysis-m4-38.json', import.meta.url);
-
-test('M4.38 publishes exact current residual assignments and measured frontier', () => {
-  const actual = measureCanonicalizerResidualAnalysisM438();
+test('M4.38 preserves the exact published residual assignments and measured frontier', () => {
+  const handoff = loadPublishedCanonicalizerResidualAnalysisM438();
+  const actual = handoff.record;
+  assert.equal(handoff.digest, '8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd');
+  assert.equal(handoff.sourceCommit, '953811cb5fdc5d13c92ada4e7f894eb9ac5cf0dc');
   assert.equal(actual.format, 'kern.kir-canonicalizer.residual-analysis.2');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 46,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
-    coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: actual.baseline.coveragePolicyDigest,
+    coverageImplementationDigest: '54d297b6a080d9862d8125b9c28a10f3309686c9e86e192205b8e4a9a68d66ce',
+    coveragePolicyDigest: 'f441b42d80b0fbbe1d858efafddfc8b713b3633699f0d125df9541f90afdb987',
     currentProfileLimits: {
       maxNodeRows: 16,
       maxPropertyRows: 30,
       maxValueRows: 106,
     },
-    functionFactsDigest: actual.baseline.functionFactsDigest,
+    functionFactsDigest: '513653af8508b60955f8f2fc9cb9289bcb26ad9f38a081380692d51cfd3a10c3',
     legacyParameterBlockers: 56,
     residualFunctionCount: 56,
   });
@@ -70,14 +69,11 @@ test('M4.38 publishes exact current residual assignments and measured frontier',
     'Current residual analysis found no actionable profile widening.',
   );
 
-  const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
-  assert.deepEqual(actual, checkedIn);
-  assertCoverageSummary(summaryUrl, actual);
-  assert.deepEqual(validateCanonicalizerResidualAnalysisM438(checkedIn), checkedIn);
+  assert.deepEqual(validatePublishedCanonicalizerResidualAnalysisM438(actual).record, actual);
 });
 
 test('M4.38 analysis rejects assignment, candidate, ranking, and baseline drift', () => {
-  const actual = measureCanonicalizerResidualAnalysisM438();
+  const actual = loadPublishedCanonicalizerResidualAnalysisM438().record;
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.residual-analysis.1'; },
     (copy) => { copy.future = true; },
@@ -93,21 +89,21 @@ test('M4.38 analysis rejects assignment, candidate, ranking, and baseline drift'
     const copy = structuredClone(actual);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerResidualAnalysisM438(copy),
+      () => validatePublishedCanonicalizerResidualAnalysisM438(copy),
       /coverage M4.38 residual analysis rejection/u,
     );
   }
 });
 
 test('M4.38 analysis rejects decorated objects before comparing receipt data', () => {
-  const actual = measureCanonicalizerResidualAnalysisM438();
+  const actual = loadPublishedCanonicalizerResidualAnalysisM438().record;
   const toJsonSpoof = {
     future: true,
     toJSON: () => actual,
   };
   assert.equal(JSON.stringify(toJsonSpoof), JSON.stringify(actual));
   assert.throws(
-    () => validateCanonicalizerResidualAnalysisM438(toJsonSpoof),
+    () => validatePublishedCanonicalizerResidualAnalysisM438(toJsonSpoof),
     /coverage M4\.38 residual analysis rejection/u,
   );
 
@@ -118,7 +114,7 @@ test('M4.38 analysis rejects decorated objects before comparing receipt data', (
   });
   assert.equal(JSON.stringify(accessorSpoof), JSON.stringify(actual));
   assert.throws(
-    () => validateCanonicalizerResidualAnalysisM438(accessorSpoof),
+    () => validatePublishedCanonicalizerResidualAnalysisM438(accessorSpoof),
     /coverage M4\.38 residual analysis rejection/u,
   );
 
@@ -129,14 +125,14 @@ test('M4.38 analysis rejects decorated objects before comparing receipt data', (
   sparseSpoof.assignments.length += 1;
   for (const value of [customPrototype, symbolSpoof, sparseSpoof]) {
     assert.throws(
-      () => validateCanonicalizerResidualAnalysisM438(value),
+      () => validatePublishedCanonicalizerResidualAnalysisM438(value),
       /coverage M4\.38 residual analysis rejection/u,
     );
   }
 
-  const trusted = validateCanonicalizerResidualAnalysisM438(actual);
-  assert.notEqual(trusted, actual);
-  assert.deepEqual(trusted, actual);
+  const trusted = validatePublishedCanonicalizerResidualAnalysisM438(actual);
+  assert.notEqual(trusted.record, actual);
+  assert.deepEqual(trusted.record, actual);
 });
 
 test('M4.38 analysis preserves M4.31 and reproduces in a fresh process', () => {
@@ -147,12 +143,12 @@ test('M4.38 analysis preserves M4.31 and reproduces in a fresh process', () => {
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {measureCanonicalizerResidualAnalysisM438 as measure} from './scripts/kern-canonicalizer/coverage-residual-analysis-m4-38.mjs'; process.stdout.write(JSON.stringify(measure()))",
+    "import {loadPublishedCanonicalizerResidualAnalysisM438 as load} from './scripts/kern-canonicalizer/coverage-residual-analysis-m4-38.mjs'; process.stdout.write(JSON.stringify(load().record))",
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), measureCanonicalizerResidualAnalysisM438());
+  assert.deepEqual(JSON.parse(fresh.stdout), loadPublishedCanonicalizerResidualAnalysisM438().record);
 });

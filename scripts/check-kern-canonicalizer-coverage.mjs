@@ -7,13 +7,13 @@ import {
   loadCanonicalizerResidualAnalysisHandoff,
 } from './kern-canonicalizer/coverage-residual-analysis.mjs';
 import {
-  measureCanonicalizerResidualAnalysisM438,
+  loadPublishedCanonicalizerResidualAnalysisM438,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-38.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
-  formatCurrentResidualAnalysisStatus,
   formatCoverageWinnerStatus,
   formatHistoricalResidualAnalysisStatus,
+  formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
 const summaryUrl = new URL('./kern-canonicalizer/coverage-summary.json', import.meta.url);
@@ -21,20 +21,16 @@ const prerequisiteSummaryUrl = new URL(
   './kern-canonicalizer/coverage-prerequisite-summary.json',
   import.meta.url,
 );
-const currentResidualAnalysisUrl = new URL(
-  './kern-canonicalizer/coverage-residual-analysis-m4-38.json',
-  import.meta.url,
-);
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
-const currentResidualAnalysis = measureCanonicalizerResidualAnalysisM438();
+const currentResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
+const currentResidualAnalysis = currentResidualAnalysisHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
-  writeCoverageSummary(currentResidualAnalysisUrl, currentResidualAnalysis);
 } else {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
@@ -202,7 +198,7 @@ if (process.argv.includes('--write')) {
     activeFamilies: ['exception-flow', 'while-iteration'],
     completingClosureCount: 0,
     evaluatedNonEmptyClosureCount: 3,
-    reasonAssignmentsDigest: '8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef',
+    reasonAssignmentsDigest: '793c928b2858feba71d30a8e7c4b3fba224c51e3cc4e199359ad525297ef4ecc',
     reasonCounts: [
       { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
       { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -210,12 +206,13 @@ if (process.argv.includes('--write')) {
       { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
       { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
       { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
+      { count: 1, id: 'let.value:unknown-expression-kind' },
       { count: 27, id: 'profile.rows.nodes' },
       { count: 23, id: 'profile.rows.properties' },
       { count: 40, id: 'profile.rows.values' },
-      { count: 14, id: 'projection.limit-depth' },
+      { count: 13, id: 'projection.limit-depth' },
       { count: 1, id: 'projection.limit-nodes' },
-      { count: 1, id: 'projection.unknown-expression-kind' },
+      { count: 2, id: 'projection.unknown-expression-kind' },
       { count: 1, id: 'throw.value:unknown-expression-kind' },
     ],
     residualFunctionCount: 56,
@@ -278,12 +275,11 @@ if (process.argv.includes('--write')) {
     currentResidualAnalysis.assignmentsDigest,
     '8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef',
   );
-  assert.equal(
-    currentResidualAnalysis.baseline.coverageImplementationDigest,
-    actual.coverageImplementationDigest,
-  );
-  assert.equal(currentResidualAnalysis.baseline.coveragePolicyDigest, actual.coveragePolicyDigest);
-  assert.equal(currentResidualAnalysis.baseline.functionFactsDigest, actual.functionFactsDigest);
+  assert.equal(currentResidualAnalysisHandoff.digest, '8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd');
+  assert.equal(currentResidualAnalysisHandoff.sourceCommit, '953811cb5fdc5d13c92ada4e7f894eb9ac5cf0dc');
+  assert.equal(currentResidualAnalysis.baseline.coverageImplementationDigest, '54d297b6a080d9862d8125b9c28a10f3309686c9e86e192205b8e4a9a68d66ce');
+  assert.equal(currentResidualAnalysis.baseline.coveragePolicyDigest, 'f441b42d80b0fbbe1d858efafddfc8b713b3633699f0d125df9541f90afdb987');
+  assert.equal(currentResidualAnalysis.baseline.functionFactsDigest, '513653af8508b60955f8f2fc9cb9289bcb26ad9f38a081380692d51cfd3a10c3');
   assert.deepEqual(currentResidualAnalysis.baseline.currentProfileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
@@ -312,7 +308,6 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#18:hasimportcyclefrom',
     ],
   });
-  assertCoverageSummary(currentResidualAnalysisUrl, currentResidualAnalysis);
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -446,9 +441,9 @@ process.stdout.write(
   (prerequisite.parameterMigration.completeFunctions > 0
     ? 'next action parameter migration.'
     : prerequisite.selectedPrerequisite === null
-      ? 'bounded active-family exhaustion; next action from current residual analysis.'
+      ? 'bounded active-family exhaustion; published residual action remains performance-gated.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
-  ` ${formatCurrentResidualAnalysisStatus(currentResidualAnalysis.selectedNextAction)}` +
+  ` ${formatPublishedResidualAnalysisStatus(currentResidualAnalysis.selectedNextAction)}` +
   ` ${formatHistoricalResidualAnalysisStatus(residualAnalysis.selectedNextAction)}\n`,
 );
