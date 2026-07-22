@@ -2858,6 +2858,31 @@ trusted-publishing/provenance configuration is inspected.
     pattern. KERN 5 remains incomplete: after publication, M4.53 may migrate
     only this frozen six-row queue.
 
+  - [x] M4.53 migrates only the exact M4.52 one-function/six-row parameter
+    queue: `examples/selfhost-validator/validator.kern#17:classcyclefrom` now
+    carries six ordered direct `param` children while its semantic body remains
+    byte-identical by digest. The 19/31/388 profile is unchanged; base
+    completion advances from 64/104 to 65/104, legacy `fn.params` blockers fall
+    from 39 to 38, the parameter-ready queue becomes 0/0/0, and the residual
+    set remains 38. The M4.52 handoff and loader authenticate at
+    `220becc58afa59bb35f1fef2246038d7c7763b49db65d615f6c5725c87659c76`
+    and
+    `357e848651a9347a4c96c269686253dc0e5e49407456fe5cb0767b4cef400639`;
+    live coverage and prerequisite receipts authenticate at
+    `ae82ad725240338fb5cb37e3847e8b06e8a1940f771a7e2d75a4f0a6c10f779c`
+    and
+    `c53e760123fc4f48c37a905d76d291f8bb4eacb12dbb792461fdd84358062416`.
+    Focused gates pass 4/4, 54/54, and 32/32; the canonicalizer wall passes
+    175/175 tests plus 51/8/3/226 fixtures; and the complete Node 22.22
+    `fitness:kern-5` wall passes. Required high-risk role-lens review
+    `review-1784762426236-sq8uae-kern-5-r2-m4-53` completed all 6/6 usable
+    reviewers with zero verified findings and zero blockers. Its two
+    needs-check DRY observations were rejected after source verification:
+    milestone-local hashes and cumulative line-count guards intentionally
+    remain independent so a shared edit cannot bless historical drift. KERN 5
+    remains incomplete; the next slice must analyze the exact 38-function
+    residual before selecting any further capability work.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

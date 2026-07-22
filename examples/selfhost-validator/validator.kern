@@ -265,7 +265,13 @@ fn name=classrow returns=number export=true
           return value="i10 + 1"
     return value="0"
 
-fn name=classcyclefrom params="module:number,name:string,classModule:number[],className:string[],classExtends:string[],path:number[]" returns=boolean export=true
+fn name=classcyclefrom returns=boolean export=true
+  param name=module type=number
+  param name=name type=string
+  param name=classModule type="number[]"
+  param name=className type="string[]"
+  param name=classExtends type="string[]"
+  param name=path type="number[]"
   handler lang="kern"
     for name=i11 from=0 to="classModule.length"
       if cond="classModule[i11] == module"

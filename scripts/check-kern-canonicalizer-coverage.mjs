@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 
-import { summarizeCanonicalizerCoverage } from './kern-canonicalizer/coverage.mjs';
+import {
+  measureCanonicalizerCoverage,
+  summarizeCanonicalizerCoverage,
+} from './kern-canonicalizer/coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './kern-canonicalizer/coverage-prerequisite-m4-44.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM448 } from './kern-canonicalizer/coverage-prerequisite-m4-48.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM452 } from './kern-canonicalizer/coverage-prerequisite-m4-52.mjs';
+import { assertM453ParameterMigration } from './kern-canonicalizer/coverage-m4-53-parameter-migration.mjs';
 import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import {
   loadCanonicalizerResidualAnalysisHandoff,
@@ -33,6 +38,7 @@ import {
   formatM447NodeRowHeadroomStatus,
   formatM450ResidualAnalysisStatus,
   formatM451PropertyRowHeadroomStatus,
+  formatM453ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -47,10 +53,12 @@ const m446ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m447NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-47.json', import.meta.url);
 const m450ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-50.json', import.meta.url);
 const m451PropertyRowHeadroomUrl = new URL('./kern-canonicalizer/property-row-headroom-m4-51.json', import.meta.url);
-const actual = summarizeCanonicalizerCoverage();
+const coverage = measureCanonicalizerCoverage();
+const actual = summarizeCanonicalizerCoverage(coverage);
 const prerequisite = measureCanonicalizerPrerequisite();
 const m444PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM444();
 const m448PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM448();
+const m452PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM452();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
 const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
@@ -68,6 +76,7 @@ const m450ResidualAnalysis = m450ResidualAnalysisHandoff.record;
 const m451PropertyRowHeadroomHandoff = loadPublishedCanonicalizerPropertyRowHeadroomM451();
 const m451PropertyRowHeadroom = m451PropertyRowHeadroomHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
+assertM453ParameterMigration(coverage);
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -206,11 +215,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.41 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.41 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.41 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 64, 'live M4.52 base completion must remain exactly 64/104');
+  assert.equal(actual.baseCompleteFunctions, 65, 'live M4.53 base completion must remain exactly 65/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    39,
-    'live M4.52 fn.params blocker count must remain exactly 39',
+    38,
+    'live M4.53 fn.params blocker count must remain exactly 38',
   );
   assert.equal(actual.selection.winner, null, 'live M4.41 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -226,15 +235,10 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 6,
-    witnesses: [{
-      id: 'examples/selfhost-validator/validator.kern#17:classcyclefrom',
-      parameterRows: 6,
-      profileRows: { nodes: 19, properties: 31, values: 202 },
-      tool: 'validator',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -266,6 +270,12 @@ if (process.argv.includes('--write')) {
   assert.equal(m448PrerequisiteHandoff.record.baseline.legacyParameterBlockers, 43);
   assert.equal(m448PrerequisiteHandoff.record.parameterMigration.completeFunctions, 4);
   assert.equal(m448PrerequisiteHandoff.record.parameterMigration.migratedParameterRows, 12);
+  assert.equal(m452PrerequisiteHandoff.digest, '220becc58afa59bb35f1fef2246038d7c7763b49db65d615f6c5725c87659c76');
+  assert.equal(m452PrerequisiteHandoff.sourceCommit, '99905b044c3d981998a3beef846da283dac4a94c');
+  assert.equal(m452PrerequisiteHandoff.record.baseline.baseCompleteFunctions, 64);
+  assert.equal(m452PrerequisiteHandoff.record.baseline.legacyParameterBlockers, 39);
+  assert.equal(m452PrerequisiteHandoff.record.parameterMigration.completeFunctions, 1);
+  assert.equal(m452PrerequisiteHandoff.record.parameterMigration.migratedParameterRows, 6);
   assert.deepEqual(prerequisite.exhaustion, {
     activeFamilies: ['exception-flow', 'while-iteration'],
     completingClosureCount: 0,
@@ -653,6 +663,7 @@ process.stdout.write(
   ` ${formatM447NodeRowHeadroomStatus(m447NodeRowHeadroom)}` +
   ` ${formatM450ResidualAnalysisStatus(m450ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM451PropertyRowHeadroomStatus(m451PropertyRowHeadroom)}` +
+  ` ${formatM453ParameterMigrationStatus(m452PrerequisiteHandoff.record)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

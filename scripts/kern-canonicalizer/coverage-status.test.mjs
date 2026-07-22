@@ -11,6 +11,7 @@ import {
   formatM447NodeRowHeadroomStatus,
   formatM450ResidualAnalysisStatus,
   formatM451PropertyRowHeadroomStatus,
+  formatM453ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -95,6 +96,15 @@ test('coverage status records the M4.50 recommendation and M4.51 headroom', () =
   assert.equal(
     formatM451PropertyRowHeadroomStatus({ summary: { maxExactFloor: 11_951, witnessCount: 1 } }),
     'M4.51 structural headroom authenticated 1 witness at an 11951 exact floor; M4.52 authenticates the property-row profile promotion.',
+  );
+});
+
+test('coverage status records M4.53 consumption of the M4.52 parameter queue', () => {
+  assert.equal(
+    formatM453ParameterMigrationStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 6 },
+    }),
+    'M4.53 consumes the exact M4.52 1-function/6-row parameter queue.',
   );
 });
 

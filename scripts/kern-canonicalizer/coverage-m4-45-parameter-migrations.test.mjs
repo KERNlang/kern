@@ -37,10 +37,10 @@ function targetFixture(name) {
 test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 64);
+  assert.equal(coverage.baseCompleteFunctions, 65);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    39,
+    38,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 19,
@@ -49,9 +49,9 @@ test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
-  assert.equal(prerequisite.parameterMigration.completeTools, 1);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 6);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
+  assert.equal(prerequisite.parameterMigration.completeTools, 0);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 38);
 });
 
@@ -88,7 +88,7 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
     checkerMain.toString('utf8'),
     generateCheckerMainKern(),
   );
-  assert.equal(sha256(checkerMain), 'a63b6b0371206b6ed7c93668a04a6786931460e55fd75ca514c0951473410976');
+  assert.equal(sha256(checkerMain), 'ff961e9e6c3796f8b21ae0622f8fe8c779f4734603e3a31db2b02b2f155aaea2');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
   assert.equal(built.compositeBytes.length, 49_418);

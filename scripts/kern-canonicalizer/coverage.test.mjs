@@ -32,6 +32,7 @@ import { assertStructuredParameterMigrations } from './coverage-parameter-migrat
 import { assertM441ParameterMigrations } from './coverage-m4-41-parameter-migrations.mjs';
 import { assertM445ParameterMigrations } from './coverage-m4-45-parameter-migrations.mjs';
 import { assertM449ParameterMigrations } from './coverage-m4-49-parameter-migrations.mjs';
+import { assertM453ParameterMigration } from './coverage-m4-53-parameter-migration.mjs';
 import { assertValueBandParameterMigrations } from './coverage-value-band-parameter-migrations.mjs';
 import { VALID_FIXTURES } from './fixtures.mjs';
 
@@ -196,8 +197,9 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assertM441ParameterMigrations(first);
   assertM445ParameterMigrations(first);
   assertM449ParameterMigrations(first);
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 39);
-  assert.equal(first.baseCompleteFunctions, 64);
+  assertM453ParameterMigration(first);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 38);
+  assert.equal(first.baseCompleteFunctions, 65);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0, 0]);
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [

@@ -55,6 +55,13 @@ export function formatM451PropertyRowHeadroomStatus(receipt) {
     `${receipt.summary.maxExactFloor} exact floor; M4.52 authenticates the property-row profile promotion.`;
 }
 
+export function formatM453ParameterMigrationStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';
+  return `M4.53 consumes the exact M4.52 ${migration.completeFunctions}-${functionLabel}/` +
+    `${migration.migratedParameterRows}-row parameter queue.`;
+}
+
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   return formatResidualAnalysisStatus(
     'M4.38 published analysis',

@@ -75,19 +75,19 @@ const FILE_CONTRACTS = new Map([
     sha256: 'ffd3f352a7137d846e23a701672b91f99159d624027abaddb2f1408338544541',
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 495,
+    lines: 501,
     remainingLegacy: [
       'isreserved', 'fnokat', 'owncallable', 'ownexportkind', 'exportkind',
-      'classcyclefrom', 'sortstrings', 'validate',
+      'sortstrings', 'validate',
     ],
     roots: 21,
-    sha256: 'b2d274b3eb12d01113583164699fce2a1d5682fb443ab6f31241be3eaa22167f',
+    sha256: 'd648518028d33df00a3a2c49d9c93c398076b529bd33d01d5d0fe71fbb09b17f',
   }],
 ]);
 
 const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    'a63b6b0371206b6ed7c93668a04a6786931460e55fd75ca514c0951473410976'],
+    'ff961e9e6c3796f8b21ae0622f8fe8c779f4734603e3a31db2b02b2f155aaea2'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',

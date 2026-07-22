@@ -113,7 +113,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "b2d274b3eb12d01113583164699fce2a1d5682fb443ab6f31241be3eaa22167f",
+      "digest": "d648518028d33df00a3a2c49d9c93c398076b529bd33d01d5d0fe71fbb09b17f",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

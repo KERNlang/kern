@@ -135,7 +135,7 @@ const EXPECTED_LINES_BY_PATH = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', 272],
   ['examples/capstone-checker-subset/checker.kern', 401],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 192],
-  ['examples/selfhost-validator/validator.kern', 495],
+  ['examples/selfhost-validator/validator.kern', 501],
 ]);
 
 export const M433_VALUE_BAND_NAMES_BY_PATH = new Map();

@@ -3,8 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM452 } from './coverage-prerequisite-m4-52.mjs';
 import {
   loadPublishedCanonicalizerPropertyRowHeadroomM451,
   validatePublishedCanonicalizerPropertyRowHeadroomM451,
@@ -45,15 +44,13 @@ test('M4.52 promotes only the authenticated property-row ceiling', () => {
 });
 
 test('M4.52 publishes exactly the frozen one-function parameter queue', () => {
-  const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 64);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    39,
-  );
-  const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 38);
+  const handoff = loadPublishedCanonicalizerPrerequisiteM452();
+  assert.equal(handoff.digest, '220becc58afa59bb35f1fef2246038d7c7763b49db65d615f6c5725c87659c76');
+  assert.equal(handoff.sourceCommit, '99905b044c3d981998a3beef846da283dac4a94c');
+  assert.equal(handoff.record.baseline.baseCompleteFunctions, 64);
+  assert.equal(handoff.record.baseline.legacyParameterBlockers, 39);
+  assert.deepEqual(handoff.record.parameterMigration, EXPECTED_QUEUE);
+  assert.equal(handoff.record.exhaustion?.residualFunctionCount, 38);
 });
 
 test('M4.52 freezes exact M4.51 runtime evidence before policy moves', () => {

@@ -384,7 +384,7 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 64);
+  assert.equal(receipt.baseCompleteFunctions, 65);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });

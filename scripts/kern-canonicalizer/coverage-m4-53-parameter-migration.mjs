@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
+import {
+  assertDirectParameterPrefix,
+  semanticBodyDigest,
+} from './coverage-value-band-parameter-migrations.mjs';
+
+export const M453_PARAMETER_MIGRATION_TARGET = {
+  bodyDigest: '888c6809b7e88542783352ed8001d8617b72af76d3f692ad87789b3a327dec3b',
+  functionOrdinal: 17,
+  id: 'examples/selfhost-validator/validator.kern#17:classcyclefrom',
+  name: 'classcyclefrom',
+  parameters: [
+    ['module', 'number'], ['name', 'string'], ['classModule', 'number[]'],
+    ['className', 'string[]'], ['classExtends', 'string[]'], ['path', 'number[]'],
+  ],
+  path: 'examples/selfhost-validator/validator.kern',
+  profileRows: { nodes: 19, properties: 31, values: 202 },
+  returns: 'boolean',
+};
+
+const GENERATED_ARTIFACTS = new Map([
+  ['examples/capstone-checker-subset/main.kern',
+    'ff961e9e6c3796f8b21ae0622f8fe8c779f4734603e3a31db2b02b2f155aaea2'],
+  ['examples/capstone-checker-subset/numeric-main.kern',
+    '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
+  ['examples/selfhost-validator/main.kern',
+    '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
+  ['examples/kern-canonicalizer/canonicalizer.composed.kern',
+    '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5'],
+  ['scripts/kern-canonicalizer/composition.json',
+    '708ea2c648dd2f8cf76aa5ac7fb89c609f54406a8da5b5ce4c33d92233c1e441'],
+]);
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+export function assertM453ParameterTarget(root, fact, target = M453_PARAMETER_MIGRATION_TARGET) {
+  assert.ok(root);
+  assert.equal(root.props.name, target.name);
+  assert.equal(root.props.params, undefined);
+  assert.equal(root.props.returns, target.returns);
+  assert.equal(root.props.export, 'true');
+  assert.equal(root.__quotedProps?.includes('params') ?? false, false);
+  assertDirectParameterPrefix(root, target.parameters);
+  assert.equal(semanticBodyDigest(root), target.bodyDigest);
+
+  assert.ok(fact);
+  assert.equal(fact.id, target.id);
+  assert.equal(fact.excludedProperties.includes('fn.params'), false);
+  assert.deepEqual(fact.profileBlockers, []);
+  assert.deepEqual(fact.profileRows, target.profileRows);
+  assert.equal(
+    fact.nodeOccurrences.filter((kind) => kind === 'param').length,
+    target.parameters.length,
+  );
+}
+
+export function assertM453ParameterMigration(receipt) {
+  const sourceBytes = readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url));
+  const source = sourceBytes.toString('utf8');
+  const document = parseDocumentWithDiagnostics(source);
+  assert.deepEqual(document.diagnostics, []);
+  assert.equal(sha256(sourceBytes), 'd648518028d33df00a3a2c49d9c93c398076b529bd33d01d5d0fe71fbb09b17f');
+  assert.equal(source.split('\n').length - 1, 501);
+  const roots = document.root.children.filter(({ type }) => type === 'fn');
+  assert.equal(roots.length, 21);
+  assert.deepEqual(
+    roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
+    ['isreserved', 'fnokat', 'owncallable', 'ownexportkind', 'exportkind', 'sortstrings', 'validate'],
+  );
+  const fact = receipt.functions.find(({ id }) => id === M453_PARAMETER_MIGRATION_TARGET.id);
+  assertM453ParameterTarget(roots[M453_PARAMETER_MIGRATION_TARGET.functionOrdinal], fact);
+
+  for (const [path, digest] of GENERATED_ARTIFACTS) {
+    assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);
+  }
+}

@@ -207,6 +207,7 @@ export function assertStructuredParameterMigrations(receipt) {
     ...M441_PARAMETER_NAMES_BY_PATH.get(validatorPath),
     'appendid',
     'isportable',
+    'classcyclefrom',
   ]);
   const validatorTargets = validatorRoots.filter(({ props }) => validatorTargetNames.includes(props.name));
   const validatorLegacySiblings = validatorRoots.filter(({ props }) => !validatorStructuredNames.has(props.name));
@@ -215,7 +216,7 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.equal(appendid?.props.params, undefined, 'M4.37 appendid must not retain legacy fn.params');
   assertDirectParameterPrefix(appendid, [['xs', 'number[]'], ['id', 'number']]);
   assert.equal(semanticBodyDigest(appendid), '24064fe7a08b3e1c82733710d090dd7f10ec2e8ee1621b7cc2a4e6983aeed72e');
-  assert.equal(validatorSource.split('\n').length - 1, 495);
+  assert.equal(validatorSource.split('\n').length - 1, 501);
   assert.equal(validatorRoots.length, 21);
   assert.deepEqual(validatorTargets.map(({ props }) => props.name), validatorTargetNames);
   assert.equal(validatorTargets.every(({ props }) => props.params === undefined), true);
@@ -233,7 +234,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['xs', 'number[]'], ['id', 'number']],
     ],
   );
-  assert.equal(validatorLegacySiblings.length, 8);
+  assert.equal(validatorLegacySiblings.length, 7);
   assert.equal(validatorLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
