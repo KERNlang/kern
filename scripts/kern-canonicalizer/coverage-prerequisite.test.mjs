@@ -13,15 +13,10 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 1,
-  completeTools: 1,
-  migratedParameterRows: 2,
-  witnesses: [{
-    id: 'examples/selfhost-validator/validator.kern#14:appendid',
-    parameterRows: 2,
-    profileRows: { nodes: 9, properties: 16, values: 80 },
-    tool: 'validator',
-  }],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
 const EXPECTED_EXHAUSTION = {
@@ -48,7 +43,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.36 promotes do and selects appendid parameter migration under bounded exhaustion', () => {
+test('M4.37 consumes appendid parameter migration under bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -60,7 +55,7 @@ test('M4.36 promotes do and selects appendid parameter migration under bounded e
   assert.equal(actual.selectedPrerequisite, null);
 });
 
-test('format 3 rejects mixed selection and bounded-exhaustion shapes after do promotion', () => {
+test('format 3 rejects mixed selection and bounded-exhaustion shapes after appendid migration', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -89,7 +84,17 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after do pr
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.witnesses[0].id = 'future'; },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
+    (copy) => { copy.parameterMigration.completeTools = 1; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
+    (copy) => {
+      copy.parameterMigration.witnesses.push({
+        id: 'examples/selfhost-validator/validator.kern#0:future',
+        parameterRows: 1,
+        profileRows: { nodes: 1, properties: 1, values: 1 },
+        tool: 'validator',
+      });
+    },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(actual);
@@ -124,22 +129,22 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after do pr
   );
 });
 
-test('M4.36 binds the exact authenticated do promotion transition', () => {
+test('M4.37 binds the exact authenticated appendid migration transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 45,
+    baseCompleteFunctions: 46,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
     canonicalizerDigest: '40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3',
     canonicalizerPolicyDigest: '9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
-    corpusDigest: '009f1bc18de3e630a626ad9ddb5eff2b511d6fb7f0badc2aa87bce4f4336ecc1',
+    corpusDigest: '4b313f26f931daef88680ca1acec4decde4a7b6c96a5cec4ef0db875ac8b7d70',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '5e806bf8f4078bf07a2190df6b1be11a8a2fc3e4e77cad668e6030ac1ca1cb0b',
+    coveragePolicyDigest: 'f441b42d80b0fbbe1d858efafddfc8b713b3633699f0d125df9541f90afdb987',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '1a7dc9964714306d2e57f98c73b5af2cfe605cae9f46910b6c0c7eefa46a6a35',
-    legacyParameterBlockers: 57,
+    functionFactsDigest: '513653af8508b60955f8f2fc9cb9289bcb26ad9f38a081380692d51cfd3a10c3',
+    legacyParameterBlockers: 56,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

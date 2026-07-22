@@ -2274,6 +2274,39 @@ trusted-publishing/provenance configuration is inspected.
     both measured file lengths are exact, extraction need not preserve their
     sum, and the bounded nine-entry promotion serialization is immaterial. No
     material review finding remains.
+  - [x] M4.37 frozen `appendid` parameter migration: published M4.36 receipt
+    `20055d5b554a116776d8bda54b832703fca85eddb6f5f7bbf7f7957b4d0f751f`
+    authenticates `examples/selfhost-validator/validator.kern#14:appendid` as
+    the sole base-ready legacy-parameter witness with ordered `xs:number[]` and
+    `id:number` rows and profile rows 9/16/80. M4.37 removes only its legacy
+    `fn.params`, inserts those two direct children, and preserves its body at
+    semantic digest
+    `24064fe7a08b3e1c82733710d090dd7f10ec2e8ee1621b7cc2a4e6983aeed72e`.
+    The 490-line validator is
+    `d0a458b709e8e3c2675f2b017623557679cb59007ca0012dd6c44b5ddbb8b7cd`;
+    its generated checker fixture reproduces at
+    `fc71450c1e5a79accd971ee5a3afd046042a25bb305abdf947986b0528ecfa65`,
+    while the numeric fixture and 41,190-byte canonicalizer composite remain
+    exact. Policy, coverage, and prerequisite summary SHA-256 values are
+    `f441b42d80b0fbbe1d858efafddfc8b713b3633699f0d125df9541f90afdb987`,
+    `677f7ec0ae9616017a0db891d5cf87bce93fbb0d93b05f20a758153c2d7eda81`,
+    and `2922af3886bd0436cdd9f11f247cb46092cf8a94c6d70b07f80b914d3ee5b849`.
+    Live measurement advances to 46/104 with 56 `fn.params` blockers, an empty
+    migration queue, and the unchanged 56-function bounded exhaustion. The
+    focused gate passes 104/104 plus 51/8/3/226; checker and validator gates
+    pass 48/48 and 39/39. The exact integrated tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall on 2026-07-21, including every workspace and
+    infrastructure suite, 432/432 cross-target fixtures, 109/109 class
+    fixtures, 233 native KERN assertions at 100% coverage, self-host smoke,
+    browser budgets, and the terminal canonicalizer replay. Automatic
+    high-risk role-lens review `review-1784686452451-qok4j4` completed all 6/6
+    usable non-excluded seats with zero verified or speculative findings.
+    Three dryness needs-check items require no slice change: the 365-line
+    handwritten assertion module remains below the explicit 500-line split
+    threshold, a neutral helper extraction would broaden this frozen singleton
+    migration, and folding `appendid` into the M4.33 target table would mutate
+    a historical cohort. The ordinal-14 contract is deliberately exact and
+    both imported helpers are exported. No material review finding remains.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

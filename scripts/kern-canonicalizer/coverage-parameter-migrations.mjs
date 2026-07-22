@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import {
+  assertDirectParameterPrefix,
   M433_VALUE_BAND_NAMES_BY_PATH,
+  semanticBodyDigest,
 } from './coverage-value-band-parameter-migrations.mjs';
 
 export function assertStructuredParameterMigrations(receipt) {
@@ -195,10 +197,16 @@ export function assertStructuredParameterMigrations(receipt) {
   const validatorStructuredNames = new Set([
     ...validatorTargetNames,
     ...M433_VALUE_BAND_NAMES_BY_PATH.get(validatorPath),
+    'appendid',
   ]);
   const validatorTargets = validatorRoots.filter(({ props }) => validatorTargetNames.includes(props.name));
   const validatorLegacySiblings = validatorRoots.filter(({ props }) => !validatorStructuredNames.has(props.name));
-  assert.equal(validatorSource.split('\n').length - 1, 488);
+  const appendid = validatorRoots[14];
+  assert.equal(appendid?.props.name, 'appendid');
+  assert.equal(appendid?.props.params, undefined, 'M4.37 appendid must not retain legacy fn.params');
+  assertDirectParameterPrefix(appendid, [['xs', 'number[]'], ['id', 'number']]);
+  assert.equal(semanticBodyDigest(appendid), '24064fe7a08b3e1c82733710d090dd7f10ec2e8ee1621b7cc2a4e6983aeed72e');
+  assert.equal(validatorSource.split('\n').length - 1, 490);
   assert.equal(validatorRoots.length, 21);
   assert.deepEqual(validatorTargets.map(({ props }) => props.name), validatorTargetNames);
   assert.equal(validatorTargets.every(({ props }) => props.params === undefined), true);
@@ -216,7 +224,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['xs', 'number[]'], ['id', 'number']],
     ],
   );
-  assert.equal(validatorLegacySiblings.length, 11);
+  assert.equal(validatorLegacySiblings.length, 10);
   assert.equal(validatorLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -251,6 +259,11 @@ export function assertStructuredParameterMigrations(receipt) {
       { profileBlockers: [], profileRows: { nodes: 9, properties: 17, values: 71 } },
     ],
   );
+  const appendidFact = receipt.functions.find(({ id }) => id === `${validatorPath}#14:appendid`);
+  assert.equal(appendidFact?.excludedProperties.includes('fn.params'), false);
+  assert.deepEqual(appendidFact?.profileBlockers, []);
+  assert.deepEqual(appendidFact?.profileRows, { nodes: 9, properties: 16, values: 80 });
+  assert.equal(appendidFact?.nodeOccurrences.filter((kind) => kind === 'param').length, 2);
 
   const expressionHelperPath = 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern';
   const expressionHelperSource = readFileSync(new URL(`../../${expressionHelperPath}`, import.meta.url), 'utf8');

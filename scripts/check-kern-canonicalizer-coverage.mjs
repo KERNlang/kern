@@ -156,39 +156,34 @@ if (process.argv.includes('--write')) {
       provenanceDigest: '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.36 must preserve the nine promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.36 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.36 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.36 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 45, 'live M4.36 base completion must remain exactly 45/104');
+  ], 'M4.37 must preserve the nine promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.37 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.37 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.37 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 46, 'live M4.37 base completion must remain exactly 46/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    57,
-    'live M4.36 fn.params blocker count must remain exactly 57',
+    56,
+    'live M4.37 fn.params blocker count must remain exactly 56',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.36 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.37 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.36 residual zero-completion ranking must remain exact',
+    'live M4.37 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 2,
-    witnesses: [{
-      id: 'examples/selfhost-validator/validator.kern#14:appendid',
-      parameterRows: 2,
-      profileRows: { nodes: 9, properties: 16, values: 80 },
-      tool: 'validator',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);

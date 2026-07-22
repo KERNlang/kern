@@ -223,7 +223,9 @@ fn name=containsid returns=boolean export=true
         return value="true"
     return value="false"
 
-fn name=appendid params="xs:number[],id:number" returns=number[] export=true
+fn name=appendid returns=number[] export=true
+  param name=xs type=number[]
+  param name=id type=number
   handler lang="kern"
     let name=out value="[]"
     for name=i8 from=0 to="xs.length"

@@ -135,7 +135,7 @@ const EXPECTED_LINES_BY_PATH = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', 267],
   ['examples/capstone-checker-subset/checker.kern', 379],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 178],
-  ['examples/selfhost-validator/validator.kern', 488],
+  ['examples/selfhost-validator/validator.kern', 490],
 ]);
 
 export const M433_VALUE_BAND_NAMES_BY_PATH = new Map();
@@ -145,7 +145,7 @@ for (const target of TARGETS) {
   M433_VALUE_BAND_NAMES_BY_PATH.set(target.path, names);
 }
 
-function semanticBodyDigest(root) {
+export function semanticBodyDigest(root) {
   const props = { ...root.props };
   delete props.params;
   const stripLocations = (value) => {
