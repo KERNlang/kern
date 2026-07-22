@@ -33,7 +33,8 @@ fn name=isSafeMagnitude params="raw:string,start:number" returns=boolean
         return value="false"
     return value="true"
 
-fn name=checkerSafeIntText params="raw:string" returns=boolean export=true
+fn name=checkerSafeIntText returns=boolean export=true
+  param name=raw type=string
   handler lang="kern"
     let name=n value="Text.length(raw)"
     if cond="n == 0"

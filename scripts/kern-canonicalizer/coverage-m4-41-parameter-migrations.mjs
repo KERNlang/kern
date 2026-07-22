@@ -158,9 +158,9 @@ export function assertM441ParameterTarget(root, fact, target) {
 
 const FILE_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', {
-    lines: 271,
+    lines: 272,
     remainingLegacy: [
-      'isSafeMagnitude', 'checkerSafeIntText', 'numericBindingProven', 'lengthReceiverProven',
+      'isSafeMagnitude', 'numericBindingProven', 'lengthReceiverProven',
       'literalTrue', 'comparisonOperandsOk', 'checkWhileCore', 'checkerWhileRejectDetail',
     ],
     roots: 18,

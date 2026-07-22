@@ -380,7 +380,8 @@ fn name=typesource params="id:number,allowVoid:boolean,valueTag:string[],valuePa
       return value="\"string[]\""
     return value="\"\""
 
-fn name=validbinaryop params="op:string" returns=boolean export=true
+fn name=validbinaryop returns=boolean export=true
+  param name=op type=string
   handler lang="kern"
     if cond="op == \"+\" || op == \"-\" || op == \"*\" || op == \"/\" || op == \"%\""
       return value="true"

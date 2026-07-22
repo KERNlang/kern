@@ -83,7 +83,7 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "6d42fe55e330523cf734fbe6476a3020f95271f68bdf2c9c14a2ed580d2b343f",
+      "digest": "906b1190e1a5abceb5a7620182b8c11417d1da60b963956d3363466167a04a45",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
@@ -107,7 +107,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "394ebcf582c289d13f877b9546430991ea89cdea0ecd1a22b02bef64083d678d",
+      "digest": "a04ae8f9af4f61c1560889277247963572de6a1c32c2f2cf63e4c341525b7019",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

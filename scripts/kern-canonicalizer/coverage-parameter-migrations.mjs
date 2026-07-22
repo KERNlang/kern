@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import { M441_PARAMETER_NAMES_BY_PATH } from './coverage-m4-41-parameter-migrations.mjs';
+import { M445_PARAMETER_NAMES_BY_PATH } from './coverage-m4-45-parameter-migrations.mjs';
 import {
   assertDirectParameterPrefix,
   M433_VALUE_BAND_NAMES_BY_PATH,
@@ -68,12 +69,13 @@ export function assertStructuredParameterMigrations(receipt) {
     ...checkerWhileTargetNames,
     ...M433_VALUE_BAND_NAMES_BY_PATH.get(checkerWhilePath),
     ...M441_PARAMETER_NAMES_BY_PATH.get(checkerWhilePath),
+    ...M445_PARAMETER_NAMES_BY_PATH.get(checkerWhilePath),
   ]);
   const checkerWhileTargets = checkerWhileRoots.filter(({ props }) =>
     checkerWhileTargetNames.includes(props.name));
   const checkerWhileLegacySiblings = checkerWhileRoots.filter(({ props }) =>
     !checkerWhileStructuredNames.has(props.name));
-  assert.equal(checkerWhileSource.split('\n').length - 1, 271);
+  assert.equal(checkerWhileSource.split('\n').length - 1, 272);
   assert.equal(checkerWhileRoots.length, 18);
   assert.deepEqual(checkerWhileTargets.map(({ props }) => props.name), checkerWhileTargetNames);
   assert.equal(checkerWhileTargets.every(({ props }) => props.params === undefined), true);
@@ -90,7 +92,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['kind', 'string'], ['name', 'string'], ['num', 'string']],
     ],
   );
-  assert.equal(checkerWhileLegacySiblings.length, 8);
+  assert.equal(checkerWhileLegacySiblings.length, 7);
   assert.equal(checkerWhileLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&

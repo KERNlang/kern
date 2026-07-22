@@ -55,11 +55,6 @@ function migratedWitness(source, ordinal, name, expectedRows) {
   return witnessForRoot(root, name, expectedRows);
 }
 
-function repositoryWitness(path, ordinal, name, expectedRows) {
-  const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
-  return migratedWitness(source, ordinal, name, expectedRows);
-}
-
 function directRepositoryWitness(path, ordinal, name, expectedRows) {
   const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
   return witnessForRoot(parsedRoot(source, ordinal, name), name, expectedRows);
@@ -112,8 +107,8 @@ function assertExactFloor(witness, floor) {
   assertRoundTrip(witness, envelope);
 }
 
-test('M4.43 exact 14/20/161 witness retains byte identity at its indexed floor', () => {
-  const witness = repositoryWitness(
+test('M4.45 direct 14/20/161 witness retains byte identity at its indexed floor', () => {
+  const witness = directRepositoryWitness(
     'examples/capstone-checker-subset/checker-while.kern',
     2,
     'checkerSafeIntText',
@@ -122,8 +117,8 @@ test('M4.43 exact 14/20/161 witness retains byte identity at its indexed floor',
   assertExactFloor(witness, 6_533);
 });
 
-test('M4.43 exact 12/15/388 selected witness fits the precommitted promotion budget', () => {
-  const witness = repositoryWitness(
+test('M4.45 direct 12/15/388 witness fits the precommitted promotion budget', () => {
+  const witness = directRepositoryWitness(
     'examples/kern-canonicalizer/canonicalizer.kern',
     1,
     'validbinaryop',

@@ -7,12 +7,8 @@ import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js
 import {
   loadCoveragePolicy,
   measureCanonicalizerCoverage,
-  summarizeCanonicalizerCoverage,
 } from './coverage.mjs';
-import {
-  measureCanonicalizerPrerequisite,
-  migrateLegacyFunctionForPrerequisite,
-} from './coverage-prerequisite.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM444 } from './coverage-prerequisite-m4-44.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM443,
   validatePublishedCanonicalizerResidualAnalysisM443,
@@ -51,28 +47,17 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest('hex');
 }
 
-function withoutLocations(node) {
-  const copy = structuredClone(node);
-  delete copy.loc;
-  copy.children = copy.children.map(withoutLocations);
-  return copy;
-}
-
-test('M4.44 promotes only the authenticated 388-row policy boundary', () => {
+test('M4.44 policy boundary remains exact after M4.45 queue consumption', () => {
   const policy = loadCanonicalizerPolicy();
   const boundaryDocument = parseDocumentWithDiagnostics(PROFILE_BOUNDARY_FIXTURE.source);
   assert.deepEqual(boundaryDocument.diagnostics, []);
-  const canonicalizerSource = readFileSync(
-    new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
-    'utf8',
-  );
-  const canonicalizerDocument = parseDocumentWithDiagnostics(canonicalizerSource);
-  assert.deepEqual(canonicalizerDocument.diagnostics, []);
-  const validBinaryOp = canonicalizerDocument.root.children.filter(({ type }) => type === 'fn')[1];
-  assert.equal(validBinaryOp?.props?.name, 'validbinaryop');
+  const boundaryRoot = boundaryDocument.root.children[0];
+  assert.ok(boundaryRoot);
+  assert.equal(boundaryRoot.props.name, 'validbinaryop');
+  assert.equal(boundaryRoot.props.params, undefined);
   assert.deepEqual(
-    boundaryDocument.root.children.map(withoutLocations),
-    [withoutLocations(migrateLegacyFunctionForPrerequisite(validBinaryOp).root)],
+    boundaryRoot.children.filter(({ type }) => type === 'param').map(({ props }) => [props.name, props.type]),
+    [['op', 'string']],
   );
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
@@ -91,49 +76,35 @@ test('M4.44 promotes only the authenticated 388-row policy boundary', () => {
   );
 });
 
-test('M4.44 exposes exactly the published two-function parameter queue without consuming it', () => {
-  const coverage = summarizeCanonicalizerCoverage();
-  const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(coverage.baseCompleteFunctions, 58);
-  assert.equal(coverage.blockers.find(({ id }) => id === 'fn.params')?.count, 45);
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 43);
-
-  const targets = [
-    ['examples/capstone-checker-subset/checker-while.kern', 2, 'checkerSafeIntText', 'raw:string'],
-    ['examples/kern-canonicalizer/canonicalizer.kern', 1, 'validbinaryop', 'op:string'],
-  ];
-  for (const [path, ordinal, name, legacyParameters] of targets) {
-    const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
-    const document = parseDocumentWithDiagnostics(source);
-    assert.deepEqual(document.diagnostics, []);
-    const root = document.root.children.filter(({ type }) => type === 'fn')[ordinal];
-    assert.equal(root.props.name, name);
-    assert.equal(root.props.params, legacyParameters);
-    assert.equal(root.children.some(({ type }) => type === 'param'), false);
-  }
+test('M4.44 publishes exactly the frozen two-function parameter queue', () => {
+  const handoff = loadPublishedCanonicalizerPrerequisiteM444();
+  assert.equal(handoff.digest, '9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01');
+  assert.equal(handoff.sourceCommit, 'dd977ff493250127e2e416ffb4e3ab68985a61dc');
+  assert.equal(handoff.record.baseline.baseCompleteFunctions, 58);
+  assert.equal(handoff.record.baseline.legacyParameterBlockers, 45);
+  assert.deepEqual(handoff.record.parameterMigration, EXPECTED_QUEUE);
+  assert.equal(handoff.record.exhaustion?.residualFunctionCount, 43);
 });
 
-test('M4.44 admits only direct sortStrings outside the frozen legacy queue', () => {
+test('M4.44 direct sortStrings admission remains distinct from the frozen legacy queue', () => {
   const policy = loadCoveragePolicy();
   const canonicalizerPolicy = loadCanonicalizerPolicy();
   const coverage = measureCanonicalizerCoverage(policy);
   const profile = canonicalizerCompletionProfile(policy.base, []);
   const previousLimits = { maxNodeRows: 16, maxPropertyRows: 30, maxValueRows: 154 };
-  const newlyComplete = coverage.functions.filter((fact) =>
-    !canonicalizerFunctionCompletes(profile, fact, previousLimits) &&
-    canonicalizerFunctionCompletes(profile, fact, canonicalizerPolicy.profileLimits));
-  assert.deepEqual(newlyComplete.map(({ id }) => id), [
-    'examples/capstone-assertion-engine/sort.kern#2:sortStrings',
-  ]);
-  assert.deepEqual(newlyComplete[0].profileRows, {
+  const sortStrings = coverage.functions.find(({ id }) =>
+    id === 'examples/capstone-assertion-engine/sort.kern#2:sortStrings');
+  assert.ok(sortStrings);
+  assert.equal(canonicalizerFunctionCompletes(profile, sortStrings, previousLimits), false);
+  assert.equal(canonicalizerFunctionCompletes(profile, sortStrings, canonicalizerPolicy.profileLimits), true);
+  assert.deepEqual(sortStrings.profileRows, {
     nodes: 16,
     properties: 29,
     values: 197,
   });
-  assert.deepEqual(newlyComplete[0].excludedProperties, []);
-  assert.deepEqual(newlyComplete[0].profileBlockers, []);
-  assert.equal(newlyComplete[0].nodeOccurrences.filter((kind) => kind === 'param').length, 1);
+  assert.deepEqual(sortStrings.excludedProperties, []);
+  assert.deepEqual(sortStrings.profileBlockers, []);
+  assert.equal(sortStrings.nodeOccurrences.filter((kind) => kind === 'param').length, 1);
 });
 
 test('M4.44 freezes the optimized M4.43 frontier before active policy moves', () => {
@@ -158,14 +129,14 @@ test('M4.44 freezes the optimized M4.43 frontier before active policy moves', ()
   assert.deepEqual(validatePublishedCanonicalizerResidualAnalysisM443(checkedIn).record, checkedIn);
 });
 
-test('M4.44 leaves canonicalizer and older historical receipt bytes unchanged', () => {
+test('M4.44 and older historical receipt bytes remain unchanged', () => {
   assert.equal(
-    sha256('examples/kern-canonicalizer/canonicalizer.kern'),
-    '394ebcf582c289d13f877b9546430991ea89cdea0ecd1a22b02bef64083d678d',
+    sha256('scripts/kern-canonicalizer/coverage-prerequisite-m4-44.json'),
+    '9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01',
   );
   assert.equal(
-    sha256('examples/kern-canonicalizer/canonicalizer.composed.kern'),
-    '1114de23dc9f6bb036eb4734ed8e7aadef5c1d79d54b1d0395967065fc4e904d',
+    sha256('scripts/kern-canonicalizer/coverage-residual-analysis-m4-43.json'),
+    '823e464ea6b6cc78a6959c0bced2b6d5f63b5722e0e15bda4a2dd08abf8200d8',
   );
   assert.equal(
     sha256('scripts/kern-canonicalizer/coverage-residual-analysis-m4-42.json'),

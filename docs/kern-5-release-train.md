@@ -2565,6 +2565,47 @@ trusted-publishing/provenance configuration is inspected.
     no finding. KERN 5 remains incomplete: M4.45 must migrate exactly the two
     authenticated legacy parameter rows without widening the profile again.
 
+  - [x] M4.45 frozen 388-row parameter migration: exactly
+    `checkerSafeIntText` and `validbinaryop` replace their authenticated legacy
+    `fn.params` strings with one equivalent direct `param` child each. Bodies,
+    identities, ordinals, calls, profile rows, policy 16/30/388, runtime/KIR
+    limits, ABI, and public APIs remain unchanged. The exact published M4.44
+    2/2/2 queue is frozen byte-identically at SHA-256
+    `9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01`
+    before live receipt regeneration. Base completion advances from 58/104 to
+    60/104, `fn.params` blockers fall from 45 to 43, the live parameter queue
+    becomes exact zero, and bounded exhaustion remains 43 with reason digest
+    `f72e98d37cd3fcbc711c53bc6dfd8c4afe0ea56a08c21b3907a550a17fa0418c`.
+    Live coverage and prerequisite receipts authenticate at
+    `f6d511f31f15afe38b24fa0bed20a9632ac1795e04d94271c22b1d05fb8cac47`
+    and `28e31cb5cba0859d79b08aae181c86ed95340b44669c2c6dc0428c21cf8f2470`.
+    The checker writer reproduces `main.kern` at
+    `7adbe8a62c597fb42b6602d728e2c1aefb1dfc972bccafde3de6f50914363776`;
+    the canonicalizer writer reproduces a 49,409-byte composite at
+    `a81f3a28cae9b96bfe7fac0f3a38e7f6830590d11ab5e7214293297f103b1872`.
+    Unrelated generated outputs remain byte-identical. The complete
+    canonicalizer gate passes 135/135 tests plus 51/8/3/226 replay fixtures,
+    and the checker gate passes 48/48 with 36 rejected accept-but-abstain
+    attempts. The complete Node 22.22 `fitness:kern-5` wall passes, including
+    all workspace builds/tests, 434/434 cross-target fixtures, 109/109 class
+    fixtures, 233/233 native assertions at 100% coverage, 39/39 validator
+    verdicts, 40 app fixtures on three legs, whole-app Express/FastAPI boot,
+    runtime/KIR/ownership/convergence gates, diff hygiene, and the repeated
+    canonicalizer gate. Its browser receipt is 157 modules, 1,553,103 raw
+    bytes, and 333,617 gzip bytes at 57 ms cold and a 93 ms median
+    (87/93/111 ms samples). Required high-risk role-lens review
+    `review-1784734117538-be83sb-kern-5-r2-m4-45-final` completed 6/6 with no
+    consensus-verified finding. The genuine authentication candidate was
+    fixed by directly pinning both handwritten sources, generated checker
+    `main.kern`, the composite and composition record, unchanged generated
+    members, and explicit return types. Post-fix lint, 10/10 focused tests,
+    and the complete 135/135 plus 51/8/3/226 canonicalizer gate pass. The
+    body-digest concern was disproved against the helper implementation; the
+    historical milestone duplication is deliberate cumulative evidence and
+    remains outside this representation-only slice. No material finding
+    remains unresolved. KERN 5 remains incomplete: the live residual blocker
+    analysis must determine M4.46 without inventing policy.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
