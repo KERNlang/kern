@@ -38,12 +38,21 @@ export function formatM446ResidualAnalysisStatus(selectedNextAction) {
 }
 
 export function formatM450ResidualAnalysisStatus(selectedNextAction) {
-  return formatResidualAnalysisStatus('M4.50 current analysis', selectedNextAction);
+  return formatResidualAnalysisStatus(
+    'M4.50 published analysis',
+    selectedNextAction,
+    '; M4.51 authenticates structural runtime headroom',
+  );
 }
 
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;
+}
+
+export function formatM451PropertyRowHeadroomStatus(receipt) {
+  return `M4.51 structural headroom authenticated ${receipt.summary.witnessCount} witness at an ` +
+    `${receipt.summary.maxExactFloor} exact floor.`;
 }
 
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {

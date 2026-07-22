@@ -2786,6 +2786,47 @@ trusted-publishing/provenance configuration is inspected.
     incomplete: M4.51 must authenticate runtime/property-row headroom for the
     exact `classcyclefrom` witness before profile promotion.
 
+  - [x] M4.51 authenticated structural runtime headroom for the exact M4.50
+    property-row witness without changing KERN source, generated consumers,
+    active profile, parser, runtime, KIR, ABI, package versions, or public
+    APIs. The M4.50 receipt remains byte-identical at
+    `14fdff4dce865a79215eabdb02b05a29c62a66c633561e9643e2a46f38020e4f`
+    and is now consumed only through an immutable loader pinned to published
+    source commit `8600d811`. The counterfactually migrated
+    `examples/selfhost-validator/validator.kern#17:classcyclefrom` artifact has
+    six parameter rows and exact structural rows 19/31/202. Through the public
+    `kern.runtime.handler.v1` boundary, 11,950 steps fail with the expected
+    unsupported-runtime completion and 11,951 succeeds with no diagnostics or
+    events; emitted source reparses to byte-identical structural KIR. The exact
+    floor leaves 37,201 steps below the 49,152 promotion budget and 53,585
+    below the unchanged 65,536 production ceiling. The authenticated M4.51
+    receipt, validator, runtime-floor oracle, and immutable M4.50 loader have
+    SHA-256 values
+    `c36711a885495d41b879bdcc364122f380dfde1a720a0985cdafbd78e067dfbe`,
+    `de5dff024f27c92df8d528a58a14895550b8f38fd6a72713791172667811d945`,
+    `1565b98f4f711e167c2de6209c5b0b7c026e66071732d918360dd544375a413a`,
+    and
+    `92e085a1b7050d5800143e1c11bf2560a01217b08c339bf23d45c961a3c047c4`.
+    Regenerated coverage and prerequisite receipts authenticate at
+    `6ef856b7d58ef3c83ea28e7e2044747d34c50b7d313d9d2e47c72135e853e33c`
+    and `17db623955206d59886fbb184744187163d364988b946108fb1ef73c260eae6d`;
+    their shared implementation digest is
+    `0b40930cdb0f9224c492e389df7b421af4bd8f490b9dab5ba1652e75288570e0`.
+    Focused evidence tests pass 11/11, runtime performance contracts pass 2/2,
+    the complete canonicalizer gate passes 165/165 tests plus 51/8/3/226
+    replay fixtures, and the complete Node 22 `fitness:kern-5` wall passes.
+    The proof is explicitly scoped to a structural KIR function and makes no
+    module-envelope claim. Required high-risk role-lens review
+    `review-1784756402233-2v34x8-kern-5-r2-m4-51` completed all 6/6 usable
+    independent reviewers with zero consensus-verified findings, zero
+    needs-check findings, and zero blockers. Its sole speculative observation
+    is resolved by documenting that `fitness:kern-5` builds fresh `dist`
+    artifacts before the runtime oracle imports them; remaining nits are
+    unreachable under the exact one-witness digest or deliberate historical
+    handoff/test patterns. KERN 5 remains incomplete: M4.52 may promote only
+    `maxPropertyRows` from 30 to 31 and must freeze M4.51 as an immutable
+    published handoff in the same change.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

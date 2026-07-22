@@ -10,6 +10,7 @@ import {
   formatM446ResidualAnalysisStatus,
   formatM447NodeRowHeadroomStatus,
   formatM450ResidualAnalysisStatus,
+  formatM451PropertyRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -79,17 +80,21 @@ test('coverage status records the M4.43 optimized promotion handoff', () => {
   );
 });
 
-test('coverage status records the singular M4.50 recommendation', () => {
+test('coverage status records the M4.50 recommendation and M4.51 headroom', () => {
   assert.equal(
     formatM450ResidualAnalysisStatus(null),
-    'M4.50 current analysis found no actionable profile widening.',
+    'M4.50 published analysis found no actionable profile widening.',
   );
   assert.equal(
     formatM450ResidualAnalysisStatus({
       completeFunctions: 1,
       changedLimits: ['maxPropertyRows'],
     }),
-    'M4.50 current analysis selected 1 function by maxPropertyRows widening.',
+    'M4.50 published analysis selected 1 function by maxPropertyRows widening; M4.51 authenticates structural runtime headroom.',
+  );
+  assert.equal(
+    formatM451PropertyRowHeadroomStatus({ summary: { maxExactFloor: 11_951, witnessCount: 1 } }),
+    'M4.51 structural headroom authenticated 1 witness at an 11951 exact floor.',
   );
 });
 
