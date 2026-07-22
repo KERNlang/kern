@@ -64,7 +64,7 @@ test('coverage status records the M4.46 published recommendation and M4.47 headr
   );
   assert.equal(
     formatM447NodeRowHeadroomStatus({ summary: { maxExactFloor: 15_236, witnessCount: 4 } }),
-    'M4.47 structural headroom authenticated 4 witnesses at a 15236 maximum floor.',
+    'M4.47 structural headroom authenticated 4 witnesses at a 15236 maximum floor; M4.48 authenticates the node-row profile promotion.',
   );
 });
 

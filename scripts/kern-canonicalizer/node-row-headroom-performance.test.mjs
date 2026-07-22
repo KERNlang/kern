@@ -16,11 +16,11 @@ import {
   verifyCanonicalizerComposition,
 } from './composition.mjs';
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
-import { loadCanonicalizerNodeRowHeadroomM447 } from './node-row-headroom-m4-47.mjs';
+import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './node-row-headroom-m4-47.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const COMPOSITION = verifyCanonicalizerComposition();
-const HEADROOM = loadCanonicalizerNodeRowHeadroomM447();
+const HEADROOM = loadPublishedCanonicalizerNodeRowHeadroomM447().record;
 const POLICY = loadCanonicalizerPolicy();
 
 function witnessIdentity(id) {

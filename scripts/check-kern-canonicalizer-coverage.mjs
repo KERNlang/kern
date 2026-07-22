@@ -17,7 +17,7 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM443,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-43.mjs';
 import { loadPublishedCanonicalizerResidualAnalysisM446 } from './kern-canonicalizer/coverage-residual-analysis-m4-46.mjs';
-import { measureCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
+import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
@@ -51,12 +51,12 @@ const m443ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m443ResidualAnalysis = m443ResidualAnalysisHandoff.record;
 const m446ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM446();
 const m446ResidualAnalysis = m446ResidualAnalysisHandoff.record;
-const m447NodeRowHeadroom = measureCanonicalizerNodeRowHeadroomM447();
+const m447NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM447();
+const m447NodeRowHeadroom = m447NodeRowHeadroomHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
-  writeCoverageSummary(m447NodeRowHeadroomUrl, m447NodeRowHeadroom);
 } else {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
@@ -212,10 +212,35 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 4,
+    completeTools: 3,
+    migratedParameterRows: 12,
+    witnesses: [
+      {
+        id: 'examples/capstone-checker-subset/checker.kern#12:isIndexRebound',
+        parameterRows: 6,
+        profileRows: { nodes: 17, properties: 26, values: 152 },
+        tool: 'checker',
+      },
+      {
+        id: 'examples/capstone-checker-subset/checker.kern#9:isUserCallable',
+        parameterRows: 4,
+        profileRows: { nodes: 19, properties: 26, values: 185 },
+        tool: 'checker',
+      },
+      {
+        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#4:validinteger',
+        parameterRows: 1,
+        profileRows: { nodes: 19, properties: 28, values: 290 },
+        tool: 'canonicalizer',
+      },
+      {
+        id: 'examples/selfhost-validator/validator.kern#3:isportable',
+        parameterRows: 1,
+        profileRows: { nodes: 18, properties: 24, values: 217 },
+        tool: 'validator',
+      },
+    ],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -245,7 +270,7 @@ if (process.argv.includes('--write')) {
     activeFamilies: ['exception-flow', 'while-iteration'],
     completingClosureCount: 0,
     evaluatedNonEmptyClosureCount: 3,
-    reasonAssignmentsDigest: 'f72e98d37cd3fcbc711c53bc6dfd8c4afe0ea56a08c21b3907a550a17fa0418c',
+    reasonAssignmentsDigest: 'd3175ab22aaf82a3e37a5c439b4e603d3922e53224b649176c9940d9e04431dc',
     reasonCounts: [
       { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
       { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -254,7 +279,7 @@ if (process.argv.includes('--write')) {
       { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
       { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
       { count: 2, id: 'let.value:unknown-expression-kind' },
-      { count: 27, id: 'profile.rows.nodes' },
+      { count: 22, id: 'profile.rows.nodes' },
       { count: 23, id: 'profile.rows.properties' },
       { count: 8, id: 'profile.rows.values' },
       { count: 12, id: 'projection.limit-depth' },
@@ -262,7 +287,7 @@ if (process.argv.includes('--write')) {
       { count: 3, id: 'projection.unknown-expression-kind' },
       { count: 1, id: 'throw.value:unknown-expression-kind' },
     ],
-    residualFunctionCount: 43,
+    residualFunctionCount: 39,
     scope: 'current-bounded-profile',
   });
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -428,6 +453,8 @@ if (process.argv.includes('--write')) {
   assert.equal(m446ResidualAnalysisHandoff.digest, '67ed659c709adfc5cd51095a3ac5f9549b0384d9651ac3d74894ad4b3aab3402');
   assert.equal(m446ResidualAnalysisHandoff.sourceCommit, '77ba01b467b411def9343ffb3c064e1650e6fced');
   assertCoverageSummary(m447NodeRowHeadroomUrl, m447NodeRowHeadroom);
+  assert.equal(m447NodeRowHeadroomHandoff.digest, '0da8ef5be1be0ea2ac12ef739bd6cc38070d60b7b3a775f45602857d40979af1');
+  assert.equal(m447NodeRowHeadroomHandoff.sourceCommit, '233e71a84fe7afdd7566e19a5545a885ffc36e8f');
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',

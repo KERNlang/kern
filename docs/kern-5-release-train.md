@@ -2695,6 +2695,42 @@ trusted-publishing/provenance configuration is inspected.
     finding remains unresolved. KERN 5 remains incomplete: M4.48 may promote
     only `maxNodeRows` from 16 to 19 while preserving this exact handoff.
 
+  - [x] M4.48 authenticated the node-row profile promotion: M4.47 is frozen as
+    an immutable published handoff at source commit `233e71a8` and receipt
+    SHA-256
+    `0da8ef5be1be0ea2ac12ef739bd6cc38070d60b7b3a775f45602857d40979af1`;
+    the active profile raises only `maxNodeRows` from 16 to 19 while property
+    rows remain 30, value rows remain 388, runtime limits remain unchanged,
+    and KIR depth remains 64. Base completion stays 60/104 with 43 legacy
+    `fn.params` blockers. The exact M4.46 cohort becomes the only
+    parameter-ready queue: four functions across three tools and 12 parameter
+    rows (`isIndexRebound`, `isUserCallable`, `validinteger`, and
+    `isportable`), leaving 39 residual functions. No source parameter is
+    migrated in this slice. The exact hostile boundary is 20/22/30 and rejects
+    above the admitted 19 node rows. The immutable M4.47 loader authenticates
+    at `940fcad40fef2751b59623302ba06a0d28b1254f0829a507e50e61fe5dddc19b`;
+    live coverage and prerequisite receipts authenticate at
+    `c1843e6d6931eb1e81c8fcb11797355acdeb84a7f1b3627048ca697830eb3ffa`
+    and `fbc4b671f665d1ed2ebb709201a4c3f4be27d9cec4f18708ce7130fd2b2a7b0a`.
+    Their shared implementation digest is
+    `185340b44f0810f30d7e6fdb7d0d5a7aa7205460e83149029a22d38526829789`.
+    The complete canonicalizer gate passes 152/152 tests plus 51/8/3/226
+    replay fixtures. The complete Node 22.22 `fitness:kern-5` wall passes,
+    including workspace builds/tests, cross-target and class conformance,
+    233/233 native assertions at 100% coverage, 48/48 checker fixtures, 39/39
+    validator verdicts, 40 app fixtures on three legs, whole-app
+    Express/FastAPI boot, runtime/KIR/ownership/convergence gates, diff
+    hygiene, and repeated canonicalizer gates. Its required browser receipt is
+    157 modules, 1,553,103 raw bytes, and 333,617 gzip bytes at 56 ms cold and
+    an 87 ms median (85/87/90 ms samples). Required high-risk role-lens review
+    `review-1784746347612-zqg77t-kern-5-r2-m4-48-final` covered all six usable
+    reviewers. Two consensus-marked blockers were disproved by the actual
+    symbol/prototype rejection code and passing 8/8 mutation guards; two
+    needs-check observations were adjudicated against the immutable-handoff
+    and terminal-checker contracts. No material finding remains unresolved.
+    KERN 5 remains incomplete: M4.49 must migrate only this frozen 12-row queue
+    in a fresh slice.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

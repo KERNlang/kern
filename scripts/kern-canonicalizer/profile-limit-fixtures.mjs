@@ -39,14 +39,14 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    expectedRows: { nodes: 17, properties: 19, values: 26 },
+    expectedRows: { nodes: 20, properties: 22, values: 30 },
     source: lines(
       'fn name=f0 returns=void',
       '  param name=a type=number',
       '  param name=b type=number',
       '  handler lang=kern',
       '    return',
-      ...Array.from({ length: 4 }, (_, index) => [
+      ...Array.from({ length: 5 }, (_, index) => [
         `fn name=f${index + 1} returns=void`,
         '  handler lang=kern',
         '    return',

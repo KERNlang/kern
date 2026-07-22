@@ -198,10 +198,10 @@ function recordChildren(tables, minimum = 2) {
   throw new Error(`missing record with ${minimum} children`);
 }
 
-test('M4.44 policy still admits the exact M4.43 15/24/154 witness at its indexed floor', () => {
+test('M4.48 policy still admits the exact M4.43 15/24/154 witness at its indexed floor', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 16,
+    maxNodeRows: 19,
     maxPropertyRows: 30,
     maxValueRows: 388,
   });

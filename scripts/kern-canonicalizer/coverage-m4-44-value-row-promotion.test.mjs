@@ -47,7 +47,7 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest('hex');
 }
 
-test('M4.44 policy boundary remains exact after M4.45 queue consumption', () => {
+test('M4.44 value boundary remains exact under the M4.48 node-row promotion', () => {
   const policy = loadCanonicalizerPolicy();
   const boundaryDocument = parseDocumentWithDiagnostics(PROFILE_BOUNDARY_FIXTURE.source);
   assert.deepEqual(boundaryDocument.diagnostics, []);
@@ -60,7 +60,7 @@ test('M4.44 policy boundary remains exact after M4.45 queue consumption', () => 
     [['op', 'string']],
   );
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 16,
+    maxNodeRows: 19,
     maxPropertyRows: 30,
     maxValueRows: 388,
   });
