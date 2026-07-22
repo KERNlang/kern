@@ -7,6 +7,7 @@ import {
   formatHistoricalResidualAnalysisStatus,
   formatM442ResidualAnalysisStatus,
   formatM443ResidualAnalysisStatus,
+  formatM446ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -45,6 +46,20 @@ test('coverage status formats current and historical release decisions', () => {
       completeFunctions: 2,
     }),
     'M4.42 published analysis selected 2 functions by maxValueRows widening.',
+  );
+});
+
+test('coverage status records the M4.46 current residual recommendation', () => {
+  assert.equal(
+    formatM446ResidualAnalysisStatus(null),
+    'M4.46 current analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatM446ResidualAnalysisStatus({
+      completeFunctions: 4,
+      changedLimits: ['maxNodeRows'],
+    }),
+    'M4.46 current analysis selected 4 functions by maxNodeRows widening.',
   );
 });
 

@@ -2606,6 +2606,48 @@ trusted-publishing/provenance configuration is inspected.
     remains unresolved. KERN 5 remains incomplete: the live residual blocker
     analysis must determine M4.46 without inventing policy.
 
+  - [x] M4.46 authenticated current residual blocker analysis: under unchanged
+    M4.36 base profile and 16/30/388 limits, the complete live 43-function
+    residual population is assigned and evaluated against only data-derived
+    observed settings. The parameter-ready partition remains exact zero; 27
+    residual functions have measured profile rows, producing 26 distinct
+    observed settings and 26 positive candidates. The assignment digest
+    remains byte-identical to M4.45 at
+    `f72e98d37cd3fcbc711c53bc6dfd8c4afe0ea56a08c21b3907a550a17fa0418c`.
+    The first canonical action raises only `maxNodeRows` from 16 to 19 and
+    selects four functions across three tools with 12 total parameter rows:
+    `isIndexRebound` at 17/26/152, `isUserCallable` at 19/26/185,
+    `validinteger` at 19/28/290, and `isportable` at 18/24/217. This slice is
+    analysis-only: no KERN source, generated consumer, profile, active family,
+    parser, runtime, KIR, ABI, package version, or public API changes. The
+    canonical analysis receipt and analyzer authenticate at SHA-256
+    `67ed659c709adfc5cd51095a3ac5f9549b0384d9651ac3d74894ad4b3aab3402`
+    and `20f85ccfd19b75cfc4357d6b726ce02207312d0812358c46fb4155de8e74b194`.
+    Regenerated live coverage and prerequisite receipts authenticate at
+    `f92de8285ead020203aa7a4d299e89ab62c13f67c904598abfdfc01c049ea62b`
+    and `f18ad9a00b41d15f94a7eb7de047efb6257c5b1b606f3099b3bcc596f6d9cd4e`;
+    implementation, policy, and function-fact digests are
+    `9ba952686c10c0210810f428fbbfabdd4d8612825e0047a8add9d2425466021e`,
+    `f326deb064b3e787cd24d1adfb12066db2c6206b93ac3bdebbcfbeb196e93096`,
+    and `b6adf472db5ae14b3ad4735d20a3ed3c4b6d5425295af2904c4136d441399d50`.
+    The isolated analysis/status suite passes 8/8, and the complete
+    canonicalizer gate passes 140/140 tests plus 51/8/3/226 replay fixtures.
+    The complete Node 22.22 `fitness:kern-5` wall passes, including all
+    workspace builds/tests, 434/434 cross-target fixtures, 109/109 class
+    fixtures, 233/233 native assertions at 100% coverage, 48/48 checker
+    fixtures, 39/39 validator verdicts, 40 app fixtures on three legs,
+    whole-app Express/FastAPI boot, runtime/KIR/ownership/convergence gates,
+    diff hygiene, and the repeated canonicalizer gate. Its required browser
+    receipt is 157 modules, 1,553,103 raw bytes, and 333,617 gzip bytes at
+    56 ms cold and a 91 ms median (88/91/113 ms samples). Automatic medium-risk
+    role-lens review `review-1784737826705-aha15a-kern-5-r2-m4-46-final`
+    completed 2/2 with no verified finding. The exact-population writer guard
+    was retained because allowing `--write` after the M4.45 population changes
+    would rewrite historical evidence; the genuine null-status test gap was
+    fixed. No material finding remains unresolved. KERN 5 remains incomplete:
+    M4.47 must prove runtime headroom for the exact four-function 19-row node
+    cohort before profile promotion.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

@@ -28,6 +28,10 @@ export function formatM443ResidualAnalysisStatus(selectedNextAction) {
   );
 }
 
+export function formatM446ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus('M4.46 current analysis', selectedNextAction);
+}
+
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   return formatResidualAnalysisStatus(
     'M4.38 published analysis',
