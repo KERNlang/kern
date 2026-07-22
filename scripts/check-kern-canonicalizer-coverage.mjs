@@ -6,8 +6,12 @@ import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicaliz
 import {
   loadCanonicalizerResidualAnalysisHandoff,
 } from './kern-canonicalizer/coverage-residual-analysis.mjs';
+import {
+  measureCanonicalizerResidualAnalysisM438,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-38.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
+  formatCurrentResidualAnalysisStatus,
   formatCoverageWinnerStatus,
   formatHistoricalResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
@@ -17,14 +21,20 @@ const prerequisiteSummaryUrl = new URL(
   './kern-canonicalizer/coverage-prerequisite-summary.json',
   import.meta.url,
 );
+const currentResidualAnalysisUrl = new URL(
+  './kern-canonicalizer/coverage-residual-analysis-m4-38.json',
+  import.meta.url,
+);
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
+const currentResidualAnalysis = measureCanonicalizerResidualAnalysisM438();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
+  writeCoverageSummary(currentResidualAnalysisUrl, currentResidualAnalysis);
 } else {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
@@ -262,6 +272,47 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#8:contained',
     ],
   });
+  assert.equal(currentResidualAnalysis.format, 'kern.kir-canonicalizer.residual-analysis.2');
+  assert.equal(currentResidualAnalysis.assignments.length, 56);
+  assert.equal(
+    currentResidualAnalysis.assignmentsDigest,
+    '8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef',
+  );
+  assert.equal(
+    currentResidualAnalysis.baseline.coverageImplementationDigest,
+    actual.coverageImplementationDigest,
+  );
+  assert.equal(currentResidualAnalysis.baseline.coveragePolicyDigest, actual.coveragePolicyDigest);
+  assert.equal(currentResidualAnalysis.baseline.functionFactsDigest, actual.functionFactsDigest);
+  assert.deepEqual(currentResidualAnalysis.baseline.currentProfileLimits, {
+    maxNodeRows: 16,
+    maxPropertyRows: 30,
+    maxValueRows: 106,
+  });
+  assert.equal(currentResidualAnalysis.frontier.evaluatedObservedSettings, 39);
+  assert.equal(currentResidualAnalysis.frontier.profileRowsAvailableFunctions, 40);
+  assert.equal(currentResidualAnalysis.frontier.actionableCandidates.length, 39);
+  assert.deepEqual(currentResidualAnalysis.selectedNextAction, {
+    changedLimits: ['maxValueRows'],
+    completeFunctions: 11,
+    completeTools: 3,
+    limits: { maxNodeRows: 16, maxPropertyRows: 30, maxValueRows: 154 },
+    totalDelta: 48,
+    witnesses: [
+      'examples/capstone-checker-subset/checker-while.kern#10:isLengthType',
+      'examples/capstone-checker-subset/checker-while.kern#5:checkerElseRejectDetail',
+      'examples/capstone-checker-subset/checker.kern#19:mapArgToken',
+      'examples/capstone-checker-subset/checker.kern#8:isArrayBinding',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#10:propid',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#12:childat',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#14:valuechildat',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#15:recordfield',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#2:valididentifier',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#3:validexpressionidentifier',
+      'examples/selfhost-validator/validator.kern#18:hasimportcyclefrom',
+    ],
+  });
+  assertCoverageSummary(currentResidualAnalysisUrl, currentResidualAnalysis);
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -395,8 +446,9 @@ process.stdout.write(
   (prerequisite.parameterMigration.completeFunctions > 0
     ? 'next action parameter migration.'
     : prerequisite.selectedPrerequisite === null
-      ? 'bounded active-family exhaustion; next action residual blocker analysis.'
+      ? 'bounded active-family exhaustion; next action from current residual analysis.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
+  ` ${formatCurrentResidualAnalysisStatus(currentResidualAnalysis.selectedNextAction)}` +
   ` ${formatHistoricalResidualAnalysisStatus(residualAnalysis.selectedNextAction)}\n`,
 );

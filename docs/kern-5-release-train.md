@@ -2307,6 +2307,39 @@ trusted-publishing/provenance configuration is inspected.
     migration, and folding `appendid` into the M4.33 target table would mutate
     a historical cohort. The ordinal-14 contract is deliberately exact and
     both imported helpers are exported. No material review finding remains.
+  - [x] M4.38 authenticated current residual blocker analysis: published M4.37
+    commit `daeca7e16b4a31454e5e7f6db74747f2eae2de03` supplies the exact
+    56-function bounded-exhaustion population at profile limits 16/30/106.
+    Version-2 analysis reproduces reason-assignment digest
+    `8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef`,
+    publishes 56 canonical assignments, and evaluates 39 distinct observed
+    settings from the 40 functions with profile rows. All 39 settings are
+    actionable. The first ranked setting changes only `maxValueRows` from 106
+    to 154, a delta of 48, and completes 11 functions across checker,
+    canonicalizer, and validator tools. Coverage, prerequisite, and M4.38
+    receipt whole-file SHA-256 values are
+    `fc37c7ac4f34b3517937068e7b7307f78d72db39efd3848121a7b40553cd33b8`,
+    `7832331bce8ebdb8aafe9a74755505b88b66224a34b125e4b76195f6666428f8`,
+    and `8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd`.
+    M4.31 historical evidence remains byte-identical at
+    `160008df86bd3c93b8c307d8ae5f2174b76d39fff92eee6b7f57dd1320379076`.
+    Focused Node 22 canonicalizer validation passes 108/108 structural and
+    receipt tests, 51 golden/idempotence/KIR fixtures, eight measured
+    witnesses, three profile-limit fixtures, and 226 hostile fixtures. The
+    exact integrated tree passes the complete Node 22
+    `pnpm fitness:kern-5` wall on 2026-07-22, including all 22 workspace
+    projects, 168/168 release-policy tests, 432/432 cross-target fixtures,
+    109/109 class fixtures, 233 native KERN assertions at 100% coverage,
+    runner/browser/app gates, self-host parity, runtime/KIR ownership gates,
+    and the repeated terminal canonicalizer replay. M4.38 recommends the next
+    profile slice; it does not mutate a profile, KERN source, family registry,
+    parser, KIR, runtime, or ABI. Final six-seat role-lens review
+    `review-1784691513868-za02lj-kern-5-r2-m4-38-final` completed across every
+    usable non-excluded engine. The original `toJSON` finding is fixed and its
+    reporter returned zero findings; candidate math and ordering were
+    independently verified. Missing-file and hash claims were disproved
+    against staged files and exact published blobs. No material finding
+    remains unresolved.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -7,3 +7,9 @@ export function formatHistoricalResidualAnalysisStatus(selectedNextAction) {
   return `M4.31 historical analysis selected ${selectedNextAction.completeFunctions} functions by ` +
     `${selectedNextAction.changedLimits.join('+')} widening.`;
 }
+
+export function formatCurrentResidualAnalysisStatus(selectedNextAction) {
+  if (selectedNextAction === null) return 'Current residual analysis found no actionable profile widening.';
+  return `Current residual analysis selected ${selectedNextAction.completeFunctions} functions by ` +
+    `${selectedNextAction.changedLimits.join('+')} widening.`;
+}
