@@ -23,7 +23,7 @@ const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow', 'while-iteration'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 3,
-  reasonAssignmentsDigest: 'a965461fa32dc4bbb1fdfa3ca153d91d019865e6ddb10e57f64087be6d7402bf',
+  reasonAssignmentsDigest: 'fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -31,13 +31,13 @@ const EXPECTED_EXHAUSTION = {
     { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
     { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
-    { count: 1, id: 'let.value:unknown-expression-kind' },
+    { count: 2, id: 'let.value:unknown-expression-kind' },
     { count: 27, id: 'profile.rows.nodes' },
     { count: 23, id: 'profile.rows.properties' },
     { count: 28, id: 'profile.rows.values' },
-    { count: 13, id: 'projection.limit-depth' },
+    { count: 12, id: 'projection.limit-depth' },
     { count: 1, id: 'projection.limit-nodes' },
-    { count: 2, id: 'projection.unknown-expression-kind' },
+    { count: 3, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
   residualFunctionCount: 45,
@@ -130,21 +130,21 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.41
   );
 });
 
-test('M4.41 binds the exact post-migration 154-row transition', () => {
+test('M4.43 binds the exact optimized 154-row transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 57,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
-    canonicalizerDigest: '2b39f976b7eeb3e2cedc400821880a77edc11b99a72d0e24a28ddec8cabaeb4c',
+    canonicalizerDigest: '1114de23dc9f6bb036eb4734ed8e7aadef5c1d79d54b1d0395967065fc4e904d',
     canonicalizerPolicyDigest: '26e37f1839a36c6acbe220afb5afccd6f357d72256f29d21df0a715adb2d1f5d',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: 'dba3f9d2d5354dca7ff0509a3ae45b7e26068e7170d160f00201cb585c036662',
+    corpusDigest: '80499e1162962382b51be60976e6b2590a8aa755f9b42b5beadd64af52e62d20',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'c6fa85f4906716bc11f13b68192e4108a46d61329c690aaa6be53c5433f8a3e6',
+    coveragePolicyDigest: '6c70a49fc5b8fabbefb902c3323534302448281fa998691598efd6a6d83fff6b',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'ca9702a70e92e79aa384c04a09e4ea835009e19f726671dead147f160b632ea8',
+    functionFactsDigest: '75ec5a9f2ce7c3b6a7c42b212ecbced4a4ecb9becb80766c2f04280eb05d4287',
     legacyParameterBlockers: 45,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,

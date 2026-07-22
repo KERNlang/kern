@@ -169,28 +169,50 @@ test('binary ownership stays in main and mechanically matches the structural ope
   assert.deepEqual(new Set(kernOperators), new Set(catalogOperators));
 });
 
+test('expression projection is one bottom-up indexed pass without recursive table scans', () => {
+  const expressionSource = /fn name=exprsource[\s\S]*?(?=\nfn name=tablesok)/u.exec(mainSource)?.[0];
+  assert.ok(expressionSource, 'missing KERN exprsource');
+  for (const forbidden of ['exprsource(', 'valuechildcount(', 'valuechildat(', 'recordfield(']) {
+    assert.equal(expressionSource.includes(forbidden), false, `exprsource retained scan path ${forbidden}`);
+  }
+  for (const owned of [
+    'let name=childCounts value="new Map()"',
+    'let name=childrenByOrder value="new Map()"',
+    'let name=childrenByRole value="new Map()"',
+    'let name=sources value="new Map()"',
+    'for name=scan from=0 to="valueTag.length"',
+    'let name=current value="valueTag.length - scan"',
+    'Map.set(sources, String(current), source)',
+  ]) {
+    assert.ok(expressionSource.includes(owned), `exprsource omitted indexed decision ${owned}`);
+  }
+  assert.ok(
+    expressionSource.includes('String(Text.length(valueRole[i])) + \\":\\" + String(valueRole[i])'),
+    'record role keys must remain length framed and syntactically string-proven',
+  );
+});
+
 test('unary validation and emission stay in the KERN-owned expression source', () => {
   assert.equal(helperSource.includes('\\"unary\\"'), false);
-  const unaryStart = mainSource.indexOf('if cond="kind == \\"unary\\""');
-  const unaryEnd = mainSource.indexOf('if cond="kind == \\"member\\""', unaryStart);
+  const unaryStart = mainSource.indexOf('if cond="kind == \\"unary\\"');
+  const unaryEnd = mainSource.indexOf('if cond="kind == \\"member\\"', unaryStart);
   assert.ok(unaryStart >= 0 && unaryEnd > unaryStart, 'missing KERN-owned unary branch');
   const unaryBranch = mainSource.slice(unaryStart, unaryEnd);
   for (const field of ['argument', 'op']) {
     assert.ok(
-      unaryBranch.includes(`recordfield(fieldsId, \\"${field}\\", valueParent, valueRole)`),
+      unaryBranch.includes(`let name=${field}Role value="\\"record:${field}\\""`),
       `unary branch omitted ${field}`,
     );
   }
   for (const operator of ['!', '-', '~', 'typeof']) {
     assert.ok(unaryBranch.includes(`op == \\"${operator}\\"`), `unary branch omitted ${operator}`);
   }
-  assert.ok(unaryBranch.includes('valuechildcount(fieldsId, valueParent) != 2'), 'unary must reject extra fields');
-  assert.ok(unaryBranch.includes('stringat(opId, valueTag) != \\"text\\"'), 'unary op must remain text');
-  assert.ok(unaryBranch.includes('if cond="!validUnaryOp"'), 'unary must reject every non-portable operator');
-  assert.ok(unaryBranch.includes('exprsource(argumentId'), 'unary argument must use recursive expression ownership');
+  assert.ok(unaryBranch.includes('kind == \\"unary\\" && fieldCount == 2'), 'unary must reject extra fields');
+  assert.ok(unaryBranch.includes('stringat(opId, valueTag) == \\"text\\"'), 'unary op must remain text');
+  assert.ok(unaryBranch.includes('Map.has(sources, String(argumentId))'), 'unary argument must be projected first');
   assert.ok(
-    unaryBranch.includes('argument == \\"\\" || (op == \\"-\\" && argument == \\"0\\")'),
-    'unary must reject recursive failure and negative zero',
+    unaryBranch.includes('!(op == \\"-\\" && argument == \\"0\\")'),
+    'unary must reject negative zero',
   );
   assert.ok(
     unaryBranch.includes('\\"(\\" + op + \\" \\" + argument + \\")\\"'),
@@ -204,57 +226,61 @@ test('unary validation and emission stay in the KERN-owned expression source', (
 
 test('call validation and emission stay in the KERN-owned expression source', () => {
   assert.equal(helperSource.includes('\\"call\\"'), false);
-  const callStart = mainSource.indexOf('if cond="kind == \\"call\\""');
-  const callEnd = mainSource.indexOf('if cond="kind != \\"list\\""', callStart);
+  const callStart = mainSource.indexOf('if cond="kind == \\"call\\"');
+  const callEnd = mainSource.indexOf('if cond="kind == \\"list\\"', callStart);
   assert.ok(callStart >= 0 && callEnd > callStart, 'missing KERN-owned call branch');
   const callBranch = mainSource.slice(callStart, callEnd);
   for (const field of ['args', 'callee', 'optional']) {
     assert.ok(
-      callBranch.includes(`recordfield(fieldsId, \\"${field}\\", valueParent, valueRole)`),
+      callBranch.includes(`let name=${field}Role value="\\"record:${field}\\""`),
       `call branch omitted ${field}`,
     );
   }
-  assert.ok(callBranch.includes('numberat(optionalId, valueBool) != 0'), 'optional calls must remain fail-closed');
-  assert.ok(callBranch.includes('exprsource(calleeId'), 'call callee must use recursive expression ownership');
-  assert.ok(callBranch.includes('exprsource(argId'), 'call args must use recursive expression ownership');
+  assert.ok(callBranch.includes('numberat(optionalId, valueBool) == 0'), 'optional calls must remain fail-closed');
+  assert.ok(callBranch.includes('Map.has(sources, String(calleeId))'), 'call callee must be projected first');
+  assert.ok(callBranch.includes('Map.has(childrenByOrder, argOrderKey)'), 'call args must use the order index');
+  assert.ok(callBranch.includes('Map.has(sources, String(argId))'), 'call args must be projected first');
 });
 
 test('member validation and emission stay in the KERN-owned expression source', () => {
   assert.equal(helperSource.includes('\\"member\\"'), false);
-  const memberStart = mainSource.indexOf('if cond="kind == \\"member\\""');
-  const memberEnd = mainSource.indexOf('if cond="kind == \\"call\\""', memberStart);
+  const memberStart = mainSource.indexOf('if cond="kind == \\"member\\"');
+  const memberEnd = mainSource.indexOf('if cond="kind == \\"index\\"', memberStart);
   assert.ok(memberStart >= 0 && memberEnd > memberStart, 'missing KERN-owned member branch');
   const memberBranch = mainSource.slice(memberStart, memberEnd);
   for (const field of ['object', 'optional', 'property']) {
     assert.ok(
-      memberBranch.includes(`recordfield(fieldsId, \\"${field}\\", valueParent, valueRole)`),
+      memberBranch.includes(`let name=${field}Role value="\\"record:${field}\\""`),
       `member branch omitted ${field}`,
     );
   }
-  assert.ok(memberBranch.includes('numberat(optionalId, valueBool) != 0'), 'optional members must remain fail-closed');
-  assert.ok(memberBranch.includes('exprsource(objectId'), 'member object must use recursive expression ownership');
+  assert.ok(memberBranch.includes('numberat(optionalId, valueBool) == 0'), 'optional members must remain fail-closed');
+  assert.ok(memberBranch.includes('Map.has(sources, String(objectId))'), 'member object must be projected first');
   assert.ok(memberBranch.includes('valididentifier(property)'), 'member properties must remain identifier-shaped');
   for (const rejected of ['null', 'none', 'undefined', 'true', 'false', 'await']) {
-    assert.ok(memberBranch.includes(`property == \\"${rejected}\\"`), `member branch must reject ${rejected}`);
+    assert.ok(memberBranch.includes(`property != \\"${rejected}\\"`), `member branch must reject ${rejected}`);
   }
 });
 
 test('index validation and emission stay in the KERN-owned expression source', () => {
   assert.equal(helperSource.includes('\\"index\\"'), false);
-  const indexStart = mainSource.indexOf('if cond="kind == \\"index\\""');
-  const indexEnd = mainSource.indexOf('if cond="kind == \\"call\\""', indexStart);
+  const indexStart = mainSource.indexOf('if cond="kind == \\"index\\"');
+  const indexEnd = mainSource.indexOf('if cond="kind == \\"call\\"', indexStart);
   assert.ok(indexStart >= 0 && indexEnd > indexStart, 'missing KERN-owned index branch');
   const indexBranch = mainSource.slice(indexStart, indexEnd);
   for (const field of ['index', 'object', 'optional']) {
     assert.ok(
-      indexBranch.includes('recordfield(fieldsId, \\"' + field + '\\", valueParent, valueRole)'),
+      indexBranch.includes(`let name=${field}Role value="\\"record:${field}\\""`),
       'index branch omitted ' + field,
     );
   }
-  assert.ok(indexBranch.includes('numberat(optionalId, valueBool) != 0'), 'optional index must remain fail-closed');
-  assert.ok(indexBranch.includes('exprsource(objectId'), 'index object must use recursive expression ownership');
-  assert.ok(indexBranch.includes('exprsource(indexId'), 'index value must use recursive expression ownership');
-  assert.ok(indexBranch.includes('object + \\"[\\" + index + \\"]\\"'), 'index emission must preserve bracket syntax');
+  assert.ok(indexBranch.includes('numberat(optionalId, valueBool) == 0'), 'optional index must remain fail-closed');
+  assert.ok(indexBranch.includes('Map.has(sources, String(objectId))'), 'index object must be projected first');
+  assert.ok(indexBranch.includes('Map.has(sources, String(indexId))'), 'index value must be projected first');
+  assert.ok(
+    indexBranch.includes('Map.get(sources, String(objectId)) + \\"[\\" + Map.get(sources, String(indexId)) + \\"]\\"'),
+    'index emission must preserve bracket syntax',
+  );
 });
 
 test('the pre-M4.3b semantic golden corpus bytes remain unchanged', () => {

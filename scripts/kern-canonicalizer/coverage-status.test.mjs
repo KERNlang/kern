@@ -36,14 +36,14 @@ test('coverage status formats current and historical release decisions', () => {
   );
   assert.equal(
     formatM442ResidualAnalysisStatus(null),
-    'M4.42 current analysis found no actionable profile widening.',
+    'M4.42 published analysis found no actionable profile widening.',
   );
   assert.equal(
     formatM442ResidualAnalysisStatus({
       changedLimits: ['maxValueRows'],
       completeFunctions: 2,
     }),
-    'M4.42 current analysis selected 2 functions by maxValueRows widening.',
+    'M4.42 published analysis selected 2 functions by maxValueRows widening.',
   );
 });
 

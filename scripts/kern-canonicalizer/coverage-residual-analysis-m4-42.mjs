@@ -1,31 +1,14 @@
 import { createHash } from 'node:crypto';
-
-import { loadCoveragePolicy, measureCanonicalizerCoverage } from './coverage.mjs';
-import {
-  measureCanonicalizerPrerequisite,
-  migrateFunctionFact,
-  partitionMigratedFunctions,
-  sourceFunctionRoots,
-} from './coverage-prerequisite.mjs';
-import {
-  canonicalizerCompletionProfile,
-  canonicalizerFunctionCompletes,
-} from './coverage-selection.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
-const LIMIT_AXES = [
-  { limit: 'maxNodeRows', row: 'nodes' },
-  { limit: 'maxPropertyRows', row: 'properties' },
-  { limit: 'maxValueRows', row: 'values' },
-];
+const PUBLISHED_DIGEST = 'f37fed74d24a739adf3584ceb7608f8d25c490d2325ebc1c127e05ee15238a8e';
+const SOURCE_COMMIT = 'fa762508cf48beac0fce18afdda39beb08da51f1';
+const SUMMARY_URL = new URL('./coverage-residual-analysis-m4-42.json', import.meta.url);
 
 function fail(message) {
   throw new TypeError(`coverage M4.42 residual analysis rejection: ${message}`);
-}
-
-function compareText(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function assertPlainReceiptData(value, seen = new Set()) {
@@ -67,160 +50,40 @@ function assertPlainReceiptData(value, seen = new Set()) {
   seen.delete(value);
 }
 
-function residualState() {
-  const policy = loadCoveragePolicy();
-  const coverage = measureCanonicalizerCoverage(policy);
-  const prerequisite = measureCanonicalizerPrerequisite();
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const roots = sourceFunctionRoots(policy);
-  if (roots.size !== coverage.functions.length) fail('source functions must match authenticated facts');
-  const migrated = coverage.functions
-    .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
-    .map((fact) => migrateFunctionFact(fact, roots.get(fact.id), policy.base, canonicalizerPolicy));
-  const { parameterReady, residual } = partitionMigratedFunctions(
-    policy.base,
-    migrated,
-    canonicalizerPolicy.profileLimits,
-  );
-  if (parameterReady.length !== 0) fail('M4.42 requires an empty parameter-ready partition');
-  if (prerequisite.outcome !== 'bounded-exhaustion' || prerequisite.exhaustion === null) {
-    fail('M4.42 requires authenticated bounded exhaustion');
-  }
-  if (prerequisite.parameterMigration.completeFunctions !== 0) {
-    fail('M4.42 requires the authenticated parameter queue to be empty');
-  }
-  if (residual.length !== prerequisite.exhaustion.residualFunctionCount) {
-    fail('residual facts must match the published prerequisite population');
-  }
-  return { canonicalizerPolicy, coverage, policy, prerequisite, residual };
+function canonicalBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 }
 
-function reasonAssignments(residual) {
-  return residual
-    .map((fn) => ({
-      id: fn.id,
-      reasons: [...new Set([...fn.excludedProperties, ...fn.profileBlockers])].sort(compareText),
-    }))
-    .sort((left, right) => compareText(left.id, right.id));
-}
-
-function assignmentRows(residual, reasons) {
-  const reasonById = new Map(reasons.map((row) => [row.id, row.reasons]));
-  return residual
-    .map((fn) => ({
-      id: fn.id,
-      parameterRows: fn.parameterRows,
-      profileRows: fn.profileRows,
-      reasons: reasonById.get(fn.id),
-      tool: fn.tool,
-    }))
-    .sort((left, right) => compareText(left.id, right.id));
-}
-
-function observedLimitSettings(residual, currentLimits) {
-  const settings = new Map();
-  for (const fn of residual) {
-    if (fn.profileRows === null) continue;
-    const limits = { ...currentLimits };
-    const changedLimits = [];
-    for (const { limit, row } of LIMIT_AXES) {
-      if (fn.profileRows[row] > limits[limit]) {
-        limits[limit] = fn.profileRows[row];
-        changedLimits.push(limit);
-      }
-    }
-    if (changedLimits.length === 0) continue;
-    const signature = LIMIT_AXES.map(({ limit }) => limits[limit]).join('/');
-    settings.set(signature, { changedLimits, limits, signature });
-  }
-  return [...settings.values()].sort((left, right) => compareText(left.signature, right.signature));
-}
-
-function factAtLimits(fn, limits) {
-  const satisfiedLimitBlockers = new Set(LIMIT_AXES
-    .filter(({ limit, row }) => fn.profileRows !== null && fn.profileRows[row] <= limits[limit])
-    .map(({ row }) => `profile.rows.${row}`));
-  return {
-    ...fn,
-    profileBlockers: fn.profileBlockers.filter((blocker) => !satisfiedLimitBlockers.has(blocker)),
-  };
-}
-
-function evaluateSetting(setting, residual, base, currentLimits) {
-  const profile = canonicalizerCompletionProfile(base, []);
-  const witnesses = residual
-    .filter((fn) => canonicalizerFunctionCompletes(profile, factAtLimits(fn, setting.limits), setting.limits))
-    .map(({ id }) => id)
-    .sort(compareText);
-  const witnessIds = new Set(witnesses);
-  const tools = new Set(residual.filter(({ id }) => witnessIds.has(id)).map(({ tool }) => tool));
-  return {
-    changedLimits: setting.changedLimits,
-    completeFunctions: witnesses.length,
-    completeTools: tools.size,
-    limits: setting.limits,
-    totalDelta: LIMIT_AXES.reduce(
-      (total, { limit }) => total + setting.limits[limit] - currentLimits[limit],
-      0,
-    ),
-    witnesses,
-  };
-}
-
-function candidateOrder(left, right) {
-  return left.changedLimits.length - right.changedLimits.length ||
-    right.completeTools - left.completeTools ||
-    left.totalDelta - right.totalDelta ||
-    right.completeFunctions - left.completeFunctions ||
-    compareText(
-      LIMIT_AXES.map(({ limit }) => left.limits[limit]).join('/'),
-      LIMIT_AXES.map(({ limit }) => right.limits[limit]).join('/'),
-    );
-}
-
-function buildCanonicalizerResidualAnalysisM442() {
-  const { canonicalizerPolicy, coverage, policy, prerequisite, residual } = residualState();
-  const reasons = reasonAssignments(residual);
-  const assignmentsDigest = createHash('sha256').update(JSON.stringify(reasons)).digest('hex');
-  if (assignmentsDigest !== prerequisite.exhaustion.reasonAssignmentsDigest) {
-    fail('assignment digest must reproduce the published exhaustion receipt');
-  }
-  const currentProfileLimits = { ...canonicalizerPolicy.profileLimits };
-  const settings = observedLimitSettings(residual, currentProfileLimits);
-  const actionableCandidates = settings
-    .map((setting) => evaluateSetting(setting, residual, policy.base, currentProfileLimits))
-    .filter(({ completeFunctions }) => completeFunctions > 0)
-    .sort(candidateOrder);
-  return {
-    assignments: assignmentRows(residual, reasons),
-    assignmentsDigest,
-    baseline: {
-      baseCompleteFunctions: prerequisite.baseline.baseCompleteFunctions,
-      baseId: prerequisite.baseline.baseId,
-      coverageImplementationDigest: coverage.coverageImplementationDigest,
-      coveragePolicyDigest: coverage.coveragePolicyDigest,
-      currentProfileLimits,
-      functionFactsDigest: coverage.functionFactsDigest,
-      legacyParameterBlockers: prerequisite.baseline.legacyParameterBlockers,
-      residualFunctionCount: residual.length,
-    },
-    format: FORMAT,
-    frontier: {
-      actionableCandidates,
-      evaluatedObservedSettings: settings.length,
-      profileRowsAvailableFunctions: residual.filter(({ profileRows }) => profileRows !== null).length,
-    },
-    selectedNextAction: actionableCandidates[0] ?? null,
-  };
-}
-
-export function validateCanonicalizerResidualAnalysisM442(value) {
+function publishedHandoff(value) {
   assertPlainReceiptData(value);
-  const expected = buildCanonicalizerResidualAnalysisM442();
-  if (JSON.stringify(value) !== JSON.stringify(expected)) fail('analysis must match authenticated measurement');
-  return expected;
+  if (value === null || Array.isArray(value) || value.format !== FORMAT) {
+    fail(`published format must be ${FORMAT}`);
+  }
+  const digest = createHash('sha256').update(canonicalBytes(value)).digest('hex');
+  if (digest !== PUBLISHED_DIGEST) fail('receipt must match the exact published M4.42 analysis');
+  return { digest, record: structuredClone(value), sourceCommit: SOURCE_COMMIT };
 }
 
-export function measureCanonicalizerResidualAnalysisM442() {
-  return buildCanonicalizerResidualAnalysisM442();
+export function validatePublishedCanonicalizerResidualAnalysisM442(value) {
+  return publishedHandoff(value);
+}
+
+export function loadPublishedCanonicalizerResidualAnalysisM442() {
+  const path = fileURLToPath(SUMMARY_URL);
+  const stat = lstatSync(path);
+  if (!stat.isFile() || realpathSync(path) !== path) {
+    fail('published receipt must be a regular non-symlink file');
+  }
+  const source = readFileSync(path);
+  let parsed;
+  try {
+    parsed = JSON.parse(source.toString('utf8'));
+  } catch {
+    fail('published receipt must be valid JSON');
+  }
+  const result = publishedHandoff(parsed);
+  if (!source.equals(canonicalBytes(result.record))) {
+    fail('published receipt must use canonical JSON bytes');
+  }
+  return result;
 }

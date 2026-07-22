@@ -196,8 +196,6 @@ const UNCHANGED_GENERATED = new Map([
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
     '475ec6bcaa3bcc3610a1dcb64cfa9175ee8faf00a20d458586b2003fd7009314'],
-  ['examples/kern-canonicalizer/canonicalizer.kern',
-    '12d340568d8a41358aef7be0f354f8e67607baff6687a674315beee0510ec1c9'],
 ]);
 
 function sha256(bytes) {

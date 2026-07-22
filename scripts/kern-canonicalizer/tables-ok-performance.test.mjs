@@ -198,7 +198,7 @@ function recordChildren(tables, minimum = 2) {
   throw new Error(`missing record with ${minimum} children`);
 }
 
-test('M4.41 exact 15/24/154 direct-parameter witness preserves the authenticated performance budget', () => {
+test('M4.43 exact 15/24/154 direct-parameter witness preserves output with the indexed floor', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
@@ -207,8 +207,8 @@ test('M4.41 exact 15/24/154 direct-parameter witness preserves the authenticated
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
 
-  assert.notEqual(executeWitness(34_699).outcome, 'success');
-  assert.equal(executeWitness(34_700).outcome, 'success');
+  assert.notEqual(executeWitness(7_359).outcome, 'success');
+  assert.equal(executeWitness(7_360).outcome, 'success');
 
   const envelope = executeWitness(40_000);
   assert.equal(envelope.outcome, 'success', JSON.stringify(envelope));

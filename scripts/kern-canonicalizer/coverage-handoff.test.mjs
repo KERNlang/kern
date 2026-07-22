@@ -404,17 +404,17 @@ test('the current optimized executable preserves every M4.36-promoted family', (
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 43578, 'M4.41 must bind the exact parameter-migrated KERN byte count');
+  assert.equal(canonicalizerSource.length, 49400, 'M4.43 must bind the exact indexed KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '2b39f976b7eeb3e2cedc400821880a77edc11b99a72d0e24a28ddec8cabaeb4c',
-    'M4.41 must bind the exact parameter-migrated KERN digest',
+    '1114de23dc9f6bb036eb4734ed8e7aadef5c1d79d54b1d0395967065fc4e904d',
+    'M4.43 must bind the exact indexed KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
-  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\""/u);
-  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\""/u);
-  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\""/u);
-  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\""/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"call\\" && fieldCount == 3"/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\" && fieldCount == 3"/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\" && fieldCount == 3"/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');

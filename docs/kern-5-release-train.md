@@ -2479,6 +2479,49 @@ trusted-publishing/provenance configuration is inspected.
     M4.43 must authenticate runtime headroom before any 388-row profile
     promotion; KERN 5 remains incomplete.
 
+  - [x] M4.43 canonicalizer value-row runtime headroom: `exprsource` now
+    projects expressions with collision-safe bottom-up parent/order and
+    length-framed parent/role indexes instead of recursively rescanning the
+    complete value table. Exact iteration floors fall from 38,978 to 6,533
+    for the 161-row witness, from 237,982 to 10,614 for the selected 388-row
+    witness, and from 34,700 to 7,360 for the existing 154-row witness. The
+    selected witness therefore uses 21.6% of the precommitted 49,152 promotion
+    budget and retains 38,538 iterations of headroom. The active profile stays
+    exactly 16/30/154: this slice optimizes and authenticates capacity but does
+    not promote policy or migrate KERN source. A live residual measurement now
+    reproduces the exact historical M4.42 16/30/388 recommendation and its two
+    function/tool identities, while the published M4.42 receipt remains
+    byte-identical at SHA-256
+    `f37fed74d24a739adf3584ceb7608f8d25c490d2325ebc1c127e05ee15238a8e`.
+    The 49,400-byte generated canonicalizer authenticates at SHA-256
+    `1114de23dc9f6bb036eb4734ed8e7aadef5c1d79d54b1d0395967065fc4e904d`;
+    its source and composition authenticate at
+    `394ebcf582c289d13f877b9546430991ea89cdea0ecd1a22b02bef64083d678d`
+    and `3fa5131b62fcdcea4325b22ab56b81e5dba368c7accfa670d090bcfcd7f29dc5`.
+    Live implementation, policy, function-fact, reason-assignment, coverage,
+    prerequisite, and corpus digests are respectively
+    `e1f76383da938ab2caad81fe9209fd58061a3f1b47f675a23aae7a607548b333`,
+    `6c70a49fc5b8fabbefb902c3323534302448281fa998691598efd6a6d83fff6b`,
+    `75ec5a9f2ce7c3b6a7c42b212ecbced4a4ecb9becb80766c2f04280eb05d4287`,
+    `fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092`,
+    `b79a191f79ab8a59e114e4354cbcdd788fed0bbeb49d101e058cb5c1eacf9a53`,
+    `b28d2ec9f58c99dc4ab6a6e1f98628e539c0560f74ea9cef872f68787830d497`,
+    and `80499e1162962382b51be60976e6b2590a8aa755f9b42b5beadd64af52e62d20`.
+    Focused validation passes 123/123 canonicalizer tests plus 51/8/3/226
+    replay fixtures. The complete Node 22.22 `fitness:kern-5` wall passes,
+    including all 22 workspace projects, 434/434 cross-target fixtures,
+    109/109 class fixtures, 233/233 native assertions at 100% coverage, 48/48
+    checker fixtures, 39/39 validator verdicts, 40 app fixtures on three legs,
+    and whole-app Express/FastAPI boot. The required browser receipt remains
+    157 modules, 1,553,103 raw bytes, and 333,617 gzip bytes at 56 ms cold and
+    a 95 ms browser median (93/95/98 ms samples). Automatic medium-risk
+    role-lens review `review-1784721631067-zpjerk-kern-5-r2-m4-43-final`
+    completed 2/2; its live-liveness finding was fixed by binding the current
+    residual analysis to the exact published recommendation. Targeted review
+    `review-1784722477838-aiu54x-kern-5-r2-m4-43-review-fix` completed 1/1
+    with no finding. KERN 5 remains incomplete: a fresh M4.44 slice may now
+    authenticate the 388-row profile promotion and parameter migrations.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

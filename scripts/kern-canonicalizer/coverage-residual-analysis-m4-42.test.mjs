@@ -5,29 +5,37 @@ import test from 'node:test';
 
 import { loadPublishedCanonicalizerResidualAnalysisM438 } from './coverage-residual-analysis-m4-38.mjs';
 import {
-  measureCanonicalizerResidualAnalysisM442,
-  validateCanonicalizerResidualAnalysisM442,
+  loadPublishedCanonicalizerResidualAnalysisM442,
+  validatePublishedCanonicalizerResidualAnalysisM442,
 } from './coverage-residual-analysis-m4-42.mjs';
+import { measureCurrentCanonicalizerResidualAnalysis } from './coverage-residual-analysis-current.mjs';
 import { loadCanonicalizerResidualAnalysisHandoff } from './coverage-residual-analysis.mjs';
 import { formatM442ResidualAnalysisStatus } from './coverage-status.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-residual-analysis-m4-42.json', import.meta.url);
 
-test('M4.42 publishes exact current residual assignments and measured frontier', () => {
-  const actual = measureCanonicalizerResidualAnalysisM442();
+function publishedRecord() {
+  return loadPublishedCanonicalizerResidualAnalysisM442().record;
+}
+
+test('M4.42 preserves exact published residual assignments and measured frontier', () => {
+  const handoff = loadPublishedCanonicalizerResidualAnalysisM442();
+  const actual = handoff.record;
+  assert.equal(handoff.digest, 'f37fed74d24a739adf3584ceb7608f8d25c490d2325ebc1c127e05ee15238a8e');
+  assert.equal(handoff.sourceCommit, 'fa762508cf48beac0fce18afdda39beb08da51f1');
   assert.equal(actual.format, 'kern.kir-canonicalizer.residual-analysis.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 57,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
-    coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: actual.baseline.coveragePolicyDigest,
+    coverageImplementationDigest: '6c74f747f3df19ea9e09eb88be4e0aa10d54a7319f90af0eeffe4054ad9ebd2d',
+    coveragePolicyDigest: 'c6fa85f4906716bc11f13b68192e4108a46d61329c690aaa6be53c5433f8a3e6',
     currentProfileLimits: {
       maxNodeRows: 16,
       maxPropertyRows: 30,
       maxValueRows: 154,
     },
-    functionFactsDigest: actual.baseline.functionFactsDigest,
+    functionFactsDigest: 'ca9702a70e92e79aa384c04a09e4ea835009e19f726671dead147f160b632ea8',
     legacyParameterBlockers: 45,
     residualFunctionCount: 45,
   });
@@ -55,17 +63,41 @@ test('M4.42 publishes exact current residual assignments and measured frontier',
   });
   assert.equal(
     formatM442ResidualAnalysisStatus(actual.selectedNextAction),
-    'M4.42 current analysis selected 2 functions by maxValueRows widening.',
+    'M4.42 published analysis selected 2 functions by maxValueRows widening.',
   );
 
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);
-  assert.deepEqual(validateCanonicalizerResidualAnalysisM442(checkedIn), checkedIn);
+  assert.deepEqual(validatePublishedCanonicalizerResidualAnalysisM442(checkedIn).record, checkedIn);
 });
 
-test('M4.42 analysis rejects assignment, candidate, ranking, and baseline drift', () => {
-  const actual = measureCanonicalizerResidualAnalysisM442();
+test('M4.43 reauthenticates the published 388-row action against the live optimized frontier', () => {
+  const current = measureCurrentCanonicalizerResidualAnalysis();
+  const liveCoverage = JSON.parse(readFileSync(new URL('./coverage-summary.json', import.meta.url), 'utf8'));
+  assert.deepEqual(current.baseline, {
+    baseCompleteFunctions: 57,
+    baseId: 'kern.kir-canonicalizer.profile.m4.36',
+    coverageImplementationDigest: liveCoverage.coverageImplementationDigest,
+    coveragePolicyDigest: '6c70a49fc5b8fabbefb902c3323534302448281fa998691598efd6a6d83fff6b',
+    currentProfileLimits: {
+      maxNodeRows: 16,
+      maxPropertyRows: 30,
+      maxValueRows: 154,
+    },
+    functionFactsDigest: '75ec5a9f2ce7c3b6a7c42b212ecbced4a4ecb9becb80766c2f04280eb05d4287',
+    legacyParameterBlockers: 45,
+    residualFunctionCount: 45,
+  });
+  assert.equal(
+    current.assignmentsDigest,
+    'fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092',
+  );
+  assert.deepEqual(current.selectedNextAction, publishedRecord().selectedNextAction);
+});
+
+test('M4.42 published digest rejects any assignment, candidate, ranking, or baseline drift', () => {
+  const actual = publishedRecord();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.residual-analysis.2'; },
     (copy) => { copy.future = true; },
@@ -81,18 +113,18 @@ test('M4.42 analysis rejects assignment, candidate, ranking, and baseline drift'
     const copy = structuredClone(actual);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerResidualAnalysisM442(copy),
+      () => validatePublishedCanonicalizerResidualAnalysisM442(copy),
       /coverage M4\.42 residual analysis rejection/u,
     );
   }
 });
 
 test('M4.42 analysis rejects decorated objects before comparing receipt data', () => {
-  const actual = measureCanonicalizerResidualAnalysisM442();
+  const actual = publishedRecord();
   const toJsonSpoof = { future: true, toJSON: () => actual };
   assert.equal(JSON.stringify(toJsonSpoof), JSON.stringify(actual));
   assert.throws(
-    () => validateCanonicalizerResidualAnalysisM442(toJsonSpoof),
+    () => validatePublishedCanonicalizerResidualAnalysisM442(toJsonSpoof),
     /coverage M4\.42 residual analysis rejection/u,
   );
 
@@ -103,7 +135,7 @@ test('M4.42 analysis rejects decorated objects before comparing receipt data', (
   });
   assert.equal(JSON.stringify(accessorSpoof), JSON.stringify(actual));
   assert.throws(
-    () => validateCanonicalizerResidualAnalysisM442(accessorSpoof),
+    () => validatePublishedCanonicalizerResidualAnalysisM442(accessorSpoof),
     /coverage M4\.42 residual analysis rejection/u,
   );
 
@@ -114,7 +146,7 @@ test('M4.42 analysis rejects decorated objects before comparing receipt data', (
   sparseSpoof.assignments.length += 1;
   for (const value of [customPrototype, symbolSpoof, sparseSpoof]) {
     assert.throws(
-      () => validateCanonicalizerResidualAnalysisM442(value),
+      () => validatePublishedCanonicalizerResidualAnalysisM442(value),
       /coverage M4\.42 residual analysis rejection/u,
     );
   }
@@ -132,12 +164,12 @@ test('M4.42 preserves M4.31 and M4.38 and reproduces in a fresh process', () => 
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {measureCanonicalizerResidualAnalysisM442 as measure} from './scripts/kern-canonicalizer/coverage-residual-analysis-m4-42.mjs'; process.stdout.write(JSON.stringify(measure()))",
+    "import {loadPublishedCanonicalizerResidualAnalysisM442 as load} from './scripts/kern-canonicalizer/coverage-residual-analysis-m4-42.mjs'; process.stdout.write(JSON.stringify(load().record))",
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), measureCanonicalizerResidualAnalysisM442());
+  assert.deepEqual(JSON.parse(fresh.stdout), publishedRecord());
 });
