@@ -29,7 +29,16 @@ export function formatM443ResidualAnalysisStatus(selectedNextAction) {
 }
 
 export function formatM446ResidualAnalysisStatus(selectedNextAction) {
-  return formatResidualAnalysisStatus('M4.46 current analysis', selectedNextAction);
+  return formatResidualAnalysisStatus(
+    'M4.46 published analysis',
+    selectedNextAction,
+    '; M4.47 authenticates structural runtime headroom',
+  );
+}
+
+export function formatM447NodeRowHeadroomStatus(receipt) {
+  return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
+    `${receipt.summary.maxExactFloor} maximum floor.`;
 }
 
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {

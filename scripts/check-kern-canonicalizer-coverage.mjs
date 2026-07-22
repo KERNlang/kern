@@ -16,7 +16,8 @@ import {
 import {
   loadPublishedCanonicalizerResidualAnalysisM443,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-43.mjs';
-import { measureCanonicalizerResidualAnalysisM446 } from './kern-canonicalizer/coverage-residual-analysis-m4-46.mjs';
+import { loadPublishedCanonicalizerResidualAnalysisM446 } from './kern-canonicalizer/coverage-residual-analysis-m4-46.mjs';
+import { measureCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
@@ -24,6 +25,7 @@ import {
   formatM442ResidualAnalysisStatus,
   formatM443ResidualAnalysisStatus,
   formatM446ResidualAnalysisStatus,
+  formatM447NodeRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -35,6 +37,7 @@ const prerequisiteSummaryUrl = new URL(
 const m442ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-42.json', import.meta.url);
 const m443ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-43.json', import.meta.url);
 const m446ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-46.json', import.meta.url);
+const m447NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-47.json', import.meta.url);
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
 const m444PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM444();
@@ -46,12 +49,14 @@ const m442ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m442ResidualAnalysis = m442ResidualAnalysisHandoff.record;
 const m443ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM443();
 const m443ResidualAnalysis = m443ResidualAnalysisHandoff.record;
-const m446ResidualAnalysis = measureCanonicalizerResidualAnalysisM446();
+const m446ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM446();
+const m446ResidualAnalysis = m446ResidualAnalysisHandoff.record;
+const m447NodeRowHeadroom = measureCanonicalizerNodeRowHeadroomM447();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
-  writeCoverageSummary(m446ResidualAnalysisUrl, m446ResidualAnalysis);
+  writeCoverageSummary(m447NodeRowHeadroomUrl, m447NodeRowHeadroom);
 } else {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
@@ -420,6 +425,9 @@ if (process.argv.includes('--write')) {
   assertCoverageSummary(m442ResidualAnalysisUrl, m442ResidualAnalysis);
   assertCoverageSummary(m443ResidualAnalysisUrl, m443ResidualAnalysis);
   assertCoverageSummary(m446ResidualAnalysisUrl, m446ResidualAnalysis);
+  assert.equal(m446ResidualAnalysisHandoff.digest, '67ed659c709adfc5cd51095a3ac5f9549b0384d9651ac3d74894ad4b3aab3402');
+  assert.equal(m446ResidualAnalysisHandoff.sourceCommit, '77ba01b467b411def9343ffb3c064e1650e6fced');
+  assertCoverageSummary(m447NodeRowHeadroomUrl, m447NodeRowHeadroom);
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -557,6 +565,7 @@ process.stdout.write(
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
   ` ${formatM446ResidualAnalysisStatus(m446ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM447NodeRowHeadroomStatus(m447NodeRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

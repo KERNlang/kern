@@ -8,6 +8,7 @@ import {
   formatM442ResidualAnalysisStatus,
   formatM443ResidualAnalysisStatus,
   formatM446ResidualAnalysisStatus,
+  formatM447NodeRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -49,17 +50,21 @@ test('coverage status formats current and historical release decisions', () => {
   );
 });
 
-test('coverage status records the M4.46 current residual recommendation', () => {
+test('coverage status records the M4.46 published recommendation and M4.47 headroom', () => {
   assert.equal(
     formatM446ResidualAnalysisStatus(null),
-    'M4.46 current analysis found no actionable profile widening.',
+    'M4.46 published analysis found no actionable profile widening.',
   );
   assert.equal(
     formatM446ResidualAnalysisStatus({
       completeFunctions: 4,
       changedLimits: ['maxNodeRows'],
     }),
-    'M4.46 current analysis selected 4 functions by maxNodeRows widening.',
+    'M4.46 published analysis selected 4 functions by maxNodeRows widening; M4.47 authenticates structural runtime headroom.',
+  );
+  assert.equal(
+    formatM447NodeRowHeadroomStatus({ summary: { maxExactFloor: 15_236, witnessCount: 4 } }),
+    'M4.47 structural headroom authenticated 4 witnesses at a 15236 maximum floor.',
   );
 });
 

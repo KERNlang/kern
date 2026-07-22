@@ -1,0 +1,112 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.node-row-headroom.1",
+  "limits": {
+    "candidateProfile": {
+      "maxNodeRows": 19,
+      "maxPropertyRows": 30,
+      "maxValueRows": 388
+    },
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "knownDepthBlocker": "examples/selfhost-validator/validator.kern#3:isportable",
+    "maxDepth": 64,
+    "moduleCodecSha256": "2e8ec8543b6ea9961fef0c097012e4aa10b143145fcef9a07b4447b08c8e058f"
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "a81f3a28cae9b96bfe7fac0f3a38e7f6830590d11ab5e7214293297f103b1872",
+    "canonicalizerPolicySha256": "a0613353cf5dd7def20b13138fae461b3084bb6b958b769c99bf5b00a5c98556",
+    "compositionSha256": "7f97b53c34ef4fab067f45ccd75f1817dc1fd4628e2febd43b361036adc74e14",
+    "inputSourceSha256": [
+      {
+        "path": "examples/capstone-checker-subset/checker.kern",
+        "sha256": "d52e8a601020cfb43d9740d4107fcb974f22e5ebbe64eb41a29f0dc4b9bba0bd"
+      },
+      {
+        "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+        "sha256": "1d4c95f4801dc3f7eae268872bf111f56b49a8a778576e463292daed4206b63f"
+      },
+      {
+        "path": "examples/selfhost-validator/validator.kern",
+        "sha256": "0bb516e32a63802f9a23e0e93b5f55f942bd24c93b343a1678a6cbfcd2bccd56"
+      }
+    ],
+    "publishedCoverageImplementationDigest": "9ba952686c10c0210810f428fbbfabdd4d8612825e0047a8add9d2425466021e",
+    "residualAnalysisSha256": "67ed659c709adfc5cd51095a3ac5f9549b0384d9651ac3d74894ad4b3aab3402",
+    "residualAnalysisSourceCommit": "77ba01b467b411def9343ffb3c064e1650e6fced",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "summary": {
+    "maxExactFloor": 15236,
+    "minimumProductionHeadroom": 50300,
+    "minimumPromotionHeadroom": 33916,
+    "witnessCount": 4
+  },
+  "witnesses": [
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 8303,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker.kern#12:isIndexRebound",
+      "parameterRows": 6,
+      "productionHeadroom": 57233,
+      "profileRows": {
+        "nodes": 17,
+        "properties": 26,
+        "values": 152
+      },
+      "promotionHeadroom": 40849,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 10361,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker.kern#9:isUserCallable",
+      "parameterRows": 4,
+      "productionHeadroom": 55175,
+      "profileRows": {
+        "nodes": 19,
+        "properties": 26,
+        "values": 185
+      },
+      "promotionHeadroom": 38791,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 15236,
+      "floorOutcome": "success",
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#4:validinteger",
+      "parameterRows": 1,
+      "productionHeadroom": 50300,
+      "profileRows": {
+        "nodes": 19,
+        "properties": 28,
+        "values": 290
+      },
+      "promotionHeadroom": 33916,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 10591,
+      "floorOutcome": "success",
+      "id": "examples/selfhost-validator/validator.kern#3:isportable",
+      "parameterRows": 1,
+      "productionHeadroom": 54945,
+      "profileRows": {
+        "nodes": 18,
+        "properties": 24,
+        "values": 217
+      },
+      "promotionHeadroom": 38561,
+      "roundTrip": true
+    }
+  ]
+}

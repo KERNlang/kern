@@ -2648,6 +2648,53 @@ trusted-publishing/provenance configuration is inspected.
     M4.47 must prove runtime headroom for the exact four-function 19-row node
     cohort before profile promotion.
 
+  - [x] M4.47 authenticated node-row runtime headroom: the exact M4.46
+    four-function, three-tool, 12-parameter-row cohort is frozen before the
+    current implementation closure changes, and each selected function is
+    executed as the same single-function structural KIR artifact used by the
+    coverage path. Exact runtime floors under the unchanged 19/30/388 candidate
+    are 8,303 for `isIndexRebound`, 10,361 for `isUserCallable`, 15,236 for
+    `validinteger`, and 10,591 for `isportable`; floor minus one fails, every
+    floor succeeds without diagnostics/events, and every result reparses to
+    byte-identical structural KIR. All floors remain below the precommitted
+    49,152 promotion budget and the unchanged 65,536 production ceiling. The
+    module-envelope `isportable` depth-64 rejection is recorded explicitly as
+    outside this structural proof and no KIR/runtime limit is widened. The
+    M4.46 receipt remains byte-identical at
+    `67ed659c709adfc5cd51095a3ac5f9549b0384d9651ac3d74894ad4b3aab3402`;
+    its immutable loader authenticates at
+    `dc4480a7568863f376e5fe392d2defcabb3394c88d945a7ba506a6c9b980a2b1`.
+    The M4.47 receipt, validator, and runtime oracle authenticate at
+    `0da8ef5be1be0ea2ac12ef739bd6cc38070d60b7b3a775f45602857d40979af1`,
+    `09259ac9b634dc8875a58bda40eca564377aca2e3758c89c2ec626c765053af3`,
+    and `a45de591e2641e7971b9ab9e662dd6caae586cd2e84060ef1e47693e22ada1a6`.
+    Regenerated live coverage and prerequisite receipts authenticate at
+    `95f6c10dff915595f866ae035ce686c9c1fa34bfc3aef47654d29150cedc7eea`
+    and `a40338a9deb0a0e604d4a667a6a016fd75686930ebcb0d74de4f871f160f1b9b`;
+    their shared implementation digest is
+    `1ebb64074a71b37120ed663162bef05d14a4f513c35d6eaefd4fe1dd2efb73e6`.
+    No KERN source, generated consumer, profile, active family, parser,
+    runtime, KIR, ABI, package version, or public API changes. The focused
+    receipt/status suite passes 10/10, the exact performance suite passes 5/5,
+    and the complete canonicalizer gate passes 147/147 tests plus 51/8/3/226
+    replay fixtures. The complete Node 22.22 `fitness:kern-5` wall passes,
+    including all workspace builds/tests, 434/434 cross-target fixtures,
+    109/109 class fixtures, 233/233 native assertions at 100% coverage, 48/48
+    checker fixtures, 39/39 validator verdicts, 40 app fixtures on three legs,
+    whole-app Express/FastAPI boot, runtime/KIR/ownership/convergence gates,
+    diff hygiene, and the repeated canonicalizer gate. Its required browser
+    receipt is 157 modules, 1,553,103 raw bytes, and 333,617 gzip bytes at
+    56 ms cold and a 95 ms median (87/95/102 ms samples). Automatic medium-risk
+    role-lens review `review-1784742281330-sgd69l-kern-5-r2-m4-47-final`
+    completed 2/2 with no consensus-verified finding. Both needs-check
+    candidates were resolved by self-pinning the exact M4.47 receipt digest and
+    requiring the exact public-handler failure envelope at floor minus one,
+    above every direct input collection length. The corrected focused suite
+    passes 8/8. Post-fix lint, repository consistency, diff hygiene, and the
+    complete 147/147 plus 51/8/3/226 canonicalizer gate pass. No material
+    finding remains unresolved. KERN 5 remains incomplete: M4.48 may promote
+    only `maxNodeRows` from 16 to 19 while preserving this exact handoff.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
