@@ -5,6 +5,7 @@ import {
   formatCurrentResidualAnalysisStatus,
   formatCoverageWinnerStatus,
   formatHistoricalResidualAnalysisStatus,
+  formatM442ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -32,6 +33,17 @@ test('coverage status formats current and historical release decisions', () => {
       completeFunctions: 11,
     }),
     'Current residual analysis selected 11 functions by maxValueRows widening.',
+  );
+  assert.equal(
+    formatM442ResidualAnalysisStatus(null),
+    'M4.42 current analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatM442ResidualAnalysisStatus({
+      changedLimits: ['maxValueRows'],
+      completeFunctions: 2,
+    }),
+    'M4.42 current analysis selected 2 functions by maxValueRows widening.',
   );
 });
 

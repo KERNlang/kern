@@ -9,10 +9,14 @@ import {
 import {
   loadPublishedCanonicalizerResidualAnalysisM438,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-38.mjs';
+import {
+  measureCanonicalizerResidualAnalysisM442,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-42.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
   formatHistoricalResidualAnalysisStatus,
+  formatM442ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -21,16 +25,22 @@ const prerequisiteSummaryUrl = new URL(
   './kern-canonicalizer/coverage-prerequisite-summary.json',
   import.meta.url,
 );
+const m442ResidualAnalysisUrl = new URL(
+  './kern-canonicalizer/coverage-residual-analysis-m4-42.json',
+  import.meta.url,
+);
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
-const currentResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
-const currentResidualAnalysis = currentResidualAnalysisHandoff.record;
+const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
+const m438ResidualAnalysis = m438ResidualAnalysisHandoff.record;
+const m442ResidualAnalysis = measureCanonicalizerResidualAnalysisM442();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
+  writeCoverageSummary(m442ResidualAnalysisUrl, m442ResidualAnalysis);
 } else {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
@@ -269,26 +279,26 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#8:contained',
     ],
   });
-  assert.equal(currentResidualAnalysis.format, 'kern.kir-canonicalizer.residual-analysis.2');
-  assert.equal(currentResidualAnalysis.assignments.length, 56);
+  assert.equal(m438ResidualAnalysis.format, 'kern.kir-canonicalizer.residual-analysis.2');
+  assert.equal(m438ResidualAnalysis.assignments.length, 56);
   assert.equal(
-    currentResidualAnalysis.assignmentsDigest,
+    m438ResidualAnalysis.assignmentsDigest,
     '8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef',
   );
-  assert.equal(currentResidualAnalysisHandoff.digest, '8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd');
-  assert.equal(currentResidualAnalysisHandoff.sourceCommit, '953811cb5fdc5d13c92ada4e7f894eb9ac5cf0dc');
-  assert.equal(currentResidualAnalysis.baseline.coverageImplementationDigest, '54d297b6a080d9862d8125b9c28a10f3309686c9e86e192205b8e4a9a68d66ce');
-  assert.equal(currentResidualAnalysis.baseline.coveragePolicyDigest, 'f441b42d80b0fbbe1d858efafddfc8b713b3633699f0d125df9541f90afdb987');
-  assert.equal(currentResidualAnalysis.baseline.functionFactsDigest, '513653af8508b60955f8f2fc9cb9289bcb26ad9f38a081380692d51cfd3a10c3');
-  assert.deepEqual(currentResidualAnalysis.baseline.currentProfileLimits, {
+  assert.equal(m438ResidualAnalysisHandoff.digest, '8bc1be3c941c8fd2d8a4a5990de0266f54ae986fbfd1e4712e6044c78cc092cd');
+  assert.equal(m438ResidualAnalysisHandoff.sourceCommit, '953811cb5fdc5d13c92ada4e7f894eb9ac5cf0dc');
+  assert.equal(m438ResidualAnalysis.baseline.coverageImplementationDigest, '54d297b6a080d9862d8125b9c28a10f3309686c9e86e192205b8e4a9a68d66ce');
+  assert.equal(m438ResidualAnalysis.baseline.coveragePolicyDigest, 'f441b42d80b0fbbe1d858efafddfc8b713b3633699f0d125df9541f90afdb987');
+  assert.equal(m438ResidualAnalysis.baseline.functionFactsDigest, '513653af8508b60955f8f2fc9cb9289bcb26ad9f38a081380692d51cfd3a10c3');
+  assert.deepEqual(m438ResidualAnalysis.baseline.currentProfileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
     maxValueRows: 106,
   });
-  assert.equal(currentResidualAnalysis.frontier.evaluatedObservedSettings, 39);
-  assert.equal(currentResidualAnalysis.frontier.profileRowsAvailableFunctions, 40);
-  assert.equal(currentResidualAnalysis.frontier.actionableCandidates.length, 39);
-  assert.deepEqual(currentResidualAnalysis.selectedNextAction, {
+  assert.equal(m438ResidualAnalysis.frontier.evaluatedObservedSettings, 39);
+  assert.equal(m438ResidualAnalysis.frontier.profileRowsAvailableFunctions, 40);
+  assert.equal(m438ResidualAnalysis.frontier.actionableCandidates.length, 39);
+  assert.deepEqual(m438ResidualAnalysis.selectedNextAction, {
     changedLimits: ['maxValueRows'],
     completeFunctions: 11,
     completeTools: 3,
@@ -308,6 +318,38 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#18:hasimportcyclefrom',
     ],
   });
+  assert.equal(m442ResidualAnalysis.format, 'kern.kir-canonicalizer.residual-analysis.3');
+  assert.equal(m442ResidualAnalysis.assignments.length, 45);
+  assert.equal(
+    m442ResidualAnalysis.assignmentsDigest,
+    'a965461fa32dc4bbb1fdfa3ca153d91d019865e6ddb10e57f64087be6d7402bf',
+  );
+  assert.equal(
+    m442ResidualAnalysis.baseline.coverageImplementationDigest,
+    actual.coverageImplementationDigest,
+  );
+  assert.equal(m442ResidualAnalysis.baseline.coveragePolicyDigest, actual.coveragePolicyDigest);
+  assert.equal(m442ResidualAnalysis.baseline.functionFactsDigest, actual.functionFactsDigest);
+  assert.deepEqual(m442ResidualAnalysis.baseline.currentProfileLimits, {
+    maxNodeRows: 16,
+    maxPropertyRows: 30,
+    maxValueRows: 154,
+  });
+  assert.equal(m442ResidualAnalysis.frontier.evaluatedObservedSettings, 29);
+  assert.equal(m442ResidualAnalysis.frontier.profileRowsAvailableFunctions, 29);
+  assert.equal(m442ResidualAnalysis.frontier.actionableCandidates.length, 29);
+  assert.deepEqual(m442ResidualAnalysis.selectedNextAction, {
+    changedLimits: ['maxValueRows'],
+    completeFunctions: 2,
+    completeTools: 2,
+    limits: { maxNodeRows: 16, maxPropertyRows: 30, maxValueRows: 388 },
+    totalDelta: 234,
+    witnesses: [
+      'examples/capstone-checker-subset/checker-while.kern#2:checkerSafeIntText',
+      'examples/kern-canonicalizer/canonicalizer.kern#1:validbinaryop',
+    ],
+  });
+  assertCoverageSummary(m442ResidualAnalysisUrl, m442ResidualAnalysis);
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -444,6 +486,7 @@ process.stdout.write(
       ? 'bounded active-family exhaustion; next action current residual blocker analysis.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
-  ` ${formatPublishedResidualAnalysisStatus(currentResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
   ` ${formatHistoricalResidualAnalysisStatus(residualAnalysis.selectedNextAction)}\n`,
 );

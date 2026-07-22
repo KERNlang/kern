@@ -14,6 +14,12 @@ export function formatCurrentResidualAnalysisStatus(selectedNextAction) {
     `${selectedNextAction.changedLimits.join('+')} widening.`;
 }
 
+export function formatM442ResidualAnalysisStatus(selectedNextAction) {
+  if (selectedNextAction === null) return 'M4.42 current analysis found no actionable profile widening.';
+  return `M4.42 current analysis selected ${selectedNextAction.completeFunctions} functions by ` +
+    `${selectedNextAction.changedLimits.join('+')} widening.`;
+}
+
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   if (selectedNextAction === null) return 'M4.38 published analysis found no actionable profile widening.';
   return `M4.38 published analysis selected ${selectedNextAction.completeFunctions} functions by ` +

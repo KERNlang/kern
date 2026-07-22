@@ -2450,6 +2450,35 @@ trusted-publishing/provenance configuration is inspected.
     the exact 494-line validator pin. KERN 5 remains incomplete: M4.42 begins
     the authenticated current residual-blocker analysis.
 
+  - [x] M4.42 canonicalizer current residual-blocker analysis: a new format-3
+    receipt binds all 45 post-M4.41 residual functions to exact canonical
+    assignments and reproduces the published reason-assignment digest
+    `a965461fa32dc4bbb1fdfa3ca153d91d019865e6ddb10e57f64087be6d7402bf`.
+    Exactly 29 functions expose profile rows, yielding 29 observed settings
+    and 29 positive actionable candidates under the unchanged M4.36 base and
+    16/30/154 limits. Deterministic ranking selects a one-axis value-row
+    widening to 16/30/388, total delta 234, completing two functions across
+    two tools: `checkerSafeIntText` and `validbinaryop`. This is authenticated
+    recommendation only: no profile, KERN source, generated consumer, family,
+    parser, KIR, runtime, ABI, or public API changes in this slice.
+    The implementation digest is
+    `6c74f747f3df19ea9e09eb88be4e0aa10d54a7319f90af0eeffe4054ad9ebd2d`;
+    coverage, prerequisite, and M4.42 receipt whole-file SHA-256 values are
+    `e578c3a828ef1a2757fd285de02afc3cdbb98e2b5ef9299f577bab8d14aa27b6`,
+    `b01651c6993078bc364edb62d95fce092e37e630e71d46f9338ca1554e7a2e96`,
+    and `f37fed74d24a739adf3584ceb7608f8d25c490d2325ebc1c127e05ee15238a8e`.
+    M4.31 and M4.38 receipts remain byte-identical. Focused validation passes
+    117/117 canonicalizer tests plus 51/8/3/226 replay fixtures. The complete
+    Node 22 `fitness:kern-5` wall passes, including all 22 workspace projects,
+    434/434 cross-target fixtures, 109/109 class fixtures, and 233/233 native
+    assertions at 100% coverage. The required browser measurement remains 157
+    modules, 1,553,103 raw bytes, and 333,617 gzip bytes at an 89 ms median
+    (86/89/95 ms samples). Automatic medium-risk role-lens review
+    `review-1784716745356-42xprs-kern-5-r2-m4-42-final` completed 2/2 with no
+    material finding; its two naming/process-documentation nits are resolved.
+    M4.43 must authenticate runtime headroom before any 388-row profile
+    promotion; KERN 5 remains incomplete.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
