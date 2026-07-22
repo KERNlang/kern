@@ -13,9 +13,10 @@
       "text",
       "unary"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.29",
+    "id": "kern.kir-canonicalizer.profile.m4.36",
     "nodeKinds": [
       "assign",
+      "do",
       "else",
       "fn",
       "for",
@@ -65,11 +66,17 @@
         "family": "unary-expression",
         "provenanceDigest": "e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "do-statement",
+        "provenanceDigest": "3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
       "assign.target",
       "assign.value",
+      "do.value",
       "fn.async",
       "fn.effects",
       "fn.export",
@@ -197,21 +204,21 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "009f1bc18de3e630a626ad9ddb5eff2b511d6fb7f0badc2aa87bce4f4336ecc1",
-  "coverageImplementationDigest": "5f25fd30c54b55a770b1bcce0828316d147f283e40ff68c67452ca7a6a1d457b",
-  "coveragePolicyDigest": "fa5cedd2be8cac69bf4798826848ccf445e6788738685e015be149f5d3df67a4",
+  "coverageImplementationDigest": "c6940a950795d304a2b6bbd88dfc16e96e5a355babec135f882cf484b7603aa5",
+  "coveragePolicyDigest": "5e806bf8f4078bf07a2190df6b1be11a8a2fc3e4e77cad668e6030ac1ca1cb0b",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 104,
-  "functionFactsDigest": "d22ac32bf2803f1f33b8ce6fad2f2c4ced0da4ef22a3bd6565beb98e97fee20c",
+  "functionFactsDigest": "1a7dc9964714306d2e57f98c73b5af2cfe605cae9f46910b6c0c7eefa46a6a35",
   "implementationProvenance": {
-    "family": "unary-expression",
-    "provenanceDigest": "e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5",
+    "family": "do-statement",
+    "provenanceDigest": "3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "5b6f75459d0d53eeb952f16d348c783dd89393338b82fb0e188cd618eb25a366",
-  "profileDigest": "2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa",
+  "policyDigest": "9922e2976cf0071564c2ed968ba0ac4ceebfa91a9b1c9c44136eab4930af8ac3",
+  "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
   "prerequisiteProvenances": [
     {
       "digest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
@@ -436,13 +443,6 @@
   ],
   "selection": {
     "ranking": [
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "do-statement",
-        "occurrences": 178,
-        "witnesses": []
-      },
       {
         "completeFunctions": 0,
         "completeTools": 0,

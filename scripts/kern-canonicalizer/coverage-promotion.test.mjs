@@ -12,7 +12,7 @@ import { baseExpressionProfileBlockers, profileBlockersForFunction } from './cov
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.29';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.36';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
@@ -62,12 +62,16 @@ const UNARY_PROMOTION = {
   provenanceDigest: UNARY_PROVENANCE_DIGEST,
   provenanceKind: 'prerequisite',
 };
-
-test('M4.29 promotes unary expression through exact prerequisite provenance', () => {
+const DO_PROMOTION = {
+  family: 'do-statement',
+  provenanceDigest: DO_PROVENANCE_DIGEST,
+  provenanceKind: 'prerequisite',
+};
+test('M4.36 promotes do statement through exact prerequisite provenance', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, PROFILE_ID);
-  assert.deepEqual(policy.base.nodeKinds, ['assign', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return']);
+  assert.deepEqual(policy.base.nodeKinds, ['assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return']);
   assert.deepEqual(policy.base.expressionKinds, [
     'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text', 'unary',
   ]);
@@ -82,6 +86,7 @@ test('M4.29 promotes unary expression through exact prerequisite provenance', ()
       COUNTED_ITERATION_PROMOTION,
       BINDING_PROMOTION,
       UNARY_PROMOTION,
+      DO_PROMOTION,
     ],
   );
   assert.equal(policy.families.some(({ id }) => id === 'binary-expression'), false);
@@ -92,6 +97,8 @@ test('M4.29 promotes unary expression through exact prerequisite provenance', ()
   assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
+  assert.equal(policy.base.propertyKeys.includes('do.value'), true);
   assert.equal(policy.base.propertyKeys.includes('for.from'), true);
   assert.equal(policy.base.propertyKeys.includes('for.name'), true);
   assert.equal(policy.base.propertyKeys.includes('for.to'), true);
@@ -119,8 +126,8 @@ test('M4.29 promotes unary expression through exact prerequisite provenance', ()
     ],
   );
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
-  assert.deepEqual(receipt.implementationProvenance, UNARY_PROMOTION);
-  assert.deepEqual(summary.implementationProvenance, UNARY_PROMOTION);
+  assert.deepEqual(receipt.implementationProvenance, DO_PROMOTION);
+  assert.deepEqual(summary.implementationProvenance, DO_PROMOTION);
   assert.deepEqual(
     receipt.prerequisiteProvenances.map(({ digest }) => digest),
     [
@@ -138,7 +145,7 @@ test('M4.29 promotes unary expression through exact prerequisite provenance', ()
   );
 });
 
-test('M4.29 rejects profile identity, typed evidence, and candidate overlap drift', () => {
+test('M4.36 rejects profile identity, typed evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.2'; },
@@ -155,12 +162,14 @@ test('M4.29 rejects profile identity, typed evidence, and candidate overlap drif
     (copy) => { copy.base.promotions[5].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[6].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[7].provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions[8].provenanceDigest = '0'.repeat(64); },
     (copy) => { copy.base.promotions[0].provenanceKind = 'prerequisite'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'future'; },
     (copy) => { copy.base.promotions[5].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions[6].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions[7].provenanceKind = 'selection'; },
+    (copy) => { copy.base.promotions[8].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions.reverse(); },
     (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
@@ -170,6 +179,7 @@ test('M4.29 rejects profile identity, typed evidence, and candidate overlap drif
     (copy) => { copy.base.promotions.push(structuredClone(COUNTED_ITERATION_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(BINDING_PROMOTION)); },
     (copy) => { copy.base.promotions.push(structuredClone(UNARY_PROMOTION)); },
+    (copy) => { copy.base.promotions.push(structuredClone(DO_PROMOTION)); },
     (copy) => {
       copy.families.unshift({
         expressionKinds: ['index'],
@@ -196,6 +206,9 @@ test('M4.29 rejects profile identity, typed evidence, and candidate overlap drif
     },
     (copy) => {
       copy.families.unshift({ expressionKinds: ['unary'], id: 'unary-expression', nodeKinds: [], propertyKeys: [] });
+    },
+    (copy) => {
+      copy.families.unshift({ expressionKinds: [], id: 'do-statement', nodeKinds: ['do'], propertyKeys: ['do.value'] });
     },
   ];
   for (const mutate of mutations) {

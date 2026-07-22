@@ -105,11 +105,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.prerequisiteProvenances.length, 5);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
-    family: 'unary-expression',
-    provenanceDigest: prerequisiteHandoffs[3].digest,
+    family: 'do-statement',
+    provenanceDigest: prerequisiteHandoffs[4].digest,
     provenanceKind: 'prerequisite',
   });
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.29');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.36');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -151,60 +151,71 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.35 must preserve the eight promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.35 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.35 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.35 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 45, 'live M4.35 base completion must remain exactly 45/104');
+    {
+      family: 'do-statement',
+      provenanceDigest: '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.36 must preserve the nine promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.36 handwritten corpus count must remain exact');
+  assert.equal(actual.functionCount, 104, 'live M4.36 authored function count must remain exact');
+  assert.equal(actual.toolCount, 4, 'live M4.36 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 45, 'live M4.36 base completion must remain exactly 45/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     57,
-    'live M4.35 fn.params blocker count must remain exactly 57',
+    'live M4.36 fn.params blocker count must remain exactly 57',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.35 measurement must have no ordinary winner');
+  assert.equal(actual.selection.winner, null, 'live M4.36 measurement must have no ordinary winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
     [
-      { completeFunctions: 0, completeTools: 0, id: 'do-statement' },
       { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
       { completeFunctions: 0, completeTools: 0, id: 'while-iteration' },
     ],
-    'live M4.35 residual zero-completion ranking must remain exact',
+    'live M4.36 residual zero-completion ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(prerequisite.outcome, 'selected');
-  assert.equal(prerequisite.minimumFamilyCount, 1);
-  assert.equal(prerequisite.exhaustion, null);
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
-  assert.equal(prerequisite.parameterMigration.completeTools, 0);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
-  assert.deepEqual(prerequisite.parameterMigration.witnesses, []);
-  assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 2,
-    family: 'do-statement',
-    occurrences: 178,
-  });
-  assert.deepEqual(prerequisite.prerequisiteRanking, [prerequisite.selectedPrerequisite]);
-  assert.deepEqual(prerequisite.ranking, [{
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.minimumFamilyCount, null);
+  assert.deepEqual(prerequisite.parameterMigration, {
     completeFunctions: 1,
     completeTools: 1,
-    families: ['do-statement'],
     migratedParameterRows: 2,
-    occurrences: 178,
     witnesses: [{
       id: 'examples/selfhost-validator/validator.kern#14:appendid',
       parameterRows: 2,
       profileRows: { nodes: 9, properties: 16, values: 80 },
       tool: 'validator',
     }],
-  }]);
-  const parameterReadyIds = new Set(prerequisite.parameterMigration.witnesses.map(({ id }) => id));
-  assert.equal(
-    prerequisite.ranking.flatMap(({ witnesses }) => witnesses).some(({ id }) => parameterReadyIds.has(id)),
-    false,
-    'parameter-ready functions must not receive residual structural-family credit',
-  );
+  });
+  assert.equal(prerequisite.selectedPrerequisite, null);
+  assert.deepEqual(prerequisite.prerequisiteRanking, []);
+  assert.deepEqual(prerequisite.ranking, []);
+  assert.deepEqual(prerequisite.exhaustion, {
+    activeFamilies: ['exception-flow', 'while-iteration'],
+    completingClosureCount: 0,
+    evaluatedNonEmptyClosureCount: 3,
+    reasonAssignmentsDigest: '8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef',
+    reasonCounts: [
+      { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u009f' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
+      { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
+      { count: 27, id: 'profile.rows.nodes' },
+      { count: 23, id: 'profile.rows.properties' },
+      { count: 40, id: 'profile.rows.values' },
+      { count: 14, id: 'projection.limit-depth' },
+      { count: 1, id: 'projection.limit-nodes' },
+      { count: 1, id: 'projection.unknown-expression-kind' },
+      { count: 1, id: 'throw.value:unknown-expression-kind' },
+    ],
+    residualFunctionCount: 56,
+    scope: 'current-bounded-profile',
+  });
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
   assert.equal(
     residualAnalysisHandoff.digest,

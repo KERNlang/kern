@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and five-record prerequisite history after M4.35', () => {
+test('the current corpus preserves selection and five-record prerequisite history after M4.36', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -372,8 +372,8 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.equal(receipt.prerequisiteProvenances.length, 5);
   assert.equal(summary.prerequisiteProvenances.length, 5);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'unary-expression',
-    provenanceDigest: prerequisites[3].digest,
+    family: 'do-statement',
+    provenanceDigest: prerequisites[4].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -389,7 +389,7 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('M4.35 preserves unary implementation provenance while implementing do', () => {
+test('M4.36 promotes do while preserving the exact M4.35 KERN executable', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -418,7 +418,7 @@ test('M4.35 preserves unary implementation provenance while implementing do', ()
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.29');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.36');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
@@ -426,7 +426,7 @@ test('M4.35 preserves unary implementation provenance while implementing do', ()
   assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'do-statement'), true);
+  assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
@@ -434,7 +434,8 @@ test('M4.35 preserves unary implementation provenance while implementing do', ()
   assert.equal(policy.base.nodeKinds.includes('for'), true);
   assert.equal(policy.base.nodeKinds.includes('let'), true);
   assert.equal(policy.base.nodeKinds.includes('assign'), true);
-  assert.equal(policy.base.nodeKinds.includes('do'), false);
+  assert.equal(policy.base.nodeKinds.includes('do'), true);
+  assert.equal(policy.base.propertyKeys.includes('do.value'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,
@@ -465,4 +466,7 @@ test('M4.35 preserves unary implementation provenance while implementing do', ()
   assert.equal(policy.base.promotions[7].family, 'unary-expression');
   assert.equal(policy.base.promotions[7].provenanceDigest, prerequisites[3].digest);
   assert.equal(policy.base.promotions[7].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[8].family, 'do-statement');
+  assert.equal(policy.base.promotions[8].provenanceDigest, prerequisites[4].digest);
+  assert.equal(policy.base.promotions[8].provenanceKind, 'prerequisite');
 });

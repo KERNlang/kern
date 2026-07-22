@@ -13,67 +13,83 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
-};
-
-const EXPECTED_DO_SELECTION = {
-  prerequisiteRanking: [{ catalogFacts: 2, family: 'do-statement', occurrences: 178 }],
-  ranking: [{
-    completeFunctions: 1,
-    completeTools: 1,
-    families: ['do-statement'],
-    migratedParameterRows: 2,
-    occurrences: 178,
-    witnesses: [{
-      id: 'examples/selfhost-validator/validator.kern#14:appendid',
-      parameterRows: 2,
-      profileRows: { nodes: 9, properties: 16, values: 80 },
-      tool: 'validator',
-    }],
+  completeFunctions: 1,
+  completeTools: 1,
+  migratedParameterRows: 2,
+  witnesses: [{
+    id: 'examples/selfhost-validator/validator.kern#14:appendid',
+    parameterRows: 2,
+    profileRows: { nodes: 9, properties: 16, values: 80 },
+    tool: 'validator',
   }],
 };
 
-test('M4.35 implements do and preserves the exact residual prerequisite closure', () => {
+const EXPECTED_EXHAUSTION = {
+  activeFamilies: ['exception-flow', 'while-iteration'],
+  completingClosureCount: 0,
+  evaluatedNonEmptyClosureCount: 3,
+  reasonAssignmentsDigest: '8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef',
+  reasonCounts: [
+    { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
+    { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
+    { count: 1, id: 'if.properties.cond.expression.text.character-u009f' },
+    { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
+    { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
+    { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
+    { count: 27, id: 'profile.rows.nodes' },
+    { count: 23, id: 'profile.rows.properties' },
+    { count: 40, id: 'profile.rows.values' },
+    { count: 14, id: 'projection.limit-depth' },
+    { count: 1, id: 'projection.limit-nodes' },
+    { count: 1, id: 'projection.unknown-expression-kind' },
+    { count: 1, id: 'throw.value:unknown-expression-kind' },
+  ],
+  residualFunctionCount: 56,
+  scope: 'current-bounded-profile',
+};
+
+test('M4.36 promotes do and selects appendid parameter migration under bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(actual.outcome, 'selected');
-  assert.equal(actual.minimumFamilyCount, 1);
-  assert.equal(actual.exhaustion, null);
+  assert.equal(actual.outcome, 'bounded-exhaustion');
+  assert.equal(actual.minimumFamilyCount, null);
+  assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
-  assert.deepEqual(actual.prerequisiteRanking, EXPECTED_DO_SELECTION.prerequisiteRanking);
-  assert.deepEqual(actual.selectedPrerequisite, EXPECTED_DO_SELECTION.prerequisiteRanking[0]);
-  assert.deepEqual(actual.ranking, EXPECTED_DO_SELECTION.ranking);
-  const parameterReadyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
-  assert.equal(actual.ranking[0].witnesses.some(({ id }) => parameterReadyIds.has(id)), false);
+  assert.deepEqual(actual.prerequisiteRanking, []);
+  assert.deepEqual(actual.ranking, []);
+  assert.equal(actual.selectedPrerequisite, null);
 });
 
-test('format 3 rejects selection, migration, overlap, and baseline drift', () => {
+test('format 3 rejects mixed selection and bounded-exhaustion shapes after do promotion', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
     (copy) => { copy.future = true; },
-    (copy) => { copy.outcome = 'bounded-exhaustion'; },
-    (copy) => { copy.minimumFamilyCount = 2; },
-    (copy) => { copy.selectedPrerequisite = null; },
-    (copy) => { copy.prerequisiteRanking = []; },
-    (copy) => { copy.ranking = []; },
-    (copy) => { copy.exhaustion = {}; },
-    (copy) => { copy.selectedPrerequisite.family = 'future'; },
-    (copy) => { copy.ranking[0].completeFunctions = 0; },
-    (copy) => { copy.ranking[0].completeTools = 0; },
-    (copy) => { copy.ranking[0].migratedParameterRows = 0; },
-    (copy) => { copy.ranking[0].families = ['future']; },
+    (copy) => { copy.outcome = 'selected'; },
+    (copy) => { copy.minimumFamilyCount = 0; },
+    (copy) => { copy.selectedPrerequisite = { family: 'future' }; },
+    (copy) => { copy.prerequisiteRanking.push({ family: 'future' }); },
+    (copy) => { copy.ranking.push({ families: ['future'] }); },
+    (copy) => { copy.exhaustion = null; },
+    (copy) => { copy.exhaustion.activeFamilies.pop(); },
+    (copy) => { copy.exhaustion.activeFamilies.push('exception-flow'); },
+    (copy) => { copy.exhaustion.activeFamilies.reverse(); },
+    (copy) => { copy.exhaustion.activeFamilies[0] = 'future-family'; },
+    (copy) => { copy.exhaustion.completingClosureCount = 1; },
+    (copy) => { copy.exhaustion.evaluatedNonEmptyClosureCount = 2; },
+    (copy) => { copy.exhaustion.reasonAssignmentsDigest = 'invalid'; },
+    (copy) => { copy.exhaustion.reasonAssignmentsDigest = '0'.repeat(64); },
+    (copy) => { copy.exhaustion.reasonCounts[0].count = 0; },
+    (copy) => { copy.exhaustion.reasonCounts[0].count = 2; },
+    (copy) => { copy.exhaustion.reasonCounts[0].count = 57; },
+    (copy) => { copy.exhaustion.reasonCounts[0].future = true; },
+    (copy) => { copy.exhaustion.reasonCounts.reverse(); },
+    (copy) => { copy.exhaustion.residualFunctionCount = 55; },
+    (copy) => { copy.exhaustion.scope = 'kern5-complete'; },
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
-    (copy) => { copy.parameterMigration.completeFunctions = 11; },
-    (copy) => { copy.parameterMigration.completeTools = 3; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 43; },
-    (copy) => {
-      copy.parameterMigration.witnesses.push(structuredClone(copy.ranking[0].witnesses[0]));
-    },
+    (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
+    (copy) => { copy.parameterMigration.witnesses[0].id = 'future'; },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(actual);
@@ -83,36 +99,48 @@ test('format 3 rejects selection, migration, overlap, and baseline drift', () =>
       /coverage prerequisite rejection/u,
     );
   }
-  const overlapping = structuredClone(actual);
-  overlapping.parameterMigration = {
+  const selected = structuredClone(actual);
+  selected.outcome = 'selected';
+  selected.exhaustion = null;
+  selected.minimumFamilyCount = 1;
+  selected.selectedPrerequisite = { catalogFacts: 1, family: 'exception-flow', occurrences: 34 };
+  selected.prerequisiteRanking = [selected.selectedPrerequisite];
+  selected.ranking = [{
     completeFunctions: 1,
     completeTools: 1,
-    migratedParameterRows: 2,
-    witnesses: [structuredClone(overlapping.ranking[0].witnesses[0])],
-  };
+    families: ['exception-flow'],
+    migratedParameterRows: 1,
+    occurrences: 34,
+    witnesses: [{
+      id: 'examples/selfhost-validator/validator.kern#0:future',
+      parameterRows: 1,
+      profileRows: { nodes: 1, properties: 1, values: 1 },
+      tool: 'validator',
+    }],
+  }];
   assert.throws(
-    () => validateCanonicalizerPrerequisiteSummary(overlapping),
-    /selected format-3 summary must contain a positive winning closure/u,
+    () => validateCanonicalizerPrerequisiteSummary(selected),
+    /summary must match authenticated measurement/u,
   );
 });
 
-test('M4.35 binds the exact authenticated do implementation transition', () => {
+test('M4.36 binds the exact authenticated do promotion transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 45,
-    baseId: 'kern.kir-canonicalizer.profile.m4.29',
+    baseId: 'kern.kir-canonicalizer.profile.m4.36',
     canonicalizerDigest: '40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3',
     canonicalizerPolicyDigest: '9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279',
     compiledCoreDigest: '1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54',
     corpusDigest: '009f1bc18de3e630a626ad9ddb5eff2b511d6fb7f0badc2aa87bce4f4336ecc1',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'fa5cedd2be8cac69bf4798826848ccf445e6788738685e015be149f5d3df67a4',
+    coveragePolicyDigest: '5e806bf8f4078bf07a2190df6b1be11a8a2fc3e4e77cad668e6030ac1ca1cb0b',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'd22ac32bf2803f1f33b8ce6fad2f2c4ced0da4ef22a3bd6565beb98e97fee20c',
+    functionFactsDigest: '1a7dc9964714306d2e57f98c73b5af2cfe605cae9f46910b6c0c7eefa46a6a35',
     legacyParameterBlockers: 57,
-    profileDigest: '2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa',
+    profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);

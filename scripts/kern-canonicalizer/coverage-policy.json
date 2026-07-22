@@ -2,8 +2,8 @@
   "format": "kern.kir-canonicalizer.coverage-policy.3",
   "base": {
     "expressionKinds": ["binary", "boolean", "call", "identifier", "index", "integer", "list", "member", "null", "text", "unary"],
-    "id": "kern.kir-canonicalizer.profile.m4.29",
-    "nodeKinds": ["assign", "else", "fn", "for", "handler", "if", "let", "param", "return"],
+    "id": "kern.kir-canonicalizer.profile.m4.36",
+    "nodeKinds": ["assign", "do", "else", "fn", "for", "handler", "if", "let", "param", "return"],
     "promotions": [
       {
         "family": "binary-expression",
@@ -44,10 +44,16 @@
         "family": "unary-expression",
         "provenanceDigest": "e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "do-statement",
+        "provenanceDigest": "3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
       "assign.target", "assign.value",
+      "do.value",
       "fn.async", "fn.effects", "fn.export", "fn.expr", "fn.generics", "fn.name", "fn.params", "fn.returns", "fn.stream",
       "for.from", "for.name", "for.to",
       "handler.code", "handler.lang", "handler.reason", "handler.review",
@@ -114,7 +120,6 @@
     }
   ],
   "families": [
-    { "expressionKinds": [], "id": "do-statement", "nodeKinds": ["do"], "propertyKeys": ["do.value"] },
     { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
     { "expressionKinds": [], "id": "while-iteration", "nodeKinds": ["while"], "propertyKeys": ["while.cond"] }
   ]

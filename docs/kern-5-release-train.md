@@ -2240,6 +2240,40 @@ trusted-publishing/provenance configuration is inspected.
     MiniMax's value-ID ordering and digest-authentication claims were disproved
     against append-only allocation and live digest regeneration. No material
     review finding remains.
+  - [x] M4.36 do-statement profile promotion: the cumulative base advances to
+    `kern.kir-canonicalizer.profile.m4.36` through immutable M4.34 do
+    prerequisite provenance
+    `3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72`.
+    The base adds only leaf node `do` and required recursively expression-valued
+    property `do.value`; do leaves active families while exception and while
+    preserve order. All KERN source and the 41,190-byte composite remain exact
+    at `40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3`.
+    The 511-line profile source is split into a 431-line evaluator and 96-line
+    base contract. Live remeasurement makes
+    `examples/selfhost-validator/validator.kern#14:appendid` the sole
+    parameter-ready witness with two rows and profile rows 9/16/80. The two
+    residual families exhaust all three non-empty closures with zero completing
+    closures, 56 residual functions, and assignment digest
+    `8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef`.
+    Policy, coverage, and prerequisite receipt SHA-256 values are
+    `5e806bf8f4078bf07a2190df6b1be11a8a2fc3e4e77cad668e6030ac1ca1cb0b`,
+    `d334c6843c9730a25cca07ca26c389563609cc8deb39ea6de214f41d8e9caf21`,
+    and `20055d5b554a116776d8bda54b832703fca85eddb6f5f7bbf7f7957b4d0f751f`;
+    implementation digest is
+    `c6940a950795d304a2b6bbd88dfc16e96e5a355babec135f882cf484b7603aa5`.
+    The complete focused canonicalizer gate passes 104/104 tests, 51 exact
+    runtime fixtures, eight witnesses, three profile-limit fixtures, and 226
+    hostile mutations. The exact integrated tree also passes the complete Node
+    22 `pnpm fitness:kern-5` wall on 2026-07-22, including all workspace and
+    infrastructure suites, 432/432 cross-target fixtures, 109/109 class
+    fixtures, 233 native KERN assertions at 100% coverage, self-host smoke, and
+    the terminal canonicalizer gate. Automatic high-risk role-lens review
+    `review-1784683098662-uov4yq` completed all 6/6 live usable seats with zero
+    verified, needs-check, or speculative findings. Four nits were checked
+    against exact source and required no change: the questioned export exists,
+    both measured file lengths are exact, extraction need not preserve their
+    sum, and the bounded nine-entry promotion serialization is immaterial. No
+    material review finding remains.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

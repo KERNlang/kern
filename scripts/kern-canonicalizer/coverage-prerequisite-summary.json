@@ -1,63 +1,106 @@
 {
   "baseline": {
     "baseCompleteFunctions": 45,
-    "baseId": "kern.kir-canonicalizer.profile.m4.29",
+    "baseId": "kern.kir-canonicalizer.profile.m4.36",
     "canonicalizerDigest": "40cadf5358a539eb54bfdd54adf48fba508d4c7eb03541a400e4d7e16f42b6a3",
     "canonicalizerPolicyDigest": "9d3229bc2554adf7b49ff2fa0cba8885d156cb2f4e4b3b20fc9094719fc32279",
     "compiledCoreDigest": "1c30b1f3a53ee83663a9d46f7152464571ac5be8fdb44f600b087bc78b1e1f54",
     "corpusDigest": "009f1bc18de3e630a626ad9ddb5eff2b511d6fb7f0badc2aa87bce4f4336ecc1",
-    "coverageImplementationDigest": "5f25fd30c54b55a770b1bcce0828316d147f283e40ff68c67452ca7a6a1d457b",
-    "coveragePolicyDigest": "fa5cedd2be8cac69bf4798826848ccf445e6788738685e015be149f5d3df67a4",
+    "coverageImplementationDigest": "c6940a950795d304a2b6bbd88dfc16e96e5a355babec135f882cf484b7603aa5",
+    "coveragePolicyDigest": "5e806bf8f4078bf07a2190df6b1be11a8a2fc3e4e77cad668e6030ac1ca1cb0b",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 104,
-    "functionFactsDigest": "d22ac32bf2803f1f33b8ce6fad2f2c4ced0da4ef22a3bd6565beb98e97fee20c",
+    "functionFactsDigest": "1a7dc9964714306d2e57f98c73b5af2cfe605cae9f46910b6c0c7eefa46a6a35",
     "legacyParameterBlockers": 57,
-    "profileDigest": "2f17f2ec8537172a761fc8043f0a3c9e19a1852d4bb4755daf182c4bec2d1afa",
+    "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
   },
-  "exhaustion": null,
-  "format": "kern.kir-canonicalizer.prerequisite-summary.3",
-  "minimumFamilyCount": 1,
-  "outcome": "selected",
-  "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+  "exhaustion": {
+    "activeFamilies": [
+      "exception-flow",
+      "while-iteration"
+    ],
+    "completingClosureCount": 0,
+    "evaluatedNonEmptyClosureCount": 3,
+    "reasonAssignmentsDigest": "8ae6a54e20836ad1b560c88c59fed44e6bd96ecdfbee30cf5cb5404d44f0daef",
+    "reasonCounts": [
+      {
+        "count": 1,
+        "id": "if.properties.cond.expression.text.character-u007f"
+      },
+      {
+        "count": 1,
+        "id": "if.properties.cond.expression.text.character-u0080"
+      },
+      {
+        "count": 1,
+        "id": "if.properties.cond.expression.text.character-u009f"
+      },
+      {
+        "count": 1,
+        "id": "if.properties.cond.expression.text.character-u2028"
+      },
+      {
+        "count": 1,
+        "id": "if.properties.cond.expression.text.character-u2029"
+      },
+      {
+        "count": 1,
+        "id": "if.properties.cond.expression.text.character-ufeff"
+      },
+      {
+        "count": 27,
+        "id": "profile.rows.nodes"
+      },
+      {
+        "count": 23,
+        "id": "profile.rows.properties"
+      },
+      {
+        "count": 40,
+        "id": "profile.rows.values"
+      },
+      {
+        "count": 14,
+        "id": "projection.limit-depth"
+      },
+      {
+        "count": 1,
+        "id": "projection.limit-nodes"
+      },
+      {
+        "count": 1,
+        "id": "projection.unknown-expression-kind"
+      },
+      {
+        "count": 1,
+        "id": "throw.value:unknown-expression-kind"
+      }
+    ],
+    "residualFunctionCount": 56,
+    "scope": "current-bounded-profile"
   },
-  "prerequisiteRanking": [
-    {
-      "catalogFacts": 2,
-      "family": "do-statement",
-      "occurrences": 178
-    }
-  ],
-  "ranking": [
-    {
-      "completeFunctions": 1,
-      "completeTools": 1,
-      "families": [
-        "do-statement"
-      ],
-      "migratedParameterRows": 2,
-      "occurrences": 178,
-      "witnesses": [
-        {
-          "id": "examples/selfhost-validator/validator.kern#14:appendid",
-          "parameterRows": 2,
-          "profileRows": {
-            "nodes": 9,
-            "properties": 16,
-            "values": 80
-          },
-          "tool": "validator"
-        }
-      ]
-    }
-  ],
-  "selectedPrerequisite": {
-    "catalogFacts": 2,
-    "family": "do-statement",
-    "occurrences": 178
-  }
+  "format": "kern.kir-canonicalizer.prerequisite-summary.3",
+  "minimumFamilyCount": null,
+  "outcome": "bounded-exhaustion",
+  "parameterMigration": {
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 2,
+    "witnesses": [
+      {
+        "id": "examples/selfhost-validator/validator.kern#14:appendid",
+        "parameterRows": 2,
+        "profileRows": {
+          "nodes": 9,
+          "properties": 16,
+          "values": 80
+        },
+        "tool": "validator"
+      }
+    ]
+  },
+  "prerequisiteRanking": [],
+  "ranking": [],
+  "selectedPrerequisite": null
 }

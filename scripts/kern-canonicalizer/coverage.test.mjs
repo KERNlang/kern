@@ -160,8 +160,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     toolCount: 4,
   });
   assert.deepEqual(first.implementationProvenance, {
-    family: 'unary-expression',
-    provenanceDigest: 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5',
+    family: 'do-statement',
+    provenanceDigest: '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(
@@ -213,12 +213,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 57);
   assert.equal(first.baseCompleteFunctions, 45);
   assert.equal(first.selection.winner, null);
-  assert.deepEqual(
-    first.selection.ranking.map(({ completeFunctions }) => completeFunctions),
-    [0, 0, 0],
-  );
+  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0, 0]);
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'do-statement',
     'exception-flow',
     'while-iteration',
   ]);
