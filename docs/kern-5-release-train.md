@@ -2731,6 +2731,61 @@ trusted-publishing/provenance configuration is inspected.
     KERN 5 remains incomplete: M4.49 must migrate only this frozen 12-row queue
     in a fresh slice.
 
+  - [x] M4.49 consumed the exact M4.48 node-row parameter queue: at source
+    commit `87e10471`, exactly four functions across three tools replace their
+    authenticated legacy parameter strings with 12 equivalent direct `param`
+    children. The published M4.48 prerequisite receipt remains frozen at
+    SHA-256
+    `fbc4b671f665d1ed2ebb709201a4c3f4be27d9cec4f18708ce7130fd2b2a7b0a`.
+    Base completion advances from 60/104 to 64/104, legacy `fn.params`
+    blockers fall from 43 to 39, and the live parameter queue becomes exact
+    zero under the unchanged 19/30/388 profile. Bounded exhaustion remains 39
+    with reason digest
+    `d3175ab22aaf82a3e37a5c439b4e603d3922e53224b649176c9940d9e04431dc`.
+    Coverage and prerequisite receipts authenticate at
+    `998955248fe4a5e8a1d35108bdd0cd23e7132e1ede3693bc2f40838d6290596b`
+    and `9ffd897ad4e631ea7cb4395fffbdae87a36637d3f5d011eaa377c01f3f2fa403`;
+    the shared implementation digest is
+    `063caa43723772d3ad44b1662b2c345e24f9e46ab914cfdadd71872836de81d8`.
+    The complete canonicalizer gate passes 156/156 tests plus 51/8/3/226
+    replay fixtures, and the complete Node 22 `fitness:kern-5` wall passes.
+    Required high-risk role-lens review covered all six usable independent
+    reviewers with zero verified findings and zero blockers. KERN 5 remains
+    incomplete: consumed M4.46 evidence cannot authorize another widening, so
+    M4.50 must recompute the current residual frontier.
+
+  - [x] M4.50 authenticated the current residual blocker frontier without
+    changing KERN source, generated consumers, active profile, families,
+    parser, runtime, KIR, ABI, package versions, or public APIs. All 39 current
+    residual functions have exact assignments; 23 have measured profile rows,
+    producing 23 distinct observed settings and 23 positive candidates. The
+    assignment digest remains byte-identical to M4.49 at
+    `d3175ab22aaf82a3e37a5c439b4e603d3922e53224b649176c9940d9e04431dc`.
+    The first canonical action raises only `maxPropertyRows` from 30 to 31 and
+    selects one six-parameter-row function in one tool:
+    `examples/selfhost-validator/validator.kern#17:classcyclefrom`, measured at
+    19/31/202 with only the `profile.rows.properties` reason. The M4.50 receipt
+    and analyzer authenticate at
+    `14fdff4dce865a79215eabdb02b05a29c62a66c633561e9643e2a46f38020e4f`
+    and `8a8c5f061b87ad6881d51a9d9abe00c7d1a4f639c259b409b4f899d730c85678`.
+    Regenerated coverage and prerequisite receipts authenticate at
+    `5240c7896ab3992a91b918e8c2d4cb36316cd49500a631a7c50fbb605ee04954`
+    and `4509179584d95da5b51c9540678ed60e9e6c361cdb9ec09fa9ddf718aaeb4b5e`;
+    their shared implementation digest is
+    `dcaf4485e454b2aa366bb80d529fea9cb0bc8e79bc11a4d2cb336372c60b5d34`.
+    The focused suite passes 9/9, the complete canonicalizer gate passes
+    161/161 tests plus 51/8/3/226 replay fixtures, and the complete Node 22
+    `fitness:kern-5` wall passes. Required high-risk role-lens review
+    `review-1784753205306-w4aaia-kern-5-r2-m4-50` completed all 6/6 usable
+    reviewers with zero verified findings and zero blockers. Its sole
+    needs-check refactor was rejected after source verification because
+    milestone-local validation keeps immutable historical receipts independent
+    of future measurement code; the canonical textual tie-break nit cannot
+    change this selection after the preceding numeric ranks. This receipt is
+    recommendation-only; the active profile remains 19/30/388. KERN 5 remains
+    incomplete: M4.51 must authenticate runtime/property-row headroom for the
+    exact `classcyclefrom` witness before profile promotion.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

@@ -4,7 +4,8 @@ export function formatCoverageWinnerStatus(winner) {
 
 function formatResidualAnalysisStatus(label, selectedNextAction, continuation = '') {
   if (selectedNextAction === null) return `${label} found no actionable profile widening.`;
-  return `${label} selected ${selectedNextAction.completeFunctions} functions by ` +
+  const functionLabel = selectedNextAction.completeFunctions === 1 ? 'function' : 'functions';
+  return `${label} selected ${selectedNextAction.completeFunctions} ${functionLabel} by ` +
     `${selectedNextAction.changedLimits.join('+')} widening${continuation}.`;
 }
 
@@ -34,6 +35,10 @@ export function formatM446ResidualAnalysisStatus(selectedNextAction) {
     selectedNextAction,
     '; M4.47 authenticates structural runtime headroom',
   );
+}
+
+export function formatM450ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus('M4.50 current analysis', selectedNextAction);
 }
 
 export function formatM447NodeRowHeadroomStatus(receipt) {

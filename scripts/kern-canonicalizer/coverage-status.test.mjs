@@ -9,6 +9,7 @@ import {
   formatM443ResidualAnalysisStatus,
   formatM446ResidualAnalysisStatus,
   formatM447NodeRowHeadroomStatus,
+  formatM450ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -75,6 +76,20 @@ test('coverage status records the M4.43 optimized promotion handoff', () => {
       changedLimits: ['maxValueRows'],
     }),
     'M4.43 published analysis selected 2 functions by maxValueRows widening; M4.44 authenticates the profile promotion.',
+  );
+});
+
+test('coverage status records the singular M4.50 recommendation', () => {
+  assert.equal(
+    formatM450ResidualAnalysisStatus(null),
+    'M4.50 current analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatM450ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxPropertyRows'],
+    }),
+    'M4.50 current analysis selected 1 function by maxPropertyRows widening.',
   );
 });
 
