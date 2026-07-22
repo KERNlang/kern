@@ -15,7 +15,10 @@ import {
   CANONICALIZER_COMPOSITE_PATH,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
+import {
+  M449_PARAMETER_MIGRATION_TARGETS,
+} from './coverage-m4-49-parameter-migrations.mjs';
+import { assertDirectParameterPrefix } from './coverage-value-band-parameter-migrations.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './node-row-headroom-m4-47.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
@@ -41,9 +44,12 @@ function parsedRoot(path, ordinal, name) {
 
 function structuralWitness(row) {
   const identity = witnessIdentity(row.id);
-  const { root } = migrateLegacyFunctionForPrerequisite(
-    parsedRoot(identity.path, identity.ordinal, identity.name),
-  );
+  const root = parsedRoot(identity.path, identity.ordinal, identity.name);
+  const target = M449_PARAMETER_MIGRATION_TARGETS.find(({ id }) => id === row.id);
+  assert.ok(target, `missing M4.49 direct-parameter contract for ${row.id}`);
+  assert.equal(root.props.params, undefined);
+  assert.equal(target.parameters.length, row.parameterRows);
+  assertDirectParameterPrefix(root, target.parameters);
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
   const tables = flattenKirRoots([artifact.root]);

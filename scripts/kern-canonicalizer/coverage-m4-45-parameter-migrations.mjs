@@ -58,17 +58,17 @@ const FILE_CONTRACTS = new Map([
 
 const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    '7adbe8a62c597fb42b6602d728e2c1aefb1dfc972bccafde3de6f50914363776'],
+    'a63b6b0371206b6ed7c93668a04a6786931460e55fd75ca514c0951473410976'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    'a81f3a28cae9b96bfe7fac0f3a38e7f6830590d11ab5e7214293297f103b1872'],
+    '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5'],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
-    '1d4c95f4801dc3f7eae268872bf111f56b49a8a778576e463292daed4206b63f'],
+    'ffd3f352a7137d846e23a701672b91f99159d624027abaddb2f1408338544541'],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
     '475ec6bcaa3bcc3610a1dcb64cfa9175ee8faf00a20d458586b2003fd7009314'],
   ['scripts/kern-canonicalizer/composition.json',
-    '7f97b53c34ef4fab067f45ccd75f1817dc1fd4628e2febd43b361036adc74e14'],
+    '708ea2c648dd2f8cf76aa5ac7fb89c609f54406a8da5b5ce4c33d92233c1e441'],
 ]);
 
 function sha256(bytes) {

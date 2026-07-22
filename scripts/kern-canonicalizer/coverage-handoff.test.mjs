@@ -384,7 +384,7 @@ test('the current corpus preserves selection and five-record prerequisite histor
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 60);
+  assert.equal(receipt.baseCompleteFunctions, 64);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
@@ -404,11 +404,11 @@ test('the current optimized executable preserves every M4.36-promoted family', (
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 49409, 'M4.45 must bind the exact migrated KERN byte count');
+  assert.equal(canonicalizerSource.length, 49418, 'M4.49 must bind the exact migrated KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'a81f3a28cae9b96bfe7fac0f3a38e7f6830590d11ab5e7214293297f103b1872',
-    'M4.45 must bind the exact migrated KERN digest',
+    '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5',
+    'M4.49 must bind the exact migrated KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);

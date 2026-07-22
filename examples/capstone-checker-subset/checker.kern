@@ -79,7 +79,11 @@ fn name=isArrayBinding returns=boolean
               return value="true"
     return value="false"
 
-fn name=isUserCallable params="name:string,stmtKind:string[],stmtName:string[],stmtTarget:string[]" returns=boolean
+fn name=isUserCallable returns=boolean
+  param name=name type=string
+  param name=stmtKind type="string[]"
+  param name=stmtName type="string[]"
+  param name=stmtTarget type="string[]"
   handler lang="kern"
     if cond="name == \"\""
       return value="false"
@@ -124,7 +128,13 @@ fn name=isAssigned returns=boolean
             return value="true"
     return value="false"
 
-fn name=isIndexRebound params="fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[]" returns=boolean
+fn name=isIndexRebound returns=boolean
+  param name=fnName type=string
+  param name=binding type=string
+  param name=stmtKind type="string[]"
+  param name=stmtFn type="string[]"
+  param name=stmtName type="string[]"
+  param name=stmtTarget type="string[]"
   handler lang="kern"
     for name=i from=0 to="stmtKind.length"
       if cond="stmtFn[i] == fnName"

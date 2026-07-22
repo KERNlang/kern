@@ -7,14 +7,14 @@ import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js
 import { generateCheckerMainKern } from '../capstone-checker-subset/gen-fixtures-kern.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
-  assertM445ParameterMigrations,
-  assertM445ParameterTarget,
-  M445_PARAMETER_MIGRATION_TARGETS,
-} from './coverage-m4-45-parameter-migrations.mjs';
+  assertM449ParameterMigrations,
+  assertM449ParameterTarget,
+  M449_PARAMETER_MIGRATION_TARGETS,
+} from './coverage-m4-49-parameter-migrations.mjs';
 import {
-  loadPublishedCanonicalizerPrerequisiteM444,
-  validatePublishedCanonicalizerPrerequisiteM444,
-} from './coverage-prerequisite-m4-44.mjs';
+  loadPublishedCanonicalizerPrerequisiteM448,
+  validatePublishedCanonicalizerPrerequisiteM448,
+} from './coverage-prerequisite-m4-48.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { createCanonicalizerComposition, verifyCanonicalizerComposition } from './composition.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
@@ -24,7 +24,7 @@ function sha256(bytes) {
 }
 
 function targetFixture(name) {
-  const target = M445_PARAMETER_MIGRATION_TARGETS.find((entry) => entry.name === name);
+  const target = M449_PARAMETER_MIGRATION_TARGETS.find((entry) => entry.name === name);
   assert.ok(target);
   const source = readFileSync(new URL(`../../${target.path}`, import.meta.url), 'utf8');
   const document = parseDocumentWithDiagnostics(source);
@@ -34,9 +34,9 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
+test('M4.49 migrates exactly the frozen M4.48 parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assertM445ParameterMigrations(coverage);
+  assertM449ParameterMigrations(coverage);
   assert.equal(coverage.baseCompleteFunctions, 64);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
@@ -47,19 +47,21 @@ test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
     maxPropertyRows: 30,
     maxValueRows: 388,
   });
-
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
-  assert.equal(prerequisite.parameterMigration.completeTools, 0);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 39);
 });
 
-test('M4.45 target guard rejects signature, body, identity, fact, and profile drift', () => {
-  const fixture = targetFixture('validbinaryop');
-  assertM445ParameterTarget(fixture.root, fixture.fact, fixture.target);
+test('M4.49 target guard rejects signature, body, identity, fact, and profile drift', () => {
+  const fixture = targetFixture('isUserCallable');
+  assertM449ParameterTarget(fixture.root, fixture.fact, fixture.target);
   const mutations = [
-    ({ root }) => { root.props.params = 'op:string'; },
+    ({ root }) => { root.props.params = 'name:string'; },
     ({ root }) => { root.props.name = 'substituted'; },
     ({ root }) => { root.props.returns = 'string'; },
     ({ root }) => { root.children[0].props.name = 'renamed'; },
@@ -76,18 +78,15 @@ test('M4.45 target guard rejects signature, body, identity, fact, and profile dr
   for (const mutate of mutations) {
     const copy = structuredClone(fixture);
     mutate(copy);
-    assert.throws(() => assertM445ParameterTarget(copy.root, copy.fact, copy.target));
+    assert.throws(() => assertM449ParameterTarget(copy.root, copy.fact, copy.target));
   }
 });
 
-test('M4.45 generated consumers reproduce only from repository writers', () => {
+test('M4.49 generated consumers reproduce only from repository writers', () => {
   const checkerMain = readFileSync(
     new URL('../../examples/capstone-checker-subset/main.kern', import.meta.url),
   );
-  assert.equal(
-    checkerMain.toString('utf8'),
-    generateCheckerMainKern(),
-  );
+  assert.equal(checkerMain.toString('utf8'), generateCheckerMainKern());
   assert.equal(sha256(checkerMain), 'a63b6b0371206b6ed7c93668a04a6786931460e55fd75ca514c0951473410976');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
@@ -100,41 +99,34 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
   assert.deepEqual(built.record, verified.record);
 });
 
-test('M4.44 prerequisite handoff remains exact and rejects hidden drift', () => {
-  const handoff = loadPublishedCanonicalizerPrerequisiteM444();
-  assert.equal(handoff.digest, '9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01');
-  assert.equal(handoff.sourceCommit, 'dd977ff493250127e2e416ffb4e3ab68985a61dc');
-  assert.equal(handoff.record.baseline.baseCompleteFunctions, 58);
-  assert.equal(handoff.record.baseline.legacyParameterBlockers, 45);
-  assert.equal(handoff.record.exhaustion.residualFunctionCount, 43);
-  assert.deepEqual(handoff.record.parameterMigration, {
-    completeFunctions: 2,
-    completeTools: 2,
-    migratedParameterRows: 2,
-    witnesses: M445_PARAMETER_MIGRATION_TARGETS.map(({ id, profileRows, parameters, path }) => ({
-      id,
-      parameterRows: parameters.length,
-      profileRows,
-      tool: path.includes('checker') ? 'checker' : 'canonicalizer',
-    })),
-  });
+test('M4.48 prerequisite handoff remains exact and rejects hidden drift', () => {
+  const handoff = loadPublishedCanonicalizerPrerequisiteM448();
+  assert.equal(handoff.digest, 'fbc4b671f665d1ed2ebb709201a4c3f4be27d9cec4f18708ce7130fd2b2a7b0a');
+  assert.equal(handoff.sourceCommit, 'c16ab453b49d850d58022160a577c23eb70a2142');
+  assert.equal(handoff.record.baseline.baseCompleteFunctions, 60);
+  assert.equal(handoff.record.baseline.legacyParameterBlockers, 43);
+  assert.equal(handoff.record.exhaustion.residualFunctionCount, 39);
+  assert.deepEqual(
+    handoff.record.parameterMigration.witnesses.map(({ id }) => id),
+    M449_PARAMETER_MIGRATION_TARGETS.map(({ id }) => id),
+  );
 
   for (const mutate of [
-    (copy) => { copy.baseline.baseCompleteFunctions = 60; },
+    (copy) => { copy.baseline.baseCompleteFunctions = 64; },
     (copy) => { copy.parameterMigration.witnesses.reverse(); },
-    (copy) => { copy.exhaustion.residualFunctionCount = 42; },
+    (copy) => { copy.exhaustion.residualFunctionCount = 38; },
   ]) {
     const copy = structuredClone(handoff.record);
     mutate(copy);
     assert.throws(
-      () => validatePublishedCanonicalizerPrerequisiteM444(copy),
-      /coverage M4\.44 prerequisite rejection/u,
+      () => validatePublishedCanonicalizerPrerequisiteM448(copy),
+      /coverage M4\.48 prerequisite rejection/u,
     );
   }
   const decorated = structuredClone(handoff.record);
   decorated[Symbol('hidden')] = true;
   assert.throws(
-    () => validatePublishedCanonicalizerPrerequisiteM444(decorated),
-    /coverage M4\.44 prerequisite rejection/u,
+    () => validatePublishedCanonicalizerPrerequisiteM448(decorated),
+    /coverage M4\.48 prerequisite rejection/u,
   );
 });

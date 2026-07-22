@@ -166,23 +166,23 @@ const FILE_CONTRACTS = new Map([
     roots: 18,
   }],
   ['examples/capstone-checker-subset/checker.kern', {
-    lines: 391,
+    lines: 401,
     remainingLegacy: [
-      'rejectLine', 'isSurfaceKind', 'whileRejectDetail', 'isUserCallable', 'isIndexRebound',
-      'termProvenanced', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
+      'rejectLine', 'isSurfaceKind', 'whileRejectDetail', 'termProvenanced',
+      'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
       'mapKeyToken', 'mapKnownBefore', 'mapCallRejectDetail', 'callRejectCode', 'checkModule',
     ],
     roots: 24,
   }],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', {
-    lines: 191,
-    remainingLegacy: ['validinteger', 'quotesource'],
+    lines: 192,
+    remainingLegacy: ['quotesource'],
     roots: 16,
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 494,
+    lines: 495,
     remainingLegacy: [
-      'isreserved', 'isportable', 'fnokat', 'owncallable', 'ownexportkind',
+      'isreserved', 'fnokat', 'owncallable', 'ownexportkind',
       'exportkind', 'classcyclefrom', 'sortstrings', 'validate',
     ],
     roots: 21,

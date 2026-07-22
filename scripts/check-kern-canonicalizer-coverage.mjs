@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { summarizeCanonicalizerCoverage } from './kern-canonicalizer/coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './kern-canonicalizer/coverage-prerequisite-m4-44.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM448 } from './kern-canonicalizer/coverage-prerequisite-m4-48.mjs';
 import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import {
   loadCanonicalizerResidualAnalysisHandoff,
@@ -41,6 +42,7 @@ const m447NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
 const m444PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM444();
+const m448PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM448();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
 const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
@@ -192,11 +194,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.41 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.41 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.41 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 60, 'live M4.45 base completion must remain exactly 60/104');
+  assert.equal(actual.baseCompleteFunctions, 64, 'live M4.49 base completion must remain exactly 64/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    43,
-    'live M4.45 fn.params blocker count must remain exactly 43',
+    39,
+    'live M4.49 fn.params blocker count must remain exactly 39',
   );
   assert.equal(actual.selection.winner, null, 'live M4.41 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -212,35 +214,10 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 4,
-    completeTools: 3,
-    migratedParameterRows: 12,
-    witnesses: [
-      {
-        id: 'examples/capstone-checker-subset/checker.kern#12:isIndexRebound',
-        parameterRows: 6,
-        profileRows: { nodes: 17, properties: 26, values: 152 },
-        tool: 'checker',
-      },
-      {
-        id: 'examples/capstone-checker-subset/checker.kern#9:isUserCallable',
-        parameterRows: 4,
-        profileRows: { nodes: 19, properties: 26, values: 185 },
-        tool: 'checker',
-      },
-      {
-        id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#4:validinteger',
-        parameterRows: 1,
-        profileRows: { nodes: 19, properties: 28, values: 290 },
-        tool: 'canonicalizer',
-      },
-      {
-        id: 'examples/selfhost-validator/validator.kern#3:isportable',
-        parameterRows: 1,
-        profileRows: { nodes: 18, properties: 24, values: 217 },
-        tool: 'validator',
-      },
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -266,6 +243,12 @@ if (process.argv.includes('--write')) {
       },
     ],
   });
+  assert.equal(m448PrerequisiteHandoff.digest, 'fbc4b671f665d1ed2ebb709201a4c3f4be27d9cec4f18708ce7130fd2b2a7b0a');
+  assert.equal(m448PrerequisiteHandoff.sourceCommit, 'c16ab453b49d850d58022160a577c23eb70a2142');
+  assert.equal(m448PrerequisiteHandoff.record.baseline.baseCompleteFunctions, 60);
+  assert.equal(m448PrerequisiteHandoff.record.baseline.legacyParameterBlockers, 43);
+  assert.equal(m448PrerequisiteHandoff.record.parameterMigration.completeFunctions, 4);
+  assert.equal(m448PrerequisiteHandoff.record.parameterMigration.migratedParameterRows, 12);
   assert.deepEqual(prerequisite.exhaustion, {
     activeFamilies: ['exception-flow', 'while-iteration'],
     completingClosureCount: 0,

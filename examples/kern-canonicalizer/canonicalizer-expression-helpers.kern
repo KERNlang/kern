@@ -34,7 +34,8 @@ fn name=validexpressionidentifier returns=boolean export=true
       return value="false"
     return value="valididentifier(value)"
 
-fn name=validinteger params="value:string" returns=boolean export=true
+fn name=validinteger returns=boolean export=true
+  param name=value type=string
   handler lang="kern"
     let name=start value="0"
     if cond="Text.length(value) == 0"

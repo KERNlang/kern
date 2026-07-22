@@ -92,7 +92,8 @@ fn name=isreserved params="name:string" returns=boolean export=true
       return value="true"
     return value="false"
 
-fn name=isportable params="name:string" returns=boolean export=true
+fn name=isportable returns=boolean export=true
+  param name=name type=string
   handler lang="kern"
     if cond="Text.length(name) == 0"
       return value="false"
