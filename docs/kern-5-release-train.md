@@ -2522,6 +2522,49 @@ trusted-publishing/provenance configuration is inspected.
     with no finding. KERN 5 remains incomplete: a fresh M4.44 slice may now
     authenticate the 388-row profile promotion and parameter migrations.
 
+  - [x] M4.44 authenticated 388-row profile promotion: the admission policy
+    raises only `maxValueRows` from 154 to 388 while node/property ceilings,
+    runtime/KIR limits, ABI, public APIs, KERN source, the 49,400-byte composed
+    canonicalizer, and the 104-function corpus remain unchanged. The optimized
+    M4.43 frontier is frozen at SHA-256
+    `823e464ea6b6cc78a6959c0bced2b6d5f63b5722e0e15bda4a2dd08abf8200d8`
+    and source commit `df27456aeda2880eb6bb76e5ed1b8fe314023a39` before the
+    policy moves. Exact fixtures admit 12/15/388 and reject 12/16/389 without
+    partial output. Because the old 154-row frontier cannot be rederived after
+    policy promotion, that pre-promotion analysis is deliberately immutable
+    declaration-only history; the post-promotion prerequisite queue and
+    residual partition are still remeasured live. Live completion advances
+    from 57/104 to 58/104 solely because already-direct `sortStrings` at
+    16/29/197 enters the profile; its exact runtime floor is 9,926 with failure
+    at 9,925. The next legacy parameter queue is exactly two functions, two
+    tools, and two rows:
+    `checkerSafeIntText` at 14/20/161 and `validbinaryop` at 12/15/388. Neither
+    source signature is migrated in this slice, leaving 45 `fn.params`
+    blockers and 43 residual functions. Live coverage and prerequisite
+    receipt SHA-256 values are
+    `c11de38b5370eecbe48292ca8d15136d017205a7278321d57fe577236016f98a`
+    and `9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01`;
+    implementation, canonicalizer-policy, and function-fact digests are
+    `ada72154808a46b10766f9d4513cd6f7e54d021f9ee7aae2637bb0051d8a16ab`,
+    `a0613353cf5dd7def20b13138fae461b3084bb6b958b769c99bf5b00a5c98556`,
+    and `e964748bf7a8c52d2381506b12137be3438a78ac8f627f009b1c00a0ce41f3d1`.
+    The complete canonicalizer gate passes 131/131 tests plus 51/8/3/226
+    replay fixtures. The complete Node 22.22 `fitness:kern-5` wall passes,
+    including all workspace projects, 434/434 cross-target fixtures, 109/109
+    class fixtures, 233/233 native assertions at 100% coverage, 48/48 checker
+    fixtures, 39/39 validator verdicts, 40 app fixtures on three legs, and
+    whole-app Express/FastAPI boot. The required browser receipt remains 157
+    modules, 1,553,103 raw bytes, and 333,617 gzip bytes at 55 ms cold and a
+    98 ms median (91/98/105 ms samples). Automatic review
+    `review-1784728882250-bm9sqa-kern-5-r2-m4-44-final` completed 2/2 and
+    removed an obsolete second live-analysis path. Required high-risk
+    role-lens review `review-1784729443580-vk3iwj-kern-5-r2-m4-44-high-risk`
+    completed 6/6; all candidates were verified and its material cleanup was
+    applied. Targeted post-fix review
+    `review-1784730577887-1mq9xg-kern-5-r2-m4-44-review-fix` completed 1/1 with
+    no finding. KERN 5 remains incomplete: M4.45 must migrate exactly the two
+    authenticated legacy parameter rows without widening the profile again.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

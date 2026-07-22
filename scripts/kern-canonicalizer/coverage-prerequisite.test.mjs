@@ -13,17 +13,30 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
+  completeFunctions: 2,
+  completeTools: 2,
+  migratedParameterRows: 2,
+  witnesses: [
+    {
+      id: 'examples/capstone-checker-subset/checker-while.kern#2:checkerSafeIntText',
+      parameterRows: 1,
+      profileRows: { nodes: 14, properties: 20, values: 161 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#1:validbinaryop',
+      parameterRows: 1,
+      profileRows: { nodes: 12, properties: 15, values: 388 },
+      tool: 'canonicalizer',
+    },
+  ],
 };
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow', 'while-iteration'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 3,
-  reasonAssignmentsDigest: 'fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092',
+  reasonAssignmentsDigest: 'f72e98d37cd3fcbc711c53bc6dfd8c4afe0ea56a08c21b3907a550a17fa0418c',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -34,17 +47,17 @@ const EXPECTED_EXHAUSTION = {
     { count: 2, id: 'let.value:unknown-expression-kind' },
     { count: 27, id: 'profile.rows.nodes' },
     { count: 23, id: 'profile.rows.properties' },
-    { count: 28, id: 'profile.rows.values' },
+    { count: 8, id: 'profile.rows.values' },
     { count: 12, id: 'projection.limit-depth' },
     { count: 1, id: 'projection.limit-nodes' },
     { count: 3, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
-  residualFunctionCount: 45,
+  residualFunctionCount: 43,
   scope: 'current-bounded-profile',
 };
 
-test('M4.41 consumes the authenticated 154-row parameter migration frontier', () => {
+test('M4.44 exposes the authenticated 388-row parameter migration frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -56,7 +69,7 @@ test('M4.41 consumes the authenticated 154-row parameter migration frontier', ()
   assert.equal(actual.selectedPrerequisite, null);
 });
 
-test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.41 queue consumption', () => {
+test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.44 promotion', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -130,21 +143,21 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.41
   );
 });
 
-test('M4.43 binds the exact optimized 154-row transition', () => {
+test('M4.44 binds the exact optimized 388-row transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 57,
+    baseCompleteFunctions: 58,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
     canonicalizerDigest: '1114de23dc9f6bb036eb4734ed8e7aadef5c1d79d54b1d0395967065fc4e904d',
-    canonicalizerPolicyDigest: '26e37f1839a36c6acbe220afb5afccd6f357d72256f29d21df0a715adb2d1f5d',
+    canonicalizerPolicyDigest: 'a0613353cf5dd7def20b13138fae461b3084bb6b958b769c99bf5b00a5c98556',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
     corpusDigest: '80499e1162962382b51be60976e6b2590a8aa755f9b42b5beadd64af52e62d20',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '6c70a49fc5b8fabbefb902c3323534302448281fa998691598efd6a6d83fff6b',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '75ec5a9f2ce7c3b6a7c42b212ecbced4a4ecb9becb80766c2f04280eb05d4287',
+    functionFactsDigest: 'e964748bf7a8c52d2381506b12137be3438a78ac8f627f009b1c00a0ce41f3d1',
     legacyParameterBlockers: 45,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,

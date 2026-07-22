@@ -306,7 +306,7 @@ test('the admitted table profile is policy-owned and enforced by KERN', () => {
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 16,
     maxPropertyRows: 30,
-    maxValueRows: 154,
+    maxValueRows: 388,
   });
   assert.deepEqual(policy.expansionLimits, {
     kirToSourceMaxFactor: 4,

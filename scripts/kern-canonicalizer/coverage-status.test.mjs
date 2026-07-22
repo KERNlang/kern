@@ -6,6 +6,7 @@ import {
   formatCoverageWinnerStatus,
   formatHistoricalResidualAnalysisStatus,
   formatM442ResidualAnalysisStatus,
+  formatM443ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -44,6 +45,16 @@ test('coverage status formats current and historical release decisions', () => {
       completeFunctions: 2,
     }),
     'M4.42 published analysis selected 2 functions by maxValueRows widening.',
+  );
+});
+
+test('coverage status records the M4.43 optimized promotion handoff', () => {
+  assert.equal(
+    formatM443ResidualAnalysisStatus({
+      completeFunctions: 2,
+      changedLimits: ['maxValueRows'],
+    }),
+    'M4.43 published analysis selected 2 functions by maxValueRows widening; M4.44 authenticates the profile promotion.',
   );
 });
 

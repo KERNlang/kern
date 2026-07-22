@@ -30,10 +30,9 @@ function parsedRoot(source, ordinal, name) {
   return root;
 }
 
-function migratedWitness(source, ordinal, name, expectedRows) {
-  const { root } = migrateLegacyFunctionForPrerequisite(parsedRoot(source, ordinal, name));
+function witnessForRoot(root, name, expectedRows) {
   const policy = loadCanonicalizerPolicy();
-  const moduleId = `m4-43-${name}.kern`;
+  const moduleId = `m4-44-${name}.kern`;
   const bytes = encodeModuleKir([{ id: moduleId, roots: [root] }], policy.kirLimits);
   const decoded = decodeModuleKir(bytes, policy.kirLimits);
   const module = decoded.modules.find(({ id }) => id === moduleId);
@@ -51,9 +50,19 @@ function migratedWitness(source, ordinal, name, expectedRows) {
   return { bytes, moduleId, policy, rows, tables };
 }
 
+function migratedWitness(source, ordinal, name, expectedRows) {
+  const { root } = migrateLegacyFunctionForPrerequisite(parsedRoot(source, ordinal, name));
+  return witnessForRoot(root, name, expectedRows);
+}
+
 function repositoryWitness(path, ordinal, name, expectedRows) {
   const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
   return migratedWitness(source, ordinal, name, expectedRows);
+}
+
+function directRepositoryWitness(path, ordinal, name, expectedRows) {
+  const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
+  return witnessForRoot(parsedRoot(source, ordinal, name), name, expectedRows);
 }
 
 function executeWitness(witness, maxCollectionLength) {
@@ -122,6 +131,16 @@ test('M4.43 exact 12/15/388 selected witness fits the precommitted promotion bud
   );
   assert.equal(Math.floor(witness.policy.runtimeLimits.maxCollectionLength * 3 / 4), 49_152);
   assertExactFloor(witness, 10_614);
+});
+
+test('M4.44 exact 16/29/197 direct admission fits the same non-composing budget', () => {
+  const witness = directRepositoryWitness(
+    'examples/capstone-assertion-engine/sort.kern',
+    2,
+    'sortStrings',
+    { nodes: 16, properties: 29, values: 197 },
+  );
+  assertExactFloor(witness, 9_926);
 });
 
 test('M4.43 bottom-up projection handles a deep binary expression', () => {

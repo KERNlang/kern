@@ -47,7 +47,7 @@ export function assertStructuredParameterMigrations(receipt) {
         profileBlockers: ['profile.rows.nodes', 'profile.rows.properties', 'profile.rows.values'],
         profileRows: { nodes: 29, properties: 44, values: 493 },
       },
-      { profileBlockers: ['profile.rows.values'], profileRows: { nodes: 16, properties: 29, values: 197 } },
+      { profileBlockers: [], profileRows: { nodes: 16, properties: 29, values: 197 } },
     ],
   );
 

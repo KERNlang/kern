@@ -8,7 +8,6 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM442,
   validatePublishedCanonicalizerResidualAnalysisM442,
 } from './coverage-residual-analysis-m4-42.mjs';
-import { measureCurrentCanonicalizerResidualAnalysis } from './coverage-residual-analysis-current.mjs';
 import { loadCanonicalizerResidualAnalysisHandoff } from './coverage-residual-analysis.mjs';
 import { formatM442ResidualAnalysisStatus } from './coverage-status.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
@@ -70,30 +69,6 @@ test('M4.42 preserves exact published residual assignments and measured frontier
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);
   assert.deepEqual(validatePublishedCanonicalizerResidualAnalysisM442(checkedIn).record, checkedIn);
-});
-
-test('M4.43 reauthenticates the published 388-row action against the live optimized frontier', () => {
-  const current = measureCurrentCanonicalizerResidualAnalysis();
-  const liveCoverage = JSON.parse(readFileSync(new URL('./coverage-summary.json', import.meta.url), 'utf8'));
-  assert.deepEqual(current.baseline, {
-    baseCompleteFunctions: 57,
-    baseId: 'kern.kir-canonicalizer.profile.m4.36',
-    coverageImplementationDigest: liveCoverage.coverageImplementationDigest,
-    coveragePolicyDigest: '6c70a49fc5b8fabbefb902c3323534302448281fa998691598efd6a6d83fff6b',
-    currentProfileLimits: {
-      maxNodeRows: 16,
-      maxPropertyRows: 30,
-      maxValueRows: 154,
-    },
-    functionFactsDigest: '75ec5a9f2ce7c3b6a7c42b212ecbced4a4ecb9becb80766c2f04280eb05d4287',
-    legacyParameterBlockers: 45,
-    residualFunctionCount: 45,
-  });
-  assert.equal(
-    current.assignmentsDigest,
-    'fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092',
-  );
-  assert.deepEqual(current.selectedNextAction, publishedRecord().selectedNextAction);
 });
 
 test('M4.42 published digest rejects any assignment, candidate, ranking, or baseline drift', () => {

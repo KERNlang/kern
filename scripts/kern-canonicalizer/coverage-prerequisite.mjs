@@ -68,6 +68,10 @@ export function migrateLegacyFunctionForPrerequisite(sourceRoot) {
   const root = structuredClone(sourceRoot);
   const parameters = exactLegacyParameters(root.props?.params);
   delete root.props.params;
+  if (Array.isArray(root.__quotedProps)) {
+    root.__quotedProps = root.__quotedProps.filter((property) => property !== 'params');
+    if (root.__quotedProps.length === 0) delete root.__quotedProps;
+  }
   root.children = [
     ...parameters.map(({ name, type }) => ({ children: [], props: { name, type }, type: 'param' })),
     ...root.children,

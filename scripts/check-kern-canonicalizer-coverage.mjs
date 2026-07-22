@@ -13,14 +13,14 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM442,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-42.mjs';
 import {
-  measureCurrentCanonicalizerResidualAnalysis,
-} from './kern-canonicalizer/coverage-residual-analysis-current.mjs';
+  loadPublishedCanonicalizerResidualAnalysisM443,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-43.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
-  formatCurrentResidualAnalysisStatus,
   formatHistoricalResidualAnalysisStatus,
   formatM442ResidualAnalysisStatus,
+  formatM443ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -30,6 +30,7 @@ const prerequisiteSummaryUrl = new URL(
   import.meta.url,
 );
 const m442ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-42.json', import.meta.url);
+const m443ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-43.json', import.meta.url);
 const actual = summarizeCanonicalizerCoverage();
 const prerequisite = measureCanonicalizerPrerequisite();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
@@ -38,7 +39,8 @@ const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m438ResidualAnalysis = m438ResidualAnalysisHandoff.record;
 const m442ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM442();
 const m442ResidualAnalysis = m442ResidualAnalysisHandoff.record;
-const currentResidualAnalysis = measureCurrentCanonicalizerResidualAnalysis();
+const m443ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM443();
+const m443ResidualAnalysis = m443ResidualAnalysisHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
@@ -178,11 +180,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.41 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.41 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.41 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 57, 'live M4.41 base completion must remain exactly 57/104');
+  assert.equal(actual.baseCompleteFunctions, 58, 'live M4.44 base completion must remain exactly 58/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     45,
-    'live M4.41 fn.params blocker count must remain exactly 45',
+    'live M4.44 fn.params blocker count must remain exactly 45',
   );
   assert.equal(actual.selection.winner, null, 'live M4.41 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -198,10 +200,23 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 2,
+    completeTools: 2,
+    migratedParameterRows: 2,
+    witnesses: [
+      {
+        id: 'examples/capstone-checker-subset/checker-while.kern#2:checkerSafeIntText',
+        parameterRows: 1,
+        profileRows: { nodes: 14, properties: 20, values: 161 },
+        tool: 'checker',
+      },
+      {
+        id: 'examples/kern-canonicalizer/canonicalizer.kern#1:validbinaryop',
+        parameterRows: 1,
+        profileRows: { nodes: 12, properties: 15, values: 388 },
+        tool: 'canonicalizer',
+      },
+    ],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -210,7 +225,7 @@ if (process.argv.includes('--write')) {
     activeFamilies: ['exception-flow', 'while-iteration'],
     completingClosureCount: 0,
     evaluatedNonEmptyClosureCount: 3,
-    reasonAssignmentsDigest: 'fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092',
+    reasonAssignmentsDigest: 'f72e98d37cd3fcbc711c53bc6dfd8c4afe0ea56a08c21b3907a550a17fa0418c',
     reasonCounts: [
       { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
       { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -221,13 +236,13 @@ if (process.argv.includes('--write')) {
       { count: 2, id: 'let.value:unknown-expression-kind' },
       { count: 27, id: 'profile.rows.nodes' },
       { count: 23, id: 'profile.rows.properties' },
-      { count: 28, id: 'profile.rows.values' },
+      { count: 8, id: 'profile.rows.values' },
       { count: 12, id: 'projection.limit-depth' },
       { count: 1, id: 'projection.limit-nodes' },
       { count: 3, id: 'projection.unknown-expression-kind' },
       { count: 1, id: 'throw.value:unknown-expression-kind' },
     ],
-    residualFunctionCount: 45,
+    residualFunctionCount: 43,
     scope: 'current-bounded-profile',
   });
   assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -362,33 +377,33 @@ if (process.argv.includes('--write')) {
       'examples/kern-canonicalizer/canonicalizer.kern#1:validbinaryop',
     ],
   });
-  assert.deepEqual(currentResidualAnalysis.baseline, {
-    baseCompleteFunctions: prerequisite.baseline.baseCompleteFunctions,
-    baseId: prerequisite.baseline.baseId,
-    coverageImplementationDigest: actual.coverageImplementationDigest,
-    coveragePolicyDigest: actual.coveragePolicyDigest,
+  assert.deepEqual(m443ResidualAnalysis.baseline, {
+    baseCompleteFunctions: 57,
+    baseId: 'kern.kir-canonicalizer.profile.m4.36',
+    coverageImplementationDigest: 'e1f76383da938ab2caad81fe9209fd58061a3f1b47f675a23aae7a607548b333',
+    coveragePolicyDigest: '6c70a49fc5b8fabbefb902c3323534302448281fa998691598efd6a6d83fff6b',
     currentProfileLimits: {
       maxNodeRows: 16,
       maxPropertyRows: 30,
       maxValueRows: 154,
     },
-    functionFactsDigest: actual.functionFactsDigest,
-    legacyParameterBlockers: prerequisite.baseline.legacyParameterBlockers,
-    residualFunctionCount: prerequisite.exhaustion.residualFunctionCount,
+    functionFactsDigest: '75ec5a9f2ce7c3b6a7c42b212ecbced4a4ecb9becb80766c2f04280eb05d4287',
+    legacyParameterBlockers: 45,
+    residualFunctionCount: 45,
   });
-  assert.equal(
-    currentResidualAnalysis.assignmentsDigest,
-    prerequisite.exhaustion.reasonAssignmentsDigest,
-  );
-  assert.equal(currentResidualAnalysis.frontier.evaluatedObservedSettings, 29);
-  assert.equal(currentResidualAnalysis.frontier.profileRowsAvailableFunctions, 29);
-  assert.equal(currentResidualAnalysis.frontier.actionableCandidates.length, 29);
+  assert.equal(m443ResidualAnalysisHandoff.digest, '823e464ea6b6cc78a6959c0bced2b6d5f63b5722e0e15bda4a2dd08abf8200d8');
+  assert.equal(m443ResidualAnalysisHandoff.sourceCommit, 'df27456aeda2880eb6bb76e5ed1b8fe314023a39');
+  assert.equal(m443ResidualAnalysis.assignmentsDigest, 'fb73e3bfba455094fd188454de81c56e0a1ff8011bc3ec70eea2f02160537092');
+  assert.equal(m443ResidualAnalysis.frontier.evaluatedObservedSettings, 29);
+  assert.equal(m443ResidualAnalysis.frontier.profileRowsAvailableFunctions, 29);
+  assert.equal(m443ResidualAnalysis.frontier.actionableCandidates.length, 29);
   assert.deepEqual(
-    currentResidualAnalysis.selectedNextAction,
+    m443ResidualAnalysis.selectedNextAction,
     m442ResidualAnalysis.selectedNextAction,
-    'the live optimized frontier must reauthenticate the published action before promotion',
+    'the frozen optimized frontier must preserve the exact published action',
   );
   assertCoverageSummary(m442ResidualAnalysisUrl, m442ResidualAnalysis);
+  assertCoverageSummary(m443ResidualAnalysisUrl, m443ResidualAnalysis);
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -522,10 +537,10 @@ process.stdout.write(
   (prerequisite.parameterMigration.completeFunctions > 0
     ? 'next action parameter migration.'
     : prerequisite.selectedPrerequisite === null
-      ? 'bounded active-family exhaustion; next action current residual blocker analysis.'
+      ? 'bounded active-family exhaustion; next action residual blocker analysis.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
-  ` ${formatCurrentResidualAnalysisStatus(currentResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
   ` ${formatHistoricalResidualAnalysisStatus(residualAnalysis.selectedNextAction)}\n`,
