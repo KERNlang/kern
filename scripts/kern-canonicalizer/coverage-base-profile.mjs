@@ -3,7 +3,7 @@ import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-struct
 export const BASE_EXPRESSION_KINDS = [
   'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text', 'unary',
 ];
-export const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.36';
+export const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.60';
 export const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -50,8 +50,15 @@ export const BASE_PROMOTIONS = [
     provenanceDigest: '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
     provenanceKind: 'prerequisite',
   },
+  {
+    family: 'while-iteration',
+    provenanceDigest: '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
+    provenanceKind: 'prerequisite',
+  },
 ];
-export const BASE_NODE_KINDS = ['assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return'];
+export const BASE_NODE_KINDS = [
+  'assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'while',
+];
 export const BASE_PROPERTIES = Object.freeze({
   assign: { optional: [], required: ['target', 'value'] },
   do: { optional: [], required: ['value'] },
@@ -63,6 +70,7 @@ export const BASE_PROPERTIES = Object.freeze({
   let: { optional: [], required: ['name', 'value'] },
   param: { optional: [], required: ['name', 'type'] },
   return: { optional: ['value'], required: [] },
+  while: { optional: [], required: ['cond'] },
 });
 const BASE_EXCLUDED_PROPERTY_IDENTITIES = new Set([
   'assign.op',
@@ -90,7 +98,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.36 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.60 cumulative profile');
   }
   return base;
 }

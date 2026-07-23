@@ -33,7 +33,7 @@ function targetFixture() {
   return { fact, root, target: M453_PARAMETER_MIGRATION_TARGET };
 }
 
-test('M4.53 consumes exactly the frozen M4.52 property-row parameter queue', () => {
+test('M4.60 preserves the exact M4.53 parameter migration after while promotion', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM453ParameterMigration(coverage);
   assert.equal(coverage.baseCompleteFunctions, 72);
@@ -47,11 +47,15 @@ test('M4.53 consumes exactly the frozen M4.52 property-row parameter queue', () 
     maxValueRows: 388,
   });
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
-  assert.equal(prerequisite.parameterMigration.completeTools, 0);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
-  assert.equal(prerequisite.parameterMigration.witnesses.length, 0);
-  assert.equal(prerequisite.exhaustion, null);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
+  assert.equal(prerequisite.parameterMigration.completeTools, 1);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 1);
+  assert.deepEqual(
+    prerequisite.parameterMigration.witnesses.map(({ id }) => id),
+    ['examples/selfhost-validator/validator.kern#19:sortstrings'],
+  );
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
 });
 
 test('M4.53 target guard rejects signature, body, identity, fact, and profile drift', () => {

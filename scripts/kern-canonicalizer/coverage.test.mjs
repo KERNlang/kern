@@ -145,8 +145,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     toolCount: 4,
   });
   assert.deepEqual(first.implementationProvenance, {
-    family: 'do-statement',
-    provenanceDigest: '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72',
+    family: 'while-iteration',
+    provenanceDigest: '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(
@@ -204,11 +204,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 31);
   assert.equal(first.baseCompleteFunctions, 72);
   assert.equal(first.selection.winner, null);
-  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0, 0]);
-  assert.deepEqual(first.selection.ranking.map(({ id }) => id), [
-    'exception-flow',
-    'while-iteration',
-  ]);
+  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0]);
+  assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['exception-flow']);
   const checkedIn = JSON.parse(readFileSync(new URL('./coverage-summary.json', import.meta.url), 'utf8'));
   assert.deepEqual(summarizeCanonicalizerCoverage(first), checkedIn);
   const fresh = spawnSync(process.execPath, [
@@ -251,11 +248,10 @@ test('policy validation rejects corpus, family, ordering, and catalog invention'
     },
     (copy) => { copy.corpus.reverse(); },
     (copy) => { copy.families[0].future = true; },
-    (copy) => { copy.families[1].id = copy.families[0].id; },
+    (copy) => { copy.families.push(structuredClone(copy.families[0])); },
     (copy) => { copy.families[0].nodeKinds = ['not-a-real-kir-kind']; },
     (copy) => { copy.families[0].expressionKinds = ['not-a-real-expression-kind']; },
-    (copy) => { copy.families[1].nodeKinds.push('while'); copy.families[1].nodeKinds.sort(); },
-    (copy) => { copy.families.reverse(); },
+    (copy) => { copy.families[0].nodeKinds.push('while'); copy.families[0].nodeKinds.sort(); },
     (copy) => { copy.base.expressionKinds.push('decimal'); copy.base.expressionKinds.sort(); },
     (copy) => { copy.base.propertyKeys.pop(); },
   ]) {
@@ -284,15 +280,12 @@ test('coverage policy rejects the generated canonicalizer composite as handwritt
   );
 });
 
-test('coverage closure rejects missing observed facts and unobserved claims', () => {
+test('coverage closure rejects unobserved family facts and invented properties', () => {
   const policy = loadCoveragePolicy();
   const measured = measureCanonicalizerCoverage(policy);
-  const missing = structuredClone(policy);
-  missing.families = missing.families.filter(({ id }) => id !== 'while-iteration');
-  assert.throws(() => assertCoverageClosed(missing, measured.functions), /unclaimed node kind while/u);
   assert.throws(
-    () => assertCoverageClosed(policy, measured.functions.filter(({ nodeKinds }) => !nodeKinds.includes('while'))),
-    /unobserved node kind while/u,
+    () => assertCoverageClosed(policy, measured.functions.filter(({ nodeKinds }) => !nodeKinds.includes('throw'))),
+    /unobserved node kind throw/u,
   );
   const inventedProperty = structuredClone(measured.functions);
   inventedProperty[0].propertyKeys.push('if.future');

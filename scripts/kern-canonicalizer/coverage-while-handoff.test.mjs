@@ -119,18 +119,13 @@ test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
   }
 });
 
-test('M4.58 leaves while-iteration selected, unpromoted, and source-identical', () => {
+test('M4.60 promotes the exact M4.58 while prerequisite while preserving source bytes', () => {
   const policy = loadCoveragePolicy();
-  assert.equal(policy.base.nodeKinds.includes('while'), false);
-  assert.deepEqual(
-    policy.families.find(({ id }) => id === 'while-iteration'),
-    {
-      expressionKinds: [],
-      id: 'while-iteration',
-      nodeKinds: ['while'],
-      propertyKeys: ['while.cond'],
-    },
-  );
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
+  assert.equal(policy.base.nodeKinds.includes('while'), true);
+  assert.equal(policy.base.propertyKeys.includes('while.cond'), true);
+  assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(
     sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
     'b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2',
@@ -148,27 +143,23 @@ test('M4.58 leaves while-iteration selected, unpromoted, and source-identical', 
 
   const prerequisite = measureCanonicalizerPrerequisite(policy);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 2,
-    family: 'while-iteration',
-    occurrences: 2,
-  });
-  assert.deepEqual(prerequisite.ranking, [{
+    migratedParameterRows: 1,
     completeFunctions: 1,
     completeTools: 1,
-    families: ['while-iteration'],
-    migratedParameterRows: 1,
-    occurrences: 2,
     witnesses: [{
       id: SORTSTRINGS_ID,
       parameterRows: 1,
       profileRows: { nodes: 25, properties: 43, values: 266 },
       tool: 'validator',
     }],
-  }]);
+  });
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.minimumFamilyCount, null);
+  assert.equal(prerequisite.selectedPrerequisite, null);
+  assert.deepEqual(prerequisite.prerequisiteRanking, []);
+  assert.deepEqual(prerequisite.ranking, []);
+  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
+  assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
+  assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 30);
 });

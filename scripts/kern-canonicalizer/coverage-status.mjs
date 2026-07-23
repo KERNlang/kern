@@ -86,7 +86,7 @@ export function formatM458WhilePrerequisiteStatus(handoff) {
   const selected = handoff.record.snapshot.selectedPrerequisite;
   return `M4.58 freezes the exact M4.57 ${selected.family} prerequisite ` +
     `(${selected.catalogFacts} catalog facts/${selected.occurrences} occurrences); ` +
-    'M4.59 owns canonicalizer implementation.';
+    'M4.59 owns canonicalizer implementation; M4.60 promotes it into the cumulative base.';
 }
 
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {

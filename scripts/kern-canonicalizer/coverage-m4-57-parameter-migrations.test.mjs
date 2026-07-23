@@ -39,7 +39,7 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.57 consumes exactly the frozen M4.56 dual-row parameter queue', () => {
+test('M4.60 preserves the exact M4.57 parameter migrations after while promotion', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM457ParameterMigrations(coverage);
   assert.equal(coverage.baseCompleteFunctions, 72);
@@ -56,31 +56,22 @@ test('M4.57 consumes exactly the frozen M4.56 dual-row parameter queue', () => {
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.outcome, 'selected');
-  assert.equal(prerequisite.exhaustion, null);
-  assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 2,
-    family: 'while-iteration',
-    occurrences: 2,
-  });
-  assert.deepEqual(prerequisite.ranking, [{
+    migratedParameterRows: 1,
     completeFunctions: 1,
     completeTools: 1,
-    families: ['while-iteration'],
-    migratedParameterRows: 1,
-    occurrences: 2,
     witnesses: [{
       id: 'examples/selfhost-validator/validator.kern#19:sortstrings',
       parameterRows: 1,
       profileRows: { nodes: 25, properties: 43, values: 266 },
       tool: 'validator',
     }],
-  }]);
+  });
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.minimumFamilyCount, null);
+  assert.equal(prerequisite.selectedPrerequisite, null);
+  assert.deepEqual(prerequisite.ranking, []);
+  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 30);
 });
 
 test('M4.57 target guard rejects signature, body, identity, fact, and profile drift', () => {

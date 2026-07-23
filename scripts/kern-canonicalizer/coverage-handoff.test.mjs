@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and six-record prerequisite history after M4.59', () => {
+test('the current corpus preserves selection and six-record prerequisite history after M4.60', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -372,8 +372,8 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.equal(receipt.prerequisiteProvenances.length, 6);
   assert.equal(summary.prerequisiteProvenances.length, 6);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'do-statement',
-    provenanceDigest: prerequisites[4].digest,
+    family: 'while-iteration',
+    provenanceDigest: prerequisites[5].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -389,7 +389,7 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('the current while-capable executable preserves every M4.36-promoted family', () => {
+test('the current M4.60 profile promotes exact while iteration into the cumulative base', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -419,7 +419,7 @@ test('the current while-capable executable preserves every M4.36-promoted family
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"while\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.36');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
@@ -428,7 +428,8 @@ test('the current while-capable executable preserves every M4.36-promoted family
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), true);
+  assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
@@ -438,8 +439,8 @@ test('the current while-capable executable preserves every M4.36-promoted family
   assert.equal(policy.base.nodeKinds.includes('assign'), true);
   assert.equal(policy.base.nodeKinds.includes('do'), true);
   assert.equal(policy.base.propertyKeys.includes('do.value'), true);
-  assert.equal(policy.base.nodeKinds.includes('while'), false);
-  assert.equal(policy.base.propertyKeys.includes('while.cond'), false);
+  assert.equal(policy.base.nodeKinds.includes('while'), true);
+  assert.equal(policy.base.propertyKeys.includes('while.cond'), true);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,
@@ -473,4 +474,7 @@ test('the current while-capable executable preserves every M4.36-promoted family
   assert.equal(policy.base.promotions[8].family, 'do-statement');
   assert.equal(policy.base.promotions[8].provenanceDigest, prerequisites[4].digest);
   assert.equal(policy.base.promotions[8].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[9].family, 'while-iteration');
+  assert.equal(policy.base.promotions[9].provenanceDigest, prerequisites[5].digest);
+  assert.equal(policy.base.promotions[9].provenanceKind, 'prerequisite');
 });

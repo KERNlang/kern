@@ -134,7 +134,7 @@ test('coverage status records the M4.58 while-iteration handoff boundary', () =>
         },
       },
     }),
-    'M4.58 freezes the exact M4.57 while-iteration prerequisite (2 catalog facts/2 occurrences); M4.59 owns canonicalizer implementation.',
+    'M4.58 freezes the exact M4.57 while-iteration prerequisite (2 catalog facts/2 occurrences); M4.59 owns canonicalizer implementation; M4.60 promotes it into the cumulative base.',
   );
 });
 

@@ -13,7 +13,7 @@
       "text",
       "unary"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.36",
+    "id": "kern.kir-canonicalizer.profile.m4.60",
     "nodeKinds": [
       "assign",
       "do",
@@ -24,7 +24,8 @@
       "if",
       "let",
       "param",
-      "return"
+      "return",
+      "while"
     ],
     "promotions": [
       {
@@ -71,6 +72,11 @@
         "family": "do-statement",
         "provenanceDigest": "3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "while-iteration",
+        "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
@@ -107,7 +113,8 @@
       "param.value",
       "param.variadic",
       "return.trailingComment",
-      "return.value"
+      "return.value",
+      "while.cond"
     ]
   },
   "baseCompleteFunctions": 72,
@@ -208,20 +215,20 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "b4b132c3c968bb6f02aca4eecd3f2663ba2a9a74911d876db85d9f20424e2ec3",
-  "coverageImplementationDigest": "ba9c144fc726813aad2396dfc9b7e737a6b7614e351e0879caba86c58c941ff1",
-  "coveragePolicyDigest": "6f7c62d5e74253a158a29c037ca8eafe56466f431fa9ec0fe21292bccc84954c",
+  "coverageImplementationDigest": "122393317edb7cbd592ecad875e3d77b5cfa185a12c1f0f888bccef26b96f616",
+  "coveragePolicyDigest": "d76a6f0acdc1b981014b192e424b150a7b802d44bd20bbdff31cd8bcafb5d76f",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 104,
   "functionFactsDigest": "56985b9376904e4604a8c80b07e8bb1adda94c7e73c55db68a24de17e48a5252",
   "implementationProvenance": {
-    "family": "do-statement",
-    "provenanceDigest": "3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72",
+    "family": "while-iteration",
+    "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "687c3953fb3ed4b6926f842c5fc03b875dbf0ac78410d35d1cbafcb8f5cb97bf",
+  "policyDigest": "2cd969db34f7592f1f33de1ea0c93c24febc9b4c181960fc596876de05aad5b5",
   "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
   "prerequisiteProvenances": [
     {
@@ -493,13 +500,6 @@
         "completeTools": 0,
         "id": "exception-flow",
         "occurrences": 34,
-        "witnesses": []
-      },
-      {
-        "completeFunctions": 0,
-        "completeTools": 0,
-        "id": "while-iteration",
-        "occurrences": 2,
         "witnesses": []
       }
     ],

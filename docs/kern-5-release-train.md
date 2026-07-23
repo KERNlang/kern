@@ -3128,6 +3128,41 @@ trusted-publishing/provenance configuration is inspected.
     `while-iteration` family before any `sortstrings` parameter migration or
     subsequent-family work.
 
+  - [x] M4.60 promotes the exact frozen `while-iteration` prerequisite into
+    cumulative profile `kern.kir-canonicalizer.profile.m4.60` without changing
+    handwritten KERN source. The tenth ordered promotion cites immutable M4.58
+    digest `5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07`;
+    `while` now requires exactly structural `cond`, recursively validates its
+    condition and statement children, and leaves only `exception-flow` active.
+    Policy and cumulative base-profile bytes authenticate at
+    `d76a6f0acdc1b981014b192e424b150a7b802d44bd20bbdff31cd8bcafb5d76f`
+    and `795de7b476484a544afa837dda6a052e8442ccda72f16e7730f60eb489d0a079`.
+    Coverage remains 72/104 base-complete with 31 legacy `fn.params` blockers;
+    the residual one-family search authenticates bounded exhaustion, while the
+    exact base-only parameter queue becomes one function, one tool, and one row:
+    `examples/selfhost-validator/validator.kern#19:sortstrings` at 25/43/266.
+    Coverage and prerequisite receipts authenticate at
+    `0912893a2caf11c4132fa8c880d0835488e8254f42ea2599625133970e710836`
+    and `c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf`;
+    their exact implementation digest is
+    `122393317edb7cbd592ecad875e3d77b5cfa185a12c1f0f888bccef26b96f616`.
+    The M4.59 composite remains byte-identical at 50,476 bytes and SHA-256
+    `94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56`.
+    RED first proved the old identity and missing `while.cond` enforcement;
+    targeted gates then passed 12/12 and 64/64, the focused canonicalizer gate
+    passed 210/210 plus 55 golden/idempotence/KIR fixtures, 8 measured witnesses,
+    3 profile-limit fixtures, and 235 hostile fixtures, and the complete
+    `pnpm fitness:kern-5` wall passed. Required high-risk role-lens review
+    `review-1784792621566-64jcux` completed all 6/6 usable reviewers with zero
+    consensus-verified findings; the security, performance, and correctness
+    lenses were clean. Review-driven test hardening pins exact while blockers,
+    restores ready/residual disjointness, and clarifies current milestone
+    labels. After regenerating authenticated receipts, the final targeted set
+    passed 29/29 and the complete focused gate again passed 210/210 plus all
+    55/8/3/235 fixture classes. No unresolved material finding remains. KERN 5
+    remains incomplete; M4.61 must migrate only the exact `sortstrings`
+    parameter row before remeasuring the final frontier.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
