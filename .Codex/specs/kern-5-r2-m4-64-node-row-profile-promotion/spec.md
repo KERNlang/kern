@@ -1,7 +1,7 @@
 # KERN 5 R2 M4.64 Node-Row Profile Promotion
 
 **Status:** IMPLEMENTED — VERIFIED AND REVIEWED; PUBLISH PENDING
-**Date:** 2026-07-20
+**Date:** 2026-07-23
 **Confidence:** 0.99
 
 ## Executive Summary
