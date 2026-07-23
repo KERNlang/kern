@@ -1,0 +1,57 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.dual-row-headroom.2",
+  "limits": {
+    "candidateProfile": {
+      "maxNodeRows": 31,
+      "maxPropertyRows": 53,
+      "maxValueRows": 388
+    },
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 64
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56",
+    "canonicalizerPolicySha256": "63f5cfdbf980ed1300bbe3a4d6be1e8409dc20ed9c51b13b1873ebafcd186826",
+    "compositionSha256": "cab6c1e38591e0a75cf717691c9d7247b623ddc849bc65bdf021cdcd3b914995",
+    "inputSourceSha256": [
+      {
+        "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+        "sha256": "adfa0c49cee230106ba7cff2249a0306f98aefc009d7e2581a3ffc622f6e9ff7"
+      }
+    ],
+    "publishedCoverageImplementationDigest": "fd676b3f50986582e76ee96ea93df91d02f36772234770359f35a2bcf5546251",
+    "residualAnalysisInputCommit": "e5069dc45a9d849ce02dbdc047cdfb78d0c55270",
+    "residualAnalysisSha256": "2e1b2dea394f8a238b2f63b4a7045576b1843948740b3a6666b0c002971d8401",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "summary": {
+    "maxExactFloor": 36193,
+    "minimumProductionHeadroom": 29343,
+    "minimumPromotionHeadroom": 12959,
+    "witnessCount": 1
+  },
+  "witnesses": [
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 36193,
+      "floorOutcome": "success",
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+      "parameterRows": 14,
+      "productionHeadroom": 29343,
+      "profileRows": {
+        "nodes": 31,
+        "properties": 53,
+        "values": 370
+      },
+      "promotionHeadroom": 12959,
+      "roundTrip": true
+    }
+  ]
+}

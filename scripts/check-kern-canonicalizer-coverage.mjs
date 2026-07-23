@@ -54,6 +54,9 @@ import {
 import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
 } from './kern-canonicalizer/dual-row-headroom-m4-55.mjs';
+import {
+  loadCanonicalizerDualRowHeadroomM471,
+} from './kern-canonicalizer/dual-row-headroom-m4-71.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import {
   loadPublishedCanonicalizerNodeRowHeadroomM463,
@@ -86,6 +89,7 @@ import {
   formatM466ResidualAnalysisStatus,
   formatM467NodeRowHeadroomStatus,
   formatM470ResidualAnalysisStatus,
+  formatM471DualRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -105,6 +109,7 @@ const m462ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m466ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-66.json', import.meta.url);
 const m470ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-70.json', import.meta.url);
 const m455DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-55.json', import.meta.url);
+const m471DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-71.json', import.meta.url);
 const m463NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-63.json', import.meta.url);
 const m467NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-67.json', import.meta.url);
 const coverage = measureCanonicalizerCoverage();
@@ -143,6 +148,7 @@ const m470ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m470ResidualAnalysis = m470ResidualAnalysisHandoff.record;
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
+const m471DualRowHeadroom = loadCanonicalizerDualRowHeadroomM471();
 const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463();
 const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
 const m467NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM467();
@@ -805,6 +811,30 @@ if (process.argv.includes('--write')) {
       'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
     ],
   });
+  assertCoverageSummary(m471DualRowHeadroomUrl, m471DualRowHeadroom);
+  assert.deepEqual(m471DualRowHeadroom.limits, {
+    candidateProfile: { maxNodeRows: 31, maxPropertyRows: 53, maxValueRows: 388 },
+    productionMaxCollectionLength: 65_536,
+    promotionBudget: 49_152,
+    reservedProductionHeadroom: 16_384,
+  });
+  assert.deepEqual(m471DualRowHeadroom.summary, {
+    maxExactFloor: 36_193,
+    minimumProductionHeadroom: 29_343,
+    minimumPromotionHeadroom: 12_959,
+    witnessCount: 1,
+  });
+  assert.deepEqual(
+    m471DualRowHeadroom.witnesses.map(({ exactFloor, id, parameterRows, profileRows }) => ({
+      exactFloor, id, parameterRows, profileRows,
+    })),
+    [{
+      exactFloor: 36_193,
+      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
+      parameterRows: 14,
+      profileRows: { nodes: 31, properties: 53, values: 370 },
+    }],
+  );
   assertCoverageSummary(m467NodeRowHeadroomUrl, m467NodeRowHeadroom);
   assert.equal(m467NodeRowHeadroomHandoff.digest,
     '61e2c3b388160035d5764efcc2037c408eca8fc30f12010430168dd2b3bf9bca');
@@ -1050,6 +1080,7 @@ process.stdout.write(
   ` ${formatM466ResidualAnalysisStatus(m466ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM467NodeRowHeadroomStatus(m467NodeRowHeadroom)}` +
   ` ${formatM470ResidualAnalysisStatus(m470ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM471DualRowHeadroomStatus(m471DualRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
