@@ -13,6 +13,7 @@ import {
   formatM451PropertyRowHeadroomStatus,
   formatM453ParameterMigrationStatus,
   formatM454ResidualAnalysisStatus,
+  formatM455DualRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -120,6 +121,15 @@ test('coverage status records the M4.54 recommendation', () => {
       changedLimits: ['maxNodeRows', 'maxPropertyRows'],
     }),
     'M4.54 published analysis selected 7 functions by maxNodeRows+maxPropertyRows widening; M4.55 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.55 structural headroom handoff', () => {
+  assert.equal(
+    formatM455DualRowHeadroomStatus({
+      summary: { maxExactFloor: 26_356, witnessCount: 7 },
+    }),
+    'M4.55 structural headroom authenticated 7 witnesses at a 26356 maximum floor; M4.56 authenticates the dual-row profile promotion.',
   );
 });
 

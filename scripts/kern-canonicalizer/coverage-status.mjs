@@ -63,6 +63,11 @@ export function formatM451PropertyRowHeadroomStatus(receipt) {
     `${receipt.summary.maxExactFloor} exact floor; M4.52 authenticates the property-row profile promotion.`;
 }
 
+export function formatM455DualRowHeadroomStatus(receipt) {
+  return `M4.55 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
+    `${receipt.summary.maxExactFloor} maximum floor; M4.56 authenticates the dual-row profile promotion.`;
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

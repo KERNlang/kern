@@ -2912,6 +2912,42 @@ trusted-publishing/provenance configuration is inspected.
     structural runtime headroom for the seven selected witnesses before
     either profile limit moves.
 
+  - [x] M4.55 authenticates exact structural runtime headroom for the complete
+    M4.54 seven-function/102-parameter dual-row cohort without changing KERN
+    source, generated consumers, the active 19/31/388 profile, parser, runtime,
+    KIR, ABI, packages, or public APIs. Through the public
+    `kern.runtime.handler.v1` boundary, the exact floors are 26,356 for
+    `compareNode`, 15,094 for `literalTrue`, 19,763 for
+    `checkerWhileRejectDetail`, 17,423 for `termProvenanced`, 19,622 for
+    `whileRejectDetail`, 21,985 for `emitstatementlist`, and 17,931 for
+    `owncallable`; every floor-minus-one fails canonically, every floor
+    succeeds without diagnostics or events, and emitted source reparses to
+    byte-identical structural KIR. The 26,356 maximum floor leaves 22,796 steps
+    below the policy-derived 49,152 promotion budget and 39,180 below the
+    unchanged 65,536 production ceiling. The M4.55 receipt, validator, receipt
+    tests, and runtime-floor oracle authenticate at
+    `10e36abdda5e7de48c65689f9d2a318a6095497bdd3cff81aa64e3ab4e6e535b`,
+    `4b8635ca9df8a94e87bd77274e8409c2740f89b81d93e30a4a5f4e467a6b07f6`,
+    `891f6d4875954e64a30c080ad72173d618cc733834714fc5a29c066fbddf1322`,
+    and
+    `d6b135c207b2ed8616bb8a4eed232b4f01feff6140cf9036f07a547018f89b4a`.
+    Focused gates pass 11/11 and the complete canonicalizer wall passes
+    191/191 tests plus 51/8/3/226 fixtures. The complete Node 22.22
+    `fitness:kern-5` wall passes, including all workspace and infrastructure
+    tests, 434/434 cross-target and 109/109 class-conformance fixtures,
+    319/319 example-native and 233/233 core-native assertions, 48/48
+    checker-subset fixtures plus 36 rejection oracles, and 39/39 self-host
+    validator verdicts. Required high-risk role-lens review
+    `review-1784769597959-x4q3ug-kern-5-r2-m4-55` completed all 6/6 usable
+    reviewers with zero consensus-verified findings, five needs-check items,
+    one speculative item, and twelve nits. Verification against the receipt,
+    validator, mutation suite, terminal checker, build-owned `dist` preamble,
+    and exact runtime oracles found no material defect; the measured test cost
+    is intentional release evidence. No unresolved material finding remains.
+    KERN 5 remains incomplete; after publication, M4.56 may
+    promote only `maxNodeRows` 19 to 25 and `maxPropertyRows` 31 to 50 while
+    leaving `maxValueRows` at 388, and must freeze M4.55 as immutable evidence.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

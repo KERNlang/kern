@@ -28,6 +28,7 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM454,
   measureCanonicalizerResidualAnalysisM454,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-54.mjs';
+import { loadCanonicalizerDualRowHeadroomM455 } from './kern-canonicalizer/dual-row-headroom-m4-55.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import {
   loadPublishedCanonicalizerPropertyRowHeadroomM451,
@@ -44,6 +45,7 @@ import {
   formatM451PropertyRowHeadroomStatus,
   formatM453ParameterMigrationStatus,
   formatM454ResidualAnalysisStatus,
+  formatM455DualRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -59,6 +61,7 @@ const m447NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m
 const m450ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-50.json', import.meta.url);
 const m451PropertyRowHeadroomUrl = new URL('./kern-canonicalizer/property-row-headroom-m4-51.json', import.meta.url);
 const m454ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-54.json', import.meta.url);
+const m455DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-55.json', import.meta.url);
 const coverage = measureCanonicalizerCoverage();
 const actual = summarizeCanonicalizerCoverage(coverage);
 const prerequisite = measureCanonicalizerPrerequisite();
@@ -83,6 +86,7 @@ const m451PropertyRowHeadroomHandoff = loadPublishedCanonicalizerPropertyRowHead
 const m451PropertyRowHeadroom = m451PropertyRowHeadroomHandoff.record;
 const m454ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM454();
 const m454ResidualAnalysis = m454ResidualAnalysisHandoff.record;
+const m455DualRowHeadroom = loadCanonicalizerDualRowHeadroomM455();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM453ParameterMigration(coverage);
 if (process.argv.includes('--write')) {
@@ -569,6 +573,37 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#11:owncallable',
     ],
   });
+  assertCoverageSummary(m455DualRowHeadroomUrl, m455DualRowHeadroom);
+  assert.deepEqual(m455DualRowHeadroom.limits, {
+    candidateProfile: { maxNodeRows: 25, maxPropertyRows: 50, maxValueRows: 388 },
+    productionMaxCollectionLength: 65_536,
+    promotionBudget: 49_152,
+    reservedProductionHeadroom: 16_384,
+  });
+  assert.deepEqual(m455DualRowHeadroom.summary, {
+    maxExactFloor: 26_356,
+    minimumProductionHeadroom: 39_180,
+    minimumPromotionHeadroom: 22_796,
+    witnessCount: 7,
+  });
+  assert.deepEqual(
+    m455DualRowHeadroom.witnesses.map(({ exactFloor, id, parameterRows, profileRows }) => ({
+      exactFloor, id, parameterRows, profileRows,
+    })),
+    [
+      { exactFloor: 26_356, id: 'examples/capstone-assertion-engine/compare.kern#4:compareNode', parameterRows: 13, profileRows: { nodes: 24, properties: 39, values: 373 } },
+      { exactFloor: 15_094, id: 'examples/capstone-checker-subset/checker-while.kern#14:literalTrue', parameterRows: 7, profileRows: { nodes: 23, properties: 33, values: 244 } },
+      { exactFloor: 19_763, id: 'examples/capstone-checker-subset/checker-while.kern#17:checkerWhileRejectDetail', parameterRows: 22, profileRows: { nodes: 25, properties: 49, values: 189 } },
+      { exactFloor: 17_423, id: 'examples/capstone-checker-subset/checker.kern#14:termProvenanced', parameterRows: 11, profileRows: { nodes: 24, properties: 36, values: 237 } },
+      { exactFloor: 19_622, id: 'examples/capstone-checker-subset/checker.kern#6:whileRejectDetail', parameterRows: 22, profileRows: { nodes: 25, properties: 48, values: 188 } },
+      { exactFloor: 21_985, id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#3:emitstatementlist', parameterRows: 15, profileRows: { nodes: 25, properties: 50, values: 235 } },
+      { exactFloor: 17_931, id: 'examples/selfhost-validator/validator.kern#11:owncallable', parameterRows: 12, profileRows: { nodes: 24, properties: 42, values: 212 } },
+    ],
+  );
+  assert.equal(
+    m455DualRowHeadroom.witnesses.reduce((total, { parameterRows }) => total + parameterRows, 0),
+    102,
+  );
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -711,6 +746,7 @@ process.stdout.write(
   ` ${formatM451PropertyRowHeadroomStatus(m451PropertyRowHeadroom)}` +
   ` ${formatM453ParameterMigrationStatus(m452PrerequisiteHandoff.record)}` +
   ` ${formatM454ResidualAnalysisStatus(m454ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM455DualRowHeadroomStatus(m455DualRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
