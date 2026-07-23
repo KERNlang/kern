@@ -3,7 +3,7 @@ function lines(...items) {
 }
 
 const BOUNDARY_PARAMETERS = Array.from(
-  { length: 22 },
+  { length: 23 },
   (_, index) => `  param name=p${index} type=number`,
 );
 
@@ -48,14 +48,15 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 31, maxPropertyRows: 50, maxValueRows: 388 },
-    expectedRows: { nodes: 31, properties: 35, values: 48 },
+    admittedProfileLimits: { maxNodeRows: 32, maxPropertyRows: 53, maxValueRows: 388 },
+    expectedRows: { nodes: 32, properties: 37, values: 51 },
     source: lines(
       'fn name=f0 returns=void',
       '  param name=a type=number',
       '  param name=b type=number',
       '  param name=c type=number',
       '  param name=d type=number',
+      '  param name=e type=number',
       '  handler lang=kern',
       '    return',
       ...Array.from({ length: 8 }, (_, index) => [
@@ -67,18 +68,19 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 30, maxPropertyRows: 51, maxValueRows: 388 },
-    expectedRows: { nodes: 25, properties: 51, values: 80 },
+    admittedProfileLimits: { maxNodeRows: 31, maxPropertyRows: 54, maxValueRows: 388 },
+    expectedRows: { nodes: 27, properties: 54, values: 87 },
     source: lines(
       'fn name=properties returns=void export=true',
       ...BOUNDARY_PARAMETERS,
       '  handler lang=kern',
+      '    do value="0"',
       '    for name=i from=0 to=0',
     ),
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 30, maxPropertyRows: 50, maxValueRows: 389 },
+    admittedProfileLimits: { maxNodeRows: 31, maxPropertyRows: 53, maxValueRows: 389 },
     expectedRows: { nodes: 12, properties: 15, values: 389 },
     source: withFinalLine(
       PROFILE_BOUNDARY_FIXTURE.source,

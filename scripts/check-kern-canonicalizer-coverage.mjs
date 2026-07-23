@@ -55,7 +55,7 @@ import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
 } from './kern-canonicalizer/dual-row-headroom-m4-55.mjs';
 import {
-  loadCanonicalizerDualRowHeadroomM471,
+  loadPublishedCanonicalizerDualRowHeadroomM471,
 } from './kern-canonicalizer/dual-row-headroom-m4-71.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import {
@@ -148,7 +148,8 @@ const m470ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m470ResidualAnalysis = m470ResidualAnalysisHandoff.record;
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
-const m471DualRowHeadroom = loadCanonicalizerDualRowHeadroomM471();
+const m471DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM471();
+const m471DualRowHeadroom = m471DualRowHeadroomHandoff.record;
 const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463();
 const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
 const m467NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM467();
@@ -301,11 +302,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.60 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 78, 'live M4.69 base completion must remain exactly 78/104');
+  assert.equal(actual.baseCompleteFunctions, 78, 'live M4.72 base completion must remain exactly 78/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     25,
-    'live M4.69 fn.params blocker count must remain exactly 25',
+    'live M4.72 fn.params blocker count must remain exactly 25',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -318,10 +319,15 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 14,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
+      parameterRows: 14,
+      profileRows: { nodes: 31, properties: 53, values: 370 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -329,10 +335,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 25);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 24);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685',
+    'bc209e6142330b70cac9499b3cc66a6750bdf3baabe6763a9f6b847995c21831',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -812,6 +818,14 @@ if (process.argv.includes('--write')) {
     ],
   });
   assertCoverageSummary(m471DualRowHeadroomUrl, m471DualRowHeadroom);
+  assert.equal(
+    m471DualRowHeadroomHandoff.digest,
+    '8be340082e3a5de479b015d4f0f4248486286290ed981cbf5715538069638c12',
+  );
+  assert.equal(
+    m471DualRowHeadroomHandoff.sourceCommit,
+    '75a927c4faf36d4c18530ff30b4f877fdc411628',
+  );
   assert.deepEqual(m471DualRowHeadroom.limits, {
     candidateProfile: { maxNodeRows: 31, maxPropertyRows: 53, maxValueRows: 388 },
     productionMaxCollectionLength: 65_536,

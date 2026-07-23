@@ -3,10 +3,10 @@
     "baseCompleteFunctions": 78,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
     "canonicalizerDigest": "94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56",
-    "canonicalizerPolicyDigest": "63f5cfdbf980ed1300bbe3a4d6be1e8409dc20ed9c51b13b1873ebafcd186826",
+    "canonicalizerPolicyDigest": "a4b53907df9507d12606fafb1bbf42fd5e129589e389e5ac349c154a8e3ab964",
     "compiledCoreDigest": "7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448",
     "corpusDigest": "2d76f3cc2874f90ef24f070a4f342f22668659fc2ef472f4b754c1ac0ee7f2b2",
-    "coverageImplementationDigest": "5991165c547f3f181ea96d28e5436e5784f0a2fa60b8292620ff8c734b68ed99",
+    "coverageImplementationDigest": "eca787b6bd9e9981c91d20b29cab90652c38e72c0e9cbaca85d759c594597907",
     "coveragePolicyDigest": "10f2a65c811aef65be7cf0190017010f0bd79d5c6c5245221135ed9e2ca31fda",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 104,
@@ -21,7 +21,7 @@
     ],
     "completingClosureCount": 0,
     "evaluatedNonEmptyClosureCount": 1,
-    "reasonAssignmentsDigest": "42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685",
+    "reasonAssignmentsDigest": "bc209e6142330b70cac9499b3cc66a6750bdf3baabe6763a9f6b847995c21831",
     "reasonCounts": [
       {
         "count": 1,
@@ -52,11 +52,11 @@
         "id": "let.value:unknown-expression-kind"
       },
       {
-        "count": 9,
+        "count": 8,
         "id": "profile.rows.nodes"
       },
       {
-        "count": 9,
+        "count": 7,
         "id": "profile.rows.properties"
       },
       {
@@ -80,17 +80,28 @@
         "id": "throw.value:unknown-expression-kind"
       }
     ],
-    "residualFunctionCount": 25,
+    "residualFunctionCount": 24,
     "scope": "current-bounded-profile"
   },
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 14,
+    "witnesses": [
+      {
+        "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+        "parameterRows": 14,
+        "profileRows": {
+          "nodes": 31,
+          "properties": 53,
+          "values": 370
+        },
+        "tool": "canonicalizer"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],

@@ -35,15 +35,15 @@ function sha256(path) {
 test('M4.68 promotes only the authenticated node-row ceiling', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 30,
-    maxPropertyRows: 50,
+    maxNodeRows: 31,
+    maxPropertyRows: 53,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 31, properties: 35, values: 48 });
+  assert.deepEqual(overNode?.expectedRows, { nodes: 32, properties: 37, values: 51 });
 });
 
 test('M4.69 consumes exactly the M4.68 one-function parameter queue', () => {
@@ -55,12 +55,17 @@ test('M4.69 consumes exactly the M4.68 one-function parameter queue', () => {
   );
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 14,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
+      parameterRows: 14,
+      profileRows: { nodes: 31, properties: 53, values: 370 },
+      tool: 'canonicalizer',
+    }],
   });
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 25);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 24);
 });
 
 test('M4.68 freezes exact M4.67 runtime evidence before policy moves', () => {

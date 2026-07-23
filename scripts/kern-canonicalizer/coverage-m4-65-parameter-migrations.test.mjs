@@ -58,27 +58,32 @@ test('M4.69 preserves the M4.65 corpus after consuming the exact parameter queue
     25,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 30,
-    maxPropertyRows: 50,
+    maxNodeRows: 31,
+    maxPropertyRows: 53,
     maxValueRows: 388,
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 14,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
+      parameterRows: 14,
+      profileRows: { nodes: 31, properties: 53, values: 370 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 25);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 24);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685',
+    'bc209e6142330b70cac9499b3cc66a6750bdf3baabe6763a9f6b847995c21831',
   );
 });
 

@@ -49,8 +49,8 @@ test('M4.69 preserves the exact M4.57 parameter migrations after queue consumpti
     25,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 30,
-    maxPropertyRows: 50,
+    maxNodeRows: 31,
+    maxPropertyRows: 53,
     maxValueRows: 388,
   });
 
@@ -61,17 +61,19 @@ test('M4.69 preserves the exact M4.57 parameter migrations after queue consumpti
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 14,
+    witnesses: [
+      'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
+    ],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 25);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 24);
 });
 
 test('M4.57 target guard rejects signature, body, identity, fact, and profile drift', () => {

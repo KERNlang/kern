@@ -201,8 +201,8 @@ function recordChildren(tables, minimum = 2) {
 test('M4.52 policy still admits the exact M4.43 15/24/154 witness at its indexed floor', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 30,
-    maxPropertyRows: 50,
+    maxNodeRows: 31,
+    maxPropertyRows: 53,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);

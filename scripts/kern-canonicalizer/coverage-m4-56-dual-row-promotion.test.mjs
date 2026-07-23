@@ -70,17 +70,17 @@ function sha256(path) {
 test('M4.56 promotes only the authenticated node-row and property-row ceilings', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 30,
-    maxPropertyRows: 50,
+    maxNodeRows: 31,
+    maxPropertyRows: 53,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 31, properties: 35, values: 48 });
+  assert.deepEqual(overNode?.expectedRows, { nodes: 32, properties: 37, values: 51 });
   const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
-  assert.deepEqual(overProperty?.expectedRows, { nodes: 25, properties: 51, values: 80 });
+  assert.deepEqual(overProperty?.expectedRows, { nodes: 27, properties: 54, values: 87 });
 });
 
 test('M4.56 publishes exactly the frozen seven-function parameter queue', () => {

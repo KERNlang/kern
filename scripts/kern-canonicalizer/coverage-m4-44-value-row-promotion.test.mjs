@@ -60,8 +60,8 @@ test('M4.44 value boundary remains exact under the M4.52 property-row promotion'
     [['op', 'string']],
   );
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 30,
-    maxPropertyRows: 50,
+    maxNodeRows: 31,
+    maxPropertyRows: 53,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
