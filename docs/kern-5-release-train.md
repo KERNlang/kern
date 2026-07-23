@@ -2883,6 +2883,35 @@ trusted-publishing/provenance configuration is inspected.
     remains incomplete; the next slice must analyze the exact 38-function
     residual before selecting any further capability work.
 
+  - [x] M4.54 publishes the exact current 38-function residual analysis
+    without changing KERN source, generated consumers, the 19/31/388 profile,
+    active families, parser, runtime, KIR, ABI, packages, or public APIs. The
+    analyzer reproduces assignment digest
+    `158ee2e9ee592986fa70f10e7345a243db0b082f7949497275e2dce2141ae6c8`,
+    derives 22 distinct observed settings from authenticated current facts,
+    and selects exact 25/50/388 headroom: a 25-row total delta completing seven
+    functions across all four tools and covering 102 eventual parameter rows.
+    The receipt and analyzer authenticate at
+    `9c8507a4fe5bacf1048bfc1f6946c3e493ee35cd7fb63ce3a2a7ced474ad1423`
+    and
+    `2210e0a46db3ef2f7930640d258ccf843ca93201678ca99c76d5c28b994f2ea8`;
+    live coverage and prerequisite receipts authenticate at
+    `6475265b907af06f564870723ea1a2c8c3fa92784581c79ef571de0f54e6189e`
+    and
+    `1349932bd6fbba25e870d77235259bc36e9a8c9bcd5c78b1027fe02972778a7d`.
+    Focused gates pass 50/50; the canonicalizer wall passes 179/179 tests plus
+    51/8/3/226 fixtures; and the complete Node 22.22 `fitness:kern-5` wall
+    passes. High-risk role-lens review
+    `review-1784765519833-ajerxw-kern-5-r2-m4-54` completed all 6/6 usable
+    reviewers. Its one verified provenance blocker was fixed by naming the
+    analyzed M4.53 boundary `inputCommit` instead of falsely calling it the
+    M4.54 source commit; the post-fix canonicalizer wall passes. Three
+    needs-check DRY observations were rejected because milestone-local guards
+    intentionally remain independent, and nine bounded CI-only nits are
+    non-material. KERN 5 remains incomplete; M4.55 must authenticate exact
+    structural runtime headroom for the seven selected witnesses before
+    either profile limit moves.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

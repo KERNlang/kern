@@ -24,6 +24,10 @@ import {
 } from './kern-canonicalizer/coverage-residual-analysis-m4-43.mjs';
 import { loadPublishedCanonicalizerResidualAnalysisM446 } from './kern-canonicalizer/coverage-residual-analysis-m4-46.mjs';
 import { loadPublishedCanonicalizerResidualAnalysisM450 } from './kern-canonicalizer/coverage-residual-analysis-m4-50.mjs';
+import {
+  loadPublishedCanonicalizerResidualAnalysisM454,
+  measureCanonicalizerResidualAnalysisM454,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-54.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import {
   loadPublishedCanonicalizerPropertyRowHeadroomM451,
@@ -39,6 +43,7 @@ import {
   formatM450ResidualAnalysisStatus,
   formatM451PropertyRowHeadroomStatus,
   formatM453ParameterMigrationStatus,
+  formatM454ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -53,6 +58,7 @@ const m446ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m447NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-47.json', import.meta.url);
 const m450ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-50.json', import.meta.url);
 const m451PropertyRowHeadroomUrl = new URL('./kern-canonicalizer/property-row-headroom-m4-51.json', import.meta.url);
+const m454ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-54.json', import.meta.url);
 const coverage = measureCanonicalizerCoverage();
 const actual = summarizeCanonicalizerCoverage(coverage);
 const prerequisite = measureCanonicalizerPrerequisite();
@@ -75,6 +81,8 @@ const m450ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m450ResidualAnalysis = m450ResidualAnalysisHandoff.record;
 const m451PropertyRowHeadroomHandoff = loadPublishedCanonicalizerPropertyRowHeadroomM451();
 const m451PropertyRowHeadroom = m451PropertyRowHeadroomHandoff.record;
+const m454ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM454();
+const m454ResidualAnalysis = m454ResidualAnalysisHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM453ParameterMigration(coverage);
 if (process.argv.includes('--write')) {
@@ -523,6 +531,44 @@ if (process.argv.includes('--write')) {
     parameterRows: 6,
     profileRows: { nodes: 19, properties: 31, values: 202 },
   }]);
+  assertCoverageSummary(m454ResidualAnalysisUrl, m454ResidualAnalysis);
+  assert.equal(
+    m454ResidualAnalysisHandoff.digest,
+    '9c8507a4fe5bacf1048bfc1f6946c3e493ee35cd7fb63ce3a2a7ced474ad1423',
+  );
+  assert.equal(
+    m454ResidualAnalysisHandoff.inputCommit,
+    '87431a527dfb8d0f3a707b74ce33907392670a51',
+  );
+  assert.deepEqual(
+    measureCanonicalizerResidualAnalysisM454(),
+    m454ResidualAnalysis,
+    'M4.54 receipt must reproduce from the current M4.53 semantic facts',
+  );
+  assert.equal(m454ResidualAnalysis.assignments.length, 38);
+  assert.equal(
+    m454ResidualAnalysis.assignmentsDigest,
+    '158ee2e9ee592986fa70f10e7345a243db0b082f7949497275e2dce2141ae6c8',
+  );
+  assert.equal(m454ResidualAnalysis.frontier.evaluatedObservedSettings, 22);
+  assert.equal(m454ResidualAnalysis.frontier.profileRowsAvailableFunctions, 22);
+  assert.equal(m454ResidualAnalysis.frontier.actionableCandidates.length, 22);
+  assert.deepEqual(m454ResidualAnalysis.selectedNextAction, {
+    changedLimits: ['maxNodeRows', 'maxPropertyRows'],
+    completeFunctions: 7,
+    completeTools: 4,
+    limits: { maxNodeRows: 25, maxPropertyRows: 50, maxValueRows: 388 },
+    totalDelta: 25,
+    witnesses: [
+      'examples/capstone-assertion-engine/compare.kern#4:compareNode',
+      'examples/capstone-checker-subset/checker-while.kern#14:literalTrue',
+      'examples/capstone-checker-subset/checker-while.kern#17:checkerWhileRejectDetail',
+      'examples/capstone-checker-subset/checker.kern#14:termProvenanced',
+      'examples/capstone-checker-subset/checker.kern#6:whileRejectDetail',
+      'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#3:emitstatementlist',
+      'examples/selfhost-validator/validator.kern#11:owncallable',
+    ],
+  });
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -664,6 +710,7 @@ process.stdout.write(
   ` ${formatM450ResidualAnalysisStatus(m450ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM451PropertyRowHeadroomStatus(m451PropertyRowHeadroom)}` +
   ` ${formatM453ParameterMigrationStatus(m452PrerequisiteHandoff.record)}` +
+  ` ${formatM454ResidualAnalysisStatus(m454ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
