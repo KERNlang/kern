@@ -29,18 +29,18 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest('hex');
 }
 
-test('M4.52 promotes only the authenticated property-row ceiling', () => {
+test('the current policy preserves M4.52 property-row evidence after later promotions', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 19,
-    maxPropertyRows: 31,
+    maxNodeRows: 25,
+    maxPropertyRows: 50,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
-  assert.deepEqual(overProperty?.expectedRows, { nodes: 16, properties: 32, values: 70 });
+  assert.deepEqual(overProperty?.expectedRows, { nodes: 25, properties: 51, values: 80 });
 });
 
 test('M4.52 publishes exactly the frozen one-function parameter queue', () => {

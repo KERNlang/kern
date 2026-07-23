@@ -43,18 +43,16 @@ test('M4.49 migrates exactly the frozen M4.48 parameter queue', () => {
     38,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 19,
-    maxPropertyRows: 31,
+    maxNodeRows: 25,
+    maxPropertyRows: 50,
     maxValueRows: 388,
   });
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 38);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 7);
+  assert.equal(prerequisite.parameterMigration.completeTools, 4);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 102);
+  assert.equal(prerequisite.parameterMigration.witnesses.length, 7);
+  assert.equal(prerequisite.exhaustion, null);
 });
 
 test('M4.49 target guard rejects signature, body, identity, fact, and profile drift', () => {

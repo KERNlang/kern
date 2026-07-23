@@ -49,12 +49,12 @@ function fail(category, detail) {
   throw new Error(`${category}: ${detail}`);
 }
 
-function canonicalizerArguments(tables) {
+function canonicalizerArguments(tables, profileLimits = PROFILE_LIMITS) {
   return [
     ...tableArguments(tables),
-    PROFILE_LIMITS.maxNodeRows,
-    PROFILE_LIMITS.maxPropertyRows,
-    PROFILE_LIMITS.maxValueRows,
+    profileLimits.maxNodeRows,
+    profileLimits.maxPropertyRows,
+    profileLimits.maxValueRows,
   ];
 }
 
@@ -82,8 +82,8 @@ function semanticArtifact(source, moduleId, label) {
   return { bytes, roots: module.roots };
 }
 
-function executeTables(tables, label) {
-  const envelope = executeTableEnvelope(tables);
+function executeTables(tables, label, profileLimits = PROFILE_LIMITS) {
+  const envelope = executeTableEnvelope(tables, profileLimits);
   if (envelope.outcome !== 'success') {
     const code = envelope.diagnostics[0]?.code ?? 'missing-diagnostic';
     fail('profile rejection', `${label} returned ${code}`);
@@ -103,11 +103,11 @@ function executeTables(tables, label) {
   return lines;
 }
 
-function executeTableEnvelope(tables) {
+function executeTableEnvelope(tables, profileLimits = PROFILE_LIMITS) {
   return executeKernRuntimeHandlerSync(
     {
       abi: KERN_RUNTIME_HANDLER_ABI,
-      arguments: canonicalizerArguments(tables),
+      arguments: canonicalizerArguments(tables, profileLimits),
       identity: { handlerName: 'canonicalize', sourcePath: CANONICALIZER_COMPOSITE_PATH },
       source: CANONICALIZER_SOURCE,
     },
@@ -170,6 +170,10 @@ export function runKernCanonicalizerCheck() {
     assert.equal(envelope.diagnostics[0]?.code, 'uncaught-throw', `${fixture.id} must reject explicitly in KERN`);
     assert.deepEqual(envelope.events, [], `${fixture.id} must not emit partial events`);
     assert.deepEqual(envelope.result, { presence: 'absent' }, `${fixture.id} must not return partial source`);
+    assert.ok(
+      executeTables(tables, `${fixture.id}:exact-admission`, fixture.admittedProfileLimits).length > 0,
+      `${fixture.id} must succeed when only its exceeded row ceiling is widened exactly`,
+    );
   }
 
   for (const hostile of HOSTILE_FIXTURES) {

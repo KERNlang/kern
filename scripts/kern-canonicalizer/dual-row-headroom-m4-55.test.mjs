@@ -6,9 +6,8 @@ import test from 'node:test';
 
 import { loadPublishedCanonicalizerResidualAnalysisM454 } from './coverage-residual-analysis-m4-54.mjs';
 import {
-  loadCanonicalizerDualRowHeadroomM455,
-  measureCanonicalizerDualRowHeadroomM455,
-  validateCanonicalizerDualRowHeadroomM455,
+  loadPublishedCanonicalizerDualRowHeadroomM455,
+  validatePublishedCanonicalizerDualRowHeadroomM455,
 } from './dual-row-headroom-m4-55.mjs';
 
 const summaryUrl = new URL('./dual-row-headroom-m4-55.json', import.meta.url);
@@ -23,11 +22,13 @@ const WITNESS_BOUNDARIES = [
   ['examples/selfhost-validator/validator.kern#11:owncallable', 12, 17_931, 24, 42, 212],
 ];
 
-test('M4.55 authenticates the exact dual-row structural headroom receipt', () => {
+test('M4.55 freezes the exact published dual-row structural headroom receipt', () => {
   const source = readFileSync(summaryUrl);
-  const receipt = loadCanonicalizerDualRowHeadroomM455();
+  const handoff = loadPublishedCanonicalizerDualRowHeadroomM455();
+  const receipt = handoff.record;
   assert.equal(createHash('sha256').update(source).digest('hex'), RECEIPT_DIGEST);
-  assert.deepEqual(receipt, measureCanonicalizerDualRowHeadroomM455());
+  assert.equal(handoff.digest, RECEIPT_DIGEST);
+  assert.equal(handoff.sourceCommit, '56a45251663840d2d8ab60a8c8ee84ae5b29975b');
   assert.equal(receipt.format, 'kern.kir-canonicalizer.dual-row-headroom.1');
   assert.equal(receipt.artifactScope, 'structural-kir-function');
   assert.deepEqual(receipt.limits, {
@@ -62,7 +63,7 @@ test('M4.55 authenticates the exact dual-row structural headroom receipt', () =>
 });
 
 test('M4.55 receipt rejects evidence drift and decorated data', () => {
-  const actual = loadCanonicalizerDualRowHeadroomM455();
+  const actual = loadPublishedCanonicalizerDualRowHeadroomM455().record;
   for (const mutate of [
     (copy) => { copy.format = 'kern.kir-canonicalizer.dual-row-headroom.2'; },
     (copy) => { copy.future = true; },
@@ -75,13 +76,13 @@ test('M4.55 receipt rejects evidence drift and decorated data', () => {
     const copy = structuredClone(actual);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerDualRowHeadroomM455(copy),
+      () => validatePublishedCanonicalizerDualRowHeadroomM455(copy),
       /coverage M4\.55 dual-row headroom rejection/u,
     );
   }
   const decorated = Object.assign(Object.create({ inherited: true }), actual);
   assert.throws(
-    () => validateCanonicalizerDualRowHeadroomM455(decorated),
+    () => validatePublishedCanonicalizerDualRowHeadroomM455(decorated),
     /coverage M4\.55 dual-row headroom rejection/u,
   );
 });
@@ -93,12 +94,12 @@ test('M4.55 preserves M4.54 and reproduces in a fresh locale-independent process
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {loadCanonicalizerDualRowHeadroomM455 as load} from './scripts/kern-canonicalizer/dual-row-headroom-m4-55.mjs'; process.stdout.write(JSON.stringify(load()))",
+    "import {loadPublishedCanonicalizerDualRowHeadroomM455 as load} from './scripts/kern-canonicalizer/dual-row-headroom-m4-55.mjs'; process.stdout.write(JSON.stringify(load()))",
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), loadCanonicalizerDualRowHeadroomM455());
+  assert.deepEqual(JSON.parse(fresh.stdout), loadPublishedCanonicalizerDualRowHeadroomM455());
 });

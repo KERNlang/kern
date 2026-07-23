@@ -47,18 +47,18 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(new URL(`../../${path}`, import.meta.url))).digest('hex');
 }
 
-test('M4.52 preserves the M4.48 node-row ceiling while property rows move', () => {
+test('the current policy preserves the M4.48 node-row evidence after later promotions', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 19,
-    maxPropertyRows: 31,
+    maxNodeRows: 25,
+    maxPropertyRows: 50,
     maxValueRows: 388,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 20, properties: 22, values: 30 });
+  assert.deepEqual(overNode?.expectedRows, { nodes: 26, properties: 28, values: 38 });
 });
 
 test('M4.48 publishes exactly the frozen four-function parameter queue', () => {

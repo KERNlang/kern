@@ -13,89 +13,109 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
-};
-
-const EXPECTED_EXHAUSTION = {
-  activeFamilies: ['exception-flow', 'while-iteration'],
-  completingClosureCount: 0,
-  evaluatedNonEmptyClosureCount: 3,
-  reasonAssignmentsDigest: '158ee2e9ee592986fa70f10e7345a243db0b082f7949497275e2dce2141ae6c8',
-  reasonCounts: [
-    { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u009f' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
-    { count: 2, id: 'let.value:unknown-expression-kind' },
-    { count: 22, id: 'profile.rows.nodes' },
-    { count: 22, id: 'profile.rows.properties' },
-    { count: 8, id: 'profile.rows.values' },
-    { count: 12, id: 'projection.limit-depth' },
-    { count: 1, id: 'projection.limit-nodes' },
-    { count: 3, id: 'projection.unknown-expression-kind' },
-    { count: 1, id: 'throw.value:unknown-expression-kind' },
+  completeFunctions: 7,
+  completeTools: 4,
+  migratedParameterRows: 102,
+  witnesses: [
+    {
+      id: 'examples/capstone-assertion-engine/compare.kern#4:compareNode',
+      parameterRows: 13,
+      profileRows: { nodes: 24, properties: 39, values: 373 },
+      tool: 'assertion-engine',
+    },
+    {
+      id: 'examples/capstone-checker-subset/checker-while.kern#14:literalTrue',
+      parameterRows: 7,
+      profileRows: { nodes: 23, properties: 33, values: 244 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/capstone-checker-subset/checker-while.kern#17:checkerWhileRejectDetail',
+      parameterRows: 22,
+      profileRows: { nodes: 25, properties: 49, values: 189 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/capstone-checker-subset/checker.kern#14:termProvenanced',
+      parameterRows: 11,
+      profileRows: { nodes: 24, properties: 36, values: 237 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/capstone-checker-subset/checker.kern#6:whileRejectDetail',
+      parameterRows: 22,
+      profileRows: { nodes: 25, properties: 48, values: 188 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#3:emitstatementlist',
+      parameterRows: 15,
+      profileRows: { nodes: 25, properties: 50, values: 235 },
+      tool: 'canonicalizer',
+    },
+    {
+      id: 'examples/selfhost-validator/validator.kern#11:owncallable',
+      parameterRows: 12,
+      profileRows: { nodes: 24, properties: 42, values: 212 },
+      tool: 'validator',
+    },
   ],
-  residualFunctionCount: 38,
-  scope: 'current-bounded-profile',
 };
 
-test('M4.53 consumes the authenticated 31-property-row parameter migration frontier', () => {
+const EXPECTED_RANKING = [{
+  completeFunctions: 1,
+  completeTools: 1,
+  families: ['while-iteration'],
+  migratedParameterRows: 1,
+  occurrences: 2,
+  witnesses: [{
+    id: 'examples/selfhost-validator/validator.kern#19:sortstrings',
+    parameterRows: 1,
+    profileRows: { nodes: 25, properties: 43, values: 266 },
+    tool: 'validator',
+  }],
+}];
+
+test('M4.56 publishes the authenticated dual-row parameter frontier first', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(actual.outcome, 'bounded-exhaustion');
-  assert.equal(actual.minimumFamilyCount, null);
-  assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
+  assert.equal(actual.outcome, 'selected');
+  assert.equal(actual.minimumFamilyCount, 1);
+  assert.equal(actual.exhaustion, null);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
-  assert.deepEqual(actual.prerequisiteRanking, []);
-  assert.deepEqual(actual.ranking, []);
-  assert.equal(actual.selectedPrerequisite, null);
+  assert.deepEqual(actual.prerequisiteRanking, [{
+    catalogFacts: 2,
+    family: 'while-iteration',
+    occurrences: 2,
+  }]);
+  assert.deepEqual(actual.ranking, EXPECTED_RANKING);
+  assert.deepEqual(actual.selectedPrerequisite, actual.prerequisiteRanking[0]);
 });
 
-test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.53 migration', () => {
+test('format 3 rejects drift in the M4.56 selected frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
     (copy) => { copy.future = true; },
-    (copy) => { copy.outcome = 'selected'; },
+    (copy) => { copy.outcome = 'bounded-exhaustion'; },
     (copy) => { copy.minimumFamilyCount = 0; },
-    (copy) => { copy.selectedPrerequisite = { family: 'future' }; },
-    (copy) => { copy.prerequisiteRanking.push({ family: 'future' }); },
-    (copy) => { copy.ranking.push({ families: ['future'] }); },
-    (copy) => { copy.exhaustion = null; },
-    (copy) => { copy.exhaustion.activeFamilies.pop(); },
-    (copy) => { copy.exhaustion.activeFamilies.push('exception-flow'); },
-    (copy) => { copy.exhaustion.activeFamilies.reverse(); },
-    (copy) => { copy.exhaustion.activeFamilies[0] = 'future-family'; },
-    (copy) => { copy.exhaustion.completingClosureCount = 1; },
-    (copy) => { copy.exhaustion.evaluatedNonEmptyClosureCount = 2; },
-    (copy) => { copy.exhaustion.reasonAssignmentsDigest = 'invalid'; },
-    (copy) => { copy.exhaustion.reasonAssignmentsDigest = '0'.repeat(64); },
-    (copy) => { copy.exhaustion.reasonCounts[0].count = 0; },
-    (copy) => { copy.exhaustion.reasonCounts[0].count = 2; },
-    (copy) => { copy.exhaustion.reasonCounts[0].count = 57; },
-    (copy) => { copy.exhaustion.reasonCounts[0].future = true; },
-    (copy) => { copy.exhaustion.reasonCounts.reverse(); },
-    (copy) => { copy.exhaustion.residualFunctionCount = 44; },
-    (copy) => { copy.exhaustion.scope = 'kern5-complete'; },
+    (copy) => { copy.minimumFamilyCount = 2; },
+    (copy) => { copy.selectedPrerequisite = null; },
+    (copy) => { copy.selectedPrerequisite.family = 'future'; },
+    (copy) => { copy.prerequisiteRanking = []; },
+    (copy) => { copy.prerequisiteRanking.push(structuredClone(copy.prerequisiteRanking[0])); },
+    (copy) => { copy.ranking = []; },
+    (copy) => { copy.ranking[0].families[0] = 'exception-flow'; },
+    (copy) => { copy.ranking[0].occurrences = 1; },
+    (copy) => { copy.ranking[0].witnesses[0].id = copy.parameterMigration.witnesses[0].id; },
+    (copy) => { copy.exhaustion = {}; },
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 2; },
-    (copy) => { copy.parameterMigration.completeTools = 2; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 7; },
-    (copy) => {
-      copy.parameterMigration.witnesses.push({
-        id: 'examples/selfhost-validator/validator.kern#0:future',
-        parameterRows: 1,
-        profileRows: { nodes: 1, properties: 1, values: 1 },
-        tool: 'validator',
-      });
-    },
+    (copy) => { copy.parameterMigration.completeFunctions = 8; },
+    (copy) => { copy.parameterMigration.completeTools = 3; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 101; },
+    (copy) => { copy.parameterMigration.witnesses.reverse(); },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(actual);
@@ -105,46 +125,23 @@ test('format 3 rejects mixed selection and bounded-exhaustion shapes after M4.53
       /coverage prerequisite rejection/u,
     );
   }
-  const selected = structuredClone(actual);
-  selected.outcome = 'selected';
-  selected.exhaustion = null;
-  selected.minimumFamilyCount = 1;
-  selected.selectedPrerequisite = { catalogFacts: 1, family: 'exception-flow', occurrences: 34 };
-  selected.prerequisiteRanking = [selected.selectedPrerequisite];
-  selected.ranking = [{
-    completeFunctions: 1,
-    completeTools: 1,
-    families: ['exception-flow'],
-    migratedParameterRows: 1,
-    occurrences: 34,
-    witnesses: [{
-      id: 'examples/selfhost-validator/validator.kern#0:future',
-      parameterRows: 1,
-      profileRows: { nodes: 1, properties: 1, values: 1 },
-      tool: 'validator',
-    }],
-  }];
-  assert.throws(
-    () => validateCanonicalizerPrerequisiteSummary(selected),
-    /summary must match authenticated measurement/u,
-  );
 });
 
-test('M4.53 binds the exact consumed 31-property-row transition', () => {
+test('M4.56 binds the exact promoted dual-row transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 65,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
     canonicalizerDigest: '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5',
-    canonicalizerPolicyDigest: '2cb2bcad0164b3457cf398c18a78d46fc1bbe9cd3ef5e9676996bd89f9b35c97',
+    canonicalizerPolicyDigest: '5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
     corpusDigest: 'da83239e2f10cf3a14350fc935c43ca44fcaf461e6513e14cc25ff984ec3c9de',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '213ce7266b0d8e449c4333483fe8862ae7d3fc69f2aaa7b869595dcbd5111d5c',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '7f42974aba8157c6f20fae3cf0c7632317e36e2e7c0d6e5869c32aa31970dc78',
+    functionFactsDigest: 'b8f15f0c98c3019e78b6450eaca47d1110677555db0695136ca2b1a12fa78aee',
     legacyParameterBlockers: 38,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,

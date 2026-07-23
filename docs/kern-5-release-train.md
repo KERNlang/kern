@@ -2948,6 +2948,45 @@ trusted-publishing/provenance configuration is inspected.
     promote only `maxNodeRows` 19 to 25 and `maxPropertyRows` 31 to 50 while
     leaving `maxValueRows` at 388, and must freeze M4.55 as immutable evidence.
 
+  - [x] M4.56 freezes the published M4.55 structural-runtime receipt at exact
+    source commit `56a45251663840d2d8ab60a8c8ee84ae5b29975b` and receipt
+    SHA-256
+    `10e36abdda5e7de48c65689f9d2a318a6095497bdd3cff81aa64e3ab4e6e535b`,
+    then promotes only `maxNodeRows` 19 to 25 and `maxPropertyRows` 31 to 50.
+    `maxValueRows` remains 388, the runtime collection ceiling remains 65,536,
+    KIR depth remains 64, and no KERN source, generated consumer, parser,
+    runtime, KIR, ABI, package, version, or public API changes. The immutable
+    loader, current canonicalizer policy, live coverage implementation,
+    function facts, coverage receipt, and prerequisite receipt authenticate at
+    `d9ef2964087fc8d2488807af876c166f4bd85d969b08ffe1fa4428485d9123c8`,
+    `5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d`,
+    `7feccc57475faa9712f6b34f8d2c0a8208bef71e90f30e4a5234543cd37dbb95`,
+    `b8f15f0c98c3019e78b6450eaca47d1110677555db0695136ca2b1a12fa78aee`,
+    `2adf0326116d8dd42fdf9bb43cc811f7e3492f2860db617f00ab365fae441ce3`,
+    and
+    `13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b`.
+    The live frontier remains 65/104 base-complete with 38 legacy `fn.params`
+    blockers and now publishes the exact M4.54/M4.55 seven-function,
+    four-tool, 102-row parameter queue. Exact 26-node and 51-property hostile
+    fixtures reject above the promoted 25/50 boundary. Focused gates pass 8/8;
+    the standalone and final aggregate canonicalizer walls pass 196/196 tests
+    plus 51/8/3/226 fixtures; and the complete Node 22.22 `fitness:kern-5`
+    wall passes. Required high-risk role-lens review
+    `review-1784773427040-p9pwu1-kern-5-r2-m4-56` completed all 6/6 usable
+    reviewers. Its consensus blocker misread the current array-first receipt
+    validator and was rejected against exact source and passing loader tests.
+    One correctness needs-check was real: the 51-property fixture also carried
+    unsupported `fn.async` and `param.optional`, so rejection did not isolate
+    the row ceiling. The fixture is now an admitted 25/51/80 KIR that fails at
+    50 and succeeds at 51. The same audit found and fixed the pre-existing
+    value-fixture ambiguity with an admitted 12/15/389 KIR that fails at 388
+    and succeeds at 389; the node fixture likewise succeeds exactly at 26.
+    Post-fix focused gates pass 16/16 and the causal canonicalizer replay passes
+    all 51/8/3/226 fixtures. No unresolved material review finding remains.
+    KERN 5 remains incomplete; M4.57 must consume exactly this 7/4/102 queue
+    before the selected subsequent `while-iteration` prerequisite can be
+    promoted.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
