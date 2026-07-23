@@ -21,6 +21,7 @@ import {
   formatM463NodeRowHeadroomStatus,
   formatM465ParameterMigrationStatus,
   formatM466ResidualAnalysisStatus,
+  formatM467NodeRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -199,6 +200,15 @@ test('coverage status records the M4.66 residual recommendation', () => {
       changedLimits: ['maxNodeRows'],
     }),
     'M4.66 published analysis selected 1 function by maxNodeRows widening; M4.67 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.67 structural headroom handoff', () => {
+  assert.equal(
+    formatM467NodeRowHeadroomStatus({
+      summary: { maxExactFloor: 17_552, witnessCount: 1 },
+    }),
+    'M4.67 structural headroom authenticated 1 witness at exact floor 17552; M4.68 authenticates the node-row profile promotion.',
   );
 });
 

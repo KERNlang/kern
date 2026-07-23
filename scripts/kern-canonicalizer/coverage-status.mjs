@@ -89,6 +89,11 @@ export function formatM463NodeRowHeadroomStatus(receipt) {
     `${receipt.summary.maxExactFloor} maximum floor; M4.64 authenticates the node-row profile promotion.`;
 }
 
+export function formatM467NodeRowHeadroomStatus(receipt) {
+  return `M4.67 structural headroom authenticated ${receipt.summary.witnessCount} witness at exact floor ` +
+    `${receipt.summary.maxExactFloor}; M4.68 authenticates the node-row profile promotion.`;
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';
