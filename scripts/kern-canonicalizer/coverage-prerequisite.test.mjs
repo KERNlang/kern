@@ -13,17 +13,42 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
+  completeFunctions: 4,
+  completeTools: 2,
+  migratedParameterRows: 37,
+  witnesses: [
+    {
+      id: 'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
+      parameterRows: 2,
+      profileRows: { nodes: 27, properties: 39, values: 288 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
+      parameterRows: 13,
+      profileRows: { nodes: 28, properties: 42, values: 309 },
+      tool: 'checker',
+    },
+    {
+      id: 'examples/selfhost-validator/validator.kern#10:fnokat',
+      parameterRows: 8,
+      profileRows: { nodes: 28, properties: 38, values: 270 },
+      tool: 'validator',
+    },
+    {
+      id: 'examples/selfhost-validator/validator.kern#12:ownexportkind',
+      parameterRows: 14,
+      profileRows: { nodes: 28, properties: 48, values: 260 },
+      tool: 'validator',
+    },
+  ],
 };
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 1,
-  reasonAssignmentsDigest: '6a2d680c3dfe3fdbddf24f5b6cd383e03d5c2b7ed1fdf5667ec6ea94551c40e5',
+  reasonAssignmentsDigest: '68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -32,7 +57,7 @@ const EXPECTED_EXHAUSTION = {
     { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
     { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
     { count: 2, id: 'let.value:unknown-expression-kind' },
-    { count: 14, id: 'profile.rows.nodes' },
+    { count: 10, id: 'profile.rows.nodes' },
     { count: 9, id: 'profile.rows.properties' },
     { count: 8, id: 'profile.rows.values' },
     { count: 12, id: 'projection.limit-depth' },
@@ -40,11 +65,11 @@ const EXPECTED_EXHAUSTION = {
     { count: 3, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
-  residualFunctionCount: 30,
+  residualFunctionCount: 26,
   scope: 'current-bounded-profile',
 };
 
-test('M4.61 consumes the final parameter-ready tranche and exposes bounded exhaustion', () => {
+test('M4.64 exposes the exact node-row parameter tranche and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -56,7 +81,7 @@ test('M4.61 consumes the final parameter-ready tranche and exposes bounded exhau
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.61 exhausted parameter frontier', () => {
+test('format 3 rejects drift in the M4.64 parameter-ready frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -77,9 +102,9 @@ test('format 3 rejects drift in the M4.61 exhausted parameter frontier', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 1; },
-    (copy) => { copy.parameterMigration.completeTools = 1; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
+    (copy) => { copy.parameterMigration.completeFunctions = 0; },
+    (copy) => { copy.parameterMigration.completeTools = 0; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 0; },
     (copy) => { copy.parameterMigration.witnesses = [{ id: 'future' }]; },
   ];
   for (const mutate of mutations) {
@@ -92,14 +117,14 @@ test('format 3 rejects drift in the M4.61 exhausted parameter frontier', () => {
   }
 });
 
-test('M4.61 binds the exact sortstrings migration transition', () => {
+test('M4.64 preserves the exact sortstrings transition below the new parameter queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 73,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
-    canonicalizerPolicyDigest: '5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d',
+    canonicalizerPolicyDigest: '589de16d30335145b89dfe50f57721ae2424f580b659749d7b5de8f4f771257c',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
     corpusDigest: '1ce05b6867a583aef963ee5a8cd087c1865ca88173dc8c4432d3680a382078ae',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,

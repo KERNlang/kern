@@ -358,7 +358,7 @@ test('the base text-expression profile enforces the KERN quotesource character c
   }
 });
 
-test('the active profile rejects rows above the M4.56 node and property ceilings', () => {
+test('the active profile rejects rows above the M4.64 node and M4.56 property ceilings', () => {
   const parsed = parseDocumentWithDiagnostics([
     'fn name=tooManyRows returns=void',
     ...Array.from({ length: 14 }, (_, index) => `  param name=p${index} type=number`),
@@ -369,7 +369,7 @@ test('the active profile rejects rows above the M4.56 node and property ceilings
     parsed.root.children[0],
     loadCoveragePolicy().base,
     loadCanonicalizerPolicy().profileLimits,
-    { nodes: 26, properties: 51, values: 73 },
+    { nodes: 29, properties: 51, values: 73 },
   );
   assert.deepEqual(blockers, ['profile.rows.nodes', 'profile.rows.properties']);
 });
@@ -384,7 +384,7 @@ test('profile node ceilings use the codec-measured row count', () => {
     parsed.root.children[0],
     loadCoveragePolicy().base,
     loadCanonicalizerPolicy().profileLimits,
-    { nodes: 26, properties: 3, values: 4 },
+    { nodes: 29, properties: 3, values: 4 },
   );
   assert.ok(blockers.includes('profile.rows.nodes'));
 });

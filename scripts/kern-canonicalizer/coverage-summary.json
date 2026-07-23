@@ -182,7 +182,7 @@
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
   "canonicalizerDigest": "94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56",
-  "canonicalizerPolicyDigest": "5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d",
+  "canonicalizerPolicyDigest": "589de16d30335145b89dfe50f57721ae2424f580b659749d7b5de8f4f771257c",
   "compiledCoreDigest": "7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448",
   "composition": {
     "digest": "cab6c1e38591e0a75cf717691c9d7247b623ddc849bc65bdf021cdcd3b914995",
@@ -215,7 +215,7 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "1ce05b6867a583aef963ee5a8cd087c1865ca88173dc8c4432d3680a382078ae",
-  "coverageImplementationDigest": "671def9cd9967c3e6305b40b55cd842a2980d9fe3e858e6b66fd5c442b1bf8df",
+  "coverageImplementationDigest": "5b3bfb87d739d37d9617fdbe22e97febc214edda298199764d0b756c51eee3f9",
   "coveragePolicyDigest": "00517a1a5e8958ed4158310a2c5c4815c9a8cf673d98e73f45c41f4edbae408e",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",

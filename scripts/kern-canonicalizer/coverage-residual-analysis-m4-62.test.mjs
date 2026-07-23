@@ -7,7 +7,6 @@ import test from 'node:test';
 import { loadPublishedCanonicalizerResidualAnalysisM454 } from './coverage-residual-analysis-m4-54.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM462,
-  measureCanonicalizerResidualAnalysisM462,
   validatePublishedCanonicalizerResidualAnalysisM462,
 } from './coverage-residual-analysis-m4-62.mjs';
 import { formatM462ResidualAnalysisStatus } from './coverage-status.mjs';
@@ -28,10 +27,12 @@ const EXPECTED_SELECTION = {
   ],
 };
 
-test('M4.62 freezes the exact current residual frontier', () => {
+// Once a later slice promotes the active profile, the live M4.62 analyzer is
+// expected to produce a different frontier. Historical integrity is therefore
+// proved from the published bytes, digest, source commit, and fresh-process load.
+test('M4.62 freezes the exact published residual frontier', () => {
   const source = readFileSync(summaryUrl);
   const handoff = loadPublishedCanonicalizerResidualAnalysisM462();
-  assert.deepEqual(measureCanonicalizerResidualAnalysisM462(), handoff.record);
   assert.equal(createHash('sha256').update(source).digest('hex'), PUBLISHED_DIGEST);
   assert.equal(handoff.digest, PUBLISHED_DIGEST);
   assert.equal(handoff.inputCommit, 'f36a870843ccdd222e8cf2e7595c0e205ed545bf');

@@ -24,7 +24,7 @@
     "maxStringBytes": 1048576
   },
   "profileLimits": {
-    "maxNodeRows": 25,
+    "maxNodeRows": 28,
     "maxPropertyRows": 50,
     "maxValueRows": 388
   }

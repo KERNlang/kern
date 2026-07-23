@@ -143,11 +143,21 @@ test('M4.61 preserves the M4.60 while promotion and consumes its immutable queue
   );
 
   const prerequisite = measureCanonicalizerPrerequisite(policy);
-  assert.deepEqual(prerequisite.parameterMigration, {
-    migratedParameterRows: 0,
-    completeFunctions: 0,
-    completeTools: 0,
-    witnesses: [],
+  assert.deepEqual({
+    completeFunctions: prerequisite.parameterMigration.completeFunctions,
+    completeTools: prerequisite.parameterMigration.completeTools,
+    migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
+    witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
+  }, {
+    completeFunctions: 4,
+    completeTools: 2,
+    migratedParameterRows: 37,
+    witnesses: [
+      'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
+      'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
+      'examples/selfhost-validator/validator.kern#10:fnokat',
+      'examples/selfhost-validator/validator.kern#12:ownexportkind',
+    ],
   });
   const publishedM460 = loadPublishedCanonicalizerPrerequisiteM460();
   assert.equal(publishedM460.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');
@@ -171,5 +181,5 @@ test('M4.61 preserves the M4.60 while promotion and consumes its immutable queue
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 30);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 26);
 });

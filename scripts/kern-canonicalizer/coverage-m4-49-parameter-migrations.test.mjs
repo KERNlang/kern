@@ -43,16 +43,26 @@ test('M4.61 preserves the exact M4.49 parameter migrations after sortstrings mig
     30,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 25,
+    maxNodeRows: 28,
     maxPropertyRows: 50,
     maxValueRows: 388,
   });
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+  assert.deepEqual({
+    completeFunctions: prerequisite.parameterMigration.completeFunctions,
+    completeTools: prerequisite.parameterMigration.completeTools,
+    migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
+    witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
+  }, {
+    completeFunctions: 4,
+    completeTools: 2,
+    migratedParameterRows: 37,
+    witnesses: [
+      'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
+      'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
+      'examples/selfhost-validator/validator.kern#10:fnokat',
+      'examples/selfhost-validator/validator.kern#12:ownexportkind',
+    ],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);

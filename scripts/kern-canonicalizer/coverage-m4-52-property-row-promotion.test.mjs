@@ -32,7 +32,7 @@ function sha256(path) {
 test('the current policy preserves M4.52 property-row evidence after later promotions', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 25,
+    maxNodeRows: 28,
     maxPropertyRows: 50,
     maxValueRows: 388,
   });

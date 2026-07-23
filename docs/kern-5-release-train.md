@@ -3262,6 +3262,36 @@ trusted-publishing/provenance configuration is inspected.
     and promote only `maxNodeRows` from 25 to 28 before any of the 37 parameter
     rows migrate.
 
+  - [x] M4.64 freezes M4.63 as immutable published evidence and promotes only
+    `profileLimits.maxNodeRows` from 25 to 28, preserving property/value limits
+    50/388, runtime ceiling 65,536, KIR depth 64, the 73/104 cumulative base,
+    and all 30 legacy `fn.params` blockers. The exact M4.63 receipt remains
+    byte-identical at
+    `110260eb3a2c9ed942e309d5b6e1331f2752bc486bfe99840c887e2a6ef7e7c3`
+    and is bound to source commit `6aba5e056c833e7dd2e613a21ac52e3f718d9673`.
+    The promoted profile exposes exactly four parameter-ready functions across
+    checker and validator—`isSafeMagnitude`, `mapCallRejectDetail`, `fnokat`,
+    and `ownexportkind`—with 37 total parameter rows and 26 residual functions;
+    an exact 29-node-row hostile fixture remains rejected. Policy, coverage,
+    and prerequisite summary digests are
+    `589de16d30335145b89dfe50f57721ae2424f580b659749d7b5de8f4f771257c`,
+    `d7a284c00163199a247df6c6aeec13cde06cc786ca9a7423eacc619bfbc937c9`,
+    and `9bba0c10b55e732392fa68dd7f7174135a4ff380875e15ea787e045b46d5610f`;
+    coverage implementation and reason-assignment digests are
+    `5b3bfb87d739d37d9617fdbe22e97febc214edda298199764d0b756c51eee3f9`
+    and `68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6`.
+    Focused gates, the standalone 232/232 canonicalizer suite plus all
+    55/8/3/235 fixture classes, and the complete Node 22 `fitness:kern-5` wall
+    pass. Automatic high-risk role-lens review
+    `review-1784809274977-0mcpmm` completed 6/6 with zero verified findings,
+    three needs-check findings, one speculative finding, and nine nits.
+    Historical published-only verification was documented, drift mutations
+    were strengthened, and receipt anchors/key-order semantics were clarified;
+    the remaining independent historical assertion duplication and explicitly
+    authorized no-verify push observation are non-material. No unresolved
+    material finding remains. KERN 5 remains incomplete: M4.65 must freeze and
+    migrate only this exact four-function/37-row parameter queue.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
