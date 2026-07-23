@@ -42,6 +42,9 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM462,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-62.mjs';
 import {
+  loadPublishedCanonicalizerResidualAnalysisM466,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-66.mjs';
+import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
 } from './kern-canonicalizer/dual-row-headroom-m4-55.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
@@ -70,6 +73,7 @@ import {
   formatM462ResidualAnalysisStatus,
   formatM463NodeRowHeadroomStatus,
   formatM465ParameterMigrationStatus,
+  formatM466ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -86,6 +90,7 @@ const m450ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m451PropertyRowHeadroomUrl = new URL('./kern-canonicalizer/property-row-headroom-m4-51.json', import.meta.url);
 const m454ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-54.json', import.meta.url);
 const m462ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-62.json', import.meta.url);
+const m466ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-66.json', import.meta.url);
 const m455DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-55.json', import.meta.url);
 const m463NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-63.json', import.meta.url);
 const coverage = measureCanonicalizerCoverage();
@@ -117,6 +122,8 @@ const m454ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m454ResidualAnalysis = m454ResidualAnalysisHandoff.record;
 const m462ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM462();
 const m462ResidualAnalysis = m462ResidualAnalysisHandoff.record;
+const m466ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM466();
+const m466ResidualAnalysis = m466ResidualAnalysisHandoff.record;
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
 const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463();
@@ -709,6 +716,33 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#12:ownexportkind',
     ],
   });
+  assertCoverageSummary(m466ResidualAnalysisUrl, m466ResidualAnalysis);
+  assert.equal(
+    m466ResidualAnalysisHandoff.digest,
+    '7c3748692b35c5c30c9241b70de86af69ff5046382dba8b07963bd1c6e7c5736',
+  );
+  assert.equal(
+    m466ResidualAnalysisHandoff.inputCommit,
+    'e81c1b9543ad53625f81c9bd9a513e55bfb18083',
+  );
+  assert.equal(m466ResidualAnalysis.assignments.length, 26);
+  assert.equal(
+    m466ResidualAnalysis.assignmentsDigest,
+    '68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6',
+  );
+  assert.equal(m466ResidualAnalysis.frontier.evaluatedObservedSettings, 10);
+  assert.equal(m466ResidualAnalysis.frontier.profileRowsAvailableFunctions, 10);
+  assert.equal(m466ResidualAnalysis.frontier.actionableCandidates.length, 10);
+  assert.deepEqual(m466ResidualAnalysis.selectedNextAction, {
+    changedLimits: ['maxNodeRows'],
+    completeFunctions: 1,
+    completeTools: 1,
+    limits: { maxNodeRows: 30, maxPropertyRows: 50, maxValueRows: 388 },
+    totalDelta: 2,
+    witnesses: [
+      'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
+    ],
+  });
   assertCoverageSummary(m463NodeRowHeadroomUrl, m463NodeRowHeadroom);
   assert.equal(m463NodeRowHeadroomHandoff.digest,
     '110260eb3a2c9ed942e309d5b6e1331f2752bc486bfe99840c887e2a6ef7e7c3');
@@ -923,6 +957,7 @@ process.stdout.write(
   ` ${formatM462ResidualAnalysisStatus(m462ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM463NodeRowHeadroomStatus(m463NodeRowHeadroom)}` +
   ` ${formatM465ParameterMigrationStatus(m464PrerequisiteHandoff)}` +
+  ` ${formatM466ResidualAnalysisStatus(m466ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

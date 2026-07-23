@@ -20,6 +20,7 @@ import {
   formatM462ResidualAnalysisStatus,
   formatM463NodeRowHeadroomStatus,
   formatM465ParameterMigrationStatus,
+  formatM466ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -184,6 +185,20 @@ test('coverage status records M4.65 consumption of the immutable M4.64 queue', (
       },
     }),
     'M4.65 consumes the exact M4.64 4-functions/37-row parameter queue.',
+  );
+});
+
+test('coverage status records the M4.66 residual recommendation', () => {
+  assert.equal(
+    formatM466ResidualAnalysisStatus(null),
+    'M4.66 published analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatM466ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxNodeRows'],
+    }),
+    'M4.66 published analysis selected 1 function by maxNodeRows widening; M4.67 authenticates structural runtime headroom.',
   );
 });
 

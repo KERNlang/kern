@@ -61,6 +61,14 @@ export function formatM462ResidualAnalysisStatus(selectedNextAction) {
   );
 }
 
+export function formatM466ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus(
+    'M4.66 published analysis',
+    selectedNextAction,
+    '; M4.67 authenticates structural runtime headroom',
+  );
+}
+
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;
