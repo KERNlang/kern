@@ -49,7 +49,7 @@ test('M4.65 migrates the exact four-function 37-row parameter queue', () => {
   assert.equal(migratedRows, 37);
 });
 
-test('M4.65 leaves exactly the bounded post-migration corpus state', () => {
+test('M4.68 preserves the M4.65 corpus and exposes the next exact parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assert.equal(coverage.baseCompleteFunctions, 77);
   assert.equal(
@@ -58,27 +58,32 @@ test('M4.65 leaves exactly the bounded post-migration corpus state', () => {
     26,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 28,
+    maxNodeRows: 30,
     maxPropertyRows: 50,
     maxValueRows: 388,
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: [{
+      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
+      parameterRows: 1,
+      profileRows: { nodes: 30, properties: 32, values: 219 },
+      tool: 'checker',
+    }],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 26);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 25);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6',
+    '42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685',
   );
 });
 

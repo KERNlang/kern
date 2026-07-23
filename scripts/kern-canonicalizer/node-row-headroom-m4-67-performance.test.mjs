@@ -15,11 +15,11 @@ import {
   verifyCanonicalizerComposition,
 } from './composition.mjs';
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
-import { loadCanonicalizerNodeRowHeadroomM467 } from './node-row-headroom-m4-67.mjs';
+import { loadPublishedCanonicalizerNodeRowHeadroomM467 } from './node-row-headroom-m4-67.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const COMPOSITION = verifyCanonicalizerComposition();
-const HEADROOM = loadCanonicalizerNodeRowHeadroomM467();
+const HEADROOM = loadPublishedCanonicalizerNodeRowHeadroomM467().record;
 const POLICY = loadCanonicalizerPolicy();
 
 function structuralWitness(row) {

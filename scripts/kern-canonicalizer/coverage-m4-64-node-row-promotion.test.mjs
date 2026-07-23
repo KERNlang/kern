@@ -54,7 +54,7 @@ function sha256(path) {
 test('M4.64 promotes only the authenticated node-row ceiling', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 28,
+    maxNodeRows: 30,
     maxPropertyRows: 50,
     maxValueRows: 388,
   });
@@ -62,10 +62,10 @@ test('M4.64 promotes only the authenticated node-row ceiling', () => {
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 29, properties: 31, values: 42 });
+  assert.deepEqual(overNode?.expectedRows, { nodes: 31, properties: 35, values: 48 });
 });
 
-test('M4.65 consumes exactly the frozen M4.64 four-function parameter queue', () => {
+test('M4.68 preserves M4.65 consumption and exposes the next exact parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assert.equal(coverage.baseCompleteFunctions, 77);
   assert.equal(
@@ -74,12 +74,17 @@ test('M4.65 consumes exactly the frozen M4.64 four-function parameter queue', ()
   );
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: [{
+      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
+      parameterRows: 1,
+      profileRows: { nodes: 30, properties: 32, values: 219 },
+      tool: 'checker',
+    }],
   });
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 26);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 25);
   assert.deepEqual(
     loadPublishedCanonicalizerPrerequisiteM464().record.parameterMigration,
     EXPECTED_QUEUE,

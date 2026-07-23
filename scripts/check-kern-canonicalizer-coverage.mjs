@@ -52,7 +52,7 @@ import {
   loadPublishedCanonicalizerNodeRowHeadroomM463,
 } from './kern-canonicalizer/node-row-headroom-m4-63.mjs';
 import {
-  loadCanonicalizerNodeRowHeadroomM467,
+  loadPublishedCanonicalizerNodeRowHeadroomM467,
 } from './kern-canonicalizer/node-row-headroom-m4-67.mjs';
 import {
   loadPublishedCanonicalizerPropertyRowHeadroomM451,
@@ -133,7 +133,8 @@ const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
 const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463();
 const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
-const m467NodeRowHeadroom = loadCanonicalizerNodeRowHeadroomM467();
+const m467NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM467();
+const m467NodeRowHeadroom = m467NodeRowHeadroomHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -281,11 +282,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.60 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 77, 'live M4.65 base completion must remain exactly 77/104');
+  assert.equal(actual.baseCompleteFunctions, 77, 'live M4.68 base completion must remain exactly 77/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     26,
-    'live M4.65 fn.params blocker count must remain exactly 26',
+    'live M4.68 fn.params blocker count must remain exactly 26',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -298,10 +299,15 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: [{
+      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
+      parameterRows: 1,
+      profileRows: { nodes: 30, properties: 32, values: 219 },
+      tool: 'checker',
+    }],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -309,10 +315,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 26);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 25);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6',
+    '42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685',
   );
   assert.equal(m456PrerequisiteHandoff.digest, '13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b');
   assert.equal(m456PrerequisiteHandoff.sourceCommit, '8928684827706b2abac1f4906f785a389afb91c6');
@@ -750,6 +756,10 @@ if (process.argv.includes('--write')) {
     ],
   });
   assertCoverageSummary(m467NodeRowHeadroomUrl, m467NodeRowHeadroom);
+  assert.equal(m467NodeRowHeadroomHandoff.digest,
+    '61e2c3b388160035d5764efcc2037c408eca8fc30f12010430168dd2b3bf9bca');
+  assert.equal(m467NodeRowHeadroomHandoff.sourceCommit,
+    '40b6961bbd41f3b60e346ef3246d6587c0c3a1f4');
   assert.deepEqual(m467NodeRowHeadroom.limits, {
     candidateProfile: { maxNodeRows: 30, maxPropertyRows: 50, maxValueRows: 388 },
     productionMaxCollectionLength: 65_536,

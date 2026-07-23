@@ -7,7 +7,6 @@ import test from 'node:test';
 import { loadPublishedCanonicalizerResidualAnalysisM462 } from './coverage-residual-analysis-m4-62.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM466,
-  measureCanonicalizerResidualAnalysisM466,
   validatePublishedCanonicalizerResidualAnalysisM466,
 } from './coverage-residual-analysis-m4-66.mjs';
 import { formatM466ResidualAnalysisStatus } from './coverage-status.mjs';
@@ -25,6 +24,9 @@ const EXPECTED_SELECTION = {
   ],
 };
 
+// M4.68 promotes the active profile selected by M4.66, so the live analyzer is
+// expected to produce a different frontier. Historical integrity is proved
+// from the published bytes, digest, input commit, and fresh-process load.
 test('M4.66 freezes the exact published residual frontier', () => {
   const source = readFileSync(summaryUrl);
   const handoff = loadPublishedCanonicalizerResidualAnalysisM466();
@@ -60,13 +62,6 @@ test('M4.66 freezes the exact published residual frontier', () => {
   assert.equal(
     formatM466ResidualAnalysisStatus(handoff.record.selectedNextAction),
     'M4.66 published analysis selected 1 function by maxNodeRows widening; M4.67 authenticates structural runtime headroom.',
-  );
-});
-
-test('M4.66 repository measurement reproduces the exact published receipt', () => {
-  assert.deepEqual(
-    measureCanonicalizerResidualAnalysisM466(),
-    loadPublishedCanonicalizerResidualAnalysisM466().record,
   );
 });
 

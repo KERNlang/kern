@@ -149,10 +149,10 @@ test('M4.65 preserves the M4.60 while promotion after consuming the M4.64 queue'
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: ['examples/capstone-checker-subset/checker.kern#3:isSurfaceKind'],
   });
   const publishedM460 = loadPublishedCanonicalizerPrerequisiteM460();
   assert.equal(publishedM460.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');
@@ -176,5 +176,5 @@ test('M4.65 preserves the M4.60 while promotion after consuming the M4.64 queue'
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 26);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 25);
 });

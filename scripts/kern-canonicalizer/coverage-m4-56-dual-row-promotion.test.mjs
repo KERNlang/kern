@@ -70,7 +70,7 @@ function sha256(path) {
 test('M4.56 promotes only the authenticated node-row and property-row ceilings', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 28,
+    maxNodeRows: 30,
     maxPropertyRows: 50,
     maxValueRows: 388,
   });
@@ -78,7 +78,7 @@ test('M4.56 promotes only the authenticated node-row and property-row ceilings',
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 29, properties: 31, values: 42 });
+  assert.deepEqual(overNode?.expectedRows, { nodes: 31, properties: 35, values: 48 });
   const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
   assert.deepEqual(overProperty?.expectedRows, { nodes: 25, properties: 51, values: 80 });
 });

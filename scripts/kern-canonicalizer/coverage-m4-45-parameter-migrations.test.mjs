@@ -43,7 +43,7 @@ test('M4.65 preserves the exact M4.45 parameter migrations after queue consumpti
     26,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 28,
+    maxNodeRows: 30,
     maxPropertyRows: 50,
     maxValueRows: 388,
   });
@@ -55,10 +55,10 @@ test('M4.65 preserves the exact M4.45 parameter migrations after queue consumpti
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: ['examples/capstone-checker-subset/checker.kern#3:isSurfaceKind'],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
