@@ -14,7 +14,8 @@ import {
   CANONICALIZER_COMPOSITE_PATH,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
+import { M473_PARAMETER_MIGRATION_TARGET } from './coverage-m4-73-parameter-migration.mjs';
+import { assertDirectParameterPrefix } from './coverage-value-band-parameter-migrations.mjs';
 import { loadPublishedCanonicalizerDualRowHeadroomM471 } from './dual-row-headroom-m4-71.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
@@ -33,25 +34,11 @@ function structuralWitness(row) {
   const sourceRoot = (parsed.root.children ?? [])[1];
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, 'validstatementlist');
-  assert.equal(sourceRoot.children.some(({ type }) => type === 'param'), false);
-  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
-  assert.deepEqual(parameters, [
-    { name: 'parent', type: 'number' },
-    { name: 'returnType', type: 'string' },
-    { name: 'nodeKind', type: 'string[]' },
-    { name: 'nodeParent', type: 'number[]' },
-    { name: 'nodeOrder', type: 'number[]' },
-    { name: 'propNode', type: 'number[]' },
-    { name: 'propKey', type: 'string[]' },
-    { name: 'propValue', type: 'number[]' },
-    { name: 'valueTag', type: 'string[]' },
-    { name: 'valueParent', type: 'number[]' },
-    { name: 'valueRole', type: 'string[]' },
-    { name: 'valueOrder', type: 'number[]' },
-    { name: 'valueText', type: 'string[]' },
-    { name: 'valueBool', type: 'number[]' },
-  ]);
-  assert.equal(root.props.params, undefined);
+  assert.equal(M473_PARAMETER_MIGRATION_TARGET.id, row.id);
+  assert.equal(M473_PARAMETER_MIGRATION_TARGET.parameters.length, row.parameterRows);
+  assertDirectParameterPrefix(sourceRoot, M473_PARAMETER_MIGRATION_TARGET.parameters);
+  assert.equal(sourceRoot.props.params, undefined);
+  const root = sourceRoot;
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
   const tables = flattenKirRoots([artifact.root]);

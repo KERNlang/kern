@@ -65,16 +65,21 @@ test('M4.72 promotes only the authenticated node-row and property-row ceilings',
   });
 });
 
-test('M4.72 exposes exactly the frozen one-function parameter queue', () => {
+test('M4.73 preserves the M4.72 profile after consuming its frozen queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 78);
+  assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(coverage.functions.length, 104);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    25,
+    24,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 24);
 });

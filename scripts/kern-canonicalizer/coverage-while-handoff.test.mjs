@@ -120,7 +120,7 @@ test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
   }
 });
 
-test('M4.69 preserves the M4.60 while promotion after consuming the M4.68 queue', () => {
+test('M4.73 preserves the M4.60 while promotion after consuming later queues', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
   assert.equal(policy.base.nodeKinds.includes('while'), true);
@@ -133,10 +133,10 @@ test('M4.69 preserves the M4.60 while promotion after consuming the M4.68 queue'
   );
 
   const coverage = measureCanonicalizerCoverage(policy);
-  assert.equal(coverage.baseCompleteFunctions, 78);
+  assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(coverage.functions.length, 104);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
-    excludedProperties.includes('fn.params')).length, 25);
+    excludedProperties.includes('fn.params')).length, 24);
   assert.equal(
     coverage.prerequisiteProvenances.at(-1).digest,
     M458_DIGEST,
@@ -149,12 +149,10 @@ test('M4.69 preserves the M4.60 while promotion after consuming the M4.68 queue'
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 14,
-    witnesses: [
-      'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   const publishedM460 = loadPublishedCanonicalizerPrerequisiteM460();
   assert.equal(publishedM460.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');

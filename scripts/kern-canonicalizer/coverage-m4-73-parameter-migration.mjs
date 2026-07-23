@@ -9,21 +9,40 @@ import {
   semanticBodyDigest,
 } from './coverage-value-band-parameter-migrations.mjs';
 
-export const M469_PARAMETER_MIGRATION_TARGET = {
-  bodyDigest: '991be5df8acc62f68778b8c74efe2013b2d621cbe6c5423dbfdff60e28797e34',
-  exported: false,
-  functionOrdinal: 2,
-  id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
-  name: 'isSurfaceKind',
-  parameters: [['kind', 'string']],
-  path: 'examples/capstone-checker-subset/checker.kern',
-  profileRows: { nodes: 30, properties: 32, values: 219 },
+export const M473_PARAMETER_MIGRATION_TARGET = {
+  bodyDigest: '477cf24c525529da58576d47f0fc00a7d4439ff5653193460f65efea57929b53',
+  exported: true,
+  functionOrdinal: 1,
+  id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
+  name: 'validstatementlist',
+  parameters: [
+    ['parent', 'number'],
+    ['returnType', 'string'],
+    ['nodeKind', 'string[]'],
+    ['nodeParent', 'number[]'],
+    ['nodeOrder', 'number[]'],
+    ['propNode', 'number[]'],
+    ['propKey', 'string[]'],
+    ['propValue', 'number[]'],
+    ['valueTag', 'string[]'],
+    ['valueParent', 'number[]'],
+    ['valueRole', 'string[]'],
+    ['valueOrder', 'number[]'],
+    ['valueText', 'string[]'],
+    ['valueBool', 'number[]'],
+  ],
+  path: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
+  profileRows: { nodes: 31, properties: 53, values: 370 },
   quotedReturns: false,
   returns: 'boolean',
 };
 
-const SOURCE_SHA256 = 'a703952e717a77015179987a4e5a6940b0b16846a9c122810e959a595eee5017';
+const SOURCE_SHA256 = '158175ac9404fb93acc5b82fc8b87d10f2946a11b228ce9686f2423f75bcf667';
 const GENERATED_ARTIFACTS = new Map([
+  ['examples/kern-canonicalizer/canonicalizer.composed.kern',
+    'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89'],
+  ['scripts/kern-canonicalizer/composition.json',
+    '25303c8fc07467fe5eb20dd0ba4b0e2aa074e4e133ace9919d4a82e8c6c87289'],
   ['examples/capstone-checker-subset/main.kern',
     'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e'],
   ['examples/capstone-checker-subset/numeric-main.kern',
@@ -32,20 +51,16 @@ const GENERATED_ARTIFACTS = new Map([
     'a9df3dca6aa1eb6aa705446e4bb37ee7934ce507fb059e791ca42ed624cc9a03'],
   ['examples/selfhost-validator/main.kern',
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
-  ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89'],
-  ['scripts/kern-canonicalizer/composition.json',
-    '25303c8fc07467fe5eb20dd0ba4b0e2aa074e4e133ace9919d4a82e8c6c87289'],
 ]);
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-export function assertM469ParameterTarget(
+export function assertM473ParameterTarget(
   root,
   fact,
-  target = M469_PARAMETER_MIGRATION_TARGET,
+  target = M473_PARAMETER_MIGRATION_TARGET,
 ) {
   assert.ok(root);
   assert.equal(root.props.name, target.name);
@@ -68,25 +83,22 @@ export function assertM469ParameterTarget(
   );
 }
 
-export function assertM469ParameterMigration(receipt) {
-  const target = M469_PARAMETER_MIGRATION_TARGET;
+export function assertM473ParameterMigration(receipt) {
+  const target = M473_PARAMETER_MIGRATION_TARGET;
   const sourceBytes = readFileSync(new URL(`../../${target.path}`, import.meta.url));
   const source = sourceBytes.toString('utf8');
   const document = parseDocumentWithDiagnostics(source);
   assert.deepEqual(document.diagnostics, []);
   assert.equal(sha256(sourceBytes), SOURCE_SHA256);
-  assert.equal(source.split('\n').length - 1, 448);
+  assert.equal(source.split('\n').length - 1, 196);
   const roots = document.root.children.filter(({ type }) => type === 'fn');
-  assert.equal(roots.length, 24);
+  assert.equal(roots.length, 5);
   assert.deepEqual(
     roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
-    [
-      'rejectLine', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
-      'mapKeyToken', 'mapKnownBefore', 'callRejectCode', 'checkModule',
-    ],
+    ['validstatement', 'emitstatement'],
   );
   const fact = receipt.functions.find(({ id }) => id === target.id);
-  assertM469ParameterTarget(roots[target.functionOrdinal], fact, target);
+  assertM473ParameterTarget(roots[target.functionOrdinal], fact, target);
 
   for (const [path, digest] of GENERATED_ARTIFACTS) {
     assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);

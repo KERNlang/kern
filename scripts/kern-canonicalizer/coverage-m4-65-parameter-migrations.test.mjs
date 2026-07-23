@@ -49,13 +49,13 @@ test('M4.65 migrates the exact four-function 37-row parameter queue', () => {
   assert.equal(migratedRows, 37);
 });
 
-test('M4.69 preserves the M4.65 corpus after consuming the exact parameter queue', () => {
+test('M4.73 preserves the M4.65 corpus after consuming later parameter queues', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 78);
+  assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,
-    25,
+    24,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 31,
@@ -65,15 +65,10 @@ test('M4.69 preserves the M4.65 corpus after consuming the exact parameter queue
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 14,
-    witnesses: [{
-      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
-      parameterRows: 14,
-      profileRows: { nodes: 31, properties: 53, values: 370 },
-      tool: 'canonicalizer',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);

@@ -167,10 +167,10 @@ const FILE_CONTRACTS = new Map([
     sha256: 'a703952e717a77015179987a4e5a6940b0b16846a9c122810e959a595eee5017',
   }],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', {
-    lines: 182,
-    remainingLegacy: ['validstatementlist', 'validstatement', 'emitstatement'],
+    lines: 196,
+    remainingLegacy: ['validstatement', 'emitstatement'],
     roots: 5,
-    sha256: 'adfa0c49cee230106ba7cff2249a0306f98aefc009d7e2581a3ffc622f6e9ff7',
+    sha256: '158175ac9404fb93acc5b82fc8b87d10f2946a11b228ce9686f2423f75bcf667',
   }],
   ['examples/selfhost-validator/validator.kern', {
     lines: 536,
@@ -190,13 +190,13 @@ const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56'],
+    'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89'],
   ['examples/kern-canonicalizer/canonicalizer.kern',
     'a04ae8f9af4f61c1560889277247963572de6a1c32c2f2cf63e4c341525b7019'],
   ['examples/selfhost-validator/main.kern',
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
   ['scripts/kern-canonicalizer/composition.json',
-    'cab6c1e38591e0a75cf717691c9d7247b623ddc849bc65bdf021cdcd3b914995'],
+    '25303c8fc07467fe5eb20dd0ba4b0e2aa074e4e133ace9919d4a82e8c6c87289'],
 ]);
 
 function sha256(bytes) {

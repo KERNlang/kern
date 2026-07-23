@@ -34,13 +34,13 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.69 preserves the exact M4.49 parameter migrations after queue consumption', () => {
+test('M4.73 preserves the exact M4.49 parameter migrations after queue consumption', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM449ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 78);
+  assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    25,
+    24,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 31,
@@ -54,12 +54,10 @@ test('M4.69 preserves the exact M4.49 parameter migrations after queue consumpti
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 14,
-    witnesses: [
-      'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
@@ -98,10 +96,10 @@ test('M4.49 generated consumers reproduce only from repository writers', () => {
   assert.equal(sha256(checkerMain), 'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
-  assert.equal(built.compositeBytes.length, 50_476);
+  assert.equal(built.compositeBytes.length, 50_719);
   assert.equal(
     sha256(built.compositeBytes),
-    '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
+    'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89',
   );
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);

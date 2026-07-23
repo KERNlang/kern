@@ -46,24 +46,19 @@ test('M4.68 promotes only the authenticated node-row ceiling', () => {
   assert.deepEqual(overNode?.expectedRows, { nodes: 32, properties: 37, values: 51 });
 });
 
-test('M4.69 consumes exactly the M4.68 one-function parameter queue', () => {
+test('M4.73 preserves M4.68 after consuming both later parameter queues', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 78);
+  assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    25,
+    24,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 14,
-    witnesses: [{
-      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
-      parameterRows: 14,
-      profileRows: { nodes: 31, properties: 53, values: 370 },
-      tool: 'canonicalizer',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 24);
 });
