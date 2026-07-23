@@ -89,6 +89,13 @@ export function formatM458WhilePrerequisiteStatus(handoff) {
     'M4.59 owns canonicalizer implementation; M4.60 promotes it into the cumulative base.';
 }
 
+export function formatM461ParameterMigrationStatus(handoff) {
+  const migration = handoff.record.parameterMigration;
+  const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';
+  return `M4.61 consumes the exact M4.60 ${migration.completeFunctions}-${functionLabel}/` +
+    `${migration.migratedParameterRows}-row parameter queue.`;
+}
+
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   return formatResidualAnalysisStatus(
     'M4.38 published analysis',

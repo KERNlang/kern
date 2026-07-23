@@ -173,12 +173,12 @@ const FILE_CONTRACTS = new Map([
     sha256: 'adfa0c49cee230106ba7cff2249a0306f98aefc009d7e2581a3ffc622f6e9ff7',
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 513,
+    lines: 514,
     remainingLegacy: [
-      'isreserved', 'fnokat', 'ownexportkind', 'exportkind', 'sortstrings', 'validate',
+      'isreserved', 'fnokat', 'ownexportkind', 'exportkind', 'validate',
     ],
     roots: 21,
-    sha256: 'b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2',
+    sha256: '99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4',
   }],
 ]);
 
@@ -186,7 +186,7 @@ const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-assertion-engine/main.kern',
     'a9df3dca6aa1eb6aa705446e4bb37ee7934ce507fb059e791ca42ed624cc9a03'],
   ['examples/capstone-checker-subset/main.kern',
-    'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb'],
+    '68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',

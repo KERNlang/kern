@@ -179,10 +179,10 @@ const FILE_CONTRACTS = new Map([
     roots: 16,
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 513,
+    lines: 514,
     remainingLegacy: [
       'isreserved', 'fnokat', 'ownexportkind',
-      'exportkind', 'sortstrings', 'validate',
+      'exportkind', 'validate',
     ],
     roots: 21,
   }],

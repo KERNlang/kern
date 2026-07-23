@@ -3163,6 +3163,43 @@ trusted-publishing/provenance configuration is inspected.
     remains incomplete; M4.61 must migrate only the exact `sortstrings`
     parameter row before remeasuring the final frontier.
 
+  - [x] M4.61 consumes the immutable M4.60 one-function/one-row parameter
+    queue by migrating only validator `sortstrings` from legacy
+    `params="xs:string[]"` to one direct `param name=xs type="string[]"` child.
+    Function identity, export and return contracts, handler, semantic body,
+    generated validator main, cumulative profile, ten ordered promotions,
+    sole active `exception-flow` family, profile limits, and canonicalizer
+    composite remain exact. Validator source now authenticates at
+    `99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4`.
+    The repository checker writer regenerates its source-location aggregate at
+    `68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020`;
+    numeric checker, validator main, assertion main, and canonicalizer remain
+    byte-identical. Live coverage is 73/104 base-complete with 30 legacy
+    `fn.params` blockers and an empty parameter queue. The only active
+    `exception-flow` closure completes zero functions, so current bounded
+    exhaustion selects residual blocker analysis next. Policy, coverage, and
+    prerequisite receipts authenticate at
+    `00517a1a5e8958ed4158310a2c5c4815c9a8cf673d98e73f45c41f4edbae408e`,
+    `07b9e09c860e803f493599eb809870916df470dfa66c488570d3129431c4a23e`,
+    and `135759db56ce009c72adedfc4caa0018e78709361388ad1b91ff33bf8c034dfd`;
+    the implementation, function-fact, and corpus digests are
+    `613810d0b74e31f21cd756520dbfe94047ba06ee654ef349a86663a32b517d83`,
+    `4ef2c486bbff42c35795789ac66e362863a357f5e7d6ca10dd77525576dc761d`,
+    and `1ce05b6867a583aef963ee5a8cd087c1865ca88173dc8c4432d3680a382078ae`.
+    RED, exact-target mutation, immutable M4.60 handoff, cumulative migration,
+    writer-reproduction, deterministic fresh-process, and focused coverage
+    gates are green. The complete Node 22 KERN 5 fitness wall passed on the
+    exact tree. Automatic high-risk role-lens review
+    `review-1784797157970-79cjrq` completed 6/6 with zero verified or
+    speculative findings. Its sole needs-check concern measured five repeated
+    reads and SHA-256 sweeps of the 6.35 MB checker aggregate at about 16.8 ms
+    total versus the 132-second canonicalizer test phase; the independent
+    historical guards remain intentional. Eight non-material naming,
+    formatting, duplication, and test-harness nits are deferred. No unresolved
+    material finding remains. KERN 5 remains incomplete; the next slice must
+    use the measured residual blocker evidence and must not infer an
+    exception-flow promotion from this zero-completion closure.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

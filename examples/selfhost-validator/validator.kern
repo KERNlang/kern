@@ -313,7 +313,8 @@ fn name=hasimportcyclefrom returns=boolean export=true
             return value="true"
     return value="false"
 
-fn name=sortstrings params="xs:string[]" returns=string[] export=true
+fn name=sortstrings returns=string[] export=true
+  param name=xs type="string[]"
   handler lang="kern"
     let name=out value="[]"
     let name=emitted value="0"

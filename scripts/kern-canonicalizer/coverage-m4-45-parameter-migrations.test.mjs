@@ -34,13 +34,13 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.60 preserves the exact M4.45 parameter migrations after while promotion', () => {
+test('M4.61 preserves the exact M4.45 parameter migrations after sortstrings migration', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 72);
+  assert.equal(coverage.baseCompleteFunctions, 73);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    31,
+    30,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 25,
@@ -49,13 +49,12 @@ test('M4.60 preserves the exact M4.45 parameter migrations after while promotion
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
-  assert.equal(prerequisite.parameterMigration.completeTools, 1);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 1);
-  assert.deepEqual(
-    prerequisite.parameterMigration.witnesses.map(({ id }) => id),
-    ['examples/selfhost-validator/validator.kern#19:sortstrings'],
-  );
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
 });
@@ -93,7 +92,7 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
     checkerMain.toString('utf8'),
     generateCheckerMainKern(),
   );
-  assert.equal(sha256(checkerMain), 'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb');
+  assert.equal(sha256(checkerMain), '68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
   assert.equal(built.compositeBytes.length, 50_476);

@@ -39,14 +39,14 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.60 preserves the exact M4.57 parameter migrations after while promotion', () => {
+test('M4.61 preserves the exact M4.57 parameter migrations after sortstrings migration', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM457ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 72);
+  assert.equal(coverage.baseCompleteFunctions, 73);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,
-    31,
+    30,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 25,
@@ -56,15 +56,10 @@ test('M4.60 preserves the exact M4.57 parameter migrations after while promotion
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    migratedParameterRows: 1,
-    completeFunctions: 1,
-    completeTools: 1,
-    witnesses: [{
-      id: 'examples/selfhost-validator/validator.kern#19:sortstrings',
-      parameterRows: 1,
-      profileRows: { nodes: 25, properties: 43, values: 266 },
-      tool: 'validator',
-    }],
+    migratedParameterRows: 0,
+    completeFunctions: 0,
+    completeTools: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);

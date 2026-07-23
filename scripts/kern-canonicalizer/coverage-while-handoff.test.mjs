@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { loadCoveragePolicy, measureCanonicalizerCoverage } from './coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM460 } from './coverage-prerequisite-m4-60.mjs';
 import {
   canonicalPrerequisiteProvenanceBytes,
   loadCanonicalizerPrerequisiteProvenanceChain,
@@ -119,7 +120,7 @@ test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
   }
 });
 
-test('M4.60 promotes the exact M4.58 while prerequisite while preserving source bytes', () => {
+test('M4.61 preserves the M4.60 while promotion and consumes its immutable queue', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
   assert.equal(policy.base.nodeKinds.includes('while'), true);
@@ -128,14 +129,14 @@ test('M4.60 promotes the exact M4.58 while prerequisite while preserving source 
   assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(
     sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
-    'b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2',
+    '99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4',
   );
 
   const coverage = measureCanonicalizerCoverage(policy);
-  assert.equal(coverage.baseCompleteFunctions, 72);
+  assert.equal(coverage.baseCompleteFunctions, 73);
   assert.equal(coverage.functions.length, 104);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
-    excludedProperties.includes('fn.params')).length, 31);
+    excludedProperties.includes('fn.params')).length, 30);
   assert.equal(
     coverage.prerequisiteProvenances.at(-1).digest,
     M458_DIGEST,
@@ -143,6 +144,15 @@ test('M4.60 promotes the exact M4.58 while prerequisite while preserving source 
 
   const prerequisite = measureCanonicalizerPrerequisite(policy);
   assert.deepEqual(prerequisite.parameterMigration, {
+    migratedParameterRows: 0,
+    completeFunctions: 0,
+    completeTools: 0,
+    witnesses: [],
+  });
+  const publishedM460 = loadPublishedCanonicalizerPrerequisiteM460();
+  assert.equal(publishedM460.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');
+  assert.equal(publishedM460.sourceCommit, '828283e9694db3017dfc0121b6db8d6420f3988a');
+  assert.deepEqual(publishedM460.record.parameterMigration, {
     migratedParameterRows: 1,
     completeFunctions: 1,
     completeTools: 1,

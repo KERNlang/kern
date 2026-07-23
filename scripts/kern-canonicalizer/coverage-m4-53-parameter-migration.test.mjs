@@ -33,13 +33,13 @@ function targetFixture() {
   return { fact, root, target: M453_PARAMETER_MIGRATION_TARGET };
 }
 
-test('M4.60 preserves the exact M4.53 parameter migration after while promotion', () => {
+test('M4.61 preserves the exact M4.53 parameter migration after sortstrings migration', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM453ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 72);
+  assert.equal(coverage.baseCompleteFunctions, 73);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    31,
+    30,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 25,
@@ -47,13 +47,12 @@ test('M4.60 preserves the exact M4.53 parameter migration after while promotion'
     maxValueRows: 388,
   });
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
-  assert.equal(prerequisite.parameterMigration.completeTools, 1);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 1);
-  assert.deepEqual(
-    prerequisite.parameterMigration.witnesses.map(({ id }) => id),
-    ['examples/selfhost-validator/validator.kern#19:sortstrings'],
-  );
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
 });

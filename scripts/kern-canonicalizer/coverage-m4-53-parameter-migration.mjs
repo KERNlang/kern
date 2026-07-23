@@ -24,7 +24,7 @@ export const M453_PARAMETER_MIGRATION_TARGET = {
 
 const GENERATED_ARTIFACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb'],
+    '68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/selfhost-validator/main.kern',
@@ -65,13 +65,13 @@ export function assertM453ParameterMigration(receipt) {
   const source = sourceBytes.toString('utf8');
   const document = parseDocumentWithDiagnostics(source);
   assert.deepEqual(document.diagnostics, []);
-  assert.equal(sha256(sourceBytes), 'b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2');
-  assert.equal(source.split('\n').length - 1, 513);
+  assert.equal(sha256(sourceBytes), '99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4');
+  assert.equal(source.split('\n').length - 1, 514);
   const roots = document.root.children.filter(({ type }) => type === 'fn');
   assert.equal(roots.length, 21);
   assert.deepEqual(
     roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
-    ['isreserved', 'fnokat', 'ownexportkind', 'exportkind', 'sortstrings', 'validate'],
+    ['isreserved', 'fnokat', 'ownexportkind', 'exportkind', 'validate'],
   );
   const fact = receipt.functions.find(({ id }) => id === M453_PARAMETER_MIGRATION_TARGET.id);
   assertM453ParameterTarget(roots[M453_PARAMETER_MIGRATION_TARGET.functionOrdinal], fact);
