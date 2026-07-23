@@ -22,6 +22,7 @@ const COUNTED_ITERATION_PROVENANCE_DIGEST = 'af26a9ccb4cfa8e320d88b8562a5c20c9e1
 const BINDING_PROVENANCE_DIGEST = '00f67756052785ece657b451bc22c5f43ce088021cb6c1a48bb83d99ca2343ab';
 const UNARY_PROVENANCE_DIGEST = 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5';
 const DO_PROVENANCE_DIGEST = '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72';
+const WHILE_PROVENANCE_DIGEST = '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   provenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -98,6 +99,7 @@ test('M4.36 promotes do statement through exact prerequisite provenance', () => 
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), true);
   assert.equal(policy.base.propertyKeys.includes('do.value'), true);
   assert.equal(policy.base.propertyKeys.includes('for.from'), true);
   assert.equal(policy.base.propertyKeys.includes('for.name'), true);
@@ -136,6 +138,7 @@ test('M4.36 promotes do statement through exact prerequisite provenance', () => 
       BINDING_PROVENANCE_DIGEST,
       UNARY_PROVENANCE_DIGEST,
       DO_PROVENANCE_DIGEST,
+      WHILE_PROVENANCE_DIGEST,
     ],
   );
   assert.deepEqual(summary.prerequisiteProvenances, receipt.prerequisiteProvenances);

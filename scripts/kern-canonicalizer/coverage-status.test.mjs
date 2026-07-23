@@ -15,6 +15,7 @@ import {
   formatM454ResidualAnalysisStatus,
   formatM455DualRowHeadroomStatus,
   formatM457ParameterMigrationStatus,
+  formatM458WhilePrerequisiteStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -117,6 +118,23 @@ test('coverage status records M4.57 consumption of the M4.56 parameter queue', (
       parameterMigration: { completeFunctions: 7, migratedParameterRows: 102 },
     }),
     'M4.57 consumes the exact M4.56 7-functions/102-row parameter queue.',
+  );
+});
+
+test('coverage status records the M4.58 while-iteration handoff boundary', () => {
+  assert.equal(
+    formatM458WhilePrerequisiteStatus({
+      record: {
+        snapshot: {
+          selectedPrerequisite: {
+            catalogFacts: 2,
+            family: 'while-iteration',
+            occurrences: 2,
+          },
+        },
+      },
+    }),
+    'M4.58 freezes the exact M4.57 while-iteration prerequisite (2 catalog facts/2 occurrences); M4.59 owns canonicalizer implementation.',
   );
 });
 

@@ -1,0 +1,38 @@
+{
+  "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+  "snapshot": {
+    "baseline": {
+      "baseCompleteFunctions": 72,
+      "baseId": "kern.kir-canonicalizer.profile.m4.36",
+      "corpusMembers": 9,
+      "functionCount": 104,
+      "legacyParameterBlockers": 31,
+      "toolCount": 4
+    },
+    "minimumFamilyCount": 1,
+    "selectedPrerequisite": {
+      "catalogFacts": 2,
+      "family": "while-iteration",
+      "occurrences": 2
+    },
+    "winningClosure": {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "families": [
+        "while-iteration"
+      ],
+      "migratedParameterRows": 1,
+      "occurrences": 2,
+      "witnesses": [
+        "examples/selfhost-validator/validator.kern#19:sortstrings"
+      ]
+    }
+  },
+  "source": {
+    "commit": "5ad4f524f9e3434fb039033803f2988316a04564",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+    "coverageSummarySha256": "b6f8ae2a49de9b8c2a859605a6c6a5da1bfcbc90d440efa9cdf259ccb7db7015",
+    "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.3",
+    "prerequisiteSummarySha256": "31a90a6e1bb413939a56ab9637c12c660dbfb6247b24a347698312839c366c58"
+  }
+}

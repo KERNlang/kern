@@ -51,6 +51,7 @@ import {
   formatM454ResidualAnalysisStatus,
   formatM455DualRowHeadroomStatus,
   formatM457ParameterMigrationStatus,
+  formatM458WhilePrerequisiteStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -176,7 +177,7 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.prerequisiteProvenances.length, 5);
+  assert.equal(actual.prerequisiteProvenances.length, 6);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
     family: 'do-statement',
@@ -731,6 +732,43 @@ if (process.argv.includes('--write')) {
       ],
     },
   });
+  assert.equal(
+    prerequisiteHandoffs[5].digest,
+    '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
+  );
+  assert.deepEqual(prerequisiteHandoffs[5].record.source, {
+    commit: '5ad4f524f9e3434fb039033803f2988316a04564',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
+    coverageSummarySha256: 'b6f8ae2a49de9b8c2a859605a6c6a5da1bfcbc90d440efa9cdf259ccb7db7015',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.3',
+    prerequisiteSummarySha256: '31a90a6e1bb413939a56ab9637c12c660dbfb6247b24a347698312839c366c58',
+  });
+  assert.deepEqual(prerequisiteHandoffs[5].record.snapshot, {
+    baseline: {
+      baseCompleteFunctions: 72,
+      baseId: 'kern.kir-canonicalizer.profile.m4.36',
+      corpusMembers: 9,
+      functionCount: 104,
+      legacyParameterBlockers: 31,
+      toolCount: 4,
+    },
+    minimumFamilyCount: 1,
+    selectedPrerequisite: {
+      catalogFacts: 2,
+      family: 'while-iteration',
+      occurrences: 2,
+    },
+    winningClosure: {
+      completeFunctions: 1,
+      completeTools: 1,
+      families: ['while-iteration'],
+      migratedParameterRows: 1,
+      occurrences: 2,
+      witnesses: [
+        'examples/selfhost-validator/validator.kern#19:sortstrings',
+      ],
+    },
+  });
 }
 const leadingBlocker = actual.blockers[0];
 process.stdout.write(
@@ -753,6 +791,7 @@ process.stdout.write(
   ` ${formatM454ResidualAnalysisStatus(m454ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM455DualRowHeadroomStatus(m455DualRowHeadroom)}` +
   ` ${formatM457ParameterMigrationStatus(m456PrerequisiteHandoff.record)}` +
+  ` ${formatM458WhilePrerequisiteStatus(prerequisiteHandoffs[5])}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

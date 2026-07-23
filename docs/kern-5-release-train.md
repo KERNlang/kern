@@ -3039,6 +3039,54 @@ trusted-publishing/provenance configuration is inspected.
     remains unresolved. KERN 5 remains incomplete; the next slice must freeze
     this migrated frontier before promoting or rejecting `while-iteration`.
 
+  - [x] M4.58 freezes the exact M4.57 `while-iteration` prerequisite as the
+    sixth append-only provenance record before any implementation or profile
+    promotion. Source commit
+    `5ad4f524f9e3434fb039033803f2988316a04564`, coverage receipt
+    `b6f8ae2a49de9b8c2a859605a6c6a5da1bfcbc90d440efa9cdf259ccb7db7015`,
+    and prerequisite receipt
+    `31a90a6e1bb413939a56ab9637c12c660dbfb6247b24a347698312839c366c58`
+    are bound into canonical provenance bytes at SHA-256
+    `5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07`.
+    The exact snapshot retains 72/104 base-complete functions, 31 legacy
+    `fn.params` blockers, unchanged profile `kern.kir-canonicalizer.profile.m4.36`,
+    and a one-family closure containing only validator `sortstrings` at
+    25/43/266 with one legacy parameter row. `while-iteration` remains active
+    and unpromoted with two catalog facts and two occurrences. The
+    six-record loader module bytes authenticate at
+    `11cad7ae42af06e90fa18709d8a4c72c2be2f09788c1c8869db54b882e02c839`;
+    live coverage and prerequisite receipts advance only their authenticated
+    evidence/implementation hashes to
+    `7646cd99678abd39d88a732a0c74ef3474ede960f7a0f1863d53496dac5aeac2`
+    and
+    `9b522cef1894f8ec43db8b71489b3db951264aeb9ade2591e4e672e066a04f8d`.
+    Function facts remain
+    `962d0bc6b57a5158fdc8c0f6dfc5c1aebf5ee0c2e53fe4e352241cc75b91f3b5`,
+    policy remains
+    `ca8362845bc2460dde40596674ded29ff8aab3eb4de40a28fd7789cc558937b1`,
+    and validator source remains
+    `b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2`.
+    Exact handoff, causal mutation, ordered-history, current-boundary, and
+    status gates are green. The complete Node 22.22 `pnpm fitness:kern-5`
+    wall passes, including both 206/206 canonicalizer replays, 434/434
+    cross-target fixtures, 109/109 class fixtures, 233/233 native assertions
+    at 100% declared coverage, 40 whole-app fixtures across three legs, and
+    every repeated KIR, runtime, ownership, convergence, capstone, and
+    browser-budget gate. Required high-risk role-lens review
+    `review-1784784632782-f0decj` returned all 6/6 usable reviewers: five
+    structured verdicts plus one unstructured DRYness report, zero verified
+    findings, three needs-check observations, one speculative observation,
+    and twelve nits. The needs-check observations were resolved against the
+    actual contracts: read-only verification performs no writes; `git show`
+    proves both frozen receipt digests at source commit `5ad4f524`; and the
+    exact terminal assertions intentionally remain milestone-local while the
+    digest-pinned loader enforces canonical bytes. The speculative digest
+    concern was a wording ambiguity; `11cad7ae...` is the loader module file
+    hash, not a chain-level digest. No material finding remains unresolved.
+    KERN 5 remains incomplete; M4.59 owns exact canonicalizer
+    validation/emission for this frozen `while-iteration` profile without
+    promotion or parameter migration.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

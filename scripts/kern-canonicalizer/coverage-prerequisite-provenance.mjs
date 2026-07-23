@@ -39,6 +39,12 @@ const DO_PREREQUISITE = Object.freeze({
     new URL('./coverage-do-prerequisite-provenance.json', import.meta.url),
   ),
 });
+const WHILE_PREREQUISITE = Object.freeze({
+  digest: '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
+  source: readFileSync(
+    new URL('./coverage-while-prerequisite-provenance.json', import.meta.url),
+  ),
+});
 
 function fail(message) {
   throw new TypeError(`prerequisite provenance rejection: ${message}`);
@@ -303,9 +309,20 @@ export function loadCanonicalizerDoPrerequisiteProvenance() {
   );
 }
 
+export function validateCanonicalizerWhilePrerequisiteHandoff(input) {
+  return validateExactPrerequisiteHandoff(input, WHILE_PREREQUISITE, 'while iteration');
+}
+
+export function loadCanonicalizerWhilePrerequisiteProvenance() {
+  return loadExactPrerequisiteProvenance(
+    WHILE_PREREQUISITE,
+    validateCanonicalizerWhilePrerequisiteHandoff,
+  );
+}
+
 export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
-  if (!Array.isArray(input) || input.length !== 5) {
-    fail('prerequisite provenance chain must contain exactly five records');
+  if (!Array.isArray(input) || input.length !== 6) {
+    fail('prerequisite provenance chain must contain exactly six records');
   }
   const validators = [
     validateCanonicalizerIndexPrerequisiteHandoff,
@@ -313,6 +330,7 @@ export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
     validateCanonicalizerBindingPrerequisiteHandoff,
     validateCanonicalizerUnaryPrerequisiteHandoff,
     validateCanonicalizerDoPrerequisiteHandoff,
+    validateCanonicalizerWhilePrerequisiteHandoff,
   ];
   return input.map((entry, index) => {
     const row = record(entry, ['digest', 'record'], `chain[${index}]`);
@@ -330,5 +348,6 @@ export function loadCanonicalizerPrerequisiteProvenanceChain() {
     loadCanonicalizerBindingPrerequisiteProvenance(),
     loadCanonicalizerUnaryPrerequisiteProvenance(),
     loadCanonicalizerDoPrerequisiteProvenance(),
+    loadCanonicalizerWhilePrerequisiteProvenance(),
   ]);
 }

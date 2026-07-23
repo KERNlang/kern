@@ -1,0 +1,174 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+import { loadCoveragePolicy, measureCanonicalizerCoverage } from './coverage.mjs';
+import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import {
+  canonicalPrerequisiteProvenanceBytes,
+  loadCanonicalizerPrerequisiteProvenanceChain,
+  loadCanonicalizerWhilePrerequisiteProvenance,
+  validateCanonicalizerPrerequisiteProvenance,
+  validateCanonicalizerPrerequisiteProvenanceChain,
+  validateCanonicalizerWhilePrerequisiteHandoff,
+} from './coverage-prerequisite-provenance.mjs';
+
+const M458_DIGEST = '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07';
+const SORTSTRINGS_ID = 'examples/selfhost-validator/validator.kern#19:sortstrings';
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+test('M4.58 freezes the exact published while-iteration prerequisite', () => {
+  const handoff = loadCanonicalizerWhilePrerequisiteProvenance();
+  assert.equal(handoff.digest, M458_DIGEST);
+  assert.deepEqual(handoff.record.source, {
+    commit: '5ad4f524f9e3434fb039033803f2988316a04564',
+    coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
+    coverageSummarySha256: 'b6f8ae2a49de9b8c2a859605a6c6a5da1bfcbc90d440efa9cdf259ccb7db7015',
+    prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.3',
+    prerequisiteSummarySha256: '31a90a6e1bb413939a56ab9637c12c660dbfb6247b24a347698312839c366c58',
+  });
+  assert.deepEqual(handoff.record.snapshot, {
+    baseline: {
+      baseCompleteFunctions: 72,
+      baseId: 'kern.kir-canonicalizer.profile.m4.36',
+      corpusMembers: 9,
+      functionCount: 104,
+      legacyParameterBlockers: 31,
+      toolCount: 4,
+    },
+    minimumFamilyCount: 1,
+    selectedPrerequisite: {
+      catalogFacts: 2,
+      family: 'while-iteration',
+      occurrences: 2,
+    },
+    winningClosure: {
+      completeFunctions: 1,
+      completeTools: 1,
+      families: ['while-iteration'],
+      migratedParameterRows: 1,
+      occurrences: 2,
+      witnesses: [SORTSTRINGS_ID],
+    },
+  });
+  const bytes = readFileSync(new URL('./coverage-while-prerequisite-provenance.json', import.meta.url));
+  assert.deepEqual(canonicalPrerequisiteProvenanceBytes(handoff.record), bytes);
+  assert.equal(sha256(bytes), M458_DIGEST);
+});
+
+test('M4.58 prerequisite history is the exact ordered six-record chain', () => {
+  const chain = loadCanonicalizerPrerequisiteProvenanceChain();
+  const whileIteration = loadCanonicalizerWhilePrerequisiteProvenance();
+  assert.equal(chain.length, 6);
+  assert.deepEqual(chain.at(-1), whileIteration);
+  assert.deepEqual(
+    chain.map(({ record }) => record.snapshot.selectedPrerequisite.family),
+    [
+      'index-expression',
+      'counted-iteration',
+      'binding',
+      'unary-expression',
+      'do-statement',
+      'while-iteration',
+    ],
+  );
+
+  const mutations = [
+    (copy) => { copy.reverse(); },
+    (copy) => { copy.pop(); },
+    (copy) => { copy.push(copy[5]); },
+    (copy) => { copy[5].digest = '0'.repeat(64); },
+    (copy) => { copy[5].record.source.commit = '0'.repeat(40); },
+    (copy) => { copy[5].record.snapshot.selectedPrerequisite.family = 'exception-flow'; },
+  ];
+  for (const mutate of mutations) {
+    const copy = structuredClone(chain);
+    mutate(copy);
+    assert.throws(
+      () => validateCanonicalizerPrerequisiteProvenanceChain(copy),
+      /prerequisite provenance rejection/u,
+    );
+  }
+});
+
+test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
+  const handoff = loadCanonicalizerWhilePrerequisiteProvenance();
+  const mutations = [
+    (copy) => { copy.source.commit = '0'.repeat(40); },
+    (copy) => { copy.source.coverageSummarySha256 = '0'.repeat(64); },
+    (copy) => { copy.source.prerequisiteSummarySha256 = '0'.repeat(64); },
+    (copy) => { copy.snapshot.baseline.baseCompleteFunctions -= 1; },
+    (copy) => { copy.snapshot.baseline.legacyParameterBlockers += 1; },
+    (copy) => { copy.snapshot.selectedPrerequisite.catalogFacts += 1; },
+    (copy) => { copy.snapshot.selectedPrerequisite.occurrences += 1; },
+    (copy) => { copy.snapshot.winningClosure.migratedParameterRows += 1; },
+    (copy) => { copy.snapshot.winningClosure.witnesses = ['future']; },
+  ];
+  for (const mutate of mutations) {
+    const copy = structuredClone(handoff.record);
+    mutate(copy);
+    assert.doesNotThrow(() => validateCanonicalizerPrerequisiteProvenance(copy));
+    assert.throws(
+      () => validateCanonicalizerWhilePrerequisiteHandoff(copy),
+      /prerequisite provenance rejection/u,
+    );
+  }
+});
+
+test('M4.58 leaves while-iteration selected, unpromoted, and source-identical', () => {
+  const policy = loadCoveragePolicy();
+  assert.equal(policy.base.nodeKinds.includes('while'), false);
+  assert.deepEqual(
+    policy.families.find(({ id }) => id === 'while-iteration'),
+    {
+      expressionKinds: [],
+      id: 'while-iteration',
+      nodeKinds: ['while'],
+      propertyKeys: ['while.cond'],
+    },
+  );
+  assert.equal(
+    sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
+    'b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2',
+  );
+
+  const coverage = measureCanonicalizerCoverage(policy);
+  assert.equal(coverage.baseCompleteFunctions, 72);
+  assert.equal(coverage.functions.length, 104);
+  assert.equal(coverage.functions.filter(({ excludedProperties }) =>
+    excludedProperties.includes('fn.params')).length, 31);
+  assert.equal(
+    coverage.prerequisiteProvenances.at(-1).digest,
+    M458_DIGEST,
+  );
+
+  const prerequisite = measureCanonicalizerPrerequisite(policy);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
+  assert.deepEqual(prerequisite.selectedPrerequisite, {
+    catalogFacts: 2,
+    family: 'while-iteration',
+    occurrences: 2,
+  });
+  assert.deepEqual(prerequisite.ranking, [{
+    completeFunctions: 1,
+    completeTools: 1,
+    families: ['while-iteration'],
+    migratedParameterRows: 1,
+    occurrences: 2,
+    witnesses: [{
+      id: SORTSTRINGS_ID,
+      parameterRows: 1,
+      profileRows: { nodes: 25, properties: 43, values: 266 },
+      tool: 'validator',
+    }],
+  }]);
+});

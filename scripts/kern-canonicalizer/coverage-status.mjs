@@ -82,6 +82,13 @@ export function formatM457ParameterMigrationStatus(receipt) {
     `${migration.migratedParameterRows}-row parameter queue.`;
 }
 
+export function formatM458WhilePrerequisiteStatus(handoff) {
+  const selected = handoff.record.snapshot.selectedPrerequisite;
+  return `M4.58 freezes the exact M4.57 ${selected.family} prerequisite ` +
+    `(${selected.catalogFacts} catalog facts/${selected.occurrences} occurrences); ` +
+    'M4.59 owns canonicalizer implementation.';
+}
+
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   return formatResidualAnalysisStatus(
     'M4.38 published analysis',

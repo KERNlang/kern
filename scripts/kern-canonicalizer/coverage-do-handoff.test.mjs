@@ -58,14 +58,14 @@ test('M4.34 freezes the exact published do-statement prerequisite', () => {
   );
 });
 
-test('M4.34 prerequisite history is an exact ordered five-record chain', () => {
+test('M4.34 prerequisite history remains the exact ordered five-record prefix', () => {
   const index = loadCanonicalizerIndexPrerequisiteProvenance();
   const counted = loadCanonicalizerCountedIterationPrerequisiteProvenance();
   const binding = loadCanonicalizerBindingPrerequisiteProvenance();
   const unary = loadCanonicalizerUnaryPrerequisiteProvenance();
   const doStatement = loadCanonicalizerDoPrerequisiteProvenance();
   const chain = loadCanonicalizerPrerequisiteProvenanceChain();
-  assert.deepEqual(chain, [index, counted, binding, unary, doStatement]);
+  assert.deepEqual(chain.slice(0, 5), [index, counted, binding, unary, doStatement]);
 
   const mutations = [
     (copy) => { copy.reverse(); },
