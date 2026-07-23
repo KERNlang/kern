@@ -54,7 +54,29 @@ fn name=elseRejectDetail returns=string
   handler lang="kern"
     return value="checkerElseRejectDetail(row, stmtKind, stmtParent)"
 
-fn name=whileRejectDetail params="row:number,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtName:string[],stmtTarget:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprNum:string[],stmtExprLeftKind:string[],stmtExprLeftName:string[],stmtExprLeftNum:string[],stmtExprLeftMemberObject:string[],stmtExprLeftMemberProp:string[],stmtExprRightKind:string[],stmtExprRightName:string[],stmtExprRightNum:string[],stmtExprRightMemberObject:string[],stmtExprRightMemberProp:string[],paramFn:string[],paramName:string[],paramType:string[]" returns=string
+fn name=whileRejectDetail returns=string
+  param name=row type=number
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtParent type=number[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=stmtExprKind type=string[]
+  param name=stmtExprName type=string[]
+  param name=stmtExprNum type=string[]
+  param name=stmtExprLeftKind type=string[]
+  param name=stmtExprLeftName type=string[]
+  param name=stmtExprLeftNum type=string[]
+  param name=stmtExprLeftMemberObject type=string[]
+  param name=stmtExprLeftMemberProp type=string[]
+  param name=stmtExprRightKind type=string[]
+  param name=stmtExprRightName type=string[]
+  param name=stmtExprRightNum type=string[]
+  param name=stmtExprRightMemberObject type=string[]
+  param name=stmtExprRightMemberProp type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramType type=string[]
   handler lang="kern"
     return value="checkerWhileRejectDetail(row, stmtKind, stmtFn, stmtParent, stmtName, stmtTarget, stmtExprKind, stmtExprName, stmtExprNum, stmtExprLeftKind, stmtExprLeftName, stmtExprLeftNum, stmtExprLeftMemberObject, stmtExprLeftMemberProp, stmtExprRightKind, stmtExprRightName, stmtExprRightNum, stmtExprRightMemberObject, stmtExprRightMemberProp, paramFn, paramName, paramType)"
 
@@ -159,7 +181,18 @@ fn name=paramOrdinalOf returns=number
           return value="paramOrdinal[i]"
     return value="-1"
 
-fn name=termProvenanced params="fnName:string,kind:string,name:string,num:string,stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[],paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=boolean
+fn name=termProvenanced returns=boolean
+  param name=fnName type=string
+  param name=kind type=string
+  param name=name type=string
+  param name=num type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramOrdinal type=number[]
   handler lang="kern"
     if cond="kind == \"numLit\""
       return value="isSafeIntText(num)"

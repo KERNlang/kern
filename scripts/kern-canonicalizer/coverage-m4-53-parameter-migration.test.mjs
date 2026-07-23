@@ -36,10 +36,10 @@ function targetFixture() {
 test('M4.53 consumes exactly the frozen M4.52 property-row parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM453ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 65);
+  assert.equal(coverage.baseCompleteFunctions, 72);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    38,
+    31,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 25,
@@ -47,10 +47,10 @@ test('M4.53 consumes exactly the frozen M4.52 property-row parameter queue', () 
     maxValueRows: 388,
   });
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 7);
-  assert.equal(prerequisite.parameterMigration.completeTools, 4);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 102);
-  assert.equal(prerequisite.parameterMigration.witnesses.length, 7);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
+  assert.equal(prerequisite.parameterMigration.completeTools, 0);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
+  assert.equal(prerequisite.parameterMigration.witnesses.length, 0);
   assert.equal(prerequisite.exhaustion, null);
 });
 

@@ -14,6 +14,7 @@ import {
   formatM453ParameterMigrationStatus,
   formatM454ResidualAnalysisStatus,
   formatM455DualRowHeadroomStatus,
+  formatM457ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -107,6 +108,15 @@ test('coverage status records M4.53 consumption of the M4.52 parameter queue', (
       parameterMigration: { completeFunctions: 1, migratedParameterRows: 6 },
     }),
     'M4.53 consumes the exact M4.52 1-function/6-row parameter queue.',
+  );
+});
+
+test('coverage status records M4.57 consumption of the M4.56 parameter queue', () => {
+  assert.equal(
+    formatM457ParameterMigrationStatus({
+      parameterMigration: { completeFunctions: 7, migratedParameterRows: 102 },
+    }),
+    'M4.57 consumes the exact M4.56 7-functions/102-row parameter queue.',
   );
 });
 

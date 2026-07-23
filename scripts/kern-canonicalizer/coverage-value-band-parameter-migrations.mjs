@@ -131,11 +131,11 @@ const TARGETS = [
 ];
 
 const EXPECTED_LINES_BY_PATH = new Map([
-  ['examples/capstone-assertion-engine/compare.kern', 113],
-  ['examples/capstone-checker-subset/checker-while.kern', 272],
-  ['examples/capstone-checker-subset/checker.kern', 401],
+  ['examples/capstone-assertion-engine/compare.kern', 126],
+  ['examples/capstone-checker-subset/checker-while.kern', 301],
+  ['examples/capstone-checker-subset/checker.kern', 434],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 192],
-  ['examples/selfhost-validator/validator.kern', 501],
+  ['examples/selfhost-validator/validator.kern', 513],
 ]);
 
 export const M433_VALUE_BAND_NAMES_BY_PATH = new Map();
@@ -209,7 +209,7 @@ export function assertValueBandParameterMigrations(receipt) {
 
   const compareRoots = documents.get('examples/capstone-assertion-engine/compare.kern');
   assert.equal(compareRoots.length, 4);
-  assert.equal(compareRoots.slice(0, 3).every(({ props, children }) =>
+  assert.equal(compareRoots.slice(0, 2).every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
     children.every(({ type }) => type !== 'param')), true);

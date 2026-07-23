@@ -287,7 +287,22 @@ fn name=validstatement params="id:number,returnType:string,nodeKind:string[],nod
       return value="validstatementlist(id, returnType, nodeKind, nodeParent, nodeOrder, propNode, propKey, propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
     return value="false"
 
-fn name=emitstatementlist params="parent:number,level:number,returnType:string,nodeKind:string[],nodeParent:number[],nodeOrder:number[],propNode:number[],propKey:string[],propValue:number[],valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[]" returns="string[]" export=true
+fn name=emitstatementlist returns="string[]" export=true
+  param name=parent type=number
+  param name=level type=number
+  param name=returnType type=string
+  param name=nodeKind type=string[]
+  param name=nodeParent type=number[]
+  param name=nodeOrder type=number[]
+  param name=propNode type=number[]
+  param name=propKey type=string[]
+  param name=propValue type=number[]
+  param name=valueTag type=string[]
+  param name=valueParent type=number[]
+  param name=valueRole type=string[]
+  param name=valueOrder type=number[]
+  param name=valueText type=string[]
+  param name=valueBool type=number[]
   handler lang="kern"
     let name=out value="[]"
     let name=count value="childcount(parent, nodeParent)"

@@ -65,7 +65,7 @@
   },
   "corpus": [
     {
-      "digest": "3f2deb4f9defee02126107fd5b5adcae915a0d03e515bb2d27a41ff89ab4aabd",
+      "digest": "1bbcff9ce986ec644d22bfe0a6b358c124ba078a43f9b17fdce4d79ff15cde7e",
       "path": "examples/capstone-assertion-engine/compare.kern",
       "sourceKind": "handwritten",
       "tool": "assertion-engine"
@@ -83,13 +83,13 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "906b1190e1a5abceb5a7620182b8c11417d1da60b963956d3363466167a04a45",
+      "digest": "424a5a3fc76a149efd6ba4ae8358dc025e06bed6873d466ba42d4fba19e8c46b",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
     },
     {
-      "digest": "8183f4448fcc1f59d80f29f163ab1165e7a95105f6b2411f6a8ff7080dbfa8a6",
+      "digest": "61453a2f2aec5de05973bf0c6a0c9e84e9f00d7d501a80993ea02f57a518fd2d",
       "path": "examples/capstone-checker-subset/checker.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
@@ -101,7 +101,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "475ec6bcaa3bcc3610a1dcb64cfa9175ee8faf00a20d458586b2003fd7009314",
+      "digest": "9f572824fb6f7424fa87559b03c1c8291ad347c9c5035e7336e3760d739d2c03",
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -113,7 +113,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "d648518028d33df00a3a2c49d9c93c398076b529bd33d01d5d0fe71fbb09b17f",
+      "digest": "b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

@@ -187,7 +187,19 @@ fn name=fnokat params="idx:number,fnName:string[],fnReturns:string[],fnAsync:num
         return value="false"
     return value="true"
 
-fn name=owncallable params="module:number,name:string,fnModule:number[],fnName:string[],fnReturns:string[],fnAsync:number[],fnStream:number[],fnHandlers:number[],fnParams:string[],paramFn:number[],classModule:number[],className:string[]" returns=boolean export=true
+fn name=owncallable returns=boolean export=true
+  param name=module type=number
+  param name=name type=string
+  param name=fnModule type=number[]
+  param name=fnName type=string[]
+  param name=fnReturns type=string[]
+  param name=fnAsync type=number[]
+  param name=fnStream type=number[]
+  param name=fnHandlers type=number[]
+  param name=fnParams type=string[]
+  param name=paramFn type=number[]
+  param name=classModule type=number[]
+  param name=className type=string[]
   handler lang="kern"
     for name=i5 from=0 to="fnModule.length"
       if cond="fnModule[i5] == module"

@@ -40,13 +40,13 @@ for (const target of M445_PARAMETER_MIGRATION_TARGETS) {
 
 const FILE_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', {
-    lines: 272,
+    lines: 301,
     remainingLegacy: [
-      'isSafeMagnitude', 'numericBindingProven', 'lengthReceiverProven', 'literalTrue',
-      'comparisonOperandsOk', 'checkWhileCore', 'checkerWhileRejectDetail',
+      'isSafeMagnitude', 'numericBindingProven', 'lengthReceiverProven',
+      'comparisonOperandsOk', 'checkWhileCore',
     ],
     roots: 18,
-    sha256: '906b1190e1a5abceb5a7620182b8c11417d1da60b963956d3363466167a04a45',
+    sha256: '424a5a3fc76a149efd6ba4ae8358dc025e06bed6873d466ba42d4fba19e8c46b',
   }],
   ['examples/kern-canonicalizer/canonicalizer.kern', {
     lines: 443,
@@ -58,17 +58,17 @@ const FILE_CONTRACTS = new Map([
 
 const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    'ff961e9e6c3796f8b21ae0622f8fe8c779f4734603e3a31db2b02b2f155aaea2'],
+    'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5'],
+    'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23'],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
     'ffd3f352a7137d846e23a701672b91f99159d624027abaddb2f1408338544541'],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
-    '475ec6bcaa3bcc3610a1dcb64cfa9175ee8faf00a20d458586b2003fd7009314'],
+    '9f572824fb6f7424fa87559b03c1c8291ad347c9c5035e7336e3760d739d2c03'],
   ['scripts/kern-canonicalizer/composition.json',
-    '708ea2c648dd2f8cf76aa5ac7fb89c609f54406a8da5b5ce4c33d92233c1e441'],
+    '9e4c9d4b57e280c0ff0dc32f92bf6f79f992aaa076e6a6ee34dff8dbd1678d74'],
 ]);
 
 function sha256(bytes) {

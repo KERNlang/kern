@@ -13,53 +13,10 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 7,
-  completeTools: 4,
-  migratedParameterRows: 102,
-  witnesses: [
-    {
-      id: 'examples/capstone-assertion-engine/compare.kern#4:compareNode',
-      parameterRows: 13,
-      profileRows: { nodes: 24, properties: 39, values: 373 },
-      tool: 'assertion-engine',
-    },
-    {
-      id: 'examples/capstone-checker-subset/checker-while.kern#14:literalTrue',
-      parameterRows: 7,
-      profileRows: { nodes: 23, properties: 33, values: 244 },
-      tool: 'checker',
-    },
-    {
-      id: 'examples/capstone-checker-subset/checker-while.kern#17:checkerWhileRejectDetail',
-      parameterRows: 22,
-      profileRows: { nodes: 25, properties: 49, values: 189 },
-      tool: 'checker',
-    },
-    {
-      id: 'examples/capstone-checker-subset/checker.kern#14:termProvenanced',
-      parameterRows: 11,
-      profileRows: { nodes: 24, properties: 36, values: 237 },
-      tool: 'checker',
-    },
-    {
-      id: 'examples/capstone-checker-subset/checker.kern#6:whileRejectDetail',
-      parameterRows: 22,
-      profileRows: { nodes: 25, properties: 48, values: 188 },
-      tool: 'checker',
-    },
-    {
-      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#3:emitstatementlist',
-      parameterRows: 15,
-      profileRows: { nodes: 25, properties: 50, values: 235 },
-      tool: 'canonicalizer',
-    },
-    {
-      id: 'examples/selfhost-validator/validator.kern#11:owncallable',
-      parameterRows: 12,
-      profileRows: { nodes: 24, properties: 42, values: 212 },
-      tool: 'validator',
-    },
-  ],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
 const EXPECTED_RANKING = [{
@@ -76,7 +33,7 @@ const EXPECTED_RANKING = [{
   }],
 }];
 
-test('M4.56 publishes the authenticated dual-row parameter frontier first', () => {
+test('M4.57 consumes the authenticated dual-row parameter frontier first', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'selected');
@@ -92,7 +49,7 @@ test('M4.56 publishes the authenticated dual-row parameter frontier first', () =
   assert.deepEqual(actual.selectedPrerequisite, actual.prerequisiteRanking[0]);
 });
 
-test('format 3 rejects drift in the M4.56 selected frontier', () => {
+test('format 3 rejects drift in the M4.57 selected frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -107,15 +64,14 @@ test('format 3 rejects drift in the M4.56 selected frontier', () => {
     (copy) => { copy.ranking = []; },
     (copy) => { copy.ranking[0].families[0] = 'exception-flow'; },
     (copy) => { copy.ranking[0].occurrences = 1; },
-    (copy) => { copy.ranking[0].witnesses[0].id = copy.parameterMigration.witnesses[0].id; },
+    (copy) => { copy.parameterMigration.witnesses.push(structuredClone(copy.ranking[0].witnesses[0])); },
     (copy) => { copy.exhaustion = {}; },
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 8; },
-    (copy) => { copy.parameterMigration.completeTools = 3; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 101; },
-    (copy) => { copy.parameterMigration.witnesses.reverse(); },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
+    (copy) => { copy.parameterMigration.completeTools = 1; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
   ];
   for (const mutate of mutations) {
     const copy = structuredClone(actual);
@@ -127,22 +83,22 @@ test('format 3 rejects drift in the M4.56 selected frontier', () => {
   }
 });
 
-test('M4.56 binds the exact promoted dual-row transition', () => {
+test('M4.57 binds the exact consumed dual-row transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 65,
+    baseCompleteFunctions: 72,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
-    canonicalizerDigest: '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5',
+    canonicalizerDigest: 'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23',
     canonicalizerPolicyDigest: '5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: 'da83239e2f10cf3a14350fc935c43ca44fcaf461e6513e14cc25ff984ec3c9de',
+    corpusDigest: 'e42e678e3a8067073c5e164eaffc4e1fda1ab769ad1e417e1075eba933e72a4b',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '213ce7266b0d8e449c4333483fe8862ae7d3fc69f2aaa7b869595dcbd5111d5c',
+    coveragePolicyDigest: 'ca8362845bc2460dde40596674ded29ff8aab3eb4de40a28fd7789cc558937b1',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'b8f15f0c98c3019e78b6450eaca47d1110677555db0695136ca2b1a12fa78aee',
-    legacyParameterBlockers: 38,
+    functionFactsDigest: '962d0bc6b57a5158fdc8c0f6dfc5c1aebf5ee0c2e53fe4e352241cc75b91f3b5',
+    legacyParameterBlockers: 31,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

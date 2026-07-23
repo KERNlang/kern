@@ -158,18 +158,17 @@ export function assertM441ParameterTarget(root, fact, target) {
 
 const FILE_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', {
-    lines: 272,
+    lines: 301,
     remainingLegacy: [
       'isSafeMagnitude', 'numericBindingProven', 'lengthReceiverProven',
-      'literalTrue', 'comparisonOperandsOk', 'checkWhileCore', 'checkerWhileRejectDetail',
+      'comparisonOperandsOk', 'checkWhileCore',
     ],
     roots: 18,
   }],
   ['examples/capstone-checker-subset/checker.kern', {
-    lines: 401,
+    lines: 434,
     remainingLegacy: [
-      'rejectLine', 'isSurfaceKind', 'whileRejectDetail', 'termProvenanced',
-      'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
+      'rejectLine', 'isSurfaceKind', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
       'mapKeyToken', 'mapKnownBefore', 'mapCallRejectDetail', 'callRejectCode', 'checkModule',
     ],
     roots: 24,
@@ -180,9 +179,9 @@ const FILE_CONTRACTS = new Map([
     roots: 16,
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 501,
+    lines: 513,
     remainingLegacy: [
-      'isreserved', 'fnokat', 'owncallable', 'ownexportkind',
+      'isreserved', 'fnokat', 'ownexportkind',
       'exportkind', 'sortstrings', 'validate',
     ],
     roots: 21,
@@ -195,7 +194,7 @@ const UNCHANGED_GENERATED = new Map([
   ['examples/selfhost-validator/main.kern',
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
-    '475ec6bcaa3bcc3610a1dcb64cfa9175ee8faf00a20d458586b2003fd7009314'],
+    '9f572824fb6f7424fa87559b03c1c8291ad347c9c5035e7336e3760d739d2c03'],
 ]);
 
 function sha256(bytes) {

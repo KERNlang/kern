@@ -3,12 +3,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
   validatePublishedCanonicalizerDualRowHeadroomM455,
 } from './dual-row-headroom-m4-55.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM456 } from './coverage-prerequisite-m4-56.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { PROFILE_LIMIT_FIXTURES } from './profile-limit-fixtures.mjs';
 
@@ -85,14 +84,9 @@ test('M4.56 promotes only the authenticated node-row and property-row ceilings',
 });
 
 test('M4.56 publishes exactly the frozen seven-function parameter queue', () => {
-  const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 65);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    38,
-  );
-  const prerequisite = measureCanonicalizerPrerequisite();
+  const prerequisite = loadPublishedCanonicalizerPrerequisiteM456().record;
+  assert.equal(prerequisite.baseline.baseCompleteFunctions, 65);
+  assert.equal(prerequisite.baseline.legacyParameterBlockers, 38);
   assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
   assert.equal(prerequisite.outcome, 'selected');
   assert.equal(prerequisite.minimumFamilyCount, 1);

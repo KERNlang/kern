@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import { M441_PARAMETER_NAMES_BY_PATH } from './coverage-m4-41-parameter-migrations.mjs';
 import { M445_PARAMETER_NAMES_BY_PATH } from './coverage-m4-45-parameter-migrations.mjs';
+import { M457_PARAMETER_MIGRATION_TARGETS } from './coverage-m4-57-parameter-migrations.mjs';
 import {
   assertDirectParameterPrefix,
   M433_VALUE_BAND_NAMES_BY_PATH,
@@ -11,6 +12,12 @@ import {
 } from './coverage-value-band-parameter-migrations.mjs';
 
 export function assertStructuredParameterMigrations(receipt) {
+  const m457NamesByPath = new Map();
+  for (const target of M457_PARAMETER_MIGRATION_TARGETS) {
+    const names = m457NamesByPath.get(target.path) ?? [];
+    names.push(target.name);
+    m457NamesByPath.set(target.path, names);
+  }
   const sortPath = 'examples/capstone-assertion-engine/sort.kern';
   const sortSource = readFileSync(new URL(`../../${sortPath}`, import.meta.url), 'utf8');
   const sortDocument = parseDocumentWithDiagnostics(sortSource);
@@ -70,12 +77,13 @@ export function assertStructuredParameterMigrations(receipt) {
     ...M433_VALUE_BAND_NAMES_BY_PATH.get(checkerWhilePath),
     ...M441_PARAMETER_NAMES_BY_PATH.get(checkerWhilePath),
     ...M445_PARAMETER_NAMES_BY_PATH.get(checkerWhilePath),
+    ...m457NamesByPath.get(checkerWhilePath),
   ]);
   const checkerWhileTargets = checkerWhileRoots.filter(({ props }) =>
     checkerWhileTargetNames.includes(props.name));
   const checkerWhileLegacySiblings = checkerWhileRoots.filter(({ props }) =>
     !checkerWhileStructuredNames.has(props.name));
-  assert.equal(checkerWhileSource.split('\n').length - 1, 272);
+  assert.equal(checkerWhileSource.split('\n').length - 1, 301);
   assert.equal(checkerWhileRoots.length, 18);
   assert.deepEqual(checkerWhileTargets.map(({ props }) => props.name), checkerWhileTargetNames);
   assert.equal(checkerWhileTargets.every(({ props }) => props.params === undefined), true);
@@ -92,7 +100,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['kind', 'string'], ['name', 'string'], ['num', 'string']],
     ],
   );
-  assert.equal(checkerWhileLegacySiblings.length, 7);
+  assert.equal(checkerWhileLegacySiblings.length, 5);
   assert.equal(checkerWhileLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -137,12 +145,13 @@ export function assertStructuredParameterMigrations(receipt) {
     ...checkerTargetNames,
     ...M433_VALUE_BAND_NAMES_BY_PATH.get(checkerPath),
     ...M441_PARAMETER_NAMES_BY_PATH.get(checkerPath),
+    ...m457NamesByPath.get(checkerPath),
     'isUserCallable',
     'isIndexRebound',
   ]);
   const checkerTargets = checkerRoots.filter(({ props }) => checkerTargetNames.includes(props.name));
   const checkerLegacySiblings = checkerRoots.filter(({ props }) => !checkerStructuredNames.has(props.name));
-  assert.equal(checkerSource.split('\n').length - 1, 401);
+  assert.equal(checkerSource.split('\n').length - 1, 434);
   assert.equal(checkerRoots.length, 24);
   assert.deepEqual(checkerTargets.map(({ props }) => props.name), checkerTargetNames);
   assert.equal(checkerTargets.every(({ props }) => props.params === undefined), true);
@@ -157,7 +166,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['raw', 'string']],
     ],
   );
-  assert.equal(checkerLegacySiblings.length, 12);
+  assert.equal(checkerLegacySiblings.length, 10);
   assert.equal(checkerLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -205,6 +214,7 @@ export function assertStructuredParameterMigrations(receipt) {
     ...validatorTargetNames,
     ...M433_VALUE_BAND_NAMES_BY_PATH.get(validatorPath),
     ...M441_PARAMETER_NAMES_BY_PATH.get(validatorPath),
+    ...m457NamesByPath.get(validatorPath),
     'appendid',
     'isportable',
     'classcyclefrom',
@@ -216,7 +226,7 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.equal(appendid?.props.params, undefined, 'M4.37 appendid must not retain legacy fn.params');
   assertDirectParameterPrefix(appendid, [['xs', 'number[]'], ['id', 'number']]);
   assert.equal(semanticBodyDigest(appendid), '24064fe7a08b3e1c82733710d090dd7f10ec2e8ee1621b7cc2a4e6983aeed72e');
-  assert.equal(validatorSource.split('\n').length - 1, 501);
+  assert.equal(validatorSource.split('\n').length - 1, 513);
   assert.equal(validatorRoots.length, 21);
   assert.deepEqual(validatorTargets.map(({ props }) => props.name), validatorTargetNames);
   assert.equal(validatorTargets.every(({ props }) => props.params === undefined), true);
@@ -234,7 +244,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['xs', 'number[]'], ['id', 'number']],
     ],
   );
-  assert.equal(validatorLegacySiblings.length, 7);
+  assert.equal(validatorLegacySiblings.length, 6);
   assert.equal(validatorLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
@@ -356,13 +366,14 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.deepEqual(statementHelperDocument.diagnostics, []);
   const statementHelperRoots = statementHelperDocument.root.children.filter(({ type }) => type === 'fn');
   const indentation = statementHelperRoots.find(({ props }) => props.name === 'indentation');
-  assert.equal(statementHelperSource.split('\n').length - 1, 158);
+  assert.equal(statementHelperSource.split('\n').length - 1, 173);
   assert.equal(indentation?.props.params, undefined);
   assert.deepEqual(
     indentation?.children.filter(({ type }) => type === 'param').map(({ props }) => [props.name, props.type]),
     [['level', 'number']],
   );
-  assert.equal(statementHelperRoots.filter(({ props }) => props.name !== 'indentation').every(({ props, children }) =>
+  assert.equal(statementHelperRoots.filter(({ props }) =>
+    !['indentation', 'emitstatementlist'].includes(props.name)).every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&
     children.every(({ type }) => type !== 'param')), true);

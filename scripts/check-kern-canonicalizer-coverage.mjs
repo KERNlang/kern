@@ -8,7 +8,10 @@ import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './kern-canonicalizer/coverage-prerequisite-m4-44.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM448 } from './kern-canonicalizer/coverage-prerequisite-m4-48.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM452 } from './kern-canonicalizer/coverage-prerequisite-m4-52.mjs';
-import { assertM453ParameterMigration } from './kern-canonicalizer/coverage-m4-53-parameter-migration.mjs';
+import {
+  loadPublishedCanonicalizerPrerequisiteM456,
+} from './kern-canonicalizer/coverage-prerequisite-m4-56.mjs';
+import { assertM457ParameterMigrations } from './kern-canonicalizer/coverage-m4-57-parameter-migrations.mjs';
 import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import {
   loadCanonicalizerResidualAnalysisHandoff,
@@ -47,6 +50,7 @@ import {
   formatM453ParameterMigrationStatus,
   formatM454ResidualAnalysisStatus,
   formatM455DualRowHeadroomStatus,
+  formatM457ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -69,6 +73,7 @@ const prerequisite = measureCanonicalizerPrerequisite();
 const m444PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM444();
 const m448PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM448();
 const m452PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM452();
+const m456PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM456();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
 const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
@@ -90,7 +95,7 @@ const m454ResidualAnalysis = m454ResidualAnalysisHandoff.record;
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
-assertM453ParameterMigration(coverage);
+assertM457ParameterMigrations(coverage);
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -229,11 +234,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.41 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.41 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.41 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 65, 'live M4.53 base completion must remain exactly 65/104');
+  assert.equal(actual.baseCompleteFunctions, 72, 'live M4.57 base completion must remain exactly 72/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    38,
-    'live M4.53 fn.params blocker count must remain exactly 38',
+    31,
+    'live M4.57 fn.params blocker count must remain exactly 31',
   );
   assert.equal(actual.selection.winner, null, 'live M4.41 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -249,18 +254,12 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'selected');
   assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.equal(prerequisite.exhaustion, null);
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 7);
-  assert.equal(prerequisite.parameterMigration.completeTools, 4);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 102);
-  assert.deepEqual(prerequisite.parameterMigration.witnesses.map(({ id }) => id), [
-    'examples/capstone-assertion-engine/compare.kern#4:compareNode',
-    'examples/capstone-checker-subset/checker-while.kern#14:literalTrue',
-    'examples/capstone-checker-subset/checker-while.kern#17:checkerWhileRejectDetail',
-    'examples/capstone-checker-subset/checker.kern#14:termProvenanced',
-    'examples/capstone-checker-subset/checker.kern#6:whileRejectDetail',
-    'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#3:emitstatementlist',
-    'examples/selfhost-validator/validator.kern#11:owncallable',
-  ]);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.deepEqual(prerequisite.selectedPrerequisite, {
     catalogFacts: 2,
     family: 'while-iteration',
@@ -280,6 +279,8 @@ if (process.argv.includes('--write')) {
       tool: 'validator',
     }],
   }]);
+  assert.equal(m456PrerequisiteHandoff.digest, '13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b');
+  assert.equal(m456PrerequisiteHandoff.sourceCommit, '8928684827706b2abac1f4906f785a389afb91c6');
   assert.equal(m444PrerequisiteHandoff.digest, '9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01');
   assert.equal(m444PrerequisiteHandoff.sourceCommit, 'dd977ff493250127e2e416ffb4e3ab68985a61dc');
   assert.deepEqual(m444PrerequisiteHandoff.record.parameterMigration, {
@@ -751,6 +752,7 @@ process.stdout.write(
   ` ${formatM453ParameterMigrationStatus(m452PrerequisiteHandoff.record)}` +
   ` ${formatM454ResidualAnalysisStatus(m454ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM455DualRowHeadroomStatus(m455DualRowHeadroom)}` +
+  ` ${formatM457ParameterMigrationStatus(m456PrerequisiteHandoff.record)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -2987,6 +2987,58 @@ trusted-publishing/provenance configuration is inspected.
     before the selected subsequent `while-iteration` prerequisite can be
     promoted.
 
+  - [x] M4.57 freezes the published M4.56 prerequisite receipt at source
+    commit `8928684827706b2abac1f4906f785a389afb91c6` and exact SHA-256
+    `13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b`,
+    then consumes exactly its seven-function, four-tool, 102-row parameter
+    queue. The immutable loader and migration contract authenticate at
+    `d486f9ab37e755bc4c7c1c6010fdc2a24cfb4700d246a7bace9c5eb28da436f6`
+    and
+    `3a7ad14587b75559bfa778a3fe24058a880f9df879499c63b76acf074db7befb`.
+    `compareNode`, `literalTrue`, `checkerWhileRejectDetail`,
+    `termProvenanced`, `whileRejectDetail`, `emitstatementlist`, and
+    `owncallable` now use the exact ordered direct `param` prefixes measured
+    by M4.56; their semantic body digests, names, types, order, returns,
+    exports, handlers, bodies, and call sites remain unchanged. The five
+    handwritten source digests are
+    `1bbcff9ce986ec644d22bfe0a6b358c124ba078a43f9b17fdce4d79ff15cde7e`,
+    `424a5a3fc76a149efd6ba4ae8358dc025e06bed6873d466ba42d4fba19e8c46b`,
+    `61453a2f2aec5de05973bf0c6a0c9e84e9f00d7d501a80993ea02f57a518fd2d`,
+    `9f572824fb6f7424fa87559b03c1c8291ad347c9c5035e7336e3760d739d2c03`,
+    and
+    `b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2`.
+    Repository writers reproduce the checker aggregate, canonicalizer
+    composite, and composition record at
+    `efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb`,
+    `cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23`,
+    and
+    `9e4c9d4b57e280c0ff0dc32f92bf6f79f992aaa076e6a6ee34dff8dbd1678d74`;
+    the numeric checker, validator main, and assertion-engine main remain
+    byte-identical. Live coverage is now exactly 72/104 base-complete with 31
+    legacy `fn.params` blockers, an empty 0/0 parameter queue, and the exact
+    one-function `while-iteration` prerequisite for validator `sortstrings`
+    selected next. The coverage policy, coverage receipt, and prerequisite
+    receipt authenticate at
+    `ca8362845bc2460dde40596674ded29ff8aab3eb4de40a28fd7789cc558937b1`,
+    `b6f8ae2a49de9b8c2a859605a6c6a5da1bfcbc90d440efa9cdf259ccb7db7015`,
+    and
+    `31a90a6e1bb413939a56ab9637c12c660dbfb6247b24a347698312839c366c58`.
+    Targeted migration, immutable-handoff, mutation, writer-reproduction,
+    cumulative-history, prerequisite, and exact M4.55 runtime-floor gates are
+    green. The complete Node 22.22 `pnpm fitness:kern-5` wall passes, including
+    both 201/201 canonicalizer replays, 434/434 cross-target fixtures, 109/109
+    class fixtures, 233/233 native assertions at 100% declared coverage, 40
+    whole-app fixtures across three legs, and every repeated KIR, runtime,
+    ownership, convergence, capstone, and browser-budget gate. Required
+    high-risk role-lens review `review-1784780665798-en22ew` completed all 6/6
+    usable reviewers with zero verified or speculative findings. Its two
+    needs-check observations were resolved against the actual contracts: the
+    immutable history is the digest-pinned M4.56 receipt, while earlier
+    migration modules deliberately retain milestone-local target body pins and
+    cumulative current-source/generated-consumer guards. No material finding
+    remains unresolved. KERN 5 remains incomplete; the next slice must freeze
+    this migrated frontier before promoting or rejecting `while-iteration`.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

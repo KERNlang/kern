@@ -24,15 +24,15 @@ export const M453_PARAMETER_MIGRATION_TARGET = {
 
 const GENERATED_ARTIFACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    'ff961e9e6c3796f8b21ae0622f8fe8c779f4734603e3a31db2b02b2f155aaea2'],
+    'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/selfhost-validator/main.kern',
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5'],
+    'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23'],
   ['scripts/kern-canonicalizer/composition.json',
-    '708ea2c648dd2f8cf76aa5ac7fb89c609f54406a8da5b5ce4c33d92233c1e441'],
+    '9e4c9d4b57e280c0ff0dc32f92bf6f79f992aaa076e6a6ee34dff8dbd1678d74'],
 ]);
 
 function sha256(bytes) {
@@ -65,13 +65,13 @@ export function assertM453ParameterMigration(receipt) {
   const source = sourceBytes.toString('utf8');
   const document = parseDocumentWithDiagnostics(source);
   assert.deepEqual(document.diagnostics, []);
-  assert.equal(sha256(sourceBytes), 'd648518028d33df00a3a2c49d9c93c398076b529bd33d01d5d0fe71fbb09b17f');
-  assert.equal(source.split('\n').length - 1, 501);
+  assert.equal(sha256(sourceBytes), 'b8f2e779ced7577804686ac953cf555fffbc271b974bb29d64310245aa6270e2');
+  assert.equal(source.split('\n').length - 1, 513);
   const roots = document.root.children.filter(({ type }) => type === 'fn');
   assert.equal(roots.length, 21);
   assert.deepEqual(
     roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
-    ['isreserved', 'fnokat', 'owncallable', 'ownexportkind', 'exportkind', 'sortstrings', 'validate'],
+    ['isreserved', 'fnokat', 'ownexportkind', 'exportkind', 'sortstrings', 'validate'],
   );
   const fact = receipt.functions.find(({ id }) => id === M453_PARAMETER_MIGRATION_TARGET.id);
   assertM453ParameterTarget(roots[M453_PARAMETER_MIGRATION_TARGET.functionOrdinal], fact);

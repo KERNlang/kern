@@ -37,10 +37,10 @@ function targetFixture(name) {
 test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 65);
+  assert.equal(coverage.baseCompleteFunctions, 72);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    38,
+    31,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 25,
@@ -49,10 +49,10 @@ test('M4.45 consumes exactly the frozen 388-row parameter queue', () => {
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 7);
-  assert.equal(prerequisite.parameterMigration.completeTools, 4);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 102);
-  assert.equal(prerequisite.parameterMigration.witnesses.length, 7);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
+  assert.equal(prerequisite.parameterMigration.completeTools, 0);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
+  assert.equal(prerequisite.parameterMigration.witnesses.length, 0);
   assert.equal(prerequisite.exhaustion, null);
 });
 
@@ -89,13 +89,13 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
     checkerMain.toString('utf8'),
     generateCheckerMainKern(),
   );
-  assert.equal(sha256(checkerMain), 'ff961e9e6c3796f8b21ae0622f8fe8c779f4734603e3a31db2b02b2f155aaea2');
+  assert.equal(sha256(checkerMain), 'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
-  assert.equal(built.compositeBytes.length, 49_418);
+  assert.equal(built.compositeBytes.length, 49_679);
   assert.equal(
     sha256(built.compositeBytes),
-    '9ef2e9f787f91efec3deb06ff07b11bf2093a07aa1301d59fda3551dc80d4bb5',
+    'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23',
   );
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);
