@@ -3230,6 +3230,38 @@ trusted-publishing/provenance configuration is inspected.
     authenticate exact structural runtime headroom for all four witnesses
     before any node-row promotion.
 
+  - [x] M4.63 authenticates exact structural runtime headroom for the four
+    immutable M4.62 witnesses without changing handwritten KERN source,
+    generated consumers, the active 25/50/388 profile, family policy, parser,
+    runtime, KIR, ABI, packages, or public APIs. Public
+    `kern.runtime.handler.v1` execution proves monotonic floor-minus-one
+    failure, floor success, and byte-identical structural round-trip at exact
+    floors 21,736 for `isSafeMagnitude`, 27,076 for `mapCallRejectDetail`,
+    21,825 for `fnokat`, and 24,993 for `ownexportkind`. The maximum 27,076
+    floor leaves 22,076 steps inside the policy-derived 49,152 promotion budget
+    and 38,460 inside the unchanged 65,536 production ceiling; module-envelope
+    admission remains explicitly `not-claimed` at depth 64. The frozen receipt
+    authenticates at
+    `110260eb3a2c9ed942e309d5b6e1331f2752bc486bfe99840c887e2a6ef7e7c3`;
+    coverage and prerequisite summaries authenticate at
+    `dbd7a3fcb0c2655b76475c62bca936d34872d42b9923679aaf5f11a096d35153`
+    and `a73c830b8b74af2e128ca88bf31179233f4117a40db9cf537576ff9fdc6918f2`,
+    with coverage implementation digest
+    `671def9cd9967c3e6305b40b55cd842a2980d9fe3e858e6b66fd5c442b1bf8df`.
+    Focused gates pass 16/16 and 5/5; the standalone canonicalizer passes
+    227/227 plus all 55/8/3/235 fixture classes; and the complete Node 22
+    `fitness:kern-5` wall passes. Automatic high-risk role-lens review
+    `review-1784805563870-g1y27i` completed 6/6 with zero consensus-verified
+    findings, five needs-check findings, and ten nits. The writer-integrity
+    concern was fixed by validating the exact receipt digest before any write,
+    and the stale spec was updated with measured evidence. The remaining
+    observations were rejected as non-exploitable in the hard-coded repository
+    call graph, incorrect, intentional immutable-milestone isolation, or
+    already covered by the fresh-build gate. No unresolved material finding
+    remains. KERN 5 remains incomplete: M4.64 must freeze this exact receipt
+    and promote only `maxNodeRows` from 25 to 28 before any of the 37 parameter
+    rows migrate.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

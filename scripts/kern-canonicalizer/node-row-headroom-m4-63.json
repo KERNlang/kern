@@ -1,0 +1,110 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.node-row-headroom.2",
+  "limits": {
+    "candidateProfile": {
+      "maxNodeRows": 28,
+      "maxPropertyRows": 50,
+      "maxValueRows": 388
+    },
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 64
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56",
+    "canonicalizerPolicySha256": "5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d",
+    "compositionSha256": "cab6c1e38591e0a75cf717691c9d7247b623ddc849bc65bdf021cdcd3b914995",
+    "inputSourceSha256": [
+      {
+        "path": "examples/capstone-checker-subset/checker-while.kern",
+        "sha256": "424a5a3fc76a149efd6ba4ae8358dc025e06bed6873d466ba42d4fba19e8c46b"
+      },
+      {
+        "path": "examples/capstone-checker-subset/checker.kern",
+        "sha256": "61453a2f2aec5de05973bf0c6a0c9e84e9f00d7d501a80993ea02f57a518fd2d"
+      },
+      {
+        "path": "examples/selfhost-validator/validator.kern",
+        "sha256": "99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4"
+      }
+    ],
+    "publishedCoverageImplementationDigest": "613810d0b74e31f21cd756520dbfe94047ba06ee654ef349a86663a32b517d83",
+    "residualAnalysisInputCommit": "f36a870843ccdd222e8cf2e7595c0e205ed545bf",
+    "residualAnalysisSha256": "5339ffa5c128efbe857b53e64a67092d72b8b6b6cbe6cc3ea16c96f4939e79cc",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "summary": {
+    "maxExactFloor": 27076,
+    "minimumProductionHeadroom": 38460,
+    "minimumPromotionHeadroom": 22076,
+    "witnessCount": 4
+  },
+  "witnesses": [
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 21736,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude",
+      "parameterRows": 2,
+      "productionHeadroom": 43800,
+      "profileRows": {
+        "nodes": 27,
+        "properties": 39,
+        "values": 288
+      },
+      "promotionHeadroom": 27416,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 27076,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail",
+      "parameterRows": 13,
+      "productionHeadroom": 38460,
+      "profileRows": {
+        "nodes": 28,
+        "properties": 42,
+        "values": 309
+      },
+      "promotionHeadroom": 22076,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 21825,
+      "floorOutcome": "success",
+      "id": "examples/selfhost-validator/validator.kern#10:fnokat",
+      "parameterRows": 8,
+      "productionHeadroom": 43711,
+      "profileRows": {
+        "nodes": 28,
+        "properties": 38,
+        "values": 270
+      },
+      "promotionHeadroom": 27327,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 24993,
+      "floorOutcome": "success",
+      "id": "examples/selfhost-validator/validator.kern#12:ownexportkind",
+      "parameterRows": 14,
+      "productionHeadroom": 40543,
+      "profileRows": {
+        "nodes": 28,
+        "properties": 48,
+        "values": 260
+      },
+      "promotionHeadroom": 24159,
+      "roundTrip": true
+    }
+  ]
+}
