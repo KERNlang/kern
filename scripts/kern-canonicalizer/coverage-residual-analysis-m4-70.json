@@ -1,0 +1,516 @@
+{
+  "assignments": [
+    {
+      "id": "examples/capstone-assertion-engine/compare.kern#2:compareList",
+      "parameterRows": 13,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "assertion-engine"
+    },
+    {
+      "id": "examples/capstone-assertion-engine/compare.kern#3:compareMap",
+      "parameterRows": 13,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "assertion-engine"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker-while.kern#11:lengthReceiverProven",
+      "parameterRows": 12,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk",
+      "parameterRows": 24,
+      "profileRows": {
+        "nodes": 53,
+        "properties": 95,
+        "values": 832
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+      "parameterRows": 22,
+      "profileRows": {
+        "nodes": 38,
+        "properties": 61,
+        "values": 460
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker-while.kern#9:numericBindingProven",
+      "parameterRows": 16,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#16:argProvenanced",
+      "parameterRows": 19,
+      "profileRows": {
+        "nodes": 35,
+        "properties": 55,
+        "values": 580
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#17:paramCallsitesOk",
+      "parameterRows": 23,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+      "parameterRows": 24,
+      "profileRows": {
+        "nodes": 41,
+        "properties": 67,
+        "values": 404
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#20:mapKeyToken",
+      "parameterRows": 9,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#21:mapKnownBefore",
+      "parameterRows": 12,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+      "parameterRows": 15,
+      "profileRows": {
+        "nodes": 47,
+        "properties": 64,
+        "values": 478
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#24:checkModule",
+      "parameterRows": 58,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#2:rejectLine",
+      "parameterRows": 5,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "parameterRows": 1,
+      "profileRows": null,
+      "reasons": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff",
+        "projection.limit-depth"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+      "parameterRows": 14,
+      "profileRows": {
+        "nodes": 31,
+        "properties": 53,
+        "values": 370
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement",
+      "parameterRows": 14,
+      "profileRows": {
+        "nodes": 89,
+        "properties": 125,
+        "values": 2100
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement",
+      "parameterRows": 15,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#0:typesource",
+      "parameterRows": 6,
+      "profileRows": {
+        "nodes": 38,
+        "properties": 51,
+        "values": 461
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#2:exprsource",
+      "parameterRows": 7,
+      "profileRows": null,
+      "reasons": [
+        "let.value:unknown-expression-kind",
+        "projection.unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#3:tablesok",
+      "parameterRows": 12,
+      "profileRows": null,
+      "reasons": [
+        "let.value:unknown-expression-kind",
+        "projection.unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#4:canonicalize",
+      "parameterRows": 15,
+      "profileRows": null,
+      "reasons": [
+        "projection.unknown-expression-kind",
+        "throw.value:unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#15:exportkind",
+      "parameterRows": 21,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "validator"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#20:validate",
+      "parameterRows": 41,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-nodes"
+      ],
+      "tool": "validator"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#2:isreserved",
+      "parameterRows": 1,
+      "profileRows": {
+        "nodes": 74,
+        "properties": 77,
+        "values": 572
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "validator"
+    }
+  ],
+  "assignmentsDigest": "42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685",
+  "baseline": {
+    "baseCompleteFunctions": 78,
+    "baseId": "kern.kir-canonicalizer.profile.m4.60",
+    "coverageImplementationDigest": "fd676b3f50986582e76ee96ea93df91d02f36772234770359f35a2bcf5546251",
+    "coveragePolicyDigest": "10f2a65c811aef65be7cf0190017010f0bd79d5c6c5245221135ed9e2ca31fda",
+    "currentProfileLimits": {
+      "maxNodeRows": 30,
+      "maxPropertyRows": 50,
+      "maxValueRows": 388
+    },
+    "functionFactsDigest": "869bfeb7d4694f22ae9c088c649be1c3750a4ca576eef651c7244c31bec0ddee",
+    "legacyParameterBlockers": 25,
+    "residualFunctionCount": 25
+  },
+  "format": "kern.kir-canonicalizer.residual-analysis.3",
+  "frontier": {
+    "actionableCandidates": [
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows"
+        ],
+        "completeFunctions": 1,
+        "completeTools": 1,
+        "limits": {
+          "maxNodeRows": 31,
+          "maxPropertyRows": 53,
+          "maxValueRows": 388
+        },
+        "totalDelta": 4,
+        "witnesses": [
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 6,
+        "completeTools": 3,
+        "limits": {
+          "maxNodeRows": 74,
+          "maxPropertyRows": 77,
+          "maxValueRows": 572
+        },
+        "totalDelta": 255,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+          "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+          "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+          "examples/kern-canonicalizer/canonicalizer.kern#0:typesource",
+          "examples/selfhost-validator/validator.kern#2:isreserved"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 9,
+        "completeTools": 3,
+        "limits": {
+          "maxNodeRows": 89,
+          "maxPropertyRows": 125,
+          "maxValueRows": 2100
+        },
+        "totalDelta": 1846,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk",
+          "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+          "examples/capstone-checker-subset/checker.kern#16:argProvenanced",
+          "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+          "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement",
+          "examples/kern-canonicalizer/canonicalizer.kern#0:typesource",
+          "examples/selfhost-validator/validator.kern#2:isreserved"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 2,
+        "completeTools": 2,
+        "limits": {
+          "maxNodeRows": 41,
+          "maxPropertyRows": 67,
+          "maxValueRows": 404
+        },
+        "totalDelta": 44,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 2,
+        "completeTools": 2,
+        "limits": {
+          "maxNodeRows": 38,
+          "maxPropertyRows": 61,
+          "maxValueRows": 460
+        },
+        "totalDelta": 91,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 4,
+        "completeTools": 2,
+        "limits": {
+          "maxNodeRows": 47,
+          "maxPropertyRows": 64,
+          "maxValueRows": 478
+        },
+        "totalDelta": 121,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+          "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+          "examples/kern-canonicalizer/canonicalizer.kern#0:typesource"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 2,
+        "completeTools": 2,
+        "limits": {
+          "maxNodeRows": 35,
+          "maxPropertyRows": 55,
+          "maxValueRows": 580
+        },
+        "totalDelta": 202,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker.kern#16:argProvenanced",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 7,
+        "completeTools": 2,
+        "limits": {
+          "maxNodeRows": 53,
+          "maxPropertyRows": 95,
+          "maxValueRows": 832
+        },
+        "totalDelta": 512,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk",
+          "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+          "examples/capstone-checker-subset/checker.kern#16:argProvenanced",
+          "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+          "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+          "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist",
+          "examples/kern-canonicalizer/canonicalizer.kern#0:typesource"
+        ]
+      },
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 1,
+        "completeTools": 1,
+        "limits": {
+          "maxNodeRows": 38,
+          "maxPropertyRows": 51,
+          "maxValueRows": 461
+        },
+        "totalDelta": 82,
+        "witnesses": [
+          "examples/kern-canonicalizer/canonicalizer.kern#0:typesource"
+        ]
+      }
+    ],
+    "evaluatedObservedSettings": 9,
+    "profileRowsAvailableFunctions": 9
+  },
+  "selectedNextAction": {
+    "changedLimits": [
+      "maxNodeRows",
+      "maxPropertyRows"
+    ],
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "limits": {
+      "maxNodeRows": 31,
+      "maxPropertyRows": 53,
+      "maxValueRows": 388
+    },
+    "totalDelta": 4,
+    "witnesses": [
+      "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist"
+    ]
+  }
+}
