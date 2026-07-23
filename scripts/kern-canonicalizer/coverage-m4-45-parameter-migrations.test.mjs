@@ -34,13 +34,13 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.65 preserves the exact M4.45 parameter migrations after queue consumption', () => {
+test('M4.69 preserves the exact M4.45 parameter migrations after queue consumption', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 77);
+  assert.equal(coverage.baseCompleteFunctions, 78);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    26,
+    25,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 30,
@@ -55,10 +55,10 @@ test('M4.65 preserves the exact M4.45 parameter migrations after queue consumpti
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 1,
-    witnesses: ['examples/capstone-checker-subset/checker.kern#3:isSurfaceKind'],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
@@ -97,7 +97,7 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
     checkerMain.toString('utf8'),
     generateCheckerMainKern(),
   );
-  assert.equal(sha256(checkerMain), 'd3f2634afd1a52d27a50748a94e25cad67870eb9b54adec329939935e8818645');
+  assert.equal(sha256(checkerMain), 'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
   assert.equal(built.compositeBytes.length, 50_476);

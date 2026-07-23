@@ -46,15 +46,20 @@ test('M4.68 promotes only the authenticated node-row ceiling', () => {
   assert.deepEqual(overNode?.expectedRows, { nodes: 31, properties: 35, values: 48 });
 });
 
-test('M4.68 exposes exactly the frozen one-function parameter queue', () => {
+test('M4.69 consumes exactly the M4.68 one-function parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 77);
+  assert.equal(coverage.baseCompleteFunctions, 78);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    26,
+    25,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 25);
 });
 

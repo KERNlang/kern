@@ -49,13 +49,13 @@ test('M4.65 migrates the exact four-function 37-row parameter queue', () => {
   assert.equal(migratedRows, 37);
 });
 
-test('M4.68 preserves the M4.65 corpus and exposes the next exact parameter queue', () => {
+test('M4.69 preserves the M4.65 corpus after consuming the exact parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 77);
+  assert.equal(coverage.baseCompleteFunctions, 78);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,
-    26,
+    25,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 30,
@@ -65,15 +65,10 @@ test('M4.68 preserves the M4.65 corpus and exposes the next exact parameter queu
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 1,
-    witnesses: [{
-      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
-      parameterRows: 1,
-      profileRows: { nodes: 30, properties: 32, values: 219 },
-      tool: 'checker',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
@@ -169,7 +164,7 @@ test('M4.65 generated consumers reproduce only from repository writers', () => {
   assert.equal(assertionMain.toString('utf8'), generateAssertionMainKern());
   assert.equal(
     sha256(checkerMain),
-    'd3f2634afd1a52d27a50748a94e25cad67870eb9b54adec329939935e8818645',
+    'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e',
   );
 
   const built = createCanonicalizerComposition();

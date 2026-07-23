@@ -166,9 +166,9 @@ const FILE_CONTRACTS = new Map([
     roots: 18,
   }],
   ['examples/capstone-checker-subset/checker.kern', {
-    lines: 447,
+    lines: 448,
     remainingLegacy: [
-      'rejectLine', 'isSurfaceKind', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
+      'rejectLine', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
       'mapKeyToken', 'mapKnownBefore', 'callRejectCode', 'checkModule',
     ],
     roots: 24,

@@ -6,6 +6,7 @@ import { M441_PARAMETER_NAMES_BY_PATH } from './coverage-m4-41-parameter-migrati
 import { M445_PARAMETER_NAMES_BY_PATH } from './coverage-m4-45-parameter-migrations.mjs';
 import { M457_PARAMETER_MIGRATION_TARGETS } from './coverage-m4-57-parameter-migrations.mjs';
 import { M465_PARAMETER_MIGRATION_TARGETS } from './coverage-m4-65-parameter-migrations.mjs';
+import { M469_PARAMETER_MIGRATION_TARGET } from './coverage-m4-69-parameter-migration.mjs';
 import {
   assertDirectParameterPrefix,
   M433_VALUE_BAND_NAMES_BY_PATH,
@@ -155,12 +156,13 @@ export function assertStructuredParameterMigrations(receipt) {
     ...M441_PARAMETER_NAMES_BY_PATH.get(checkerPath),
     ...m457NamesByPath.get(checkerPath),
     ...m465NamesByPath.get(checkerPath),
+    M469_PARAMETER_MIGRATION_TARGET.name,
     'isUserCallable',
     'isIndexRebound',
   ]);
   const checkerTargets = checkerRoots.filter(({ props }) => checkerTargetNames.includes(props.name));
   const checkerLegacySiblings = checkerRoots.filter(({ props }) => !checkerStructuredNames.has(props.name));
-  assert.equal(checkerSource.split('\n').length - 1, 447);
+  assert.equal(checkerSource.split('\n').length - 1, 448);
   assert.equal(checkerRoots.length, 24);
   assert.deepEqual(checkerTargets.map(({ props }) => props.name), checkerTargetNames);
   assert.equal(checkerTargets.every(({ props }) => props.params === undefined), true);
@@ -175,7 +177,7 @@ export function assertStructuredParameterMigrations(receipt) {
       [['raw', 'string']],
     ],
   );
-  assert.equal(checkerLegacySiblings.length, 9);
+  assert.equal(checkerLegacySiblings.length, 8);
   assert.equal(checkerLegacySiblings.every(({ props, children }) =>
     typeof props.params === 'string' &&
     props.params.length > 0 &&

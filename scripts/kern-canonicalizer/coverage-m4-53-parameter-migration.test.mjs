@@ -33,13 +33,13 @@ function targetFixture() {
   return { fact, root, target: M453_PARAMETER_MIGRATION_TARGET };
 }
 
-test('M4.65 preserves the exact M4.53 parameter migration after queue consumption', () => {
+test('M4.69 preserves the exact M4.53 parameter migration after queue consumption', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM453ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 77);
+  assert.equal(coverage.baseCompleteFunctions, 78);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    26,
+    25,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 30,
@@ -53,10 +53,10 @@ test('M4.65 preserves the exact M4.53 parameter migration after queue consumptio
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 1,
-    witnesses: ['examples/capstone-checker-subset/checker.kern#3:isSurfaceKind'],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);

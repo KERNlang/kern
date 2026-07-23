@@ -58,7 +58,7 @@ const FILE_CONTRACTS = new Map([
 
 const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    'd3f2634afd1a52d27a50748a94e25cad67870eb9b54adec329939935e8818645'],
+    'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',

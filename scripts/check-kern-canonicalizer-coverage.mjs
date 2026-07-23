@@ -17,9 +17,13 @@ import {
 import {
   loadPublishedCanonicalizerPrerequisiteM464,
 } from './kern-canonicalizer/coverage-prerequisite-m4-64.mjs';
+import {
+  loadPublishedCanonicalizerPrerequisiteM468,
+} from './kern-canonicalizer/coverage-prerequisite-m4-68.mjs';
 import { assertM457ParameterMigrations } from './kern-canonicalizer/coverage-m4-57-parameter-migrations.mjs';
 import { assertM461ParameterMigration } from './kern-canonicalizer/coverage-m4-61-parameter-migration.mjs';
 import { assertM465ParameterMigrations } from './kern-canonicalizer/coverage-m4-65-parameter-migrations.mjs';
+import { assertM469ParameterMigration } from './kern-canonicalizer/coverage-m4-69-parameter-migration.mjs';
 import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import {
   loadCanonicalizerResidualAnalysisHandoff,
@@ -107,6 +111,7 @@ const m452PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM452();
 const m456PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM456();
 const m460PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM460();
 const m464PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM464();
+const m468PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM468();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
 const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
@@ -139,6 +144,7 @@ const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
 assertM465ParameterMigrations(coverage);
+assertM469ParameterMigration(coverage);
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -282,11 +288,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.60 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 77, 'live M4.68 base completion must remain exactly 77/104');
+  assert.equal(actual.baseCompleteFunctions, 78, 'live M4.69 base completion must remain exactly 78/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    26,
-    'live M4.68 fn.params blocker count must remain exactly 26',
+    25,
+    'live M4.69 fn.params blocker count must remain exactly 25',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -299,15 +305,10 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 1,
-    witnesses: [{
-      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
-      parameterRows: 1,
-      profileRows: { nodes: 30, properties: 32, values: 219 },
-      tool: 'checker',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -320,6 +321,21 @@ if (process.argv.includes('--write')) {
     prerequisite.exhaustion.reasonAssignmentsDigest,
     '42ea4f41e325a8743710cb29b4f3b275dc2df7e2a233662d1e952df0568f8685',
   );
+  assert.equal(m468PrerequisiteHandoff.digest,
+    '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
+  assert.equal(m468PrerequisiteHandoff.sourceCommit,
+    'c0a84888c53325a5c7dd6e19ba4f002b6b28d1a4');
+  assert.deepEqual(m468PrerequisiteHandoff.record.parameterMigration, {
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: [{
+      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
+      parameterRows: 1,
+      profileRows: { nodes: 30, properties: 32, values: 219 },
+      tool: 'checker',
+    }],
+  });
   assert.equal(m456PrerequisiteHandoff.digest, '13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b');
   assert.equal(m456PrerequisiteHandoff.sourceCommit, '8928684827706b2abac1f4906f785a389afb91c6');
   assert.equal(m460PrerequisiteHandoff.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');

@@ -12,7 +12,8 @@ fn name=rejectLine params="path:string,line:number,col:number,code:string,detail
   handler lang="kern"
     return value="path + \":\" + String(line) + \":\" + String(col) + \"|\" + code + \"|reject|\" + detail"
 
-fn name=isSurfaceKind params="kind:string" returns=boolean
+fn name=isSurfaceKind returns=boolean
+  param name=kind type=string
   handler lang="kern"
     if cond="kind == \"use\""
       return value="true"

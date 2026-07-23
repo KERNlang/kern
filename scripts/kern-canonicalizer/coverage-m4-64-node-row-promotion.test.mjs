@@ -65,24 +65,19 @@ test('M4.64 promotes only the authenticated node-row ceiling', () => {
   assert.deepEqual(overNode?.expectedRows, { nodes: 31, properties: 35, values: 48 });
 });
 
-test('M4.68 preserves M4.65 consumption and exposes the next exact parameter queue', () => {
+test('M4.69 preserves M4.65 consumption after exhausting the parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 77);
+  assert.equal(coverage.baseCompleteFunctions, 78);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    26,
+    25,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 1,
-    witnesses: [{
-      id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
-      parameterRows: 1,
-      profileRows: { nodes: 30, properties: 32, values: 219 },
-      tool: 'checker',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 25);
   assert.deepEqual(

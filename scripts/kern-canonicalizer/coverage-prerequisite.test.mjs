@@ -13,15 +13,10 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 1,
-  completeTools: 1,
-  migratedParameterRows: 1,
-  witnesses: [{
-    id: 'examples/capstone-checker-subset/checker.kern#3:isSurfaceKind',
-    parameterRows: 1,
-    profileRows: { nodes: 30, properties: 32, values: 219 },
-    tool: 'checker',
-  }],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
 const EXPECTED_EXHAUSTION = {
@@ -49,7 +44,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.68 exposes the exact one-row parameter tranche and preserves bounded exhaustion', () => {
+test('M4.69 consumes the exact parameter tranche and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -61,7 +56,7 @@ test('M4.68 exposes the exact one-row parameter tranche and preserves bounded ex
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.68 parameter-ready frontier', () => {
+test('format 3 rejects drift in the M4.69 exhausted parameter frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -82,9 +77,9 @@ test('format 3 rejects drift in the M4.68 parameter-ready frontier', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 0; },
-    (copy) => { copy.parameterMigration.completeTools = 0; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 0; },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
+    (copy) => { copy.parameterMigration.completeTools = 1; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
     (copy) => { copy.parameterMigration.witnesses = [{ id: 'future' }]; },
   ];
   for (const mutate of mutations) {
@@ -97,22 +92,22 @@ test('format 3 rejects drift in the M4.68 parameter-ready frontier', () => {
   }
 });
 
-test('M4.68 preserves the exact promoted base after exposing the next queue', () => {
+test('M4.69 preserves the exact promoted base after consuming the queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 77,
+    baseCompleteFunctions: 78,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
     canonicalizerPolicyDigest: '63f5cfdbf980ed1300bbe3a4d6be1e8409dc20ed9c51b13b1873ebafcd186826',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: 'e7acd4b5bcec72247b44347e90664fbe064d56380994078b312984e4ce68733c',
+    corpusDigest: '2d76f3cc2874f90ef24f070a4f342f22668659fc2ef472f4b754c1ac0ee7f2b2',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'b3f720fb34255cf93466430c17924fd9f3b6f81b588cae8a0526dc598ed8cfcf',
+    coveragePolicyDigest: '10f2a65c811aef65be7cf0190017010f0bd79d5c6c5245221135ed9e2ca31fda',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '2bf38c69f8ffa1a64de121071b05431d5e2329736657a2bbc6518e1980ceaf96',
-    legacyParameterBlockers: 26,
+    functionFactsDigest: '869bfeb7d4694f22ae9c088c649be1c3750a4ca576eef651c7244c31bec0ddee',
+    legacyParameterBlockers: 25,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });
