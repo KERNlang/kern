@@ -19,6 +19,7 @@ import {
   formatM461ParameterMigrationStatus,
   formatM462ResidualAnalysisStatus,
   formatM463NodeRowHeadroomStatus,
+  formatM465ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -172,6 +173,17 @@ test('coverage status records the M4.63 structural headroom handoff', () => {
       summary: { maxExactFloor: 27_076, witnessCount: 4 },
     }),
     'M4.63 structural headroom authenticated 4 witnesses at a 27076 maximum floor; M4.64 authenticates the node-row profile promotion.',
+  );
+});
+
+test('coverage status records M4.65 consumption of the immutable M4.64 queue', () => {
+  assert.equal(
+    formatM465ParameterMigrationStatus({
+      record: {
+        parameterMigration: { completeFunctions: 4, migratedParameterRows: 37 },
+      },
+    }),
+    'M4.65 consumes the exact M4.64 4-functions/37-row parameter queue.',
   );
 });
 

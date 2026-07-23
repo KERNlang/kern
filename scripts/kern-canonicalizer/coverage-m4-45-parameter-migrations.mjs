@@ -40,13 +40,13 @@ for (const target of M445_PARAMETER_MIGRATION_TARGETS) {
 
 const FILE_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', {
-    lines: 301,
+    lines: 303,
     remainingLegacy: [
-      'isSafeMagnitude', 'numericBindingProven', 'lengthReceiverProven',
+      'numericBindingProven', 'lengthReceiverProven',
       'comparisonOperandsOk', 'checkWhileCore',
     ],
     roots: 18,
-    sha256: '424a5a3fc76a149efd6ba4ae8358dc025e06bed6873d466ba42d4fba19e8c46b',
+    sha256: '84ca20346a655595cbaab095e3b46b964e46acabd90ead29d1d1a3c6813e8b60',
   }],
   ['examples/kern-canonicalizer/canonicalizer.kern', {
     lines: 443,
@@ -58,7 +58,7 @@ const FILE_CONTRACTS = new Map([
 
 const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    '68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020'],
+    'd3f2634afd1a52d27a50748a94e25cad67870eb9b54adec329939935e8818645'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',

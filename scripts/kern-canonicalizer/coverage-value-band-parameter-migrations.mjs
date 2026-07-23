@@ -132,10 +132,10 @@ const TARGETS = [
 
 const EXPECTED_LINES_BY_PATH = new Map([
   ['examples/capstone-assertion-engine/compare.kern', 126],
-  ['examples/capstone-checker-subset/checker-while.kern', 301],
-  ['examples/capstone-checker-subset/checker.kern', 434],
+  ['examples/capstone-checker-subset/checker-while.kern', 303],
+  ['examples/capstone-checker-subset/checker.kern', 447],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 192],
-  ['examples/selfhost-validator/validator.kern', 514],
+  ['examples/selfhost-validator/validator.kern', 536],
 ]);
 
 export const M433_VALUE_BAND_NAMES_BY_PATH = new Map();

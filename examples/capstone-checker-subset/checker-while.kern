@@ -7,7 +7,9 @@ fn name=isDecimalDigit returns=boolean
       return value="false"
     return value="true"
 
-fn name=isSafeMagnitude params="raw:string,start:number" returns=boolean
+fn name=isSafeMagnitude returns=boolean
+  param name=raw type=string
+  param name=start type=number
   handler lang="kern"
     let name=n value="Text.length(raw)"
     let name=digits value="n - start"

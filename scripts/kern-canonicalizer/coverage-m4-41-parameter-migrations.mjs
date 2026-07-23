@@ -158,18 +158,18 @@ export function assertM441ParameterTarget(root, fact, target) {
 
 const FILE_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/checker-while.kern', {
-    lines: 301,
+    lines: 303,
     remainingLegacy: [
-      'isSafeMagnitude', 'numericBindingProven', 'lengthReceiverProven',
+      'numericBindingProven', 'lengthReceiverProven',
       'comparisonOperandsOk', 'checkWhileCore',
     ],
     roots: 18,
   }],
   ['examples/capstone-checker-subset/checker.kern', {
-    lines: 434,
+    lines: 447,
     remainingLegacy: [
       'rejectLine', 'isSurfaceKind', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
-      'mapKeyToken', 'mapKnownBefore', 'mapCallRejectDetail', 'callRejectCode', 'checkModule',
+      'mapKeyToken', 'mapKnownBefore', 'callRejectCode', 'checkModule',
     ],
     roots: 24,
   }],
@@ -179,10 +179,9 @@ const FILE_CONTRACTS = new Map([
     roots: 16,
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 514,
+    lines: 536,
     remainingLegacy: [
-      'isreserved', 'fnokat', 'ownexportkind',
-      'exportkind', 'validate',
+      'isreserved', 'exportkind', 'validate',
     ],
     roots: 21,
   }],

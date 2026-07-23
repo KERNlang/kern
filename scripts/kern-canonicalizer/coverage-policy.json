@@ -89,13 +89,13 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "424a5a3fc76a149efd6ba4ae8358dc025e06bed6873d466ba42d4fba19e8c46b",
+      "digest": "84ca20346a655595cbaab095e3b46b964e46acabd90ead29d1d1a3c6813e8b60",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
     },
     {
-      "digest": "61453a2f2aec5de05973bf0c6a0c9e84e9f00d7d501a80993ea02f57a518fd2d",
+      "digest": "a2aa6ade4a9eb216b8264435bec7b2d63d556e4b980ddc0f8130f87b946d0d16",
       "path": "examples/capstone-checker-subset/checker.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
@@ -119,7 +119,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4",
+      "digest": "a9d278832edf050f3a96699980d88fa740f345d85192222b241bb6cc3ac2a2ee",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

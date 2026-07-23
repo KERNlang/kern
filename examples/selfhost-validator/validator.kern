@@ -166,7 +166,15 @@ fn name=paramcount returns=number export=true
         assign target=count value="count + 1"
     return value="count"
 
-fn name=fnokat params="idx:number,fnName:string[],fnReturns:string[],fnAsync:number[],fnStream:number[],fnHandlers:number[],fnParams:string[],paramFn:number[]" returns=boolean export=true
+fn name=fnokat returns=boolean export=true
+  param name=idx type=number
+  param name=fnName type=string[]
+  param name=fnReturns type=string[]
+  param name=fnAsync type=number[]
+  param name=fnStream type=number[]
+  param name=fnHandlers type=number[]
+  param name=fnParams type=string[]
+  param name=paramFn type=number[]
   handler lang="kern"
     if cond="fnName[idx] == \"main\""
       return value="false"
@@ -212,7 +220,21 @@ fn name=owncallable returns=boolean export=true
           return value="true"
     return value="false"
 
-fn name=ownexportkind params="module:number,name:string,fnModule:number[],fnName:string[],fnReturns:string[],fnAsync:number[],fnStream:number[],fnHandlers:number[],fnParams:string[],fnExport:number[],paramFn:number[],classModule:number[],className:string[],classExport:number[]" returns=string export=true
+fn name=ownexportkind returns=string export=true
+  param name=module type=number
+  param name=name type=string
+  param name=fnModule type=number[]
+  param name=fnName type=string[]
+  param name=fnReturns type=string[]
+  param name=fnAsync type=number[]
+  param name=fnStream type=number[]
+  param name=fnHandlers type=number[]
+  param name=fnParams type=string[]
+  param name=fnExport type=number[]
+  param name=paramFn type=number[]
+  param name=classModule type=number[]
+  param name=className type=string[]
+  param name=classExport type=number[]
   handler lang="kern"
     for name=i6 from=0 to="fnModule.length"
       if cond="fnModule[i6] == module"

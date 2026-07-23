@@ -319,7 +319,20 @@ fn name=mapKnownBefore params="callId:number,callStmt:number[],callFn:string[],c
                   return value="true"
     return value="false"
 
-fn name=mapCallRejectDetail params="callId:number,callStmtKind:string[],callMemberProp:string[],callStmt:number[],callFn:string[],callMemberObject:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],stmtKind:string[],stmtFn:string[],stmtTarget:string[]" returns=string
+fn name=mapCallRejectDetail returns=string
+  param name=callId type=number
+  param name=callStmtKind type=string[]
+  param name=callMemberProp type=string[]
+  param name=callStmt type=number[]
+  param name=callFn type=string[]
+  param name=callMemberObject type=string[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtTarget type=string[]
   handler lang="kern"
     if cond="callMemberProp[callId] == \"set\""
       if cond="callStmtKind[callId] != \"do\""

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { measureCanonicalizerCoverage } from './coverage.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM464 } from './coverage-prerequisite-m4-64.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import {
   loadPublishedCanonicalizerNodeRowHeadroomM463,
@@ -64,16 +65,25 @@ test('M4.64 promotes only the authenticated node-row ceiling', () => {
   assert.deepEqual(overNode?.expectedRows, { nodes: 29, properties: 31, values: 42 });
 });
 
-test('M4.64 exposes exactly the frozen four-function parameter queue', () => {
+test('M4.65 consumes exactly the frozen M4.64 four-function parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 73);
+  assert.equal(coverage.baseCompleteFunctions, 77);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    30,
+    26,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 26);
+  assert.deepEqual(
+    loadPublishedCanonicalizerPrerequisiteM464().record.parameterMigration,
+    EXPECTED_QUEUE,
+  );
 });
 
 test('M4.64 freezes exact M4.63 runtime evidence before policy moves', () => {

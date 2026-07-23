@@ -14,8 +14,12 @@ import {
 import {
   loadPublishedCanonicalizerPrerequisiteM460,
 } from './kern-canonicalizer/coverage-prerequisite-m4-60.mjs';
+import {
+  loadPublishedCanonicalizerPrerequisiteM464,
+} from './kern-canonicalizer/coverage-prerequisite-m4-64.mjs';
 import { assertM457ParameterMigrations } from './kern-canonicalizer/coverage-m4-57-parameter-migrations.mjs';
 import { assertM461ParameterMigration } from './kern-canonicalizer/coverage-m4-61-parameter-migration.mjs';
+import { assertM465ParameterMigrations } from './kern-canonicalizer/coverage-m4-65-parameter-migrations.mjs';
 import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
 import {
   loadCanonicalizerResidualAnalysisHandoff,
@@ -65,6 +69,7 @@ import {
   formatM461ParameterMigrationStatus,
   formatM462ResidualAnalysisStatus,
   formatM463NodeRowHeadroomStatus,
+  formatM465ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -91,6 +96,7 @@ const m448PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM448();
 const m452PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM452();
 const m456PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM456();
 const m460PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM460();
+const m464PrerequisiteHandoff = loadPublishedCanonicalizerPrerequisiteM464();
 const residualAnalysisHandoff = loadCanonicalizerResidualAnalysisHandoff();
 const residualAnalysis = residualAnalysisHandoff.record;
 const m438ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM438();
@@ -118,6 +124,7 @@ const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
+assertM465ParameterMigrations(coverage);
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
@@ -261,11 +268,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.60 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 73, 'live M4.61 base completion must remain exactly 73/104');
+  assert.equal(actual.baseCompleteFunctions, 77, 'live M4.65 base completion must remain exactly 77/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    30,
-    'live M4.61 fn.params blocker count must remain exactly 30',
+    26,
+    'live M4.65 fn.params blocker count must remain exactly 26',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -278,6 +285,42 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
+  assert.equal(prerequisite.selectedPrerequisite, null);
+  assert.deepEqual(prerequisite.prerequisiteRanking, []);
+  assert.deepEqual(prerequisite.ranking, []);
+  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
+  assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
+  assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 26);
+  assert.equal(
+    prerequisite.exhaustion.reasonAssignmentsDigest,
+    '68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6',
+  );
+  assert.equal(m456PrerequisiteHandoff.digest, '13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b');
+  assert.equal(m456PrerequisiteHandoff.sourceCommit, '8928684827706b2abac1f4906f785a389afb91c6');
+  assert.equal(m460PrerequisiteHandoff.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');
+  assert.equal(m460PrerequisiteHandoff.sourceCommit, '828283e9694db3017dfc0121b6db8d6420f3988a');
+  assert.deepEqual(m460PrerequisiteHandoff.record.parameterMigration, {
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 1,
+    witnesses: [{
+      id: 'examples/selfhost-validator/validator.kern#19:sortstrings',
+      parameterRows: 1,
+      profileRows: { nodes: 25, properties: 43, values: 266 },
+      tool: 'validator',
+    }],
+  });
+  assert.equal(m464PrerequisiteHandoff.digest,
+    '9bba0c10b55e732392fa68dd7f7174135a4ff380875e15ea787e045b46d5610f');
+  assert.equal(m464PrerequisiteHandoff.sourceCommit,
+    '9f60e3c3a43dd029626466223effbc08b51696b2');
+  assert.deepEqual(m464PrerequisiteHandoff.record.parameterMigration, {
     completeFunctions: 4,
     completeTools: 2,
     migratedParameterRows: 37,
@@ -307,32 +350,6 @@ if (process.argv.includes('--write')) {
         tool: 'validator',
       },
     ],
-  });
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.prerequisiteRanking, []);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
-  assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 26);
-  assert.equal(
-    prerequisite.exhaustion.reasonAssignmentsDigest,
-    '68108254cf57ba70b019f6556c6808e585eeb63355078b7f9c243271fdb989c6',
-  );
-  assert.equal(m456PrerequisiteHandoff.digest, '13a420892453e03eed314ddad2f50ceeed4fe0f01e50cc3ee1a72a253caad26b');
-  assert.equal(m456PrerequisiteHandoff.sourceCommit, '8928684827706b2abac1f4906f785a389afb91c6');
-  assert.equal(m460PrerequisiteHandoff.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');
-  assert.equal(m460PrerequisiteHandoff.sourceCommit, '828283e9694db3017dfc0121b6db8d6420f3988a');
-  assert.deepEqual(m460PrerequisiteHandoff.record.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 1,
-    witnesses: [{
-      id: 'examples/selfhost-validator/validator.kern#19:sortstrings',
-      parameterRows: 1,
-      profileRows: { nodes: 25, properties: 43, values: 266 },
-      tool: 'validator',
-    }],
   });
   assert.equal(m444PrerequisiteHandoff.digest, '9741650d8567016fb029a8e51b4706da1da131d9870c94a3221b4550792dee01');
   assert.equal(m444PrerequisiteHandoff.sourceCommit, 'dd977ff493250127e2e416ffb4e3ab68985a61dc');
@@ -905,6 +922,7 @@ process.stdout.write(
   ` ${formatM461ParameterMigrationStatus(m460PrerequisiteHandoff)}` +
   ` ${formatM462ResidualAnalysisStatus(m462ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM463NodeRowHeadroomStatus(m463NodeRowHeadroom)}` +
+  ` ${formatM465ParameterMigrationStatus(m464PrerequisiteHandoff)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

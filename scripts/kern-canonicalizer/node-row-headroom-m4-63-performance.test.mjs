@@ -14,7 +14,6 @@ import {
   CANONICALIZER_COMPOSITE_PATH,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM463 } from './node-row-headroom-m4-63.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
@@ -38,8 +37,10 @@ function structuralWitness(row) {
   const sourceRoot = (parsed.root.children ?? [])[identity.ordinal];
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, identity.name);
-  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
+  assert.equal(sourceRoot.props.params, undefined);
+  const parameters = sourceRoot.children.filter(({ type }) => type === 'param');
   assert.equal(parameters.length, row.parameterRows);
+  const root = sourceRoot;
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
   const tables = flattenKirRoots([artifact.root]);

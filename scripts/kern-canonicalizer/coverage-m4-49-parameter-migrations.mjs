@@ -59,14 +59,14 @@ export const M449_PARAMETER_MIGRATION_TARGETS = [
 
 const FILE_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/checker.kern', {
-    lines: 434,
+    lines: 447,
     remainingLegacy: [
       'rejectLine', 'isSurfaceKind', 'argProvenanced', 'paramCallsitesOk',
       'indexRejectDetail', 'mapKeyToken',
-      'mapKnownBefore', 'mapCallRejectDetail', 'callRejectCode', 'checkModule',
+      'mapKnownBefore', 'callRejectCode', 'checkModule',
     ],
     roots: 24,
-    sha256: '61453a2f2aec5de05973bf0c6a0c9e84e9f00d7d501a80993ea02f57a518fd2d',
+    sha256: 'a2aa6ade4a9eb216b8264435bec7b2d63d556e4b980ddc0f8130f87b946d0d16',
   }],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', {
     lines: 192,
@@ -75,19 +75,18 @@ const FILE_CONTRACTS = new Map([
     sha256: 'ffd3f352a7137d846e23a701672b91f99159d624027abaddb2f1408338544541',
   }],
   ['examples/selfhost-validator/validator.kern', {
-    lines: 514,
+    lines: 536,
     remainingLegacy: [
-      'isreserved', 'fnokat', 'ownexportkind', 'exportkind',
-      'validate',
+      'isreserved', 'exportkind', 'validate',
     ],
     roots: 21,
-    sha256: '99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4',
+    sha256: 'a9d278832edf050f3a96699980d88fa740f345d85192222b241bb6cc3ac2a2ee',
   }],
 ]);
 
 const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    '68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020'],
+    'd3f2634afd1a52d27a50748a94e25cad67870eb9b54adec329939935e8818645'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',

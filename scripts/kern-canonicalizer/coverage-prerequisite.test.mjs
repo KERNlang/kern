@@ -13,35 +13,10 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 4,
-  completeTools: 2,
-  migratedParameterRows: 37,
-  witnesses: [
-    {
-      id: 'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
-      parameterRows: 2,
-      profileRows: { nodes: 27, properties: 39, values: 288 },
-      tool: 'checker',
-    },
-    {
-      id: 'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
-      parameterRows: 13,
-      profileRows: { nodes: 28, properties: 42, values: 309 },
-      tool: 'checker',
-    },
-    {
-      id: 'examples/selfhost-validator/validator.kern#10:fnokat',
-      parameterRows: 8,
-      profileRows: { nodes: 28, properties: 38, values: 270 },
-      tool: 'validator',
-    },
-    {
-      id: 'examples/selfhost-validator/validator.kern#12:ownexportkind',
-      parameterRows: 14,
-      profileRows: { nodes: 28, properties: 48, values: 260 },
-      tool: 'validator',
-    },
-  ],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
 const EXPECTED_EXHAUSTION = {
@@ -69,7 +44,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.64 exposes the exact node-row parameter tranche and preserves bounded exhaustion', () => {
+test('M4.65 consumes the exact M4.64 tranche and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -81,7 +56,7 @@ test('M4.64 exposes the exact node-row parameter tranche and preserves bounded e
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.64 parameter-ready frontier', () => {
+test('format 3 rejects drift in the M4.65 exhausted parameter frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -102,9 +77,9 @@ test('format 3 rejects drift in the M4.64 parameter-ready frontier', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 0; },
-    (copy) => { copy.parameterMigration.completeTools = 0; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 0; },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
+    (copy) => { copy.parameterMigration.completeTools = 1; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
     (copy) => { copy.parameterMigration.witnesses = [{ id: 'future' }]; },
   ];
   for (const mutate of mutations) {
@@ -117,22 +92,22 @@ test('format 3 rejects drift in the M4.64 parameter-ready frontier', () => {
   }
 });
 
-test('M4.64 preserves the exact sortstrings transition below the new parameter queue', () => {
+test('M4.65 preserves the exact promoted profile after consuming the M4.64 queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 73,
+    baseCompleteFunctions: 77,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
     canonicalizerPolicyDigest: '589de16d30335145b89dfe50f57721ae2424f580b659749d7b5de8f4f771257c',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: '1ce05b6867a583aef963ee5a8cd087c1865ca88173dc8c4432d3680a382078ae',
+    corpusDigest: 'e7acd4b5bcec72247b44347e90664fbe064d56380994078b312984e4ce68733c',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '00517a1a5e8958ed4158310a2c5c4815c9a8cf673d98e73f45c41f4edbae408e',
+    coveragePolicyDigest: 'b3f720fb34255cf93466430c17924fd9f3b6f81b588cae8a0526dc598ed8cfcf',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '4ef2c486bbff42c35795789ac66e362863a357f5e7d6ca10dd77525576dc761d',
-    legacyParameterBlockers: 30,
+    functionFactsDigest: '5b2b03d3e5659e391462f3591416d3d032bf9becef42658396bf894af86bc4d1',
+    legacyParameterBlockers: 26,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

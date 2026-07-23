@@ -34,13 +34,13 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.61 preserves the exact M4.45 parameter migrations after sortstrings migration', () => {
+test('M4.65 preserves the exact M4.45 parameter migrations after queue consumption', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 73);
+  assert.equal(coverage.baseCompleteFunctions, 77);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    30,
+    26,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 28,
@@ -55,15 +55,10 @@ test('M4.61 preserves the exact M4.45 parameter migrations after sortstrings mig
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 4,
-    completeTools: 2,
-    migratedParameterRows: 37,
-    witnesses: [
-      'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
-      'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
-      'examples/selfhost-validator/validator.kern#10:fnokat',
-      'examples/selfhost-validator/validator.kern#12:ownexportkind',
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
@@ -102,7 +97,7 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
     checkerMain.toString('utf8'),
     generateCheckerMainKern(),
   );
-  assert.equal(sha256(checkerMain), '68b80ab1a720bc2de985fb624ce6f5d543c981d56fcd78816bc44b860a128020');
+  assert.equal(sha256(checkerMain), 'd3f2634afd1a52d27a50748a94e25cad67870eb9b54adec329939935e8818645');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
   assert.equal(built.compositeBytes.length, 50_476);

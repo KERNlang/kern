@@ -120,7 +120,7 @@ test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
   }
 });
 
-test('M4.61 preserves the M4.60 while promotion and consumes its immutable queue', () => {
+test('M4.65 preserves the M4.60 while promotion after consuming the M4.64 queue', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
   assert.equal(policy.base.nodeKinds.includes('while'), true);
@@ -129,14 +129,14 @@ test('M4.61 preserves the M4.60 while promotion and consumes its immutable queue
   assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(
     sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
-    '99717668519d853fa83805189626957c1565a415dbfd135c9fe3b1abccfb46a4',
+    'a9d278832edf050f3a96699980d88fa740f345d85192222b241bb6cc3ac2a2ee',
   );
 
   const coverage = measureCanonicalizerCoverage(policy);
-  assert.equal(coverage.baseCompleteFunctions, 73);
+  assert.equal(coverage.baseCompleteFunctions, 77);
   assert.equal(coverage.functions.length, 104);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
-    excludedProperties.includes('fn.params')).length, 30);
+    excludedProperties.includes('fn.params')).length, 26);
   assert.equal(
     coverage.prerequisiteProvenances.at(-1).digest,
     M458_DIGEST,
@@ -149,15 +149,10 @@ test('M4.61 preserves the M4.60 while promotion and consumes its immutable queue
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 4,
-    completeTools: 2,
-    migratedParameterRows: 37,
-    witnesses: [
-      'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
-      'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
-      'examples/selfhost-validator/validator.kern#10:fnokat',
-      'examples/selfhost-validator/validator.kern#12:ownexportkind',
-    ],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   const publishedM460 = loadPublishedCanonicalizerPrerequisiteM460();
   assert.equal(publishedM460.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');

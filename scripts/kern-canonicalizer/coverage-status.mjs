@@ -109,6 +109,13 @@ export function formatM461ParameterMigrationStatus(handoff) {
     `${migration.migratedParameterRows}-row parameter queue.`;
 }
 
+export function formatM465ParameterMigrationStatus(handoff) {
+  const migration = handoff.record.parameterMigration;
+  const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';
+  return `M4.65 consumes the exact M4.64 ${migration.completeFunctions}-${functionLabel}/` +
+    `${migration.migratedParameterRows}-row parameter queue.`;
+}
+
 export function formatPublishedResidualAnalysisStatus(selectedNextAction) {
   return formatResidualAnalysisStatus(
     'M4.38 published analysis',
