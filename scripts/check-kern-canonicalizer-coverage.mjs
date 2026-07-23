@@ -35,6 +35,9 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM454,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-54.mjs';
 import {
+  loadPublishedCanonicalizerResidualAnalysisM462,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-62.mjs';
+import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
 } from './kern-canonicalizer/dual-row-headroom-m4-55.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
@@ -57,6 +60,7 @@ import {
   formatM457ParameterMigrationStatus,
   formatM458WhilePrerequisiteStatus,
   formatM461ParameterMigrationStatus,
+  formatM462ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -72,6 +76,7 @@ const m447NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m
 const m450ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-50.json', import.meta.url);
 const m451PropertyRowHeadroomUrl = new URL('./kern-canonicalizer/property-row-headroom-m4-51.json', import.meta.url);
 const m454ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-54.json', import.meta.url);
+const m462ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-62.json', import.meta.url);
 const m455DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-55.json', import.meta.url);
 const coverage = measureCanonicalizerCoverage();
 const actual = summarizeCanonicalizerCoverage(coverage);
@@ -99,6 +104,8 @@ const m451PropertyRowHeadroomHandoff = loadPublishedCanonicalizerPropertyRowHead
 const m451PropertyRowHeadroom = m451PropertyRowHeadroomHandoff.record;
 const m454ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM454();
 const m454ResidualAnalysis = m454ResidualAnalysisHandoff.record;
+const m462ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM462();
+const m462ResidualAnalysis = m462ResidualAnalysisHandoff.record;
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -623,6 +630,36 @@ if (process.argv.includes('--write')) {
     m455DualRowHeadroom.witnesses.reduce((total, { parameterRows }) => total + parameterRows, 0),
     102,
   );
+  assertCoverageSummary(m462ResidualAnalysisUrl, m462ResidualAnalysis);
+  assert.equal(
+    m462ResidualAnalysisHandoff.digest,
+    '5339ffa5c128efbe857b53e64a67092d72b8b6b6cbe6cc3ea16c96f4939e79cc',
+  );
+  assert.equal(
+    m462ResidualAnalysisHandoff.inputCommit,
+    'f36a870843ccdd222e8cf2e7595c0e205ed545bf',
+  );
+  assert.equal(m462ResidualAnalysis.assignments.length, 30);
+  assert.equal(
+    m462ResidualAnalysis.assignmentsDigest,
+    '6a2d680c3dfe3fdbddf24f5b6cd383e03d5c2b7ed1fdf5667ec6ea94551c40e5',
+  );
+  assert.equal(m462ResidualAnalysis.frontier.evaluatedObservedSettings, 12);
+  assert.equal(m462ResidualAnalysis.frontier.profileRowsAvailableFunctions, 14);
+  assert.equal(m462ResidualAnalysis.frontier.actionableCandidates.length, 12);
+  assert.deepEqual(m462ResidualAnalysis.selectedNextAction, {
+    changedLimits: ['maxNodeRows'],
+    completeFunctions: 4,
+    completeTools: 2,
+    limits: { maxNodeRows: 28, maxPropertyRows: 50, maxValueRows: 388 },
+    totalDelta: 3,
+    witnesses: [
+      'examples/capstone-checker-subset/checker-while.kern#1:isSafeMagnitude',
+      'examples/capstone-checker-subset/checker.kern#22:mapCallRejectDetail',
+      'examples/selfhost-validator/validator.kern#10:fnokat',
+      'examples/selfhost-validator/validator.kern#12:ownexportkind',
+    ],
+  });
   assert.equal(
     prerequisiteHandoffs[0].digest,
     '3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869',
@@ -793,7 +830,7 @@ process.stdout.write(
   (prerequisite.parameterMigration.completeFunctions > 0
     ? 'next action parameter migration.'
     : prerequisite.selectedPrerequisite === null
-      ? 'bounded active-family exhaustion; next action residual blocker analysis.'
+      ? 'bounded active-family exhaustion.'
     : `next prerequisite ${prerequisite.selectedPrerequisite.family} from a ` +
       `${prerequisite.minimumFamilyCount}-family closure.`) +
   ` ${formatM446ResidualAnalysisStatus(m446ResidualAnalysis.selectedNextAction)}` +
@@ -806,6 +843,7 @@ process.stdout.write(
   ` ${formatM457ParameterMigrationStatus(m456PrerequisiteHandoff.record)}` +
   ` ${formatM458WhilePrerequisiteStatus(prerequisiteHandoffs[5])}` +
   ` ${formatM461ParameterMigrationStatus(m460PrerequisiteHandoff)}` +
+  ` ${formatM462ResidualAnalysisStatus(m462ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

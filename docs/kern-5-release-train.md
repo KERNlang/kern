@@ -3200,6 +3200,36 @@ trusted-publishing/provenance configuration is inspected.
     use the measured residual blocker evidence and must not infer an
     exception-flow promotion from this zero-completion closure.
 
+  - [x] M4.62 publishes the exact current 30-function residual analysis
+    without changing KERN source, generated consumers, the 25/50/388 profile,
+    the sole active `exception-flow` family, parser, runtime, KIR, ABI,
+    packages, or public APIs. Format-3 measurement reproduces assignment digest
+    `6a2d680c3dfe3fdbddf24f5b6cd383e03d5c2b7ed1fdf5667ec6ea94551c40e5`
+    across all 30 residual functions. Fourteen functions expose profile rows,
+    yielding 12 distinct observed settings and 12 positive candidates under
+    the unchanged canonical ranking. The deterministic winner raises only
+    `maxNodeRows` from 25 to 28, keeps property/value limits at 50/388, and
+    completes four functions across checker and validator: `isSafeMagnitude`,
+    `mapCallRejectDetail`, `fnokat`, and `ownexportkind`, totaling 37 parameter
+    rows. The immutable receipt authenticates at
+    `5339ffa5c128efbe857b53e64a67092d72b8b6b6cbe6cc3ea16c96f4939e79cc`;
+    coverage and prerequisite summaries authenticate at
+    `ea14f05bc46fbcbba7d56ccfbb748c65de1f3c4080708736a671d42d366bb95c`
+    and `fa75b97922ab4ee9f1eb16cf28f50755a9524b3763ec68d0af866560c959b247`.
+    RED, exact receipt mutation, decorated-data, M4.54 history, fresh-process,
+    status, prerequisite, and complete residual-history tests pass 41/41. The
+    complete Node 22 fitness wall passed, followed after review fixes by the
+    complete canonicalizer gate at 218/218 plus all 55/8/3/235 fixture classes.
+    Automatic high-risk role-lens review `review-1784800561443-zzz2m9`
+    completed 6/6 with zero verified findings. Its two material current-slice
+    concerns were fixed by executing the live analyzer against the frozen
+    receipt and removing a stale next-action status phrase. Four deliberate
+    immutable-milestone duplication concerns, one speculative entry-point
+    hardening concern, and nine non-material nits are deferred. No unresolved
+    material finding remains. KERN 5 remains incomplete: M4.63 must
+    authenticate exact structural runtime headroom for all four witnesses
+    before any node-row promotion.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
