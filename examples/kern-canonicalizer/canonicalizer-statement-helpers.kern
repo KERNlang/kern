@@ -93,6 +93,11 @@ fn name=validstatement params="id:number,returnType:string,nodeKind:string[],nod
       if cond="fromExpression == \"\" || toExpression == \"\""
         return value="false"
       return value="validstatementlist(id, returnType, nodeKind, nodeParent, nodeOrder, propNode, propKey, propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
+    if cond="kind == \"while\""
+      let name=condId value="propid(id, \"cond\", propNode, propKey, propValue)"
+      if cond="condId <= 0 || propcount(id, propNode) != 1 || exprsource(condId, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool) == \"\""
+        return value="false"
+      return value="validstatementlist(id, returnType, nodeKind, nodeParent, nodeOrder, propNode, propKey, propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
     return value="false"
 
 fn name=emitstatementlist returns="string[]" export=true
@@ -167,6 +172,10 @@ fn name=emitstatement params="id:number,level:number,returnType:string,nodeKind:
       let name=fromExpression value="exprsource(fromId, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
       let name=toExpression value="exprsource(toId, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
       do value="out.push(prefix + \"for name=\" + name + \" from=\" + quotesource(fromExpression) + \" to=\" + quotesource(toExpression))"
+    if cond="kind == \"while\""
+      let name=condId value="propid(id, \"cond\", propNode, propKey, propValue)"
+      let name=condition value="exprsource(condId, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
+      do value="out.push(prefix + \"while cond=\" + quotesource(condition))"
     let name=children value="emitstatementlist(id, level + 1, returnType, nodeKind, nodeParent, nodeOrder, propNode, propKey, propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
     for name=i from=0 to="children.length"
       do value="out.push(children[i])"

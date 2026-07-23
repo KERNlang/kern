@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and six-record prerequisite history after M4.58', () => {
+test('the current corpus preserves selection and six-record prerequisite history after M4.59', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -389,7 +389,7 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('the current optimized executable preserves every M4.36-promoted family', () => {
+test('the current while-capable executable preserves every M4.36-promoted family', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -404,11 +404,11 @@ test('the current optimized executable preserves every M4.36-promoted family', (
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 49679, 'M4.57 must bind the exact migrated KERN byte count');
+  assert.equal(canonicalizerSource.length, 50476, 'M4.59 must bind the exact while-capable KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23',
-    'M4.57 must bind the exact migrated KERN digest',
+    '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
+    'M4.59 must bind the exact while-capable KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);
@@ -416,6 +416,7 @@ test('the current optimized executable preserves every M4.36-promoted family', (
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"member\\" && fieldCount == 3"/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\" && fieldCount == 3"/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"while\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.36');
@@ -427,6 +428,7 @@ test('the current optimized executable preserves every M4.36-promoted family', (
   assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
+  assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), true);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
@@ -436,6 +438,8 @@ test('the current optimized executable preserves every M4.36-promoted family', (
   assert.equal(policy.base.nodeKinds.includes('assign'), true);
   assert.equal(policy.base.nodeKinds.includes('do'), true);
   assert.equal(policy.base.propertyKeys.includes('do.value'), true);
+  assert.equal(policy.base.nodeKinds.includes('while'), false);
+  assert.equal(policy.base.propertyKeys.includes('while.cond'), false);
   assert.equal(policy.base.promotions[1].family, 'conditional');
   assert.equal(
     policy.base.promotions[1].provenanceDigest,

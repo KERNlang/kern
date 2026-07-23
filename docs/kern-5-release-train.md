@@ -3087,6 +3087,47 @@ trusted-publishing/provenance configuration is inspected.
     validation/emission for this frozen `while-iteration` profile without
     promotion or parameter migration.
 
+  - [x] M4.59 implements exact `while-iteration` validation and emission in
+    the KERN-authored canonicalizer statement member. `while` owns exactly one
+    required structural `cond` expression plus a recursively validated and
+    emitted statement list. Four golden fixtures cover binding/assignment,
+    nesting, conditional bodies, and an empty body; nine hostile fixtures kill
+    missing, duplicate, excluded, future, non-expression, unsupported, and
+    invalid-child variants. The 182-line statement member and 50,476-byte
+    composed executable authenticate at
+    `adfa0c49cee230106ba7cff2249a0306f98aefc009d7e2581a3ffc622f6e9ff7`
+    and
+    `94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56`;
+    the composition record authenticates at
+    `cab6c1e38591e0a75cf717691c9d7247b623ddc849bc65bdf021cdcd3b914995`.
+    Live coverage remains profile M4.36 at 72/104 base-complete with 31 legacy
+    `fn.params` blockers. `while-iteration` remains selected and unpromoted at
+    two catalog facts/two occurrences; validator `sortstrings` remains the
+    exact one-function, one-tool, one-row witness; and implementation
+    provenance remains the immutable `do-statement` record. Policy, coverage,
+    and prerequisite receipts authenticate at
+    `6f7c62d5e74253a158a29c037ca8eafe56466f431fa9ec0fe21292bccc84954c`,
+    `3ff15ee3068b4a1d1ed273c5a33a269d45948f42c2980f3c4056c201c024a91c`,
+    and
+    `be873c3b08c4da4b16b318776c68cf1bc84d0ba638faac749f770621fca1860f`.
+    Focused Node 22 canonicalizer gates pass 207/207 plus 55/8/3/235 fixture
+    sets. The complete Node 22.22 `pnpm fitness:kern-5` wall passes, including
+    all three canonicalizer replays, 434/434 cross-target fixtures, 109/109
+    class fixtures, 233/233 native assertions at 100% declared coverage, and
+    40 whole-app fixtures across three legs. Mandatory high-risk role-lens
+    review `review-1784788924213-73zblw` completed with all 6/6 usable
+    reviewers, zero verified findings, six needs-check observations, and four
+    nits. Security, correctness, performance, and one overall lens were clean.
+    The observations were resolved against the actual contracts:
+    `composition.mjs` derives byte lengths and hashes, atomically writes the
+    composed source and receipt, and rejects drift; repeated historical pins
+    intentionally preserve immutable milestone contracts; and the remaining
+    source-section and fixture-array suggestions are non-blocking test
+    maintainability debt. No material finding remains unresolved. KERN 5
+    remains incomplete; the next slice must promote only the exact frozen
+    `while-iteration` family before any `sortstrings` parameter migration or
+    subsequent-family work.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

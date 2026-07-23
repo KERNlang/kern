@@ -152,6 +152,24 @@ test('do validation and emission stay in the KERN statement member', () => {
   assert.ok(emissionSource.includes('\\"do value=\\" + quotesource(expression)'), 'do emission must quote canonical value');
 });
 
+test('while-iteration validation and emission stay in the KERN statement member', () => {
+  const validationEnd = statementSource.indexOf('\nfn name=emitstatementlist');
+  const validationSource = statementSource.slice(0, validationEnd);
+  const emissionSource = statementSource.slice(validationEnd);
+  const branch = 'if cond="kind == \\"while\\""';
+  assert.ok(validationSource.includes(branch), 'missing KERN-owned while validation');
+  assert.ok(emissionSource.includes(branch), 'missing KERN-owned while emission');
+  assert.ok(
+    validationSource.includes('propid(id, \\"cond\\", propNode, propKey, propValue)'),
+    'while validation omitted cond',
+  );
+  assert.ok(validationSource.includes('propcount(id, propNode) != 1'), 'while must reject every extra property');
+  assert.ok(validationSource.includes('exprsource(condId'), 'while conditions need recursive expression validation');
+  assert.ok(validationSource.includes('validstatementlist(id'), 'while bodies must validate recursively');
+  assert.ok(emissionSource.includes('let name=condition value="exprsource(condId'), 'while emission must canonicalize cond');
+  assert.ok(emissionSource.includes('\\"while cond=\\" + quotesource(condition)'), 'while emission must quote canonical cond');
+});
+
 test('binary ownership stays in main and mechanically matches the structural operator catalog', () => {
   assert.equal(helperSource.includes('validbinaryop'), false);
   assert.equal(helperSource.includes('\\"binary\\"'), false);
@@ -290,7 +308,7 @@ test('the pre-M4.3b semantic golden corpus bytes remain unchanged', () => {
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
     !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-') &&
     !id.startsWith('counted-iteration-') && !id.startsWith('binding-') &&
-    !id.startsWith('unary-') && !id.startsWith('do-'));
+    !id.startsWith('unary-') && !id.startsWith('do-') && !id.startsWith('while-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

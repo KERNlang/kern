@@ -194,7 +194,7 @@ const UNCHANGED_GENERATED = new Map([
   ['examples/selfhost-validator/main.kern',
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
-    '9f572824fb6f7424fa87559b03c1c8291ad347c9c5035e7336e3760d739d2c03'],
+    'adfa0c49cee230106ba7cff2249a0306f98aefc009d7e2581a3ffc622f6e9ff7'],
 ]);
 
 function sha256(bytes) {

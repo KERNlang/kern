@@ -33,7 +33,7 @@ const EXPECTED_RANKING = [{
   }],
 }];
 
-test('M4.57 consumes the authenticated dual-row parameter frontier first', () => {
+test('M4.59 implements while while preserving the authenticated prerequisite frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'selected');
@@ -49,7 +49,7 @@ test('M4.57 consumes the authenticated dual-row parameter frontier first', () =>
   assert.deepEqual(actual.selectedPrerequisite, actual.prerequisiteRanking[0]);
 });
 
-test('format 3 rejects drift in the M4.57 selected frontier', () => {
+test('format 3 rejects drift in the M4.59 selected frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -83,21 +83,21 @@ test('format 3 rejects drift in the M4.57 selected frontier', () => {
   }
 });
 
-test('M4.57 binds the exact consumed dual-row transition', () => {
+test('M4.59 binds the exact while implementation transition', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 72,
     baseId: 'kern.kir-canonicalizer.profile.m4.36',
-    canonicalizerDigest: 'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23',
+    canonicalizerDigest: '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
     canonicalizerPolicyDigest: '5aeba11a3c26e7b8025f28cd0c6a8ba1b8de50bf2060ae311744a7527767c67d',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: 'e42e678e3a8067073c5e164eaffc4e1fda1ab769ad1e417e1075eba933e72a4b',
+    corpusDigest: 'b4b132c3c968bb6f02aca4eecd3f2663ba2a9a74911d876db85d9f20424e2ec3',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'ca8362845bc2460dde40596674ded29ff8aab3eb4de40a28fd7789cc558937b1',
+    coveragePolicyDigest: '6f7c62d5e74253a158a29c037ca8eafe56466f431fa9ec0fe21292bccc84954c',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: '962d0bc6b57a5158fdc8c0f6dfc5c1aebf5ee0c2e53fe4e352241cc75b91f3b5',
+    functionFactsDigest: '56985b9376904e4604a8c80b07e8bb1adda94c7e73c55db68a24de17e48a5252',
     legacyParameterBlockers: 31,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,

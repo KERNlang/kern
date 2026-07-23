@@ -92,10 +92,10 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
   assert.equal(sha256(checkerMain), 'efebd94b0fc27368eb9f69ae60491d11d6dc0540937a430f4abdf96db45620bb');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
-  assert.equal(built.compositeBytes.length, 49_679);
+  assert.equal(built.compositeBytes.length, 50_476);
   assert.equal(
     sha256(built.compositeBytes),
-    'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23',
+    '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56',
   );
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);

@@ -20,6 +20,7 @@ import {
 } from './review-boundary-fixtures.mjs';
 import { SEMANTIC_BOUNDARY_FIXTURES } from './semantic-boundary-fixtures.mjs';
 import { UNARY_HOSTILE_FIXTURES, UNARY_VALID_FIXTURES } from './unary-fixtures.mjs';
+import { WHILE_HOSTILE_FIXTURES, WHILE_VALID_FIXTURES } from './while-fixtures.mjs';
 
 export const VALID_FIXTURES = [
   {
@@ -176,6 +177,7 @@ export const VALID_FIXTURES = [
   ...BINDING_VALID_FIXTURES,
   ...UNARY_VALID_FIXTURES,
   ...DO_VALID_FIXTURES,
+  ...WHILE_VALID_FIXTURES,
   ESCAPED_OUTPUT_BOUNDARY_FIXTURE,
   PROFILE_BOUNDARY_FIXTURE,
 ];
@@ -190,6 +192,7 @@ export const HOSTILE_FIXTURES = [
   ...BINDING_HOSTILE_FIXTURES,
   ...UNARY_HOSTILE_FIXTURES,
   ...DO_HOSTILE_FIXTURES,
+  ...WHILE_HOSTILE_FIXTURES,
   {
     id: 'empty-root-list',
     base: 'shuffled-identifier',

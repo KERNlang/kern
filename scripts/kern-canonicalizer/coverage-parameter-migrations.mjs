@@ -366,7 +366,7 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.deepEqual(statementHelperDocument.diagnostics, []);
   const statementHelperRoots = statementHelperDocument.root.children.filter(({ type }) => type === 'fn');
   const indentation = statementHelperRoots.find(({ props }) => props.name === 'indentation');
-  assert.equal(statementHelperSource.split('\n').length - 1, 173);
+  assert.equal(statementHelperSource.split('\n').length - 1, 182);
   assert.equal(indentation?.props.params, undefined);
   assert.deepEqual(
     indentation?.children.filter(({ type }) => type === 'param').map(({ props }) => [props.name, props.type]),

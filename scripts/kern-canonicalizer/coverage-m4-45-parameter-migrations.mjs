@@ -62,13 +62,13 @@ const GENERATED_ARTIFACT_CONTRACTS = new Map([
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    'cd182decf48bad672bbae25b8f74aecc13dd7d308379167c42e7230cf8e3cd23'],
+    '94ed7ac5d33f30d776f4171ee60d3c50fcf703fad97cf3734e629f9974007f56'],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
     'ffd3f352a7137d846e23a701672b91f99159d624027abaddb2f1408338544541'],
   ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
-    '9f572824fb6f7424fa87559b03c1c8291ad347c9c5035e7336e3760d739d2c03'],
+    'adfa0c49cee230106ba7cff2249a0306f98aefc009d7e2581a3ffc622f6e9ff7'],
   ['scripts/kern-canonicalizer/composition.json',
-    '9e4c9d4b57e280c0ff0dc32f92bf6f79f992aaa076e6a6ee34dff8dbd1678d74'],
+    'cab6c1e38591e0a75cf717691c9d7247b623ddc849bc65bdf021cdcd3b914995'],
 ]);
 
 function sha256(bytes) {
