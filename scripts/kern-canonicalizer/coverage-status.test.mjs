@@ -28,6 +28,7 @@ import {
   formatM475DualRowHeadroomStatus,
   formatM478ResidualAnalysisStatus,
   formatM479PropertyRowHeadroomStatus,
+  formatM480RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -284,6 +285,16 @@ test('coverage status records the M4.79 property-row promotion NO-GO', () => {
       summary: { maxExactFloor: 56_238, promotionBudgetDeficit: 7_086 },
     }),
     'M4.79 structural runtime floor 56238 rejects property-row promotion by 7086 steps; M4.80 reduces canonicalizer runtime cost.',
+  );
+});
+
+test('coverage status records the M4.80 runtime-cost reduction', () => {
+  assert.equal(
+    formatM480RuntimeCostStatus({
+      baseline: { exactFloor: 56_238 },
+      result: { exactFloor: 35_998, floorReduction: 20_240, promotionHeadroom: 13_154 },
+    }),
+    'M4.80 reduces the exact structural runtime floor from 56238 to 35998 by 20240 steps with 13154 promotion headroom; M4.81 authenticates the property-row profile promotion.',
   );
 });
 

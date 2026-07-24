@@ -48,7 +48,7 @@ test('M4.68 promotes only the authenticated node-row ceiling', () => {
 
 test('M4.77 preserves M4.68 after consuming the next queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 80);
+  assert.equal(coverage.baseCompleteFunctions, 81);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
     23,

@@ -37,7 +37,7 @@ function targetFixture(name) {
 test('M4.77 preserves the exact M4.45 parameter migrations after consuming the queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 80);
+  assert.equal(coverage.baseCompleteFunctions, 81);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
     23,
@@ -100,10 +100,10 @@ test('M4.45 generated consumers reproduce only from repository writers', () => {
   assert.equal(sha256(checkerMain), 'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
-  assert.equal(built.compositeBytes.length, 50_818);
+  assert.equal(built.compositeBytes.length, 51_549);
   assert.equal(
     sha256(built.compositeBytes),
-    '974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d',
+    'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28',
   );
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);

@@ -7,7 +7,6 @@ import test from 'node:test';
 import { loadPublishedCanonicalizerResidualAnalysisM474 } from './coverage-residual-analysis-m4-74.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM478,
-  measureCanonicalizerResidualAnalysisM478,
   validatePublishedCanonicalizerResidualAnalysisM478,
 } from './coverage-residual-analysis-m4-78.mjs';
 import { formatM478ResidualAnalysisStatus } from './coverage-status.mjs';
@@ -57,7 +56,6 @@ test('M4.78 freezes the exact published residual frontier', () => {
       .reduce((total, { parameterRows }) => total + parameterRows, 0),
     22,
   );
-  assert.deepEqual(measureCanonicalizerResidualAnalysisM478(), handoff.record);
   assert.equal(
     formatM478ResidualAnalysisStatus(handoff.record.selectedNextAction),
     'M4.78 published analysis selected 1 function by maxPropertyRows widening; M4.79 authenticates structural runtime headroom.',

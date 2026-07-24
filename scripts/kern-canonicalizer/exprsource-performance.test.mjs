@@ -100,24 +100,23 @@ function assertRoundTrip(witness, envelope) {
   );
 }
 
-function assertExactFloor(witness, floor) {
-  assert.notEqual(executeWitness(witness, floor - 1).outcome, 'success');
-  const envelope = executeWitness(witness, floor);
+function assertPublishedFloorHeadroom(witness, floor) {
+  const envelope = executeWitness(witness, floor - 1);
   assert.ok(floor <= 49_152, `exact floor ${floor} exceeds the precommitted promotion budget`);
   assertRoundTrip(witness, envelope);
 }
 
-test('M4.45 direct 14/20/161 witness retains byte identity at its indexed floor', () => {
+test('M4.80 keeps the M4.45 direct 14/20/161 witness below its published floor', () => {
   const witness = directRepositoryWitness(
     'examples/capstone-checker-subset/checker-while.kern',
     2,
     'checkerSafeIntText',
     { nodes: 14, properties: 20, values: 161 },
   );
-  assertExactFloor(witness, 6_533);
+  assertPublishedFloorHeadroom(witness, 6_533);
 });
 
-test('M4.45 direct 12/15/388 witness fits the precommitted promotion budget', () => {
+test('M4.80 keeps the M4.45 direct 12/15/388 witness below its published floor', () => {
   const witness = directRepositoryWitness(
     'examples/kern-canonicalizer/canonicalizer.kern',
     1,
@@ -125,17 +124,17 @@ test('M4.45 direct 12/15/388 witness fits the precommitted promotion budget', ()
     { nodes: 12, properties: 15, values: 388 },
   );
   assert.equal(Math.floor(witness.policy.runtimeLimits.maxCollectionLength * 3 / 4), 49_152);
-  assertExactFloor(witness, 10_614);
+  assertPublishedFloorHeadroom(witness, 10_614);
 });
 
-test('M4.44 exact 16/29/197 direct admission fits the same non-composing budget', () => {
+test('M4.80 keeps the M4.44 exact 16/29/197 admission below its published floor', () => {
   const witness = directRepositoryWitness(
     'examples/capstone-assertion-engine/sort.kern',
     2,
     'sortStrings',
     { nodes: 16, properties: 29, values: 197 },
   );
-  assertExactFloor(witness, 9_926);
+  assertPublishedFloorHeadroom(witness, 9_926);
 });
 
 test('M4.43 bottom-up projection handles a deep binary expression', () => {

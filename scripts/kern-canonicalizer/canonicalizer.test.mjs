@@ -19,6 +19,14 @@ const statementSource = readFileSync(
 const source = `${helperSource}${statementSource}${mainSource}`;
 const policyUrl = new URL('./policy.json', import.meta.url);
 
+function topLevelFunctionSource(member, name) {
+  const marker = `fn name=${name}`;
+  const start = member.indexOf(marker);
+  assert.ok(start >= 0, `missing top-level function ${name}`);
+  const next = member.indexOf('\nfn name=', start + marker.length);
+  return member.slice(start, next < 0 ? undefined : next);
+}
+
 test('the KERN canonicalizer members are parseable, bounded, and contain the semantic source decisions', () => {
   for (const [name, member] of [
     ['expression helpers', helperSource],
@@ -54,6 +62,22 @@ test('one-based scalar table lookup delegates to strict List.index without a sca
   assert.equal(numberAt.includes('for name='), false);
   assert.ok(stringAt.includes('List.index(values, id - 1) ?? \\\"\\\"'));
   assert.ok(numberAt.includes('List.index(values, id - 1) ?? -1'));
+});
+
+test('M4.80 type projection delegates to one bounded value-table pass', () => {
+  const typeSource = topLevelFunctionSource(mainSource, 'typesource');
+  const typeFields = topLevelFunctionSource(helperSource, 'typefields');
+  assert.equal((typeSource.match(/^\s+for\b/gmu) ?? []).length, 0);
+  assert.equal(typeSource.includes('valuechildcount('), false);
+  assert.equal(typeSource.includes('recordfield('), false);
+  assert.ok(typeSource.includes('typefields(id, valueParent, valueRole)'));
+  assert.equal((typeFields.match(/^\s+for\b/gmu) ?? []).length, 1);
+  assert.equal(typeFields.includes('valuechildcount('), false);
+  assert.equal(typeFields.includes('recordfield('), false);
+  assert.ok(typeFields.includes('valueRole[i] == \\"record:kind\\"'));
+  assert.ok(typeFields.includes('valueRole[i] == \\"record:element\\"'));
+  assert.ok(typeFields.includes('if cond="kindId != 0"'));
+  assert.ok(typeFields.includes('if cond="elementId != 0"'));
 });
 
 test('conditional validation and emission stay in the KERN statement member', () => {

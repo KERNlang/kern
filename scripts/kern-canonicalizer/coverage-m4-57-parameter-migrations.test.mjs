@@ -42,7 +42,7 @@ function targetFixture(name) {
 test('M4.77 preserves the exact M4.57 parameter migrations after consuming the queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM457ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 80);
+  assert.equal(coverage.baseCompleteFunctions, 81);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,

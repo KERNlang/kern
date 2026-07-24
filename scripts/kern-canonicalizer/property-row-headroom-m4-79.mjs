@@ -18,10 +18,15 @@ const EXPECTED_SELECTION = {
   witnesses: ['examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore'],
 };
 const PUBLISHED_INPUT = {
+  canonicalizerCompositeSha256: '974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d',
+  canonicalizerPolicySha256: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
   commit: '07c896900a49d9abd6b5bb4946ee891a97684575',
+  compositionSha256: '2e8a4f77f6f343e7a16b42522b74afce3fd91272df3261431cb8e8950c17105d',
   coverageImplementationDigest: 'c8d4a6f063c0021993022ccc5a05360717311fef8934c774a1aee49c86305ea8',
   coverageSummarySha256: 'e47d481662172a8dbbdd0605f284f2248f9b6631e8653a189117a37d806d4ec7',
+  inputSourceSha256: '84ca20346a655595cbaab095e3b46b964e46acabd90ead29d1d1a3c6813e8b60',
   prerequisiteSummarySha256: '4c65daf66262f22bd476638a67976b5461f9ae9383e122c0025a7f05eb90fc4f',
+  structuralKirCodecSha256: '04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab',
 };
 const WITNESS_FACT = {
   exactFloor: 56_238,
@@ -92,10 +97,6 @@ function same(left, right) {
   return canonicalBytes(left).equals(canonicalBytes(right));
 }
 
-function repositorySource(path) {
-  return readFileSync(new URL(`../../${path}`, import.meta.url));
-}
-
 function exactInputs() {
   const analysis = loadPublishedCanonicalizerResidualAnalysisM478();
   if (analysis.digest !== 'f63342ef1f4b2754add412232fd4cf24758b0a0f77b8522361ea2f66cd1fadc2') {
@@ -162,10 +163,10 @@ export function measureCanonicalizerPropertyRowHeadroomM479() {
       requiredFloorReduction: promotionBudgetDeficit,
     },
     source: {
-      canonicalizerCompositeSha256: digest(repositorySource('examples/kern-canonicalizer/canonicalizer.composed.kern')),
-      canonicalizerPolicySha256: digest(readFileSync(new URL('./policy.json', import.meta.url))),
-      compositionSha256: digest(readFileSync(new URL('./composition.json', import.meta.url))),
-      inputSourceSha256: [{ path: inputPath, sha256: digest(repositorySource(inputPath)) }],
+      canonicalizerCompositeSha256: PUBLISHED_INPUT.canonicalizerCompositeSha256,
+      canonicalizerPolicySha256: PUBLISHED_INPUT.canonicalizerPolicySha256,
+      compositionSha256: PUBLISHED_INPUT.compositionSha256,
+      inputSourceSha256: [{ path: inputPath, sha256: PUBLISHED_INPUT.inputSourceSha256 }],
       publishedCoverageImplementationDigest: PUBLISHED_INPUT.coverageImplementationDigest,
       publishedCoverageSummarySha256: PUBLISHED_INPUT.coverageSummarySha256,
       publishedInputCommit: PUBLISHED_INPUT.commit,
@@ -173,7 +174,7 @@ export function measureCanonicalizerPropertyRowHeadroomM479() {
       residualAnalysisInputCommit: analysis.inputCommit,
       residualAnalysisSha256: analysis.digest,
       runtimeHandlerAbi: 'kern.runtime.handler.v1',
-      structuralKirCodecSha256: digest(repositorySource('packages/core/src/kir-structural/canonical.ts')),
+      structuralKirCodecSha256: PUBLISHED_INPUT.structuralKirCodecSha256,
     },
     summary: {
       maxExactFloor: witness.exactFloor,

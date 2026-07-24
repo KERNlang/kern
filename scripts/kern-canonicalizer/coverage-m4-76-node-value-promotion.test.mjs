@@ -67,8 +67,8 @@ test('M4.76 promotes only the authenticated node-row and value-row ceilings', ()
 
 test('M4.77 consumes the one-function queue exposed by M4.76', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 80);
-  assert.equal(coverage.functions.length, 104);
+  assert.equal(coverage.baseCompleteFunctions, 81);
+  assert.equal(coverage.functions.length, 105);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
     23,

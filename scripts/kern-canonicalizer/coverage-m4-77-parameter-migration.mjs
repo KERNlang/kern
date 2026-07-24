@@ -10,7 +10,7 @@ import {
 } from './coverage-value-band-parameter-migrations.mjs';
 
 export const M477_PARAMETER_MIGRATION_TARGET = {
-  bodyDigest: '558358dea059c6a97323eab59b6d300e1fbadea4376ec0b2de34bfaf3b40fe3e',
+  bodyDigest: '5284b5dc166f0bdd4ad020615e2ad8e6077689dfb316a4fe00fd5a202e4882dc',
   exported: true,
   functionOrdinal: 0,
   id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
@@ -24,17 +24,17 @@ export const M477_PARAMETER_MIGRATION_TARGET = {
     ['valueText', 'string[]'],
   ],
   path: 'examples/kern-canonicalizer/canonicalizer.kern',
-  profileRows: { nodes: 38, properties: 51, values: 461 },
+  profileRows: { nodes: 38, properties: 51, values: 455 },
   quotedReturns: false,
   returns: 'string',
 };
 
-const SOURCE_SHA256 = 'f4a39a81ea169f0127aac92a2791ac3a2726329f9bd369d05f1f5648593f78d7';
+const SOURCE_SHA256 = 'de5eb248401e933a05c7f55789a872f07c084c28e140f6561dd4205b71c57e00';
 const GENERATED_ARTIFACTS = new Map([
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    '974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d'],
+    'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28'],
   ['scripts/kern-canonicalizer/composition.json',
-    '2e8a4f77f6f343e7a16b42522b74afce3fd91272df3261431cb8e8950c17105d'],
+    '894cf14bc391d3109a20fb6abef8d1c98cab426e2ed6d238d414c8aee46cff3b'],
   ['examples/capstone-checker-subset/main.kern',
     'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e'],
   ['examples/capstone-checker-subset/numeric-main.kern',

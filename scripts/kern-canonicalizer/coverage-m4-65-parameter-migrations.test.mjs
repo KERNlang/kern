@@ -51,7 +51,7 @@ test('M4.65 migrates the exact four-function 37-row parameter queue', () => {
 
 test('M4.77 preserves the M4.65 corpus after consuming the next parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 80);
+  assert.equal(coverage.baseCompleteFunctions, 81);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,

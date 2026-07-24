@@ -134,6 +134,13 @@ export function formatM479PropertyRowHeadroomStatus(receipt) {
     'runtime cost.';
 }
 
+export function formatM480RuntimeCostStatus(receipt) {
+  return `M4.80 reduces the exact structural runtime floor from ${receipt.baseline.exactFloor} to ` +
+    `${receipt.result.exactFloor} by ${receipt.result.floorReduction} steps with ` +
+    `${receipt.result.promotionHeadroom} promotion headroom; M4.81 authenticates the property-row ` +
+    'profile promotion.';
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

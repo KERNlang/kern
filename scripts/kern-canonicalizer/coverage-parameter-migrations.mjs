@@ -315,14 +315,15 @@ export function assertStructuredParameterMigrations(receipt) {
     ...expressionHelperTargetNames,
     ...M433_VALUE_BAND_NAMES_BY_PATH.get(expressionHelperPath),
     ...M441_PARAMETER_NAMES_BY_PATH.get(expressionHelperPath),
+    'typefields',
     'validinteger',
   ]);
   const expressionHelperTargets = expressionHelperRoots.filter(({ props }) =>
     expressionHelperTargetNames.includes(props.name));
   const expressionHelperLegacySiblings = expressionHelperRoots.filter(({ props }) =>
     !expressionHelperStructuredNames.has(props.name));
-  assert.equal(expressionHelperSource.split('\n').length - 1, 192);
-  assert.equal(expressionHelperRoots.length, 16);
+  assert.equal(expressionHelperSource.split('\n').length - 1, 213);
+  assert.equal(expressionHelperRoots.length, 17);
   assert.deepEqual(expressionHelperTargets.map(({ props }) => props.name), expressionHelperTargetNames);
   assert.equal(expressionHelperTargets.every(({ props }) => props.params === undefined), true);
   assert.deepEqual(

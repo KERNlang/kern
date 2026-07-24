@@ -122,8 +122,8 @@ test('M4.68 publishes exactly the immutable one-row isSurfaceKind handoff', () =
 
 test('M4.77 preserves M4.69 after consuming the next queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 80);
-  assert.equal(coverage.functions.length, 104);
+  assert.equal(coverage.baseCompleteFunctions, 81);
+  assert.equal(coverage.functions.length, 105);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,

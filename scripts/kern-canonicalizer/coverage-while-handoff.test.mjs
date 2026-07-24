@@ -133,8 +133,8 @@ test('M4.77 preserves the M4.60 while promotion after consuming the next queue',
   );
 
   const coverage = measureCanonicalizerCoverage(policy);
-  assert.equal(coverage.baseCompleteFunctions, 80);
-  assert.equal(coverage.functions.length, 104);
+  assert.equal(coverage.baseCompleteFunctions, 81);
+  assert.equal(coverage.functions.length, 105);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params')).length, 23);
   assert.equal(

@@ -85,7 +85,7 @@ test('M4.76 publishes the immutable typesource migration handoff', () => {
     witnesses: [{
       id: M477_PARAMETER_MIGRATION_TARGET.id,
       parameterRows: M477_PARAMETER_MIGRATION_TARGET.parameters.length,
-      profileRows: M477_PARAMETER_MIGRATION_TARGET.profileRows,
+      profileRows: { nodes: 38, properties: 51, values: 461 },
       tool: 'canonicalizer',
     }],
   });
@@ -121,8 +121,8 @@ test('M4.76 publishes the immutable typesource migration handoff', () => {
 
 test('M4.77 consumes the exact queue without changing the active profile', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 80);
-  assert.equal(coverage.functions.length, 104);
+  assert.equal(coverage.baseCompleteFunctions, 81);
+  assert.equal(coverage.functions.length, 105);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,

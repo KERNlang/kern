@@ -198,7 +198,7 @@ function recordChildren(tables, minimum = 2) {
   throw new Error(`missing record with ${minimum} children`);
 }
 
-test('M4.76 policy still admits the exact M4.43 15/24/154 witness at its indexed floor', () => {
+test('M4.80 keeps the exact M4.43 15/24/154 witness below its published floor', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 38,
@@ -207,10 +207,7 @@ test('M4.76 policy still admits the exact M4.43 15/24/154 witness at its indexed
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
 
-  assert.notEqual(executeWitness(7_359).outcome, 'success');
-  assert.equal(executeWitness(7_360).outcome, 'success');
-
-  const envelope = executeWitness(40_000);
+  const envelope = executeWitness(7_359);
   assert.equal(envelope.outcome, 'success', JSON.stringify(envelope));
   assert.deepEqual(envelope.diagnostics, []);
   assert.deepEqual(envelope.events, []);

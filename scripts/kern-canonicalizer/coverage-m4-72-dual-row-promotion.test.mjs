@@ -67,8 +67,8 @@ test('the current policy preserves M4.72 evidence after the M4.76 promotion', ()
 
 test('M4.77 preserves the M4.72 profile after consuming the next queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 80);
-  assert.equal(coverage.functions.length, 104);
+  assert.equal(coverage.baseCompleteFunctions, 81);
+  assert.equal(coverage.functions.length, 105);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
     23,

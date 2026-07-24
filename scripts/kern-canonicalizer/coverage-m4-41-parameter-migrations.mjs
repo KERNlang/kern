@@ -174,9 +174,9 @@ const FILE_CONTRACTS = new Map([
     roots: 24,
   }],
   ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', {
-    lines: 192,
+    lines: 213,
     remainingLegacy: ['quotesource'],
-    roots: 16,
+    roots: 17,
   }],
   ['examples/selfhost-validator/validator.kern', {
     lines: 536,

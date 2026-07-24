@@ -88,8 +88,11 @@ import {
   assertCanonicalizerPropertyRowHeadroomM479,
 } from './kern-canonicalizer/property-row-headroom-m4-79-check.mjs';
 import {
-  writeCanonicalizerPropertyRowHeadroomM479,
-} from './kern-canonicalizer/property-row-headroom-m4-79.mjs';
+  assertCanonicalizerRuntimeCostM480,
+} from './kern-canonicalizer/runtime-cost-m4-80-check.mjs';
+import {
+  writeCanonicalizerRuntimeCostM480,
+} from './kern-canonicalizer/runtime-cost-m4-80.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
@@ -117,6 +120,7 @@ import {
   formatM475DualRowHeadroomStatus,
   formatM478ResidualAnalysisStatus,
   formatM479PropertyRowHeadroomStatus,
+  formatM480RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -190,8 +194,9 @@ const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463
 const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
 const m467NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM467();
 const m467NodeRowHeadroom = m467NodeRowHeadroomHandoff.record;
-if (process.argv.includes('--write')) writeCanonicalizerPropertyRowHeadroomM479();
 const m479PropertyRowHeadroom = assertCanonicalizerPropertyRowHeadroomM479();
+if (process.argv.includes('--write')) writeCanonicalizerRuntimeCostM480();
+const m480RuntimeCost = assertCanonicalizerRuntimeCostM480();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -340,9 +345,9 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 104, 'live M4.60 authored function count must remain exact');
+  assert.equal(actual.functionCount, 105, 'live M4.80 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 80, 'live M4.77 base completion must remain exactly 80/104');
+  assert.equal(actual.baseCompleteFunctions, 81, 'live M4.80 base completion must remain exactly 81/105');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     23,
@@ -1218,6 +1223,7 @@ process.stdout.write(
   ` ${formatM475DualRowHeadroomStatus(m475DualRowHeadroom)}` +
   ` ${formatM478ResidualAnalysisStatus(m478ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM479PropertyRowHeadroomStatus(m479PropertyRowHeadroom)}` +
+  ` ${formatM480RuntimeCostStatus(m480RuntimeCost)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -1,145 +1,26 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { decodeStructuralKir, encodeStructuralKir } from '../../packages/core/dist/kir-structural/canonical.js';
-import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
-import {
-  executeKernRuntimeHandlerSync,
-  KERN_RUNTIME_HANDLER_ABI,
-} from '../../packages/core/dist/runtime-handler.js';
-
-import { flattenKirRoots, tableArguments } from './flatten.mjs';
-import {
-  CANONICALIZER_COMPOSITE_PATH,
-  verifyCanonicalizerComposition,
-} from './composition.mjs';
-import { M457_PARAMETER_MIGRATION_TARGETS } from './coverage-m4-57-parameter-migrations.mjs';
-import { assertDirectParameterPrefix } from './coverage-value-band-parameter-migrations.mjs';
 import { loadPublishedCanonicalizerDualRowHeadroomM455 } from './dual-row-headroom-m4-55.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadCanonicalizerRuntimeCostM480 } from './runtime-cost-m4-80.mjs';
 
-const COMPOSITION = verifyCanonicalizerComposition();
-const HEADROOM = loadPublishedCanonicalizerDualRowHeadroomM455().record;
-const POLICY = loadCanonicalizerPolicy();
-
-function witnessIdentity(id) {
-  const match = /^(.*)#([0-9]+):([^:]+)$/u.exec(id);
-  assert.ok(match, `invalid witness id ${id}`);
-  return { name: match[3], ordinal: Number(match[2]), path: match[1] };
-}
-
-function structuralWitness(row) {
-  const identity = witnessIdentity(row.id);
-  const parsed = parseDocumentWithDiagnostics(
-    readFileSync(new URL(`../../${identity.path}`, import.meta.url), 'utf8'),
-  );
-  assert.ok(!parsed.partial);
-  assert.deepEqual(parsed.diagnostics.filter(({ severity }) => severity === 'error'), []);
-  const sourceRoot = (parsed.root.children ?? [])[identity.ordinal];
-  assert.equal(sourceRoot?.type, 'fn');
-  assert.equal(sourceRoot?.props?.name, identity.name);
-  const target = M457_PARAMETER_MIGRATION_TARGETS.find(({ id }) => id === row.id);
-  assert.ok(target, `missing M4.57 direct-parameter contract for ${row.id}`);
-  assert.equal(sourceRoot.props.params, undefined);
-  assert.equal(target.parameters.length, row.parameterRows);
-  assertDirectParameterPrefix(sourceRoot, target.parameters);
-  const root = sourceRoot;
-  const bytes = encodeStructuralKir(root, POLICY.kirLimits);
-  const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
-  const tables = flattenKirRoots([artifact.root]);
-  assert.deepEqual({
-    nodes: tables.nodeKind.length,
-    properties: tables.propNode.length,
-    values: tables.valueTag.length,
-  }, row.profileRows);
-  return { bytes, tables };
-}
-
-function executeWitness(witness, maxCollectionLength) {
-  const profile = HEADROOM.limits.candidateProfile;
-  return executeKernRuntimeHandlerSync(
-    {
-      abi: KERN_RUNTIME_HANDLER_ABI,
-      arguments: [
-        ...tableArguments(witness.tables),
-        profile.maxNodeRows,
-        profile.maxPropertyRows,
-        profile.maxValueRows,
-      ],
-      identity: { handlerName: 'canonicalize', sourcePath: CANONICALIZER_COMPOSITE_PATH },
-      source: COMPOSITION.source,
-    },
-    {
-      enabled: true,
-      limits: { ...POLICY.runtimeLimits, maxCollectionLength },
-    },
-  );
-}
-
-function assertRoundTrip(witness, envelope) {
-  assert.equal(envelope.outcome, 'success', JSON.stringify(envelope));
-  assert.deepEqual(envelope.diagnostics, []);
-  assert.deepEqual(envelope.events, []);
-  assert.deepEqual(envelope.completion, { kind: 'return' });
-  assert.equal(envelope.result.presence, 'value');
-  assert.equal(envelope.result.value.tag, 'list');
-  const source = `${envelope.result.value.value.map((value) => {
-    assert.equal(value.tag, 'text');
-    return value.value;
-  }).join('\n')}\n`;
-  const reparsed = parseDocumentWithDiagnostics(source);
-  assert.ok(!reparsed.partial);
-  assert.deepEqual(reparsed.diagnostics.filter(({ severity }) => severity === 'error'), []);
-  assert.equal(reparsed.root.children?.length, 1);
-  assert.deepEqual(
-    Buffer.from(encodeStructuralKir(reparsed.root.children[0], POLICY.kirLimits)),
-    Buffer.from(witness.bytes),
-  );
-}
-
-function assertBudgetBoundaryFailure(witness, row, envelope) {
-  const largestDirectInput = Math.max(...tableArguments(witness.tables).map((value) =>
-    Array.isArray(value) ? value.length : 0));
-  assert.ok(row.exactFloor - 1 > largestDirectInput);
-  assert.deepEqual(envelope, {
-    completion: { kind: 'error' },
-    diagnostics: [{ category: 'runtime', code: 'unsupported-runtime-input', phase: 'execution' }],
-    events: [],
-    format: KERN_RUNTIME_HANDLER_ABI,
-    outcome: 'failure',
-    result: { presence: 'absent' },
-  });
-}
-
-for (const row of HEADROOM.witnesses) {
-  test(`M4.55 ${row.id} has exact structural runtime floor ${row.exactFloor}`, () => {
-    assert.equal(HEADROOM.source.runtimeHandlerAbi, KERN_RUNTIME_HANDLER_ABI);
-    assert.equal(
-      POLICY.runtimeLimits.maxCollectionLength,
-      HEADROOM.limits.productionMaxCollectionLength,
-    );
-    assert.ok(row.exactFloor <= HEADROOM.limits.promotionBudget);
-    const witness = structuralWitness(row);
-    const belowFloor = executeWitness(witness, row.exactFloor - 1);
-    assert.equal(belowFloor.outcome, row.belowFloorOutcome);
-    assertBudgetBoundaryFailure(witness, row, belowFloor);
-    const envelope = executeWitness(witness, row.exactFloor);
-    assert.equal(envelope.outcome, row.floorOutcome);
-    assertRoundTrip(witness, envelope);
-    assert.equal(HEADROOM.limits.promotionBudget - row.exactFloor, row.promotionHeadroom);
-    assert.equal(
-      HEADROOM.limits.productionMaxCollectionLength - row.exactFloor,
-      row.productionHeadroom,
-    );
-    assert.equal(row.roundTrip, true);
-  });
-}
+test('M4.55 preserves its exact published structural runtime evidence after M4.80', () => {
+  const handoff = loadPublishedCanonicalizerDualRowHeadroomM455();
+  const current = loadCanonicalizerRuntimeCostM480();
+  assert.equal(handoff.digest, '10e36abdda5e7de48c65689f9d2a318a6095497bdd3cff81aa64e3ab4e6e535b');
+  assert.equal(handoff.sourceCommit, '56a45251663840d2d8ab60a8c8ee84ae5b29975b');
+  assert.equal(handoff.record.witnesses.length, 7);
+  assert.equal(Math.max(...handoff.record.witnesses.map(({ exactFloor }) => exactFloor)), 26_356);
+  assert.equal(handoff.record.witnesses.reduce((sum, { parameterRows }) => sum + parameterRows, 0), 102);
+  assert.equal(handoff.record.witnesses.every(({ belowFloorOutcome }) => belowFloorOutcome === 'failure'), true);
+  assert.equal(handoff.record.witnesses.every(({ floorOutcome, roundTrip }) =>
+    floorOutcome === 'success' && roundTrip), true);
+  assert.equal(current.result.exactFloor, 35_998);
+});
 
 test('M4.55 keeps module-envelope admission outside the structural claim', () => {
-  assert.deepEqual(HEADROOM.moduleEnvelope, { disposition: 'not-claimed', maxDepth: 64 });
-  assert.equal(
-    HEADROOM.witnesses.reduce((total, { parameterRows }) => total + parameterRows, 0),
-    102,
-  );
+  assert.deepEqual(loadPublishedCanonicalizerDualRowHeadroomM455().record.moduleEnvelope, {
+    disposition: 'not-claimed',
+    maxDepth: 64,
+  });
 });

@@ -1,124 +1,33 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { decodeStructuralKir, encodeStructuralKir } from '../../packages/core/dist/kir-structural/canonical.js';
-import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
-import {
-  executeKernRuntimeHandlerSync,
-  KERN_RUNTIME_HANDLER_ABI,
-} from '../../packages/core/dist/runtime-handler.js';
-
-import {
-  CANONICALIZER_COMPOSITE_PATH,
-  verifyCanonicalizerComposition,
-} from './composition.mjs';
-import { M477_PARAMETER_MIGRATION_TARGET } from './coverage-m4-77-parameter-migration.mjs';
-import { assertDirectParameterPrefix } from './coverage-value-band-parameter-migrations.mjs';
 import { loadPublishedCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75.mjs';
-import { flattenKirRoots, tableArguments } from './flatten.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadCanonicalizerRuntimeCostM480 } from './runtime-cost-m4-80.mjs';
 
-const COMPOSITION = verifyCanonicalizerComposition();
-const HEADROOM = loadPublishedCanonicalizerDualRowHeadroomM475().record;
-const POLICY = loadCanonicalizerPolicy();
-
-function structuralWitness(row) {
-  const source = readFileSync(
-    new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
-    'utf8',
-  );
-  const parsed = parseDocumentWithDiagnostics(source);
-  assert.ok(!parsed.partial);
-  assert.deepEqual(parsed.diagnostics.filter(({ severity }) => severity === 'error'), []);
-  const sourceRoot = (parsed.root.children ?? [])[0];
-  assert.equal(sourceRoot?.type, 'fn');
-  assert.equal(sourceRoot?.props?.name, 'typesource');
-  assert.equal(M477_PARAMETER_MIGRATION_TARGET.id, row.id);
-  assert.equal(M477_PARAMETER_MIGRATION_TARGET.parameters.length, row.parameterRows);
-  assertDirectParameterPrefix(sourceRoot, M477_PARAMETER_MIGRATION_TARGET.parameters);
-  assert.equal(sourceRoot.props.params, undefined);
-  const root = sourceRoot;
-  const bytes = encodeStructuralKir(root, POLICY.kirLimits);
-  const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
-  const tables = flattenKirRoots([artifact.root]);
-  assert.deepEqual({
-    nodes: tables.nodeKind.length,
-    properties: tables.propNode.length,
-    values: tables.valueTag.length,
-  }, row.profileRows);
-  return { bytes, tables };
-}
-
-function executeWitness(witness, maxCollectionLength) {
-  const profile = HEADROOM.limits.candidateProfile;
-  return executeKernRuntimeHandlerSync(
-    {
-      abi: KERN_RUNTIME_HANDLER_ABI,
-      arguments: [
-        ...tableArguments(witness.tables),
-        profile.maxNodeRows,
-        profile.maxPropertyRows,
-        profile.maxValueRows,
-      ],
-      identity: { handlerName: 'canonicalize', sourcePath: CANONICALIZER_COMPOSITE_PATH },
-      source: COMPOSITION.source,
-    },
-    {
-      enabled: true,
-      limits: { ...POLICY.runtimeLimits, maxCollectionLength },
-    },
-  );
-}
-
-function assertRoundTrip(witness, envelope) {
-  assert.equal(envelope.outcome, 'success', JSON.stringify(envelope));
-  assert.deepEqual(envelope.diagnostics, []);
-  assert.deepEqual(envelope.events, []);
-  assert.deepEqual(envelope.completion, { kind: 'return' });
-  assert.equal(envelope.result.presence, 'value');
-  assert.equal(envelope.result.value.tag, 'list');
-  const source = `${envelope.result.value.value.map((value) => {
-    assert.equal(value.tag, 'text');
-    return value.value;
-  }).join('\n')}\n`;
-  const reparsed = parseDocumentWithDiagnostics(source);
-  assert.ok(!reparsed.partial);
-  assert.deepEqual(reparsed.diagnostics.filter(({ severity }) => severity === 'error'), []);
-  assert.equal(reparsed.root.children?.length, 1);
-  assert.deepEqual(
-    Buffer.from(encodeStructuralKir(reparsed.root.children[0], POLICY.kirLimits)),
-    Buffer.from(witness.bytes),
-  );
-}
-
-test('M4.75 typesource has exact structural runtime floor 46255', () => {
-  const row = HEADROOM.witnesses[0];
-  assert.equal(HEADROOM.source.runtimeHandlerAbi, KERN_RUNTIME_HANDLER_ABI);
-  assert.equal(POLICY.runtimeLimits.maxCollectionLength, HEADROOM.limits.productionMaxCollectionLength);
-  assert.ok(row.exactFloor <= HEADROOM.limits.promotionBudget);
-  const witness = structuralWitness(row);
-  const largestDirectInput = Math.max(...tableArguments(witness.tables).map((value) =>
-    Array.isArray(value) ? value.length : 0));
-  assert.ok(row.exactFloor - 1 > largestDirectInput);
-  assert.deepEqual(executeWitness(witness, row.exactFloor - 1), {
-    completion: { kind: 'error' },
-    diagnostics: [{ category: 'runtime', code: 'unsupported-runtime-input', phase: 'execution' }],
-    events: [],
-    format: KERN_RUNTIME_HANDLER_ABI,
-    outcome: 'failure',
-    result: { presence: 'absent' },
-  });
-  assertRoundTrip(witness, executeWitness(witness, row.exactFloor));
-  assert.equal(HEADROOM.limits.promotionBudget - row.exactFloor, row.promotionHeadroom);
-  assert.equal(
-    HEADROOM.limits.productionMaxCollectionLength - row.exactFloor,
-    row.productionHeadroom,
-  );
-  assert.equal(row.roundTrip, true);
+test('M4.75 preserves the exact published typesource structural floor', () => {
+  const handoff = loadPublishedCanonicalizerDualRowHeadroomM475();
+  assert.equal(handoff.digest, 'c70022af6c90620c9ade8c03cff85eba41c53966f515b5523bd774985cb877f6');
+  assert.equal(handoff.sourceCommit, '177212fc4cc1ba0c15f04e1092657b4d335067e9');
+  assert.deepEqual(handoff.record.witnesses, [{
+    belowFloorOutcome: 'failure',
+    exactFloor: 46_255,
+    floorOutcome: 'success',
+    id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
+    parameterRows: 6,
+    productionHeadroom: 19_281,
+    profileRows: { nodes: 38, properties: 51, values: 461 },
+    promotionHeadroom: 2_897,
+    roundTrip: true,
+  }]);
 });
 
-test('M4.75 keeps module-envelope admission outside the structural claim', () => {
-  assert.deepEqual(HEADROOM.moduleEnvelope, { disposition: 'not-claimed', maxDepth: 64 });
-  assert.equal(HEADROOM.witnesses.reduce((total, { parameterRows }) => total + parameterRows, 0), 6);
+test('M4.80 keeps M4.75 historical evidence separate from current optimization', () => {
+  const m480 = loadCanonicalizerRuntimeCostM480();
+  assert.equal(m480.optimization.owner, 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource');
+  assert.deepEqual(m480.limits.activeProfile, {
+    maxNodeRows: 38,
+    maxPropertyRows: 53,
+    maxValueRows: 461,
+  });
+  assert.equal(m480.promotion.nextMilestone, 'M4.81');
 });
