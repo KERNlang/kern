@@ -7,6 +7,10 @@ import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js
 import { generateCheckerMainKern } from '../capstone-checker-subset/gen-fixtures-kern.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
+  assertCurrentCanonicalizerFrontier,
+  assertCurrentCanonicalizerPolicy,
+} from './coverage-current.mjs';
+import {
   assertM445ParameterMigrations,
   assertM445ParameterTarget,
   M445_PARAMETER_MIGRATION_TARGETS,
@@ -34,34 +38,12 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.77 preserves the exact M4.45 parameter migrations after consuming the queue', () => {
+test('the current frontier preserves the exact M4.45 migrations', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM445ParameterMigrations(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    23,
-  );
-  assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual({
-    completeFunctions: prerequisite.parameterMigration.completeFunctions,
-    completeTools: prerequisite.parameterMigration.completeTools,
-    migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
-    witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
-  }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
+  assertCurrentCanonicalizerPolicy(loadCanonicalizerPolicy());
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 });
 
 test('M4.45 target guard rejects signature, body, identity, fact, and profile drift', () => {

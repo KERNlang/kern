@@ -7,6 +7,10 @@ import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js
 import { generateCheckerMainKern, generateNumericMainKern } from '../capstone-checker-subset/gen-fixtures-kern.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
+  assertCurrentCanonicalizerFrontier,
+  assertCurrentCanonicalizerPolicy,
+} from './coverage-current.mjs';
+import {
   assertM453ParameterMigration,
   assertM453ParameterTarget,
   M453_PARAMETER_MIGRATION_TARGET,
@@ -33,33 +37,12 @@ function targetFixture() {
   return { fact, root, target: M453_PARAMETER_MIGRATION_TARGET };
 }
 
-test('M4.77 preserves the exact M4.53 parameter migration after consuming the queue', () => {
+test('the current frontier preserves the exact M4.53 migration', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM453ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    23,
-  );
-  assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual({
-    completeFunctions: prerequisite.parameterMigration.completeFunctions,
-    completeTools: prerequisite.parameterMigration.completeTools,
-    migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
-    witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
-  }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
+  assertCurrentCanonicalizerPolicy(loadCanonicalizerPolicy());
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 });
 
 test('M4.53 target guard rejects signature, body, identity, fact, and profile drift', () => {

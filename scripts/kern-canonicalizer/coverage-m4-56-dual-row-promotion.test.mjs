@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
+import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
   validatePublishedCanonicalizerDualRowHeadroomM455,
 } from './dual-row-headroom-m4-55.mjs';
@@ -69,18 +73,8 @@ function sha256(path) {
 
 test('M4.56 promotes only the authenticated node-row and property-row ceilings', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
-
-  const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
-  const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
-  assert.deepEqual(overProperty?.expectedRows, { nodes: 27, properties: 54, values: 87 });
+  assertCurrentCanonicalizerPolicy(policy);
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
 });
 
 test('M4.56 publishes exactly the frozen seven-function parameter queue', () => {

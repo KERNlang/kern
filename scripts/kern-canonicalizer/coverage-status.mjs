@@ -141,6 +141,13 @@ export function formatM480RuntimeCostStatus(receipt) {
     'profile promotion.';
 }
 
+export function formatM481PropertyRowPromotionStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  return `M4.81 promotes maxPropertyRows to 61 and publishes the exact ` +
+    `${migration.completeFunctions}-function/${migration.migratedParameterRows}-row parameter queue; ` +
+    'M4.82 consumes it.';
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

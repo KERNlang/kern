@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import { loadPublishedCanonicalizerResidualAnalysisM478 } from './coverage-residual-analysis-m4-78.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.property-row-headroom.2';
 const RECEIPT_DIGEST = 'd8683f1440e8bb0f8496ab1845c83c7dabe73dbfd26114b78685d8c8e1cf830b';
@@ -27,6 +26,11 @@ const PUBLISHED_INPUT = {
   inputSourceSha256: '84ca20346a655595cbaab095e3b46b964e46acabd90ead29d1d1a3c6813e8b60',
   prerequisiteSummarySha256: '4c65daf66262f22bd476638a67976b5461f9ae9383e122c0025a7f05eb90fc4f',
   structuralKirCodecSha256: '04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab',
+};
+const PUBLISHED_POLICY = {
+  kirLimits: { maxDepth: 64 },
+  profileLimits: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 },
+  runtimeLimits: { maxCollectionLength: 65_536 },
 };
 const WITNESS_FACT = {
   exactFloor: 56_238,
@@ -119,14 +123,7 @@ function exactInputs() {
     fail(`published M4.78 witness assignment must remain exact for ${WITNESS_FACT.id}`);
   }
 
-  const policy = loadCanonicalizerPolicy();
-  if (!same(policy.profileLimits, { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 })) {
-    fail('active profile must remain at the published M4.78 boundary');
-  }
-  if (policy.runtimeLimits.maxCollectionLength !== 65_536 || policy.kirLimits.maxDepth !== 64) {
-    fail('runtime and KIR depth limits must remain at the published boundary');
-  }
-  return { analysis, policy };
+  return { analysis, policy: structuredClone(PUBLISHED_POLICY) };
 }
 
 export function measureCanonicalizerPropertyRowHeadroomM479() {

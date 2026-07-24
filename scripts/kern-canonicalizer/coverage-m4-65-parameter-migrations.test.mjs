@@ -13,6 +13,10 @@ import { generateMainKern as generateValidatorMainKern } from '../selfhost-valid
 import { createCanonicalizerComposition, verifyCanonicalizerComposition } from './composition.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
+  assertCurrentCanonicalizerFrontier,
+  assertCurrentCanonicalizerPolicy,
+} from './coverage-current.mjs';
+import {
   assertM465ParameterMigrations,
   assertM465ParameterTarget,
   M465_PARAMETER_MIGRATION_TARGETS,
@@ -49,37 +53,11 @@ test('M4.65 migrates the exact four-function 37-row parameter queue', () => {
   assert.equal(migratedRows, 37);
 });
 
-test('M4.77 preserves the M4.65 corpus after consuming the next parameter queue', () => {
+test('the current frontier preserves the M4.65 corpus', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    23,
-  );
-  assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 23);
-  assert.equal(
-    prerequisite.exhaustion.reasonAssignmentsDigest,
-    '0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7',
-  );
+  assertCurrentCanonicalizerPolicy(loadCanonicalizerPolicy());
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 });
 
 test('M4.65 target guard rejects signature, body, identity, fact, and profile drift', () => {

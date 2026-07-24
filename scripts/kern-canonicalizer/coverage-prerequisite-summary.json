@@ -3,10 +3,10 @@
     "baseCompleteFunctions": 81,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
     "canonicalizerDigest": "fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28",
-    "canonicalizerPolicyDigest": "ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244",
+    "canonicalizerPolicyDigest": "6506df16bb042ae3c5544fce3324c500e2401192983fc98ae492d2283ff21495",
     "compiledCoreDigest": "edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764",
     "corpusDigest": "6f3d08f368bec3e81b55d20d35695c27d246545fe214e901ee8cc73cef22e9f9",
-    "coverageImplementationDigest": "3221b73f3a0ddc7e9e852487730059b31aab51440e34b89f0eea1e598bf3c6c1",
+    "coverageImplementationDigest": "91330a2051bf1a5a925ae9b1fe5a9e3919879a275e8e6a4761113bb13c7cceac",
     "coveragePolicyDigest": "56ae4deb67877ac56789a4cbf8a069a90165fabe628df6daf389486593dfd8a8",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 105,
@@ -21,7 +21,7 @@
     ],
     "completingClosureCount": 0,
     "evaluatedNonEmptyClosureCount": 1,
-    "reasonAssignmentsDigest": "0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7",
+    "reasonAssignmentsDigest": "37f914f5ccfce7a4cb86c1235939e760a133936c22775f3a1d25043ea7c7dcec",
     "reasonCounts": [
       {
         "count": 1,
@@ -56,7 +56,7 @@
         "id": "profile.rows.nodes"
       },
       {
-        "count": 7,
+        "count": 5,
         "id": "profile.rows.properties"
       },
       {
@@ -80,17 +80,28 @@
         "id": "throw.value:unknown-expression-kind"
       }
     ],
-    "residualFunctionCount": 23,
+    "residualFunctionCount": 22,
     "scope": "current-bounded-profile"
   },
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 22,
+    "witnesses": [
+      {
+        "id": "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+        "parameterRows": 22,
+        "profileRows": {
+          "nodes": 38,
+          "properties": 61,
+          "values": 460
+        },
+        "tool": "checker"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],

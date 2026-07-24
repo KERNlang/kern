@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import {
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM448 } from './coverage-prerequisite-m4-48.mjs';
 import {
   loadPublishedCanonicalizerNodeRowHeadroomM447,
@@ -49,16 +53,9 @@ function sha256(path) {
 
 test('the current policy preserves the M4.48 node-row evidence after later promotions', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
+  assertCurrentCanonicalizerPolicy(policy);
 
-  const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
 });
 
 test('M4.48 publishes exactly the frozen four-function parameter queue', () => {

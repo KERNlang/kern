@@ -29,6 +29,7 @@ import {
   formatM478ResidualAnalysisStatus,
   formatM479PropertyRowHeadroomStatus,
   formatM480RuntimeCostStatus,
+  formatM481PropertyRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -295,6 +296,15 @@ test('coverage status records the M4.80 runtime-cost reduction', () => {
       result: { exactFloor: 35_998, floorReduction: 20_240, promotionHeadroom: 13_154 },
     }),
     'M4.80 reduces the exact structural runtime floor from 56238 to 35998 by 20240 steps with 13154 promotion headroom; M4.81 authenticates the property-row profile promotion.',
+  );
+});
+
+test('coverage status records the M4.81 property-row promotion', () => {
+  assert.equal(
+    formatM481PropertyRowPromotionStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 22 },
+    }),
+    'M4.81 promotes maxPropertyRows to 61 and publishes the exact 1-function/22-row parameter queue; M4.82 consumes it.',
   );
 });
 

@@ -347,7 +347,7 @@ test('the admitted table profile is policy-owned and enforced by KERN', () => {
   validateCanonicalizerPolicy(policy);
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 38,
-    maxPropertyRows: 53,
+    maxPropertyRows: 61,
     maxValueRows: 461,
   });
   assert.deepEqual(policy.expansionLimits, {

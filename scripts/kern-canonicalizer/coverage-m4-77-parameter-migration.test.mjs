@@ -7,6 +7,10 @@ import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js
 import { createCanonicalizerComposition, verifyCanonicalizerComposition } from './composition.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
+  assertCurrentCanonicalizerFrontier,
+  assertCurrentCanonicalizerPolicy,
+} from './coverage-current.mjs';
+import {
   assertM477ParameterMigration,
   assertM477ParameterTarget,
   M477_PARAMETER_MIGRATION_TARGET,
@@ -119,38 +123,11 @@ test('M4.76 publishes the immutable typesource migration handoff', () => {
   );
 });
 
-test('M4.77 consumes the exact queue without changing the active profile', () => {
+test('the current frontier preserves M4.77 consumption', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(coverage.functions.length, 105);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    23,
-  );
-  assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 23);
-  assert.equal(
-    prerequisite.exhaustion.reasonAssignmentsDigest,
-    '0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7',
-  );
+  assertCurrentCanonicalizerPolicy(loadCanonicalizerPolicy());
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 });
 
 test('M4.77 generated consumers reproduce only from repository writers', () => {

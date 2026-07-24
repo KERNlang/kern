@@ -202,7 +202,7 @@ test('M4.80 keeps the exact M4.43 15/24/154 witness below its published floor', 
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 38,
-    maxPropertyRows: 53,
+    maxPropertyRows: 61,
     maxValueRows: 461,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);

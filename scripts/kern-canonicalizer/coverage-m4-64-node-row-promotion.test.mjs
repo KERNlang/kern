@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { measureCanonicalizerCoverage } from './coverage.mjs';
+import {
+  assertCurrentCanonicalizerFrontier,
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM464 } from './coverage-prerequisite-m4-64.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import {
@@ -53,33 +58,14 @@ function sha256(path) {
 
 test('M4.64 promotes only the authenticated node-row ceiling', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
-
-  const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
+  assertCurrentCanonicalizerPolicy(policy);
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
 });
 
-test('M4.77 preserves M4.65 consumption after consuming the next queue', () => {
+test('the current frontier preserves M4.65 consumption', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    23,
-  );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 23);
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
   assert.deepEqual(
     loadPublishedCanonicalizerPrerequisiteM464().record.parameterMigration,
     EXPECTED_QUEUE,

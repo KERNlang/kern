@@ -8,6 +8,10 @@ import {
   loadCoveragePolicy,
   measureCanonicalizerCoverage,
 } from './coverage.mjs';
+import {
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './coverage-prerequisite-m4-44.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM443,
@@ -59,21 +63,13 @@ test('M4.44 value boundary remains exact under the M4.76 node+value promotion', 
     boundaryRoot.children.filter(({ type }) => type === 'param').map(({ props }) => [props.name, props.type]),
     [['op', 'string']],
   );
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
+  assertCurrentCanonicalizerPolicy(policy);
   assert.deepEqual(PROFILE_BOUNDARY_FIXTURE.expectedRows, {
     nodes: 12,
     properties: 15,
     values: 388,
   });
-  assert.deepEqual(
-    PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-value-row-limit')?.expectedRows,
-    { nodes: 18, properties: 21, values: 462 },
-  );
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
 });
 
 test('M4.44 publishes exactly the frozen two-function parameter queue', () => {

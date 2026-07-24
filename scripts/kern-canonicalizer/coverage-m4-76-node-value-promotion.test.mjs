@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { measureCanonicalizerCoverage } from './coverage.mjs';
+import {
+  assertCurrentCanonicalizerFrontier,
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import {
   loadPublishedCanonicalizerDualRowHeadroomM475,
@@ -32,56 +37,16 @@ function sha256(path) {
     .digest('hex');
 }
 
-test('M4.76 promotes only the authenticated node-row and value-row ceilings', () => {
+test('the current policy preserves M4.76 evidence', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
-
-  const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
-  assert.deepEqual(overNode?.admittedProfileLimits, {
-    maxNodeRows: 39,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
-  assert.deepEqual(overProperty?.expectedRows, { nodes: 27, properties: 54, values: 87 });
-  assert.deepEqual(overProperty?.admittedProfileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 54,
-    maxValueRows: 461,
-  });
-  const overValue = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-value-row-limit');
-  assert.deepEqual(overValue?.expectedRows, { nodes: 18, properties: 21, values: 462 });
-  assert.deepEqual(overValue?.admittedProfileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 462,
-  });
+  assertCurrentCanonicalizerPolicy(policy);
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
 });
 
-test('M4.77 consumes the one-function queue exposed by M4.76', () => {
+test('the current frontier preserves M4.77 consumption', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(coverage.functions.length, 105);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    23,
-  );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 23);
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 });
 
 test('M4.76 freezes exact M4.75 runtime evidence before either policy limit moves', () => {

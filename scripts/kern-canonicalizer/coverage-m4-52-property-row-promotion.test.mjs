@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import {
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM452 } from './coverage-prerequisite-m4-52.mjs';
 import {
   loadPublishedCanonicalizerPropertyRowHeadroomM451,
@@ -31,16 +35,8 @@ function sha256(path) {
 
 test('the current policy preserves M4.52 property-row evidence after later promotions', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 53,
-    maxValueRows: 461,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
-
-  const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
-  assert.deepEqual(overProperty?.expectedRows, { nodes: 27, properties: 54, values: 87 });
+  assertCurrentCanonicalizerPolicy(policy);
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
 });
 
 test('M4.52 publishes exactly the frozen one-function parameter queue', () => {

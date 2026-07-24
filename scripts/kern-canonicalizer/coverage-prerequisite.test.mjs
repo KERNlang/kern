@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+import { m481ParameterMigration } from './coverage-m4-81-property-row-promotion.mjs';
 import {
   measureCanonicalizerPrerequisite,
   migrateLegacyFunctionForPrerequisite,
@@ -12,18 +13,13 @@ import {
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
-};
+const EXPECTED_PARAMETER_MIGRATION = m481ParameterMigration();
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 1,
-  reasonAssignmentsDigest: '0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7',
+  reasonAssignmentsDigest: '37f914f5ccfce7a4cb86c1235939e760a133936c22775f3a1d25043ea7c7dcec',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -33,18 +29,18 @@ const EXPECTED_EXHAUSTION = {
     { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
     { count: 2, id: 'let.value:unknown-expression-kind' },
     { count: 5, id: 'profile.rows.nodes' },
-    { count: 7, id: 'profile.rows.properties' },
+    { count: 5, id: 'profile.rows.properties' },
     { count: 5, id: 'profile.rows.values' },
     { count: 12, id: 'projection.limit-depth' },
     { count: 1, id: 'projection.limit-nodes' },
     { count: 3, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
-  residualFunctionCount: 23,
+  residualFunctionCount: 22,
   scope: 'current-bounded-profile',
 };
 
-test('M4.77 consumes the exact parameter tranche and preserves bounded exhaustion', () => {
+test('M4.81 publishes the exact parameter tranche and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -56,7 +52,7 @@ test('M4.77 consumes the exact parameter tranche and preserves bounded exhaustio
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.77 consumed frontier', () => {
+test('format 3 rejects drift in the M4.81 published frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -77,9 +73,9 @@ test('format 3 rejects drift in the M4.77 consumed frontier', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 1; },
-    (copy) => { copy.parameterMigration.completeTools = 1; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
+    (copy) => { copy.parameterMigration.completeFunctions = 2; },
+    (copy) => { copy.parameterMigration.completeTools = 2; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 23; },
     (copy) => { copy.parameterMigration.witnesses = [{ id: 'future' }]; },
   ];
   for (const mutate of mutations) {
@@ -92,14 +88,14 @@ test('format 3 rejects drift in the M4.77 consumed frontier', () => {
   }
 });
 
-test('M4.77 preserves the exact promoted base after consuming the queue', () => {
+test('M4.81 preserves the exact promoted base while publishing the queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 81,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: 'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28',
-    canonicalizerPolicyDigest: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
+    canonicalizerPolicyDigest: '6506df16bb042ae3c5544fce3324c500e2401192983fc98ae492d2283ff21495',
     compiledCoreDigest: 'edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764',
     corpusDigest: '6f3d08f368bec3e81b55d20d35695c27d246545fe214e901ee8cc73cef22e9f9',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,

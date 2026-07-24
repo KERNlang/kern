@@ -3,7 +3,6 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerPropertyRowHeadroomM479 } from './property-row-headroom-m4-79.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.1';
@@ -11,6 +10,11 @@ const RECEIPT_DIGEST = '48465b28f951d5f74a1ea148d2c21a1f28d3dcb13c475ed5885d7c05
 const SUMMARY_URL = new URL('./runtime-cost-m4-80.json', import.meta.url);
 const M479_DIGEST = 'd8683f1440e8bb0f8496ab1845c83c7dabe73dbfd26114b78685d8c8e1cf830b';
 const IMPLEMENTATION_BASE_COMMIT = '990898fba53f88e71dce24e5e783d47b9c91b62c';
+const PUBLISHED_POLICY = {
+  kirLimits: { maxDepth: 64 },
+  profileLimits: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 },
+  runtimeLimits: { maxCollectionLength: 65_536 },
+};
 const WITNESS_ID = 'examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore';
 
 function fail(message) {
@@ -84,13 +88,7 @@ function exactInputs() {
   if (m479.witnesses.length !== 1 || m479.witnesses[0].id !== WITNESS_ID) {
     fail('M4.79 witness identity must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
-  if (!same(policy.profileLimits, { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 })) {
-    fail('active profile must remain at the published M4.79 boundary');
-  }
-  if (policy.runtimeLimits.maxCollectionLength !== 65_536 || policy.kirLimits.maxDepth !== 64) {
-    fail('runtime and KIR limits must remain at the published boundary');
-  }
+  const policy = structuredClone(PUBLISHED_POLICY);
   const canonicalizer = repositorySource('examples/kern-canonicalizer/canonicalizer.kern').toString('utf8');
   const typeStart = canonicalizer.indexOf('fn name=typesource returns=string export=true\n');
   const typeEnd = canonicalizer.indexOf('\nfn name=validbinaryop ', typeStart);
@@ -171,7 +169,7 @@ export function measureCanonicalizerRuntimeCostM480() {
       canonicalizerExpressionHelpersSha256: digest(
         repositorySource('examples/kern-canonicalizer/canonicalizer-expression-helpers.kern'),
       ),
-      canonicalizerPolicySha256: digest(readFileSync(new URL('./policy.json', import.meta.url))),
+      canonicalizerPolicySha256: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
       canonicalizerSourceSha256: digest(repositorySource('examples/kern-canonicalizer/canonicalizer.kern')),
       compositionSha256: digest(readFileSync(new URL('./composition.json', import.meta.url))),
       inputSourceSha256: digest(repositorySource('examples/capstone-checker-subset/checker-while.kern')),

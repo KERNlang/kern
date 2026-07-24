@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { loadCoveragePolicy, measureCanonicalizerCoverage } from './coverage.mjs';
+import { assertCurrentCanonicalizerFrontier } from './coverage-current.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM460 } from './coverage-prerequisite-m4-60.mjs';
 import {
@@ -120,7 +121,7 @@ test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
   }
 });
 
-test('M4.77 preserves the M4.60 while promotion after consuming the next queue', () => {
+test('the current frontier preserves the M4.60 while promotion', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
   assert.equal(policy.base.nodeKinds.includes('while'), true);
@@ -133,27 +134,13 @@ test('M4.77 preserves the M4.60 while promotion after consuming the next queue',
   );
 
   const coverage = measureCanonicalizerCoverage(policy);
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(coverage.functions.length, 105);
-  assert.equal(coverage.functions.filter(({ excludedProperties }) =>
-    excludedProperties.includes('fn.params')).length, 23);
   assert.equal(
     coverage.prerequisiteProvenances.at(-1).digest,
     M458_DIGEST,
   );
 
   const prerequisite = measureCanonicalizerPrerequisite(policy);
-  assert.deepEqual({
-    completeFunctions: prerequisite.parameterMigration.completeFunctions,
-    completeTools: prerequisite.parameterMigration.completeTools,
-    migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
-    witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
-  }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
   const publishedM460 = loadPublishedCanonicalizerPrerequisiteM460();
   assert.equal(publishedM460.digest, 'c24a3f59fab134a0845980550196f5d843c05d28986ea68a6e31642e3577dfdf');
   assert.equal(publishedM460.sourceCommit, '828283e9694db3017dfc0121b6db8d6420f3988a');
@@ -168,13 +155,6 @@ test('M4.77 preserves the M4.60 while promotion after consuming the next queue',
       tool: 'validator',
     }],
   });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.prerequisiteRanking, []);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 23);
 });
