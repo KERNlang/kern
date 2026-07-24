@@ -25,6 +25,7 @@ import {
   formatM470ResidualAnalysisStatus,
   formatM471DualRowHeadroomStatus,
   formatM474ResidualAnalysisStatus,
+  formatM475DualRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -249,6 +250,15 @@ test('coverage status records the M4.71 structural headroom handoff', () => {
       summary: { maxExactFloor: 36_193, witnessCount: 1 },
     }),
     'M4.71 structural headroom authenticated 1 witness at exact floor 36193; M4.72 authenticates the dual-row profile promotion.',
+  );
+});
+
+test('coverage status records the M4.75 structural headroom handoff', () => {
+  assert.equal(
+    formatM475DualRowHeadroomStatus({
+      summary: { maxExactFloor: 46_255, witnessCount: 1 },
+    }),
+    'M4.75 structural headroom authenticated 1 witness at exact floor 46255; M4.76 authenticates the node+value profile promotion.',
   );
 });
 

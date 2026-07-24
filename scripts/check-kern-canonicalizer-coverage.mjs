@@ -64,6 +64,9 @@ import {
 import {
   loadPublishedCanonicalizerDualRowHeadroomM471,
 } from './kern-canonicalizer/dual-row-headroom-m4-71.mjs';
+import {
+  assertCanonicalizerDualRowHeadroomM475,
+} from './kern-canonicalizer/dual-row-headroom-m4-75-check.mjs';
 import { loadPublishedCanonicalizerNodeRowHeadroomM447 } from './kern-canonicalizer/node-row-headroom-m4-47.mjs';
 import {
   loadPublishedCanonicalizerNodeRowHeadroomM463,
@@ -98,6 +101,7 @@ import {
   formatM470ResidualAnalysisStatus,
   formatM471DualRowHeadroomStatus,
   formatM474ResidualAnalysisStatus,
+  formatM475DualRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -162,6 +166,7 @@ const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
 const m471DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM471();
 const m471DualRowHeadroom = m471DualRowHeadroomHandoff.record;
+const m475DualRowHeadroom = assertCanonicalizerDualRowHeadroomM475();
 const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463();
 const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
 const m467NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM467();
@@ -1146,6 +1151,7 @@ process.stdout.write(
   ` ${formatM470ResidualAnalysisStatus(m470ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM471DualRowHeadroomStatus(m471DualRowHeadroom)}` +
   ` ${formatM474ResidualAnalysisStatus(m474ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM475DualRowHeadroomStatus(m475DualRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

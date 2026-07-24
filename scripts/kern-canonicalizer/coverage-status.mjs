@@ -115,6 +115,11 @@ export function formatM471DualRowHeadroomStatus(receipt) {
     `${receipt.summary.maxExactFloor}; M4.72 authenticates the dual-row profile promotion.`;
 }
 
+export function formatM475DualRowHeadroomStatus(receipt) {
+  return `M4.75 structural headroom authenticated ${receipt.summary.witnessCount} witness at exact floor ` +
+    `${receipt.summary.maxExactFloor}; M4.76 authenticates the node+value profile promotion.`;
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

@@ -1,0 +1,60 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.dual-row-headroom.3",
+  "limits": {
+    "candidateProfile": {
+      "maxNodeRows": 38,
+      "maxPropertyRows": 53,
+      "maxValueRows": 461
+    },
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 64
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89",
+    "canonicalizerPolicySha256": "a4b53907df9507d12606fafb1bbf42fd5e129589e389e5ac349c154a8e3ab964",
+    "compositionSha256": "25303c8fc07467fe5eb20dd0ba4b0e2aa074e4e133ace9919d4a82e8c6c87289",
+    "inputSourceSha256": [
+      {
+        "path": "examples/kern-canonicalizer/canonicalizer.kern",
+        "sha256": "a04ae8f9af4f61c1560889277247963572de6a1c32c2f2cf63e4c341525b7019"
+      }
+    ],
+    "publishedCoverageImplementationDigest": "025fbf7ea33aecf8e1ee36fc6ef2334fbb2a71641777660473953e9da38a36ee",
+    "publishedCoverageSummarySha256": "728cf911c27bd81ccbd466d9dbb2c3a7ef08fd7131eda446168cd05a8d8b3e2d",
+    "publishedInputCommit": "b867c5d5b67917f7abc7cdc3da5c76b867c69cf5",
+    "publishedPrerequisiteSummarySha256": "57f140620f1d8b604b709708e7a2480d2e08311ab045f5c02a77b6d754f8b4be",
+    "residualAnalysisInputCommit": "1fe7851101cf2a25e1aebfd561655bb458aec66b",
+    "residualAnalysisSha256": "dae5ecfb09bd07575a8436771ff770c6ea544ea5efecba16ae45010b8f0df6e0",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "summary": {
+    "maxExactFloor": 46255,
+    "minimumProductionHeadroom": 19281,
+    "minimumPromotionHeadroom": 2897,
+    "witnessCount": 1
+  },
+  "witnesses": [
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 46255,
+      "floorOutcome": "success",
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#0:typesource",
+      "parameterRows": 6,
+      "productionHeadroom": 19281,
+      "profileRows": {
+        "nodes": 38,
+        "properties": 51,
+        "values": 461
+      },
+      "promotionHeadroom": 2897,
+      "roundTrip": true
+    }
+  ]
+}
