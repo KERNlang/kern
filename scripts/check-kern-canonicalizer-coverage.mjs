@@ -84,6 +84,12 @@ import {
 import {
   loadPublishedCanonicalizerPropertyRowHeadroomM451,
 } from './kern-canonicalizer/property-row-headroom-m4-51.mjs';
+import {
+  assertCanonicalizerPropertyRowHeadroomM479,
+} from './kern-canonicalizer/property-row-headroom-m4-79-check.mjs';
+import {
+  writeCanonicalizerPropertyRowHeadroomM479,
+} from './kern-canonicalizer/property-row-headroom-m4-79.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
 import {
   formatCoverageWinnerStatus,
@@ -110,6 +116,7 @@ import {
   formatM474ResidualAnalysisStatus,
   formatM475DualRowHeadroomStatus,
   formatM478ResidualAnalysisStatus,
+  formatM479PropertyRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -183,6 +190,8 @@ const m463NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM463
 const m463NodeRowHeadroom = m463NodeRowHeadroomHandoff.record;
 const m467NodeRowHeadroomHandoff = loadPublishedCanonicalizerNodeRowHeadroomM467();
 const m467NodeRowHeadroom = m467NodeRowHeadroomHandoff.record;
+if (process.argv.includes('--write')) writeCanonicalizerPropertyRowHeadroomM479();
+const m479PropertyRowHeadroom = assertCanonicalizerPropertyRowHeadroomM479();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -1208,6 +1217,7 @@ process.stdout.write(
   ` ${formatM474ResidualAnalysisStatus(m474ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM475DualRowHeadroomStatus(m475DualRowHeadroom)}` +
   ` ${formatM478ResidualAnalysisStatus(m478ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM479PropertyRowHeadroomStatus(m479PropertyRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

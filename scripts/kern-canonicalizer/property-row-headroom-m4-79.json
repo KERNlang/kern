@@ -1,0 +1,65 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.property-row-headroom.2",
+  "limits": {
+    "candidateProfile": {
+      "maxNodeRows": 38,
+      "maxPropertyRows": 61,
+      "maxValueRows": 461
+    },
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 64
+  },
+  "promotion": {
+    "disposition": "rejected-over-budget",
+    "nextMilestone": "M4.80",
+    "requiredFloorReduction": 7086
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d",
+    "canonicalizerPolicySha256": "ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244",
+    "compositionSha256": "2e8a4f77f6f343e7a16b42522b74afce3fd91272df3261431cb8e8950c17105d",
+    "inputSourceSha256": [
+      {
+        "path": "examples/capstone-checker-subset/checker-while.kern",
+        "sha256": "84ca20346a655595cbaab095e3b46b964e46acabd90ead29d1d1a3c6813e8b60"
+      }
+    ],
+    "publishedCoverageImplementationDigest": "c8d4a6f063c0021993022ccc5a05360717311fef8934c774a1aee49c86305ea8",
+    "publishedCoverageSummarySha256": "e47d481662172a8dbbdd0605f284f2248f9b6631e8653a189117a37d806d4ec7",
+    "publishedInputCommit": "07c896900a49d9abd6b5bb4946ee891a97684575",
+    "publishedPrerequisiteSummarySha256": "4c65daf66262f22bd476638a67976b5461f9ae9383e122c0025a7f05eb90fc4f",
+    "residualAnalysisInputCommit": "2ee34545f1a97acd5889f95e52bdd0952eb362bd",
+    "residualAnalysisSha256": "f63342ef1f4b2754add412232fd4cf24758b0a0f77b8522361ea2f66cd1fadc2",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "summary": {
+    "maxExactFloor": 56238,
+    "minimumProductionHeadroom": 9298,
+    "promotionBudgetDeficit": 7086,
+    "witnessCount": 1
+  },
+  "witnesses": [
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 56238,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+      "parameterRows": 22,
+      "productionHeadroom": 9298,
+      "profileRows": {
+        "nodes": 38,
+        "properties": 61,
+        "values": 460
+      },
+      "promotionBudgetDeficit": 7086,
+      "roundTrip": true
+    }
+  ]
+}

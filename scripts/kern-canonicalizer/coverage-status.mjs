@@ -128,6 +128,12 @@ export function formatM475DualRowHeadroomStatus(receipt) {
     `${receipt.summary.maxExactFloor}; M4.76 authenticates the node+value profile promotion.`;
 }
 
+export function formatM479PropertyRowHeadroomStatus(receipt) {
+  return `M4.79 structural runtime floor ${receipt.summary.maxExactFloor} rejects property-row ` +
+    `promotion by ${receipt.summary.promotionBudgetDeficit} steps; M4.80 reduces canonicalizer ` +
+    'runtime cost.';
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

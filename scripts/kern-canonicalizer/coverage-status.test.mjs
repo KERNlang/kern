@@ -27,6 +27,7 @@ import {
   formatM474ResidualAnalysisStatus,
   formatM475DualRowHeadroomStatus,
   formatM478ResidualAnalysisStatus,
+  formatM479PropertyRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -274,6 +275,15 @@ test('coverage status records the M4.75 structural headroom handoff', () => {
       summary: { maxExactFloor: 46_255, witnessCount: 1 },
     }),
     'M4.75 structural headroom authenticated 1 witness at exact floor 46255; M4.76 authenticates the node+value profile promotion.',
+  );
+});
+
+test('coverage status records the M4.79 property-row promotion NO-GO', () => {
+  assert.equal(
+    formatM479PropertyRowHeadroomStatus({
+      summary: { maxExactFloor: 56_238, promotionBudgetDeficit: 7_086 },
+    }),
+    'M4.79 structural runtime floor 56238 rejects property-row promotion by 7086 steps; M4.80 reduces canonicalizer runtime cost.',
   );
 });
 
