@@ -32,6 +32,7 @@ import {
   formatM481PropertyRowPromotionStatus,
   formatM482ParameterMigrationStatus,
   formatM483ResidualAnalysisStatus,
+  formatM484ValueRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -330,6 +331,15 @@ test('coverage status records M4.82 consumption of the immutable M4.81 queue', (
       record: { parameterMigration: { completeFunctions: 1, migratedParameterRows: 22 } },
     }),
     'M4.82 consumes the exact M4.81 1-function/22-row parameter queue and advances the cumulative base to 82/105.',
+  );
+});
+
+test('coverage status records the M4.84 value-row structural headroom', () => {
+  assert.equal(
+    formatM484ValueRowHeadroomStatus({
+      summary: { maxExactFloor: 38_773, minimumPromotionHeadroom: 10_379, witnessCount: 1 },
+    }),
+    'M4.84 structural headroom authenticates 1 witness at exact floor 38773 with 10379 promotion headroom; M4.85 authenticates the value-row profile promotion.',
   );
 });
 

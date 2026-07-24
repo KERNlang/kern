@@ -162,6 +162,12 @@ export function formatM482ParameterMigrationStatus(handoff) {
     `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to 82/105.`;
 }
 
+export function formatM484ValueRowHeadroomStatus(receipt) {
+  return `M4.84 structural headroom authenticates ${receipt.summary.witnessCount} witness at exact floor ` +
+    `${receipt.summary.maxExactFloor} with ${receipt.summary.minimumPromotionHeadroom} promotion headroom; ` +
+    'M4.85 authenticates the value-row profile promotion.';
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

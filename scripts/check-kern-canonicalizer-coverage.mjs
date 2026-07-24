@@ -98,6 +98,9 @@ import {
   assertCanonicalizerRuntimeCostM480,
 } from './kern-canonicalizer/runtime-cost-m4-80-check.mjs';
 import {
+  assertCanonicalizerValueRowHeadroomM484,
+} from './kern-canonicalizer/value-row-headroom-m4-84-check.mjs';
+import {
   writeCanonicalizerRuntimeCostM480,
 } from './kern-canonicalizer/runtime-cost-m4-80.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
@@ -131,6 +134,7 @@ import {
   formatM481PropertyRowPromotionStatus,
   formatM482ParameterMigrationStatus,
   formatM483ResidualAnalysisStatus,
+  formatM484ValueRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -211,6 +215,7 @@ const m467NodeRowHeadroom = m467NodeRowHeadroomHandoff.record;
 const m479PropertyRowHeadroom = assertCanonicalizerPropertyRowHeadroomM479();
 if (process.argv.includes('--write')) writeCanonicalizerRuntimeCostM480();
 const m480RuntimeCost = assertCanonicalizerRuntimeCostM480();
+const m484ValueRowHeadroom = assertCanonicalizerValueRowHeadroomM484();
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -1288,6 +1293,7 @@ process.stdout.write(
   ` ${formatM481PropertyRowPromotionStatus(m481PrerequisiteHandoff.record)}` +
   ` ${formatM482ParameterMigrationStatus(m481PrerequisiteHandoff)}` +
   ` ${formatM483ResidualAnalysisStatus(m483ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM484ValueRowHeadroomStatus(m484ValueRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
