@@ -6,21 +6,21 @@ import test from 'node:test';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import {
-  loadPublishedCanonicalizerDualRowHeadroomM471,
-  validatePublishedCanonicalizerDualRowHeadroomM471,
-} from './dual-row-headroom-m4-71.mjs';
+  loadPublishedCanonicalizerDualRowHeadroomM475,
+  validatePublishedCanonicalizerDualRowHeadroomM475,
+} from './dual-row-headroom-m4-75.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { PROFILE_LIMIT_FIXTURES } from './profile-limit-fixtures.mjs';
 
 const EXPECTED_QUEUE = {
   completeFunctions: 1,
   completeTools: 1,
-  migratedParameterRows: 14,
+  migratedParameterRows: 6,
   witnesses: [
     {
-      id: 'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#1:validstatementlist',
-      parameterRows: 14,
-      profileRows: { nodes: 31, properties: 53, values: 370 },
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
+      parameterRows: 6,
+      profileRows: { nodes: 38, properties: 51, values: 461 },
       tool: 'canonicalizer',
     },
   ],
@@ -32,7 +32,7 @@ function sha256(path) {
     .digest('hex');
 }
 
-test('the current policy preserves M4.72 evidence after the M4.76 promotion', () => {
+test('M4.76 promotes only the authenticated node-row and value-row ceilings', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
     maxNodeRows: 38,
@@ -43,7 +43,7 @@ test('the current policy preserves M4.72 evidence after the M4.76 promotion', ()
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.equal(overNode?.expectedRows.nodes, 39);
+  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
   assert.deepEqual(overNode?.admittedProfileLimits, {
     maxNodeRows: 39,
     maxPropertyRows: 53,
@@ -57,7 +57,7 @@ test('the current policy preserves M4.72 evidence after the M4.76 promotion', ()
     maxValueRows: 461,
   });
   const overValue = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-value-row-limit');
-  assert.equal(overValue?.expectedRows.values, 462);
+  assert.deepEqual(overValue?.expectedRows, { nodes: 18, properties: 21, values: 462 });
   assert.deepEqual(overValue?.admittedProfileLimits, {
     maxNodeRows: 38,
     maxPropertyRows: 53,
@@ -65,7 +65,7 @@ test('the current policy preserves M4.72 evidence after the M4.76 promotion', ()
   });
 });
 
-test('M4.76 preserves the M4.72 profile while exposing the next queue', () => {
+test('M4.76 exposes exactly the frozen one-function parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(coverage.functions.length, 104);
@@ -74,36 +74,26 @@ test('M4.76 preserves the M4.72 profile while exposing the next queue', () => {
     24,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 6,
-    witnesses: [{
-      id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
-      parameterRows: 6,
-      profileRows: { nodes: 38, properties: 51, values: 461 },
-      tool: 'canonicalizer',
-    }],
-  });
+  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 23);
 });
 
-test('M4.72 freezes exact M4.71 runtime evidence before either policy limit moves', () => {
-  const handoff = loadPublishedCanonicalizerDualRowHeadroomM471();
+test('M4.76 freezes exact M4.75 runtime evidence before either policy limit moves', () => {
+  const handoff = loadPublishedCanonicalizerDualRowHeadroomM475();
   assert.equal(handoff.digest,
-    '8be340082e3a5de479b015d4f0f4248486286290ed981cbf5715538069638c12');
-  assert.equal(handoff.sourceCommit, '75a927c4faf36d4c18530ff30b4f877fdc411628');
+    'c70022af6c90620c9ade8c03cff85eba41c53966f515b5523bd774985cb877f6');
+  assert.equal(handoff.sourceCommit, '177212fc4cc1ba0c15f04e1092657b4d335067e9');
   assert.equal(handoff.record.artifactScope, 'structural-kir-function');
   assert.deepEqual(handoff.record.limits.candidateProfile, {
-    maxNodeRows: 31,
+    maxNodeRows: 38,
     maxPropertyRows: 53,
-    maxValueRows: 388,
+    maxValueRows: 461,
   });
   assert.deepEqual(handoff.record.summary, {
-    maxExactFloor: 36_193,
-    minimumProductionHeadroom: 29_343,
-    minimumPromotionHeadroom: 12_959,
+    maxExactFloor: 46_255,
+    minimumProductionHeadroom: 19_281,
+    minimumPromotionHeadroom: 2_897,
     witnessCount: 1,
   });
   assert.deepEqual(handoff.record.moduleEnvelope, { disposition: 'not-claimed', maxDepth: 64 });
@@ -112,19 +102,19 @@ test('M4.72 freezes exact M4.71 runtime evidence before either policy limit move
       exactFloor, id, parameterRows, profileRows,
     })),
     [{
-      exactFloor: 36_193,
+      exactFloor: 46_255,
       id: EXPECTED_QUEUE.witnesses[0].id,
-      parameterRows: 14,
+      parameterRows: 6,
       profileRows: EXPECTED_QUEUE.witnesses[0].profileRows,
     }],
   );
 });
 
-test('M4.71 published receipt rejects canonical and decorated drift', () => {
-  const record = loadPublishedCanonicalizerDualRowHeadroomM471().record;
+test('M4.75 published receipt rejects canonical and decorated drift', () => {
+  const record = loadPublishedCanonicalizerDualRowHeadroomM475().record;
   for (const mutate of [
-    (copy) => { copy.limits.candidateProfile.maxNodeRows = 32; },
-    (copy) => { copy.limits.candidateProfile.maxPropertyRows = 54; },
+    (copy) => { copy.limits.candidateProfile.maxNodeRows = 39; },
+    (copy) => { copy.limits.candidateProfile.maxValueRows = 462; },
     (copy) => { copy.witnesses[0].exactFloor += 1; },
     (copy) => { copy.witnesses[0].id = 'future'; },
     (copy) => { copy.witnesses[0].roundTrip = false; },
@@ -133,25 +123,25 @@ test('M4.71 published receipt rejects canonical and decorated drift', () => {
     const copy = structuredClone(record);
     mutate(copy);
     assert.throws(
-      () => validatePublishedCanonicalizerDualRowHeadroomM471(copy),
-      /coverage M4\.71 dual-row headroom rejection/u,
+      () => validatePublishedCanonicalizerDualRowHeadroomM475(copy),
+      /coverage M4\.75 dual-row headroom rejection/u,
     );
   }
   const decorated = structuredClone(record);
   decorated[Symbol('hidden')] = true;
   assert.throws(
-    () => validatePublishedCanonicalizerDualRowHeadroomM471(decorated),
-    /coverage M4\.71 dual-row headroom rejection/u,
+    () => validatePublishedCanonicalizerDualRowHeadroomM475(decorated),
+    /coverage M4\.75 dual-row headroom rejection/u,
   );
 });
 
-test('M4.72 preserves exact M4.70 and M4.71 historical receipt bytes', () => {
+test('M4.76 preserves exact M4.74 and M4.75 historical receipt bytes', () => {
   assert.equal(
-    sha256('scripts/kern-canonicalizer/dual-row-headroom-m4-71.json'),
-    '8be340082e3a5de479b015d4f0f4248486286290ed981cbf5715538069638c12',
+    sha256('scripts/kern-canonicalizer/dual-row-headroom-m4-75.json'),
+    'c70022af6c90620c9ade8c03cff85eba41c53966f515b5523bd774985cb877f6',
   );
   assert.equal(
-    sha256('scripts/kern-canonicalizer/coverage-residual-analysis-m4-70.json'),
-    '2e1b2dea394f8a238b2f63b4a7045576b1843948740b3a6666b0c002971d8401',
+    sha256('scripts/kern-canonicalizer/coverage-residual-analysis-m4-74.json'),
+    'dae5ecfb09bd07575a8436771ff770c6ea544ea5efecba16ae45010b8f0df6e0',
   );
 });

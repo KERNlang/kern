@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { loadPublishedCanonicalizerResidualAnalysisM474 } from './coverage-residual-analysis-m4-74.mjs';
-import { loadCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75.mjs';
+import { loadPublishedCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75.mjs';
 
 const RECEIPT_URL = new URL('./dual-row-headroom-m4-75.json', import.meta.url);
 const RECEIPT_DIGEST = 'c70022af6c90620c9ade8c03cff85eba41c53966f515b5523bd774985cb877f6';
@@ -26,7 +26,10 @@ export function assertCanonicalizerDualRowHeadroomM475() {
     witnesses: ['examples/kern-canonicalizer/canonicalizer.kern#0:typesource'],
   });
 
-  const receipt = loadCanonicalizerDualRowHeadroomM475();
+  const handoff = loadPublishedCanonicalizerDualRowHeadroomM475();
+  assert.equal(handoff.digest, RECEIPT_DIGEST);
+  assert.equal(handoff.sourceCommit, '177212fc4cc1ba0c15f04e1092657b4d335067e9');
+  const receipt = handoff.record;
   assert.equal(receipt.format, 'kern.kir-canonicalizer.dual-row-headroom.3');
   assert.deepEqual(receipt.limits, {
     candidateProfile: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 },

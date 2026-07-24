@@ -50,15 +50,15 @@ function sha256(path) {
 test('the current policy preserves the M4.48 node-row evidence after later promotions', () => {
   const policy = loadCanonicalizerPolicy();
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 31,
+    maxNodeRows: 38,
     maxPropertyRows: 53,
-    maxValueRows: 388,
+    maxValueRows: 461,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
 
   const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 32, properties: 37, values: 51 });
+  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
 });
 
 test('M4.48 publishes exactly the frozen four-function parameter queue', () => {

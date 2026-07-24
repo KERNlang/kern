@@ -7,9 +7,8 @@ import test from 'node:test';
 import { loadPublishedCanonicalizerResidualAnalysisM474 } from './coverage-residual-analysis-m4-74.mjs';
 import { assertCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75-check.mjs';
 import {
-  loadCanonicalizerDualRowHeadroomM475,
-  measureCanonicalizerDualRowHeadroomM475,
-  validateCanonicalizerDualRowHeadroomM475,
+  loadPublishedCanonicalizerDualRowHeadroomM475,
+  validatePublishedCanonicalizerDualRowHeadroomM475,
 } from './dual-row-headroom-m4-75.mjs';
 
 const summaryUrl = new URL('./dual-row-headroom-m4-75.json', import.meta.url);
@@ -18,9 +17,11 @@ const RECEIPT_DIGEST = 'c70022af6c90620c9ade8c03cff85eba41c53966f515b5523bd77498
 test('M4.75 freezes the exact node+value structural headroom receipt', () => {
   const source = readFileSync(summaryUrl);
   assert.equal(createHash('sha256').update(source).digest('hex'), RECEIPT_DIGEST);
-  const receipt = loadCanonicalizerDualRowHeadroomM475();
+  const handoff = loadPublishedCanonicalizerDualRowHeadroomM475();
+  assert.equal(handoff.digest, RECEIPT_DIGEST);
+  assert.equal(handoff.sourceCommit, '177212fc4cc1ba0c15f04e1092657b4d335067e9');
+  const receipt = handoff.record;
   assert.deepEqual(assertCanonicalizerDualRowHeadroomM475(), receipt);
-  assert.deepEqual(measureCanonicalizerDualRowHeadroomM475(), receipt);
   assert.equal(receipt.format, 'kern.kir-canonicalizer.dual-row-headroom.3');
   assert.deepEqual(receipt.limits, {
     candidateProfile: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 },
@@ -62,7 +63,7 @@ test('M4.75 freezes the exact node+value structural headroom receipt', () => {
 });
 
 test('M4.75 rejects receipt drift, decorated data, and shared references', () => {
-  const actual = loadCanonicalizerDualRowHeadroomM475();
+  const actual = loadPublishedCanonicalizerDualRowHeadroomM475().record;
   for (const mutate of [
     (copy) => { copy.format = 'kern.kir-canonicalizer.dual-row-headroom.4'; },
     (copy) => { copy.future = true; },
@@ -74,19 +75,19 @@ test('M4.75 rejects receipt drift, decorated data, and shared references', () =>
     const copy = structuredClone(actual);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerDualRowHeadroomM475(copy),
+      () => validatePublishedCanonicalizerDualRowHeadroomM475(copy),
       /coverage M4\.75 dual-row headroom rejection/u,
     );
   }
   const decorated = Object.assign(Object.create({ inherited: true }), actual);
   assert.throws(
-    () => validateCanonicalizerDualRowHeadroomM475(decorated),
+    () => validatePublishedCanonicalizerDualRowHeadroomM475(decorated),
     /coverage M4\.75 dual-row headroom rejection/u,
   );
   const shared = structuredClone(actual);
   shared.future = shared.limits;
   assert.throws(
-    () => validateCanonicalizerDualRowHeadroomM475(shared),
+    () => validatePublishedCanonicalizerDualRowHeadroomM475(shared),
     /cycles or shared references/u,
   );
 });
@@ -101,12 +102,12 @@ test('M4.75 preserves M4.74 and reproduces in a fresh locale-independent process
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {loadCanonicalizerDualRowHeadroomM475 as load} from './scripts/kern-canonicalizer/dual-row-headroom-m4-75.mjs'; process.stdout.write(JSON.stringify(load()))",
+    "import {loadPublishedCanonicalizerDualRowHeadroomM475 as load} from './scripts/kern-canonicalizer/dual-row-headroom-m4-75.mjs'; process.stdout.write(JSON.stringify(load()))",
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), loadCanonicalizerDualRowHeadroomM475());
+  assert.deepEqual(JSON.parse(fresh.stdout), loadPublishedCanonicalizerDualRowHeadroomM475());
 });

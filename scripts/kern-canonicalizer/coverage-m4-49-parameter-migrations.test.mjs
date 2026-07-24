@@ -34,7 +34,7 @@ function targetFixture(name) {
   return { fact, root, target };
 }
 
-test('M4.73 preserves the exact M4.49 parameter migrations after queue consumption', () => {
+test('M4.76 preserves the exact M4.49 parameter migrations while exposing the next queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM449ParameterMigrations(coverage);
   assert.equal(coverage.baseCompleteFunctions, 79);
@@ -43,9 +43,9 @@ test('M4.73 preserves the exact M4.49 parameter migrations after queue consumpti
     24,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 31,
+    maxNodeRows: 38,
     maxPropertyRows: 53,
-    maxValueRows: 388,
+    maxValueRows: 461,
   });
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual({
@@ -54,10 +54,10 @@ test('M4.73 preserves the exact M4.49 parameter migrations after queue consumpti
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 6,
+    witnesses: ['examples/kern-canonicalizer/canonicalizer.kern#0:typesource'],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);

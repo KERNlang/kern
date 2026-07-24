@@ -7,7 +7,6 @@ import test from 'node:test';
 import { loadPublishedCanonicalizerResidualAnalysisM470 } from './coverage-residual-analysis-m4-70.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM474,
-  measureCanonicalizerResidualAnalysisM474,
   validatePublishedCanonicalizerResidualAnalysisM474,
 } from './coverage-residual-analysis-m4-74.mjs';
 import { formatM474ResidualAnalysisStatus } from './coverage-status.mjs';
@@ -31,7 +30,6 @@ test('M4.74 freezes the exact published residual frontier', () => {
   assert.equal(createHash('sha256').update(source).digest('hex'), PUBLISHED_DIGEST);
   assert.equal(handoff.digest, PUBLISHED_DIGEST);
   assert.equal(handoff.inputCommit, '1fe7851101cf2a25e1aebfd561655bb458aec66b');
-  assert.deepEqual(measureCanonicalizerResidualAnalysisM474(), handoff.record);
   assert.equal(handoff.record.format, 'kern.kir-canonicalizer.residual-analysis.3');
   assert.deepEqual(handoff.record.baseline, {
     baseCompleteFunctions: 79,

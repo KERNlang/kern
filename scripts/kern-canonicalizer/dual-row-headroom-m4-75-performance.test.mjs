@@ -14,12 +14,12 @@ import {
   verifyCanonicalizerComposition,
 } from './composition.mjs';
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
-import { loadCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75.mjs';
+import { loadPublishedCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const COMPOSITION = verifyCanonicalizerComposition();
-const HEADROOM = loadCanonicalizerDualRowHeadroomM475();
+const HEADROOM = loadPublishedCanonicalizerDualRowHeadroomM475().record;
 const POLICY = loadCanonicalizerPolicy();
 
 function structuralWitness(row) {

@@ -7,9 +7,10 @@ const BOUNDARY_PARAMETERS = Array.from(
   (_, index) => `  param name=p${index} type=number`,
 );
 
-function withFinalLine(source, finalLine) {
+function withLinesBeforeFinal(source, ...insertedLines) {
   const sourceLines = source.trimEnd().split('\n');
-  sourceLines[sourceLines.length - 1] = finalLine;
+  const finalLine = sourceLines.pop();
+  sourceLines.push(...insertedLines, finalLine);
   return lines(...sourceLines);
 }
 export const PROFILE_BOUNDARY_FIXTURE = {
@@ -48,8 +49,8 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 32, maxPropertyRows: 53, maxValueRows: 388 },
-    expectedRows: { nodes: 32, properties: 37, values: 51 },
+    admittedProfileLimits: { maxNodeRows: 39, maxPropertyRows: 53, maxValueRows: 461 },
+    expectedRows: { nodes: 39, properties: 45, values: 62 },
     source: lines(
       'fn name=f0 returns=void',
       '  param name=a type=number',
@@ -57,9 +58,10 @@ export const PROFILE_LIMIT_FIXTURES = [
       '  param name=c type=number',
       '  param name=d type=number',
       '  param name=e type=number',
+      '  param name=f type=number',
       '  handler lang=kern',
       '    return',
-      ...Array.from({ length: 8 }, (_, index) => [
+      ...Array.from({ length: 10 }, (_, index) => [
         `fn name=f${index + 1} returns=void`,
         '  handler lang=kern',
         '    return',
@@ -68,7 +70,7 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 31, maxPropertyRows: 54, maxValueRows: 388 },
+    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 54, maxValueRows: 461 },
     expectedRows: { nodes: 27, properties: 54, values: 87 },
     source: lines(
       'fn name=properties returns=void export=true',
@@ -80,11 +82,16 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 31, maxPropertyRows: 53, maxValueRows: 389 },
-    expectedRows: { nodes: 12, properties: 15, values: 389 },
-    source: withFinalLine(
+    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 462 },
+    expectedRows: { nodes: 18, properties: 21, values: 462 },
+    source: withLinesBeforeFinal(
       PROFILE_BOUNDARY_FIXTURE.source,
-      String.raw`    return value="op == \"^\" || op == \"<<\" || op == \">>\" || foo(op)"`,
+      '    do value="foo(op)"',
+      '    do value="foo(op)"',
+      '    do value="op == 0"',
+      '    do value="op == 0"',
+      '    do value="op == 0"',
+      '    do value="op == 0"',
     ),
   },
 ];

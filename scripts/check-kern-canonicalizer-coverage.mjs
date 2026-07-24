@@ -320,11 +320,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 104, 'live M4.60 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 79, 'live M4.73 base completion must remain exactly 79/104');
+  assert.equal(actual.baseCompleteFunctions, 79, 'live M4.76 base completion must remain exactly 79/104');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     24,
-    'live M4.73 fn.params blocker count must remain exactly 24',
+    'live M4.76 fn.params blocker count must remain exactly 24',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -337,10 +337,15 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 6,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
+      parameterRows: 6,
+      profileRows: { nodes: 38, properties: 51, values: 461 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
@@ -348,10 +353,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 24);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 23);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'bc209e6142330b70cac9499b3cc66a6750bdf3baabe6763a9f6b847995c21831',
+    '0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');

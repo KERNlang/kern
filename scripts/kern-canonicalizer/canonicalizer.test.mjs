@@ -322,9 +322,9 @@ test('the admitted table profile is policy-owned and enforced by KERN', () => {
   const policy = JSON.parse(readFileSync(policyUrl, 'utf8'));
   validateCanonicalizerPolicy(policy);
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 31,
+    maxNodeRows: 38,
     maxPropertyRows: 53,
-    maxValueRows: 388,
+    maxValueRows: 461,
   });
   assert.deepEqual(policy.expansionLimits, {
     kirToSourceMaxFactor: 4,

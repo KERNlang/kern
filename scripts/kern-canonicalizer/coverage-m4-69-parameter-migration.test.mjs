@@ -120,7 +120,7 @@ test('M4.68 publishes exactly the immutable one-row isSurfaceKind handoff', () =
   );
 });
 
-test('M4.73 preserves M4.69 after consuming the next queue', () => {
+test('M4.76 preserves M4.69 while exposing the next queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(coverage.functions.length, 104);
@@ -130,27 +130,32 @@ test('M4.73 preserves M4.69 after consuming the next queue', () => {
     24,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 31,
+    maxNodeRows: 38,
     maxPropertyRows: 53,
-    maxValueRows: 388,
+    maxValueRows: 461,
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 6,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
+      parameterRows: 6,
+      profileRows: { nodes: 38, properties: 51, values: 461 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 24);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 23);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'bc209e6142330b70cac9499b3cc66a6750bdf3baabe6763a9f6b847995c21831',
+    '0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7',
   );
 });
 

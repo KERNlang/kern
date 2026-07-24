@@ -49,7 +49,7 @@ test('M4.65 migrates the exact four-function 37-row parameter queue', () => {
   assert.equal(migratedRows, 37);
 });
 
-test('M4.73 preserves the M4.65 corpus after consuming later parameter queues', () => {
+test('M4.76 preserves the M4.65 corpus while exposing the next parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assert.equal(coverage.baseCompleteFunctions, 79);
   assert.equal(
@@ -58,27 +58,32 @@ test('M4.73 preserves the M4.65 corpus after consuming later parameter queues', 
     24,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
-    maxNodeRows: 31,
+    maxNodeRows: 38,
     maxPropertyRows: 53,
-    maxValueRows: 388,
+    maxValueRows: 461,
   });
 
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 6,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
+      parameterRows: 6,
+      profileRows: { nodes: 38, properties: 51, values: 461 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 24);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 23);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'bc209e6142330b70cac9499b3cc66a6750bdf3baabe6763a9f6b847995c21831',
+    '0abacdcff2a8ee7dfd977de09a3af2488350a383347b226a0afe36b8ca786ae7',
   );
 });
 
