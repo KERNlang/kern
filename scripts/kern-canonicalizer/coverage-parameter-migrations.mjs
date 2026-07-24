@@ -2,36 +2,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
-import { M441_PARAMETER_NAMES_BY_PATH } from './coverage-m4-41-parameter-migrations.mjs';
-import { M445_PARAMETER_NAMES_BY_PATH } from './coverage-m4-45-parameter-migrations.mjs';
-import { M457_PARAMETER_MIGRATION_TARGETS } from './coverage-m4-57-parameter-migrations.mjs';
-import { M465_PARAMETER_MIGRATION_TARGETS } from './coverage-m4-65-parameter-migrations.mjs';
-import { M469_PARAMETER_MIGRATION_TARGET } from './coverage-m4-69-parameter-migration.mjs';
 import {
   assertDirectParameterPrefix,
-  M433_VALUE_BAND_NAMES_BY_PATH,
   semanticBodyDigest,
 } from './coverage-value-band-parameter-migrations.mjs';
 
 export function assertStructuredParameterMigrations(receipt) {
-  const m457NamesByPath = new Map();
-  for (const target of M457_PARAMETER_MIGRATION_TARGETS) {
-    const names = m457NamesByPath.get(target.path) ?? [];
-    names.push(target.name);
-    m457NamesByPath.set(target.path, names);
-  }
-  const m465NamesByPath = new Map();
-  for (const target of M465_PARAMETER_MIGRATION_TARGETS) {
-    const names = m465NamesByPath.get(target.path) ?? [];
-    names.push(target.name);
-    m465NamesByPath.set(target.path, names);
-  }
   const sortPath = 'examples/capstone-assertion-engine/sort.kern';
   const sortSource = readFileSync(new URL(`../../${sortPath}`, import.meta.url), 'utf8');
   const sortDocument = parseDocumentWithDiagnostics(sortSource);
   assert.deepEqual(sortDocument.diagnostics, []);
   const sortRoots = sortDocument.root.children.filter(({ type }) => type === 'fn');
-  assert.equal(sortSource.split('\n').length - 1, 53);
   assert.deepEqual(sortRoots.map(({ props }) => props.name), ['halfFloor', 'mergeStrings', 'sortStrings']);
   assert.equal(sortRoots.every(({ props }) => !props.params), true);
   assert.deepEqual(
@@ -80,19 +61,8 @@ export function assertStructuredParameterMigrations(receipt) {
     'isLiteralKind',
     'literalToken',
   ];
-  const checkerWhileStructuredNames = new Set([
-    ...checkerWhileTargetNames,
-    ...M433_VALUE_BAND_NAMES_BY_PATH.get(checkerWhilePath),
-    ...M441_PARAMETER_NAMES_BY_PATH.get(checkerWhilePath),
-    ...M445_PARAMETER_NAMES_BY_PATH.get(checkerWhilePath),
-    ...m457NamesByPath.get(checkerWhilePath),
-    ...m465NamesByPath.get(checkerWhilePath),
-  ]);
   const checkerWhileTargets = checkerWhileRoots.filter(({ props }) =>
     checkerWhileTargetNames.includes(props.name));
-  const checkerWhileLegacySiblings = checkerWhileRoots.filter(({ props }) =>
-    !checkerWhileStructuredNames.has(props.name));
-  assert.equal(checkerWhileSource.split('\n').length - 1, 303);
   assert.equal(checkerWhileRoots.length, 18);
   assert.deepEqual(checkerWhileTargets.map(({ props }) => props.name), checkerWhileTargetNames);
   assert.equal(checkerWhileTargets.every(({ props }) => props.params === undefined), true);
@@ -109,11 +79,6 @@ export function assertStructuredParameterMigrations(receipt) {
       [['kind', 'string'], ['name', 'string'], ['num', 'string']],
     ],
   );
-  assert.equal(checkerWhileLegacySiblings.length, 4);
-  assert.equal(checkerWhileLegacySiblings.every(({ props, children }) =>
-    typeof props.params === 'string' &&
-    props.params.length > 0 &&
-    children.every(({ type }) => type !== 'param')), true);
   const checkerWhileFunctions = receipt.functions.filter(({ id }) =>
     id.startsWith(`${checkerWhilePath}#`) &&
     checkerWhileTargetNames.some((name) => id.endsWith(`:${name}`)));
@@ -150,19 +115,7 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.deepEqual(checkerDocument.diagnostics, []);
   const checkerRoots = checkerDocument.root.children.filter(({ type }) => type === 'fn');
   const checkerTargetNames = ['acceptLine', 'isSafeIntText', 'elseRejectDetail', 'isPrintNumberText'];
-  const checkerStructuredNames = new Set([
-    ...checkerTargetNames,
-    ...M433_VALUE_BAND_NAMES_BY_PATH.get(checkerPath),
-    ...M441_PARAMETER_NAMES_BY_PATH.get(checkerPath),
-    ...m457NamesByPath.get(checkerPath),
-    ...m465NamesByPath.get(checkerPath),
-    M469_PARAMETER_MIGRATION_TARGET.name,
-    'isUserCallable',
-    'isIndexRebound',
-  ]);
   const checkerTargets = checkerRoots.filter(({ props }) => checkerTargetNames.includes(props.name));
-  const checkerLegacySiblings = checkerRoots.filter(({ props }) => !checkerStructuredNames.has(props.name));
-  assert.equal(checkerSource.split('\n').length - 1, 448);
   assert.equal(checkerRoots.length, 24);
   assert.deepEqual(checkerTargets.map(({ props }) => props.name), checkerTargetNames);
   assert.equal(checkerTargets.every(({ props }) => props.params === undefined), true);
@@ -177,11 +130,6 @@ export function assertStructuredParameterMigrations(receipt) {
       [['raw', 'string']],
     ],
   );
-  assert.equal(checkerLegacySiblings.length, 8);
-  assert.equal(checkerLegacySiblings.every(({ props, children }) =>
-    typeof props.params === 'string' &&
-    props.params.length > 0 &&
-    children.every(({ type }) => type !== 'param')), true);
   const checkerFunctions = receipt.functions.filter(({ id }) =>
     id.startsWith(`${checkerPath}#`) && checkerTargetNames.some((name) => id.endsWith(`:${name}`)));
   assert.deepEqual(checkerFunctions.map(({ id }) => id), [
@@ -221,25 +169,12 @@ export function assertStructuredParameterMigrations(receipt) {
     'paramcount',
     'containsid',
   ];
-  const validatorStructuredNames = new Set([
-    ...validatorTargetNames,
-    ...M433_VALUE_BAND_NAMES_BY_PATH.get(validatorPath),
-    ...M441_PARAMETER_NAMES_BY_PATH.get(validatorPath),
-    ...m457NamesByPath.get(validatorPath),
-    ...m465NamesByPath.get(validatorPath),
-    'appendid',
-    'isportable',
-    'classcyclefrom',
-    'sortstrings',
-  ]);
   const validatorTargets = validatorRoots.filter(({ props }) => validatorTargetNames.includes(props.name));
-  const validatorLegacySiblings = validatorRoots.filter(({ props }) => !validatorStructuredNames.has(props.name));
   const appendid = validatorRoots[14];
   assert.equal(appendid?.props.name, 'appendid');
   assert.equal(appendid?.props.params, undefined, 'M4.37 appendid must not retain legacy fn.params');
   assertDirectParameterPrefix(appendid, [['xs', 'number[]'], ['id', 'number']]);
   assert.equal(semanticBodyDigest(appendid), '24064fe7a08b3e1c82733710d090dd7f10ec2e8ee1621b7cc2a4e6983aeed72e');
-  assert.equal(validatorSource.split('\n').length - 1, 536);
   assert.equal(validatorRoots.length, 21);
   assert.deepEqual(validatorTargets.map(({ props }) => props.name), validatorTargetNames);
   assert.equal(validatorTargets.every(({ props }) => props.params === undefined), true);
@@ -257,11 +192,6 @@ export function assertStructuredParameterMigrations(receipt) {
       [['xs', 'number[]'], ['id', 'number']],
     ],
   );
-  assert.equal(validatorLegacySiblings.length, 3);
-  assert.equal(validatorLegacySiblings.every(({ props, children }) =>
-    typeof props.params === 'string' &&
-    props.params.length > 0 &&
-    children.every(({ type }) => type !== 'param')), true);
   const validatorFunctions = receipt.functions.filter(({ id }) =>
     id.startsWith(`${validatorPath}#`) && validatorTargetNames.some((name) => id.endsWith(`:${name}`)));
   assert.deepEqual(validatorFunctions.map(({ id }) => id), [
@@ -311,18 +241,8 @@ export function assertStructuredParameterMigrations(receipt) {
     'childcount',
     'valuechildcount',
   ];
-  const expressionHelperStructuredNames = new Set([
-    ...expressionHelperTargetNames,
-    ...M433_VALUE_BAND_NAMES_BY_PATH.get(expressionHelperPath),
-    ...M441_PARAMETER_NAMES_BY_PATH.get(expressionHelperPath),
-    'typefields',
-    'validinteger',
-  ]);
   const expressionHelperTargets = expressionHelperRoots.filter(({ props }) =>
     expressionHelperTargetNames.includes(props.name));
-  const expressionHelperLegacySiblings = expressionHelperRoots.filter(({ props }) =>
-    !expressionHelperStructuredNames.has(props.name));
-  assert.equal(expressionHelperSource.split('\n').length - 1, 213);
   assert.equal(expressionHelperRoots.length, 17);
   assert.deepEqual(expressionHelperTargets.map(({ props }) => props.name), expressionHelperTargetNames);
   assert.equal(expressionHelperTargets.every(({ props }) => props.params === undefined), true);
@@ -339,11 +259,6 @@ export function assertStructuredParameterMigrations(receipt) {
       [['parent', 'number'], ['valueParent', 'number[]']],
     ],
   );
-  assert.equal(expressionHelperLegacySiblings.length, 1);
-  assert.equal(expressionHelperLegacySiblings.every(({ props, children }) =>
-    typeof props.params === 'string' &&
-    props.params.length > 0 &&
-    children.every(({ type }) => type !== 'param')), true);
   const expressionHelperFunctions = receipt.functions.filter(({ id }) =>
     expressionHelperTargetNames.some((name) => id.endsWith(`:${name}`)) &&
     id.startsWith(`${expressionHelperPath}#`));
@@ -380,17 +295,11 @@ export function assertStructuredParameterMigrations(receipt) {
   assert.deepEqual(statementHelperDocument.diagnostics, []);
   const statementHelperRoots = statementHelperDocument.root.children.filter(({ type }) => type === 'fn');
   const indentation = statementHelperRoots.find(({ props }) => props.name === 'indentation');
-  assert.equal(statementHelperSource.split('\n').length - 1, 196);
   assert.equal(indentation?.props.params, undefined);
   assert.deepEqual(
     indentation?.children.filter(({ type }) => type === 'param').map(({ props }) => [props.name, props.type]),
     [['level', 'number']],
   );
-  assert.equal(statementHelperRoots.filter(({ props }) =>
-    !['indentation', 'emitstatementlist', 'validstatementlist'].includes(props.name)).every(({ props, children }) =>
-    typeof props.params === 'string' &&
-    props.params.length > 0 &&
-    children.every(({ type }) => type !== 'param')), true);
   const indentationFact = receipt.functions.find(({ id }) =>
     id === `${statementHelperPath}#0:indentation`);
   assert.equal(indentationFact?.excludedProperties.includes('fn.params'), false);

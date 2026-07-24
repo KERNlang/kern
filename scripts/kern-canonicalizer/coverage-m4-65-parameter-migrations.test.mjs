@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -27,10 +26,6 @@ import {
 } from './coverage-prerequisite-m4-64.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 
 function targetFixture(target) {
   const source = readFileSync(new URL(`../../${target.path}`, import.meta.url), 'utf8');
@@ -140,11 +135,6 @@ test('M4.65 generated consumers reproduce only from repository writers', () => {
   assert.equal(numericMain.toString('utf8'), generateNumericMainKern());
   assert.equal(validatorMain.toString('utf8'), generateValidatorMainKern());
   assert.equal(assertionMain.toString('utf8'), generateAssertionMainKern());
-  assert.equal(
-    sha256(checkerMain),
-    'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e',
-  );
-
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));

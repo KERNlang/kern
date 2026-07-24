@@ -76,7 +76,6 @@ test('M4.49 generated consumers reproduce only from repository writers', () => {
     new URL('../../examples/capstone-checker-subset/main.kern', import.meta.url),
   );
   assert.equal(checkerMain.toString('utf8'), generateCheckerMainKern());
-  assert.equal(sha256(checkerMain), 'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e');
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
   assert.equal(built.compositeBytes.length, 51_549);

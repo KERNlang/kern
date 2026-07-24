@@ -259,7 +259,29 @@ fn name=comparisonOperandsOk params="row:number,fnName:string,operator:string,st
       assign target=rightLength value="lengthReceiverProven(row, fnName, stmtExprRightMemberObject[row], stmtKind, stmtFn, stmtParent, stmtName, stmtTarget, stmtExprKind, paramFn, paramName, paramType)"
     return value="(leftBinding && (rightBinding || rightLiteral || rightLength)) || (rightBinding && (leftLiteral || leftLength))"
 
-fn name=checkWhileCore params="row:number,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtName:string[],stmtTarget:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprNum:string[],stmtExprLeftKind:string[],stmtExprLeftName:string[],stmtExprLeftNum:string[],stmtExprLeftMemberObject:string[],stmtExprLeftMemberProp:string[],stmtExprRightKind:string[],stmtExprRightName:string[],stmtExprRightNum:string[],stmtExprRightMemberObject:string[],stmtExprRightMemberProp:string[],paramFn:string[],paramName:string[],paramType:string[]" returns=string
+fn name=checkWhileCore returns=string
+  param name=row type=number
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtParent type=number[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=stmtExprKind type=string[]
+  param name=stmtExprName type=string[]
+  param name=stmtExprNum type=string[]
+  param name=stmtExprLeftKind type=string[]
+  param name=stmtExprLeftName type=string[]
+  param name=stmtExprLeftNum type=string[]
+  param name=stmtExprLeftMemberObject type=string[]
+  param name=stmtExprLeftMemberProp type=string[]
+  param name=stmtExprRightKind type=string[]
+  param name=stmtExprRightName type=string[]
+  param name=stmtExprRightNum type=string[]
+  param name=stmtExprRightMemberObject type=string[]
+  param name=stmtExprRightMemberProp type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramType type=string[]
   handler lang="kern"
     if cond="!hasDirectChild(row, stmtParent)"
       return value="\"empty_body\""

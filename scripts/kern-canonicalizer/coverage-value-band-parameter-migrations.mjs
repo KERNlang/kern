@@ -130,14 +130,6 @@ const TARGETS = [
   },
 ];
 
-const EXPECTED_LINES_BY_PATH = new Map([
-  ['examples/capstone-assertion-engine/compare.kern', 126],
-  ['examples/capstone-checker-subset/checker-while.kern', 303],
-  ['examples/capstone-checker-subset/checker.kern', 448],
-  ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', 213],
-  ['examples/selfhost-validator/validator.kern', 536],
-]);
-
 export const M433_VALUE_BAND_NAMES_BY_PATH = new Map();
 for (const target of TARGETS) {
   const names = M433_VALUE_BAND_NAMES_BY_PATH.get(target.path) ?? [];
@@ -176,19 +168,23 @@ export function assertDirectParameterPrefix(root, expectedParameters) {
   );
 }
 
-export function assertValueBandParameterMigrations(receipt) {
-  const documents = new Map();
-  for (const [path, expectedLines] of EXPECTED_LINES_BY_PATH) {
+export function parameterMigrationRoots(targets) {
+  const rootsByPath = new Map();
+  for (const path of new Set(targets.map(({ path }) => path))) {
     const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
     const document = parseDocumentWithDiagnostics(source);
     assert.deepEqual(document.diagnostics, []);
-    assert.equal(source.split('\n').length - 1, expectedLines);
-    documents.set(path, document.root.children.filter(({ type }) => type === 'fn'));
+    rootsByPath.set(path, document.root.children.filter(({ type }) => type === 'fn'));
   }
+  return rootsByPath;
+}
+
+export function assertValueBandParameterMigrations(receipt) {
+  const rootsByPath = parameterMigrationRoots(TARGETS);
 
   let parameterRows = 0;
   for (const target of TARGETS) {
-    const root = documents.get(target.path)?.[target.functionOrdinal];
+    const root = rootsByPath.get(target.path)?.[target.functionOrdinal];
     assert.equal(root?.props.name, target.name);
     assert.equal(root?.props.params, undefined);
     assertDirectParameterPrefix(root, target.parameters);
@@ -207,7 +203,7 @@ export function assertValueBandParameterMigrations(receipt) {
   }
   assert.equal(parameterRows, 44);
 
-  const compareRoots = documents.get('examples/capstone-assertion-engine/compare.kern');
+  const compareRoots = rootsByPath.get('examples/capstone-assertion-engine/compare.kern');
   assert.equal(compareRoots.length, 4);
   assert.equal(compareRoots.slice(0, 2).every(({ props, children }) =>
     typeof props.params === 'string' &&

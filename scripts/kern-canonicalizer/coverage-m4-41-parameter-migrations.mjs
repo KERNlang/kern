@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-
-import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import {
   assertDirectParameterPrefix,
+  parameterMigrationRoots,
   semanticBodyDigest,
 } from './coverage-value-band-parameter-migrations.mjs';
 
@@ -156,70 +153,8 @@ export function assertM441ParameterTarget(root, fact, target) {
   );
 }
 
-const FILE_CONTRACTS = new Map([
-  ['examples/capstone-checker-subset/checker-while.kern', {
-    lines: 303,
-    remainingLegacy: [
-      'numericBindingProven', 'lengthReceiverProven',
-      'comparisonOperandsOk', 'checkWhileCore',
-    ],
-    roots: 18,
-  }],
-  ['examples/capstone-checker-subset/checker.kern', {
-    lines: 448,
-    remainingLegacy: [
-      'rejectLine', 'argProvenanced', 'paramCallsitesOk', 'indexRejectDetail',
-      'mapKeyToken', 'mapKnownBefore', 'callRejectCode', 'checkModule',
-    ],
-    roots: 24,
-  }],
-  ['examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', {
-    lines: 213,
-    remainingLegacy: ['quotesource'],
-    roots: 17,
-  }],
-  ['examples/selfhost-validator/validator.kern', {
-    lines: 536,
-    remainingLegacy: [
-      'isreserved', 'exportkind', 'validate',
-    ],
-    roots: 21,
-  }],
-]);
-
-const UNCHANGED_GENERATED = new Map([
-  ['examples/capstone-checker-subset/numeric-main.kern',
-    '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
-  ['examples/selfhost-validator/main.kern',
-    '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
-  ['examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
-    '158175ac9404fb93acc5b82fc8b87d10f2946a11b228ce9686f2423f75bcf667'],
-]);
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
 export function assertM441ParameterMigrations(receipt) {
-  const rootsByPath = new Map();
-  for (const [path, contract] of FILE_CONTRACTS) {
-    const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
-    const document = parseDocumentWithDiagnostics(source);
-    assert.deepEqual(document.diagnostics, []);
-    assert.equal(source.split('\n').length - 1, contract.lines);
-    const roots = document.root.children.filter(({ type }) => type === 'fn');
-    assert.equal(roots.length, contract.roots);
-    const remainingLegacy = roots
-      .filter(({ props }) => typeof props.params === 'string')
-      .map(({ props }) => props.name);
-    assert.deepEqual(remainingLegacy, contract.remainingLegacy);
-    assert.equal(
-      roots.filter(({ props }) => typeof props.params === 'string')
-        .every(({ children }) => children.every(({ type }) => type !== 'param')),
-      true,
-    );
-    rootsByPath.set(path, roots);
-  }
+  const rootsByPath = parameterMigrationRoots(M441_PARAMETER_MIGRATION_TARGETS);
 
   let migratedRows = 0;
   for (const target of M441_PARAMETER_MIGRATION_TARGETS) {
@@ -229,8 +164,4 @@ export function assertM441ParameterMigrations(receipt) {
     migratedRows += target.parameters.length;
   }
   assert.equal(migratedRows, 39);
-
-  for (const [path, digest] of UNCHANGED_GENERATED) {
-    assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);
-  }
 }

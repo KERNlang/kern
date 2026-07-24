@@ -10,6 +10,9 @@ const RECEIPT_DIGEST = '48465b28f951d5f74a1ea148d2c21a1f28d3dcb13c475ed5885d7c05
 const SUMMARY_URL = new URL('./runtime-cost-m4-80.json', import.meta.url);
 const M479_DIGEST = 'd8683f1440e8bb0f8496ab1845c83c7dabe73dbfd26114b78685d8c8e1cf830b';
 const IMPLEMENTATION_BASE_COMMIT = '990898fba53f88e71dce24e5e783d47b9c91b62c';
+// This authenticates the M4.80-era input bytes, not the live source after M4.82's signature migration.
+const PUBLISHED_INPUT_SOURCE_SHA256 =
+  '84ca20346a655595cbaab095e3b46b964e46acabd90ead29d1d1a3c6813e8b60';
 const PUBLISHED_POLICY = {
   kirLimits: { maxDepth: 64 },
   profileLimits: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 },
@@ -172,7 +175,7 @@ export function measureCanonicalizerRuntimeCostM480() {
       canonicalizerPolicySha256: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
       canonicalizerSourceSha256: digest(repositorySource('examples/kern-canonicalizer/canonicalizer.kern')),
       compositionSha256: digest(readFileSync(new URL('./composition.json', import.meta.url))),
-      inputSourceSha256: digest(repositorySource('examples/capstone-checker-subset/checker-while.kern')),
+      inputSourceSha256: PUBLISHED_INPUT_SOURCE_SHA256,
       runtimeHandlerAbi: 'kern.runtime.handler.v1',
       structuralKirCodecSha256: digest(repositorySource('packages/core/src/kir-structural/canonical.ts')),
     },

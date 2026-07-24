@@ -3,12 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
-  assertM481PropertyRowPromotion,
   m481ParameterMigration,
 } from './coverage-m4-81-property-row-promotion.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import { loadPublishedCanonicalizerPrerequisiteM481 } from './coverage-prerequisite-m4-81.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { PROFILE_LIMIT_FIXTURES } from './profile-limit-fixtures.mjs';
 import {
@@ -45,17 +43,12 @@ test('M4.81 promotes only the authenticated property-row ceiling', () => {
   assert.deepEqual(overValue?.expectedRows, { nodes: 18, properties: 21, values: 462 });
 });
 
-test('M4.81 exposes exactly the authenticated one-function parameter queue', () => {
-  const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 81);
-  assert.equal(coverage.functions.length, 105);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    23,
-  );
-  const prerequisite = measureCanonicalizerPrerequisite();
-  assertM481PropertyRowPromotion(coverage, prerequisite, loadCanonicalizerPolicy());
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
+test('M4.81 preserves its authenticated one-function parameter queue as an immutable handoff', () => {
+  const handoff = loadPublishedCanonicalizerPrerequisiteM481();
+  assert.equal(handoff.record.baseline.baseCompleteFunctions, 81);
+  assert.equal(handoff.record.baseline.functionCount, 105);
+  assert.equal(handoff.record.baseline.legacyParameterBlockers, 23);
+  assert.deepEqual(handoff.record.parameterMigration, EXPECTED_QUEUE);
 });
 
 test('M4.81 freezes exact M4.80 runtime evidence before the policy limit moves', () => {
@@ -84,5 +77,3 @@ test('M4.81 freezes exact M4.80 runtime evidence before the policy limit moves',
     /coverage M4\.80 runtime-cost rejection/u,
   );
 });
-
-export { EXPECTED_QUEUE as M481_EXPECTED_QUEUE };

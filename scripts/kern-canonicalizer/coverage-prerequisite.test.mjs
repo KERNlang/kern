@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { m481ParameterMigration } from './coverage-m4-81-property-row-promotion.mjs';
 import {
   measureCanonicalizerPrerequisite,
   migrateLegacyFunctionForPrerequisite,
@@ -13,7 +12,12 @@ import {
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m481ParameterMigration();
+const EXPECTED_PARAMETER_MIGRATION = {
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
+};
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
@@ -40,7 +44,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.81 publishes the exact parameter tranche and preserves bounded exhaustion', () => {
+test('M4.82 consumes the exact parameter tranche and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -52,7 +56,7 @@ test('M4.81 publishes the exact parameter tranche and preserves bounded exhausti
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.81 published frontier', () => {
+test('format 3 rejects drift in the M4.82 consumed frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -73,9 +77,9 @@ test('format 3 rejects drift in the M4.81 published frontier', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 2; },
-    (copy) => { copy.parameterMigration.completeTools = 2; },
-    (copy) => { copy.parameterMigration.migratedParameterRows = 23; },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
+    (copy) => { copy.parameterMigration.completeTools = 1; },
+    (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
     (copy) => { copy.parameterMigration.witnesses = [{ id: 'future' }]; },
   ];
   for (const mutate of mutations) {
@@ -88,22 +92,22 @@ test('format 3 rejects drift in the M4.81 published frontier', () => {
   }
 });
 
-test('M4.81 preserves the exact promoted base while publishing the queue', () => {
+test('M4.82 preserves the exact promoted base after consuming the queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 81,
+    baseCompleteFunctions: 82,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: 'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28',
     canonicalizerPolicyDigest: '6506df16bb042ae3c5544fce3324c500e2401192983fc98ae492d2283ff21495',
     compiledCoreDigest: 'edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764',
-    corpusDigest: '6f3d08f368bec3e81b55d20d35695c27d246545fe214e901ee8cc73cef22e9f9',
+    corpusDigest: '0b265cb9801b56ca4319119e06283dfbd464d0732a8fb7ab79b3ae6676318349',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '56ae4deb67877ac56789a4cbf8a069a90165fabe628df6daf389486593dfd8a8',
+    coveragePolicyDigest: 'e4a310720a9f41d9c0d8b9340177d5df634d1add5209420fe600ebef46e78da6',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 105,
-    functionFactsDigest: 'a13b7b3be8c42a63c732ee0f2cd3b9aa9991e1fccb8bb7b7b4551b3bdaf7a188',
-    legacyParameterBlockers: 23,
+    functionFactsDigest: '75a50e5f254e43391c1643329b15b508c06910e7ee4063f86bd12089010077d2',
+    legacyParameterBlockers: 22,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

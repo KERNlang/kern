@@ -30,6 +30,7 @@ import {
   formatM479PropertyRowHeadroomStatus,
   formatM480RuntimeCostStatus,
   formatM481PropertyRowPromotionStatus,
+  formatM482ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -305,6 +306,15 @@ test('coverage status records the M4.81 property-row promotion', () => {
       parameterMigration: { completeFunctions: 1, migratedParameterRows: 22 },
     }),
     'M4.81 promotes maxPropertyRows to 61 and publishes the exact 1-function/22-row parameter queue; M4.82 consumes it.',
+  );
+});
+
+test('coverage status records M4.82 consumption of the immutable M4.81 queue', () => {
+  assert.equal(
+    formatM482ParameterMigrationStatus({
+      record: { parameterMigration: { completeFunctions: 1, migratedParameterRows: 22 } },
+    }),
+    'M4.82 consumes the exact M4.81 1-function/22-row parameter queue and advances the cumulative base to 82/105.',
   );
 });
 

@@ -13,7 +13,6 @@ import {
   CANONICALIZER_COMPOSITE_PATH,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerRuntimeCostM480 } from './runtime-cost-m4-80.mjs';
@@ -35,7 +34,8 @@ function structuralWitness() {
   const sourceRoot = (parsed.root.children ?? [])[16];
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, 'checkWhileCore');
-  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
+  const root = structuredClone(sourceRoot);
+  const parameters = root.children.filter(({ type }) => type === 'param');
   assert.equal(parameters.length, 22);
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
@@ -114,7 +114,7 @@ test('M4.80 checkWhileCore has exact optimized structural floor 35998', () => {
   assert.ok(RECEIPT.result.exactFloor <= PROMOTION_BUDGET);
 });
 
-test('M4.81 consumes M4.80 profile headroom without changing its historical receipt', () => {
+test('M4.82 preserves M4.80 headroom after the authenticated signature migration', () => {
   assert.deepEqual(RECEIPT.limits.activeProfile, {
     maxNodeRows: 38,
     maxPropertyRows: 53,

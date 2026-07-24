@@ -148,6 +148,12 @@ export function formatM481PropertyRowPromotionStatus(receipt) {
     'M4.82 consumes it.';
 }
 
+export function formatM482ParameterMigrationStatus(handoff) {
+  const migration = handoff.record.parameterMigration;
+  return `M4.82 consumes the exact M4.81 ${migration.completeFunctions}-function/` +
+    `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to 82/105.`;
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

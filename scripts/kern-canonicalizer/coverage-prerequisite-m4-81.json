@@ -1,17 +1,17 @@
 {
   "baseline": {
-    "baseCompleteFunctions": 82,
+    "baseCompleteFunctions": 81,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
     "canonicalizerDigest": "fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28",
     "canonicalizerPolicyDigest": "6506df16bb042ae3c5544fce3324c500e2401192983fc98ae492d2283ff21495",
     "compiledCoreDigest": "edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764",
-    "corpusDigest": "0b265cb9801b56ca4319119e06283dfbd464d0732a8fb7ab79b3ae6676318349",
-    "coverageImplementationDigest": "5f82778a5af9da23df0c6885fa1ec8188f792df3f105e448d82b26c5cb9c6c86",
-    "coveragePolicyDigest": "e4a310720a9f41d9c0d8b9340177d5df634d1add5209420fe600ebef46e78da6",
+    "corpusDigest": "6f3d08f368bec3e81b55d20d35695c27d246545fe214e901ee8cc73cef22e9f9",
+    "coverageImplementationDigest": "91330a2051bf1a5a925ae9b1fe5a9e3919879a275e8e6a4761113bb13c7cceac",
+    "coveragePolicyDigest": "56ae4deb67877ac56789a4cbf8a069a90165fabe628df6daf389486593dfd8a8",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 105,
-    "functionFactsDigest": "75a50e5f254e43391c1643329b15b508c06910e7ee4063f86bd12089010077d2",
-    "legacyParameterBlockers": 22,
+    "functionFactsDigest": "a13b7b3be8c42a63c732ee0f2cd3b9aa9991e1fccb8bb7b7b4551b3bdaf7a188",
+    "legacyParameterBlockers": 23,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
   },
@@ -87,10 +87,21 @@
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 22,
+    "witnesses": [
+      {
+        "id": "examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore",
+        "parameterRows": 22,
+        "profileRows": {
+          "nodes": 38,
+          "properties": 61,
+          "values": 460
+        },
+        "tool": "checker"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],
