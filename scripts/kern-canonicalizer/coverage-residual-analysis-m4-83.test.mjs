@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { loadPublishedCanonicalizerResidualAnalysisM478 } from './coverage-residual-analysis-m4-78.mjs';
 import {
@@ -102,15 +103,29 @@ test('M4.83 published digest rejects canonical and decorated drift', () => {
   );
 });
 
-test('M4.83 matches live measurement and preserves M4.78 exactly', () => {
+test('M4.85 preserves the exact published M4.83 and M4.78 history', () => {
   assert.equal(
     loadPublishedCanonicalizerResidualAnalysisM478().digest,
     'f63342ef1f4b2754add412232fd4cf24758b0a0f77b8522361ea2f66cd1fadc2',
   );
-  assert.deepEqual(
-    measureCanonicalizerResidualAnalysisM483(),
-    loadPublishedCanonicalizerResidualAnalysisM483().record,
+  assert.deepEqual(loadPublishedCanonicalizerResidualAnalysisM483().record.selectedNextAction, EXPECTED_SELECTION);
+});
+
+test('M4.85 keeps M4.83 regeneration archival and fail-closed after promotion', () => {
+  const publishedBytes = readFileSync(summaryUrl);
+  assert.throws(
+    () => measureCanonicalizerResidualAnalysisM483(),
+    /live semantic facts must match the exact published M4\.82 input/u,
   );
+
+  const writer = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('./coverage-residual-analysis-m4-83.mjs', import.meta.url)), '--write'],
+    { encoding: 'utf8' },
+  );
+  assert.equal(writer.status, 1);
+  assert.match(writer.stderr, /live semantic facts must match the exact published M4\.82 input/u);
+  assert.deepEqual(readFileSync(summaryUrl), publishedBytes);
 });
 
 test('M4.83 loads byte-identically in a fresh locale-independent process', () => {

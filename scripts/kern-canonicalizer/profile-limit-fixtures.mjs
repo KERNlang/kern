@@ -49,7 +49,7 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 39, maxPropertyRows: 61, maxValueRows: 461 },
+    admittedProfileLimits: { maxNodeRows: 39, maxPropertyRows: 61, maxValueRows: 580 },
     expectedRows: { nodes: 39, properties: 45, values: 62 },
     source: lines(
       'fn name=f0 returns=void',
@@ -70,7 +70,7 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 62, maxValueRows: 461 },
+    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 62, maxValueRows: 580 },
     expectedRows: { nodes: 31, properties: 62, values: 99 },
     source: lines(
       'fn name=properties returns=void export=true',
@@ -82,12 +82,23 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 61, maxValueRows: 462 },
-    expectedRows: { nodes: 18, properties: 21, values: 462 },
+    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 61, maxValueRows: 581 },
+    expectedRows: { nodes: 29, properties: 32, values: 581 },
     source: withLinesBeforeFinal(
       PROFILE_BOUNDARY_FIXTURE.source,
       '    do value="foo(op)"',
       '    do value="foo(op)"',
+      '    do value="foo(op)"',
+      '    do value="foo(op)"',
+      '    do value="foo(op)"',
+      '    do value="foo(op)"',
+      '    do value="foo(op)"',
+      '    do value="op == 0"',
+      '    do value="op == 0"',
+      '    do value="null"',
+      '    do value="null"',
+      '    do value="op == 0"',
+      '    do value="op == 0"',
       '    do value="op == 0"',
       '    do value="op == 0"',
       '    do value="op == 0"',

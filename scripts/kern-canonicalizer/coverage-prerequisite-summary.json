@@ -1,16 +1,16 @@
 {
   "baseline": {
-    "baseCompleteFunctions": 82,
+    "baseCompleteFunctions": 83,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
     "canonicalizerDigest": "fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28",
-    "canonicalizerPolicyDigest": "6506df16bb042ae3c5544fce3324c500e2401192983fc98ae492d2283ff21495",
+    "canonicalizerPolicyDigest": "a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c",
     "compiledCoreDigest": "edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764",
     "corpusDigest": "0b265cb9801b56ca4319119e06283dfbd464d0732a8fb7ab79b3ae6676318349",
-    "coverageImplementationDigest": "21316a1c794686f11d46625cf90349013aefe85803323883631dc3b13fd024b0",
+    "coverageImplementationDigest": "5fe10fdb7fb3a339071578ce1dce729bbaaf5a578371d5e41b8e1b73e81d8f99",
     "coveragePolicyDigest": "e4a310720a9f41d9c0d8b9340177d5df634d1add5209420fe600ebef46e78da6",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 105,
-    "functionFactsDigest": "75a50e5f254e43391c1643329b15b508c06910e7ee4063f86bd12089010077d2",
+    "functionFactsDigest": "db85a72c7a42f56917d9318eed2f04a77b0a98a8e457bc14c69c517faafbe793",
     "legacyParameterBlockers": 22,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
@@ -21,7 +21,7 @@
     ],
     "completingClosureCount": 0,
     "evaluatedNonEmptyClosureCount": 1,
-    "reasonAssignmentsDigest": "37f914f5ccfce7a4cb86c1235939e760a133936c22775f3a1d25043ea7c7dcec",
+    "reasonAssignmentsDigest": "0e6700b777a3cf2f5ed462636ba292ef69df90de141e3466b8831d8f190b7328",
     "reasonCounts": [
       {
         "count": 1,
@@ -60,7 +60,7 @@
         "id": "profile.rows.properties"
       },
       {
-        "count": 5,
+        "count": 2,
         "id": "profile.rows.values"
       },
       {
@@ -80,17 +80,28 @@
         "id": "throw.value:unknown-expression-kind"
       }
     ],
-    "residualFunctionCount": 22,
+    "residualFunctionCount": 21,
     "scope": "current-bounded-profile"
   },
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 19,
+    "witnesses": [
+      {
+        "id": "examples/capstone-checker-subset/checker.kern#16:argProvenanced",
+        "parameterRows": 19,
+        "profileRows": {
+          "nodes": 35,
+          "properties": 55,
+          "values": 580
+        },
+        "tool": "checker"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],

@@ -95,7 +95,7 @@ test('M4.80 checkWhileCore has exact optimized structural floor 35998', () => {
   assert.deepEqual(POLICY.profileLimits, {
     maxNodeRows: 38,
     maxPropertyRows: 61,
-    maxValueRows: 461,
+    maxValueRows: 580,
   });
   const witness = structuralWitness();
   assert.deepEqual(executeWitness(witness, RECEIPT.result.exactFloor - 1), {
@@ -114,14 +114,18 @@ test('M4.80 checkWhileCore has exact optimized structural floor 35998', () => {
   assert.ok(RECEIPT.result.exactFloor <= PROMOTION_BUDGET);
 });
 
-test('M4.82 preserves M4.80 headroom after the authenticated signature migration', () => {
+test('M4.85 preserves M4.80 headroom after later authenticated promotions', () => {
   assert.deepEqual(RECEIPT.limits.activeProfile, {
     maxNodeRows: 38,
     maxPropertyRows: 53,
     maxValueRows: 461,
   });
-  assert.deepEqual(RECEIPT.limits.candidateProfile, POLICY.profileLimits);
   assert.deepEqual(RECEIPT.limits.candidateProfile, CANDIDATE_PROFILE);
+  assert.deepEqual(POLICY.profileLimits, {
+    maxNodeRows: 38,
+    maxPropertyRows: 61,
+    maxValueRows: 580,
+  });
   assert.equal(RECEIPT.promotion.disposition, 'headroom-authenticated');
   assert.equal(RECEIPT.promotion.nextMilestone, 'M4.81');
   assert.equal(RECEIPT.limits.maxDepth, 64);

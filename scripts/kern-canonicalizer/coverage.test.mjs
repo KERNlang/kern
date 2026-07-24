@@ -214,7 +214,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assertM477ParameterMigration(first);
   assertM482ParameterMigration(first);
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 22);
-  assert.equal(first.baseCompleteFunctions, 82);
+  assert.equal(first.baseCompleteFunctions, 83);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0]);
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['exception-flow']);
@@ -368,7 +368,7 @@ test('the base text-expression profile enforces the KERN quotesource character c
   }
 });
 
-test('the active profile rejects rows above the M4.81 node, property, and value ceilings', () => {
+test('the active profile rejects rows above the M4.85 node, property, and value ceilings', () => {
   const parsed = parseDocumentWithDiagnostics([
     'fn name=tooManyRows returns=void',
     ...Array.from({ length: 14 }, (_, index) => `  param name=p${index} type=number`),
@@ -379,7 +379,7 @@ test('the active profile rejects rows above the M4.81 node, property, and value 
     parsed.root.children[0],
     loadCoveragePolicy().base,
     loadCanonicalizerPolicy().profileLimits,
-    { nodes: 39, properties: 62, values: 462 },
+    { nodes: 39, properties: 62, values: 581 },
   );
   assert.deepEqual(blockers, ['profile.rows.nodes', 'profile.rows.properties', 'profile.rows.values']);
 });

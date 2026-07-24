@@ -168,6 +168,13 @@ export function formatM484ValueRowHeadroomStatus(receipt) {
     'M4.85 authenticates the value-row profile promotion.';
 }
 
+export function formatM485ValueRowPromotionStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  return `M4.85 promotes maxValueRows to 580 and publishes the exact ` +
+    `${migration.completeFunctions}-function/${migration.migratedParameterRows}-row parameter queue; ` +
+    'M4.86 consumes it.';
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

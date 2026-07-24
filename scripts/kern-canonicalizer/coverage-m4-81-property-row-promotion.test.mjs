@@ -4,6 +4,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  assertCurrentCanonicalizerPolicy,
+  assertCurrentProfileLimitFixtures,
+} from './coverage-current.mjs';
+import {
+  m481ActiveProfile,
   m481ParameterMigration,
 } from './coverage-m4-81-property-row-promotion.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM481 } from './coverage-prerequisite-m4-81.mjs';
@@ -22,25 +27,15 @@ function sha256(path) {
 
 test('M4.81 promotes only the authenticated property-row ceiling', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, {
+  assert.deepEqual(m481ActiveProfile(), {
     maxNodeRows: 38,
     maxPropertyRows: 61,
     maxValueRows: 461,
   });
+  assertCurrentCanonicalizerPolicy(policy);
+  assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
-
-  const overNode = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-node-row-limit');
-  assert.deepEqual(overNode?.expectedRows, { nodes: 39, properties: 45, values: 62 });
-  const overProperty = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-property-row-limit');
-  assert.deepEqual(overProperty?.expectedRows, { nodes: 31, properties: 62, values: 99 });
-  assert.deepEqual(overProperty?.admittedProfileLimits, {
-    maxNodeRows: 38,
-    maxPropertyRows: 62,
-    maxValueRows: 461,
-  });
-  const overValue = PROFILE_LIMIT_FIXTURES.find(({ id }) => id === 'over-value-row-limit');
-  assert.deepEqual(overValue?.expectedRows, { nodes: 18, properties: 21, values: 462 });
 });
 
 test('M4.81 preserves its authenticated one-function parameter queue as an immutable handoff', () => {

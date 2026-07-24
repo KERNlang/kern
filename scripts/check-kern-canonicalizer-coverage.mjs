@@ -5,6 +5,8 @@ import {
   summarizeCanonicalizerCoverage,
 } from './kern-canonicalizer/coverage.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
+import { assertM485ValueRowPromotion } from './kern-canonicalizer/coverage-m4-85-value-row-promotion.mjs';
+import { loadCanonicalizerPolicy } from './kern-canonicalizer/policy.mjs';
 import { assertM482ParameterMigration } from './kern-canonicalizer/coverage-m4-82-parameter-migration.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './kern-canonicalizer/coverage-prerequisite-m4-44.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM448 } from './kern-canonicalizer/coverage-prerequisite-m4-48.mjs';
@@ -135,6 +137,7 @@ import {
   formatM482ParameterMigrationStatus,
   formatM483ResidualAnalysisStatus,
   formatM484ValueRowHeadroomStatus,
+  formatM485ValueRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -216,6 +219,7 @@ const m479PropertyRowHeadroom = assertCanonicalizerPropertyRowHeadroomM479();
 if (process.argv.includes('--write')) writeCanonicalizerRuntimeCostM480();
 const m480RuntimeCost = assertCanonicalizerRuntimeCostM480();
 const m484ValueRowHeadroom = assertCanonicalizerValueRowHeadroomM484();
+assertM485ValueRowPromotion(coverage, prerequisite, loadCanonicalizerPolicy());
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -365,13 +369,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 105, 'live M4.82 authored function count must remain exact');
+  assert.equal(actual.functionCount, 105, 'live M4.85 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 82, 'live M4.82 base completion must remain exactly 82/105');
+  assert.equal(actual.baseCompleteFunctions, 83, 'live M4.85 base completion must remain exactly 83/105');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     22,
-    'live M4.82 fn.params blocker count must remain exactly 22',
+    'live M4.85 fn.params blocker count must remain exactly 22',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -384,10 +388,15 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 19,
+    witnesses: [{
+      id: 'examples/capstone-checker-subset/checker.kern#16:argProvenanced',
+      parameterRows: 19,
+      profileRows: { nodes: 35, properties: 55, values: 580 },
+      tool: 'checker',
+    }],
   });
   assert.equal(
     m481PrerequisiteHandoff.digest,
@@ -414,10 +423,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 22);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 21);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '37f914f5ccfce7a4cb86c1235939e760a133936c22775f3a1d25043ea7c7dcec',
+    '0e6700b777a3cf2f5ed462636ba292ef69df90de141e3466b8831d8f190b7328',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1294,6 +1303,7 @@ process.stdout.write(
   ` ${formatM482ParameterMigrationStatus(m481PrerequisiteHandoff)}` +
   ` ${formatM483ResidualAnalysisStatus(m483ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM484ValueRowHeadroomStatus(m484ValueRowHeadroom)}` +
+  ` ${formatM485ValueRowPromotionStatus(prerequisite)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -117,7 +117,7 @@
       "while.cond"
     ]
   },
-  "baseCompleteFunctions": 82,
+  "baseCompleteFunctions": 83,
   "blockers": [
     {
       "count": 22,
@@ -126,10 +126,6 @@
     {
       "count": 12,
       "id": "projection.limit-depth"
-    },
-    {
-      "count": 5,
-      "id": "profile.rows.values"
     },
     {
       "count": 3,
@@ -146,6 +142,10 @@
     {
       "count": 2,
       "id": "profile.rows.properties"
+    },
+    {
+      "count": 2,
+      "id": "profile.rows.values"
     },
     {
       "count": 1,
@@ -182,7 +182,7 @@
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
   "canonicalizerDigest": "fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28",
-  "canonicalizerPolicyDigest": "6506df16bb042ae3c5544fce3324c500e2401192983fc98ae492d2283ff21495",
+  "canonicalizerPolicyDigest": "a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c",
   "compiledCoreDigest": "edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764",
   "composition": {
     "digest": "894cf14bc391d3109a20fb6abef8d1c98cab426e2ed6d238d414c8aee46cff3b",
@@ -215,13 +215,13 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "0b265cb9801b56ca4319119e06283dfbd464d0732a8fb7ab79b3ae6676318349",
-  "coverageImplementationDigest": "21316a1c794686f11d46625cf90349013aefe85803323883631dc3b13fd024b0",
+  "coverageImplementationDigest": "5fe10fdb7fb3a339071578ce1dce729bbaaf5a578371d5e41b8e1b73e81d8f99",
   "coveragePolicyDigest": "e4a310720a9f41d9c0d8b9340177d5df634d1add5209420fe600ebef46e78da6",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 105,
-  "functionFactsDigest": "75a50e5f254e43391c1643329b15b508c06910e7ee4063f86bd12089010077d2",
+  "functionFactsDigest": "db85a72c7a42f56917d9318eed2f04a77b0a98a8e457bc14c69c517faafbe793",
   "implementationProvenance": {
     "family": "while-iteration",
     "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
