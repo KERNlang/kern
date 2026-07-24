@@ -386,7 +386,13 @@ fn name=emitstatement params="id:number,level:number,returnType:string,nodeKind:
     for name=i from=0 to="children.length"
       do value="out.push(children[i])"
     return value="out"
-fn name=typesource params="id:number,allowVoid:boolean,valueTag:string[],valueParent:number[],valueRole:string[],valueText:string[]" returns=string export=true
+fn name=typesource returns=string export=true
+  param name=id type=number
+  param name=allowVoid type=boolean
+  param name=valueTag type=string[]
+  param name=valueParent type=number[]
+  param name=valueRole type=string[]
+  param name=valueText type=string[]
   handler lang="kern"
     if cond="id <= 0 || id > valueTag.length || stringat(id, valueTag) != \"record\""
       return value="\"\""

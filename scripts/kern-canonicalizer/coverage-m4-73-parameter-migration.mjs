@@ -40,9 +40,9 @@ export const M473_PARAMETER_MIGRATION_TARGET = {
 const SOURCE_SHA256 = '158175ac9404fb93acc5b82fc8b87d10f2946a11b228ce9686f2423f75bcf667';
 const GENERATED_ARTIFACTS = new Map([
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89'],
+    '974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d'],
   ['scripts/kern-canonicalizer/composition.json',
-    '25303c8fc07467fe5eb20dd0ba4b0e2aa074e4e133ace9919d4a82e8c6c87289'],
+    '2e8a4f77f6f343e7a16b42522b74afce3fd91272df3261431cb8e8950c17105d'],
   ['examples/capstone-checker-subset/main.kern',
     'c73f0356534ee83eac5d81609d178fcbc67709a0c3ca291a62f79eeb9ad19c2e'],
   ['examples/capstone-checker-subset/numeric-main.kern',

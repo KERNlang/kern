@@ -65,25 +65,20 @@ test('the current policy preserves M4.72 evidence after the M4.76 promotion', ()
   });
 });
 
-test('M4.76 preserves the M4.72 profile while exposing the next queue', () => {
+test('M4.77 preserves the M4.72 profile after consuming the next queue', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 79);
+  assert.equal(coverage.baseCompleteFunctions, 80);
   assert.equal(coverage.functions.length, 104);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    24,
+    23,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 6,
-    witnesses: [{
-      id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
-      parameterRows: 6,
-      profileRows: { nodes: 38, properties: 51, values: 461 },
-      tool: 'canonicalizer',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 23);

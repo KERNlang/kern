@@ -108,9 +108,9 @@ const GENERATED_ARTIFACTS = new Map([
   ['examples/selfhost-validator/main.kern',
     '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7'],
   ['examples/kern-canonicalizer/canonicalizer.composed.kern',
-    'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89'],
+    '974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d'],
   ['scripts/kern-canonicalizer/composition.json',
-    '25303c8fc07467fe5eb20dd0ba4b0e2aa074e4e133ace9919d4a82e8c6c87289'],
+    '2e8a4f77f6f343e7a16b42522b74afce3fd91272df3261431cb8e8950c17105d'],
 ]);
 
 function sha256(bytes) {

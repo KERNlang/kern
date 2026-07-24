@@ -33,13 +33,13 @@ function targetFixture() {
   return { fact, root, target: M453_PARAMETER_MIGRATION_TARGET };
 }
 
-test('M4.76 preserves the exact M4.53 parameter migration while exposing the next queue', () => {
+test('M4.77 preserves the exact M4.53 parameter migration after consuming the queue', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM453ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 79);
+  assert.equal(coverage.baseCompleteFunctions, 80);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    24,
+    23,
   );
   assert.deepEqual(loadCanonicalizerPolicy().profileLimits, {
     maxNodeRows: 38,
@@ -53,10 +53,10 @@ test('M4.76 preserves the exact M4.53 parameter migration while exposing the nex
     migratedParameterRows: prerequisite.parameterMigration.migratedParameterRows,
     witnesses: prerequisite.parameterMigration.witnesses.map(({ id }) => id),
   }, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 6,
-    witnesses: ['examples/kern-canonicalizer/canonicalizer.kern#0:typesource'],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);

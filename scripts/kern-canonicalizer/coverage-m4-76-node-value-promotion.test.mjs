@@ -12,7 +12,7 @@ import {
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { PROFILE_LIMIT_FIXTURES } from './profile-limit-fixtures.mjs';
 
-const EXPECTED_QUEUE = {
+const M476_PUBLISHED_QUEUE = {
   completeFunctions: 1,
   completeTools: 1,
   migratedParameterRows: 6,
@@ -65,16 +65,21 @@ test('M4.76 promotes only the authenticated node-row and value-row ceilings', ()
   });
 });
 
-test('M4.76 exposes exactly the frozen one-function parameter queue', () => {
+test('M4.77 consumes the one-function queue exposed by M4.76', () => {
   const coverage = measureCanonicalizerCoverage();
-  assert.equal(coverage.baseCompleteFunctions, 79);
+  assert.equal(coverage.baseCompleteFunctions, 80);
   assert.equal(coverage.functions.length, 104);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    24,
+    23,
   );
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(prerequisite.parameterMigration, EXPECTED_QUEUE);
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
+  });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 23);
 });
@@ -103,9 +108,9 @@ test('M4.76 freezes exact M4.75 runtime evidence before either policy limit move
     })),
     [{
       exactFloor: 46_255,
-      id: EXPECTED_QUEUE.witnesses[0].id,
+      id: M476_PUBLISHED_QUEUE.witnesses[0].id,
       parameterRows: 6,
-      profileRows: EXPECTED_QUEUE.witnesses[0].profileRows,
+      profileRows: M476_PUBLISHED_QUEUE.witnesses[0].profileRows,
     }],
   );
 });

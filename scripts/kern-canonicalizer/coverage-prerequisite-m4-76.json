@@ -1,17 +1,17 @@
 {
   "baseline": {
-    "baseCompleteFunctions": 80,
+    "baseCompleteFunctions": 79,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
-    "canonicalizerDigest": "974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d",
+    "canonicalizerDigest": "c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89",
     "canonicalizerPolicyDigest": "ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244",
     "compiledCoreDigest": "7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448",
-    "corpusDigest": "6f190ad44e9d352b9da11fca4bed99ca9cc5bcaab00292cef4ce1be988388ddd",
-    "coverageImplementationDigest": "da5ef9ae66bb6e4d1ba703c39a9a15ce99cddaae1176973e1754598742b957df",
-    "coveragePolicyDigest": "1c923bfd76386c4e91296815fa3b5a3632c472f188cdba1094364d6dfd782813",
+    "corpusDigest": "47165ce1ef23445d3e66f268b3785f400453113a2ceef3c96139ccef083015d5",
+    "coverageImplementationDigest": "4415a15894d6be6300aecad354a239f89ca81f384596b0923012c8281fd3839f",
+    "coveragePolicyDigest": "60c907324d92462afdd16fb6d43b6f4ff837231cdf561caece4ad064053ab2f9",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 104,
-    "functionFactsDigest": "054731c28f3cbb33c029826c9cd8af335aa0894b1129a39424a66b506d102bc2",
-    "legacyParameterBlockers": 23,
+    "functionFactsDigest": "b625ad26618fa7d2ec0e50f64030b8074445a47f4738f91ca79238f77558638a",
+    "legacyParameterBlockers": 24,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
   },
@@ -87,10 +87,21 @@
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 6,
+    "witnesses": [
+      {
+        "id": "examples/kern-canonicalizer/canonicalizer.kern#0:typesource",
+        "parameterRows": 6,
+        "profileRows": {
+          "nodes": 38,
+          "properties": 51,
+          "values": 461
+        },
+        "tool": "canonicalizer"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],

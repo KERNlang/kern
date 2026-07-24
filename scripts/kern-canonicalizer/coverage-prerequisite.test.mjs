@@ -13,15 +13,10 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 1,
-  completeTools: 1,
-  migratedParameterRows: 6,
-  witnesses: [{
-    id: 'examples/kern-canonicalizer/canonicalizer.kern#0:typesource',
-    parameterRows: 6,
-    profileRows: { nodes: 38, properties: 51, values: 461 },
-    tool: 'canonicalizer',
-  }],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
 const EXPECTED_EXHAUSTION = {
@@ -49,7 +44,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.76 exposes the exact parameter tranche and preserves bounded exhaustion', () => {
+test('M4.77 consumes the exact parameter tranche and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -61,7 +56,7 @@ test('M4.76 exposes the exact parameter tranche and preserves bounded exhaustion
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.76 promoted frontier', () => {
+test('format 3 rejects drift in the M4.77 consumed frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -82,8 +77,8 @@ test('format 3 rejects drift in the M4.76 promoted frontier', () => {
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
-    (copy) => { copy.parameterMigration.completeFunctions = 0; },
-    (copy) => { copy.parameterMigration.completeTools = 0; },
+    (copy) => { copy.parameterMigration.completeFunctions = 1; },
+    (copy) => { copy.parameterMigration.completeTools = 1; },
     (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
     (copy) => { copy.parameterMigration.witnesses = [{ id: 'future' }]; },
   ];
@@ -97,22 +92,22 @@ test('format 3 rejects drift in the M4.76 promoted frontier', () => {
   }
 });
 
-test('M4.76 preserves the exact promoted base while exposing the queue', () => {
+test('M4.77 preserves the exact promoted base after consuming the queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 79,
+    baseCompleteFunctions: 80,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
-    canonicalizerDigest: 'c1b42e6183731a757cdad7150339ec38090c11aeaa6404095ae16f34412a3b89',
+    canonicalizerDigest: '974b8d3ba6fefac4861152be88181c176feda56df9aa820e9f8d3a89e0488f8d',
     canonicalizerPolicyDigest: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: '47165ce1ef23445d3e66f268b3785f400453113a2ceef3c96139ccef083015d5',
+    corpusDigest: '6f190ad44e9d352b9da11fca4bed99ca9cc5bcaab00292cef4ce1be988388ddd',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '60c907324d92462afdd16fb6d43b6f4ff837231cdf561caece4ad064053ab2f9',
+    coveragePolicyDigest: '1c923bfd76386c4e91296815fa3b5a3632c472f188cdba1094364d6dfd782813',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 104,
-    functionFactsDigest: 'b625ad26618fa7d2ec0e50f64030b8074445a47f4738f91ca79238f77558638a',
-    legacyParameterBlockers: 24,
+    functionFactsDigest: '054731c28f3cbb33c029826c9cd8af335aa0894b1129a39424a66b506d102bc2',
+    legacyParameterBlockers: 23,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

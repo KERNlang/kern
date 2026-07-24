@@ -13,7 +13,8 @@ import {
   CANONICALIZER_COMPOSITE_PATH,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
+import { M477_PARAMETER_MIGRATION_TARGET } from './coverage-m4-77-parameter-migration.mjs';
+import { assertDirectParameterPrefix } from './coverage-value-band-parameter-migrations.mjs';
 import { loadPublishedCanonicalizerDualRowHeadroomM475 } from './dual-row-headroom-m4-75.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
@@ -33,8 +34,11 @@ function structuralWitness(row) {
   const sourceRoot = (parsed.root.children ?? [])[0];
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, 'typesource');
-  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
-  assert.equal(parameters.length, row.parameterRows);
+  assert.equal(M477_PARAMETER_MIGRATION_TARGET.id, row.id);
+  assert.equal(M477_PARAMETER_MIGRATION_TARGET.parameters.length, row.parameterRows);
+  assertDirectParameterPrefix(sourceRoot, M477_PARAMETER_MIGRATION_TARGET.parameters);
+  assert.equal(sourceRoot.props.params, undefined);
+  const root = sourceRoot;
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);
   const tables = flattenKirRoots([artifact.root]);
