@@ -26,6 +26,7 @@ import {
   formatM471DualRowHeadroomStatus,
   formatM474ResidualAnalysisStatus,
   formatM475DualRowHeadroomStatus,
+  formatM478ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -241,6 +242,20 @@ test('coverage status records the M4.74 residual recommendation', () => {
       changedLimits: ['maxNodeRows', 'maxValueRows'],
     }),
     'M4.74 published analysis selected 1 function by maxNodeRows+maxValueRows widening; M4.75 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.78 residual recommendation', () => {
+  assert.equal(
+    formatM478ResidualAnalysisStatus(null),
+    'M4.78 published analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatM478ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxPropertyRows'],
+    }),
+    'M4.78 published analysis selected 1 function by maxPropertyRows widening; M4.79 authenticates structural runtime headroom.',
   );
 });
 
