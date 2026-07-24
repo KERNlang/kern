@@ -47,7 +47,7 @@ export const M482_PARAMETER_MIGRATION_TARGET = {
 const SOURCE_SHA256 = '525d929ef2f52482b27128b0a936f4b3e491e949b404d7bb0ca33658f95daef7';
 const GENERATED_ARTIFACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    '80bf569b3114daa205f9df594a9a796ec04be92a59be8c27ddb2594fd03667cf'],
+    'fe870142a814fc82e6bbb25c1bc8395d97a228e87d8ad175ed6794490305cc41'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
 ]);

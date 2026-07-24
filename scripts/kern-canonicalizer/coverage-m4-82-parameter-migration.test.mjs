@@ -74,7 +74,7 @@ test('M4.82 generated checker consumers reproduce only from repository writers',
   );
   assert.equal(checkerMain, generateCheckerMainKern());
   assert.equal(numericMain, generateNumericMainKern());
-  assert.equal(sha256(checkerMain), '80bf569b3114daa205f9df594a9a796ec04be92a59be8c27ddb2594fd03667cf');
+  assert.equal(sha256(checkerMain), 'fe870142a814fc82e6bbb25c1bc8395d97a228e87d8ad175ed6794490305cc41');
   assert.equal(sha256(numericMain), '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a');
 });
 

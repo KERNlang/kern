@@ -13,7 +13,6 @@ import {
   CANONICALIZER_COMPOSITE_PATH,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
-import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerValueRowHeadroomM484 } from './value-row-headroom-m4-84.mjs';
@@ -33,7 +32,9 @@ function structuralWitness(row) {
   const sourceRoot = (parsed.root.children ?? [])[16];
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, 'argProvenanced');
-  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
+  const root = sourceRoot;
+  const parameters = root.children.filter(({ type }) => type === 'param');
+  assert.equal(root.props.params, undefined);
   assert.equal(parameters.length, row.parameterRows);
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);

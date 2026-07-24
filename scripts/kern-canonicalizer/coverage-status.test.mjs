@@ -34,6 +34,7 @@ import {
   formatM483ResidualAnalysisStatus,
   formatM484ValueRowHeadroomStatus,
   formatM485ValueRowPromotionStatus,
+  formatM486ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -350,6 +351,15 @@ test('coverage status records the M4.85 value-row promotion', () => {
       parameterMigration: { completeFunctions: 1, migratedParameterRows: 19 },
     }),
     'M4.85 promotes maxValueRows to 580 and publishes the exact 1-function/19-row parameter queue; M4.86 consumes it.',
+  );
+});
+
+test('coverage status records M4.86 consumption of the immutable M4.85 queue', () => {
+  assert.equal(
+    formatM486ParameterMigrationStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 19 },
+    }),
+    'M4.86 consumes the exact M4.85 1-function/19-row parameter queue and advances the cumulative base to 84/105.',
   );
 });
 

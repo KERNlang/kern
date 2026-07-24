@@ -175,6 +175,12 @@ export function formatM485ValueRowPromotionStatus(receipt) {
     'M4.86 consumes it.';
 }
 
+export function formatM486ParameterMigrationStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  return `M4.86 consumes the exact M4.85 ${migration.completeFunctions}-function/` +
+    `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to 84/105.`;
+}
+
 export function formatM453ParameterMigrationStatus(receipt) {
   const migration = receipt.parameterMigration;
   const functionLabel = migration.completeFunctions === 1 ? 'function' : 'functions';

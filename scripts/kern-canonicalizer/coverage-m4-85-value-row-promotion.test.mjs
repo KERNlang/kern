@@ -10,7 +10,7 @@ import {
   assertCurrentProfileLimitFixtures,
 } from './coverage-current.mjs';
 import {
-  assertM485ValueRowPromotion,
+  m485ActiveProfile,
   m485ParameterMigration,
 } from './coverage-m4-85-value-row-promotion.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
@@ -27,11 +27,11 @@ function sha256(path) {
     .digest('hex');
 }
 
-test('M4.85 promotes only the authenticated value-row ceiling', () => {
+test('M4.86 preserves the authenticated M4.85 value-row ceiling', () => {
   const policy = loadCanonicalizerPolicy();
   const coverage = measureCanonicalizerCoverage();
   const prerequisite = measureCanonicalizerPrerequisite();
-  assertM485ValueRowPromotion(coverage, prerequisite, policy);
+  assert.deepEqual(policy.profileLimits, m485ActiveProfile());
   assertCurrentCanonicalizerPolicy(policy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assertCurrentCanonicalizerFrontier(coverage, prerequisite);

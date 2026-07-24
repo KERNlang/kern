@@ -219,7 +219,26 @@ fn name=argIndexOf returns=number
           return value="i"
     return value="-1"
 
-fn name=argProvenanced params="fnName:string,argId:number,argKind:string[],argName:string[],argNum:string[],argOp:string[],argLeftKind:string[],argLeftName:string[],argLeftNum:string[],argRightKind:string[],argRightName:string[],argRightNum:string[],stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[],paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=boolean
+fn name=argProvenanced returns=boolean
+  param name=fnName type=string
+  param name=argId type=number
+  param name=argKind type="string[]"
+  param name=argName type="string[]"
+  param name=argNum type="string[]"
+  param name=argOp type="string[]"
+  param name=argLeftKind type="string[]"
+  param name=argLeftName type="string[]"
+  param name=argLeftNum type="string[]"
+  param name=argRightKind type="string[]"
+  param name=argRightName type="string[]"
+  param name=argRightNum type="string[]"
+  param name=stmtKind type="string[]"
+  param name=stmtFn type="string[]"
+  param name=stmtName type="string[]"
+  param name=stmtTarget type="string[]"
+  param name=paramFn type="string[]"
+  param name=paramName type="string[]"
+  param name=paramOrdinal type="number[]"
   handler lang="kern"
     if cond="argKind[argId] == \"numLit\""
       return value="isSafeIntText(argNum[argId])"
