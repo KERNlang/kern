@@ -1,0 +1,116 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.dual-row-headroom.4",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 38,
+      "maxPropertyRows": 61,
+      "maxValueRows": 580
+    },
+    "candidateProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 77,
+      "maxValueRows": 580
+    },
+    "diagnosticMaxCollectionLength": 107594,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "measurement": {
+    "disposition": "diagnostic-only",
+    "runtimePolicyChanged": false
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 64
+  },
+  "promotion": {
+    "disposition": "rejected-over-production-ceiling",
+    "nextMilestone": "M4.89",
+    "productionCeilingDeficit": 42058,
+    "promotionBudgetDeficit": 58442,
+    "requiredFloorReduction": 58442
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28",
+    "canonicalizerPolicySha256": "a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c",
+    "compositionSha256": "894cf14bc391d3109a20fb6abef8d1c98cab426e2ed6d238d414c8aee46cff3b",
+    "coveragePolicySha256": "4ac57e59be2bcdb7b9aa0f7f35598703600bf47b4f17709e59c5823c0e605490",
+    "inputSourceSha256": [
+      {
+        "path": "examples/capstone-checker-subset/checker.kern",
+        "sha256": "a04a2242cb7762b9753f16e49cc0b849eadd736d2d1667d691d267603394ad59"
+      },
+      {
+        "path": "examples/selfhost-validator/validator.kern",
+        "sha256": "a9d278832edf050f3a96699980d88fa740f345d85192222b241bb6cc3ac2a2ee"
+      }
+    ],
+    "publishedCoverageImplementationDigest": "0d34962bf373ba4a9f47a7afb5ec4044ba2e426a3370e1deaf92cee1ca56253a",
+    "publishedCoverageSummarySha256": "cc34bcc0d17f9cfa3f173eb9ee8fcbaef174e093f5880c63ecef0f87ae9caf13",
+    "publishedInputCommit": "e7933c9d09bbeab9e6f41221370cb608cbf8a278",
+    "publishedPrerequisiteSummarySha256": "fe6eb4b314e718696e04c9127ebaea1f232d2b993737d4eba1bf17d5a17c5076",
+    "residualAnalysisInputCommit": "46337a6549390087ef095c18d0e178cf9ef28392",
+    "residualAnalysisSha256": "9046716d876c336140b567a8a40a9b52750106b2ac5db66f38f7621e935c203a",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "summary": {
+    "maxExactFloor": 107594,
+    "productionCeilingDeficit": 42058,
+    "promotionBudgetDeficit": 58442,
+    "totalParameterRows": 40,
+    "witnessCount": 3
+  },
+  "witnesses": [
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 36229,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+      "parameterRows": 24,
+      "productionDelta": 29307,
+      "productionOutcome": "success",
+      "profileRows": {
+        "nodes": 41,
+        "properties": 67,
+        "values": 404
+      },
+      "promotionDelta": 12923,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 51321,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+      "parameterRows": 15,
+      "productionDelta": 14215,
+      "productionOutcome": "success",
+      "profileRows": {
+        "nodes": 47,
+        "properties": 64,
+        "values": 478
+      },
+      "promotionDelta": -2169,
+      "roundTrip": true
+    },
+    {
+      "belowFloorOutcome": "failure",
+      "exactFloor": 107594,
+      "floorOutcome": "success",
+      "id": "examples/selfhost-validator/validator.kern#2:isreserved",
+      "parameterRows": 1,
+      "productionDelta": -42058,
+      "productionOutcome": "failure",
+      "profileRows": {
+        "nodes": 74,
+        "properties": 77,
+        "values": 572
+      },
+      "promotionDelta": -58442,
+      "roundTrip": true
+    }
+  ]
+}

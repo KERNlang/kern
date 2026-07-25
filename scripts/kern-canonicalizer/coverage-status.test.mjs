@@ -36,6 +36,7 @@ import {
   formatM485ValueRowPromotionStatus,
   formatM486ParameterMigrationStatus,
   formatM487ResidualAnalysisStatus,
+  formatM488DualRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -293,6 +294,20 @@ test('coverage status records the M4.87 residual recommendation', () => {
       changedLimits: ['maxNodeRows', 'maxPropertyRows'],
     }),
     'M4.87 published analysis selected 3 functions by maxNodeRows+maxPropertyRows widening; M4.88 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.88 production-ceiling NO-GO', () => {
+  assert.equal(
+    formatM488DualRowHeadroomStatus({
+      limits: { candidateProfile: { maxNodeRows: 74, maxPropertyRows: 77, maxValueRows: 580 } },
+      summary: {
+        maxExactFloor: 107_594,
+        productionCeilingDeficit: 42_058,
+        promotionBudgetDeficit: 58_442,
+      },
+    }),
+    'M4.88 structural runtime rejects the 74/77/580 candidate: maximum floor 107594 exceeds production by 42058 and promotion budget by 58442; M4.89 reduces canonicalizer runtime cost.',
   );
 });
 

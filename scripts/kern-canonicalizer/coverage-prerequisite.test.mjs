@@ -100,7 +100,7 @@ test('M4.86 preserves the exact promoted profile with an empty queue', () => {
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: 'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28',
     canonicalizerPolicyDigest: 'a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c',
-    compiledCoreDigest: 'edcfa09f8d8973db85b200fbee7bd4e23bbca868144be86cfb06f14890228764',
+    compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
     corpusDigest: '33225f38f0e97810aa3d09736c2a62d347987d0e7bd911c7481452fc24601061',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '4ac57e59be2bcdb7b9aa0f7f35598703600bf47b4f17709e59c5823c0e605490',
