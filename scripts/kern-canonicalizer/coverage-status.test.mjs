@@ -40,6 +40,7 @@ import {
   formatM489RuntimeCostStatus,
   formatM490DualRowPromotionStatus,
   formatM491ParameterMigrationStatus,
+  formatM492ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -106,6 +107,20 @@ test('coverage status records the M4.43 optimized promotion handoff', () => {
       changedLimits: ['maxValueRows'],
     }),
     'M4.43 published analysis selected 2 functions by maxValueRows widening; M4.44 authenticates the profile promotion.',
+  );
+});
+
+test('coverage status records the M4.92 residual recommendation', () => {
+  assert.equal(
+    formatM492ResidualAnalysisStatus(null),
+    'M4.92 published analysis found no actionable profile widening.',
+  );
+  assert.equal(
+    formatM492ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxPropertyRows', 'maxValueRows'],
+    }),
+    'M4.92 published analysis selected 1 function by maxPropertyRows+maxValueRows widening; M4.93 authenticates structural runtime headroom.',
   );
 });
 

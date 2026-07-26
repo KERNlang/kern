@@ -136,6 +136,14 @@ export function formatM491ParameterMigrationStatus(receipt) {
     `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to 88/106.`;
 }
 
+export function formatM492ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus(
+    'M4.92 published analysis',
+    selectedNextAction,
+    '; M4.93 authenticates structural runtime headroom',
+  );
+}
+
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;
