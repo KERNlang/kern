@@ -88,7 +88,11 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
   const target = M486_PARAMETER_MIGRATION_TARGET;
   const publishedQueue = m485ParameterMigration();
   const headroom = loadCanonicalizerValueRowHeadroomM484();
-  assert.deepEqual(policy.profileLimits, m485ActiveProfile());
+  assert.deepEqual(policy.profileLimits, {
+    maxNodeRows: 74,
+    maxPropertyRows: 77,
+    maxValueRows: m485ActiveProfile().maxValueRows,
+  });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 64);
   assert.deepEqual(publishedQueue, {
@@ -137,22 +141,11 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
     22,
   );
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 7,
-    witnesses: [{
-      id: 'examples/kern-canonicalizer/canonicalizer.kern#2:exprsource',
-      parameterRows: 7,
-      profileRows: { nodes: 13, properties: 23, values: 175 },
-      tool: 'canonicalizer',
-    }],
-  });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 21);
   assert.equal(
-    prerequisite.exhaustion?.reasonAssignmentsDigest,
-    'c032952ceee69b3b1d8126b1c2bd4f4af301f7652ed33b1fc039f631377939b2',
+    prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
+    false,
+    'M4.86 migrated argProvenanced must never re-enter a later parameter queue',
   );
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   return fact;
 }

@@ -20,6 +20,16 @@ import { loadCanonicalizerRuntimeCostM489 } from './runtime-cost-m4-89.mjs';
 const COMPOSITION = verifyCanonicalizerComposition();
 const POLICY = loadCanonicalizerPolicy();
 const RECEIPT = loadCanonicalizerRuntimeCostM489();
+const M489_ACTIVE_PROFILE = {
+  maxNodeRows: 38,
+  maxPropertyRows: 61,
+  maxValueRows: 580,
+};
+const M489_CANDIDATE_PROFILE = {
+  maxNodeRows: 74,
+  maxPropertyRows: 77,
+  maxValueRows: 580,
+};
 const FAILURE = {
   completion: { kind: 'error' },
   diagnostics: [{ category: 'runtime', code: 'unsupported-runtime-input', phase: 'execution' }],
@@ -95,7 +105,8 @@ export function verifyCanonicalizerRuntimeCostWitnessM489(index) {
   const row = RECEIPT.witnesses[index];
   assert.ok(row);
   assert.equal(POLICY.runtimeLimits.maxCollectionLength, 65_536);
-  assert.deepEqual(POLICY.profileLimits, RECEIPT.limits.activeProfile);
+  assert.deepEqual(RECEIPT.limits.activeProfile, M489_ACTIVE_PROFILE);
+  assert.deepEqual(RECEIPT.limits.candidateProfile, M489_CANDIDATE_PROFILE);
   assert.ok(row.exactFloor <= RECEIPT.limits.promotionBudget);
   assert.equal(row.floorReduction, row.baselineExactFloor - row.exactFloor);
   const witness = structuralWitness(row);

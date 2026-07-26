@@ -3,14 +3,14 @@
     "baseCompleteFunctions": 84,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
     "canonicalizerDigest": "d0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247",
-    "canonicalizerPolicyDigest": "a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c",
+    "canonicalizerPolicyDigest": "f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849",
     "compiledCoreDigest": "7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448",
     "corpusDigest": "ef5dbfcf5c93ef4658fc558b02ca602785ddc5f00c318c1349983983af3588d1",
-    "coverageImplementationDigest": "658b25c9db50203fc068b25b529ed3ecbe280c9c47ea20e328c9ca37d731cc2c",
+    "coverageImplementationDigest": "f71812fc47a4ad617bffaa36e326a2b5cbc44efff55f97188fbe1d31abd4224d",
     "coveragePolicyDigest": "e1a15eef726fa2b8e058a0ef5afe40edc25193ecbe01727168bcdefa6b0313ac",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 106,
-    "functionFactsDigest": "dd1523bb84b9d39c9bcff12af3abf2b771f8cb2ec01eaf91f04e464f99eb65ae",
+    "functionFactsDigest": "9b523d2055d7cd66be32f3bce5f813f2de0cb9468f563bff0a9b73dad2321ff8",
     "legacyParameterBlockers": 22,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
@@ -21,7 +21,7 @@
     ],
     "completingClosureCount": 0,
     "evaluatedNonEmptyClosureCount": 1,
-    "reasonAssignmentsDigest": "c032952ceee69b3b1d8126b1c2bd4f4af301f7652ed33b1fc039f631377939b2",
+    "reasonAssignmentsDigest": "b222027da0639addba00e2c0149684e1e02a9bfd199feacae921b5fc028e07fe",
     "reasonCounts": [
       {
         "count": 1,
@@ -52,11 +52,11 @@
         "id": "let.value:unknown-expression-kind"
       },
       {
-        "count": 5,
+        "count": 1,
         "id": "profile.rows.nodes"
       },
       {
-        "count": 5,
+        "count": 2,
         "id": "profile.rows.properties"
       },
       {
@@ -80,17 +80,37 @@
         "id": "throw.value:unknown-expression-kind"
       }
     ],
-    "residualFunctionCount": 21,
+    "residualFunctionCount": 18,
     "scope": "current-bounded-profile"
   },
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 1,
-    "completeTools": 1,
-    "migratedParameterRows": 7,
+    "completeFunctions": 4,
+    "completeTools": 3,
+    "migratedParameterRows": 47,
     "witnesses": [
+      {
+        "id": "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+        "parameterRows": 24,
+        "profileRows": {
+          "nodes": 41,
+          "properties": 67,
+          "values": 404
+        },
+        "tool": "checker"
+      },
+      {
+        "id": "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+        "parameterRows": 15,
+        "profileRows": {
+          "nodes": 47,
+          "properties": 64,
+          "values": 478
+        },
+        "tool": "checker"
+      },
       {
         "id": "examples/kern-canonicalizer/canonicalizer.kern#2:exprsource",
         "parameterRows": 7,
@@ -100,6 +120,16 @@
           "values": 175
         },
         "tool": "canonicalizer"
+      },
+      {
+        "id": "examples/selfhost-validator/validator.kern#2:isreserved",
+        "parameterRows": 1,
+        "profileRows": {
+          "nodes": 74,
+          "properties": 77,
+          "values": 572
+        },
+        "tool": "validator"
       }
     ]
   },

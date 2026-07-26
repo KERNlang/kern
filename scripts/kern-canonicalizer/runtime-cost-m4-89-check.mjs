@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { loadCanonicalizerDualRowHeadroomM488 } from './dual-row-headroom-m4-88.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerRuntimeCostM489 } from './runtime-cost-m4-89.mjs';
 
 function digest(value) {
@@ -16,7 +15,6 @@ function repositoryBytes(path) {
 export function checkCanonicalizerRuntimeCostM489() {
   const baseline = loadCanonicalizerDualRowHeadroomM488();
   const receipt = loadCanonicalizerRuntimeCostM489();
-  const policy = loadCanonicalizerPolicy();
   if (receipt.baseline.m488ReceiptSha256 !== digest(
     repositoryBytes('scripts/kern-canonicalizer/dual-row-headroom-m4-88.json'),
   )) {
@@ -36,8 +34,13 @@ export function checkCanonicalizerRuntimeCostM489() {
   )) {
     throw new Error('M4.89 must bind the live canonicalizer composite');
   }
-  if (JSON.stringify(receipt.limits.activeProfile) !== JSON.stringify(policy.profileLimits)) {
-    throw new Error('M4.89 must preserve the active profile');
+  if (
+    JSON.stringify(receipt.limits.activeProfile) !==
+      JSON.stringify(baseline.limits.activeProfile) ||
+    JSON.stringify(receipt.limits.candidateProfile) !==
+      JSON.stringify(baseline.limits.candidateProfile)
+  ) {
+    throw new Error('M4.89 must preserve the exact M4.88 profile transition');
   }
   return receipt;
 }

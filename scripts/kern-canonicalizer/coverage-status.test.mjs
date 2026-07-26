@@ -38,6 +38,7 @@ import {
   formatM487ResidualAnalysisStatus,
   formatM488DualRowHeadroomStatus,
   formatM489RuntimeCostStatus,
+  formatM490DualRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -319,6 +320,18 @@ test('coverage status records the M4.89 runtime-cost reduction', () => {
       result: { floorReduction: 80_080, maxExactFloor: 27_514, promotionHeadroom: 21_638 },
     }),
     'M4.89 reduces the exact three-witness maximum floor from 107594 to 27514 by 80080 steps with 21638 promotion headroom; M4.90 authenticates the dual-row profile promotion.',
+  );
+});
+
+test('coverage status records the M4.90 dual-row promotion', () => {
+  assert.equal(
+    formatM490DualRowPromotionStatus({
+      parameterMigration: {
+        completeFunctions: 4,
+        migratedParameterRows: 47,
+      },
+    }),
+    'M4.90 promotes maxNodeRows/maxPropertyRows to 74/77 and publishes the exact 4-function/47-row parameter queue; M4.91 consumes it.',
   );
 });
 

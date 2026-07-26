@@ -3,7 +3,6 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { loadCanonicalizerDualRowHeadroomM488 } from './dual-row-headroom-m4-88.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.2';
@@ -12,6 +11,13 @@ const SUMMARY_URL = new URL('./runtime-cost-m4-89.json', import.meta.url);
 const M488_RECEIPT_DIGEST = '285b42785be8f651d323444ddd3464381b337b74557bbd07e8c3f4bad02a89bb';
 const IMPLEMENTATION_BASE_COMMIT = 'd6b8687624e1361d5e43ef6c6910cc68672d2b2e';
 const EXACT_FLOORS = [24_273, 23_104, 27_514];
+const PUBLISHED_POLICY = {
+  kirLimits: { maxDepth: 64 },
+  profileLimits: { maxNodeRows: 38, maxPropertyRows: 61, maxValueRows: 580 },
+  runtimeLimits: { maxCollectionLength: 65_536 },
+};
+const PUBLISHED_CANONICALIZER_POLICY_DIGEST =
+  'a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c';
 const SOURCE_DIGESTS = {
   canonicalizerCompositeSha256: 'd0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247',
   canonicalizerExpressionHelpersSha256: '1a1ae1f95e20b458021bf78b82f6b0d1cbe639579fcdd64c6709f1c741ce35e4',
@@ -101,7 +107,7 @@ function exactInputs() {
   ) {
     fail('M4.88 rejection handoff must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = structuredClone(PUBLISHED_POLICY);
   if (!same(policy.profileLimits, baseline.limits.activeProfile)) {
     fail('active profile must remain the exact M4.88 profile');
   }
@@ -198,7 +204,7 @@ export function measureCanonicalizerRuntimeCostM489() {
     },
     source: {
       ...structuredClone(SOURCE_DIGESTS),
-      canonicalizerPolicySha256: digest(repositoryBytes('scripts/kern-canonicalizer/policy.json')),
+      canonicalizerPolicySha256: PUBLISHED_CANONICALIZER_POLICY_DIGEST,
       m488PublishedCompositeSha256: baseline.source.canonicalizerCompositeSha256,
       runtimeHandlerAbi: 'kern.runtime.handler.v1',
       structuralKirCodecSha256: digest(repositoryBytes('packages/core/src/kir-structural/canonical.ts')),

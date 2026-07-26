@@ -3,7 +3,7 @@ function lines(...items) {
 }
 
 const BOUNDARY_PARAMETERS = Array.from(
-  { length: 27 },
+  { length: 35 },
   (_, index) => `  param name=p${index} type=number`,
 );
 
@@ -49,20 +49,11 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 39, maxPropertyRows: 61, maxValueRows: 580 },
-    expectedRows: { nodes: 39, properties: 45, values: 62 },
+    admittedProfileLimits: { maxNodeRows: 75, maxPropertyRows: 77, maxValueRows: 580 },
+    expectedRows: { nodes: 75, properties: 75, values: 100 },
     source: lines(
-      'fn name=f0 returns=void',
-      '  param name=a type=number',
-      '  param name=b type=number',
-      '  param name=c type=number',
-      '  param name=d type=number',
-      '  param name=e type=number',
-      '  param name=f type=number',
-      '  handler lang=kern',
-      '    return',
-      ...Array.from({ length: 10 }, (_, index) => [
-        `fn name=f${index + 1} returns=void`,
+      ...Array.from({ length: 25 }, (_, index) => [
+        `fn name=f${index} returns=void`,
         '  handler lang=kern',
         '    return',
       ]).flat(),
@@ -70,8 +61,8 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 62, maxValueRows: 580 },
-    expectedRows: { nodes: 31, properties: 62, values: 99 },
+    admittedProfileLimits: { maxNodeRows: 74, maxPropertyRows: 78, maxValueRows: 580 },
+    expectedRows: { nodes: 39, properties: 78, values: 123 },
     source: lines(
       'fn name=properties returns=void export=true',
       ...BOUNDARY_PARAMETERS,
@@ -82,7 +73,7 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 38, maxPropertyRows: 61, maxValueRows: 581 },
+    admittedProfileLimits: { maxNodeRows: 74, maxPropertyRows: 77, maxValueRows: 581 },
     expectedRows: { nodes: 29, properties: 32, values: 581 },
     source: withLinesBeforeFinal(
       PROFILE_BOUNDARY_FIXTURE.source,
