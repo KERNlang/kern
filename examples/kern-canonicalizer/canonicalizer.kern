@@ -253,7 +253,19 @@ fn name=expressionsources params="valueTag:string[],valueParent:number[],valueRo
       do value="ordered.push(source)"
     return value="ordered"
 
-fn name=tablesok params="nodeKind:string[],nodeParent:number[],nodeOrder:number[],propNode:number[],propKey:string[],propValue:number[],valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[]" returns=boolean export=true
+fn name=tablesok returns=boolean export=true
+  param name=nodeKind type=string[]
+  param name=nodeParent type=number[]
+  param name=nodeOrder type=number[]
+  param name=propNode type=number[]
+  param name=propKey type=string[]
+  param name=propValue type=number[]
+  param name=valueTag type=string[]
+  param name=valueParent type=number[]
+  param name=valueRole type=string[]
+  param name=valueOrder type=number[]
+  param name=valueText type=string[]
+  param name=valueBool type=number[]
   handler lang="kern"
     if cond="!nodetablesok(nodeKind, nodeParent, nodeOrder)"
       return value="false"

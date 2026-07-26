@@ -14,7 +14,12 @@ import {
 import {
   assertM491ParameterMigrations,
 } from './kern-canonicalizer/coverage-m4-91-parameter-migrations.mjs';
-import { currentM493ParameterMigration } from './kern-canonicalizer/coverage-current.mjs';
+import {
+  currentM494ParameterMigration,
+} from './kern-canonicalizer/coverage-current.mjs';
+import {
+  assertM494ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-94-parameter-migration.mjs';
 import { loadCanonicalizerPolicy } from './kern-canonicalizer/policy.mjs';
 import { assertM482ParameterMigration } from './kern-canonicalizer/coverage-m4-82-parameter-migration.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './kern-canonicalizer/coverage-prerequisite-m4-44.mjs';
@@ -170,6 +175,7 @@ import {
   formatM491ParameterMigrationStatus,
   formatM492ResidualAnalysisStatus,
   formatM493RuntimeCostStatus,
+  formatM494ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -266,6 +272,7 @@ const m484ValueRowHeadroom = assertCanonicalizerValueRowHeadroomM484();
 assertM486ParameterMigration(coverage, prerequisite, loadCanonicalizerPolicy());
 assertM490DualRowPromotion(loadCanonicalizerPolicy());
 assertM491ParameterMigrations(coverage);
+assertM494ParameterMigration(coverage, prerequisite, loadCanonicalizerPolicy());
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -415,13 +422,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 109, 'live M4.93 authored function count must remain exact');
+  assert.equal(actual.functionCount, 109, 'live M4.94 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 88, 'live M4.93 base completion must remain exactly 88/109');
+  assert.equal(actual.baseCompleteFunctions, 89, 'live M4.94 base completion must remain exactly 89/109');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    18,
-    'live M4.91 fn.params blocker count must remain exactly 18',
+    17,
+    'live M4.94 fn.params blocker count must remain exactly 17',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -433,7 +440,7 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.parameterMigration, currentM493ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, currentM494ParameterMigration());
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -1411,6 +1418,7 @@ process.stdout.write(
   ` ${formatM491ParameterMigrationStatus({ parameterMigration: m490ParameterMigration() })}` +
   ` ${formatM492ResidualAnalysisStatus(m492ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM493RuntimeCostStatus(m493RuntimeCost)}` +
+  ` ${formatM494ParameterMigrationStatus(m493RuntimeCost)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

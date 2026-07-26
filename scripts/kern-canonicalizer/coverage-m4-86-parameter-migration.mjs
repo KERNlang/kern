@@ -133,11 +133,11 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
     assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);
   }
 
-  assert.equal(coverage.baseCompleteFunctions, 88);
+  assert.equal(coverage.baseCompleteFunctions, 89);
   assert.equal(coverage.functions.length, 109);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    18,
+    17,
   );
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),

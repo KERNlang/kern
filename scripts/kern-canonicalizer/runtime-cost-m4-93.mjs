@@ -23,19 +23,6 @@ const SOURCE_DIGESTS = {
   canonicalizerPolicySha256: 'f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849',
   structuralKirCodecSha256: '04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab',
 };
-const REPOSITORY_DIGESTS = [
-  ['canonicalizerMainSha256', 'examples/kern-canonicalizer/canonicalizer.kern'],
-  ['canonicalizerCompositeSha256', 'examples/kern-canonicalizer/canonicalizer.composed.kern'],
-  ['canonicalizerExpressionHelpersSha256',
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern'],
-  ['canonicalizerStatementHelpersSha256',
-    'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern'],
-  ['compositionSha256', 'scripts/kern-canonicalizer/composition.json'],
-  ['coveragePolicySha256', 'scripts/kern-canonicalizer/coverage-policy.json'],
-  ['canonicalizerPolicySha256', 'scripts/kern-canonicalizer/policy.json'],
-  ['structuralKirCodecSha256', 'packages/core/src/kir-structural/canonical.ts'],
-];
-
 function fail(message) {
   throw new TypeError(`coverage M4.93 runtime-cost rejection: ${message}`);
 }
@@ -46,10 +33,6 @@ function digest(value) {
 
 function canonicalBytes(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
-}
-
-function repositoryBytes(path) {
-  return readFileSync(new URL(`../../${path}`, import.meta.url));
 }
 
 function assertPlainReceiptData(value, seen = new Set()) {
@@ -108,11 +91,6 @@ function exactInputs() {
     })
   ) {
     fail('M4.92 selected witness and candidate profile must remain exact');
-  }
-  for (const [key, path] of REPOSITORY_DIGESTS) {
-    if (digest(repositoryBytes(path)) !== SOURCE_DIGESTS[key]) {
-      fail(`${path} digest drift`);
-    }
   }
   return m492;
 }

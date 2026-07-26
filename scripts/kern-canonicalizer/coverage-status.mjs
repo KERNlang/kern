@@ -153,6 +153,13 @@ export function formatM493RuntimeCostStatus(receipt) {
     'production headroom remains unproven.';
 }
 
+export function formatM494ParameterMigrationStatus(receipt) {
+  const migration = receipt.promotion.parameterMigration;
+  return `M4.94 consumes the exact M4.93 ${migration.completeFunctions}-function/` +
+    `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to 89/109; ` +
+    'M4.95 remeasures the bounded residual frontier.';
+}
+
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;

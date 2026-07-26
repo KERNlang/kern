@@ -21,7 +21,6 @@ const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement',
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement',
   'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
-  'examples/kern-canonicalizer/canonicalizer.kern#4:tablesok',
   'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
   'examples/selfhost-validator/validator.kern#15:exportkind',
   'examples/selfhost-validator/validator.kern#20:validate',
@@ -38,6 +37,15 @@ export function currentM493ParameterMigration() {
       profileRows: { nodes: 19, properties: 33, values: 156 },
       tool: 'canonicalizer',
     }],
+  };
+}
+
+export function currentM494ParameterMigration() {
+  return {
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   };
 }
 
@@ -84,7 +92,7 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 }
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
-  assert.equal(coverage.baseCompleteFunctions, 88);
+  assert.equal(coverage.baseCompleteFunctions, 89);
   assert.equal(coverage.functions.length, 109);
   assert.deepEqual(
     coverage.functions
@@ -92,7 +100,7 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, currentM493ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, currentM494ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);

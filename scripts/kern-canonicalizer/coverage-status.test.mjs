@@ -42,6 +42,7 @@ import {
   formatM491ParameterMigrationStatus,
   formatM492ResidualAnalysisStatus,
   formatM493RuntimeCostStatus,
+  formatM494ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -140,6 +141,18 @@ test('coverage status records the M4.93 table-validation reduction boundary', ()
     'M4.93 reduces examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk ' +
       'table validation from 30261 attempted loop entries at budget 1000 to exact floor 1075; ' +
       'publishes the exact 1-function/12-row parameter queue; production headroom remains unproven.',
+  );
+});
+
+test('coverage status records the M4.94 tablesok parameter migration', () => {
+  assert.equal(
+    formatM494ParameterMigrationStatus({
+      promotion: {
+        parameterMigration: { completeFunctions: 1, migratedParameterRows: 12 },
+      },
+    }),
+    'M4.94 consumes the exact M4.93 1-function/12-row parameter queue and advances the cumulative ' +
+      'base to 89/109; M4.95 remeasures the bounded residual frontier.',
   );
 });
 

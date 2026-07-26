@@ -113,7 +113,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "923c1edc4d79bf1c5e16554ddcbc86ad077a9a9ffa591ba2810c775b89fad5be",
+      "digest": "8c4266b646738c7a07dcc252bd8426adee299bff62542b5b484d5fb1c7a92ae1",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

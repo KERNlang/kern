@@ -169,12 +169,12 @@ export function assertM491ParameterMigrations(coverage) {
     const fact = coverage.functions.find(({ id }) => id === target.id);
     assertM491ParameterTarget(root, fact, target);
   }
-  assert.equal(coverage.baseCompleteFunctions, 88);
+  assert.equal(coverage.baseCompleteFunctions, 89);
   assert.equal(coverage.functions.length, 109);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,
-    18,
+    17,
   );
   return coverage;
 }

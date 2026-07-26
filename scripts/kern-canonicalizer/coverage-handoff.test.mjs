@@ -384,7 +384,7 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 88);
+  assert.equal(receipt.baseCompleteFunctions, 89);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
@@ -404,11 +404,11 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 52840, 'M4.93 must bind the exact current KERN byte count');
+  assert.equal(canonicalizerSource.length, 53047, 'M4.94 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'aff72db1605a0a5cdcbfe34fae65939e4206b659514641b02c2999da3e94b3ab',
-    'M4.93 must bind the exact current KERN digest',
+    '987ee019ef9cd8e79dde3261883f3b7aef6ff1d708b6a1ebd99998a801f35e01',
+    'M4.94 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);
