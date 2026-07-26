@@ -95,7 +95,7 @@
       "tool": "checker"
     },
     {
-      "digest": "a04a2242cb7762b9753f16e49cc0b849eadd736d2d1667d691d267603394ad59",
+      "digest": "5bc7cacd87bd1093ecbcd2c6dda6d56ff113a8bcbb9e0a26ca327675a4297bee",
       "path": "examples/capstone-checker-subset/checker.kern",
       "sourceKind": "handwritten",
       "tool": "checker"
@@ -113,13 +113,13 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "b8f82357548884f4ea40f73d345ccf76c3d2c70e9c5084a4db94943930c96f52",
+      "digest": "85baf571138d4b26d1168e8a3036f216d716f8d895db3eefaadf4a890fc24245",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
     },
     {
-      "digest": "a9d278832edf050f3a96699980d88fa740f345d85192222b241bb6cc3ac2a2ee",
+      "digest": "db11517fa7804dac32480bc205bd835b631524a00674e1e85f549dc663d5eb5a",
       "path": "examples/selfhost-validator/validator.kern",
       "sourceKind": "handwritten",
       "tool": "validator"

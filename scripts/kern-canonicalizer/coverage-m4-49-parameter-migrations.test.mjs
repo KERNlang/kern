@@ -78,10 +78,10 @@ test('M4.49 generated consumers reproduce only from repository writers', () => {
   assert.equal(checkerMain.toString('utf8'), generateCheckerMainKern());
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
-  assert.equal(built.compositeBytes.length, 51_904);
+  assert.equal(built.compositeBytes.length, 52_021);
   assert.equal(
     sha256(built.compositeBytes),
-    'd0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247',
+    'a8ec4d0e4d838aaa2a1f4b60ad4a403fb5df9f7889d46f22109bb25fda1b50d7',
   );
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);

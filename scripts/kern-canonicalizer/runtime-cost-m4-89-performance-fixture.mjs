@@ -49,7 +49,12 @@ function structuralWitness(row) {
   const sourceRoot = (parsed.root.children ?? [])[Number(ordinalText)];
   assert.equal(sourceRoot?.type, 'fn');
   assert.equal(sourceRoot?.props?.name, name);
-  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
+  const { parameters, root } = typeof sourceRoot.props.params === 'string'
+    ? migrateLegacyFunctionForPrerequisite(sourceRoot)
+    : {
+        parameters: sourceRoot.children.filter(({ type }) => type === 'param'),
+        root: sourceRoot,
+      };
   assert.equal(parameters.length, row.parameterRows);
   const bytes = encodeStructuralKir(root, POLICY.kirLimits);
   const artifact = decodeStructuralKir(bytes, POLICY.kirLimits);

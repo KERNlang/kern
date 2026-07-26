@@ -130,6 +130,12 @@ export function formatM490DualRowPromotionStatus(receipt) {
     'M4.91 consumes it.';
 }
 
+export function formatM491ParameterMigrationStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  return `M4.91 consumes the exact M4.90 ${migration.completeFunctions}-function/` +
+    `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to 88/106.`;
+}
+
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;

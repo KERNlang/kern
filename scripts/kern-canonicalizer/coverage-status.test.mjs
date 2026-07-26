@@ -39,6 +39,7 @@ import {
   formatM488DualRowHeadroomStatus,
   formatM489RuntimeCostStatus,
   formatM490DualRowPromotionStatus,
+  formatM491ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -332,6 +333,18 @@ test('coverage status records the M4.90 dual-row promotion', () => {
       },
     }),
     'M4.90 promotes maxNodeRows/maxPropertyRows to 74/77 and publishes the exact 4-function/47-row parameter queue; M4.91 consumes it.',
+  );
+});
+
+test('coverage status records M4.91 consumption of the immutable M4.90 queue', () => {
+  assert.equal(
+    formatM491ParameterMigrationStatus({
+      parameterMigration: {
+        completeFunctions: 4,
+        migratedParameterRows: 47,
+      },
+    }),
+    'M4.91 consumes the exact M4.90 4-function/47-row parameter queue and advances the cumulative base to 88/106.',
   );
 });
 

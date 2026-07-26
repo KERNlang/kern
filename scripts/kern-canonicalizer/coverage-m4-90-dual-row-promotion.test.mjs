@@ -36,7 +36,7 @@ test('M4.90 promotes only the authenticated node and property row ceilings', () 
   assertCurrentCanonicalizerPolicy(policy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assertCurrentCanonicalizerFrontier(coverage, prerequisite);
-  assertM490DualRowPromotion(coverage, prerequisite, policy);
+  assertM490DualRowPromotion(policy);
 });
 
 test('M4.90 publishes the exact combined four-function parameter queue', () => {

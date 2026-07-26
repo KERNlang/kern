@@ -9,11 +9,11 @@ import {
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
-import { m490ParameterMigration } from './coverage-m4-90-dual-row-promotion.mjs';
+import { m491ParameterMigration } from './coverage-m4-91-parameter-migrations.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m490ParameterMigration();
+const EXPECTED_PARAMETER_MIGRATION = m491ParameterMigration();
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
@@ -40,7 +40,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.90 exposes the combined four-function parameter queue and preserves bounded exhaustion', () => {
+test('M4.91 consumes the four-function parameter queue and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -88,22 +88,22 @@ test('format 3 rejects drift in the M4.86 migrated frontier', () => {
   }
 });
 
-test('M4.90 preserves the exact promoted profile with its combined parameter queue', () => {
+test('M4.91 preserves the exact promoted profile after consuming its parameter queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 84,
+    baseCompleteFunctions: 88,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
-    canonicalizerDigest: 'd0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247',
+    canonicalizerDigest: 'a8ec4d0e4d838aaa2a1f4b60ad4a403fb5df9f7889d46f22109bb25fda1b50d7',
     canonicalizerPolicyDigest: 'f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: 'ef5dbfcf5c93ef4658fc558b02ca602785ddc5f00c318c1349983983af3588d1',
+    corpusDigest: '666ff19f9c722ebf285e0bf006e9ea9aa07f0b4dc575ec8d5fa3fc9868b51990',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'e1a15eef726fa2b8e058a0ef5afe40edc25193ecbe01727168bcdefa6b0313ac',
+    coveragePolicyDigest: '6cbdac4c6dfaa9746be103d1d8d10f01d89655f9e7ba9b2299f418d27beb9453',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 106,
-    functionFactsDigest: '9b523d2055d7cd66be32f3bce5f813f2de0cb9468f563bff0a9b73dad2321ff8',
-    legacyParameterBlockers: 22,
+    functionFactsDigest: 'df84fe6408fa96768ec67f9c2940ac27277ae7dbc1f0c81dbfb2ced29f58a225',
+    legacyParameterBlockers: 18,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

@@ -29,10 +29,11 @@ export function checkCanonicalizerRuntimeCostM489() {
   if (receipt.result.maxExactFloor > receipt.limits.promotionBudget) {
     throw new Error('M4.89 maximum floor must fit the promotion budget');
   }
-  if (receipt.source.canonicalizerCompositeSha256 !== digest(
-    repositoryBytes('examples/kern-canonicalizer/canonicalizer.composed.kern'),
-  )) {
-    throw new Error('M4.89 must bind the live canonicalizer composite');
+  if (
+    receipt.source.canonicalizerCompositeSha256 !==
+    'd0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247'
+  ) {
+    throw new Error('M4.89 must preserve its exact published canonicalizer composite digest');
   }
   if (
     JSON.stringify(receipt.limits.activeProfile) !==

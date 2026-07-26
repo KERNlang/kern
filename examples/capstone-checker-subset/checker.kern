@@ -272,7 +272,31 @@ fn name=paramCallsitesOk params="callee:string,ordinal:number,callName:string[],
           return value="false"
     return value="found"
 
-fn name=indexRejectDetail params="fnName:string,indexKind:string,indexName:string,stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[],callName:string[],callFn:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],argNum:string[],argOp:string[],argLeftKind:string[],argLeftName:string[],argLeftNum:string[],argRightKind:string[],argRightName:string[],argRightNum:string[],paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=string
+fn name=indexRejectDetail returns=string
+  param name=fnName type=string
+  param name=indexKind type=string
+  param name=indexName type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=callName type=string[]
+  param name=callFn type=string[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=argNum type=string[]
+  param name=argOp type=string[]
+  param name=argLeftKind type=string[]
+  param name=argLeftName type=string[]
+  param name=argLeftNum type=string[]
+  param name=argRightKind type=string[]
+  param name=argRightName type=string[]
+  param name=argRightNum type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramOrdinal type=number[]
   handler lang="kern"
     if cond="indexKind == \"numLit\""
       if cond="isSafeIntText(indexName)"
@@ -368,7 +392,22 @@ fn name=mapCallRejectDetail returns=string
         return value="\"missing_key_proof\""
     return value="\"\""
 
-fn name=callRejectCode params="callId:number,callName:string[],callStmtKind:string[],callMemberObject:string[],callMemberProp:string[],stmtKind:string[],stmtName:string[],stmtTarget:string[],callStmt:number[],callFn:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],stmtFn:string[]" returns=string
+fn name=callRejectCode returns=string
+  param name=callId type=number
+  param name=callName type=string[]
+  param name=callStmtKind type=string[]
+  param name=callMemberObject type=string[]
+  param name=callMemberProp type=string[]
+  param name=stmtKind type=string[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=callStmt type=number[]
+  param name=callFn type=string[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=stmtFn type=string[]
   handler lang="kern"
     if cond="callName[callId] == \"<parse-error>\""
       return value="\"T10_SURFACE|parse_error\""

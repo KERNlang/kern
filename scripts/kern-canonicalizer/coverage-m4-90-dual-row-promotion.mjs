@@ -48,7 +48,7 @@ export function m490ParameterMigration() {
   return structuredClone(PARAMETER_MIGRATION);
 }
 
-export function assertM490DualRowPromotion(coverage, prerequisite, policy) {
+export function assertM490DualRowPromotion(policy) {
   const headroom = loadCanonicalizerRuntimeCostM489();
   assert.deepEqual(
     headroom.limits.candidateProfile,
@@ -82,35 +82,6 @@ export function assertM490DualRowPromotion(coverage, prerequisite, policy) {
     64,
     'M4.90 must not change the KIR depth ceiling',
   );
-  assert.equal(
-    coverage.baseCompleteFunctions,
-    84,
-    'M4.90 must not consume the four-function parameter queue',
-  );
-  assert.equal(
-    coverage.functions.length,
-    106,
-    'M4.90 must preserve the exact authored corpus',
-  );
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    22,
-    'M4.90 publishes a queue and does not consume legacy parameter rows',
-  );
-  assert.deepEqual(
-    prerequisite.parameterMigration,
-    PARAMETER_MIGRATION,
-    'M4.90 must expose only the authenticated combined parameter queue',
-  );
-  assert.equal(
-    prerequisite.outcome,
-    'bounded-exhaustion',
-    'M4.90 must preserve bounded exhaustion for the residual frontier',
-  );
-  assert.equal(
-    prerequisite.exhaustion?.residualFunctionCount,
-    18,
-    'M4.90 must leave exactly 18 residual legacy-parameter functions',
-  );
-  return prerequisite;
+  assert.deepEqual(m490ParameterMigration(), PARAMETER_MIGRATION);
+  return policy;
 }

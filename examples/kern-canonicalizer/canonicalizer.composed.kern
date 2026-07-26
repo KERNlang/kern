@@ -459,7 +459,14 @@ fn name=validbinaryop returns=boolean export=true
       return value="true"
     return value="op == \"^\" || op == \"<<\" || op == \">>\" || op == \">>>\""
 
-fn name=exprsource params="id:number,valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[]" returns=string export=true
+fn name=exprsource returns=string export=true
+  param name=id type=number
+  param name=valueTag type=string[]
+  param name=valueParent type=number[]
+  param name=valueRole type=string[]
+  param name=valueOrder type=number[]
+  param name=valueText type=string[]
+  param name=valueBool type=number[]
   handler lang="kern"
     if cond="id <= 0 || id > valueTag.length || stringat(id, valueTag) != \"record\""
       return value="\"\""

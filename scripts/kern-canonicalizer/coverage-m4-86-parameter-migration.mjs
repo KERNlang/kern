@@ -46,10 +46,10 @@ export const M486_PARAMETER_MIGRATION_TARGET = {
   returns: 'boolean',
 };
 
-const SOURCE_SHA256 = 'a04a2242cb7762b9753f16e49cc0b849eadd736d2d1667d691d267603394ad59';
+const SOURCE_SHA256 = '5bc7cacd87bd1093ecbcd2c6dda6d56ff113a8bcbb9e0a26ca327675a4297bee';
 const GENERATED_ARTIFACTS = new Map([
   ['examples/capstone-checker-subset/main.kern',
-    'fe870142a814fc82e6bbb25c1bc8395d97a228e87d8ad175ed6794490305cc41'],
+    '13c6af59f82c23c122dc8839084e0b0ab870035d9af28a201e03e8ba52c6184c'],
   ['examples/capstone-checker-subset/numeric-main.kern',
     '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
 ]);
@@ -117,17 +117,15 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
   const roots = document.root.children.filter(({ type }) => type === 'fn');
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM486ParameterTarget(roots[target.functionOrdinal], fact, target);
-  assert.equal(source.split('\n').length - 1, 467);
+  assert.equal(source.split('\n').length - 1, 506);
   assert.equal(roots.length, 24);
   assert.deepEqual(
     roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
     [
       'rejectLine',
       'paramCallsitesOk',
-      'indexRejectDetail',
       'mapKeyToken',
       'mapKnownBefore',
-      'callRejectCode',
       'checkModule',
     ],
   );
@@ -135,11 +133,11 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
     assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);
   }
 
-  assert.equal(coverage.baseCompleteFunctions, 84);
+  assert.equal(coverage.baseCompleteFunctions, 88);
   assert.equal(coverage.functions.length, 106);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    22,
+    18,
   );
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
