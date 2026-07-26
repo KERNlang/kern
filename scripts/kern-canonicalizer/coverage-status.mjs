@@ -144,6 +144,15 @@ export function formatM492ResidualAnalysisStatus(selectedNextAction) {
   );
 }
 
+export function formatM493RuntimeCostStatus(receipt) {
+  return `M4.93 reduces ${receipt.witness.id} table validation from ` +
+    `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +
+    `${receipt.baseline.measurementBudget} to exact floor ${receipt.result.exactFloor}; ` +
+    `publishes the exact ${receipt.promotion.parameterMigration.completeFunctions}-function/` +
+    `${receipt.promotion.parameterMigration.migratedParameterRows}-row parameter queue; ` +
+    'production headroom remains unproven.';
+}
+
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;

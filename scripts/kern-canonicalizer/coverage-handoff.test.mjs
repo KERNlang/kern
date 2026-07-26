@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and six-record prerequisite history through M4.86', () => {
+test('the current corpus preserves selection and six-record prerequisite history through M4.93', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -380,7 +380,7 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.equal(implementation.record.snapshot.corpusMembers, 8);
   assert.equal(implementation.record.snapshot.functionCount, 99);
   assert.equal(receipt.corpus.length, 9);
-  assert.equal(receipt.functions.length, 106);
+  assert.equal(receipt.functions.length, 109);
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
@@ -404,11 +404,11 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 52021, 'M4.91 must bind the exact current migrated KERN byte count');
+  assert.equal(canonicalizerSource.length, 52840, 'M4.93 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'a8ec4d0e4d838aaa2a1f4b60ad4a403fb5df9f7889d46f22109bb25fda1b50d7',
-    'M4.91 must bind the exact current migrated KERN digest',
+    'aff72db1605a0a5cdcbfe34fae65939e4206b659514641b02c2999da3e94b3ab',
+    'M4.93 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);

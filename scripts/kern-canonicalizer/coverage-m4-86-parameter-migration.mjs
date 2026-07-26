@@ -134,7 +134,7 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
   }
 
   assert.equal(coverage.baseCompleteFunctions, 88);
-  assert.equal(coverage.functions.length, 106);
+  assert.equal(coverage.functions.length, 109);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
     18,

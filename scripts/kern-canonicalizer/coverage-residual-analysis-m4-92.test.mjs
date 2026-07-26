@@ -104,22 +104,27 @@ test('M4.92 published digest rejects canonical and decorated drift', () => {
   );
 });
 
-test('M4.92 preserves exact M4.87 history and reproduces from current M4.91 facts', () => {
+test('M4.92 preserves exact M4.87 history after the M4.93 semantic frontier changes', () => {
   assert.equal(
     loadPublishedCanonicalizerResidualAnalysisM487().digest,
     '9046716d876c336140b567a8a40a9b52750106b2ac5db66f38f7621e935c203a',
   );
-  assert.deepEqual(measureCanonicalizerResidualAnalysisM492().selectedNextAction, EXPECTED_SELECTION);
+  assert.deepEqual(loadPublishedCanonicalizerResidualAnalysisM492().record.selectedNextAction, EXPECTED_SELECTION);
 });
 
-test('M4.92 repository writer reproduces the exact published bytes', () => {
+test('M4.92 refuses regeneration from the changed M4.93 semantic frontier', () => {
   const publishedBytes = readFileSync(summaryUrl);
+  assert.throws(
+    () => measureCanonicalizerResidualAnalysisM492(),
+    /live semantic facts must match the exact published M4\.91 input/u,
+  );
   const writer = spawnSync(
     process.execPath,
     [fileURLToPath(new URL('./coverage-residual-analysis-m4-92.mjs', import.meta.url)), '--write'],
     { encoding: 'utf8' },
   );
-  assert.equal(writer.status, 0, writer.stderr);
+  assert.notEqual(writer.status, 0);
+  assert.match(writer.stderr, /live semantic facts must match the exact published M4\.91 input/u);
   assert.deepEqual(readFileSync(summaryUrl), publishedBytes);
 });
 

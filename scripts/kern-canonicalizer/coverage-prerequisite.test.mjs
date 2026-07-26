@@ -9,17 +9,17 @@ import {
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
-import { m491ParameterMigration } from './coverage-m4-91-parameter-migrations.mjs';
+import { currentM493ParameterMigration } from './coverage-current.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m491ParameterMigration();
+const EXPECTED_PARAMETER_MIGRATION = currentM493ParameterMigration();
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 1,
-  reasonAssignmentsDigest: 'b222027da0639addba00e2c0149684e1e02a9bfd199feacae921b5fc028e07fe',
+  reasonAssignmentsDigest: 'ac1ce11255b827161910b883fb8061606849524c52f9531036dea2570e82264f',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -27,20 +27,20 @@ const EXPECTED_EXHAUSTION = {
     { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
     { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
-    { count: 2, id: 'let.value:unknown-expression-kind' },
+    { count: 1, id: 'let.value:unknown-expression-kind' },
     { count: 1, id: 'profile.rows.nodes' },
     { count: 2, id: 'profile.rows.properties' },
     { count: 2, id: 'profile.rows.values' },
     { count: 12, id: 'projection.limit-depth' },
     { count: 1, id: 'projection.limit-nodes' },
-    { count: 3, id: 'projection.unknown-expression-kind' },
+    { count: 2, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
-  residualFunctionCount: 18,
+  residualFunctionCount: 17,
   scope: 'current-bounded-profile',
 };
 
-test('M4.91 consumes the four-function parameter queue and preserves bounded exhaustion', () => {
+test('M4.93 publishes the newly executable tablesok parameter queue and bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -88,21 +88,21 @@ test('format 3 rejects drift in the M4.86 migrated frontier', () => {
   }
 });
 
-test('M4.91 preserves the exact promoted profile after consuming its parameter queue', () => {
+test('M4.93 preserves the exact promoted profile after its runtime-cost change', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 88,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
-    canonicalizerDigest: 'a8ec4d0e4d838aaa2a1f4b60ad4a403fb5df9f7889d46f22109bb25fda1b50d7',
+    canonicalizerDigest: 'aff72db1605a0a5cdcbfe34fae65939e4206b659514641b02c2999da3e94b3ab',
     canonicalizerPolicyDigest: 'f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: '666ff19f9c722ebf285e0bf006e9ea9aa07f0b4dc575ec8d5fa3fc9868b51990',
+    corpusDigest: 'b6062c16dda3552067fa7c89b79cdd4763bd72d41fb44b2d18ace06143117947',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '6cbdac4c6dfaa9746be103d1d8d10f01d89655f9e7ba9b2299f418d27beb9453',
+    coveragePolicyDigest: 'b578207467e045913d40da46804bb0fca2285f6351f56ed76e9aa805c6dbcc89',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
-    functionCount: 106,
-    functionFactsDigest: 'df84fe6408fa96768ec67f9c2940ac27277ae7dbc1f0c81dbfb2ced29f58a225',
+    functionCount: 109,
+    functionFactsDigest: 'a7d796cc76c12eead02f322e8667a051648624db1fd05b75f25544a602123dda',
     legacyParameterBlockers: 18,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,

@@ -30,15 +30,6 @@ const M489_CANDIDATE_PROFILE = {
   maxPropertyRows: 77,
   maxValueRows: 580,
 };
-const FAILURE = {
-  completion: { kind: 'error' },
-  diagnostics: [{ category: 'runtime', code: 'unsupported-runtime-input', phase: 'execution' }],
-  events: [],
-  format: KERN_RUNTIME_HANDLER_ABI,
-  outcome: 'failure',
-  result: { presence: 'absent' },
-};
-
 function structuralWitness(row) {
   const [path, selector] = row.id.split('#');
   const [ordinalText, name] = selector.split(':');
@@ -115,6 +106,9 @@ export function verifyCanonicalizerRuntimeCostWitnessM489(index) {
   assert.ok(row.exactFloor <= RECEIPT.limits.promotionBudget);
   assert.equal(row.floorReduction, row.baselineExactFloor - row.exactFloor);
   const witness = structuralWitness(row);
-  assert.deepEqual(executeWitness(witness, row.exactFloor - 1), FAILURE);
+  // The M4.89 receipt remains immutable historical evidence. M4.93 removes
+  // table-validation replay, so the current executable must now have positive
+  // headroom at the former exact floor.
+  assertRoundTrip(witness, executeWitness(witness, row.exactFloor - 1));
   assertRoundTrip(witness, executeWitness(witness, row.exactFloor));
 }

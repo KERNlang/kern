@@ -3,10 +3,9 @@ import assert from 'node:assert/strict';
 import {
   m490ActiveProfile,
 } from './coverage-m4-90-dual-row-promotion.mjs';
-import { m491ParameterMigration } from './coverage-m4-91-parameter-migrations.mjs';
 
 const CURRENT_REASON_ASSIGNMENTS_DIGEST =
-  'b222027da0639addba00e2c0149684e1e02a9bfd199feacae921b5fc028e07fe';
+  'ac1ce11255b827161910b883fb8061606849524c52f9531036dea2570e82264f';
 const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/capstone-assertion-engine/compare.kern#2:compareList',
   'examples/capstone-assertion-engine/compare.kern#3:compareMap',
@@ -27,6 +26,20 @@ const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/selfhost-validator/validator.kern#15:exportkind',
   'examples/selfhost-validator/validator.kern#20:validate',
 ];
+
+export function currentM493ParameterMigration() {
+  return {
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 12,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#4:tablesok',
+      parameterRows: 12,
+      profileRows: { nodes: 19, properties: 33, values: 156 },
+      tool: 'canonicalizer',
+    }],
+  };
+}
 
 export function assertCurrentCanonicalizerPolicy(policy) {
   assert.deepEqual(policy.profileLimits, m490ActiveProfile());
@@ -72,21 +85,21 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
   assert.equal(coverage.baseCompleteFunctions, 88);
-  assert.equal(coverage.functions.length, 106);
+  assert.equal(coverage.functions.length, 109);
   assert.deepEqual(
     coverage.functions
       .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m491ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, currentM493ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion?.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 18);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 17);
   assert.equal(prerequisite.exhaustion?.reasonAssignmentsDigest, CURRENT_REASON_ASSIGNMENTS_DIGEST);
   return prerequisite;
 }

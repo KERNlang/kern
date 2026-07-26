@@ -41,6 +41,7 @@ import {
   formatM490DualRowPromotionStatus,
   formatM491ParameterMigrationStatus,
   formatM492ResidualAnalysisStatus,
+  formatM493RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -121,6 +122,24 @@ test('coverage status records the M4.92 residual recommendation', () => {
       changedLimits: ['maxPropertyRows', 'maxValueRows'],
     }),
     'M4.92 published analysis selected 1 function by maxPropertyRows+maxValueRows widening; M4.93 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.93 table-validation reduction boundary', () => {
+  assert.equal(
+    formatM493RuntimeCostStatus({
+      baseline: { attemptedLoopEntries: 30_261, measurementBudget: 1_000 },
+      result: { exactFloor: 1_075 },
+      promotion: {
+        parameterMigration: { completeFunctions: 1, migratedParameterRows: 12 },
+      },
+      witness: {
+        id: 'examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk',
+      },
+    }),
+    'M4.93 reduces examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk ' +
+      'table validation from 30261 attempted loop entries at budget 1000 to exact floor 1075; ' +
+      'publishes the exact 1-function/12-row parameter queue; production headroom remains unproven.',
   );
 });
 

@@ -94,6 +94,31 @@ test('M4.89 expression projection delegates to one memoizable table-wide helper'
   assert.ok(expressionSources.includes('do value="Map.set(sources, String(current), source)"'));
 });
 
+test('M4.93 table validation delegates to three independent boolean linear-pass helpers', () => {
+  const tableOwner = topLevelFunctionSource(mainSource, 'tablesok');
+  const nodeFacts = topLevelFunctionSource(mainSource, 'nodetablesok');
+  const propertyFacts = topLevelFunctionSource(mainSource, 'propertyfacts');
+  const valueFacts = topLevelFunctionSource(mainSource, 'valuefacts');
+  assert.ok(tableOwner.includes('nodetablesok(nodeKind, nodeParent, nodeOrder)'));
+  assert.ok(tableOwner.includes('propertyfacts(nodeKind, propNode, propKey, propValue, valueTag)'));
+  assert.ok(tableOwner.includes(
+    'valuefacts(propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)',
+  ));
+  assert.equal((tableOwner.match(/^\s+for\b/gmu) ?? []).length, 0);
+  for (const helper of [nodeFacts, propertyFacts]) {
+    assert.equal((helper.match(/^\s+for\b/gmu) ?? []).length, 1);
+    assert.equal(helper.includes('returns=object'), false);
+  }
+  assert.equal((valueFacts.match(/^\s+for\b/gmu) ?? []).length, 2);
+  assert.ok(propertyFacts.includes('returns=boolean'));
+  assert.ok(valueFacts.includes('returns=boolean'));
+  assert.equal(propertyFacts.includes('ownedValues +'), false);
+  assert.equal(valueFacts.includes('childParents +'), false);
+  assert.equal(tableOwner.includes('Text.indexOf('), false);
+  assert.equal(nodeFacts.includes('nodeCheck'), false);
+  assert.equal(tableOwner.includes('validinteger('), false);
+});
+
 test('conditional validation and emission stay in the KERN statement member', () => {
   for (const owned of ['validstatementlist', 'validstatement', 'emitstatementlist', 'emitstatement']) {
     assert.ok(statementSource.includes(`fn name=${owned}`), `missing KERN-owned conditional helper ${owned}`);

@@ -106,7 +106,7 @@ test('M4.91 generated consumers reproduce only from repository writers', () => {
     ['examples/capstone-checker-subset/checker.kern',
       '5bc7cacd87bd1093ecbcd2c6dda6d56ff113a8bcbb9e0a26ca327675a4297bee'],
     ['examples/kern-canonicalizer/canonicalizer.kern',
-      '85baf571138d4b26d1168e8a3036f216d716f8d895db3eefaadf4a890fc24245'],
+      '923c1edc4d79bf1c5e16554ddcbc86ad077a9a9ffa591ba2810c775b89fad5be'],
     ['examples/selfhost-validator/validator.kern',
       'db11517fa7804dac32480bc205bd835b631524a00674e1e85f549dc663d5eb5a'],
   ]);
@@ -118,7 +118,7 @@ test('M4.91 generated consumers reproduce only from repository writers', () => {
   const verified = verifyCanonicalizerComposition();
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);
-  assert.equal(sha256(verified.compositeBytes), 'a8ec4d0e4d838aaa2a1f4b60ad4a403fb5df9f7889d46f22109bb25fda1b50d7');
+  assert.equal(sha256(verified.compositeBytes), 'aff72db1605a0a5cdcbfe34fae65939e4206b659514641b02c2999da3e94b3ab');
 });
 
 test('M4.91 advances only the authenticated current frontier', () => {
