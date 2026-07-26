@@ -114,11 +114,11 @@ test('M4.87 preserves the exact published M4.83 history', () => {
   assert.deepEqual(loadPublishedCanonicalizerResidualAnalysisM487().record.selectedNextAction, EXPECTED_SELECTION);
 });
 
-test('M4.87 regenerates byte-identically from the live M4.86 semantic frontier', () => {
+test('M4.87 refuses regeneration from the changed M4.89 semantic frontier', () => {
   const publishedBytes = readFileSync(summaryUrl);
-  assert.deepEqual(
-    measureCanonicalizerResidualAnalysisM487(),
-    loadPublishedCanonicalizerResidualAnalysisM487().record,
+  assert.throws(
+    () => measureCanonicalizerResidualAnalysisM487(),
+    /live semantic facts must match the exact published M4\.86 input/u,
   );
 
   const writer = spawnSync(
@@ -126,7 +126,8 @@ test('M4.87 regenerates byte-identically from the live M4.86 semantic frontier',
     [fileURLToPath(new URL('./coverage-residual-analysis-m4-87.mjs', import.meta.url)), '--write'],
     { encoding: 'utf8' },
   );
-  assert.equal(writer.status, 0, writer.stderr);
+  assert.notEqual(writer.status, 0);
+  assert.match(writer.stderr, /live semantic facts must match the exact published M4\.86 input/u);
   assert.deepEqual(readFileSync(summaryUrl), publishedBytes);
 });
 

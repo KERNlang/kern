@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { m485ActiveProfile } from './coverage-m4-85-value-row-promotion.mjs';
 
 const CURRENT_REASON_ASSIGNMENTS_DIGEST =
-  '0e6700b777a3cf2f5ed462636ba292ef69df90de141e3466b8831d8f190b7328';
+  'c032952ceee69b3b1d8126b1c2bd4f4af301f7652ed33b1fc039f631377939b2';
 const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/capstone-assertion-engine/compare.kern#2:compareList',
   'examples/capstone-assertion-engine/compare.kern#3:compareMap',
@@ -21,8 +21,9 @@ const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement',
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement',
   'examples/kern-canonicalizer/canonicalizer.kern#2:exprsource',
-  'examples/kern-canonicalizer/canonicalizer.kern#3:tablesok',
-  'examples/kern-canonicalizer/canonicalizer.kern#4:canonicalize',
+  'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
+  'examples/kern-canonicalizer/canonicalizer.kern#4:tablesok',
+  'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
   'examples/selfhost-validator/validator.kern#15:exportkind',
   'examples/selfhost-validator/validator.kern#20:validate',
   'examples/selfhost-validator/validator.kern#2:isreserved',
@@ -72,7 +73,7 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
   assert.equal(coverage.baseCompleteFunctions, 84);
-  assert.equal(coverage.functions.length, 105);
+  assert.equal(coverage.functions.length, 106);
   assert.deepEqual(
     coverage.functions
       .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
@@ -80,10 +81,15 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 7,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#2:exprsource',
+      parameterRows: 7,
+      profileRows: { nodes: 13, properties: 23, values: 175 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);

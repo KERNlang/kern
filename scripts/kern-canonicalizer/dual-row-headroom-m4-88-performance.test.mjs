@@ -5,7 +5,7 @@ import {
   verifyCanonicalizerDualRowWitnessM488,
 } from './dual-row-headroom-m4-88-performance-fixture.mjs';
 
-test('M4.88 indexRejectDetail has its exact structural runtime floor', () => {
+test('M4.88 preserves the historical indexRejectDetail floor after M4.89', () => {
   verifyCanonicalizerDualRowWitnessM488(0);
 });
 

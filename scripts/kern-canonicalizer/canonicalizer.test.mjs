@@ -80,6 +80,20 @@ test('M4.80 type projection delegates to one bounded value-table pass', () => {
   assert.ok(typeFields.includes('if cond="elementId != 0"'));
 });
 
+test('M4.89 expression projection delegates to one memoizable table-wide helper', () => {
+  const expressionSource = topLevelFunctionSource(mainSource, 'exprsource');
+  const expressionSources = topLevelFunctionSource(mainSource, 'expressionsources');
+  assert.equal((expressionSource.match(/^\s+for\b/gmu) ?? []).length, 0);
+  assert.ok(expressionSource.includes(
+    'expressionsources(valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)',
+  ));
+  assert.ok(expressionSource.includes('List.index(sources, valueTag.length - id) ?? \\"\\"'));
+  assert.equal((expressionSources.match(/to="valueParent\.length"/gu) ?? []).length, 1);
+  assert.equal((expressionSources.match(/to="valueTag\.length"/gu) ?? []).length, 1);
+  assert.ok(expressionSources.includes('do value="ordered.push(source)"'));
+  assert.ok(expressionSources.includes('do value="Map.set(sources, String(current), source)"'));
+});
+
 test('conditional validation and emission stay in the KERN statement member', () => {
   for (const owned of ['validstatementlist', 'validstatement', 'emitstatementlist', 'emitstatement']) {
     assert.ok(statementSource.includes(`fn name=${owned}`), `missing KERN-owned conditional helper ${owned}`);

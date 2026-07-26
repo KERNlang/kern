@@ -117,6 +117,12 @@ export function formatM488DualRowHeadroomStatus(receipt) {
     `${receipt.summary.promotionBudgetDeficit}; M4.89 reduces canonicalizer runtime cost.`;
 }
 
+export function formatM489RuntimeCostStatus(receipt) {
+  return `M4.89 reduces the exact three-witness maximum floor from ${receipt.baseline.maxExactFloor} to ` +
+    `${receipt.result.maxExactFloor} by ${receipt.result.floorReduction} steps with ` +
+    `${receipt.result.promotionHeadroom} promotion headroom; M4.90 authenticates the dual-row profile promotion.`;
+}
+
 export function formatM447NodeRowHeadroomStatus(receipt) {
   return `M4.47 structural headroom authenticated ${receipt.summary.witnessCount} witnesses at a ` +
     `${receipt.summary.maxExactFloor} maximum floor; M4.48 authenticates the node-row profile promotion.`;

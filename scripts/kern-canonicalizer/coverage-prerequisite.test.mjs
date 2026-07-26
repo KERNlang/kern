@@ -13,17 +13,22 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
+  completeFunctions: 1,
+  completeTools: 1,
+  migratedParameterRows: 7,
+  witnesses: [{
+    id: 'examples/kern-canonicalizer/canonicalizer.kern#2:exprsource',
+    parameterRows: 7,
+    profileRows: { nodes: 13, properties: 23, values: 175 },
+    tool: 'canonicalizer',
+  }],
 };
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 1,
-  reasonAssignmentsDigest: '0e6700b777a3cf2f5ed462636ba292ef69df90de141e3466b8831d8f190b7328',
+  reasonAssignmentsDigest: 'c032952ceee69b3b1d8126b1c2bd4f4af301f7652ed33b1fc039f631377939b2',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -44,7 +49,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.86 consumes the exact parameter tranche and preserves bounded exhaustion', () => {
+test('M4.89 exposes the optimized exprsource parameter queue and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -92,22 +97,22 @@ test('format 3 rejects drift in the M4.86 migrated frontier', () => {
   }
 });
 
-test('M4.86 preserves the exact promoted profile with an empty queue', () => {
+test('M4.89 preserves the exact promoted profile with its optimized exprsource queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 84,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
-    canonicalizerDigest: 'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28',
+    canonicalizerDigest: 'd0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247',
     canonicalizerPolicyDigest: 'a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c',
     compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
-    corpusDigest: '33225f38f0e97810aa3d09736c2a62d347987d0e7bd911c7481452fc24601061',
+    corpusDigest: 'ef5dbfcf5c93ef4658fc558b02ca602785ddc5f00c318c1349983983af3588d1',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '4ac57e59be2bcdb7b9aa0f7f35598703600bf47b4f17709e59c5823c0e605490',
+    coveragePolicyDigest: 'e1a15eef726fa2b8e058a0ef5afe40edc25193ecbe01727168bcdefa6b0313ac',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
-    functionCount: 105,
-    functionFactsDigest: 'f6d4abfacc8e9fb592cca4e8aef28b59f6b5af963c07514f00dd760ca798624a',
-    legacyParameterBlockers: 21,
+    functionCount: 106,
+    functionFactsDigest: 'dd1523bb84b9d39c9bcff12af3abf2b771f8cb2ec01eaf91f04e464f99eb65ae',
+    legacyParameterBlockers: 22,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

@@ -107,6 +107,9 @@ import {
   assertCanonicalizerRuntimeCostM480,
 } from './kern-canonicalizer/runtime-cost-m4-80-check.mjs';
 import {
+  checkCanonicalizerRuntimeCostM489,
+} from './kern-canonicalizer/runtime-cost-m4-89-check.mjs';
+import {
   assertCanonicalizerValueRowHeadroomM484,
 } from './kern-canonicalizer/value-row-headroom-m4-84-check.mjs';
 import {
@@ -148,6 +151,7 @@ import {
   formatM486ParameterMigrationStatus,
   formatM487ResidualAnalysisStatus,
   formatM488DualRowHeadroomStatus,
+  formatM489RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -171,6 +175,7 @@ const m478ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m483ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-83.json', import.meta.url);
 const m487ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-87.json', import.meta.url);
 const m488DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-88.json', import.meta.url);
+const m489RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-89.json', import.meta.url);
 const m455DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-55.json', import.meta.url);
 const m471DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-71.json', import.meta.url);
 const m463NodeRowHeadroomUrl = new URL('./kern-canonicalizer/node-row-headroom-m4-63.json', import.meta.url);
@@ -221,6 +226,7 @@ const m483ResidualAnalysis = m483ResidualAnalysisHandoff.record;
 const m487ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM487();
 const m487ResidualAnalysis = m487ResidualAnalysisHandoff.record;
 const m488DualRowHeadroom = assertCanonicalizerDualRowHeadroomM488();
+const m489RuntimeCost = checkCanonicalizerRuntimeCostM489();
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
 const m455DualRowHeadroom = m455DualRowHeadroomHandoff.record;
 const m471DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM471();
@@ -384,13 +390,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 105, 'live M4.86 authored function count must remain exact');
+  assert.equal(actual.functionCount, 106, 'live M4.89 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 84, 'live M4.86 base completion must remain exactly 84/105');
+  assert.equal(actual.baseCompleteFunctions, 84, 'live M4.89 base completion must remain exactly 84/106');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    21,
-    'live M4.86 fn.params blocker count must remain exactly 21',
+    22,
+    'live M4.89 fn.params blocker count must remain exactly 22',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -403,10 +409,15 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 7,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#2:exprsource',
+      parameterRows: 7,
+      profileRows: { nodes: 13, properties: 23, values: 175 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(
     m481PrerequisiteHandoff.digest,
@@ -436,7 +447,7 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.exhaustion.residualFunctionCount, 21);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '0e6700b777a3cf2f5ed462636ba292ef69df90de141e3466b8831d8f190b7328',
+    'c032952ceee69b3b1d8126b1c2bd4f4af301f7652ed33b1fc039f631377939b2',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1056,6 +1067,7 @@ if (process.argv.includes('--write')) {
     ],
   });
   assertCoverageSummary(m488DualRowHeadroomUrl, m488DualRowHeadroom);
+  assertCoverageSummary(m489RuntimeCostUrl, m489RuntimeCost);
   assertCoverageSummary(m471DualRowHeadroomUrl, m471DualRowHeadroom);
   assert.equal(
     m471DualRowHeadroomHandoff.digest,
@@ -1347,6 +1359,7 @@ process.stdout.write(
   ` ${formatM486ParameterMigrationStatus({ parameterMigration: m485ParameterMigration() })}` +
   ` ${formatM487ResidualAnalysisStatus(m487ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM488DualRowHeadroomStatus(m488DualRowHeadroom)}` +
+  ` ${formatM489RuntimeCostStatus(m489RuntimeCost)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

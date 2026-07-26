@@ -132,22 +132,27 @@ export function assertM486ParameterMigration(coverage, prerequisite, policy) {
   }
 
   assert.equal(coverage.baseCompleteFunctions, 84);
-  assert.equal(coverage.functions.length, 105);
+  assert.equal(coverage.functions.length, 106);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length,
-    21,
+    22,
   );
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 7,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer.kern#2:exprsource',
+      parameterRows: 7,
+      profileRows: { nodes: 13, properties: 23, values: 175 },
+      tool: 'canonicalizer',
+    }],
   });
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.exhaustion?.residualFunctionCount, 21);
   assert.equal(
     prerequisite.exhaustion?.reasonAssignmentsDigest,
-    '0e6700b777a3cf2f5ed462636ba292ef69df90de141e3466b8831d8f190b7328',
+    'c032952ceee69b3b1d8126b1c2bd4f4af301f7652ed33b1fc039f631377939b2',
   );
   return fact;
 }

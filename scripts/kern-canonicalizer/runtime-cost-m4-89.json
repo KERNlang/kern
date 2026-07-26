@@ -1,0 +1,103 @@
+{
+  "baseline": {
+    "implementationBaseCommit": "d6b8687624e1361d5e43ef6c6910cc68672d2b2e",
+    "m488ReceiptSha256": "285b42785be8f651d323444ddd3464381b337b74557bbd07e8c3f4bad02a89bb",
+    "maxExactFloor": 107594,
+    "requiredFloorReduction": 58442
+  },
+  "format": "kern.kir-canonicalizer.runtime-cost-reduction.2",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 38,
+      "maxPropertyRows": 61,
+      "maxValueRows": 580
+    },
+    "candidateProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 77,
+      "maxValueRows": 580
+    },
+    "maxDepth": 64,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152
+  },
+  "optimization": {
+    "baselineDistinctExpressionIds": 71,
+    "baselineExpressionScanIterations": 81224,
+    "cachedTablePasses": 2,
+    "helper": "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+    "owner": "examples/kern-canonicalizer/canonicalizer.kern#2:exprsource",
+    "strategy": "memoized-table-wide-expression-projection",
+    "valueRows": 572
+  },
+  "promotion": {
+    "disposition": "headroom-authenticated",
+    "nextMilestone": "M4.90"
+  },
+  "result": {
+    "floorReduction": 80080,
+    "maxExactFloor": 27514,
+    "productionHeadroom": 38022,
+    "promotionHeadroom": 21638,
+    "witnessCount": 3
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "d0122a51105708ebd7ef619453556a478abcc5fa415402f672cd06328651e247",
+    "canonicalizerExpressionHelpersSha256": "1a1ae1f95e20b458021bf78b82f6b0d1cbe639579fcdd64c6709f1c741ce35e4",
+    "canonicalizerMainSha256": "b8f82357548884f4ea40f73d345ccf76c3d2c70e9c5084a4db94943930c96f52",
+    "canonicalizerStatementHelpersSha256": "158175ac9404fb93acc5b82fc8b87d10f2946a11b228ce9686f2423f75bcf667",
+    "compositionSha256": "2f4e03cf92ee958ec56d65a6e47cf6cfd51bdae37ca0a58452e2045c6d86ff4f",
+    "coveragePolicySha256": "e1a15eef726fa2b8e058a0ef5afe40edc25193ecbe01727168bcdefa6b0313ac",
+    "canonicalizerPolicySha256": "a929434c674ecbed5688eb36235f81c203d5d0eb4a34583554caad116960614c",
+    "m488PublishedCompositeSha256": "fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+  },
+  "witnesses": [
+    {
+      "baselineExactFloor": 36229,
+      "belowFloorOutcome": "failure",
+      "exactFloor": 24273,
+      "floorOutcome": "success",
+      "floorReduction": 11956,
+      "id": "examples/capstone-checker-subset/checker.kern#18:indexRejectDetail",
+      "parameterRows": 24,
+      "profileRows": {
+        "nodes": 41,
+        "properties": 67,
+        "values": 404
+      },
+      "roundTrip": true
+    },
+    {
+      "baselineExactFloor": 51321,
+      "belowFloorOutcome": "failure",
+      "exactFloor": 23104,
+      "floorOutcome": "success",
+      "floorReduction": 28217,
+      "id": "examples/capstone-checker-subset/checker.kern#23:callRejectCode",
+      "parameterRows": 15,
+      "profileRows": {
+        "nodes": 47,
+        "properties": 64,
+        "values": 478
+      },
+      "roundTrip": true
+    },
+    {
+      "baselineExactFloor": 107594,
+      "belowFloorOutcome": "failure",
+      "exactFloor": 27514,
+      "floorOutcome": "success",
+      "floorReduction": 80080,
+      "id": "examples/selfhost-validator/validator.kern#2:isreserved",
+      "parameterRows": 1,
+      "profileRows": {
+        "nodes": 74,
+        "properties": 77,
+        "values": 572
+      },
+      "roundTrip": true
+    }
+  ]
+}

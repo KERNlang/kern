@@ -18,6 +18,16 @@ const PUBLISHED_POLICY = {
   profileLimits: { maxNodeRows: 38, maxPropertyRows: 53, maxValueRows: 461 },
   runtimeLimits: { maxCollectionLength: 65_536 },
 };
+const PUBLISHED_SOURCE = {
+  canonicalizerCompositeSha256: 'fe5087dfcb79898a4b5d46cd233a2bbbeea156417f18ac314e87330172e31b28',
+  canonicalizerExpressionHelpersSha256: '1a1ae1f95e20b458021bf78b82f6b0d1cbe639579fcdd64c6709f1c741ce35e4',
+  canonicalizerPolicySha256: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
+  canonicalizerSourceSha256: 'de5eb248401e933a05c7f55789a872f07c084c28e140f6561dd4205b71c57e00',
+  compositionSha256: '894cf14bc391d3109a20fb6abef8d1c98cab426e2ed6d238d414c8aee46cff3b',
+  inputSourceSha256: PUBLISHED_INPUT_SOURCE_SHA256,
+  runtimeHandlerAbi: 'kern.runtime.handler.v1',
+  structuralKirCodecSha256: '04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab',
+};
 const WITNESS_ID = 'examples/capstone-checker-subset/checker-while.kern#16:checkWhileCore';
 
 function fail(message) {
@@ -167,18 +177,7 @@ export function measureCanonicalizerRuntimeCostM480() {
       promotionHeadroom: promotionBudget - exactFloor,
       roundTrip: true,
     },
-    source: {
-      canonicalizerCompositeSha256: digest(repositorySource('examples/kern-canonicalizer/canonicalizer.composed.kern')),
-      canonicalizerExpressionHelpersSha256: digest(
-        repositorySource('examples/kern-canonicalizer/canonicalizer-expression-helpers.kern'),
-      ),
-      canonicalizerPolicySha256: 'ac4983323d0e9da875e75ae12aff079d8d52deee069d77f703280a06f2f42244',
-      canonicalizerSourceSha256: digest(repositorySource('examples/kern-canonicalizer/canonicalizer.kern')),
-      compositionSha256: digest(readFileSync(new URL('./composition.json', import.meta.url))),
-      inputSourceSha256: PUBLISHED_INPUT_SOURCE_SHA256,
-      runtimeHandlerAbi: 'kern.runtime.handler.v1',
-      structuralKirCodecSha256: digest(repositorySource('packages/core/src/kir-structural/canonical.ts')),
-    },
+    source: structuredClone(PUBLISHED_SOURCE),
     witness: {
       id: WITNESS_ID,
       parameterRows: m479.witnesses[0].parameterRows,

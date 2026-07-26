@@ -37,6 +37,7 @@ import {
   formatM486ParameterMigrationStatus,
   formatM487ResidualAnalysisStatus,
   formatM488DualRowHeadroomStatus,
+  formatM489RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -308,6 +309,16 @@ test('coverage status records the M4.88 production-ceiling NO-GO', () => {
       },
     }),
     'M4.88 structural runtime rejects the 74/77/580 candidate: maximum floor 107594 exceeds production by 42058 and promotion budget by 58442; M4.89 reduces canonicalizer runtime cost.',
+  );
+});
+
+test('coverage status records the M4.89 runtime-cost reduction', () => {
+  assert.equal(
+    formatM489RuntimeCostStatus({
+      baseline: { maxExactFloor: 107_594 },
+      result: { floorReduction: 80_080, maxExactFloor: 27_514, promotionHeadroom: 21_638 },
+    }),
+    'M4.89 reduces the exact three-witness maximum floor from 107594 to 27514 by 80080 steps with 21638 promotion headroom; M4.90 authenticates the dual-row profile promotion.',
   );
 });
 
