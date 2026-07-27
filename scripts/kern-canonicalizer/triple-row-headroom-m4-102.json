@@ -1,0 +1,78 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.triple-row-headroom.1",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 95,
+      "maxValueRows": 832
+    },
+    "candidateProfile": {
+      "maxNodeRows": 89,
+      "maxPropertyRows": 125,
+      "maxValueRows": 2100
+    },
+    "diagnosticMaxCollectionLength": 72195,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "measurement": {
+    "disposition": "diagnostic-only",
+    "runtimePolicyChanged": false
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 64
+  },
+  "promotion": {
+    "disposition": "rejected-over-production-ceiling",
+    "nextMilestone": "M4.103",
+    "productionCeilingDeficit": 6659,
+    "promotionBudgetDeficit": 23043,
+    "profilePromotionApproved": false,
+    "requiredFloorReduction": 23043
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807",
+    "compositionRecordSha256": "f3ce080a976c8764a68417b9845deaa47bb30515e260d48fd415f1ea621a824a",
+    "coveragePolicySha256": "e5fdb18d2de95a15429e51364fb817b3f99342d272105db6c53091e3baf00b8c",
+    "coverageSummarySha256": "be6b6ee977befdfbc9f36b2cdcf23892c20d390bca9fcd0014a665245784b72f",
+    "measurementHarnessSha256": "15dd7ae3cb4927ca906b0ada4f1699b7bd5a748eeff680b1ba1b9facef464ba9",
+    "prerequisiteSummarySha256": "970d8f9eed9deb6dc021ecabb16758cf64eb41b9cfa0fb794a248513a67f3dec",
+    "runtimePolicySha256": "687f8ca3a3e1458bd6c3d3b7baacde4614c6a7eff78bb9d4071027f4311cfc09",
+    "statementHelpersSha256": "158175ac9404fb93acc5b82fc8b87d10f2946a11b228ce9686f2423f75bcf667",
+    "structuralKirCodecSha256": "7128e44fa93b7421aaf87223827bf960e837d7da9b717053994b6f423cd00caf",
+    "publishedInputCommit": "713d82ea1c9cf6f87d8f5793a6276c4caf62feb6",
+    "residualAnalysisInputCommit": "f95952200aec3a13ff71d42f63b7a7ed47010e48",
+    "residualAnalysisSha256": "9b389d0b2536cf2cd11d49bc47f1f234c46924c14c2ef160faf633069a3c94f0",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "summary": {
+    "maxExactFloor": 72195,
+    "productionCeilingDeficit": 6659,
+    "promotionBudgetDeficit": 23043,
+    "totalParameterRows": 14,
+    "witnessCount": 1
+  },
+  "witnesses": [
+    {
+      "belowFloor": 72194,
+      "belowFloorOutcome": "failure",
+      "exactFloor": 72195,
+      "floorOutcome": "success",
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement",
+      "parameterRows": 14,
+      "productionDelta": -6659,
+      "productionOutcome": "failure",
+      "profileRows": {
+        "nodes": 89,
+        "properties": 125,
+        "values": 2100
+      },
+      "promotionDelta": -23043,
+      "publicParityVerified": true,
+      "roundTrip": true
+    }
+  ]
+}

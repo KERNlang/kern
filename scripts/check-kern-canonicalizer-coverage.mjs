@@ -152,6 +152,9 @@ import {
   assertCanonicalizerValueRowHeadroomM484,
 } from './kern-canonicalizer/value-row-headroom-m4-84-check.mjs';
 import {
+  assertCanonicalizerTripleRowHeadroomM4102,
+} from './kern-canonicalizer/triple-row-headroom-m4-102-check.mjs';
+import {
   writeCanonicalizerRuntimeCostM480,
 } from './kern-canonicalizer/runtime-cost-m4-80.mjs';
 import { assertCoverageSummary, writeCoverageSummary } from './kern-canonicalizer/coverage-summary-writer.mjs';
@@ -203,6 +206,7 @@ import {
   formatM499DualRowPromotionStatus,
   formatM4100ParameterMigrationStatus,
   formatM4101ResidualAnalysisStatus,
+  formatM4102TripleRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -290,6 +294,7 @@ const m495ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m495ResidualAnalysis = m495ResidualAnalysisHandoff.record;
 const m4101ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4101();
 const m4101ResidualAnalysis = m4101ResidualAnalysisHandoff.record;
+const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
 const m496RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM496();
 const m497RuntimeCost = loadCanonicalizerRuntimeCostM497();
 const m498RuntimeCost = loadCanonicalizerRuntimeCostM498();
@@ -1568,6 +1573,7 @@ process.stdout.write(
     parameterMigration: m499ParameterMigration(),
   })}` +
   ` ${formatM4101ResidualAnalysisStatus(m4101ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM4102TripleRowHeadroomStatus(m4102TripleRowHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
