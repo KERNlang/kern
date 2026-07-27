@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
 import { loadCanonicalizerRuntimeBottleneckM4105 } from './runtime-bottleneck-m4-105.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.7';
@@ -15,7 +17,7 @@ const M4105_RECEIPT_DIGEST =
   '06538ef420d2374ecf39f5b12d775189c73cfa11a66a3ef460cf795c273db7e0';
 const WITNESS_ID =
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement';
-const SOURCE_DIGESTS = {
+export const M4106_SOURCE_DIGESTS = {
   canonicalizerCompositeSha256:
     'c68131992b98a4c2a78b9404f537180e1959e88a3116d5513d989ea7a1418f47',
   compiledCoreJavaScriptSha256:
@@ -33,18 +35,36 @@ const SOURCE_DIGESTS = {
   statementHelpersSha256:
     'fd2dc3cddf57509244dfc4210bbcc106727a80422b379cfd21d09ee90e1d67b2',
 };
-const SOURCE_URLS = {
-  canonicalizerCompositeSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer.composed.kern', import.meta.url),
-  compositionRecordSha256: new URL('./composition.json', import.meta.url),
-  expressionHelpersSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', import.meta.url),
-  mainSourceSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
-  measurementSha256: new URL('./runtime-cost-m4-106-measure.mjs', import.meta.url),
-  statementHelpersSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url),
-};
+const MEASUREMENT_URL = new URL('./runtime-cost-m4-106-measure.mjs', import.meta.url);
+const MEASUREMENT_REPLACEMENTS = [
+  {
+    current:
+      "import assert from 'node:assert/strict';\nimport { readFileSync } from 'node:fs';",
+    historical:
+      "import assert from 'node:assert/strict';\nimport { createHash } from 'node:crypto';\nimport { readFileSync } from 'node:fs';",
+  },
+  {
+    current: "import { assertValidstatementDirectRoot } from './validstatement-target.mjs';\n",
+    historical: '',
+  },
+  {
+    current:
+      "  new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url);\nconst PROFILE_ROWS",
+    historical:
+      "  new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url);\nconst WITNESS_SOURCE_SHA256 =\n  'fd2dc3cddf57509244dfc4210bbcc106727a80422b379cfd21d09ee90e1d67b2';\nconst PROFILE_ROWS",
+  },
+  {
+    current:
+      '  const source = readFileSync(WITNESS_SOURCE_URL);\n  const parsed = parseDocumentWithDiagnostics',
+    historical:
+      "  const source = readFileSync(WITNESS_SOURCE_URL);\n  assert.equal(createHash('sha256').update(source).digest('hex'), WITNESS_SOURCE_SHA256);\n  const parsed = parseDocumentWithDiagnostics",
+  },
+  {
+    current: '  assertValidstatementDirectRoot(sourceRoot);',
+    historical:
+      "  assert.equal(sourceRoot?.type, 'fn');\n  assert.equal(sourceRoot?.props?.name, 'validstatement');",
+  },
+];
 
 function fail(message) {
   throw new TypeError(`coverage M4.106 runtime-cost rejection: ${message}`);
@@ -114,16 +134,27 @@ function exactInputs() {
   ) {
     fail('M4.105 runtime-bottleneck handoff must remain exact');
   }
-  if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
+  if (digestCompiledCoreJavaScript() !== M4106_SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by the measurement must remain exact');
   }
-  for (const [name, url] of Object.entries(SOURCE_URLS)) {
-    if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
-      fail(`${name} executed by the measurement must remain exact`);
-    }
-  }
+  loadHistoricalCanonicalizerComposition({
+    expectedDigests: {
+      canonicalizerCompositeSha256: M4106_SOURCE_DIGESTS.canonicalizerCompositeSha256,
+      compositionRecordSha256: M4106_SOURCE_DIGESTS.compositionRecordSha256,
+      expressionHelpersSha256: M4106_SOURCE_DIGESTS.expressionHelpersSha256,
+      mainSourceSha256: M4106_SOURCE_DIGESTS.mainSourceSha256,
+      statementHelpersSha256: M4106_SOURCE_DIGESTS.statementHelpersSha256,
+    },
+    milestone: 'M4.106',
+  });
+  reconstructHistoricalSource({
+    currentSource: readFileSync(MEASUREMENT_URL),
+    expectedDigest: M4106_SOURCE_DIGESTS.measurementSha256,
+    milestone: 'M4.106 measurement',
+    replacements: MEASUREMENT_REPLACEMENTS,
+  });
   const policy = loadHistoricalCanonicalizerPolicy({
-    expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
+    expectedDigest: M4106_SOURCE_DIGESTS.runtimePolicySha256,
     milestone: 'M4.106',
     profileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 832 },
   });
@@ -222,7 +253,7 @@ export function buildCanonicalizerRuntimeCostM4106() {
       roundTrip: true,
     },
     source: {
-      ...structuredClone(SOURCE_DIGESTS),
+      ...structuredClone(M4106_SOURCE_DIGESTS),
       runtimeHandlerAbi: 'kern.runtime.handler.v1',
     },
     witness: {

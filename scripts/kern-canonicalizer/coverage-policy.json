@@ -107,7 +107,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "fd2dc3cddf57509244dfc4210bbcc106727a80422b379cfd21d09ee90e1d67b2",
+      "digest": "02037b400eb35d2fd61a5eaf06e6b83fbd9bb1c12bbe71da82bc39327169c592",
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

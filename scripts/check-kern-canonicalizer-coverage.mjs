@@ -26,6 +26,10 @@ import {
   m4107ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-107-triple-row-promotion.mjs';
 import {
+  assertM4108ParameterMigration,
+  m4108ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-108-parameter-migration.mjs';
+import {
   assertM491ParameterMigrations,
 } from './kern-canonicalizer/coverage-m4-91-parameter-migrations.mjs';
 import {
@@ -230,6 +234,7 @@ import {
   formatM4105RuntimeBottleneckStatus,
   formatM4106RuntimeCostStatus,
   formatM4107TripleRowPromotionStatus,
+  formatM4108ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -354,6 +359,7 @@ assertM494ParameterMigration(coverage, prerequisite);
 assertM499DualRowPromotion(policy);
 assertM4100ParameterMigration(coverage, prerequisite);
 assertM4107TripleRowPromotion();
+assertM4108ParameterMigration(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4107ActiveProfile(),
@@ -510,13 +516,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 111, 'live M4.107 authored function count must remain exact');
+  assert.equal(actual.functionCount, 111, 'live M4.108 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 91, 'live M4.107 base completion must remain exactly 91/111');
+  assert.equal(actual.baseCompleteFunctions, 92, 'live M4.108 base completion must remain exactly 92/111');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    16,
-    'live M4.107 fn.params blocker count must remain exactly 16',
+    15,
+    'live M4.108 fn.params blocker count must remain exactly 15',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -528,7 +534,7 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.parameterMigration, m4107ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4108ParameterMigration());
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -1355,7 +1361,7 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 91);
+  assert.equal(actual.baseCompleteFunctions, 92);
   assert.equal(actual.functionCount, 111);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
@@ -1701,6 +1707,9 @@ process.stdout.write(
   ` ${formatM4107TripleRowPromotionStatus({
     parameterMigration: m4107ParameterMigration(),
     profileLimits: m4107ActiveProfile(),
+  })}` +
+  ` ${formatM4108ParameterMigrationStatus({
+    parameterMigration: m4107ParameterMigration(),
   })}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +

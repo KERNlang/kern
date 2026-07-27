@@ -245,6 +245,12 @@ export function formatM4107TripleRowPromotionStatus({ parameterMigration, profil
     `${parameterMigration.migratedParameterRows}-row parameter queue; M4.108 consumes it.`;
 }
 
+export function formatM4108ParameterMigrationStatus({ parameterMigration }) {
+  return `M4.108 consumes the exact M4.107 ${parameterMigration.completeFunctions}-function/` +
+    `${parameterMigration.migratedParameterRows}-row parameter queue and advances the cumulative ` +
+    'base to 92/111 with 15 legacy-parameter blockers; the next residual analysis follows.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

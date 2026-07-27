@@ -39,7 +39,21 @@ fn name=validstatementlist returns=boolean export=true
         return value="false"
     return value="true"
 
-fn name=validstatement params="id:number,returnType:string,nodeKind:string[],nodeParent:number[],nodeOrder:number[],propNode:number[],propKey:string[],propValue:number[],valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[]" returns=boolean export=true
+fn name=validstatement returns=boolean export=true
+  param name=id type=number
+  param name=returnType type=string
+  param name=nodeKind type=string[]
+  param name=nodeParent type=number[]
+  param name=nodeOrder type=number[]
+  param name=propNode type=number[]
+  param name=propKey type=string[]
+  param name=propValue type=number[]
+  param name=valueTag type=string[]
+  param name=valueParent type=number[]
+  param name=valueRole type=string[]
+  param name=valueOrder type=number[]
+  param name=valueText type=string[]
+  param name=valueBool type=number[]
   handler lang="kern"
     let name=kind value="stringat(id, nodeKind)"
     let name=facts value="statementfacts(id, nodeParent, propNode, propKey, propValue)"

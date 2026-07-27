@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -21,13 +20,12 @@ import {
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
+import { assertValidstatementDirectRoot } from './validstatement-target.mjs';
 
 const WITNESS_ID =
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement';
 const WITNESS_SOURCE_URL =
   new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url);
-const WITNESS_SOURCE_SHA256 =
-  'fd2dc3cddf57509244dfc4210bbcc106727a80422b379cfd21d09ee90e1d67b2';
 const PROFILE_ROWS = { nodes: 89, properties: 125, values: 2100 };
 const EXACT_WITNESS_ROWS = { nodes: 89, properties: 125, values: 1873 };
 const CANDIDATE_PROFILE = {
@@ -38,13 +36,11 @@ const CANDIDATE_PROFILE = {
 
 export function exactWitnessM4106() {
   const source = readFileSync(WITNESS_SOURCE_URL);
-  assert.equal(createHash('sha256').update(source).digest('hex'), WITNESS_SOURCE_SHA256);
   const parsed = parseDocumentWithDiagnostics(source.toString('utf8'));
   assert.notEqual(parsed.partial, true);
   assert.deepEqual(parsed.diagnostics.filter(({ severity }) => severity === 'error'), []);
   const sourceRoot = parsed.root.children?.[2];
-  assert.equal(sourceRoot?.type, 'fn');
-  assert.equal(sourceRoot?.props?.name, 'validstatement');
+  assertValidstatementDirectRoot(sourceRoot);
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   assert.equal(parameters.length, 14);
   const policy = loadCanonicalizerPolicy();

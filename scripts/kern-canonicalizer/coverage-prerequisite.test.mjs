@@ -9,11 +9,11 @@ import {
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
-import { m4107ParameterMigration } from './coverage-m4-107-triple-row-promotion.mjs';
+import { m4108ParameterMigration } from './coverage-m4-108-parameter-migration.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m4107ParameterMigration();
+const EXPECTED_PARAMETER_MIGRATION = m4108ParameterMigration();
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
@@ -37,7 +37,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.107 publishes the validstatement queue and preserves bounded exhaustion', () => {
+test('M4.108 consumes the validstatement queue and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -85,22 +85,22 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.107 publishes the exact promoted-profile frontier', () => {
+test('M4.108 publishes the exact post-migration frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 91,
+    baseCompleteFunctions: 92,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
-    canonicalizerDigest: 'c68131992b98a4c2a78b9404f537180e1959e88a3116d5513d989ea7a1418f47',
+    canonicalizerDigest: 'fd9baa340533b016f0beb7d39feb3d16fd220febfd08b8bb99a6fc034677b5a8',
     canonicalizerPolicyDigest: '035af4bfe549ffdf8e19c584dcae4ab60b574a4109253227a703475afb321658',
     compiledCoreDigest: '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
-    corpusDigest: 'e010d72da07a6dd27b5a9350662741b2c07cd7a494b287e03099cdbbe420fe1e',
+    corpusDigest: '6b405beab728f7a69edb73ddfe830583c67a8bd0651f05c83aa5a44be9f10f18',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'e383dab550cde5f284ad68ff0061d09bc9958b008658800bfbd0d3144dda2a5c',
+    coveragePolicyDigest: '0285747660651cab2ee1029456dc40c190c42d2515937fa6d3534247df363b54',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 111,
-    functionFactsDigest: '6143d8e7bf01be5af01d670fc0b0d8a4a45d5dac37ae7f983e0b7fcf8b031027',
-    legacyParameterBlockers: 16,
+    functionFactsDigest: 'd5fa84e9d8cca79d2352ae106a533dd489291b670ab27ad4adc7e70010a2e214',
+    legacyParameterBlockers: 15,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });

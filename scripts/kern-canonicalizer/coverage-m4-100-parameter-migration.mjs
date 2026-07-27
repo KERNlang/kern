@@ -112,23 +112,10 @@ export function assertM4100ParameterMigration(coverage, prerequisite) {
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM4100ParameterTarget(root, fact, target);
 
-  assert.equal(coverage.baseCompleteFunctions, 91);
-  assert.equal(coverage.functions.length, 111);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    16,
-  );
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
     false,
     'M4.100 migrated comparisonOperandsOk must never re-enter a later parameter queue',
-  );
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 15);
-  assert.equal(
-    prerequisite.exhaustion?.reasonAssignmentsDigest,
-    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
   );
   return fact;
 }
