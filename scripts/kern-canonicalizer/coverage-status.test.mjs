@@ -45,6 +45,7 @@ import {
   formatM494ParameterMigrationStatus,
   formatM495ResidualAnalysisStatus,
   formatM496RuntimeBottleneckStatus,
+  formatM497RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -181,6 +182,20 @@ test('coverage status records the M4.96 bounded runtime-bottleneck diagnosis', (
     'M4.96 attributes 78379 rolled-back loop entries and 91 additional expressionsources executions ' +
       'across 500 retained iterations; M4.97 evaluates removal of parent-frame replay before any ' +
       'headroom measurement.',
+  );
+});
+
+test('coverage status records the M4.97 resumable-frame reduction and promotion NO-GO', () => {
+  assert.equal(
+    formatM497RuntimeCostStatus({
+      result: {
+        exactFloor: 53_086,
+        productionHeadroom: 12_450,
+        promotionBudgetDeficit: 3_934,
+      },
+    }),
+    'M4.97 removes parent-frame replay and authenticates exact floor 53086 with 12450 production ' +
+      'headroom, but misses the promotion budget by 3934; M4.98 reduces the remaining runtime cost.',
   );
 });
 

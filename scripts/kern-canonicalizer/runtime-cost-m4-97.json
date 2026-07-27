@@ -1,0 +1,167 @@
+{
+  "baseline": {
+    "implementationBaseCommit": "c01b42f151be03da47fffc942b43f9a157f4d53e",
+    "m496ReceiptSha256": "3a80e118c7621923401596d7ab16fd013067363daa88b819817c0208e2afe391",
+    "observationAt34500": {
+      "cache": {
+        "hits": 8894,
+        "misses": 1572
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 31994,
+        "total": 49019258
+      },
+      "expressionsources": {
+        "executions": 92,
+        "parentRestarts": 91,
+        "preparations": 1
+      },
+      "iterationBudget": 34500,
+      "loopIterations": {
+        "attempted": 113145,
+        "retained": 34500,
+        "rolledBack": 78645
+      },
+      "outcome": "failure",
+      "publicParityVerified": false
+    }
+  },
+  "format": "kern.kir-canonicalizer.runtime-cost-reduction.4",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 77,
+      "maxValueRows": 580
+    },
+    "candidateProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 95,
+      "maxValueRows": 832
+    },
+    "maxDepth": 64,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152
+  },
+  "observations": [
+    {
+      "cache": {
+        "hits": 4893,
+        "misses": 4260
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 32003,
+        "total": 38906648
+      },
+      "expressionsources": {
+        "executions": 1,
+        "preparations": 36
+      },
+      "frameSuspensions": 1817,
+      "iterationBudget": 53085,
+      "loopIterations": {
+        "attempted": 53085,
+        "retained": 53085,
+        "rolledBack": 0
+      },
+      "outcome": "failure",
+      "publicParityVerified": false,
+      "selectedFrameSuspensions": {
+        "expressionsources->numberat": 27,
+        "expressionsources->quotesource": 10,
+        "expressionsources->stringat": 1165,
+        "expressionsources->validbinaryop": 3,
+        "expressionsources->validexpressionidentifier": 36
+      }
+    },
+    {
+      "cache": {
+        "hits": 4893,
+        "misses": 4260
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 32003,
+        "total": 38906648
+      },
+      "expressionsources": {
+        "executions": 1,
+        "preparations": 36
+      },
+      "frameSuspensions": 1817,
+      "iterationBudget": 53086,
+      "loopIterations": {
+        "attempted": 53086,
+        "retained": 53086,
+        "rolledBack": 0
+      },
+      "outcome": "success",
+      "publicParityVerified": true,
+      "selectedFrameSuspensions": {
+        "expressionsources->numberat": 27,
+        "expressionsources->quotesource": 10,
+        "expressionsources->stringat": 1165,
+        "expressionsources->validbinaryop": 3,
+        "expressionsources->validexpressionidentifier": 36
+      }
+    }
+  ],
+  "optimization": {
+    "atBudget34500": {
+      "cacheKeyCodeUnits": {
+        "maximum": 31994,
+        "total": 8844253
+      },
+      "cacheKeyCodeUnitsReduction": 40175005,
+      "expressionsourcesExecutionReduction": 91,
+      "expressionsourcesExecutions": 1,
+      "expressionsourcesPreparations": 1,
+      "frameSuspensions": 350,
+      "loopAttemptsRemoved": 78645,
+      "loopIterations": {
+        "attempted": 34500,
+        "retained": 34500,
+        "rolledBack": 0
+      },
+      "outcome": "failure",
+      "publicParityVerified": true
+    },
+    "dependencyTransport": "internal-helper-dependency-yield",
+    "parentFrameRestarts": 0,
+    "strategy": "preserve-open-helper-generator-and-retry-current-pure-node"
+  },
+  "promotion": {
+    "disposition": "production-headroom-authenticated-promotion-budget-no-go",
+    "nextMilestone": "M4.98",
+    "profilePromotionApproved": false
+  },
+  "result": {
+    "belowFloor": 53085,
+    "belowFloorOutcome": "failure",
+    "exactFloor": 53086,
+    "floorOutcome": "success",
+    "productionHeadroom": 12450,
+    "promotionBudgetDeficit": 3934,
+    "roundTrip": true
+  },
+  "source": {
+    "classFrameSha256": "4e2c5ab73bb1c8906bc06f88b1d5bcb43bb524c6ff92e8d2f9fca7bc7126d3de",
+    "diagnosticObserverSha256": "6037e9f2e37e3888b45d64458c627c217abfd52105271de226bf47e053e495b6",
+    "effectMachineSha256": "3de758e08833d0881159f4716710701a605b45a0f56313bb191fabe02666e2eb",
+    "effectMachineTypesSha256": "909f576f295d7670d77d6bc80729b461b27f3b9d22b03333689a649925d378b6",
+    "expressionV1RuntimeSha256": "c93dba68ec3bb3fb23cbab8cbd5a788d6fe582c4eabae94cb62897a7e584e6d3",
+    "helperRuntimeSha256": "d3254d54b5bf2b86c89776faad6b49f073d0754c0bc10dd269ce887cd0c3229c",
+    "internalExpressionV1Sha256": "eb04dd8734cd851427ece85606442e6796142a2100cea7ed248633b250b4726f",
+    "measurementHarnessSha256": "e0871fd3bab09099d3159e0b00b0e0983091c52ba943ef26159ac17426db2b2e",
+    "measurementOwnerSha256": "c314c15dc7e9fc722dc128b6bc849eb116f59fb108fa18d7bcd5ca58c874bcd0",
+    "sequenceSha256": "fbd95b89099ceffbb6c2e8f2136620bfe51bda5bd2a22ba93de1db7743a68bfe",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "witness": {
+    "id": "examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk",
+    "parameterRows": 24,
+    "structuralRows": {
+      "nodes": 53,
+      "properties": 95,
+      "values": 832
+    }
+  }
+}

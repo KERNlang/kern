@@ -7,33 +7,8 @@ import {
   loadCanonicalizerRuntimeBottleneckM496,
   validateCanonicalizerRuntimeBottleneckM496,
 } from './runtime-bottleneck-m4-96.mjs';
-import { measureCanonicalizerRuntimeBottleneckM496 } from './runtime-bottleneck-m4-96-measure.mjs';
 
 const summaryUrl = new URL('./runtime-bottleneck-m4-96.json', import.meta.url);
-
-function compactMeasurement(measurement) {
-  const expressionsourcesRestarts = Object.entries(measurement.summary.parentRestarts)
-    .filter(([key]) => key.startsWith('expressionsources->'))
-    .reduce((total, [, count]) => total + count, 0);
-  return {
-    cache: structuredClone(measurement.summary.cache),
-    cacheKeyCodeUnits: structuredClone(measurement.summary.cacheKeyCodeUnits),
-    expressionsources: {
-      executions: measurement.summary.helperExecutions.expressionsources ?? 0,
-      parentRestarts: expressionsourcesRestarts,
-      preparations: measurement.summary.helperPreparations.expressionsources ?? 0,
-    },
-    iterationBudget: measurement.iterationBudget,
-    loopIterations: {
-      attempted: Object.values(measurement.summary.loopIterations.attempted)
-        .reduce((total, count) => total + count, 0),
-      retained: measurement.summary.loopIterations.retained,
-      rolledBack: measurement.summary.loopIterations.rolledBack,
-    },
-    outcome: measurement.envelope.outcome,
-    publicParityVerified: measurement.publicParityVerified,
-  };
-}
 
 test('M4.96 publishes the exact bounded runtime-bottleneck diagnosis', () => {
   const receipt = loadCanonicalizerRuntimeBottleneckM496();
@@ -62,17 +37,18 @@ test('M4.96 publishes the exact bounded runtime-bottleneck diagnosis', () => {
   assert.equal(receipt.observer.publicHandlerOptionExposed, false);
 });
 
-test('M4.96 exact candidate reproduces both bounded observations', () => {
+test('M4.96 preserves both bounded observations as immutable pre-optimization evidence', () => {
   const receipt = loadCanonicalizerRuntimeBottleneckM496();
-  const baseline = measureCanonicalizerRuntimeBottleneckM496(
-    receipt.observations[0].iterationBudget,
-    { verifyPublicParity: true },
-  );
-  const cliff = measureCanonicalizerRuntimeBottleneckM496(
-    receipt.observations[1].iterationBudget,
-  );
-  assert.deepEqual(compactMeasurement(baseline), receipt.observations[0]);
-  assert.deepEqual(compactMeasurement(cliff), receipt.observations[1]);
+  assert.deepEqual(receipt.observations.map(({ iterationBudget, outcome }) => ({
+    iterationBudget,
+    outcome,
+  })), [
+    { iterationBudget: 34_000, outcome: 'failure' },
+    { iterationBudget: 34_500, outcome: 'failure' },
+  ]);
+  assert.equal(receipt.observations[1].expressionsources.executions, 92);
+  assert.equal(receipt.observations[1].expressionsources.parentRestarts, 91);
+  assert.equal(receipt.observations[1].loopIterations.rolledBack, 78_645);
 });
 
 test('M4.96 rejects receipt mutation and decoration', () => {

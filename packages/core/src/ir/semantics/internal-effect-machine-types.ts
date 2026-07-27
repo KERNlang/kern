@@ -53,6 +53,14 @@ export interface InternalCapabilityEffectRequest {
   readonly prepared: PreparedInternalCapabilityEffect;
 }
 
+export interface InternalHelperEffectRequest {
+  readonly format: typeof INTERNAL_EFFECT_MACHINE_FORMAT;
+  readonly kind: 'helper-dependency';
+  readonly request: unknown;
+}
+
+export type InternalEffectMachineRequest = InternalCapabilityEffectRequest | InternalHelperEffectRequest;
+
 export interface InternalEffectMachineState {
   classRegistry?: ReadonlyMap<string, RunnerClassBinding>;
   helperBodyRunner?: InternalEffectMachineChildSequenceRunner;
@@ -67,7 +75,7 @@ export interface InternalEffectMachineState {
 }
 
 export type InternalEffectMachineGenerator = Generator<
-  InternalCapabilityEffectRequest,
+  InternalEffectMachineRequest,
   Trace,
   RuntimeCapabilityValue | undefined
 >;

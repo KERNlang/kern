@@ -16,7 +16,7 @@ import {
 } from './internal-effect-machine-class-graph.js';
 import { internalMachineClassReceiver } from './internal-effect-machine-class-instance.js';
 import { bindInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
-import type { InternalCapabilityEffectRequest, InternalEffectMachineState } from './internal-effect-machine-types.js';
+import type { InternalEffectMachineRequest, InternalEffectMachineState } from './internal-effect-machine-types.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableScalar, type PortableScalar } from './portable-scalar-domain.js';
 import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env.js';
@@ -28,7 +28,7 @@ export interface InternalMachineClassEvaluatedValue<T = PortableScalar> {
 }
 
 export type InternalMachineClassValueGenerator<T = PortableScalar> = Generator<
-  InternalCapabilityEffectRequest,
+  InternalEffectMachineRequest,
   InternalMachineClassEvaluatedValue<T>,
   RuntimeCapabilityValue | undefined
 >;

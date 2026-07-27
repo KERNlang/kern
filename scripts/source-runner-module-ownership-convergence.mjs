@@ -126,8 +126,11 @@ export function validateModuleOwnershipSlice(contents, errors) {
     'defining-module helper runtime',
     errors,
   );
-  if ((contents.moduleHelperRuntime?.split('runnerFunctions: scope.functions').length ?? 1) - 1 !== 2) {
-    errors.push('defining-module helper runtime must install the exact function scope in both execution paths');
+  if ((contents.moduleHelperRuntime?.split('runnerFunctions: scope.functions').length ?? 1) - 1 !== 1) {
+    errors.push('defining-module helper runtime must install the exact function scope in its shared call environment');
+  }
+  if ((contents.moduleHelperRuntime?.split('helperCallEnvironment(call)').length ?? 1) - 1 !== 2) {
+    errors.push('both defining-module helper execution paths must use the shared call environment');
   }
   requireAll(
     contents.moduleState,

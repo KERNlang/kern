@@ -116,7 +116,14 @@ function routesToNativeRegexReplace(parsed: ValueIR, env: SemanticEnv): boolean 
   return isRegexReplaceExpression(parsed) && !hasBinding(env, 'RegExp');
 }
 
-function nativeTrial(parsed: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue): boolean | undefined {
+type ShouldRethrowExpressionV1Error = (error: unknown) => boolean;
+
+function nativeTrial(
+  parsed: ValueIR,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+  shouldRethrow?: ShouldRethrowExpressionV1Error,
+): boolean | undefined {
   try {
     if (routesToNativeDecimal(parsed, env)) evalDecimalExpression(parsed, env);
     else if (routesToNativeRegexTest(parsed, env)) evalRegexTestExpression(parsed, env, evaluate);
@@ -128,26 +135,35 @@ function nativeTrial(parsed: ValueIR, env: SemanticEnv, evaluate: EvalPortableVa
     else return undefined;
     return true;
   } catch (error) {
+    if (shouldRethrow?.(error)) throw error;
     return isRunnerNativeDecimalFailClose(error) || isRunnerNativeRegexFailClose(error);
   }
 }
 
-export function expressionV1Preconditions(node: IRNode, env: SemanticEnv, evaluate: EvalPortableValue): boolean {
+export function expressionV1Preconditions(
+  node: IRNode,
+  env: SemanticEnv,
+  evaluate: EvalPortableValue,
+  shouldRethrow?: ShouldRethrowExpressionV1Error,
+): boolean {
   try {
     const parsed = assertExpressionV1BasicShape(node);
     const name = propsOf(node).name as string;
     if (hasOwnBinding(env, name)) return false;
-    const native = nativeTrial(parsed, env, evaluate);
+    const native = nativeTrial(parsed, env, evaluate, shouldRethrow);
     if (native !== undefined) return native;
     if (isArrayLiteralExpression(parsed)) evalArrayLiteralValue(parsed, env, evaluate);
     else if (isRecordLiteralExpression(parsed)) {
-      evalRecordLiteralValue(parsed, env, evaluate, { captureFreshArrayBindings: false });
+      evalRecordLiteralValue(parsed, env, evaluate, {
+        captureFreshArrayBindings: false,
+      });
     } else if (evalRecordArrayFieldReferenceValue(parsed, env) !== undefined) return true;
     else if (parsed.kind === 'ident' && hasBinding(env, parsed.name) && Array.isArray(getBinding(env, parsed.name))) {
       return true;
     } else evaluate(parsed, env);
     return true;
-  } catch {
+  } catch (error) {
+    if (shouldRethrow?.(error)) throw error;
     return false;
   }
 }
@@ -184,7 +200,9 @@ export function runExpressionV1(node: IRNode, env: SemanticEnv, evaluate: EvalPo
     value = evalArrayLiteralValue(parsed, env, evaluate);
     defineFreshArrayBinding(env, name, value as readonly unknown[]);
   } else if (isRecordLiteralExpression(parsed)) {
-    value = evalRecordLiteralValue(parsed, env, evaluate, { captureFreshArrayBindings: true });
+    value = evalRecordLiteralValue(parsed, env, evaluate, {
+      captureFreshArrayBindings: true,
+    });
     defineRecordBinding(env, name, value, recordArrayFieldsFromValue(value));
   } else {
     const recordArrayField = evalRecordArrayFieldReferenceValue(parsed, env);
@@ -199,5 +217,8 @@ export function runExpressionV1(node: IRNode, env: SemanticEnv, evaluate: EvalPo
       defineBinding(env, name, value);
     }
   }
-  return { events: [{ op: 'assign', target: name, value }], completion: { kind: 'normal' } };
+  return {
+    events: [{ op: 'assign', target: name, value }],
+    completion: { kind: 'normal' },
+  };
 }

@@ -32,7 +32,100 @@ function helperEnvironment() {
   });
 }
 
-test('M4.96 observer reports helper replay without changing the trace', () => {
+function loopHelperEnvironment() {
+  const functions: RunnerModuleScope['functions'] = new Map();
+  const classes: RunnerModuleScope['classes'] = new Map();
+  const scope: RunnerModuleScope = { classes, functions };
+  functions.set('identity', {
+    body: [{ type: 'return', props: { value: 'value' } }],
+    module: scope,
+    name: 'identity',
+    params: ['value'],
+    returns: 'number',
+  });
+  functions.set('sumTwo', {
+    body: [
+      { type: 'let', props: { name: 'total', value: '0' } },
+      {
+        type: 'for',
+        props: { from: '0', name: 'i', to: '2' },
+        children: [
+          {
+            type: 'assign',
+            props: { op: '+=', target: 'total', value: 'identity(i)' },
+          },
+        ],
+      },
+      { type: 'return', props: { value: 'total' } },
+    ],
+    module: scope,
+    name: 'sumTwo',
+    params: [],
+    returns: 'number',
+  });
+  markRunnerMachineRootScope(scope);
+  return makeEnv({
+    runnerCallCache: new Map(),
+    runnerCallStack: [],
+    runnerClasses: classes,
+    runnerFunctions: functions,
+  });
+}
+
+function expressionHelperEnvironment() {
+  const functions: RunnerModuleScope['functions'] = new Map();
+  const classes: RunnerModuleScope['classes'] = new Map();
+  const scope: RunnerModuleScope = { classes, functions };
+  functions.set('double', {
+    body: [{ type: 'return', props: { value: 'value * 2' } }],
+    module: scope,
+    name: 'double',
+    params: ['value'],
+    returns: 'number',
+  });
+  functions.set('identityText', {
+    body: [{ type: 'return', props: { value: 'value' } }],
+    module: scope,
+    name: 'identityText',
+    params: ['value'],
+    returns: 'string',
+  });
+  functions.set('expressionOuter', {
+    body: [
+      {
+        type: 'expression-v1',
+        props: { expr: 'double(value)', name: 'doubled' },
+      },
+      { type: 'return', props: { value: 'doubled + 1' } },
+    ],
+    module: scope,
+    name: 'expressionOuter',
+    params: ['value'],
+    returns: 'number',
+  });
+  functions.set('regexOuter', {
+    body: [
+      {
+        type: 'expression-v1',
+        props: { expr: '/a/.test(identityText(value))', name: 'matches' },
+      },
+      { type: 'return', props: { value: 'matches' } },
+    ],
+    module: scope,
+    name: 'regexOuter',
+    params: ['value'],
+    returns: 'boolean',
+  });
+  markRunnerMachineRootScope(scope);
+  return makeEnv({
+    runnerCallCache: new Map(),
+    runnerCallStack: [],
+    runnerClasses: classes,
+    runnerFunctions: functions,
+  });
+}
+
+test('M4.97 observer reports helper-frame suspension without changing the trace', () => {
   const nodes: readonly IRNode[] = [{ type: 'print', props: { value: 'outer(2)' } }];
   const baseline = runInternalEffectMachineSync(nodes, helperEnvironment());
   const events: InternalEffectMachineDiagnosticEvent[] = [];
@@ -42,15 +135,44 @@ test('M4.96 observer reports helper replay without changing the trace', () => {
 
   expect(observed).toEqual(baseline);
   expect(events.filter(({ kind }) => kind === 'helper-prepare').length).toBeGreaterThan(2);
-  expect(events.filter(({ kind }) => kind === 'helper-parent-restart')).toEqual([
+  expect(events.filter(({ kind }) => kind === 'helper-parent-restart')).toEqual([]);
+  expect(events.filter(({ kind }) => kind === 'helper-frame-suspend')).toEqual([
     {
       dependency: 'inner',
-      kind: 'helper-parent-restart',
+      kind: 'helper-frame-suspend',
       parent: 'outer',
-      rolledBackIterations: 0,
     },
   ]);
+  expect(events.filter((event) => event.kind === 'helper-execute' && event.name === 'outer')).toHaveLength(1);
   expect(events.some((event) => event.kind === 'helper-cache' && event.hit)).toBe(true);
+});
+
+test('M4.97 preserves one parent frame across nested helper misses', () => {
+  const nodes: readonly IRNode[] = [{ type: 'print', props: { value: 'sumTwo()' } }];
+  const events: InternalEffectMachineDiagnosticEvent[] = [];
+
+  const trace = runInternalEffectMachineSync(nodes, loopHelperEnvironment(), {
+    iterationBudget: 2,
+    observer: (event) => events.push(event),
+  });
+
+  expect(trace.events).toEqual([{ op: 'stdout', text: '1' }]);
+  expect(events.filter((event) => event.kind === 'helper-execute' && event.name === 'sumTwo')).toHaveLength(1);
+  expect(events.filter((event) => event.kind === 'helper-parent-restart')).toEqual([]);
+  expect(events.filter((event) => event.kind === 'helper-frame-suspend')).toHaveLength(2);
+  expect(events.filter((event) => event.kind === 'loop-iteration')).toHaveLength(2);
+});
+
+test('M4.97 suspends nested helpers through expression-v1 and native trials', () => {
+  const nodes: readonly IRNode[] = [
+    { type: 'print', props: { value: 'expressionOuter(2)' } },
+    { type: 'print', props: { value: 'regexOuter("cat")' } },
+  ];
+
+  expect(runInternalEffectMachineSync(nodes, expressionHelperEnvironment()).events).toEqual([
+    { op: 'stdout', text: '5' },
+    { op: 'stdout', text: 'true' },
+  ]);
 });
 
 test('M4.96 observer events are frozen and observer failures cannot affect execution', () => {

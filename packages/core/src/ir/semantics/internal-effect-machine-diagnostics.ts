@@ -21,6 +21,11 @@ export type InternalEffectMachineDiagnosticEvent =
       readonly rolledBackIterations: number;
     }
   | {
+      readonly dependency: string;
+      readonly kind: 'helper-frame-suspend';
+      readonly parent: string;
+    }
+  | {
       readonly kind: 'loop-iteration';
       readonly nodeType: 'each' | 'for' | 'lambda' | 'while';
     };

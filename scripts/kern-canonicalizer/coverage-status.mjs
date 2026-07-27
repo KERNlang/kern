@@ -159,6 +159,12 @@ export function formatM496RuntimeBottleneckStatus(receipt) {
     'M4.97 evaluates removal of parent-frame replay before any headroom measurement.';
 }
 
+export function formatM497RuntimeCostStatus(receipt) {
+  return `M4.97 removes parent-frame replay and authenticates exact floor ${receipt.result.exactFloor} ` +
+    `with ${receipt.result.productionHeadroom} production headroom, but misses the promotion budget by ` +
+    `${receipt.result.promotionBudgetDeficit}; M4.98 reduces the remaining runtime cost.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

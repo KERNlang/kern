@@ -62,6 +62,19 @@ function assertEnvironmentStillEligible(nodes: readonly IRNode[], env: SemanticE
   throw new InternalEffectMachineError('environment changed after provider dispatch', nodes[0] ?? { type: '__block' });
 }
 
+function assertCapabilityRequest(
+  request: YieldType<InternalEffectMachineGenerator>,
+  nodes: readonly IRNode[],
+): asserts request is Extract<YieldType<InternalEffectMachineGenerator>, { kind: 'capability' }> {
+  if (request.kind === 'capability') return;
+  throw new InternalEffectMachineError(
+    'internal helper dependency escaped the helper frame',
+    nodes[0] ?? { type: '__block' },
+  );
+}
+
+type YieldType<T> = T extends Generator<infer Y, unknown, unknown> ? Y : never;
+
 export { isInternalEffectMachineEligible } from './internal-effect-machine-structure.js';
 export type {
   InternalEffectMachineAsyncOptions,
@@ -109,6 +122,7 @@ export function runInternalEffectMachineSync(
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {
+    assertCapabilityRequest(step.value, nodes);
     let result: RuntimeCapabilityValue | undefined;
     try {
       result = invokeInternalRuntimeCapabilitySync(env, step.value.prepared.call);
@@ -133,6 +147,7 @@ export async function runInternalEffectMachineAsync(
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {
+    assertCapabilityRequest(step.value, nodes);
     const call = step.value.prepared.call;
     let result: RuntimeCapabilityValue | undefined;
     try {

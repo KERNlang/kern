@@ -1,5 +1,6 @@
 import type { IRNode } from '../../types.js';
 import { assertExpressionV1BasicShape, expressionV1Preconditions, runExpressionV1 } from './expression-v1-runtime.js';
+import { InternalEffectMachineHelperPending } from './internal-effect-machine-types.js';
 import { isDecimalValueExpression } from './portable-decimal-evaluator.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
@@ -37,7 +38,14 @@ export function assertInternalMachineExpressionV1Shape(node: IRNode, env?: Seman
 
 export function runInternalMachineExpressionV1(node: IRNode, env: SemanticEnv): Trace {
   assertInternalMachineExpressionV1Shape(node, env);
-  if (!expressionV1Preconditions(node, env, evalPortableValue)) {
+  if (
+    !expressionV1Preconditions(
+      node,
+      env,
+      evalPortableValue,
+      (error) => error instanceof InternalEffectMachineHelperPending,
+    )
+  ) {
     throw new Error('expression-v1: preconditions failed');
   }
   return runExpressionV1(node, env, evalPortableValue);

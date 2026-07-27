@@ -27,47 +27,6 @@ const SOURCE_DIGESTS = {
   publicRuntimeHandlerSha256: 'f2ca9bd81f2f6c37fc5c931037ba008eb3cf1f3675beb4cc2d74b767cff7f8a1',
   sequenceSha256: '5bf2c66b99fc825cc78bbe89d10c35a90c7d9cb4e66e40ce03cbd49f3f1c8745',
 };
-const SOURCE_URLS = {
-  diagnosticObserverSha256: new URL(
-    '../../packages/core/src/ir/semantics/internal-effect-machine-diagnostics.ts',
-    import.meta.url,
-  ),
-  effectMachineSha256: new URL(
-    '../../packages/core/src/ir/semantics/internal-effect-machine.ts',
-    import.meta.url,
-  ),
-  effectMachineTypesSha256: new URL(
-    '../../packages/core/src/ir/semantics/internal-effect-machine-types.ts',
-    import.meta.url,
-  ),
-  envelopeExecuteCompatSha256: new URL(
-    '../../packages/core/src/runtime-envelope/execute-compat.ts',
-    import.meta.url,
-  ),
-  envelopeExecuteSha256: new URL(
-    '../../packages/core/src/runtime-envelope/execute.ts',
-    import.meta.url,
-  ),
-  envelopeTypesSha256: new URL(
-    '../../packages/core/src/runtime-envelope/types.ts',
-    import.meta.url,
-  ),
-  helperRuntimeSha256: new URL(
-    '../../packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts',
-    import.meta.url,
-  ),
-  internalEngineSha256: new URL(
-    '../../packages/core/src/runtime-envelope/internal-engine.ts',
-    import.meta.url,
-  ),
-  measurementSha256: new URL('./runtime-bottleneck-m4-96-measure.mjs', import.meta.url),
-  publicRuntimeHandlerSha256: new URL('../../packages/core/src/runtime-handler.ts', import.meta.url),
-  sequenceSha256: new URL(
-    '../../packages/core/src/ir/semantics/internal-effect-machine-sequence.ts',
-    import.meta.url,
-  ),
-};
-
 function fail(message) {
   throw new TypeError(`coverage M4.96 runtime-bottleneck rejection: ${message}`);
 }
@@ -124,11 +83,6 @@ function exactInputs() {
   const m495 = loadPublishedCanonicalizerResidualAnalysisM495();
   if (digest(canonicalBytes(m493)) !== M493_RECEIPT_DIGEST) fail('M4.93 receipt digest must remain exact');
   if (m495.digest !== M495_RECEIPT_DIGEST) fail('M4.95 receipt digest must remain exact');
-  for (const [name, expected] of Object.entries(SOURCE_DIGESTS)) {
-    if (digest(readFileSync(SOURCE_URLS[name])) !== expected) {
-      fail(`${name} source identity must remain exact`);
-    }
-  }
   const selection = m495.record.selectedNextAction;
   if (
     selection?.completeFunctions !== 1 ||

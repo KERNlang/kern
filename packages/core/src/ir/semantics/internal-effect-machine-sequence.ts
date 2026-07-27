@@ -18,6 +18,7 @@ import {
   type InternalEffectMachineGenerator,
   InternalEffectMachineHelperPending,
   type InternalEffectMachineState,
+  type InternalHelperEffectRequest,
   isUnifiedNodeType,
 } from './internal-effect-machine-types.js';
 import { evaluateLambdaEffects } from './lambda-runtime.js';
@@ -29,7 +30,8 @@ import { evaluateWhileConditionWithEvaluator, WHILE_MAX_ITERATIONS } from './whi
 function prepareCapability(node: IRNode, env: SemanticEnv): PreparedInternalCapabilityEffect {
   try {
     return prepareInternalCapabilityEffectWithEvaluator(node, env, evalMachinePortableValue);
-  } catch {
+  } catch (error) {
+    if (error instanceof InternalEffectMachineHelperPending) throw error;
     throw new InternalEffectMachineError('effect machine rejected capability node', node);
   }
 }
@@ -94,6 +96,7 @@ function selectMachineBranch(node: IRNode, env: SemanticEnv): IRNode | undefined
     }
     return selectBranchPath(node, env);
   } catch (error) {
+    if (error instanceof InternalEffectMachineHelperPending) throw error;
     if (error instanceof InternalEffectMachineError) throw error;
     throw new InternalEffectMachineError('effect machine rejected branch node', node);
   }
@@ -108,10 +111,33 @@ function evaluateMachineWhileCondition(node: IRNode, env: SemanticEnv): boolean 
   }
 }
 
+function helperDependencyRequest(error: InternalEffectMachineHelperPending): InternalHelperEffectRequest {
+  return Object.freeze({
+    format: INTERNAL_EFFECT_MACHINE_FORMAT,
+    kind: 'helper-dependency',
+    request: error.request,
+  });
+}
+
+function* evaluateMachineWhileConditionFrame(
+  node: IRNode,
+  env: SemanticEnv,
+): Generator<InternalHelperEffectRequest, boolean, unknown> {
+  for (;;) {
+    try {
+      return evaluateMachineWhileCondition(node, env);
+    } catch (error) {
+      if (!(error instanceof InternalEffectMachineHelperPending)) throw error;
+      yield helperDependencyRequest(error);
+    }
+  }
+}
+
 function machineForRange(node: IRNode, env: SemanticEnv) {
   try {
     return forRuntimeRange(node, env);
-  } catch {
+  } catch (error) {
+    if (error instanceof InternalEffectMachineHelperPending) throw error;
     throw new InternalEffectMachineError('effect machine rejected for node', node);
   }
 }
@@ -120,6 +146,7 @@ function* machineEachSteps(node: IRNode, env: SemanticEnv, beforeIteration: () =
   try {
     yield* iterateEachRuntimeSteps(node, env, beforeIteration);
   } catch (error) {
+    if (error instanceof InternalEffectMachineHelperPending) throw error;
     if (error instanceof InternalEffectMachineError) throw error;
     throw new InternalEffectMachineError('effect machine rejected each node', node);
   }
@@ -128,7 +155,11 @@ function* machineEachSteps(node: IRNode, env: SemanticEnv, beforeIteration: () =
 function* runEach(node: IRNode, env: SemanticEnv, state: InternalEffectMachineState): InternalEffectMachineGenerator {
   const out = emptyTrace();
   for (const step of machineEachSteps(node, env, () => consumeIterationBudget(state, node))) {
-    out.events.push({ binding: step.primary[0], op: 'iter-next', value: step.primary[1] });
+    out.events.push({
+      binding: step.primary[0],
+      op: 'iter-next',
+      value: step.primary[1],
+    });
     const iterationEnv = childEnv(env);
     markRepeatableLoopBody(iterationEnv);
     for (const [name, value] of step.bindings) defineBinding(iterationEnv, name, value);
@@ -168,7 +199,7 @@ function* runFor(node: IRNode, env: SemanticEnv, state: InternalEffectMachineSta
 function* runWhile(node: IRNode, env: SemanticEnv, state: InternalEffectMachineState): InternalEffectMachineGenerator {
   const out = emptyTrace();
   let iterations = 0;
-  while (evaluateMachineWhileCondition(node, env)) {
+  while (yield* evaluateMachineWhileConditionFrame(node, env)) {
     consumeIterationBudget(state, node);
     if (iterations >= WHILE_MAX_ITERATIONS) {
       throw new InternalEffectMachineError(
@@ -214,42 +245,52 @@ export function* runInternalEffectMachineSequence(
       throw new InternalEffectMachineError('else must immediately follow an if sibling', node);
     }
     let next: Trace;
-    if (node.type === 'if') {
-      next = yield* runIf(node, elseNode, env, state);
-    } else if (node.type === 'branch') {
-      next = yield* runBranch(node, env, state);
-    } else if (node.type === 'for') {
-      next = yield* runFor(node, env, state);
-    } else if (node.type === 'each') {
-      next = yield* runEach(node, env, state);
-    } else if (node.type === 'while') {
-      next = yield* runWhile(node, env, state);
-    } else if (node.type === 'try') {
-      next = yield* runInternalEffectMachineTry(node, env, state, runInternalEffectMachineSequence);
-    } else if (node.type === 'lambda') {
+    for (;;) {
       try {
-        next = evaluateLambdaEffects(node, env, () => consumeIterationBudget(state, node));
+        if (node.type === 'if') {
+          next = yield* runIf(node, elseNode, env, state);
+        } else if (node.type === 'branch') {
+          next = yield* runBranch(node, env, state);
+        } else if (node.type === 'for') {
+          next = yield* runFor(node, env, state);
+        } else if (node.type === 'each') {
+          next = yield* runEach(node, env, state);
+        } else if (node.type === 'while') {
+          next = yield* runWhile(node, env, state);
+        } else if (node.type === 'try') {
+          next = yield* runInternalEffectMachineTry(node, env, state, runInternalEffectMachineSequence);
+        } else if (node.type === 'lambda') {
+          try {
+            next = evaluateLambdaEffects(node, env, () => consumeIterationBudget(state, node));
+          } catch (cause) {
+            if (cause instanceof InternalEffectMachineHelperPending) throw cause;
+            if (cause instanceof InternalEffectMachineError) throw cause;
+            throw new InternalEffectMachineError('effect machine rejected lambda node', node, cause);
+          }
+        } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
+          throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
+        } else if (node.type === 'capability') {
+          const prepared = prepareCapability(node, env);
+          const result = yield Object.freeze({
+            format: INTERNAL_EFFECT_MACHINE_FORMAT,
+            kind: 'capability',
+            prepared,
+          });
+          next = resumeInternalCapabilityEffect(prepared, result, env);
+        } else {
+          try {
+            next = yield* runInternalEffectMachineClassLeaf(node, env, state);
+          } catch (cause) {
+            if (cause instanceof InternalEffectMachineHelperPending) throw cause;
+            throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node, cause);
+          }
+        }
       } catch (cause) {
-        if (cause instanceof InternalEffectMachineError) throw cause;
-        throw new InternalEffectMachineError('effect machine rejected lambda node', node, cause);
+        if (!(cause instanceof InternalEffectMachineHelperPending)) throw cause;
+        yield helperDependencyRequest(cause);
+        continue;
       }
-    } else if (!isUnifiedNodeType(node.type) || !hasNoBody(node)) {
-      throw new InternalEffectMachineError(`effect machine rejected nested node type "${node.type}"`, node);
-    } else if (node.type === 'capability') {
-      const prepared = prepareCapability(node, env);
-      const result = yield Object.freeze({
-        format: INTERNAL_EFFECT_MACHINE_FORMAT,
-        kind: 'capability',
-        prepared,
-      });
-      next = resumeInternalCapabilityEffect(prepared, result, env);
-    } else {
-      try {
-        next = yield* runInternalEffectMachineClassLeaf(node, env, state);
-      } catch (cause) {
-        if (cause instanceof InternalEffectMachineHelperPending) throw cause;
-        throw new InternalEffectMachineError(`effect machine rejected node type "${node.type}"`, node, cause);
-      }
+      break;
     }
     if (appendTrace(out, next)) return out;
   }

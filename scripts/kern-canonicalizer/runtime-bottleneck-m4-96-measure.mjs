@@ -57,6 +57,7 @@ function diagnosticSummary() {
     cacheKeyCodeUnits: { maximum: 0, total: 0 },
     helperExecutions: {},
     helperPreparations: {},
+    helperFrameSuspensions: {},
     loopIterations: { attempted: {}, retained: 0, rolledBack: 0 },
     parentRestarts: {},
   };
@@ -78,7 +79,9 @@ function diagnosticSummary() {
       } else if (event.kind === 'helper-parent-restart') {
         increment(summary.parentRestarts, `${event.parent}->${event.dependency}`);
         summary.loopIterations.rolledBack += event.rolledBackIterations;
-      } else {
+      } else if (event.kind === 'helper-frame-suspend') {
+        increment(summary.helperFrameSuspensions, `${event.parent}->${event.dependency}`);
+      } else if (event.kind === 'loop-iteration') {
         increment(summary.loopIterations.attempted, event.nodeType);
       }
     },

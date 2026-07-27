@@ -115,8 +115,12 @@ export function validateClassHelperSlice(contents, errors) {
     }
   }
   const frozenHelperRegistry = 'runnerFunctions: scope.functions';
-  if ((contents.classHelperRuntime?.split(frozenHelperRegistry).length ?? 1) - 1 !== 2) {
-    errors.push('both helper execution paths must use the snapshotted helper registry for nested call shape');
+  if ((contents.classHelperRuntime?.split(frozenHelperRegistry).length ?? 1) - 1 !== 1) {
+    errors.push('the shared helper call environment must use the snapshotted helper registry for nested call shape');
+  }
+  const sharedCallEnvironment = 'helperCallEnvironment(call)';
+  if ((contents.classHelperRuntime?.split(sharedCallEnvironment).length ?? 1) - 1 !== 2) {
+    errors.push('both helper execution paths must use the shared helper call environment');
   }
   for (const required of [
     'export function* evalInternalMachineHelperFrame',

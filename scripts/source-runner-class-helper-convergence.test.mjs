@@ -197,9 +197,18 @@ test('rejects live helper metadata during nested call validation', () => {
   const file = 'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts';
   const anchor = 'runnerFunctions: scope.functions';
   const current = source(file);
-  assert.equal(current.split(anchor).length - 1, 2, `mutation anchor count changed in ${file}`);
-  const errors = validate(new Map([[file, current.replaceAll(anchor, 'runnerFunctions: call.env.runnerFunctions')]]));
+  assert.equal(current.split(anchor).length - 1, 1, `mutation anchor count changed in ${file}`);
+  const errors = validate(new Map([[file, current.replace(anchor, 'runnerFunctions: call.env.runnerFunctions')]]));
   assert.ok(errors.some((error) => error.includes('snapshotted helper registry')));
+});
+
+test('rejects bypassing the shared helper call environment in either execution path', () => {
+  const file = 'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts';
+  const anchor = 'helperCallEnvironment(call)';
+  const current = source(file);
+  assert.equal(current.split(anchor).length - 1, 2, `mutation anchor count changed in ${file}`);
+  const errors = validate(new Map([[file, current.replace(anchor, 'call.env')]]));
+  assert.ok(errors.some((error) => error.includes('both helper execution paths')));
 });
 
 test('rejects deletion of scalar helper return-body proof', () => {
