@@ -1,0 +1,124 @@
+{
+  "baseline": {
+    "implementationBaseCommit": "f3f2f8ccfd37746e5c06bbd25623887326845f4e",
+    "m493ReceiptSha256": "62631ce9d2c97e80b6187c0d75bcb878a610ab1076ab8df71a46d53c0e51b3f3",
+    "m495ReceiptSha256": "f69bbae69a3f25d059dcdc23e023f4432dcd23c19dc9e6228087811f178a4928",
+    "priorProductionObservation": {
+      "minimumObservationSeconds": 840,
+      "outcome": "not-claimed",
+      "terminalEnvelopeObserved": false
+    },
+    "residualReasonAssignmentsSha256": "ac1ce11255b827161910b883fb8061606849524c52f9531036dea2570e82264f"
+  },
+  "diagnosis": {
+    "additionalBudget": 500,
+    "additionalCacheKeyCodeUnits": 38788004,
+    "additionalExpressionsourcesExecutions": 91,
+    "additionalRetainedIterations": 500,
+    "additionalRolledBackIterations": 78379,
+    "dominantHelper": "expressionsources",
+    "mechanism": "parent-frame-restart-after-nested-helper-cache-miss",
+    "nextMilestone": "M4.97",
+    "selectedRestartBreakdown": {
+      "expressionsources->stringat": 83,
+      "expressionsources->validbinaryop": 2,
+      "expressionsources->validexpressionidentifier": 6
+    }
+  },
+  "format": "kern.kir-canonicalizer.runtime-bottleneck.1",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 77,
+      "maxValueRows": 580
+    },
+    "candidateProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 95,
+      "maxValueRows": 832
+    },
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152
+  },
+  "observations": [
+    {
+      "cache": {
+        "hits": 2303,
+        "misses": 1269
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 31994,
+        "total": 10231254
+      },
+      "expressionsources": {
+        "executions": 1,
+        "parentRestarts": 0,
+        "preparations": 1
+      },
+      "iterationBudget": 34000,
+      "loopIterations": {
+        "attempted": 34266,
+        "retained": 34000,
+        "rolledBack": 266
+      },
+      "outcome": "failure",
+      "publicParityVerified": true
+    },
+    {
+      "cache": {
+        "hits": 8894,
+        "misses": 1572
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 31994,
+        "total": 49019258
+      },
+      "expressionsources": {
+        "executions": 92,
+        "parentRestarts": 91,
+        "preparations": 1
+      },
+      "iterationBudget": 34500,
+      "loopIterations": {
+        "attempted": 113145,
+        "retained": 34500,
+        "rolledBack": 78645
+      },
+      "outcome": "failure",
+      "publicParityVerified": false
+    }
+  ],
+  "observer": {
+    "defaultOff": true,
+    "eventData": "frozen-scalars",
+    "failureDisposition": "ignored",
+    "publicHandlerOptionExposed": false
+  },
+  "promotion": {
+    "disposition": "runtime-bottleneck-attributed-headroom-unproven",
+    "profilePromotionApproved": false
+  },
+  "source": {
+    "diagnosticObserverSha256": "5ec2371772592e27e5978bdbc546c2457bf0b2b2f57a4659502f0eb7e5d38bd5",
+    "effectMachineSha256": "1a20b7512f63c3dbd752cf8788c7dcbab187158e4ec618d3b34646c1567c0ddd",
+    "effectMachineTypesSha256": "940848eff7fb9c63e2539d2f250934c0e9fe1379f171290b3017c3fc1d1a650f",
+    "envelopeExecuteCompatSha256": "0a6aab9d9d9cc3861bccbf173fc4886b9252cef0dee77cae6b77795692df6904",
+    "envelopeExecuteSha256": "2b364468abdfbaf204fff5ee5f047cf5d9536bcf526e022e8c8b4d77ad1196aa",
+    "envelopeTypesSha256": "867977e57f7de7e3491ed2db84ab544ba22513154c0c893afba70cb832e8f626",
+    "helperRuntimeSha256": "e2249e5b67594b129da870da973c415eacac5259ac43d66d32d18404134f2809",
+    "internalEngineSha256": "8942228e95a0c523aab81244366faa8863d798fd29ff9c127417889572f5a7d0",
+    "measurementSha256": "84303bed8a56e2c6783292c3880f25598abdbc4c518a97e19b815e91ed913058",
+    "publicRuntimeHandlerSha256": "f2ca9bd81f2f6c37fc5c931037ba008eb3cf1f3675beb4cc2d74b767cff7f8a1",
+    "sequenceSha256": "5bf2c66b99fc825cc78bbe89d10c35a90c7d9cb4e66e40ce03cbd49f3f1c8745",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "witness": {
+    "id": "examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk",
+    "parameterRows": 24,
+    "structuralRows": {
+      "nodes": 53,
+      "properties": 95,
+      "values": 832
+    }
+  }
+}

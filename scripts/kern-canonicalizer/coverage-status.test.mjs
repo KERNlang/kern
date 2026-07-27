@@ -44,6 +44,7 @@ import {
   formatM493RuntimeCostStatus,
   formatM494ParameterMigrationStatus,
   formatM495ResidualAnalysisStatus,
+  formatM496RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -165,6 +166,21 @@ test('coverage status records the M4.95 structural recommendation without claimi
     }),
     'M4.95 published analysis selected 1 function by maxPropertyRows+maxValueRows widening; ' +
       'M4.96 investigates the remaining runtime bottleneck before any profile promotion.',
+  );
+});
+
+test('coverage status records the M4.96 bounded runtime-bottleneck diagnosis', () => {
+  assert.equal(
+    formatM496RuntimeBottleneckStatus({
+      diagnosis: {
+        additionalExpressionsourcesExecutions: 91,
+        additionalRetainedIterations: 500,
+        additionalRolledBackIterations: 78_379,
+      },
+    }),
+    'M4.96 attributes 78379 rolled-back loop entries and 91 additional expressionsources executions ' +
+      'across 500 retained iterations; M4.97 evaluates removal of parent-frame replay before any ' +
+      'headroom measurement.',
   );
 });
 

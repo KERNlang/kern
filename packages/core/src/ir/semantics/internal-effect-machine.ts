@@ -102,7 +102,10 @@ export function runInternalEffectMachineSync(
   env: SemanticEnv,
   options: InternalEffectMachineSyncOptions = {},
 ): Trace {
-  const state: InternalEffectMachineState = { remainingIterations: options.iterationBudget };
+  const state: InternalEffectMachineState = {
+    observer: options.observer,
+    remainingIterations: options.iterationBudget,
+  };
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {
@@ -123,7 +126,10 @@ export async function runInternalEffectMachineAsync(
   env: SemanticEnv,
   options: InternalEffectMachineAsyncOptions = {},
 ): Promise<Trace> {
-  const state: InternalEffectMachineState = { remainingIterations: options.iterationBudget };
+  const state: InternalEffectMachineState = {
+    observer: options.observer,
+    remainingIterations: options.iterationBudget,
+  };
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {

@@ -1,4 +1,5 @@
 import type { InternalRuntimeCapabilityInterceptor } from '../ir/semantics/internal-capability-interceptor.js';
+import type { InternalEffectMachineObserver } from '../ir/semantics/internal-effect-machine-diagnostics.js';
 
 export const INTERNAL_RUNTIME_ENVELOPE_FORMAT = 'kern.runtime.internal.r0' as const;
 
@@ -74,6 +75,7 @@ export interface InternalRuntimeEnvelopeOptions {
   readonly capabilityInterceptor?: InternalRuntimeCapabilityInterceptor;
   readonly enabled: true;
   readonly limits: InternalRuntimeEnvelopeLimits;
+  readonly observer?: InternalEffectMachineObserver;
   readonly scheduler?: {
     readonly signal?: AbortSignal;
     readonly timeoutMs?: number;

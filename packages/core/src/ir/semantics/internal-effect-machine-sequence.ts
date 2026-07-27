@@ -9,6 +9,7 @@ import { iterateEachRuntimeSteps } from './each-runtime.js';
 import { forRuntimeRange } from './for-runtime.js';
 import { evaluateIfConditionWithEvaluator } from './if-runtime.js';
 import { runInternalEffectMachineClassLeaf } from './internal-effect-machine-class-leaf.js';
+import { emitInternalEffectMachineDiagnostic } from './internal-effect-machine-diagnostics.js';
 import { runInternalEffectMachineTry } from './internal-effect-machine-try.js';
 import {
   hasNoBody,
@@ -48,6 +49,24 @@ function consumeIterationBudget(state: InternalEffectMachineState, node: IRNode)
     throw new InternalEffectMachineError('effect machine iteration budget exhausted', node);
   }
   state.remainingIterations -= 1;
+  if (state.observer !== undefined) {
+    const nodeType =
+      node.type === 'each'
+        ? 'each'
+        : node.type === 'for'
+          ? 'for'
+          : node.type === 'lambda'
+            ? 'lambda'
+            : node.type === 'while'
+              ? 'while'
+              : undefined;
+    if (nodeType !== undefined) {
+      emitInternalEffectMachineDiagnostic(state.observer, {
+        kind: 'loop-iteration',
+        nodeType,
+      });
+    }
+  }
 }
 
 function* runIf(

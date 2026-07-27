@@ -5,6 +5,7 @@ import {
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../ir/semantics/internal-effect-machine.js';
+import type { InternalEffectMachineObserver } from '../ir/semantics/internal-effect-machine-diagnostics.js';
 import { isInternalEffectMachineDirectEligible } from '../ir/semantics/internal-effect-machine-structure.js';
 import type { SemanticEnv } from '../ir/semantics/semantic-env.js';
 import type { Trace } from '../ir/semantics/trace.js';
@@ -16,9 +17,13 @@ export type InternalRuntimeEngineDisposition =
   | typeof INTERNAL_EFFECT_MACHINE_FORMAT
   | typeof INTERNAL_RUNTIME_ENGINE_UNSUPPORTED;
 
-export interface InternalRuntimeAsyncOptions extends Omit<InternalEffectMachineAsyncOptions, 'iterationBudget'> {}
+export interface InternalRuntimeAsyncOptions
+  extends Omit<InternalEffectMachineAsyncOptions, 'iterationBudget' | 'observer'> {}
 
-export type InternalRuntimeEngineOptions = InternalRuntimeAsyncOptions & { readonly iterationBudget?: number };
+export type InternalRuntimeEngineOptions = InternalRuntimeAsyncOptions & {
+  readonly iterationBudget?: number;
+  readonly observer?: InternalEffectMachineObserver;
+};
 
 export function selectInternalRuntimeEngine(
   nodes: readonly IRNode[],
@@ -41,9 +46,10 @@ export function runInternalRuntimeEngineSync(
   nodes: readonly IRNode[],
   env: SemanticEnv,
   iterationBudget?: number,
+  observer?: InternalEffectMachineObserver,
 ): Trace {
   // execute.ts owns direct admission before scheduler installation.
-  return runInternalEffectMachineSync(nodes, env, { iterationBudget });
+  return runInternalEffectMachineSync(nodes, env, { iterationBudget, observer });
 }
 
 export async function runInternalRuntimeEngineAsync(

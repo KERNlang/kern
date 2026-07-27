@@ -152,6 +152,13 @@ export function formatM495ResidualAnalysisStatus(selectedNextAction) {
   );
 }
 
+export function formatM496RuntimeBottleneckStatus(receipt) {
+  return `M4.96 attributes ${receipt.diagnosis.additionalRolledBackIterations} rolled-back loop entries and ` +
+    `${receipt.diagnosis.additionalExpressionsourcesExecutions} additional expressionsources executions ` +
+    `across ${receipt.diagnosis.additionalRetainedIterations} retained iterations; ` +
+    'M4.97 evaluates removal of parent-frame replay before any headroom measurement.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

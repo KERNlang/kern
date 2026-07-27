@@ -1,6 +1,7 @@
 import type { KernRunnerAsyncCapabilities, RuntimeCapabilityValue } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import type { PreparedInternalCapabilityEffect } from './capability-runtime.js';
+import type { InternalEffectMachineObserver } from './internal-effect-machine-diagnostics.js';
 import type { InternalMachineModuleGraph } from './internal-effect-machine-module-graph.js';
 import type { RunnerClassBinding, RunnerFunctionBinding, SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
@@ -38,10 +39,12 @@ export interface InternalEffectMachineAsyncOptions {
   readonly asyncCapabilities?: KernRunnerAsyncCapabilities;
   readonly capabilityTimeoutMs?: number;
   readonly iterationBudget?: number;
+  readonly observer?: InternalEffectMachineObserver;
 }
 
 export interface InternalEffectMachineSyncOptions {
   readonly iterationBudget?: number;
+  readonly observer?: InternalEffectMachineObserver;
 }
 
 export interface InternalCapabilityEffectRequest {
@@ -57,6 +60,7 @@ export interface InternalEffectMachineState {
   helperEvaluationDepth?: number;
   helperRegistry?: ReadonlyMap<string, RunnerFunctionBinding>;
   moduleGraph?: InternalMachineModuleGraph;
+  observer?: InternalEffectMachineObserver;
   resumableHelpers?: ReadonlySet<RunnerFunctionBinding>;
   resumableHelperNames?: ReadonlySet<string>;
   remainingIterations: number | undefined;

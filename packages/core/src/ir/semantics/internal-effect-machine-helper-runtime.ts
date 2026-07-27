@@ -3,6 +3,7 @@ import type {
   InternalMachineClassEvaluatedValue,
   InternalMachineClassValueGenerator,
 } from './internal-effect-machine-class-frame.js';
+import { emitInternalEffectMachineDiagnostic } from './internal-effect-machine-diagnostics.js';
 import {
   bindInternalEffectMachineState,
   internalEffectMachineStateForEnv,
@@ -102,9 +103,18 @@ function prepareHelperCallFromValues(
   for (let index = 0; index < fn.params.length; index += 1) {
     if (provenance[index]) intProvenance.add(fn.params[index]);
   }
+  const cacheKey = helperCacheKey(values, provenance);
+  if (state.observer !== undefined) {
+    emitInternalEffectMachineDiagnostic(state.observer, {
+      argumentCount: values.length,
+      cacheKeyLength: cacheKey?.length ?? null,
+      kind: 'helper-prepare',
+      name,
+    });
+  }
   return {
     cache: helperCache(state, fn),
-    cacheKey: helperCacheKey(values, provenance),
+    cacheKey,
     env,
     fn,
     intProvenance,
@@ -142,7 +152,15 @@ function prepareHelperCall(
 }
 
 function cachedHelperValue(call: PreparedHelperCall): RunnerPortableValue | undefined {
-  if (call.cacheKey === undefined || !call.cache.has(call.cacheKey)) return undefined;
+  const hit = call.cacheKey !== undefined && call.cache.has(call.cacheKey);
+  if (call.state.observer !== undefined) {
+    emitInternalEffectMachineDiagnostic(call.state.observer, {
+      hit,
+      kind: 'helper-cache',
+      name: call.name,
+    });
+  }
+  if (!hit || call.cacheKey === undefined) return undefined;
   return assertRunnerPortableValue(call.cache.get(call.cacheKey), `function "${call.name}" cached return`);
 }
 
@@ -159,6 +177,12 @@ function executePreparedHelper(call: PreparedHelperCall): RunnerPortableValue {
   const fn = call.fn;
   const bodyRunner = call.state.helperBodyRunner;
   if (!fn || !bodyRunner) throw new Error(`portable machine: helper "${call.name}" is unavailable`);
+  if (call.state.observer !== undefined) {
+    emitInternalEffectMachineDiagnostic(call.state.observer, {
+      kind: 'helper-execute',
+      name: call.name,
+    });
+  }
   const bindings = new Map(fn.params.map((param, index) => [param, call.values[index]]));
   const scope = fn.module;
   if (!scope) throw new Error(`portable machine: helper "${call.name}" has no defining module`);
@@ -207,6 +231,12 @@ export function* evalInternalMachineHelperFrame(
   const fn = call.fn;
   const bodyRunner = call.state.helperBodyRunner;
   if (!fn || !bodyRunner) throw new Error(`portable machine: helper "${call.name}" is unavailable`);
+  if (call.state.observer !== undefined) {
+    emitInternalEffectMachineDiagnostic(call.state.observer, {
+      kind: 'helper-execute',
+      name: call.name,
+    });
+  }
   const bindings = new Map(fn.params.map((param, index) => [param, call.values[index]]));
   const scope = fn.module;
   if (!scope) throw new Error(`portable machine: helper "${call.name}" has no defining module`);
@@ -258,8 +288,21 @@ function drivePreparedHelper(initial: PreparedHelperCall): RunnerPortableValue {
         if (frames.length === 0) return value;
       } catch (error) {
         if (!(error instanceof InternalEffectMachineHelperPending)) throw error;
+        const rolledBackIterations =
+          remainingIterations === undefined || state.remainingIterations === undefined
+            ? 0
+            : remainingIterations - state.remainingIterations;
         state.remainingIterations = remainingIterations;
-        frames.push(error.request as PreparedHelperCall);
+        const dependency = error.request as PreparedHelperCall;
+        if (state.observer !== undefined) {
+          emitInternalEffectMachineDiagnostic(state.observer, {
+            dependency: dependency.name,
+            kind: 'helper-parent-restart',
+            parent: frame.name,
+            rolledBackIterations,
+          });
+        }
+        frames.push(dependency);
       }
     }
   } finally {

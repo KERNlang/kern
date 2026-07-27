@@ -38,7 +38,7 @@ export function executeInternalRuntimeEnvelopeSync(
     assertInternalRuntimeEngineSupported(nodes, env);
     disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
     throwIfInternalRuntimeSchedulerTerminated(env);
-    const trace = runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength);
+    const trace = runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength, accepted.observer);
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {
@@ -64,6 +64,7 @@ export async function executeInternalRuntimeEnvelopeAsync(
       runInternalRuntimeEngineAsync(nodes, env, {
         ...asyncOptions,
         iterationBudget: accepted.limits.maxCollectionLength,
+        observer: accepted.observer,
       }),
     );
     throwIfInternalRuntimeSchedulerTerminated(env);

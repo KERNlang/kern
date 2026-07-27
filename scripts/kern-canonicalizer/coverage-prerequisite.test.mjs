@@ -96,7 +96,7 @@ test('M4.94 preserves the exact promoted profile after parameter migration', () 
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: '987ee019ef9cd8e79dde3261883f3b7aef6ff1d708b6a1ebd99998a801f35e01',
     canonicalizerPolicyDigest: 'f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849',
-    compiledCoreDigest: '7b8d3540cb8927db1e9c8d3d2938671103186bed4cc32c955d68e5dbb82c7448',
+    compiledCoreDigest: '0525fbf6402c6564293b6360fca3e15cb7f0f9133f43f493574656d13391e979',
     corpusDigest: '0cd88821e5e38c624ecc365ded3020a496d928cdddd3ed247b209d1cb320ad1f',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '3f68fc1e198be2c8072a619170e4494e05c54f8442dffa6271189bbd33a352c7',

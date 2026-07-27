@@ -101,6 +101,9 @@ import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
+  loadCanonicalizerRuntimeBottleneckM496,
+} from './kern-canonicalizer/runtime-bottleneck-m4-96.mjs';
+import {
   loadPublishedCanonicalizerDualRowHeadroomM455,
 } from './kern-canonicalizer/dual-row-headroom-m4-55.mjs';
 import {
@@ -180,6 +183,7 @@ import {
   formatM493RuntimeCostStatus,
   formatM494ParameterMigrationStatus,
   formatM495ResidualAnalysisStatus,
+  formatM496RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -205,6 +209,7 @@ const m487ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m492ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-92.json', import.meta.url);
 const m493RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-93.json', import.meta.url);
 const m495ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-95.json', import.meta.url);
+const m496RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-96.json', import.meta.url);
 const m488DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-88.json', import.meta.url);
 const m489RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-89.json', import.meta.url);
 const m455DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-55.json', import.meta.url);
@@ -261,6 +266,7 @@ const m492ResidualAnalysis = m492ResidualAnalysisHandoff.record;
 const m493RuntimeCost = loadCanonicalizerRuntimeCostM493();
 const m495ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM495();
 const m495ResidualAnalysis = m495ResidualAnalysisHandoff.record;
+const m496RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM496();
 const m488DualRowHeadroom = assertCanonicalizerDualRowHeadroomM488();
 const m489RuntimeCost = checkCanonicalizerRuntimeCostM489();
 const m455DualRowHeadroomHandoff = loadPublishedCanonicalizerDualRowHeadroomM455();
@@ -1154,6 +1160,23 @@ if (process.argv.includes('--write')) {
       'examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk',
     ],
   });
+  assertCoverageSummary(m496RuntimeBottleneckUrl, m496RuntimeBottleneck);
+  assert.deepEqual(m496RuntimeBottleneck.diagnosis, {
+    additionalBudget: 500,
+    additionalCacheKeyCodeUnits: 38_788_004,
+    additionalExpressionsourcesExecutions: 91,
+    additionalRetainedIterations: 500,
+    additionalRolledBackIterations: 78_379,
+    dominantHelper: 'expressionsources',
+    mechanism: 'parent-frame-restart-after-nested-helper-cache-miss',
+    nextMilestone: 'M4.97',
+    selectedRestartBreakdown: {
+      'expressionsources->stringat': 83,
+      'expressionsources->validbinaryop': 2,
+      'expressionsources->validexpressionidentifier': 6,
+    },
+  });
+  assert.equal(m496RuntimeBottleneck.promotion.profilePromotionApproved, false);
   assertCoverageSummary(m488DualRowHeadroomUrl, m488DualRowHeadroom);
   assertCoverageSummary(m489RuntimeCostUrl, m489RuntimeCost);
   assertCoverageSummary(m471DualRowHeadroomUrl, m471DualRowHeadroom);
@@ -1454,6 +1477,7 @@ process.stdout.write(
   ` ${formatM493RuntimeCostStatus(m493RuntimeCost)}` +
   ` ${formatM494ParameterMigrationStatus(m493RuntimeCost)}` +
   ` ${formatM495ResidualAnalysisStatus(m495ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM496RuntimeBottleneckStatus(m496RuntimeBottleneck)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
