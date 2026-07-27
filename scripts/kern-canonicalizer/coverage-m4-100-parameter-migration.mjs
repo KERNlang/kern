@@ -119,17 +119,16 @@ export function assertM4100ParameterMigration(coverage, prerequisite) {
       excludedProperties.includes('fn.params')).length,
     16,
   );
-  assert.deepEqual(prerequisite.parameterMigration, POST_MIGRATION_QUEUE);
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
     false,
     'M4.100 migrated comparisonOperandsOk must never re-enter a later parameter queue',
   );
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 16);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 15);
   assert.equal(
     prerequisite.exhaustion?.reasonAssignmentsDigest,
-    'f502a363d83d85b78d0cdc4287aefcd348de042ed94be5f9d14657cf5a6f9913',
+    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
   );
   return fact;
 }

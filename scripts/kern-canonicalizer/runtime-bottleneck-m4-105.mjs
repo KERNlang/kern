@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { loadCanonicalizerRuntimeCostM4104 } from './runtime-cost-m4-104.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.3';
@@ -103,7 +103,11 @@ function exactInputs() {
   ) {
     fail('M4.104 runtime-cost handoff must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadHistoricalCanonicalizerPolicy({
+    expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
+    milestone: 'M4.105',
+    profileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 832 },
+  });
   if (
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.kirLimits.maxDepth !== 64 ||

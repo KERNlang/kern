@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { loadCanonicalizerRuntimeBottleneckM4105 } from './runtime-bottleneck-m4-105.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.7';
@@ -42,7 +42,6 @@ const SOURCE_URLS = {
   mainSourceSha256:
     new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
   measurementSha256: new URL('./runtime-cost-m4-106-measure.mjs', import.meta.url),
-  runtimePolicySha256: new URL('./policy.json', import.meta.url),
   statementHelpersSha256:
     new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url),
 };
@@ -123,7 +122,11 @@ function exactInputs() {
       fail(`${name} executed by the measurement must remain exact`);
     }
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadHistoricalCanonicalizerPolicy({
+    expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
+    milestone: 'M4.106',
+    profileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 832 },
+  });
   if (
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.kirLimits.maxDepth !== 64 ||

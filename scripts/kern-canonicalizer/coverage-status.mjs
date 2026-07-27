@@ -238,6 +238,13 @@ export function formatM4106RuntimeCostStatus(receipt) {
     `headroom with one statement-table projection execution; M4.107 authenticates the profile promotion.`;
 }
 
+export function formatM4107TripleRowPromotionStatus({ parameterMigration, profileLimits }) {
+  return `M4.107 promotes maxNodeRows/maxPropertyRows/maxValueRows to ` +
+    `${profileLimits.maxNodeRows}/${profileLimits.maxPropertyRows}/${profileLimits.maxValueRows} and ` +
+    `publishes the exact ${parameterMigration.completeFunctions}-function/` +
+    `${parameterMigration.migratedParameterRows}-row parameter queue; M4.108 consumes it.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

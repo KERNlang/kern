@@ -13,12 +13,18 @@ import {
 } from './kern-canonicalizer/coverage-m4-90-dual-row-promotion.mjs';
 import {
   assertM499DualRowPromotion,
+  m499ActiveProfile,
   m499ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-99-dual-row-promotion.mjs';
 import {
   assertM4100ParameterMigration,
   m4100ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-100-parameter-migration.mjs';
+import {
+  assertM4107TripleRowPromotion,
+  m4107ActiveProfile,
+  m4107ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-107-triple-row-promotion.mjs';
 import {
   assertM491ParameterMigrations,
 } from './kern-canonicalizer/coverage-m4-91-parameter-migrations.mjs';
@@ -223,6 +229,7 @@ import {
   formatM4104RuntimeCostStatus,
   formatM4105RuntimeBottleneckStatus,
   formatM4106RuntimeCostStatus,
+  formatM4107TripleRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -346,6 +353,14 @@ assertM491ParameterMigrations(coverage);
 assertM494ParameterMigration(coverage, prerequisite);
 assertM499DualRowPromotion(policy);
 assertM4100ParameterMigration(coverage, prerequisite);
+assertM4107TripleRowPromotion();
+assert.deepEqual(
+  policy.profileLimits,
+  m4107ActiveProfile(),
+  'current policy must consume the exact latest authenticated profile promotion',
+);
+assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
+assert.equal(policy.kirLimits.maxDepth, 64);
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -495,13 +510,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 111, 'live M4.106 authored function count must remain exact');
+  assert.equal(actual.functionCount, 111, 'live M4.107 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 91, 'live M4.106 base completion must remain exactly 91/111');
+  assert.equal(actual.baseCompleteFunctions, 91, 'live M4.107 base completion must remain exactly 91/111');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     16,
-    'live M4.100 fn.params blocker count must remain exactly 16',
+    'live M4.107 fn.params blocker count must remain exactly 16',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -513,7 +528,7 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.parameterMigration, m4100ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4107ParameterMigration());
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -539,10 +554,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 16);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 15);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'f502a363d83d85b78d0cdc4287aefcd348de042ed94be5f9d14657cf5a6f9913',
+    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1672,7 +1687,7 @@ process.stdout.write(
   ` ${formatM498RuntimeCostStatus(m498RuntimeCost)}` +
   ` ${formatM499DualRowPromotionStatus({
     parameterMigration: m499ParameterMigration(),
-    profileLimits: policy.profileLimits,
+    profileLimits: m499ActiveProfile(),
   })}` +
   ` ${formatM4100ParameterMigrationStatus({
     parameterMigration: m499ParameterMigration(),
@@ -1683,6 +1698,10 @@ process.stdout.write(
   ` ${formatM4104RuntimeCostStatus(m4104RuntimeCost)}` +
   ` ${formatM4105RuntimeBottleneckStatus(m4105RuntimeBottleneck)}` +
   ` ${formatM4106RuntimeCostStatus(m4106RuntimeCost)}` +
+  ` ${formatM4107TripleRowPromotionStatus({
+    parameterMigration: m4107ParameterMigration(),
+    profileLimits: m4107ActiveProfile(),
+  })}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

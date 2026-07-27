@@ -29,9 +29,8 @@ function sha256(path) {
     .digest('hex');
 }
 
-test('M4.99 promotes only the authenticated property and value row ceilings', () => {
+test('M4.99 archives the authenticated dual-row promotion across later profile promotions', () => {
   const policy = loadCanonicalizerPolicy();
-  assert.deepEqual(policy.profileLimits, m499ActiveProfile());
   assertCurrentCanonicalizerPolicy(policy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assertM499DualRowPromotion(policy);

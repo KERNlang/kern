@@ -61,16 +61,15 @@ export function assertM499DualRowPromotion(policy) {
     promotionBudgetHeadroom: 2_771,
     roundTrip: true,
   }, 'M4.99 must preserve exact M4.98 runtime headroom');
-  assert.deepEqual(
-    policy.profileLimits,
-    ACTIVE_PROFILE,
-    'M4.99 must promote only property and value row ceilings',
-  );
   assert.equal(
     policy.runtimeLimits.maxCollectionLength,
     65_536,
-    'M4.99 must not change the production runtime ceiling',
+    'later profile promotions must preserve the M4.99 production runtime ceiling',
   );
-  assert.equal(policy.kirLimits.maxDepth, 64, 'M4.99 must not change the KIR depth ceiling');
+  assert.equal(
+    policy.kirLimits.maxDepth,
+    64,
+    'later profile promotions must preserve the M4.99 KIR depth ceiling',
+  );
   return policy;
 }

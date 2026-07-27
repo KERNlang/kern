@@ -55,6 +55,7 @@ import {
   formatM4104RuntimeCostStatus,
   formatM4105RuntimeBottleneckStatus,
   formatM4106RuntimeCostStatus,
+  formatM4107TripleRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -335,6 +336,24 @@ test('coverage status records M4.106 promotion-budget headroom', () => {
     'M4.106 reduces the exact validstatement floor by 23814 to 39016, leaving 10136 ' +
       'promotion-budget headroom with one statement-table projection execution; M4.107 ' +
       'authenticates the profile promotion.',
+  );
+});
+
+test('coverage status records the M4.107 triple-row promotion and exact queue', () => {
+  assert.equal(
+    formatM4107TripleRowPromotionStatus({
+      parameterMigration: {
+        completeFunctions: 1,
+        migratedParameterRows: 14,
+      },
+      profileLimits: {
+        maxNodeRows: 89,
+        maxPropertyRows: 125,
+        maxValueRows: 2100,
+      },
+    }),
+    'M4.107 promotes maxNodeRows/maxPropertyRows/maxValueRows to 89/125/2100 and publishes ' +
+      'the exact 1-function/14-row parameter queue; M4.108 consumes it.',
   );
 });
 
