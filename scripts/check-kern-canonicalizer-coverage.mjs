@@ -16,6 +16,10 @@ import {
   m499ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-99-dual-row-promotion.mjs';
 import {
+  assertM4100ParameterMigration,
+  m4100ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-100-parameter-migration.mjs';
+import {
   assertM491ParameterMigrations,
 } from './kern-canonicalizer/coverage-m4-91-parameter-migrations.mjs';
 import {
@@ -194,6 +198,7 @@ import {
   formatM497RuntimeCostStatus,
   formatM498RuntimeCostStatus,
   formatM499DualRowPromotionStatus,
+  formatM4100ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -301,7 +306,8 @@ assertM486ParameterMigration(coverage, prerequisite);
 assertM490DualRowPromotion();
 assertM491ParameterMigrations(coverage);
 assertM494ParameterMigration(coverage, prerequisite);
-assertM499DualRowPromotion(coverage, prerequisite, policy);
+assertM499DualRowPromotion(policy);
+assertM4100ParameterMigration(coverage, prerequisite);
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -453,11 +459,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 109, 'live M4.94 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 89, 'live M4.94 base completion must remain exactly 89/109');
+  assert.equal(actual.baseCompleteFunctions, 90, 'live M4.100 base completion must remain exactly 90/109');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    17,
-    'live M4.94 fn.params blocker count must remain exactly 17',
+    16,
+    'live M4.100 fn.params blocker count must remain exactly 16',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -469,7 +475,7 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.parameterMigration, m499ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4100ParameterMigration());
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -1523,6 +1529,9 @@ process.stdout.write(
   ` ${formatM499DualRowPromotionStatus({
     parameterMigration: m499ParameterMigration(),
     profileLimits: policy.profileLimits,
+  })}` +
+  ` ${formatM4100ParameterMigrationStatus({
+    parameterMigration: m499ParameterMigration(),
   })}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +

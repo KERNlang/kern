@@ -60,10 +60,38 @@ export function migrateLegacyFunctionForPrerequisite(sourceRoot) {
     typeof sourceRoot !== 'object' ||
     Array.isArray(sourceRoot) ||
     sourceRoot.type !== 'fn' ||
-    !Array.isArray(sourceRoot.children) ||
-    sourceRoot.children.some(({ type }) => type === 'param')
+    !Array.isArray(sourceRoot.children)
   ) {
     fail('legacy function must be a function without direct parameter children');
+  }
+  const directParameters = sourceRoot.children.filter(({ type }) => type === 'param');
+  if (directParameters.length > 0) {
+    if (typeof sourceRoot.props?.params === 'string') {
+      fail('legacy function must be a function without direct parameter children');
+    }
+    const firstNonParameter = sourceRoot.children
+      .findIndex(({ type }) => type !== 'param');
+    if (
+      firstNonParameter === 0 ||
+      sourceRoot.children.slice(firstNonParameter).some(({ type }) => type === 'param') ||
+      directParameters.some((parameter) =>
+        parameter === null ||
+        typeof parameter !== 'object' ||
+        !Array.isArray(parameter.children) ||
+        parameter.children.length !== 0 ||
+        parameter.props === null ||
+        typeof parameter.props !== 'object' ||
+        Array.isArray(parameter.props) ||
+        Object.keys(parameter.props).sort().join(',') !== 'name,type' ||
+        (parameter.__quotedProps?.length ?? 0) !== 0
+      )
+    ) {
+      fail('direct parameters must be one exact canonical prefix');
+    }
+    const parameters = exactLegacyParameters(
+      directParameters.map(({ props }) => `${props.name}:${props.type}`).join(','),
+    );
+    return { parameters, root: structuredClone(sourceRoot) };
   }
   const root = structuredClone(sourceRoot);
   const parameters = exactLegacyParameters(root.props?.params);

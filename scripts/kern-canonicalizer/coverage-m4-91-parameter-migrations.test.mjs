@@ -98,7 +98,6 @@ test('M4.91 generated consumers reproduce only from repository writers', () => {
   assert.equal(checkerMain.toString('utf8'), generateCheckerMainKern());
   assert.equal(numericMain.toString('utf8'), generateNumericMainKern());
   assert.equal(validatorMain.toString('utf8'), generateValidatorMainKern());
-  assert.equal(sha256(checkerMain), '13c6af59f82c23c122dc8839084e0b0ab870035d9af28a201e03e8ba52c6184c');
   assert.equal(sha256(numericMain), '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a');
   assert.equal(sha256(validatorMain), '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7');
 

@@ -181,6 +181,13 @@ export function formatM499DualRowPromotionStatus(receipt) {
     'M4.100 consumes it.';
 }
 
+export function formatM4100ParameterMigrationStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  return `M4.100 consumes the exact M4.99 ${migration.completeFunctions}-function/` +
+    `${migration.migratedParameterRows}-row parameter queue and advances the cumulative base to ` +
+    '90/109; M4.101 remeasures the bounded residual frontier.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

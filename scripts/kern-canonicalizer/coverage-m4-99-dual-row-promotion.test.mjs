@@ -3,9 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
-  assertCurrentCanonicalizerFrontier,
   assertCurrentCanonicalizerPolicy,
   assertCurrentProfileLimitFixtures,
 } from './coverage-current.mjs';
@@ -14,7 +12,6 @@ import {
   m499ActiveProfile,
   m499ParameterMigration,
 } from './coverage-m4-99-dual-row-promotion.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM495,
   validatePublishedCanonicalizerResidualAnalysisM495,
@@ -34,13 +31,10 @@ function sha256(path) {
 
 test('M4.99 promotes only the authenticated property and value row ceilings', () => {
   const policy = loadCanonicalizerPolicy();
-  const coverage = measureCanonicalizerCoverage();
-  const prerequisite = measureCanonicalizerPrerequisite();
   assert.deepEqual(policy.profileLimits, m499ActiveProfile());
   assertCurrentCanonicalizerPolicy(policy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
-  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
-  assertM499DualRowPromotion(coverage, prerequisite, policy);
+  assertM499DualRowPromotion(policy);
 });
 
 test('M4.99 publishes the exact one-function 24-row parameter queue', () => {

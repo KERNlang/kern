@@ -9,11 +9,11 @@ import {
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
-import { m499ParameterMigration } from './coverage-m4-99-dual-row-promotion.mjs';
+import { m4100ParameterMigration } from './coverage-m4-100-parameter-migration.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m499ParameterMigration();
+const EXPECTED_PARAMETER_MIGRATION = m4100ParameterMigration();
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
@@ -40,7 +40,7 @@ const EXPECTED_EXHAUSTION = {
   scope: 'current-bounded-profile',
 };
 
-test('M4.94 consumes the tablesok queue and preserves bounded exhaustion', () => {
+test('M4.100 consumes the comparisonOperandsOk queue and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -52,7 +52,7 @@ test('M4.94 consumes the tablesok queue and preserves bounded exhaustion', () =>
   assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
 });
 
-test('format 3 rejects drift in the M4.86 migrated frontier', () => {
+test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
@@ -88,22 +88,22 @@ test('format 3 rejects drift in the M4.86 migrated frontier', () => {
   }
 });
 
-test('M4.99 publishes the exact promoted profile and parameter queue', () => {
+test('M4.100 publishes the exact post-migration frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 89,
+    baseCompleteFunctions: 90,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: '983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807',
     canonicalizerPolicyDigest: '687f8ca3a3e1458bd6c3d3b7baacde4614c6a7eff78bb9d4071027f4311cfc09',
     compiledCoreDigest: '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
-    corpusDigest: '1be13408e7fe6937d72745ed64b83fc31d3b35b11fa9d15cce67193b3ea98a75',
+    corpusDigest: 'e51d59f17c361443ea0f4762eed50aa0bfd1c473568a893e1a51a2e00755ba7b',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '0578a6b480739380a9d2c4e0d4ce8b1cd0fc50a4123b3c8cbd4dcf3693dae5e9',
+    coveragePolicyDigest: 'e5fdb18d2de95a15429e51364fb817b3f99342d272105db6c53091e3baf00b8c',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 109,
-    functionFactsDigest: '6a2c8e406f2bd5e3847c55e3e1fb01eb19c7f6b7c7cd6e73cbb77abfe3c3875d',
-    legacyParameterBlockers: 17,
+    functionFactsDigest: 'f6d17da9c73aa2321ec4cda779cb13d59221e2b8ebc335d914b4c5a013242b2f',
+    legacyParameterBlockers: 16,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });
@@ -154,6 +154,16 @@ test('M4.15 counterfactual parameters fail closed outside exact portable pairs',
       /coverage prerequisite rejection/u,
     );
   }
+  const direct = migrateLegacyFunctionForPrerequisite({
+    children: [
+      { children: [], props: { name: 'direct', type: 'string' }, type: 'param' },
+      { children: [], props: { lang: 'kern' }, type: 'handler' },
+    ],
+    props: { name: 'directOnly', returns: 'void' },
+    type: 'fn',
+  });
+  assert.deepEqual(direct.parameters, [{ name: 'direct', type: 'string' }]);
+  assert.equal(direct.root.props.params, undefined);
   assert.throws(
     () => migrateLegacyFunctionForPrerequisite({
       children: [

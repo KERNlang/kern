@@ -86,18 +86,10 @@ export function assertM494ParameterMigration(coverage, prerequisite) {
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM494ParameterTarget(root, fact, target);
 
-  assert.equal(coverage.baseCompleteFunctions, 89);
-  assert.equal(coverage.functions.length, 109);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    17,
-  );
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
     false,
     'M4.94 migrated tablesok must never re-enter a later parameter queue',
   );
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   return fact;
 }

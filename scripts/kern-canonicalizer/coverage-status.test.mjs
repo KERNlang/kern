@@ -48,6 +48,7 @@ import {
   formatM497RuntimeCostStatus,
   formatM498RuntimeCostStatus,
   formatM499DualRowPromotionStatus,
+  formatM4100ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -223,6 +224,16 @@ test('coverage status records the M4.99 property and value row promotion', () =>
     }),
     'M4.99 promotes maxPropertyRows/maxValueRows to 95/832 and publishes the exact ' +
       '1-function/24-row parameter queue; M4.100 consumes it.',
+  );
+});
+
+test('coverage status records M4.100 consumption of the immutable M4.99 queue', () => {
+  assert.equal(
+    formatM4100ParameterMigrationStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 24 },
+    }),
+    'M4.100 consumes the exact M4.99 1-function/24-row parameter queue and advances the ' +
+      'cumulative base to 90/109; M4.101 remeasures the bounded residual frontier.',
   );
 });
 

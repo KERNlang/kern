@@ -89,7 +89,7 @@
       "tool": "assertion-engine"
     },
     {
-      "digest": "525d929ef2f52482b27128b0a936f4b3e491e949b404d7bb0ca33658f95daef7",
+      "digest": "df856b8a6a674b0803273a65a755e64ebb13f699fed692fc7dd7db88bee8c802",
       "path": "examples/capstone-checker-subset/checker-while.kern",
       "sourceKind": "handwritten",
       "tool": "checker"

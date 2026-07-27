@@ -229,7 +229,31 @@ fn name=literalTrue returns=boolean
       return value="left != right"
     return value="false"
 
-fn name=comparisonOperandsOk params="row:number,fnName:string,operator:string,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtName:string[],stmtTarget:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprNum:string[],stmtExprLeftKind:string[],stmtExprLeftName:string[],stmtExprLeftNum:string[],stmtExprLeftMemberObject:string[],stmtExprLeftMemberProp:string[],stmtExprRightKind:string[],stmtExprRightName:string[],stmtExprRightNum:string[],stmtExprRightMemberObject:string[],stmtExprRightMemberProp:string[],paramFn:string[],paramName:string[],paramType:string[]" returns=boolean
+fn name=comparisonOperandsOk returns=boolean
+  param name=row type=number
+  param name=fnName type=string
+  param name=operator type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtParent type=number[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=stmtExprKind type=string[]
+  param name=stmtExprName type=string[]
+  param name=stmtExprNum type=string[]
+  param name=stmtExprLeftKind type=string[]
+  param name=stmtExprLeftName type=string[]
+  param name=stmtExprLeftNum type=string[]
+  param name=stmtExprLeftMemberObject type=string[]
+  param name=stmtExprLeftMemberProp type=string[]
+  param name=stmtExprRightKind type=string[]
+  param name=stmtExprRightName type=string[]
+  param name=stmtExprRightNum type=string[]
+  param name=stmtExprRightMemberObject type=string[]
+  param name=stmtExprRightMemberProp type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramType type=string[]
   handler lang="kern"
     let name=operatorIsOrdered value="operator == \"<\" || operator == \"<=\" || operator == \">\" || operator == \">=\""
     if cond="!operatorIsOrdered"

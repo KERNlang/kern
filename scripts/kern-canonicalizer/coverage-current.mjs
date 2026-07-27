@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 
-import {
-  m499ActiveProfile,
-  m499ParameterMigration,
-} from './coverage-m4-99-dual-row-promotion.mjs';
+import { m4100ParameterMigration } from './coverage-m4-100-parameter-migration.mjs';
+import { m499ActiveProfile } from './coverage-m4-99-dual-row-promotion.mjs';
 
 const CURRENT_REASON_ASSIGNMENTS_DIGEST =
   'f502a363d83d85b78d0cdc4287aefcd348de042ed94be5f9d14657cf5a6f9913';
@@ -11,7 +9,6 @@ const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/capstone-assertion-engine/compare.kern#2:compareList',
   'examples/capstone-assertion-engine/compare.kern#3:compareMap',
   'examples/capstone-checker-subset/checker-while.kern#11:lengthReceiverProven',
-  'examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk',
   'examples/capstone-checker-subset/checker-while.kern#9:numericBindingProven',
   'examples/capstone-checker-subset/checker.kern#17:paramCallsitesOk',
   'examples/capstone-checker-subset/checker.kern#20:mapKeyToken',
@@ -84,7 +81,7 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 }
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
-  assert.equal(coverage.baseCompleteFunctions, 89);
+  assert.equal(coverage.baseCompleteFunctions, 90);
   assert.equal(coverage.functions.length, 109);
   assert.deepEqual(
     coverage.functions
@@ -92,7 +89,7 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m499ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4100ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
@@ -44,18 +43,6 @@ export const M482_PARAMETER_MIGRATION_TARGET = {
   returns: 'string',
 };
 
-const SOURCE_SHA256 = '525d929ef2f52482b27128b0a936f4b3e491e949b404d7bb0ca33658f95daef7';
-const GENERATED_ARTIFACTS = new Map([
-  ['examples/capstone-checker-subset/main.kern',
-    '13c6af59f82c23c122dc8839084e0b0ab870035d9af28a201e03e8ba52c6184c'],
-  ['examples/capstone-checker-subset/numeric-main.kern',
-    '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a'],
-]);
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
 export function assertM482ParameterTarget(
   root,
   fact,
@@ -88,18 +75,9 @@ export function assertM482ParameterMigration(coverage) {
   const source = sourceBytes.toString('utf8');
   const document = parseDocumentWithDiagnostics(source);
   assert.deepEqual(document.diagnostics, []);
-  assert.equal(sha256(sourceBytes), SOURCE_SHA256);
   const roots = document.root.children.filter(({ type }) => type === 'fn');
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM482ParameterTarget(roots[target.functionOrdinal], fact, target);
-  assert.equal(source.split('\n').length - 1, 325);
   assert.equal(roots.length, 18);
-  assert.deepEqual(
-    roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
-    ['numericBindingProven', 'lengthReceiverProven', 'comparisonOperandsOk'],
-  );
-  for (const [path, digest] of GENERATED_ARTIFACTS) {
-    assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);
-  }
   return fact;
 }
