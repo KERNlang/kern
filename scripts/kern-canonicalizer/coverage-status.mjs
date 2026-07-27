@@ -206,6 +206,14 @@ export function formatM4102TripleRowHeadroomStatus(receipt) {
     `${receipt.summary.promotionBudgetDeficit}; M4.103 investigates the runtime bottleneck.`;
 }
 
+export function formatM4103RuntimeBottleneckStatus(receipt) {
+  return `M4.103 attributes the ${receipt.diagnosis.additionalBudget}-step production deficit to ` +
+    `${receipt.diagnosis.additionalRetainedForIterations} retained for-iterations with ` +
+    `${receipt.diagnosis.additionalRolledBackIterations} rolled back and ` +
+    `${receipt.diagnosis.additionalParentRestarts} parent restarts; ` +
+    'M4.104 reduces statement validation and emission traversal cost.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

@@ -51,6 +51,7 @@ import {
   formatM4100ParameterMigrationStatus,
   formatM4101ResidualAnalysisStatus,
   formatM4102TripleRowHeadroomStatus,
+  formatM4103RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -266,6 +267,22 @@ test('coverage status records the M4.102 production-ceiling rejection', () => {
     'M4.102 structural runtime rejects the 89/125/2100 candidate: exact floor 72195 ' +
       'exceeds production by 6659 and promotion budget by 23043; ' +
       'M4.103 investigates the runtime bottleneck.',
+  );
+});
+
+test('coverage status records the M4.103 committed-loop bottleneck diagnosis', () => {
+  assert.equal(
+    formatM4103RuntimeBottleneckStatus({
+      diagnosis: {
+        additionalBudget: 6_659,
+        additionalRetainedForIterations: 6_659,
+        additionalRolledBackIterations: 0,
+        additionalParentRestarts: 0,
+      },
+    }),
+    'M4.103 attributes the 6659-step production deficit to 6659 retained for-iterations with ' +
+      '0 rolled back and 0 parent restarts; M4.104 reduces statement validation and emission ' +
+      'traversal cost.',
   );
 });
 

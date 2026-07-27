@@ -100,7 +100,7 @@ next optimization/investigation milestone. M4.102 itself never edits policy.
 - [x] Complete canonicalizer gate passes.
 - [x] Full Node 22 KERN 5 fitness wall passes.
 - [x] Independent high-risk review has no unresolved verified blocker.
-- [ ] Signed commit is fetched/rebased before one atomic no-verify push; both
+- [x] Signed commit is fetched/rebased before one atomic no-verify push; both
       remote hashes verify identically.
 
 ## Stop Conditions

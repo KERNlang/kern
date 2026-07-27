@@ -112,6 +112,9 @@ import {
   loadCanonicalizerRuntimeBottleneckM496,
 } from './kern-canonicalizer/runtime-bottleneck-m4-96.mjs';
 import {
+  loadCanonicalizerRuntimeBottleneckM4103,
+} from './kern-canonicalizer/runtime-bottleneck-m4-103.mjs';
+import {
   loadCanonicalizerRuntimeCostM497,
 } from './kern-canonicalizer/runtime-cost-m4-97.mjs';
 import {
@@ -207,6 +210,7 @@ import {
   formatM4100ParameterMigrationStatus,
   formatM4101ResidualAnalysisStatus,
   formatM4102TripleRowHeadroomStatus,
+  formatM4103RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -234,6 +238,7 @@ const m493RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-93.json
 const m495ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-95.json', import.meta.url);
 const m4101ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-101.json', import.meta.url);
 const m496RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-96.json', import.meta.url);
+const m4103RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-103.json', import.meta.url);
 const m497RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-97.json', import.meta.url);
 const m498RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-98.json', import.meta.url);
 const m488DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-88.json', import.meta.url);
@@ -295,6 +300,7 @@ const m495ResidualAnalysis = m495ResidualAnalysisHandoff.record;
 const m4101ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4101();
 const m4101ResidualAnalysis = m4101ResidualAnalysisHandoff.record;
 const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
+const m4103RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4103();
 const m496RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM496();
 const m497RuntimeCost = loadCanonicalizerRuntimeCostM497();
 const m498RuntimeCost = loadCanonicalizerRuntimeCostM498();
@@ -1238,6 +1244,34 @@ if (process.argv.includes('--write')) {
     },
   });
   assert.equal(m496RuntimeBottleneck.promotion.profilePromotionApproved, false);
+  assertCoverageSummary(m4103RuntimeBottleneckUrl, m4103RuntimeBottleneck);
+  assert.deepEqual(m4103RuntimeBottleneck.diagnosis, {
+    additionalBudget: 6_659,
+    additionalCacheKeyCodeUnits: 28_276_387,
+    additionalHelperExecutions: 261,
+    additionalHelperFrameSuspensions: 228,
+    additionalHelperPreparations: 1_084,
+    additionalParentRestarts: 0,
+    additionalRetainedForIterations: 6_659,
+    additionalRolledBackIterations: 0,
+    budgetAttribution: 'all-retained-for-iterations',
+    emissionExecutionsAtProductionCeiling: 0,
+    mechanism: 'committed-validation-and-emission-loop-work',
+    nextMilestone: 'M4.104',
+    optimizationTarget: 'statement-validation-and-emission-table-traversal',
+    selectedHelperExecutionDeltas: {
+      validstatementlist: 3,
+      validstatement: 9,
+      exprsource: 10,
+      expressionsources: 0,
+      emitstatementlist: 27,
+      emitstatement: 73,
+      stringat: 54,
+      quotesource: 43,
+      indentation: 3,
+    },
+  });
+  assert.equal(m4103RuntimeBottleneck.promotion.profilePromotionApproved, false);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
   assert.equal(m497RuntimeCost.result.exactFloor, 53_086);
   assert.equal(m497RuntimeCost.result.productionHeadroom, 12_450);
@@ -1574,6 +1608,7 @@ process.stdout.write(
   })}` +
   ` ${formatM4101ResidualAnalysisStatus(m4101ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM4102TripleRowHeadroomStatus(m4102TripleRowHeadroom)}` +
+  ` ${formatM4103RuntimeBottleneckStatus(m4103RuntimeBottleneck)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
