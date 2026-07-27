@@ -221,6 +221,17 @@ export function formatM4104RuntimeCostStatus(receipt) {
     'M4.105 investigates the residual runtime bottleneck.';
 }
 
+export function formatM4105RuntimeBottleneckStatus(receipt) {
+  return `M4.105 attributes the ${receipt.diagnosis.additionalRetainedIterations}-step promotion ` +
+    `deficit to retained validation work before emission: ` +
+    `${receipt.diagnosis.validstatementExecutionsAtPromotionBudget}/` +
+    `${receipt.diagnosis.validstatementExecutionsAtExactFloor} validstatement helper executions ` +
+    `are observed at the budget versus the floor, ` +
+    `${receipt.diagnosis.emissionExecutionsAtPromotionBudget} emission helpers execute, and ` +
+    `${receipt.diagnosis.additionalRolledBackIterations} iterations roll back; ` +
+    'M4.106 consolidates authenticated statement property and child-count access.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

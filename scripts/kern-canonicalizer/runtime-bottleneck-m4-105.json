@@ -1,0 +1,239 @@
+{
+  "baseline": {
+    "implementationBaseCommit": "e69fc5f35343456067f46dfc7f5636a2aaccbbca",
+    "m4104ReceiptSha256": "eace33240c8425569685d76530e4b59ec5b07fa874572a93458ea5e17f84ec92",
+    "productionHeadroom": 2706,
+    "promotionBudgetDeficit": 13678
+  },
+  "diagnosis": {
+    "additionalCacheHits": 1203,
+    "additionalCacheKeyCodeUnits": 43438182,
+    "additionalCacheMisses": 1086,
+    "additionalForIterations": 13574,
+    "additionalHelperExecutions": 543,
+    "additionalHelperFrameSuspensions": 510,
+    "additionalHelperPreparations": 1746,
+    "additionalParentRestarts": 0,
+    "additionalRetainedIterations": 13678,
+    "additionalRolledBackIterations": 0,
+    "additionalWhileIterations": 104,
+    "budgetAttribution": "all-retained-loop-iterations-helper-attribution-unavailable",
+    "emissionExecutionsAtPromotionBudget": 0,
+    "mechanism": "committed-statement-validation-table-traversal-before-emission",
+    "nextMilestone": "M4.106",
+    "optimizationTarget": "consolidated-authenticated-statement-property-and-child-count-access",
+    "selectedHelperExecutionDeltas": {
+      "childat": 39,
+      "childcount": 39,
+      "emitstatement": 73,
+      "emitstatementlist": 27,
+      "expressionsources": 0,
+      "exprsource": 40,
+      "indentation": 3,
+      "numberat": 1,
+      "propcount": 40,
+      "propid": 49,
+      "quotesource": 43,
+      "stringat": 130,
+      "structuralname": 6,
+      "validstatement": 39,
+      "validstatementlist": 14
+    },
+    "selectedHelperPreparationDeltas": {
+      "childat": 167,
+      "childcount": 106,
+      "emitstatement": 146,
+      "emitstatementlist": 53,
+      "expressionsources": 40,
+      "exprsource": 153,
+      "indentation": 76,
+      "numberat": 1,
+      "propcount": 120,
+      "propid": 223,
+      "quotesource": 116,
+      "stringat": 363,
+      "structuralname": 51,
+      "typesource": 16,
+      "valididentifier": 6,
+      "validstatement": 80,
+      "validstatementlist": 29
+    },
+    "validstatementExecutionsAtExactFloor": 73,
+    "validstatementExecutionsAtPromotionBudget": 34
+  },
+  "format": "kern.kir-canonicalizer.runtime-bottleneck.3",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 95,
+      "maxValueRows": 832
+    },
+    "candidateProfile": {
+      "maxNodeRows": 89,
+      "maxPropertyRows": 125,
+      "maxValueRows": 2100
+    },
+    "exactFloor": 62830,
+    "maxDepth": 64,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152
+  },
+  "observations": [
+    {
+      "cache": {
+        "hits": 7400,
+        "misses": 7596
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 79407,
+        "total": 160115519
+      },
+      "helperExecutionCount": 3798,
+      "helperFrameSuspensionCount": 3636,
+      "helperPreparationCount": 11198,
+      "iterationBudget": 49152,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 49152
+        },
+        "retained": 49152,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "failure",
+      "parentRestartCount": 0,
+      "roundTrip": false,
+      "selectedHelperExecutions": {
+        "childat": 50,
+        "childcount": 51,
+        "emitstatement": 0,
+        "emitstatementlist": 0,
+        "expressionsources": 1,
+        "exprsource": 33,
+        "indentation": 0,
+        "numberat": 67,
+        "propcount": 49,
+        "propid": 76,
+        "quotesource": 22,
+        "stringat": 3196,
+        "structuralname": 23,
+        "validstatement": 34,
+        "validstatementlist": 13
+      },
+      "selectedHelperPreparations": {
+        "childat": 175,
+        "childcount": 86,
+        "emitstatement": 0,
+        "emitstatementlist": 0,
+        "expressionsources": 34,
+        "exprsource": 66,
+        "indentation": 0,
+        "numberat": 134,
+        "propcount": 110,
+        "propid": 210,
+        "quotesource": 60,
+        "stringat": 9124,
+        "structuralname": 33,
+        "typesource": 16,
+        "valididentifier": 102,
+        "validstatement": 66,
+        "validstatementlist": 24
+      }
+    },
+    {
+      "cache": {
+        "hits": 8603,
+        "misses": 8682
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 79416,
+        "total": 203553701
+      },
+      "helperExecutionCount": 4341,
+      "helperFrameSuspensionCount": 4146,
+      "helperPreparationCount": 12944,
+      "iterationBudget": 62830,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 62726,
+          "while": 104
+        },
+        "retained": 62830,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "success",
+      "parentRestartCount": 0,
+      "roundTrip": true,
+      "selectedHelperExecutions": {
+        "childat": 89,
+        "childcount": 90,
+        "emitstatement": 73,
+        "emitstatementlist": 27,
+        "expressionsources": 1,
+        "exprsource": 73,
+        "indentation": 3,
+        "numberat": 68,
+        "propcount": 89,
+        "propid": 125,
+        "quotesource": 65,
+        "stringat": 3326,
+        "structuralname": 29,
+        "validstatement": 73,
+        "validstatementlist": 27
+      },
+      "selectedHelperPreparations": {
+        "childat": 342,
+        "childcount": 192,
+        "emitstatement": 146,
+        "emitstatementlist": 53,
+        "expressionsources": 74,
+        "exprsource": 219,
+        "indentation": 76,
+        "numberat": 135,
+        "propcount": 230,
+        "propid": 433,
+        "quotesource": 176,
+        "stringat": 9487,
+        "structuralname": 84,
+        "typesource": 32,
+        "valididentifier": 108,
+        "validstatement": 146,
+        "validstatementlist": 53
+      }
+    }
+  ],
+  "observer": {
+    "defaultOff": true,
+    "eventData": "frozen-scalars",
+    "helperLoopAttributionAvailable": false,
+    "publicHandlerOptionExposed": false
+  },
+  "promotion": {
+    "disposition": "residual-runtime-bottleneck-attributed-optimization-required",
+    "nextMilestone": "M4.106",
+    "profilePromotionApproved": false,
+    "promotionReady": false
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "9fb89f33f5b76d5b177d20318357c56a9624d4199915f877e78cd313f22bc13d",
+    "compiledCoreJavaScriptSha256": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
+    "compositionRecordSha256": "0e4b18086df8f0a6cabaa7b9daaa80acad34bea1badf361ab1649f7bf8f35789",
+    "diagnosisMeasurementSha256": "2ce865d2caff4e3cbf982bf48b96e0afae223be0812c76af45bfd1c41db9c38b",
+    "expressionHelpersSha256": "3c0c38daa48946926f28a797bb38f3f45291f12dd90656989dbd587819d828e3",
+    "mainSourceSha256": "23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195",
+    "runtimeCostMeasurementSha256": "876db33173e52f3a24647f75596f041b61174003fcefd2dffef7b120e43f7459",
+    "runtimePolicySha256": "687f8ca3a3e1458bd6c3d3b7baacde4614c6a7eff78bb9d4071027f4311cfc09",
+    "statementHelpersSha256": "a91390500b1d7e2bb3749d537001eb49d64fa809bd22fae13763b2e6c21f716c",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "witness": {
+    "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement",
+    "parameterRows": 14,
+    "structuralRows": {
+      "nodes": 89,
+      "properties": 125,
+      "values": 2100
+    }
+  }
+}

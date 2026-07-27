@@ -53,6 +53,7 @@ import {
   formatM4102TripleRowHeadroomStatus,
   formatM4103RuntimeBottleneckStatus,
   formatM4104RuntimeCostStatus,
+  formatM4105RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -300,6 +301,24 @@ test('coverage status records the M4.104 production-headroom reduction', () => {
     'M4.104 reduces the exact validstatement floor by 9365 to 62830, leaving 2706 production ' +
       'headroom, but misses the promotion budget by 13678; M4.105 investigates the residual ' +
       'runtime bottleneck.',
+  );
+});
+
+test('coverage status records the M4.105 validation bottleneck diagnosis', () => {
+  assert.equal(
+    formatM4105RuntimeBottleneckStatus({
+      diagnosis: {
+        additionalRetainedIterations: 13_678,
+        additionalRolledBackIterations: 0,
+        emissionExecutionsAtPromotionBudget: 0,
+        validstatementExecutionsAtExactFloor: 73,
+        validstatementExecutionsAtPromotionBudget: 34,
+      },
+    }),
+    'M4.105 attributes the 13678-step promotion deficit to retained validation work before ' +
+    'emission: 34/73 validstatement helper executions are observed at the budget versus the floor, ' +
+      '0 emission helpers execute, and 0 iterations roll back; M4.106 consolidates authenticated ' +
+      'statement property and child-count access.',
   );
 });
 

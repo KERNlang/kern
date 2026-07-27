@@ -118,6 +118,9 @@ import {
   loadCanonicalizerRuntimeCostM4104,
 } from './kern-canonicalizer/runtime-cost-m4-104.mjs';
 import {
+  loadCanonicalizerRuntimeBottleneckM4105,
+} from './kern-canonicalizer/runtime-bottleneck-m4-105.mjs';
+import {
   loadCanonicalizerRuntimeCostM497,
 } from './kern-canonicalizer/runtime-cost-m4-97.mjs';
 import {
@@ -215,6 +218,7 @@ import {
   formatM4102TripleRowHeadroomStatus,
   formatM4103RuntimeBottleneckStatus,
   formatM4104RuntimeCostStatus,
+  formatM4105RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -244,6 +248,8 @@ const m4101ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual
 const m496RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-96.json', import.meta.url);
 const m4103RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-103.json', import.meta.url);
 const m4104RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-104.json', import.meta.url);
+const m4105RuntimeBottleneckUrl =
+  new URL('./kern-canonicalizer/runtime-bottleneck-m4-105.json', import.meta.url);
 const m497RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-97.json', import.meta.url);
 const m498RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-98.json', import.meta.url);
 const m488DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-88.json', import.meta.url);
@@ -307,6 +313,7 @@ const m4101ResidualAnalysis = m4101ResidualAnalysisHandoff.record;
 const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
 const m4103RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4103();
 const m4104RuntimeCost = loadCanonicalizerRuntimeCostM4104();
+const m4105RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4105();
 const m496RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM496();
 const m497RuntimeCost = loadCanonicalizerRuntimeCostM497();
 const m498RuntimeCost = loadCanonicalizerRuntimeCostM498();
@@ -1291,6 +1298,31 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: false,
   });
+  assertCoverageSummary(m4105RuntimeBottleneckUrl, m4105RuntimeBottleneck);
+  assert.equal(m4105RuntimeBottleneck.baseline.m4104ReceiptSha256,
+    'eace33240c8425569685d76530e4b59ec5b07fa874572a93458ea5e17f84ec92');
+  assert.equal(m4105RuntimeBottleneck.diagnosis.additionalRetainedIterations, 13_678);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.additionalForIterations, 13_574);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.additionalWhileIterations, 104);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.additionalRolledBackIterations, 0);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.additionalParentRestarts, 0);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.emissionExecutionsAtPromotionBudget, 0);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.validstatementExecutionsAtPromotionBudget, 34);
+  assert.equal(m4105RuntimeBottleneck.diagnosis.validstatementExecutionsAtExactFloor, 73);
+  assert.equal(
+    m4105RuntimeBottleneck.diagnosis.optimizationTarget,
+    'consolidated-authenticated-statement-property-and-child-count-access',
+  );
+  assert.equal(m4105RuntimeBottleneck.observer.helperLoopAttributionAvailable, false);
+  assert.deepEqual(m4105RuntimeBottleneck.promotion, {
+    disposition: 'residual-runtime-bottleneck-attributed-optimization-required',
+    nextMilestone: 'M4.106',
+    profilePromotionApproved: false,
+    promotionReady: false,
+  });
+  assert.equal(actual.baseCompleteFunctions, 90);
+  assert.equal(actual.functionCount, 109);
+  assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
   assert.equal(m497RuntimeCost.result.exactFloor, 53_086);
   assert.equal(m497RuntimeCost.result.productionHeadroom, 12_450);
@@ -1629,6 +1661,7 @@ process.stdout.write(
   ` ${formatM4102TripleRowHeadroomStatus(m4102TripleRowHeadroom)}` +
   ` ${formatM4103RuntimeBottleneckStatus(m4103RuntimeBottleneck)}` +
   ` ${formatM4104RuntimeCostStatus(m4104RuntimeCost)}` +
+  ` ${formatM4105RuntimeBottleneckStatus(m4105RuntimeBottleneck)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
