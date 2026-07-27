@@ -12,11 +12,12 @@ import {
   m490ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-90-dual-row-promotion.mjs';
 import {
+  assertM499DualRowPromotion,
+  m499ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-99-dual-row-promotion.mjs';
+import {
   assertM491ParameterMigrations,
 } from './kern-canonicalizer/coverage-m4-91-parameter-migrations.mjs';
-import {
-  currentM494ParameterMigration,
-} from './kern-canonicalizer/coverage-current.mjs';
 import {
   assertM494ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-94-parameter-migration.mjs';
@@ -192,6 +193,7 @@ import {
   formatM496RuntimeBottleneckStatus,
   formatM497RuntimeCostStatus,
   formatM498RuntimeCostStatus,
+  formatM499DualRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -294,10 +296,12 @@ const m479PropertyRowHeadroom = assertCanonicalizerPropertyRowHeadroomM479();
 if (process.argv.includes('--write')) writeCanonicalizerRuntimeCostM480();
 const m480RuntimeCost = assertCanonicalizerRuntimeCostM480();
 const m484ValueRowHeadroom = assertCanonicalizerValueRowHeadroomM484();
-assertM486ParameterMigration(coverage, prerequisite, loadCanonicalizerPolicy());
-assertM490DualRowPromotion(loadCanonicalizerPolicy());
+const policy = loadCanonicalizerPolicy();
+assertM486ParameterMigration(coverage, prerequisite);
+assertM490DualRowPromotion();
 assertM491ParameterMigrations(coverage);
-assertM494ParameterMigration(coverage, prerequisite, loadCanonicalizerPolicy());
+assertM494ParameterMigration(coverage, prerequisite);
+assertM499DualRowPromotion(coverage, prerequisite, policy);
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -465,7 +469,7 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.parameterMigration, currentM494ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m499ParameterMigration());
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -491,10 +495,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 17);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 16);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'ac1ce11255b827161910b883fb8061606849524c52f9531036dea2570e82264f',
+    'f502a363d83d85b78d0cdc4287aefcd348de042ed94be5f9d14657cf5a6f9913',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1516,6 +1520,10 @@ process.stdout.write(
   ` ${formatM496RuntimeBottleneckStatus(m496RuntimeBottleneck)}` +
   ` ${formatM497RuntimeCostStatus(m497RuntimeCost)}` +
   ` ${formatM498RuntimeCostStatus(m498RuntimeCost)}` +
+  ` ${formatM499DualRowPromotionStatus({
+    parameterMigration: m499ParameterMigration(),
+    profileLimits: policy.profileLimits,
+  })}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -136,10 +136,6 @@
       "id": "let.value:unknown-expression-kind"
     },
     {
-      "count": 2,
-      "id": "profile.rows.values"
-    },
-    {
       "count": 1,
       "id": "if.properties.cond.expression.text.character-u007f"
     },
@@ -173,6 +169,10 @@
     },
     {
       "count": 1,
+      "id": "profile.rows.values"
+    },
+    {
+      "count": 1,
       "id": "projection.limit-nodes"
     },
     {
@@ -182,7 +182,7 @@
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
   "canonicalizerDigest": "983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807",
-  "canonicalizerPolicyDigest": "f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849",
+  "canonicalizerPolicyDigest": "687f8ca3a3e1458bd6c3d3b7baacde4614c6a7eff78bb9d4071027f4311cfc09",
   "compiledCoreDigest": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
   "composition": {
     "digest": "f3ce080a976c8764a68417b9845deaa47bb30515e260d48fd415f1ea621a824a",
@@ -215,13 +215,13 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "1be13408e7fe6937d72745ed64b83fc31d3b35b11fa9d15cce67193b3ea98a75",
-  "coverageImplementationDigest": "9a2a1a9b4ce8fc3247446a48354397232bd92fecf48ed7d0fb68a275625c3c79",
+  "coverageImplementationDigest": "ebe92b8e6a7f19da7d6743f3b551506bacfe997043b695d87a05412082cd3f8c",
   "coveragePolicyDigest": "0578a6b480739380a9d2c4e0d4ce8b1cd0fc50a4123b3c8cbd4dcf3693dae5e9",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 109,
-  "functionFactsDigest": "d748ad836ca9128905a3338a1f22a07a240fbf0928ba1799e8e77a54115ba126",
+  "functionFactsDigest": "6a2c8e406f2bd5e3847c55e3e1fb01eb19c7f6b7c7cd6e73cbb77abfe3c3875d",
   "implementationProvenance": {
     "family": "while-iteration",
     "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",

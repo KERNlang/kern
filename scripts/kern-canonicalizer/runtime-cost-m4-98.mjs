@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerRuntimeCostM497 } from './runtime-cost-m4-97.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.5';
@@ -14,6 +13,12 @@ const M497_RECEIPT_DIGEST =
   '9b0d7ce9b03c1b8f54e701172c66cb3b834fa9476e346d8ba25e82bf21549e71';
 const WITNESS_ID =
   'examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk';
+// This authenticates the M4.98-era limits, not the live policy after M4.99 promotion.
+const PUBLISHED_POLICY = {
+  kirLimits: { maxDepth: 64 },
+  profileLimits: { maxNodeRows: 74, maxPropertyRows: 77, maxValueRows: 580 },
+  runtimeLimits: { maxCollectionLength: 65_536 },
+};
 const SOURCE_DIGESTS = {
   compositeSha256: '983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807',
   compositionRecordSha256: 'f3ce080a976c8764a68417b9845deaa47bb30515e260d48fd415f1ea621a824a',
@@ -108,7 +113,7 @@ function exactInputs() {
       fail(`${name} source identity must remain exact`);
     }
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = structuredClone(PUBLISHED_POLICY);
   if (
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.kirLimits.maxDepth !== 64 ||

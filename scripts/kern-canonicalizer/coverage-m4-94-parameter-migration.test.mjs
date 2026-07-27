@@ -12,7 +12,6 @@ import {
   M494_PARAMETER_MIGRATION_TARGET,
 } from './coverage-m4-94-parameter-migration.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
   validateCanonicalizerRuntimeCostM493,
@@ -70,7 +69,7 @@ test('M4.94 migrates the exact tablesok 12-row parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   const prerequisite = measureCanonicalizerPrerequisite();
   const fixture = targetFixture();
-  assertM494ParameterMigration(coverage, prerequisite, loadCanonicalizerPolicy());
+  assertM494ParameterMigration(coverage, prerequisite);
   assertM494ParameterTarget(fixture.root, fixture.fact, fixture.target);
 });
 

@@ -3,7 +3,7 @@ function lines(...items) {
 }
 
 const BOUNDARY_PARAMETERS = Array.from(
-  { length: 35 },
+  { length: 44 },
   (_, index) => `  param name=p${index} type=number`,
 );
 
@@ -49,7 +49,7 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 75, maxPropertyRows: 77, maxValueRows: 580 },
+    admittedProfileLimits: { maxNodeRows: 75, maxPropertyRows: 95, maxValueRows: 832 },
     expectedRows: { nodes: 75, properties: 75, values: 100 },
     source: lines(
       ...Array.from({ length: 25 }, (_, index) => [
@@ -61,8 +61,8 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 74, maxPropertyRows: 78, maxValueRows: 580 },
-    expectedRows: { nodes: 39, properties: 78, values: 123 },
+    admittedProfileLimits: { maxNodeRows: 74, maxPropertyRows: 96, maxValueRows: 832 },
+    expectedRows: { nodes: 48, properties: 96, values: 150 },
     source: lines(
       'fn name=properties returns=void export=true',
       ...BOUNDARY_PARAMETERS,
@@ -73,8 +73,8 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 74, maxPropertyRows: 77, maxValueRows: 581 },
-    expectedRows: { nodes: 29, properties: 32, values: 581 },
+    admittedProfileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 833 },
+    expectedRows: { nodes: 59, properties: 62, values: 833 },
     source: withLinesBeforeFinal(
       PROFILE_BOUNDARY_FIXTURE.source,
       '    do value="foo(op)"',
@@ -94,6 +94,8 @@ export const PROFILE_LIMIT_FIXTURES = [
       '    do value="op == 0"',
       '    do value="op == 0"',
       '    do value="op == 0"',
+      ...Array.from({ length: 18 }, () => '    do value="op == 0"'),
+      ...Array.from({ length: 12 }, () => '    do value="null"'),
     ),
   },
 ];

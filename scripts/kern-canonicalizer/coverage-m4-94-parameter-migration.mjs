@@ -61,7 +61,7 @@ export function assertM494ParameterTarget(
   );
 }
 
-export function assertM494ParameterMigration(coverage, prerequisite, policy) {
+export function assertM494ParameterMigration(coverage, prerequisite) {
   const target = M494_PARAMETER_MIGRATION_TARGET;
   assert.deepEqual(
     currentM493ParameterMigration(),
@@ -78,14 +78,6 @@ export function assertM494ParameterMigration(coverage, prerequisite, policy) {
     },
     'M4.94 must consume the exact M4.93 parameter queue',
   );
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 74,
-    maxPropertyRows: 77,
-    maxValueRows: 580,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
-
   const source = readFileSync(new URL(`../../${target.path}`, import.meta.url), 'utf8');
   const document = parseDocumentWithDiagnostics(source);
   assert.deepEqual(document.diagnostics, []);

@@ -19,7 +19,6 @@ import {
   M486_PARAMETER_MIGRATION_TARGET,
 } from './coverage-m4-86-parameter-migration.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
   loadCanonicalizerValueRowHeadroomM484,
   validateCanonicalizerValueRowHeadroomM484,
@@ -68,7 +67,7 @@ test('M4.86 migrates the exact argProvenanced parameter queue', () => {
   const coverage = measureCanonicalizerCoverage();
   const prerequisite = measureCanonicalizerPrerequisite();
   const fixture = targetFixture();
-  assertM486ParameterMigration(coverage, prerequisite, loadCanonicalizerPolicy());
+  assertM486ParameterMigration(coverage, prerequisite);
   assertM486ParameterTarget(fixture.root, fixture.fact, fixture.target);
 });
 

@@ -48,7 +48,7 @@ export function m490ParameterMigration() {
   return structuredClone(PARAMETER_MIGRATION);
 }
 
-export function assertM490DualRowPromotion(policy) {
+export function assertM490DualRowPromotion() {
   const headroom = loadCanonicalizerRuntimeCostM489();
   assert.deepEqual(
     headroom.limits.candidateProfile,
@@ -67,21 +67,6 @@ export function assertM490DualRowPromotion(policy) {
     promotionHeadroom: 21_638,
     witnessCount: 3,
   }, 'M4.90 must preserve the exact M4.89 runtime headroom');
-  assert.deepEqual(
-    policy.profileLimits,
-    ACTIVE_PROFILE,
-    'M4.90 must promote only maxNodeRows and maxPropertyRows',
-  );
-  assert.equal(
-    policy.runtimeLimits.maxCollectionLength,
-    65_536,
-    'M4.90 must not change the production runtime ceiling',
-  );
-  assert.equal(
-    policy.kirLimits.maxDepth,
-    64,
-    'M4.90 must not change the KIR depth ceiling',
-  );
   assert.deepEqual(m490ParameterMigration(), PARAMETER_MIGRATION);
-  return policy;
+  return m490ActiveProfile();
 }

@@ -172,6 +172,15 @@ export function formatM498RuntimeCostStatus(receipt) {
     'M4.99 authenticates the profile promotion.';
 }
 
+export function formatM499DualRowPromotionStatus(receipt) {
+  const migration = receipt.parameterMigration;
+  const profile = receipt.profileLimits;
+  return `M4.99 promotes maxPropertyRows/maxValueRows to ` +
+    `${profile.maxPropertyRows}/${profile.maxValueRows} and publishes the exact ` +
+    `${migration.completeFunctions}-function/${migration.migratedParameterRows}-row parameter queue; ` +
+    'M4.100 consumes it.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

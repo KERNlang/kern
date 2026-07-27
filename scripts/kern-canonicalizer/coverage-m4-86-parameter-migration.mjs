@@ -84,17 +84,10 @@ export function assertM486ParameterTarget(
   );
 }
 
-export function assertM486ParameterMigration(coverage, prerequisite, policy) {
+export function assertM486ParameterMigration(coverage, prerequisite) {
   const target = M486_PARAMETER_MIGRATION_TARGET;
   const publishedQueue = m485ParameterMigration();
   const headroom = loadCanonicalizerValueRowHeadroomM484();
-  assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 74,
-    maxPropertyRows: 77,
-    maxValueRows: m485ActiveProfile().maxValueRows,
-  });
-  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
   assert.deepEqual(publishedQueue, {
     completeFunctions: 1,
     completeTools: 1,

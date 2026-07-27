@@ -47,6 +47,7 @@ import {
   formatM496RuntimeBottleneckStatus,
   formatM497RuntimeCostStatus,
   formatM498RuntimeCostStatus,
+  formatM499DualRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -211,6 +212,17 @@ test('coverage status records the M4.98 property-row reduction and promotion hea
     }),
     'M4.98 authenticates property-row ordering and reduces the exact floor by 6705 to 46381, ' +
       'leaving 2771 promotion-budget headroom; M4.99 authenticates the profile promotion.',
+  );
+});
+
+test('coverage status records the M4.99 property and value row promotion', () => {
+  assert.equal(
+    formatM499DualRowPromotionStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 24 },
+      profileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 832 },
+    }),
+    'M4.99 promotes maxPropertyRows/maxValueRows to 95/832 and publishes the exact ' +
+      '1-function/24-row parameter queue; M4.100 consumes it.',
   );
 });
 

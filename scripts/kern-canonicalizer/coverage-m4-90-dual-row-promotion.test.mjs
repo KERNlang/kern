@@ -29,14 +29,13 @@ function sha256(path) {
 }
 
 test('M4.90 promotes only the authenticated node and property row ceilings', () => {
-  const policy = loadCanonicalizerPolicy();
+  const currentPolicy = loadCanonicalizerPolicy();
   const coverage = measureCanonicalizerCoverage();
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.deepEqual(policy.profileLimits, m490ActiveProfile());
-  assertCurrentCanonicalizerPolicy(policy);
+  assertCurrentCanonicalizerPolicy(currentPolicy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assertCurrentCanonicalizerFrontier(coverage, prerequisite);
-  assertM490DualRowPromotion(policy);
+  assert.deepEqual(assertM490DualRowPromotion(), m490ActiveProfile());
 });
 
 test('M4.90 publishes the exact combined four-function parameter queue', () => {

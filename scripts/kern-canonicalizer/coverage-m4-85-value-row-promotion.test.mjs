@@ -27,11 +27,11 @@ function sha256(path) {
     .digest('hex');
 }
 
-test('M4.90 preserves the authenticated M4.85 value-row ceiling', () => {
+test('the current policy preserves the authenticated M4.85 value-row ceiling', () => {
   const policy = loadCanonicalizerPolicy();
   const coverage = measureCanonicalizerCoverage();
   const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(policy.profileLimits.maxValueRows, m485ActiveProfile().maxValueRows);
+  assert.ok(policy.profileLimits.maxValueRows >= m485ActiveProfile().maxValueRows);
   assertCurrentCanonicalizerPolicy(policy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assertCurrentCanonicalizerFrontier(coverage, prerequisite);
