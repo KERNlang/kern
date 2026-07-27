@@ -49,6 +49,7 @@ import {
   formatM498RuntimeCostStatus,
   formatM499DualRowPromotionStatus,
   formatM4100ParameterMigrationStatus,
+  formatM4101ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -234,6 +235,18 @@ test('coverage status records M4.100 consumption of the immutable M4.99 queue', 
     }),
     'M4.100 consumes the exact M4.99 1-function/24-row parameter queue and advances the ' +
       'cumulative base to 90/109; M4.101 remeasures the bounded residual frontier.',
+  );
+});
+
+test('coverage status records the M4.101 structural recommendation', () => {
+  assert.equal(
+    formatM4101ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'],
+    }),
+    'M4.101 published analysis selected 1 function by ' +
+      'maxNodeRows+maxPropertyRows+maxValueRows widening; ' +
+      'M4.102 authenticates structural runtime headroom.',
   );
 });
 

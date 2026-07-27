@@ -188,6 +188,14 @@ export function formatM4100ParameterMigrationStatus(receipt) {
     '90/109; M4.101 remeasures the bounded residual frontier.';
 }
 
+export function formatM4101ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus(
+    'M4.101 published analysis',
+    selectedNextAction,
+    '; M4.102 authenticates structural runtime headroom',
+  );
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +
