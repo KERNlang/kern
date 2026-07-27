@@ -61,7 +61,7 @@ export const M441_PARAMETER_MIGRATION_TARGETS = [
     profileRows: { nodes: 16, properties: 27, values: 150 },
   },
   {
-    bodyDigest: '1c945218c6dfbd07e0f9d61273f825af79f5721e70524ae5c446c8386052824b',
+    bodyDigest: 'c3a1a23cb8acf94267c5c41d2f52c73edeed46f1ef04253500f7e03f130fad9d',
     functionOrdinal: 12,
     id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#12:childat',
     name: 'childat',
@@ -70,7 +70,7 @@ export const M441_PARAMETER_MIGRATION_TARGETS = [
       ['nodeParent', 'number[]'], ['nodeOrder', 'number[]'],
     ],
     path: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
-    profileRows: { nodes: 13, properties: 23, values: 122 },
+    profileRows: { nodes: 10, properties: 18, values: 93 },
   },
   {
     bodyDigest: '5654ef1a65d25108fe40e9d7ad75da4145b26518e7ff1efd5e6d2fc41effa9b1',

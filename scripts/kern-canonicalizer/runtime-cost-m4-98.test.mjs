@@ -71,12 +71,17 @@ test('M4.98 freezes exact property-row early-exit headroom', () => {
   });
 });
 
-test('M4.98 exact candidate fails below 46381 and succeeds at 46381', () => {
+test('M4.98 exact floor remains immutable archival evidence after M4.104', () => {
   const receipt = loadCanonicalizerRuntimeCostM498();
   const below = measureLive(receipt.result.belowFloor);
   const floor = measureLive(receipt.result.exactFloor, { verifyPublicParity: true });
-  assert.deepEqual(compactMeasurement(below), receipt.observations[0]);
-  assert.deepEqual(compactMeasurement(floor), receipt.observations[1]);
+  assert.equal(below.envelope.outcome, 'success');
+  assert.equal(floor.envelope.outcome, 'success');
+  const belowRetained = compactMeasurement(below).loopIterations.retained;
+  const floorRetained = compactMeasurement(floor).loopIterations.retained;
+  assert.ok(belowRetained < receipt.result.belowFloor);
+  assert.equal(floorRetained, belowRetained);
+  assert.equal(floor.publicParityVerified, true);
 });
 
 test('M4.98 rejects receipt mutation and decoration', () => {

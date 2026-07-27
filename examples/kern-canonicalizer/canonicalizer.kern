@@ -134,7 +134,7 @@ fn name=expressionsources params="valueTag:string[],valueParent:number[],valueRo
               if cond="kind == \"integer\" && fieldCount == 1 && valueId > 0 && stringat(valueId, valueTag) == \"int\" && validinteger(stringat(valueId, valueText)) && !Text.startsWith(stringat(valueId, valueText), \"-\")"
                 assign target=source value="stringat(valueId, valueText)"
               if cond="kind == \"text\" && fieldCount == 1 && valueId > 0 && stringat(valueId, valueTag) == \"text\""
-                assign target=source value="quotesource(stringat(valueId, valueText))"
+                assign target=source value="quotesource(stringat(valueId, valueText), false)"
               if cond="kind == \"binary\" && fieldCount == 3"
                 let name=leftRole value="\"record:left\""
                 let name=opRole value="\"record:op\""
@@ -352,7 +352,7 @@ fn name=canonicalize params="nodeKind:string[],nodeParent:number[],nodeOrder:num
           let name=paramType value="propid(childId, \"type\", propNode, propKey, propValue)"
           do value="lines.push(\"  param name=\" + structuralname(stringat(paramName, valueText)) + \" type=\" + typesource(paramType, false, valueTag, valueParent, valueRole, valueText))"
         else
-          do value="lines.push(\"  handler lang=\" + quotesource(\"kern\"))"
+          do value="lines.push(\"  handler lang=\" + quotesource(\"kern\", false))"
           let name=returnType value="typesource(returnsId, true, valueTag, valueParent, valueRole, valueText)"
           let name=statementLines value="emitstatementlist(childId, 2, returnType, nodeKind, nodeParent, nodeOrder, propNode, propKey, propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
           for name=s from=0 to="statementLines.length"

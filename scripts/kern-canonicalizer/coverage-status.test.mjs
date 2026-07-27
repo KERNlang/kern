@@ -52,6 +52,7 @@ import {
   formatM4101ResidualAnalysisStatus,
   formatM4102TripleRowHeadroomStatus,
   formatM4103RuntimeBottleneckStatus,
+  formatM4104RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -283,6 +284,22 @@ test('coverage status records the M4.103 committed-loop bottleneck diagnosis', (
     'M4.103 attributes the 6659-step production deficit to 6659 retained for-iterations with ' +
       '0 rolled back and 0 parent restarts; M4.104 reduces statement validation and emission ' +
       'traversal cost.',
+  );
+});
+
+test('coverage status records the M4.104 production-headroom reduction', () => {
+  assert.equal(
+    formatM4104RuntimeCostStatus({
+      result: {
+        exactFloor: 62_830,
+        floorReduction: 9_365,
+        productionHeadroom: 2_706,
+        promotionBudgetDeficit: 13_678,
+      },
+    }),
+    'M4.104 reduces the exact validstatement floor by 9365 to 62830, leaving 2706 production ' +
+      'headroom, but misses the promotion budget by 13678; M4.105 investigates the residual ' +
+      'runtime bottleneck.',
   );
 });
 

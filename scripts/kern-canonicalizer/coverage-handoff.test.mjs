@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and six-record prerequisite history through M4.103', () => {
+test('the current corpus preserves selection and six-record prerequisite history through M4.104', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -404,11 +404,11 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 53298, 'M4.98 must bind the exact current KERN byte count');
+  assert.equal(canonicalizerSource.length, 54786, 'M4.104 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807',
-    'M4.98 must bind the exact current KERN digest',
+    '9fb89f33f5b76d5b177d20318357c56a9624d4199915f877e78cd313f22bc13d',
+    'M4.104 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);

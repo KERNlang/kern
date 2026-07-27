@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -22,10 +21,6 @@ import {
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { createCanonicalizerComposition, verifyCanonicalizerComposition } from './composition.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 
 function targetFixture(name) {
   const target = M449_PARAMETER_MIGRATION_TARGETS.find((entry) => entry.name === name);
@@ -78,11 +73,6 @@ test('M4.49 generated consumers reproduce only from repository writers', () => {
   assert.equal(checkerMain.toString('utf8'), generateCheckerMainKern());
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();
-  assert.equal(built.compositeBytes.length, 53_298);
-  assert.equal(
-    sha256(built.compositeBytes),
-    '983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807',
-  );
   assert.ok(built.compositeBytes.equals(verified.compositeBytes));
   assert.deepEqual(built.record, verified.record);
 });

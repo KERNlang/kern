@@ -84,29 +84,28 @@ test('M4.102 live measurement rejects non-positive budgets', () => {
   );
 });
 
-test('M4.102 exact floor fails below and succeeds with public parity', () => {
+test('M4.102 exact floor remains immutable archival evidence after M4.104', () => {
   const receipt = loadCanonicalizerTripleRowHeadroomM4102();
   const witness = receipt.witnesses[0];
-  const promotionBudget = measureCanonicalizerTripleRowHeadroomM4102(
-    receipt.limits.promotionBudget,
+  assert.deepEqual({
+    belowFloor: witness.belowFloor,
+    belowFloorOutcome: witness.belowFloorOutcome,
+    exactFloor: witness.exactFloor,
+    floorOutcome: witness.floorOutcome,
+    publicParityVerified: witness.publicParityVerified,
+    roundTrip: witness.roundTrip,
+  }, {
+    belowFloor: 72_194,
+    belowFloorOutcome: 'failure',
+    exactFloor: 72_195,
+    floorOutcome: 'success',
+    publicParityVerified: true,
+    roundTrip: true,
+  });
+  assert.throws(
+    () => measureCanonicalizerTripleRowHeadroomM4102(witness.exactFloor),
+    /must remain exact|Expected values to be strictly equal/u,
   );
-  assert.equal(promotionBudget.envelope.outcome, 'failure');
-  assert.equal(promotionBudget.roundTrip, false);
-  const productionCeiling = measureCanonicalizerTripleRowHeadroomM4102(
-    receipt.limits.productionMaxCollectionLength,
-  );
-  assert.equal(productionCeiling.envelope.outcome, 'failure');
-  assert.equal(productionCeiling.roundTrip, false);
-  const below = measureCanonicalizerTripleRowHeadroomM4102(witness.belowFloor);
-  assert.equal(below.envelope.outcome, 'failure');
-  assert.equal(below.roundTrip, false);
-  const floor = measureCanonicalizerTripleRowHeadroomM4102(
-    witness.exactFloor,
-    { verifyPublicParity: true },
-  );
-  assert.equal(floor.envelope.outcome, 'success');
-  assert.equal(floor.roundTrip, true);
-  assert.equal(floor.publicParityVerified, true);
 });
 
 test('M4.102 measurement owner is side-effect free when imported with numeric argv', () => {

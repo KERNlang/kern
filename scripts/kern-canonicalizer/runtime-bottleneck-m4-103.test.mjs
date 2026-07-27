@@ -10,8 +10,6 @@ import {
   loadCanonicalizerRuntimeBottleneckM4103,
   validateCanonicalizerRuntimeBottleneckM4103,
 } from './runtime-bottleneck-m4-103.mjs';
-import { loadCanonicalizerTripleRowHeadroomM4102 } from './triple-row-headroom-m4-102.mjs';
-
 const receiptUrl = new URL('./runtime-bottleneck-m4-103.json', import.meta.url);
 const RECEIPT_DIGEST = 'a8f80c8d63cbaba2ff6d5d579d347ff9c489719e8f5170a95acadfbbfcd19488';
 
@@ -70,35 +68,20 @@ test('M4.103 live measurement rejects non-positive budgets', () => {
   );
 });
 
-test('M4.103 live observations reproduce the committed-loop diagnosis', () => {
+test('M4.103 observations remain immutable archival evidence after M4.104', () => {
   const receipt = loadCanonicalizerRuntimeBottleneckM4103();
-  const sum = (record) => Object.values(record).reduce((total, count) => total + count, 0);
-  for (const expected of receipt.observations) {
-    const actual = measureCanonicalizerRuntimeBottleneckM4103(expected.iterationBudget);
-    assert.equal(actual.envelope.outcome, expected.outcome);
-    assert.equal(actual.roundTrip, expected.roundTrip);
-    assert.equal(actual.observerParityVerified, true);
-    assert.deepEqual(actual.summary.cache, expected.cache);
-    assert.deepEqual(actual.summary.cacheKeyCodeUnits, expected.cacheKeyCodeUnits);
-    assert.deepEqual(actual.summary.loopIterations, {
-      attemptedByType: { for: expected.loopIterations.attemptedFor },
-      retained: expected.loopIterations.retained,
-      rolledBack: expected.loopIterations.rolledBack,
-    });
-    assert.equal(sum(actual.summary.helperExecutions), expected.helperExecutionCount);
-    assert.equal(sum(actual.summary.helperPreparations), expected.helperPreparationCount);
-    assert.equal(
-      sum(actual.summary.helperFrameSuspensions),
-      expected.helperFrameSuspensionCount,
-    );
-    for (const [name, count] of Object.entries(expected.selectedHelperExecutions)) {
-      assert.equal(actual.summary.helperExecutions[name] ?? 0, count, `${name} executions`);
-    }
-    for (const [name, count] of Object.entries(expected.selectedHelperPreparations)) {
-      assert.equal(actual.summary.helperPreparations[name] ?? 0, count, `${name} preparations`);
-    }
-    assert.deepEqual(actual.summary.parentRestarts, {});
-  }
+  assert.deepEqual(receipt.observations.map(({ iterationBudget, outcome, roundTrip }) => ({
+    iterationBudget,
+    outcome,
+    roundTrip,
+  })), [
+    { iterationBudget: 65_536, outcome: 'failure', roundTrip: false },
+    { iterationBudget: 72_195, outcome: 'success', roundTrip: true },
+  ]);
+  assert.throws(
+    () => measureCanonicalizerRuntimeBottleneckM4103(receipt.observations[1].iterationBudget),
+    /must remain exact|Expected values to be strictly equal/u,
+  );
 });
 
 test('M4.103 measurement owner is side-effect free with unrelated numeric argv', () => {
@@ -144,8 +127,11 @@ test('M4.103 rejects receipt mutation, decoration, and shared references', () =>
   );
 });
 
-test('M4.103 preserves M4.102 and loads canonically in a fresh process', () => {
-  const m4102 = loadCanonicalizerTripleRowHeadroomM4102();
+test('M4.103 preserves M4.102 bytes and loads canonically in a fresh process', () => {
+  const m4102 = JSON.parse(readFileSync(
+    new URL('./triple-row-headroom-m4-102.json', import.meta.url),
+    'utf8',
+  ));
   assert.equal(m4102.witnesses[0].exactFloor, 72_195);
   assert.equal(m4102.promotion.nextMilestone, 'M4.103');
   const receipt = loadCanonicalizerRuntimeBottleneckM4103();

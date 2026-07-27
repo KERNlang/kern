@@ -106,14 +106,10 @@ test('M4.101 published digest rejects canonical and decorated drift', () => {
   );
 });
 
-test('M4.101 preserves exact M4.95 history and reproduces from live M4.100 facts', () => {
+test('M4.101 preserves exact M4.95 history and remains archival after M4.104', () => {
   assert.equal(
     loadPublishedCanonicalizerResidualAnalysisM495().digest,
     'f69bbae69a3f25d059dcdc23e023f4432dcd23c19dc9e6228087811f178a4928',
-  );
-  assert.deepEqual(
-    measureCanonicalizerResidualAnalysisM4101(),
-    loadPublishedCanonicalizerResidualAnalysisM4101().record,
   );
   const publishedBytes = readFileSync(summaryUrl);
   const writer = spawnSync(
@@ -121,8 +117,13 @@ test('M4.101 preserves exact M4.95 history and reproduces from live M4.100 facts
     [fileURLToPath(new URL('./coverage-residual-analysis-m4-101.mjs', import.meta.url)), '--write'],
     { encoding: 'utf8' },
   );
-  assert.equal(writer.status, 0, writer.stderr);
+  assert.notEqual(writer.status, 0);
+  assert.match(writer.stderr, /live semantic facts must match the exact published M4\.100 input/u);
   assert.deepEqual(readFileSync(summaryUrl), publishedBytes);
+  assert.throws(
+    () => measureCanonicalizerResidualAnalysisM4101(),
+    /live semantic facts must match the exact published M4\.100 input/u,
+  );
 });
 
 test('M4.101 loads byte-identically in a fresh locale-independent process', () => {

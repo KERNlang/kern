@@ -214,6 +214,13 @@ export function formatM4103RuntimeBottleneckStatus(receipt) {
     'M4.104 reduces statement validation and emission traversal cost.';
 }
 
+export function formatM4104RuntimeCostStatus(receipt) {
+  return `M4.104 reduces the exact validstatement floor by ${receipt.result.floorReduction} to ` +
+    `${receipt.result.exactFloor}, leaving ${receipt.result.productionHeadroom} production headroom, ` +
+    `but misses the promotion budget by ${receipt.result.promotionBudgetDeficit}; ` +
+    'M4.105 investigates the residual runtime bottleneck.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

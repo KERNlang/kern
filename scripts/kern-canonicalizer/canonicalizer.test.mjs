@@ -20,10 +20,10 @@ const source = `${helperSource}${statementSource}${mainSource}`;
 const policyUrl = new URL('./policy.json', import.meta.url);
 
 function topLevelFunctionSource(member, name) {
-  const marker = `fn name=${name}`;
-  const start = member.indexOf(marker);
+  const marker = new RegExp(`^fn name=${name}(?: |$)`, 'mu').exec(member);
+  const start = marker?.index ?? -1;
   assert.ok(start >= 0, `missing top-level function ${name}`);
-  const next = member.indexOf('\nfn name=', start + marker.length);
+  const next = member.indexOf('\nfn name=', start + marker[0].length);
   return member.slice(start, next < 0 ? undefined : next);
 }
 
@@ -62,6 +62,26 @@ test('one-based scalar table lookup delegates to strict List.index without a sca
   assert.equal(numberAt.includes('for name='), false);
   assert.ok(stringAt.includes('List.index(values, id - 1) ?? \\\"\\\"'));
   assert.ok(numberAt.includes('List.index(values, id - 1) ?? -1'));
+});
+
+test('M4.104 statement emission sparsely quotes only previously validated canonical sources', () => {
+  const validatedQuote = topLevelFunctionSource(helperSource, 'quotesource');
+  const statementEmitter = topLevelFunctionSource(statementSource, 'emitstatement');
+  assert.equal((validatedQuote.match(/^\s+for\b/gmu) ?? []).length, 1);
+  assert.equal(validatedQuote.includes('quotesource('), false);
+  assert.equal((validatedQuote.match(/^\s+while\b/gmu) ?? []).length, 1);
+  assert.equal((validatedQuote.match(/Text\.indexOf\(/gu) ?? []).length, 6);
+  assert.equal((validatedQuote.match(/Text\.indexOf\(value,/gu) ?? []).length, 1);
+  assert.equal((validatedQuote.match(/Text\.slice\(/gu) ?? []).length, 2);
+  assert.equal((statementEmitter.match(/quotesource\(/gu) ?? []).length, 9);
+  assert.equal((statementEmitter.match(/, true\)/gu) ?? []).length, 9);
+});
+
+test('M4.104 child lookup starts at the authenticated parent row and returns immediately', () => {
+  const childAt = topLevelFunctionSource(helperSource, 'childat');
+  assert.ok(childAt.includes('for name=i from="parent" to="nodeParent.length"'));
+  assert.ok(childAt.includes('return value="i + 1"'));
+  assert.equal(childAt.includes('let name=result'), false);
 });
 
 test('M4.80 type projection delegates to one bounded value-table pass', () => {
@@ -173,8 +193,8 @@ test('counted-iteration validation and emission stay in the KERN statement membe
       `for emission omitted ${property}`,
     );
   }
-  assert.ok(emissionBranch.includes('quotesource(fromExpression)'), 'for emission must quote canonical from source');
-  assert.ok(emissionBranch.includes('quotesource(toExpression)'), 'for emission must quote canonical to source');
+  assert.ok(emissionBranch.includes('quotesource(fromExpression, true)'), 'for emission must quote validated canonical from source');
+  assert.ok(emissionBranch.includes('quotesource(toExpression, true)'), 'for emission must quote validated canonical to source');
 });
 
 test('binding validation and emission stay in the KERN statement member', () => {
@@ -208,8 +228,8 @@ test('binding validation and emission stay in the KERN statement member', () => 
   assert.ok(validationSource.includes('exprsource(targetId'), 'assignment targets need recursive expression validation');
   assert.ok(emissionSource.includes('let name=targetExpression'), 'binding emission must canonicalize targets');
   assert.ok(emissionSource.includes('let name=valueExpression'), 'binding emission must canonicalize values');
-  assert.ok(emissionSource.includes('quotesource(targetExpression)'), 'binding emission must quote canonical targets');
-  assert.ok(emissionSource.includes('quotesource(valueExpression)'), 'binding emission must quote canonical values');
+  assert.ok(emissionSource.includes('quotesource(targetExpression, true)'), 'binding emission must quote validated canonical targets');
+  assert.ok(emissionSource.includes('quotesource(valueExpression, true)'), 'binding emission must quote validated canonical values');
 });
 
 test('do validation and emission stay in the KERN statement member', () => {
@@ -227,7 +247,7 @@ test('do validation and emission stay in the KERN statement member', () => {
   assert.ok(validationSource.includes('propcount(id, propNode) != 1'), 'do must reject every extra property');
   assert.ok(validationSource.includes('exprsource(valueId'), 'do values need recursive expression validation');
   assert.ok(emissionSource.includes('let name=expression value="exprsource(valueId'), 'do emission must canonicalize value');
-  assert.ok(emissionSource.includes('\\"do value=\\" + quotesource(expression)'), 'do emission must quote canonical value');
+  assert.ok(emissionSource.includes('\\"do value=\\" + quotesource(expression, true)'), 'do emission must quote validated canonical value');
 });
 
 test('while-iteration validation and emission stay in the KERN statement member', () => {
@@ -245,7 +265,7 @@ test('while-iteration validation and emission stay in the KERN statement member'
   assert.ok(validationSource.includes('exprsource(condId'), 'while conditions need recursive expression validation');
   assert.ok(validationSource.includes('validstatementlist(id'), 'while bodies must validate recursively');
   assert.ok(emissionSource.includes('let name=condition value="exprsource(condId'), 'while emission must canonicalize cond');
-  assert.ok(emissionSource.includes('\\"while cond=\\" + quotesource(condition)'), 'while emission must quote canonical cond');
+  assert.ok(emissionSource.includes('\\"while cond=\\" + quotesource(condition, true)'), 'while emission must quote validated canonical cond');
 });
 
 test('binary ownership stays in main and mechanically matches the structural operator catalog', () => {

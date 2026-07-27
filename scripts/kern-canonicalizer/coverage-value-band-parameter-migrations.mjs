@@ -91,13 +91,13 @@ const TARGETS = [
     profileRows: { nodes: 8, properties: 11, values: 100 },
   },
   {
-    bodyDigest: '862e4ce7a39ae520c3bd4d11049f0dce1b384e5ebb8c0a9bfe3073c8ee64202d',
+    bodyDigest: 'a014ce94940e3d42f85de6bb4cee27058e286819e5deac0fd56dff7c83096047',
     functionOrdinal: 6,
     id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#6:structuralname',
     name: 'structuralname',
     parameters: [['value', 'string']],
     path: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
-    profileRows: { nodes: 10, properties: 16, values: 104 },
+    profileRows: { nodes: 10, properties: 16, values: 108 },
   },
   {
     bodyDigest: 'ef591ebe676adfa16adf50f0a95aeb26bc94fb95b20b9b95f435842384179f38',
