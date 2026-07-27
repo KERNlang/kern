@@ -144,6 +144,14 @@ export function formatM492ResidualAnalysisStatus(selectedNextAction) {
   );
 }
 
+export function formatM495ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus(
+    'M4.95 published analysis',
+    selectedNextAction,
+    '; M4.96 investigates the remaining runtime bottleneck before any profile promotion',
+  );
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

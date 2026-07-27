@@ -43,6 +43,7 @@ import {
   formatM492ResidualAnalysisStatus,
   formatM493RuntimeCostStatus,
   formatM494ParameterMigrationStatus,
+  formatM495ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -153,6 +154,17 @@ test('coverage status records the M4.94 tablesok parameter migration', () => {
     }),
     'M4.94 consumes the exact M4.93 1-function/12-row parameter queue and advances the cumulative ' +
       'base to 89/109; M4.95 remeasures the bounded residual frontier.',
+  );
+});
+
+test('coverage status records the M4.95 structural recommendation without claiming headroom', () => {
+  assert.equal(
+    formatM495ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxPropertyRows', 'maxValueRows'],
+    }),
+    'M4.95 published analysis selected 1 function by maxPropertyRows+maxValueRows widening; ' +
+      'M4.96 investigates the remaining runtime bottleneck before any profile promotion.',
   );
 });
 
