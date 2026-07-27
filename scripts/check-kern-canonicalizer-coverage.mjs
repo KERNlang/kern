@@ -116,6 +116,9 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM4101,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-101.mjs';
 import {
+  loadPublishedCanonicalizerResidualAnalysisM4109,
+} from './kern-canonicalizer/coverage-residual-analysis-m4-109.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -235,6 +238,7 @@ import {
   formatM4106RuntimeCostStatus,
   formatM4107TripleRowPromotionStatus,
   formatM4108ParameterMigrationStatus,
+  formatM4109ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -261,6 +265,7 @@ const m492ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-
 const m493RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-93.json', import.meta.url);
 const m495ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-95.json', import.meta.url);
 const m4101ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-101.json', import.meta.url);
+const m4109ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-109.json', import.meta.url);
 const m496RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-96.json', import.meta.url);
 const m4103RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-103.json', import.meta.url);
 const m4104RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-104.json', import.meta.url);
@@ -328,6 +333,8 @@ const m495ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4
 const m495ResidualAnalysis = m495ResidualAnalysisHandoff.record;
 const m4101ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4101();
 const m4101ResidualAnalysis = m4101ResidualAnalysisHandoff.record;
+const m4109ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4109();
+const m4109ResidualAnalysis = m4109ResidualAnalysisHandoff.record;
 const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
 const m4103RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4103();
 const m4104RuntimeCost = loadCanonicalizerRuntimeCostM4104();
@@ -1268,6 +1275,24 @@ if (process.argv.includes('--write')) {
       'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement',
     ],
   });
+  assertCoverageSummary(m4109ResidualAnalysisUrl, m4109ResidualAnalysis);
+  assert.equal(
+    m4109ResidualAnalysisHandoff.digest,
+    'ad6240c77ed276d1f865beb702ceeb7c85767191dbaa3cf36f526505c4e555fb',
+  );
+  assert.equal(
+    m4109ResidualAnalysisHandoff.inputCommit,
+    '88e311ac5565ed424f71bb2f9ed7a18333a5e8e4',
+  );
+  assert.equal(m4109ResidualAnalysis.assignments.length, 15);
+  assert.equal(
+    m4109ResidualAnalysis.assignmentsDigest,
+    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
+  );
+  assert.equal(m4109ResidualAnalysis.frontier.evaluatedObservedSettings, 0);
+  assert.equal(m4109ResidualAnalysis.frontier.profileRowsAvailableFunctions, 0);
+  assert.deepEqual(m4109ResidualAnalysis.frontier.actionableCandidates, []);
+  assert.equal(m4109ResidualAnalysis.selectedNextAction, null);
   assertCoverageSummary(m496RuntimeBottleneckUrl, m496RuntimeBottleneck);
   assert.deepEqual(m496RuntimeBottleneck.diagnosis, {
     additionalBudget: 500,
@@ -1711,6 +1736,7 @@ process.stdout.write(
   ` ${formatM4108ParameterMigrationStatus({
     parameterMigration: m4107ParameterMigration(),
   })}` +
+  ` ${formatM4109ResidualAnalysisStatus(m4109ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

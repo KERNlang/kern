@@ -1,0 +1,169 @@
+{
+  "assignments": [
+    {
+      "id": "examples/capstone-assertion-engine/compare.kern#2:compareList",
+      "parameterRows": 13,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "assertion-engine"
+    },
+    {
+      "id": "examples/capstone-assertion-engine/compare.kern#3:compareMap",
+      "parameterRows": 13,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "assertion-engine"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker-while.kern#11:lengthReceiverProven",
+      "parameterRows": 12,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker-while.kern#9:numericBindingProven",
+      "parameterRows": 16,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#17:paramCallsitesOk",
+      "parameterRows": 23,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#20:mapKeyToken",
+      "parameterRows": 9,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#21:mapKnownBefore",
+      "parameterRows": 12,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#24:checkModule",
+      "parameterRows": 58,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#2:rejectLine",
+      "parameterRows": 5,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "parameterRows": 2,
+      "profileRows": null,
+      "reasons": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff",
+        "projection.limit-depth"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement",
+      "parameterRows": 15,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+      "parameterRows": 6,
+      "profileRows": null,
+      "reasons": [
+        "let.value:unknown-expression-kind",
+        "projection.unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize",
+      "parameterRows": 15,
+      "profileRows": null,
+      "reasons": [
+        "projection.unknown-expression-kind",
+        "throw.value:unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#15:exportkind",
+      "parameterRows": 21,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "validator"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#20:validate",
+      "parameterRows": 41,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-nodes"
+      ],
+      "tool": "validator"
+    }
+  ],
+  "assignmentsDigest": "f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203",
+  "baseline": {
+    "baseCompleteFunctions": 92,
+    "baseId": "kern.kir-canonicalizer.profile.m4.60",
+    "coverageImplementationDigest": "f06254bfd88d53c1887c014689e5a7de451fb5540e04c8dc1c30b27380e42143",
+    "coveragePolicyDigest": "0285747660651cab2ee1029456dc40c190c42d2515937fa6d3534247df363b54",
+    "currentProfileLimits": {
+      "maxNodeRows": 89,
+      "maxPropertyRows": 125,
+      "maxValueRows": 2100
+    },
+    "functionFactsDigest": "d5fa84e9d8cca79d2352ae106a533dd489291b670ab27ad4adc7e70010a2e214",
+    "legacyParameterBlockers": 15,
+    "residualFunctionCount": 15
+  },
+  "format": "kern.kir-canonicalizer.residual-analysis.3",
+  "frontier": {
+    "actionableCandidates": [],
+    "evaluatedObservedSettings": 0,
+    "profileRowsAvailableFunctions": 0
+  },
+  "selectedNextAction": null
+}

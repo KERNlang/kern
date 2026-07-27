@@ -251,6 +251,14 @@ export function formatM4108ParameterMigrationStatus({ parameterMigration }) {
     'base to 92/111 with 15 legacy-parameter blockers; the next residual analysis follows.';
 }
 
+export function formatM4109ResidualAnalysisStatus(selectedNextAction) {
+  if (selectedNextAction !== null) {
+    return formatResidualAnalysisStatus('M4.109 published analysis', selectedNextAction);
+  }
+  return 'M4.109 published analysis found no actionable profile widening; ' +
+    'M4.110 investigates the authenticated projection blockers.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

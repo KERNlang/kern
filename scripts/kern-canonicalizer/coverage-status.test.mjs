@@ -56,6 +56,7 @@ import {
   formatM4105RuntimeBottleneckStatus,
   formatM4106RuntimeCostStatus,
   formatM4107TripleRowPromotionStatus,
+  formatM4109ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -253,6 +254,21 @@ test('coverage status records the M4.101 structural recommendation', () => {
     'M4.101 published analysis selected 1 function by ' +
       'maxNodeRows+maxPropertyRows+maxValueRows widening; ' +
       'M4.102 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.109 terminal profile frontier', () => {
+  assert.equal(
+    formatM4109ResidualAnalysisStatus(null),
+    'M4.109 published analysis found no actionable profile widening; ' +
+      'M4.110 investigates the authenticated projection blockers.',
+  );
+  assert.equal(
+    formatM4109ResidualAnalysisStatus({
+      completeFunctions: 1,
+      changedLimits: ['maxNodeRows'],
+    }),
+    'M4.109 published analysis selected 1 function by maxNodeRows widening.',
   );
 });
 
