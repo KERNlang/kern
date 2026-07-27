@@ -119,6 +119,21 @@ test('M4.93 table validation delegates to three independent boolean linear-pass 
   assert.equal(tableOwner.includes('validinteger('), false);
 });
 
+test('M4.98 authenticates property order before bounded lookup early exits', () => {
+  const propertyFacts = topLevelFunctionSource(mainSource, 'propertyfacts');
+  const propertyId = topLevelFunctionSource(helperSource, 'propid');
+  const propertyCount = topLevelFunctionSource(helperSource, 'propcount');
+  assert.ok(propertyFacts.includes(
+    'propertyIndex > 0 && propNode[propertyIndex] < propNode[propertyIndex - 1]',
+  ));
+  assert.ok(propertyId.includes('if cond="propNode[i] > node"'));
+  assert.ok(propertyId.includes('return value="result"'));
+  assert.ok(propertyId.startsWith('fn name=propid returns=number export=false'));
+  assert.ok(propertyCount.includes('if cond="propNode[i] > node"'));
+  assert.ok(propertyCount.includes('return value="count"'));
+  assert.ok(propertyCount.startsWith('fn name=propcount returns=number export=false'));
+});
+
 test('conditional validation and emission stay in the KERN statement member', () => {
   for (const owned of ['validstatementlist', 'validstatement', 'emitstatementlist', 'emitstatement']) {
     assert.ok(statementSource.includes(`fn name=${owned}`), `missing KERN-owned conditional helper ${owned}`);

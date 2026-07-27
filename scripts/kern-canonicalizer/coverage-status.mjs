@@ -165,6 +165,13 @@ export function formatM497RuntimeCostStatus(receipt) {
     `${receipt.result.promotionBudgetDeficit}; M4.98 reduces the remaining runtime cost.`;
 }
 
+export function formatM498RuntimeCostStatus(receipt) {
+  return `M4.98 authenticates property-row ordering and reduces the exact floor by ` +
+    `${receipt.result.floorReduction} to ${receipt.result.exactFloor}, leaving ` +
+    `${receipt.result.promotionBudgetHeadroom} promotion-budget headroom; ` +
+    'M4.99 authenticates the profile promotion.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

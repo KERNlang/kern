@@ -402,6 +402,8 @@ fn name=propertyfacts returns=boolean export=true
     for name=propertyIndex from=0 to="propNode.length"
       if cond="propNode[propertyIndex] < 1 || propNode[propertyIndex] > nodeKind.length || propValue[propertyIndex] < 1 || propValue[propertyIndex] > valueTag.length"
         return value="false"
+      if cond="propertyIndex > 0 && propNode[propertyIndex] < propNode[propertyIndex - 1]"
+        return value="false"
       let name=propertyKey value="String(propNode[propertyIndex]) + \":\" + String(Text.length(propKey[propertyIndex])) + \":\" + propKey[propertyIndex]"
       if cond="Map.has(propertyKeys, propertyKey)"
         return value="false"

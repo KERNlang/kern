@@ -1,0 +1,135 @@
+{
+  "baseline": {
+    "implementationBaseCommit": "98b023acb48a69deb92c6c3407d948099388517b",
+    "m497ReceiptSha256": "9b0d7ce9b03c1b8f54e701172c66cb3b834fa9476e346d8ba25e82bf21549e71",
+    "priorExactFloor": 53086,
+    "priorPromotionBudgetDeficit": 3934
+  },
+  "format": "kern.kir-canonicalizer.runtime-cost-reduction.5",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 77,
+      "maxValueRows": 580
+    },
+    "candidateProfile": {
+      "maxNodeRows": 74,
+      "maxPropertyRows": 95,
+      "maxValueRows": 832
+    },
+    "maxDepth": 64,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152
+  },
+  "observations": [
+    {
+      "cache": {
+        "hits": 4893,
+        "misses": 4260
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 32003,
+        "total": 38906648
+      },
+      "expressionsources": {
+        "executions": 1,
+        "preparations": 36
+      },
+      "frameSuspensions": 1817,
+      "iterationBudget": 46380,
+      "loopIterations": {
+        "attempted": 46380,
+        "retained": 46380,
+        "rolledBack": 0
+      },
+      "outcome": "failure",
+      "propertyHelpers": {
+        "propcountExecutions": 53,
+        "propidExecutions": 96
+      },
+      "publicParityVerified": false,
+      "selectedFrameSuspensions": {
+        "expressionsources->numberat": 27,
+        "expressionsources->quotesource": 10,
+        "expressionsources->stringat": 1165,
+        "expressionsources->validbinaryop": 3,
+        "expressionsources->validexpressionidentifier": 36
+      }
+    },
+    {
+      "cache": {
+        "hits": 4893,
+        "misses": 4260
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 32003,
+        "total": 38906648
+      },
+      "expressionsources": {
+        "executions": 1,
+        "preparations": 36
+      },
+      "frameSuspensions": 1817,
+      "iterationBudget": 46381,
+      "loopIterations": {
+        "attempted": 46381,
+        "retained": 46381,
+        "rolledBack": 0
+      },
+      "outcome": "success",
+      "propertyHelpers": {
+        "propcountExecutions": 53,
+        "propidExecutions": 96
+      },
+      "publicParityVerified": true,
+      "selectedFrameSuspensions": {
+        "expressionsources->numberat": 27,
+        "expressionsources->quotesource": 10,
+        "expressionsources->stringat": 1165,
+        "expressionsources->validbinaryop": 3,
+        "expressionsources->validexpressionidentifier": 36
+      }
+    }
+  ],
+  "optimization": {
+    "logicalLoopReduction": 6705,
+    "propertyLoopUpperBoundBefore": 14155,
+    "propertyOrderAuthenticated": true,
+    "runtimeEngineChanged": false,
+    "strategy": "authenticate-nondecreasing-property-owners-and-exit-passed-owner"
+  },
+  "promotion": {
+    "disposition": "promotion-budget-headroom-authenticated",
+    "nextMilestone": "M4.99",
+    "profilePromotionApproved": false,
+    "promotionReady": true
+  },
+  "result": {
+    "belowFloor": 46380,
+    "belowFloorOutcome": "failure",
+    "exactFloor": 46381,
+    "floorOutcome": "success",
+    "floorReduction": 6705,
+    "productionHeadroom": 19155,
+    "promotionBudgetHeadroom": 2771,
+    "roundTrip": true
+  },
+  "source": {
+    "compositeSha256": "983eed5c8841b0cdf41a0b678734f2457c97545a88607969acc9fd4dcc1fc807",
+    "compositionRecordSha256": "f3ce080a976c8764a68417b9845deaa47bb30515e260d48fd415f1ea621a824a",
+    "expressionHelpersSha256": "47c72251301f56db86b84e80dcfa6d88915855ff717b1aacac87648593a2b0f4",
+    "mainSourceSha256": "2980bbec0ba1d835983ea3f5ca5497aa28e110650d68225502d4be92f8b52d68",
+    "measurementHarnessSha256": "c314c15dc7e9fc722dc128b6bc849eb116f59fb108fa18d7bcd5ca58c874bcd0",
+    "measurementOwnerSha256": "629c291e670c0bd645e8bfd8b4ddc1ad6009383b71e7b6c5c7ffb88af5d57f58",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "witness": {
+    "id": "examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk",
+    "parameterRows": 24,
+    "structuralRows": {
+      "nodes": 53,
+      "properties": 95,
+      "values": 832
+    }
+  }
+}

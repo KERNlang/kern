@@ -62,12 +62,17 @@ test('M4.97 freezes the exact resumable helper-frame runtime reduction', () => {
   });
 });
 
-test('M4.97 exact candidate fails below 53086 and succeeds at 53086', () => {
+test('M4.97 live floor reproduction is archival after the M4.98 source optimization', () => {
   const receipt = loadCanonicalizerRuntimeCostM497();
   const below = measureLive(receipt.result.belowFloor);
   const floor = measureLive(receipt.result.exactFloor, { verifyPublicParity: true });
-  assert.deepEqual(compactMeasurement(below), receipt.observations[0]);
-  assert.deepEqual(compactMeasurement(floor), receipt.observations[1]);
+  assert.equal(below.envelope.outcome, 'success');
+  assert.equal(floor.envelope.outcome, 'success');
+  const belowRetained = compactMeasurement(below).loopIterations.retained;
+  const floorRetained = compactMeasurement(floor).loopIterations.retained;
+  assert.ok(belowRetained < receipt.result.belowFloor);
+  assert.equal(floorRetained, belowRetained);
+  assert.equal(floor.publicParityVerified, true);
 });
 
 test('M4.97 rejects receipt mutation and decoration', () => {

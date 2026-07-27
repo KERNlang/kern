@@ -115,6 +115,7 @@ function quadraticTablesOk(tables) {
   }
   for (let i = 0; i < propNode.length; i += 1) {
     if (propNode[i] < 1 || propNode[i] > nodeKind.length || propValue[i] < 1 || propValue[i] > valueTag.length) return false;
+    if (i > 0 && propNode[i] < propNode[i - 1]) return false;
     if (valueParent[propValue[i] - 1] !== 0 || valueRole[propValue[i] - 1] !== '') return false;
     for (let j = i + 1; j < propNode.length; j += 1) {
       if (propNode[j] === propNode[i] && propKey[j] === propKey[i]) return false;
@@ -198,6 +199,12 @@ function recordChildren(tables, minimum = 2) {
   throw new Error(`missing record with ${minimum} children`);
 }
 
+function swapPropertyRows(tables, left, right) {
+  for (const key of ['propNode', 'propKey', 'propValue']) {
+    [tables[key][left], tables[key][right]] = [tables[key][right], tables[key][left]];
+  }
+}
+
 test('M4.80 keeps the exact M4.43 15/24/154 witness below its published floor', () => {
   const { bytes, policy } = exactWitness();
   assert.deepEqual(policy.profileLimits, {
@@ -237,6 +244,8 @@ test('M4.41 preserves the M4.39 Map-index table decisions', () => {
   const nestedValue = base.valueParent.findIndex((parent) => parent > 0) + 1;
   const listChild = base.valueParent.findIndex((parent) => parent > 0 && base.valueTag[parent - 1] === 'list');
   const scalar = base.valueTag.findIndex((tag) => ['null', 'bool', 'text', 'int'].includes(tag)) + 1;
+  const laterProperty = base.propNode.findIndex((owner) => owner > base.propNode[0]);
+  assert.ok(laterProperty > 0);
 
   const cases = [
     { id: 'exact-valid-witness', expected: true, tables: base },
@@ -263,6 +272,12 @@ test('M4.41 preserves the M4.39 Map-index table decisions', () => {
     {
       id: 'duplicate-property-key', expected: false,
       tables: copyWith(base, (tables) => { tables.propKey[sameNodeProperties[1]] = tables.propKey[sameNodeProperties[0]]; }),
+    },
+    {
+      id: 'decreasing-property-owner', expected: false,
+      tables: copyWith(base, (tables) => {
+        swapPropertyRows(tables, 0, laterProperty);
+      }),
     },
     {
       id: 'duplicate-value-order', expected: false,

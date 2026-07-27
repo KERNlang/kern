@@ -169,7 +169,7 @@ zero verified, needs-check, or speculative findings and four non-blocking nits.
 - [x] Active profile and runtime/KIR/policy limits remain unchanged.
 - [x] Focused, complete, and full Node 22 KERN 5 gates pass.
 - [x] Independent high-risk review has no unresolved verified blocker.
-- [ ] Signed commit is fetched/rebased before one atomic no-verify push; both
+- [x] Signed commit was fetched/rebased before one atomic no-verify push; both
       remote hashes verify identically.
 
 ## Stop Conditions

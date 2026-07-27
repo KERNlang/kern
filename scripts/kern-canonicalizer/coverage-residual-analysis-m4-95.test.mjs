@@ -123,18 +123,19 @@ test('M4.95 preserves exact M4.92 and M4.93 history', () => {
   );
 });
 
-test('M4.95 receipt reproduces through the repository writer', () => {
+test('M4.95 receipt remains archival after the M4.98 source frontier changes', () => {
   const publishedBytes = readFileSync(summaryUrl);
   const writer = spawnSync(
     process.execPath,
     [fileURLToPath(new URL('./coverage-residual-analysis-m4-95.mjs', import.meta.url)), '--write'],
     { encoding: 'utf8' },
   );
-  assert.equal(writer.status, 0, writer.stderr);
+  assert.notEqual(writer.status, 0);
+  assert.match(writer.stderr, /live semantic facts must match the exact published M4\.94 input/u);
   assert.deepEqual(readFileSync(summaryUrl), publishedBytes);
-  assert.deepEqual(
-    measureCanonicalizerResidualAnalysisM495(),
-    loadPublishedCanonicalizerResidualAnalysisM495().record,
+  assert.throws(
+    () => measureCanonicalizerResidualAnalysisM495(),
+    /live semantic facts must match the exact published M4\.94 input/u,
   );
 });
 

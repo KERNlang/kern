@@ -46,6 +46,7 @@ import {
   formatM495ResidualAnalysisStatus,
   formatM496RuntimeBottleneckStatus,
   formatM497RuntimeCostStatus,
+  formatM498RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -196,6 +197,20 @@ test('coverage status records the M4.97 resumable-frame reduction and promotion 
     }),
     'M4.97 removes parent-frame replay and authenticates exact floor 53086 with 12450 production ' +
       'headroom, but misses the promotion budget by 3934; M4.98 reduces the remaining runtime cost.',
+  );
+});
+
+test('coverage status records the M4.98 property-row reduction and promotion headroom', () => {
+  assert.equal(
+    formatM498RuntimeCostStatus({
+      result: {
+        exactFloor: 46_381,
+        floorReduction: 6_705,
+        promotionBudgetHeadroom: 2_771,
+      },
+    }),
+    'M4.98 authenticates property-row ordering and reduces the exact floor by 6705 to 46381, ' +
+      'leaving 2771 promotion-budget headroom; M4.99 authenticates the profile promotion.',
   );
 });
 

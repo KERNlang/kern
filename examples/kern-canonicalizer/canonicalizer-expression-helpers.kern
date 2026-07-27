@@ -91,12 +91,14 @@ fn name=structuralname returns=string export=true
         return value="quotesource(value)"
     return value="value"
 
-fn name=propcount returns=number export=true
+fn name=propcount returns=number export=false
   param name=node type=number
   param name=propNode type=number[]
   handler lang="kern"
     let name=count value="0"
     for name=i from=0 to="propNode.length"
+      if cond="propNode[i] > node"
+        return value="count"
       if cond="propNode[i] == node"
         assign target=count value="count + 1"
     return value="count"
@@ -113,7 +115,7 @@ fn name=numberat returns=number export=true
   handler lang="kern"
     return value="List.index(values, id - 1) ?? -1"
 
-fn name=propid returns=number export=true
+fn name=propid returns=number export=false
   param name=node type=number
   param name=key type=string
   param name=propNode type="number[]"
@@ -122,6 +124,8 @@ fn name=propid returns=number export=true
   handler lang="kern"
     let name=result value="0"
     for name=i from=0 to="propNode.length"
+      if cond="propNode[i] > node"
+        return value="result"
       if cond="propNode[i] == node && propKey[i] == key"
         if cond="result != 0"
           return value="-1"

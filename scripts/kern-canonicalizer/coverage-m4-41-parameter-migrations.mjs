@@ -49,7 +49,7 @@ export const M441_PARAMETER_MIGRATION_TARGETS = [
     profileRows: { nodes: 15, properties: 24, values: 128 },
   },
   {
-    bodyDigest: 'f02fed980a682f4574252f1015cee90a2e4dcadbcb4e111b7d676f06c14e8189',
+    bodyDigest: 'a4056136b79bbb1c2f02a62661fffa48c4089cd7ecadf673a6f05e9e04eadd7b',
     functionOrdinal: 10,
     id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#10:propid',
     name: 'propid',
@@ -58,7 +58,7 @@ export const M441_PARAMETER_MIGRATION_TARGETS = [
       ['propKey', 'string[]'], ['propValue', 'number[]'],
     ],
     path: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
-    profileRows: { nodes: 14, properties: 25, values: 126 },
+    profileRows: { nodes: 16, properties: 27, values: 150 },
   },
   {
     bodyDigest: '1c945218c6dfbd07e0f9d61273f825af79f5721e70524ae5c446c8386052824b',

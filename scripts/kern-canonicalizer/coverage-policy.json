@@ -101,7 +101,7 @@
       "tool": "checker"
     },
     {
-      "digest": "1a1ae1f95e20b458021bf78b82f6b0d1cbe639579fcdd64c6709f1c741ce35e4",
+      "digest": "47c72251301f56db86b84e80dcfa6d88915855ff717b1aacac87648593a2b0f4",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -113,7 +113,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "8c4266b646738c7a07dcc252bd8426adee299bff62542b5b484d5fb1c7a92ae1",
+      "digest": "2980bbec0ba1d835983ea3f5ca5497aa28e110650d68225502d4be92f8b52d68",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
