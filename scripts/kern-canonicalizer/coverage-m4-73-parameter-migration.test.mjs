@@ -13,6 +13,7 @@ import {
 import {
   assertM473ParameterMigration,
   assertM473ParameterTarget,
+  M4106_VALIDSTATEMENTLIST_LIVE_TARGET,
   M473_PARAMETER_MIGRATION_TARGET,
 } from './coverage-m4-73-parameter-migration.mjs';
 import {
@@ -27,7 +28,7 @@ function sha256(bytes) {
 }
 
 function targetFixture() {
-  const target = M473_PARAMETER_MIGRATION_TARGET;
+  const target = M4106_VALIDSTATEMENTLIST_LIVE_TARGET;
   const source = readFileSync(new URL(`../../${target.path}`, import.meta.url), 'utf8');
   const document = parseDocumentWithDiagnostics(source);
   assert.deepEqual(document.diagnostics, []);

@@ -232,6 +232,12 @@ export function formatM4105RuntimeBottleneckStatus(receipt) {
     'M4.106 consolidates authenticated statement property and child-count access.';
 }
 
+export function formatM4106RuntimeCostStatus(receipt) {
+  return `M4.106 reduces the exact validstatement floor by ${receipt.result.floorReduction} to ` +
+    `${receipt.result.exactFloor}, leaving ${receipt.result.promotionBudgetHeadroom} promotion-budget ` +
+    `headroom with one statement-table projection execution; M4.107 authenticates the profile promotion.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

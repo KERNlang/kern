@@ -84,6 +84,44 @@ test('M4.104 child lookup starts at the authenticated parent row and returns imm
   assert.equal(childAt.includes('let name=result'), false);
 });
 
+test('M4.106 statement access delegates to one memoizable authenticated fact pass', () => {
+  const statementTableFacts = topLevelFunctionSource(helperSource, 'statementtablefacts');
+  const statementFacts = topLevelFunctionSource(helperSource, 'statementfacts');
+  assert.equal((statementTableFacts.match(/^\s+for\b/gmu) ?? []).length, 2);
+  assert.ok(statementTableFacts.includes('if cond="nodeParent.length > rowCount"'));
+  assert.ok(statementTableFacts.includes('for name=i from=0 to="rowCount"'));
+  assert.ok(statementTableFacts.includes('let name=nodeCount value="nodeParent.length + 1"'));
+  assert.ok(statementTableFacts.includes('for name=node from=0 to="nodeCount"'));
+  assert.ok(statementTableFacts.includes('return value="facts"'));
+  for (const field of ['valueIds', 'nameIds', 'targetIds', 'condIds', 'fromIds', 'toIds']) {
+    assert.ok(
+      statementTableFacts.includes(`if cond="Map.has(${field}, nodeKey)"`),
+      `${field} must retain duplicate-property rejection`,
+    );
+    assert.ok(
+      statementTableFacts.includes(`Map.set(${field}, String(propNode[i]), -1)`),
+      `${field} duplicate must retain the -1 sentinel`,
+    );
+  }
+  assert.equal((statementFacts.match(/^\s+for\b/gmu) ?? []).length, 0);
+  assert.ok(statementFacts.includes('statementtablefacts(nodeParent, propNode, propKey, propValue)'));
+  assert.equal((statementFacts.match(/numberat\(/gu) ?? []).length, 8);
+  assert.ok(statementFacts.includes(
+    'return value="[childCount, propertyCount, valueId, nameId, targetId, condId, fromId, toId]"',
+  ));
+
+  for (const owner of ['validstatementlist', 'validstatement', 'emitstatementlist', 'emitstatement']) {
+    const ownerSource = topLevelFunctionSource(statementSource, owner);
+    assert.ok(ownerSource.includes('statementfacts('), `${owner} must use the shared projected facts`);
+    assert.equal(ownerSource.includes('propid('), false, `${owner} must not rescan properties by key`);
+    assert.equal(ownerSource.includes('propcount('), false, `${owner} must not recount properties`);
+    assert.equal(ownerSource.includes('childcount('), false, `${owner} must not recount children`);
+  }
+  const validation = topLevelFunctionSource(statementSource, 'validstatement');
+  assert.ok(validation.includes('let name=kind value="stringat(id, nodeKind)"'));
+  assert.ok(validation.includes('if cond="kind == \\"return\\""'));
+});
+
 test('M4.80 type projection delegates to one bounded value-table pass', () => {
   const typeSource = topLevelFunctionSource(mainSource, 'typesource');
   const typeFields = topLevelFunctionSource(helperSource, 'typefields');
@@ -172,13 +210,13 @@ test('counted-iteration validation and emission stay in the KERN statement membe
   const validationEnd = statementSource.indexOf('\nfn name=emitstatementlist', validationStart);
   assert.ok(validationStart >= 0 && validationEnd > validationStart, 'missing KERN-owned for validation branch');
   const validationBranch = statementSource.slice(validationStart, validationEnd);
-  for (const property of ['from', 'name', 'to']) {
+  for (const [property, index] of [['from', 6], ['name', 3], ['to', 7]]) {
     assert.ok(
-      validationBranch.includes(`propid(id, \\"${property}\\", propNode, propKey, propValue)`),
+      validationBranch.includes(`let name=${property}Id value="facts[${index}]"`),
       `for validation omitted ${property}`,
     );
   }
-  assert.ok(validationBranch.includes('propcount(id, propNode) != 3'), 'for must reject step and future properties');
+  assert.ok(validationBranch.includes('facts[1] != 3'), 'for must reject step and future properties');
   assert.ok(validationBranch.includes('!valididentifier(name)'), 'for names must remain identifier-shaped');
   assert.ok(validationBranch.includes('Text.indexOf(name, \\"$\\") >= 0'), 'for names must remain cross-target');
   assert.ok(validationBranch.includes('validstatementlist(id'), 'for bodies must validate recursively');
@@ -187,9 +225,9 @@ test('counted-iteration validation and emission stay in the KERN statement membe
   const emissionEnd = statementSource.indexOf('let name=children', emissionStart);
   assert.ok(emissionStart >= 0 && emissionEnd > emissionStart, 'missing KERN-owned for emission branch');
   const emissionBranch = statementSource.slice(emissionStart, emissionEnd);
-  for (const property of ['from', 'name', 'to']) {
+  for (const [property, index] of [['from', 6], ['name', 3], ['to', 7]]) {
     assert.ok(
-      emissionBranch.includes(`propid(id, \\"${property}\\", propNode, propKey, propValue)`),
+      emissionBranch.includes(`let name=${property}Id value="facts[${index}]"`),
       `for emission omitted ${property}`,
     );
   }
@@ -205,20 +243,20 @@ test('binding validation and emission stay in the KERN statement member', () => 
     assert.ok(validationSource.includes(`if cond="kind == \\"${kind}\\""`), `missing KERN-owned ${kind} validation`);
     assert.ok(emissionSource.includes(`if cond="kind == \\"${kind}\\""`), `missing KERN-owned ${kind} emission`);
   }
-  for (const property of ['name', 'value']) {
+  for (const [property, index] of [['name', 3], ['value', 2]]) {
     assert.ok(
-      validationSource.includes(`propid(id, \\"${property}\\", propNode, propKey, propValue)`),
+      validationSource.includes(`let name=${property}Id value="facts[${index}]"`),
       `let validation omitted ${property}`,
     );
   }
-  for (const property of ['target', 'value']) {
+  for (const [property, index] of [['target', 4], ['value', 2]]) {
     assert.ok(
-      validationSource.includes(`propid(id, \\"${property}\\", propNode, propKey, propValue)`),
+      validationSource.includes(`let name=${property}Id value="facts[${index}]"`),
       `assign validation omitted ${property}`,
     );
   }
-  assert.ok(validationSource.includes('propcount(id, propNode) != 2'), 'bindings must reject optional metadata');
-  assert.ok(validationSource.includes('structuralname(name)'), 'let names must retain structural identifier ownership');
+  assert.ok(validationSource.includes('facts[1] != 2'), 'bindings must reject optional metadata');
+  assert.ok(validationSource.includes('structuralname(stringat(nameId, valueText))'), 'let names must retain structural identifier ownership');
   for (const targetKind of ['identifier', 'member', 'index']) {
     assert.ok(
       validationSource.includes(`targetKind != \\"${targetKind}\\"`),
@@ -236,15 +274,11 @@ test('do validation and emission stay in the KERN statement member', () => {
   const validationEnd = statementSource.indexOf('\nfn name=emitstatementlist');
   const validationSource = statementSource.slice(0, validationEnd);
   const emissionSource = statementSource.slice(validationEnd);
-  const branch = 'if cond="kind == \\"do\\""';
-  assert.ok(validationSource.includes(branch), 'missing KERN-owned do validation');
-  assert.ok(emissionSource.includes(branch), 'missing KERN-owned do emission');
-  assert.ok(validationSource.includes('childcount(id, nodeParent) != 0'), 'do must reject child statements');
-  assert.ok(
-    validationSource.includes('propid(id, \\"value\\", propNode, propKey, propValue)'),
-    'do validation omitted value',
-  );
-  assert.ok(validationSource.includes('propcount(id, propNode) != 1'), 'do must reject every extra property');
+  assert.ok(validationSource.includes('if cond="kind == \\"do\\""'), 'missing KERN-owned do validation');
+  assert.ok(emissionSource.includes('if cond="kind == \\"do\\""'), 'missing KERN-owned do emission');
+  assert.ok(validationSource.includes('facts[0] != 0'), 'do must reject child statements');
+  assert.ok(validationSource.includes('let name=valueId value="facts[2]"'), 'do validation omitted value');
+  assert.ok(validationSource.includes('facts[1] != 1'), 'do must reject every extra property');
   assert.ok(validationSource.includes('exprsource(valueId'), 'do values need recursive expression validation');
   assert.ok(emissionSource.includes('let name=expression value="exprsource(valueId'), 'do emission must canonicalize value');
   assert.ok(emissionSource.includes('\\"do value=\\" + quotesource(expression, true)'), 'do emission must quote validated canonical value');
@@ -254,14 +288,10 @@ test('while-iteration validation and emission stay in the KERN statement member'
   const validationEnd = statementSource.indexOf('\nfn name=emitstatementlist');
   const validationSource = statementSource.slice(0, validationEnd);
   const emissionSource = statementSource.slice(validationEnd);
-  const branch = 'if cond="kind == \\"while\\""';
-  assert.ok(validationSource.includes(branch), 'missing KERN-owned while validation');
-  assert.ok(emissionSource.includes(branch), 'missing KERN-owned while emission');
-  assert.ok(
-    validationSource.includes('propid(id, \\"cond\\", propNode, propKey, propValue)'),
-    'while validation omitted cond',
-  );
-  assert.ok(validationSource.includes('propcount(id, propNode) != 1'), 'while must reject every extra property');
+  assert.ok(validationSource.includes('if cond="kind == \\"while\\""'), 'missing KERN-owned while validation');
+  assert.ok(emissionSource.includes('if cond="kind == \\"while\\""'), 'missing KERN-owned while emission');
+  assert.ok(validationSource.includes('let name=condId value="facts[5]"'), 'while validation omitted cond');
+  assert.ok(validationSource.includes('facts[1] != 1'), 'while must reject every extra property');
   assert.ok(validationSource.includes('exprsource(condId'), 'while conditions need recursive expression validation');
   assert.ok(validationSource.includes('validstatementlist(id'), 'while bodies must validate recursively');
   assert.ok(emissionSource.includes('let name=condition value="exprsource(condId'), 'while emission must canonicalize cond');

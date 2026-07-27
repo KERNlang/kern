@@ -3,37 +3,52 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-import { loadCanonicalizerRuntimeBottleneckM4103 } from './runtime-bottleneck-m4-103.mjs';
+import { loadCanonicalizerRuntimeBottleneckM4105 } from './runtime-bottleneck-m4-105.mjs';
 
-const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.6';
-const RECEIPT_DIGEST = 'eace33240c8425569685d76530e4b59ec5b07fa874572a93458ea5e17f84ec92';
-const SUMMARY_URL = new URL('./runtime-cost-m4-104.json', import.meta.url);
-const M4103_RECEIPT_DIGEST =
-  'a8f80c8d63cbaba2ff6d5d579d347ff9c489719e8f5170a95acadfbbfcd19488';
+const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.7';
+const RECEIPT_DIGEST = '827525373e1716137b53e322c913ec7dcb4f8ea0cd12dc1d8d77605c692a886a';
+const SUMMARY_URL = new URL('./runtime-cost-m4-106.json', import.meta.url);
+const M4105_RECEIPT_DIGEST =
+  '06538ef420d2374ecf39f5b12d775189c73cfa11a66a3ef460cf795c273db7e0';
 const WITNESS_ID =
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement';
 const SOURCE_DIGESTS = {
   canonicalizerCompositeSha256:
-    '9fb89f33f5b76d5b177d20318357c56a9624d4199915f877e78cd313f22bc13d',
+    'c68131992b98a4c2a78b9404f537180e1959e88a3116d5513d989ea7a1418f47',
   compiledCoreJavaScriptSha256:
     '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
   compositionRecordSha256:
-    '0e4b18086df8f0a6cabaa7b9daaa80acad34bea1badf361ab1649f7bf8f35789',
+    '11b218a5477fc6c4e7d2b8fd0f9c8c208facd472f300e214c25f83bb5799770c',
   expressionHelpersSha256:
-    '3c0c38daa48946926f28a797bb38f3f45291f12dd90656989dbd587819d828e3',
+    'bdb40cb0006af0e92b3a4383c7c71a3df7e417fda1569a1860d8f9a65d08ee52',
   mainSourceSha256:
     '23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195',
   measurementSha256:
-    '876db33173e52f3a24647f75596f041b61174003fcefd2dffef7b120e43f7459',
+    '0c847478ae7f774b9fdd79ad830116b8ebc6e769bc39b11f4f7ba3097d3b3d30',
   runtimePolicySha256:
     '687f8ca3a3e1458bd6c3d3b7baacde4614c6a7eff78bb9d4071027f4311cfc09',
   statementHelpersSha256:
-    'a91390500b1d7e2bb3749d537001eb49d64fa809bd22fae13763b2e6c21f716c',
+    'fd2dc3cddf57509244dfc4210bbcc106727a80422b379cfd21d09ee90e1d67b2',
 };
+const SOURCE_URLS = {
+  canonicalizerCompositeSha256:
+    new URL('../../examples/kern-canonicalizer/canonicalizer.composed.kern', import.meta.url),
+  compositionRecordSha256: new URL('./composition.json', import.meta.url),
+  expressionHelpersSha256:
+    new URL('../../examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', import.meta.url),
+  mainSourceSha256:
+    new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
+  measurementSha256: new URL('./runtime-cost-m4-106-measure.mjs', import.meta.url),
+  runtimePolicySha256: new URL('./policy.json', import.meta.url),
+  statementHelpersSha256:
+    new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url),
+};
+
 function fail(message) {
-  throw new TypeError(`coverage M4.104 runtime-cost rejection: ${message}`);
+  throw new TypeError(`coverage M4.106 runtime-cost rejection: ${message}`);
 }
 
 function canonicalBytes(value) {
@@ -54,9 +69,7 @@ function assertPlainReceiptData(value, seen = new Set()) {
   if (seen.has(value)) fail('receipt data must not contain cycles or shared references');
   seen.add(value);
   if (Array.isArray(value)) {
-    if (Object.getPrototypeOf(value) !== Array.prototype) {
-      fail('receipt arrays must use the plain prototype');
-    }
+    if (Object.getPrototypeOf(value) !== Array.prototype) fail('receipt arrays must use the plain prototype');
     const ownKeys = Reflect.ownKeys(value);
     const enumerableKeys = Object.keys(value);
     if (
@@ -90,17 +103,25 @@ function assertPlainReceiptData(value, seen = new Set()) {
 }
 
 function exactInputs() {
-  const m4103Bytes = readFileSync(new URL('./runtime-bottleneck-m4-103.json', import.meta.url));
-  if (digest(m4103Bytes) !== M4103_RECEIPT_DIGEST) fail('M4.103 receipt bytes must remain exact');
-  const m4103 = loadCanonicalizerRuntimeBottleneckM4103();
+  const m4105Bytes = readFileSync(new URL('./runtime-bottleneck-m4-105.json', import.meta.url));
+  if (digest(m4105Bytes) !== M4105_RECEIPT_DIGEST) fail('M4.105 receipt bytes must remain exact');
+  const m4105 = loadCanonicalizerRuntimeBottleneckM4105();
   if (
-    m4103.witness.id !== WITNESS_ID ||
-    m4103.limits.exactFloor !== 72_195 ||
-    m4103.limits.productionMaxCollectionLength !== 65_536 ||
-    m4103.limits.promotionBudget !== 49_152 ||
-    m4103.promotion.profilePromotionApproved
+    m4105.witness.id !== WITNESS_ID ||
+    m4105.limits.exactFloor !== 62_830 ||
+    m4105.limits.productionMaxCollectionLength !== 65_536 ||
+    m4105.limits.promotionBudget !== 49_152 ||
+    m4105.promotion.profilePromotionApproved
   ) {
-    fail('M4.103 runtime-bottleneck handoff must remain exact');
+    fail('M4.105 runtime-bottleneck handoff must remain exact');
+  }
+  if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
+    fail('compiled core JavaScript executed by the measurement must remain exact');
+  }
+  for (const [name, url] of Object.entries(SOURCE_URLS)) {
+    if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
+      fail(`${name} executed by the measurement must remain exact`);
+    }
   }
   const policy = loadCanonicalizerPolicy();
   if (
@@ -114,16 +135,16 @@ function exactInputs() {
   ) {
     fail('active profile and runtime/KIR limits must remain unchanged');
   }
-  return { m4103, policy };
+  return { m4105, policy };
 }
 
 function observation(iterationBudget, outcome, forIterations) {
   return {
-    cache: { hits: 8_603, misses: 8_682 },
-    cacheKeyCodeUnits: { maximum: 79_416, total: 203_553_701 },
+    cache: { hits: 8_429, misses: 8_864 },
+    cacheKeyCodeUnits: { maximum: 70_828, total: 170_165_093 },
     iterationBudget,
     loopIterations: {
-      attemptedByType: { for: forIterations, while: 104 },
+      attemptedByType: { for: forIterations, while: 93 },
       retained: iterationBudget,
       rolledBack: 0,
     },
@@ -133,28 +154,31 @@ function observation(iterationBudget, outcome, forIterations) {
     roundTrip: outcome === 'success',
     selectedHelperExecutions: {
       childat: 89,
-      childcount: 90,
+      childcount: 17,
       emitstatement: 73,
       emitstatementlist: 27,
-      quotesource: 65,
+      numberat: 661,
+      propcount: 16,
+      propid: 32,
+      statementfacts: 74,
+      statementtablefacts: 1,
       validstatement: 73,
       validstatementlist: 27,
     },
   };
 }
 
-export function buildCanonicalizerRuntimeCostM4104() {
-  const { m4103, policy } = exactInputs();
-  const exactFloor = 62_830;
+export function buildCanonicalizerRuntimeCostM4106() {
+  const { m4105, policy } = exactInputs();
+  const exactFloor = 39_016;
   const productionMaxCollectionLength = policy.runtimeLimits.maxCollectionLength;
   const promotionBudget = Math.floor(productionMaxCollectionLength * 3 / 4);
   return {
     baseline: {
-      implementationBaseCommit: '7c341bb2ece7900617ea16715bf881650624fcf8',
-      m4103ReceiptSha256: M4103_RECEIPT_DIGEST,
-      priorExactFloor: m4103.limits.exactFloor,
-      priorProductionCeilingDeficit: m4103.baseline.productionCeilingDeficit,
-      priorPromotionBudgetDeficit: m4103.baseline.promotionBudgetDeficit,
+      implementationBaseCommit: '80c67172d02cc4983855874aa29098a770820953',
+      m4105ReceiptSha256: M4105_RECEIPT_DIGEST,
+      priorExactFloor: m4105.limits.exactFloor,
+      priorPromotionBudgetDeficit: m4105.diagnosis.additionalRetainedIterations,
     },
     format: FORMAT,
     limits: {
@@ -166,31 +190,32 @@ export function buildCanonicalizerRuntimeCostM4104() {
       promotionBudget,
     },
     observations: [
-      observation(exactFloor - 1, 'failure', 62_725),
-      observation(exactFloor, 'success', 62_726),
+      observation(exactFloor - 1, 'failure', 38_922),
+      observation(exactFloor, 'success', 38_923),
     ],
     optimization: {
-      exactFloorReduction: m4103.limits.exactFloor - exactFloor,
-      parentBeforeChildAuthenticated: true,
-      quoteEscapeLoopIterations: 104,
+      exactFloorReduction: m4105.limits.exactFloor - exactFloor,
+      helperFunctionsAdded: 2,
+      projectedFactSlotsPerNode: 8,
       runtimeEngineChanged: false,
+      statementTableProjectionExecutions: 1,
       strategy:
-        'sparse-validated-source-quoting-with-dense-backslash-fallback-and-parent-bounded-child-lookup',
+        'table-wide-authenticated-statement-fact-projection-with-fixed-node-view',
     },
     promotion: {
-      disposition: 'production-headroom-authenticated-promotion-budget-no-go',
-      nextMilestone: 'M4.105',
+      disposition: 'promotion-budget-headroom-authenticated',
+      nextMilestone: 'M4.107',
       profilePromotionApproved: false,
-      promotionReady: false,
+      promotionReady: true,
     },
     result: {
       belowFloor: exactFloor - 1,
       belowFloorOutcome: 'failure',
       exactFloor,
       floorOutcome: 'success',
-      floorReduction: m4103.limits.exactFloor - exactFloor,
+      floorReduction: m4105.limits.exactFloor - exactFloor,
       productionHeadroom: productionMaxCollectionLength - exactFloor,
-      promotionBudgetDeficit: exactFloor - promotionBudget,
+      promotionBudgetHeadroom: promotionBudget - exactFloor,
       roundTrip: true,
     },
     source: {
@@ -200,16 +225,16 @@ export function buildCanonicalizerRuntimeCostM4104() {
     witness: {
       id: WITNESS_ID,
       parameterRows: 14,
-      structuralRows: { nodes: 89, properties: 125, values: 2_100 },
+      structuralRows: { nodes: 89, properties: 125, values: 1_873 },
     },
   };
 }
 
-export function validateCanonicalizerRuntimeCostM4104(value) {
+export function validateCanonicalizerRuntimeCostM4106(value) {
   assertPlainReceiptData(value);
-  const expected = buildCanonicalizerRuntimeCostM4104();
+  const expected = buildCanonicalizerRuntimeCostM4106();
   if (digest(canonicalBytes(expected)) !== RECEIPT_DIGEST) {
-    fail('measured evidence must match the exact M4.104 receipt digest');
+    fail('measured evidence must match the exact M4.106 receipt digest');
   }
   if (!canonicalBytes(value).equals(canonicalBytes(expected))) {
     fail('receipt must match authenticated evidence exactly');
@@ -217,7 +242,7 @@ export function validateCanonicalizerRuntimeCostM4104(value) {
   return structuredClone(value);
 }
 
-export function loadCanonicalizerRuntimeCostM4104() {
+export function loadCanonicalizerRuntimeCostM4106() {
   const path = fileURLToPath(SUMMARY_URL);
   const stat = lstatSync(path, { throwIfNoEntry: false });
   if (stat === undefined || !stat.isFile() || realpathSync(path) !== path) {
@@ -230,7 +255,7 @@ export function loadCanonicalizerRuntimeCostM4104() {
   } catch {
     fail('receipt must be valid JSON');
   }
-  const result = validateCanonicalizerRuntimeCostM4104(parsed);
+  const result = validateCanonicalizerRuntimeCostM4106(parsed);
   if (!source.equals(canonicalBytes(result))) fail('receipt must use canonical JSON bytes');
   return result;
 }
@@ -240,5 +265,5 @@ if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.m
   if (process.argv.length !== 3 || process.argv[2] !== '--write') {
     fail('direct invocation requires exactly --write');
   }
-  writeCoverageSummary(SUMMARY_URL, buildCanonicalizerRuntimeCostM4104());
+  writeCoverageSummary(SUMMARY_URL, buildCanonicalizerRuntimeCostM4106());
 }

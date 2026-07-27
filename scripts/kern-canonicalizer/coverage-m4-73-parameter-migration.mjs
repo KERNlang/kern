@@ -33,10 +33,19 @@ export const M473_PARAMETER_MIGRATION_TARGET = {
   returns: 'boolean',
 };
 
+// M473_PARAMETER_MIGRATION_TARGET remains the immutable M4.72 handoff. This
+// separately named target binds the M4.106 live body/profile without making
+// either historical field an ignored input to the target assertion.
+export const M4106_VALIDSTATEMENTLIST_LIVE_TARGET = {
+  ...M473_PARAMETER_MIGRATION_TARGET,
+  bodyDigest: '317e8041dc31d5d7a432276e3c7d4848ccd5f392633b1f70a41f58c3627054fe',
+  profileRows: { nodes: 32, properties: 55, values: 395 },
+};
+
 export function assertM473ParameterTarget(
   root,
   fact,
-  target = M473_PARAMETER_MIGRATION_TARGET,
+  target = M4106_VALIDSTATEMENTLIST_LIVE_TARGET,
 ) {
   assert.ok(root);
   assert.equal(root.props.name, target.name);
@@ -60,7 +69,7 @@ export function assertM473ParameterTarget(
 }
 
 export function assertM473ParameterMigration(receipt) {
-  const target = M473_PARAMETER_MIGRATION_TARGET;
+  const target = M4106_VALIDSTATEMENTLIST_LIVE_TARGET;
   const roots = parameterMigrationRoots([target]).get(target.path);
   const fact = receipt.functions.find(({ id }) => id === target.id);
   assertM473ParameterTarget(roots[target.functionOrdinal], fact, target);

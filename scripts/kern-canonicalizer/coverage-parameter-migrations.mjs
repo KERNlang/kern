@@ -243,7 +243,7 @@ export function assertStructuredParameterMigrations(receipt) {
   ];
   const expressionHelperTargets = expressionHelperRoots.filter(({ props }) =>
     expressionHelperTargetNames.includes(props.name));
-  assert.equal(expressionHelperRoots.length, 17);
+  assert.equal(expressionHelperRoots.length, 19);
   assert.deepEqual(expressionHelperTargets.map(({ props }) => props.name), expressionHelperTargetNames);
   assert.equal(expressionHelperTargets.every(({ props }) => props.params === undefined), true);
   assert.deepEqual(

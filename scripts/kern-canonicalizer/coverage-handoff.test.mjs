@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and six-record prerequisite history through M4.105', () => {
+test('the current corpus preserves selection and six-record prerequisite history through M4.106', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -380,11 +380,11 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.equal(implementation.record.snapshot.corpusMembers, 8);
   assert.equal(implementation.record.snapshot.functionCount, 99);
   assert.equal(receipt.corpus.length, 9);
-  assert.equal(receipt.functions.length, 109);
+  assert.equal(receipt.functions.length, 111);
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 90);
+  assert.equal(receipt.baseCompleteFunctions, 91);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
@@ -404,11 +404,11 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 54786, 'M4.104 must bind the exact current KERN byte count');
+  assert.equal(canonicalizerSource.length, 59417, 'M4.106 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '9fb89f33f5b76d5b177d20318357c56a9624d4199915f877e78cd313f22bc13d',
-    'M4.104 must bind the exact current KERN digest',
+    'c68131992b98a4c2a78b9404f537180e1959e88a3116d5513d989ea7a1418f47',
+    'M4.106 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);

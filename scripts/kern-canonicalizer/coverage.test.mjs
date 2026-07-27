@@ -175,7 +175,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.match(first.corpusDigest, /^[0-9a-f]{64}$/u);
   assert.equal(first.corpus.length, policy.corpus.length);
   assert.equal(first.corpus.length, 9);
-  assert.equal(first.functions.length, 109);
+  assert.equal(first.functions.length, 111);
   assert.deepEqual(
     first.corpus.filter(({ path }) => CANONICALIZER_COMPOSITION_MEMBERS.includes(path)).map(({ path }) => path),
     CANONICALIZER_COMPOSITION_MEMBERS,
@@ -216,7 +216,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assertM482ParameterMigration(first);
   assertM491ParameterMigrations(first);
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 16);
-  assert.equal(first.baseCompleteFunctions, 90);
+  assert.equal(first.baseCompleteFunctions, 91);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0]);
   assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['exception-flow']);

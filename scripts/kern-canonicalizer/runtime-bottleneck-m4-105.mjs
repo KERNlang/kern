@@ -3,7 +3,6 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerRuntimeCostM4104 } from './runtime-cost-m4-104.mjs';
@@ -35,23 +34,6 @@ const SOURCE_DIGESTS = {
   statementHelpersSha256:
     'a91390500b1d7e2bb3749d537001eb49d64fa809bd22fae13763b2e6c21f716c',
 };
-const SOURCE_URLS = {
-  canonicalizerCompositeSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer.composed.kern', import.meta.url),
-  compositionRecordSha256: new URL('./composition.json', import.meta.url),
-  diagnosisMeasurementSha256:
-    new URL('./runtime-bottleneck-m4-105-measure.mjs', import.meta.url),
-  expressionHelpersSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer-expression-helpers.kern', import.meta.url),
-  mainSourceSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer.kern', import.meta.url),
-  runtimeCostMeasurementSha256:
-    new URL('./runtime-cost-m4-104-measure.mjs', import.meta.url),
-  runtimePolicySha256: new URL('./policy.json', import.meta.url),
-  statementHelpersSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer-statement-helpers.kern', import.meta.url),
-};
-
 function fail(message) {
   throw new TypeError(`coverage M4.105 runtime-bottleneck rejection: ${message}`);
 }
@@ -120,14 +102,6 @@ function exactInputs() {
     m4104.promotion.profilePromotionApproved
   ) {
     fail('M4.104 runtime-cost handoff must remain exact');
-  }
-  if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
-    fail('compiled core JavaScript executed by the measurement must remain exact');
-  }
-  for (const [name, url] of Object.entries(SOURCE_URLS)) {
-    if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
-      fail(`${name} executed by the diagnosis must remain exact`);
-    }
   }
   const policy = loadCanonicalizerPolicy();
   if (

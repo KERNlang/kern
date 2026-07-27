@@ -81,8 +81,8 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 }
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
-  assert.equal(coverage.baseCompleteFunctions, 90);
-  assert.equal(coverage.functions.length, 109);
+  assert.equal(coverage.baseCompleteFunctions, 91);
+  assert.equal(coverage.functions.length, 111);
   assert.deepEqual(
     coverage.functions
       .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))

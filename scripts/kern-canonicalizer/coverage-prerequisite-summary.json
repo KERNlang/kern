@@ -1,16 +1,16 @@
 {
   "baseline": {
-    "baseCompleteFunctions": 90,
+    "baseCompleteFunctions": 91,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
-    "canonicalizerDigest": "9fb89f33f5b76d5b177d20318357c56a9624d4199915f877e78cd313f22bc13d",
+    "canonicalizerDigest": "c68131992b98a4c2a78b9404f537180e1959e88a3116d5513d989ea7a1418f47",
     "canonicalizerPolicyDigest": "687f8ca3a3e1458bd6c3d3b7baacde4614c6a7eff78bb9d4071027f4311cfc09",
     "compiledCoreDigest": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
-    "corpusDigest": "df9552b1761e81b82dabf3a65b9717cbd434ceeb635756dbf9bec85bda22b716",
-    "coverageImplementationDigest": "e3c6f3927402fd350f199807bb83ccdbb736053df60022b96d810eb52296d755",
-    "coveragePolicyDigest": "bda2c9ea5d0584fa1575a2bf9bfbf0a6711e6d687f844a8aa8b85d4be24d2c5b",
+    "corpusDigest": "e010d72da07a6dd27b5a9350662741b2c07cd7a494b287e03099cdbbe420fe1e",
+    "coverageImplementationDigest": "030549d28c2c828704f35f40114c5a01a0ae001d0bfc3fe8fdca0cfaf5b72f9c",
+    "coveragePolicyDigest": "e383dab550cde5f284ad68ff0061d09bc9958b008658800bfbd0d3144dda2a5c",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
-    "functionCount": 109,
-    "functionFactsDigest": "5eb321214ec429e8a98f756208f27598fead2c161dfeef07d23e334f37e33ee3",
+    "functionCount": 111,
+    "functionFactsDigest": "27d6e84f0261eda857793c51515367fd1ceda74aed5c0dad73afeb4e5edf97c7",
     "legacyParameterBlockers": 16,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4

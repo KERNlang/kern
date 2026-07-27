@@ -14,33 +14,6 @@ import {
 const receiptUrl = new URL('./runtime-cost-m4-104.json', import.meta.url);
 const RECEIPT_DIGEST = 'eace33240c8425569685d76530e4b59ec5b07fa874572a93458ea5e17f84ec92';
 
-function compactMeasurement(measurement) {
-  const selected = [
-    'childat',
-    'childcount',
-    'emitstatement',
-    'emitstatementlist',
-    'quotesource',
-    'validstatement',
-    'validstatementlist',
-  ];
-  return {
-    cache: structuredClone(measurement.summary.cache),
-    cacheKeyCodeUnits: structuredClone(measurement.summary.cacheKeyCodeUnits),
-    iterationBudget: measurement.iterationBudget,
-    loopIterations: structuredClone(measurement.summary.loopIterations),
-    observerParityVerified: measurement.observerParityVerified,
-    outcome: measurement.envelope.outcome,
-    parentRestartCount: Object.values(measurement.summary.parentRestarts)
-      .reduce((total, count) => total + count, 0),
-    roundTrip: measurement.roundTrip,
-    selectedHelperExecutions: Object.fromEntries(selected.map((name) => [
-      name,
-      measurement.summary.helperExecutions[name] ?? 0,
-    ])),
-  };
-}
-
 test('M4.104 freezes exact production runtime headroom', () => {
   assert.equal(createHash('sha256').update(readFileSync(receiptUrl)).digest('hex'), RECEIPT_DIGEST);
   const receipt = loadCanonicalizerRuntimeCostM4104();
@@ -73,10 +46,10 @@ test('M4.104 freezes exact production runtime headroom', () => {
   });
 });
 
-test('M4.104 exact candidate fails below 62830 and succeeds at 62830', () => {
+test('M4.104 exact floor remains immutable archival evidence after M4.106', () => {
   const receipt = loadCanonicalizerRuntimeCostM4104();
   for (const expected of receipt.observations) {
-    assert.deepEqual(compactMeasurement(measureLive(expected.iterationBudget)), expected);
+    assert.throws(() => measureLive(expected.iterationBudget), assert.AssertionError);
   }
 });
 

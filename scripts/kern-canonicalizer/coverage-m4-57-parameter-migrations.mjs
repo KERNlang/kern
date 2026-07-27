@@ -137,25 +137,42 @@ export const M457_PARAMETER_MIGRATION_TARGETS = [
   },
 ];
 
+const M4106_EMITSTATEMENTLIST_ID =
+  'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#3:emitstatementlist';
+const M4106_EMITSTATEMENTLIST_LIVE_FACTS = {
+  bodyDigest: 'e733217b70bba3f58f904836457f1fde36febb8abfe99315de1c7b1190f7998e',
+  profileRows: { nodes: 26, properties: 52, values: 260 },
+};
+
+function currentM457Target(target) {
+  // The exported M4.57 queue is immutable historical evidence. M4.106 changed
+  // only this function body/profile, so live-source guards bind its new facts
+  // explicitly without rewriting the published queue.
+  return target.id === M4106_EMITSTATEMENTLIST_ID
+    ? { ...target, ...M4106_EMITSTATEMENTLIST_LIVE_FACTS }
+    : target;
+}
+
 export function assertM457ParameterTarget(root, fact, target) {
+  const currentTarget = currentM457Target(target);
   assert.ok(root);
-  assert.equal(root.props.name, target.name);
+  assert.equal(root.props.name, currentTarget.name);
   assert.equal(root.props.params, undefined);
-  assert.equal(root.props.returns, target.returns);
-  assert.equal(root.props.export, target.exported ? 'true' : undefined);
+  assert.equal(root.props.returns, currentTarget.returns);
+  assert.equal(root.props.export, currentTarget.exported ? 'true' : undefined);
   assert.equal(root.__quotedProps?.includes('params') ?? false, false);
-  assert.equal(root.__quotedProps?.includes('returns') ?? false, target.quotedReturns);
-  assertDirectParameterPrefix(root, target.parameters);
-  assert.equal(semanticBodyDigest(root), target.bodyDigest);
+  assert.equal(root.__quotedProps?.includes('returns') ?? false, currentTarget.quotedReturns);
+  assertDirectParameterPrefix(root, currentTarget.parameters);
+  assert.equal(semanticBodyDigest(root), currentTarget.bodyDigest);
 
   assert.ok(fact);
-  assert.equal(fact.id, target.id);
+  assert.equal(fact.id, currentTarget.id);
   assert.equal(fact.excludedProperties.includes('fn.params'), false);
   assert.deepEqual(fact.profileBlockers, []);
-  assert.deepEqual(fact.profileRows, target.profileRows);
+  assert.deepEqual(fact.profileRows, currentTarget.profileRows);
   assert.equal(
     fact.nodeOccurrences.filter((kind) => kind === 'param').length,
-    target.parameters.length,
+    currentTarget.parameters.length,
   );
 }
 

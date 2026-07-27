@@ -121,7 +121,8 @@ function exactInputs() {
   ).toString('utf8');
   const helperStart = helperSource.indexOf('fn name=typefields returns="number[]" export=true\n');
   if (helperStart < 0) fail('typefields helper identity must remain exact');
-  const typeFields = helperSource.slice(helperStart);
+  const helperEnd = helperSource.indexOf('\nfn name=', helperStart + 1);
+  const typeFields = helperSource.slice(helperStart, helperEnd < 0 ? undefined : helperEnd);
   if ((typeFields.match(/^\s+for\b/gmu) ?? []).length !== 1) {
     fail('typefields must contain exactly one value-table loop');
   }

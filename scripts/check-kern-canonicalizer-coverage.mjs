@@ -121,6 +121,9 @@ import {
   loadCanonicalizerRuntimeBottleneckM4105,
 } from './kern-canonicalizer/runtime-bottleneck-m4-105.mjs';
 import {
+  loadCanonicalizerRuntimeCostM4106,
+} from './kern-canonicalizer/runtime-cost-m4-106.mjs';
+import {
   loadCanonicalizerRuntimeCostM497,
 } from './kern-canonicalizer/runtime-cost-m4-97.mjs';
 import {
@@ -219,6 +222,7 @@ import {
   formatM4103RuntimeBottleneckStatus,
   formatM4104RuntimeCostStatus,
   formatM4105RuntimeBottleneckStatus,
+  formatM4106RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -250,6 +254,8 @@ const m4103RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottlene
 const m4104RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-104.json', import.meta.url);
 const m4105RuntimeBottleneckUrl =
   new URL('./kern-canonicalizer/runtime-bottleneck-m4-105.json', import.meta.url);
+const m4106RuntimeCostUrl =
+  new URL('./kern-canonicalizer/runtime-cost-m4-106.json', import.meta.url);
 const m497RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-97.json', import.meta.url);
 const m498RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-98.json', import.meta.url);
 const m488DualRowHeadroomUrl = new URL('./kern-canonicalizer/dual-row-headroom-m4-88.json', import.meta.url);
@@ -314,6 +320,7 @@ const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
 const m4103RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4103();
 const m4104RuntimeCost = loadCanonicalizerRuntimeCostM4104();
 const m4105RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4105();
+const m4106RuntimeCost = loadCanonicalizerRuntimeCostM4106();
 const m496RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM496();
 const m497RuntimeCost = loadCanonicalizerRuntimeCostM497();
 const m498RuntimeCost = loadCanonicalizerRuntimeCostM498();
@@ -488,9 +495,9 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 109, 'live M4.94 authored function count must remain exact');
+  assert.equal(actual.functionCount, 111, 'live M4.106 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 90, 'live M4.100 base completion must remain exactly 90/109');
+  assert.equal(actual.baseCompleteFunctions, 91, 'live M4.106 base completion must remain exactly 91/111');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     16,
@@ -1320,8 +1327,21 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: false,
   });
-  assert.equal(actual.baseCompleteFunctions, 90);
-  assert.equal(actual.functionCount, 109);
+  assertCoverageSummary(m4106RuntimeCostUrl, m4106RuntimeCost);
+  assert.equal(m4106RuntimeCost.result.exactFloor, 39_016);
+  assert.equal(m4106RuntimeCost.result.floorReduction, 23_814);
+  assert.equal(m4106RuntimeCost.result.productionHeadroom, 26_520);
+  assert.equal(m4106RuntimeCost.result.promotionBudgetHeadroom, 10_136);
+  assert.equal(m4106RuntimeCost.optimization.statementTableProjectionExecutions, 1);
+  assert.equal(m4106RuntimeCost.optimization.runtimeEngineChanged, false);
+  assert.deepEqual(m4106RuntimeCost.promotion, {
+    disposition: 'promotion-budget-headroom-authenticated',
+    nextMilestone: 'M4.107',
+    profilePromotionApproved: false,
+    promotionReady: true,
+  });
+  assert.equal(actual.baseCompleteFunctions, 91);
+  assert.equal(actual.functionCount, 111);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
   assert.equal(m497RuntimeCost.result.exactFloor, 53_086);
@@ -1662,6 +1682,7 @@ process.stdout.write(
   ` ${formatM4103RuntimeBottleneckStatus(m4103RuntimeBottleneck)}` +
   ` ${formatM4104RuntimeCostStatus(m4104RuntimeCost)}` +
   ` ${formatM4105RuntimeBottleneckStatus(m4105RuntimeBottleneck)}` +
+  ` ${formatM4106RuntimeCostStatus(m4106RuntimeCost)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

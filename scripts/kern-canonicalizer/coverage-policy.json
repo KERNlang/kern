@@ -101,13 +101,13 @@
       "tool": "checker"
     },
     {
-      "digest": "3c0c38daa48946926f28a797bb38f3f45291f12dd90656989dbd587819d828e3",
+      "digest": "bdb40cb0006af0e92b3a4383c7c71a3df7e417fda1569a1860d8f9a65d08ee52",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
     },
     {
-      "digest": "a91390500b1d7e2bb3749d537001eb49d64fa809bd22fae13763b2e6c21f716c",
+      "digest": "fd2dc3cddf57509244dfc4210bbcc106727a80422b379cfd21d09ee90e1d67b2",
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

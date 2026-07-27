@@ -54,6 +54,7 @@ import {
   formatM4103RuntimeBottleneckStatus,
   formatM4104RuntimeCostStatus,
   formatM4105RuntimeBottleneckStatus,
+  formatM4106RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -319,6 +320,21 @@ test('coverage status records the M4.105 validation bottleneck diagnosis', () =>
     'emission: 34/73 validstatement helper executions are observed at the budget versus the floor, ' +
       '0 emission helpers execute, and 0 iterations roll back; M4.106 consolidates authenticated ' +
       'statement property and child-count access.',
+  );
+});
+
+test('coverage status records M4.106 promotion-budget headroom', () => {
+  assert.equal(
+    formatM4106RuntimeCostStatus({
+      result: {
+        exactFloor: 39_016,
+        floorReduction: 23_814,
+        promotionBudgetHeadroom: 10_136,
+      },
+    }),
+    'M4.106 reduces the exact validstatement floor by 23814 to 39016, leaving 10136 ' +
+      'promotion-budget headroom with one statement-table projection execution; M4.107 ' +
+      'authenticates the profile promotion.',
   );
 });
 

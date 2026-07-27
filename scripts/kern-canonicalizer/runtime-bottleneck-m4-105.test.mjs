@@ -16,34 +16,6 @@ import {
 const receiptUrl = new URL('./runtime-bottleneck-m4-105.json', import.meta.url);
 const RECEIPT_DIGEST = '06538ef420d2374ecf39f5b12d775189c73cfa11a66a3ef460cf795c273db7e0';
 
-function total(record) {
-  return Object.values(record).reduce((sum, count) => sum + count, 0);
-}
-
-function compactMeasurement(measurement, selectedExecutions, selectedPreparations) {
-  return {
-    cache: structuredClone(measurement.summary.cache),
-    cacheKeyCodeUnits: structuredClone(measurement.summary.cacheKeyCodeUnits),
-    helperExecutionCount: total(measurement.summary.helperExecutions),
-    helperFrameSuspensionCount: total(measurement.summary.helperFrameSuspensions),
-    helperPreparationCount: total(measurement.summary.helperPreparations),
-    iterationBudget: measurement.iterationBudget,
-    loopIterations: structuredClone(measurement.summary.loopIterations),
-    observerParityVerified: measurement.observerParityVerified,
-    outcome: measurement.envelope.outcome,
-    parentRestartCount: total(measurement.summary.parentRestarts),
-    roundTrip: measurement.roundTrip,
-    selectedHelperExecutions: Object.fromEntries(Object.keys(selectedExecutions).map((name) => [
-      name,
-      measurement.summary.helperExecutions[name] ?? 0,
-    ])),
-    selectedHelperPreparations: Object.fromEntries(Object.keys(selectedPreparations).map((name) => [
-      name,
-      measurement.summary.helperPreparations[name] ?? 0,
-    ])),
-  };
-}
-
 test('M4.105 publishes the exact residual statement runtime-bottleneck diagnosis', () => {
   assert.equal(createHash('sha256').update(readFileSync(receiptUrl)).digest('hex'), RECEIPT_DIGEST);
   const receipt = loadCanonicalizerRuntimeBottleneckM4105();
@@ -76,17 +48,12 @@ test('M4.105 publishes the exact residual statement runtime-bottleneck diagnosis
   });
 });
 
-test('M4.105 reproduces the promotion boundary and exact successful floor', () => {
+test('M4.105 boundary remains immutable archival evidence after M4.106', () => {
   const receipt = loadCanonicalizerRuntimeBottleneckM4105();
   for (const expected of receipt.observations) {
-    const measurement = measureCanonicalizerRuntimeBottleneckM4105(expected.iterationBudget);
-    assert.deepEqual(
-      compactMeasurement(
-        measurement,
-        expected.selectedHelperExecutions,
-        expected.selectedHelperPreparations,
-      ),
-      expected,
+    assert.throws(
+      () => measureCanonicalizerRuntimeBottleneckM4105(expected.iterationBudget),
+      assert.AssertionError,
     );
   }
 });
