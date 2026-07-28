@@ -265,6 +265,13 @@ export function formatM4110ProjectionAnalysisStatus(selectedNextAction) {
     `${selectedNextAction.completeTools} tools; M4.111 authenticates structural KIR and runtime-envelope safety.`;
 }
 
+export function formatM4111KirDepthHeadroomStatus(receipt) {
+  return `M4.111 authenticates maxDepth ${receipt.limits.candidateKir.maxDepth} across ` +
+    `${receipt.summary.witnessCount} witnesses at maximum floor ${receipt.summary.maxExactFloor} with ` +
+    `${receipt.summary.minimumPromotionHeadroom} promotion headroom; ` +
+    'M4.112 promotes structural KIR depth.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

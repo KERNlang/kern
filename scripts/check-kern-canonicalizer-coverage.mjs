@@ -122,6 +122,9 @@ import {
   loadPublishedCanonicalizerProjectionAnalysisM4110,
 } from './kern-canonicalizer/projection-analysis-m4-110.mjs';
 import {
+  loadCanonicalizerKirDepthHeadroomM4111,
+} from './kern-canonicalizer/kir-depth-headroom-m4-111.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -243,6 +246,7 @@ import {
   formatM4108ParameterMigrationStatus,
   formatM4109ResidualAnalysisStatus,
   formatM4110ProjectionAnalysisStatus,
+  formatM4111KirDepthHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -272,6 +276,8 @@ const m4101ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual
 const m4109ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-109.json', import.meta.url);
 const m4110ProjectionAnalysisUrl =
   new URL('./kern-canonicalizer/projection-analysis-m4-110.json', import.meta.url);
+const m4111KirDepthHeadroomUrl =
+  new URL('./kern-canonicalizer/kir-depth-headroom-m4-111.json', import.meta.url);
 const m496RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-96.json', import.meta.url);
 const m4103RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-103.json', import.meta.url);
 const m4104RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-104.json', import.meta.url);
@@ -343,6 +349,7 @@ const m4109ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM
 const m4109ResidualAnalysis = m4109ResidualAnalysisHandoff.record;
 const m4110ProjectionAnalysisHandoff = loadPublishedCanonicalizerProjectionAnalysisM4110();
 const m4110ProjectionAnalysis = m4110ProjectionAnalysisHandoff.record;
+const m4111KirDepthHeadroom = loadCanonicalizerKirDepthHeadroomM4111();
 const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
 const m4103RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4103();
 const m4104RuntimeCost = loadCanonicalizerRuntimeCostM4104();
@@ -1343,6 +1350,55 @@ if (process.argv.includes('--write')) {
       'examples/selfhost-validator/validator.kern#15:exportkind',
     ],
   });
+  assertCoverageSummary(m4111KirDepthHeadroomUrl, m4111KirDepthHeadroom);
+  assert.deepEqual(m4111KirDepthHeadroom.limits, {
+    activeKir: { maxBytes: 262144, maxDepth: 64, maxNodes: 4096 },
+    candidateKir: { maxBytes: 262144, maxDepth: 76, maxNodes: 4096 },
+    productionBudget: 65_536,
+    profile: { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2100 },
+    promotionBudget: 49_152,
+    reservedProductionHeadroom: 16_384,
+    runtimeMaxDepth: 64,
+  });
+  assert.deepEqual(m4111KirDepthHeadroom.promotion, {
+    disposition: 'approved-with-headroom',
+    kirDepthPromotionApproved: true,
+    nextMilestone: 'M4.112',
+    requiredDepth: 76,
+  });
+  assert.deepEqual(m4111KirDepthHeadroom.structuralBoundary, {
+    belowCandidateDepth: 75,
+    belowCandidateOutcome: 'failure',
+    candidateDepth: 76,
+    candidateOutcome: 'success',
+    rejectedWitnesses: [
+      'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement',
+      'examples/selfhost-validator/validator.kern#15:exportkind',
+    ],
+  });
+  assert.deepEqual(m4111KirDepthHeadroom.summary, {
+    maxExactFloor: 31_028,
+    minimumProductionHeadroom: 34_508,
+    minimumPromotionHeadroom: 18_124,
+    totalArtifactBytes: 334_655,
+    totalParameterRows: 134,
+    witnessCount: 9,
+  });
+  assert.equal(m4111KirDepthHeadroom.witnesses.length, 9);
+  assert.equal(
+    m4111KirDepthHeadroom.witnesses.reduce(
+      (total, { parameterRows }) => total + parameterRows,
+      0,
+    ),
+    134,
+  );
+  assert.ok(m4111KirDepthHeadroom.witnesses.every((witness) =>
+    witness.floorOutcome === 'success' &&
+    witness.belowFloorOutcome === 'failure' &&
+    witness.publicParityVerified &&
+    witness.roundTrip &&
+    witness.exactFloor === witness.belowFloor + 1 &&
+    witness.promotionDelta >= 0));
   assertCoverageSummary(m496RuntimeBottleneckUrl, m496RuntimeBottleneck);
   assert.deepEqual(m496RuntimeBottleneck.diagnosis, {
     additionalBudget: 500,
@@ -1788,6 +1844,7 @@ process.stdout.write(
   })}` +
   ` ${formatM4109ResidualAnalysisStatus(m4109ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM4110ProjectionAnalysisStatus(m4110ProjectionAnalysis.selectedNextAction)}` +
+  ` ${formatM4111KirDepthHeadroomStatus(m4111KirDepthHeadroom)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

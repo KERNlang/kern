@@ -58,6 +58,7 @@ import {
   formatM4107TripleRowPromotionStatus,
   formatM4109ResidualAnalysisStatus,
   formatM4110ProjectionAnalysisStatus,
+  formatM4111KirDepthHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -283,6 +284,21 @@ test('coverage status records the M4.110 projection recommendation', () => {
     }),
     'M4.110 projection analysis selects maxDepth 76 for 9 functions/134 rows across 4 tools; ' +
       'M4.111 authenticates structural KIR and runtime-envelope safety.',
+  );
+});
+
+test('coverage status records the M4.111 structural KIR and runtime headroom GO', () => {
+  assert.equal(
+    formatM4111KirDepthHeadroomStatus({
+      limits: { candidateKir: { maxDepth: 76 } },
+      summary: {
+        maxExactFloor: 31_028,
+        minimumPromotionHeadroom: 18_124,
+        witnessCount: 9,
+      },
+    }),
+    'M4.111 authenticates maxDepth 76 across 9 witnesses at maximum floor 31028 with ' +
+      '18124 promotion headroom; M4.112 promotes structural KIR depth.',
   );
 });
 
