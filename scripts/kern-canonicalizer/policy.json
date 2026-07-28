@@ -5,7 +5,7 @@
   },
   "kirLimits": {
     "maxBytes": 262144,
-    "maxDepth": 64,
+    "maxDepth": 76,
     "maxNodes": 4096,
     "maxStringBytes": 8192,
     "maxCollectionLength": 1024,

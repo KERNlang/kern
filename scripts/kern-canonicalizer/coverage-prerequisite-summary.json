@@ -3,14 +3,14 @@
     "baseCompleteFunctions": 92,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
     "canonicalizerDigest": "fd9baa340533b016f0beb7d39feb3d16fd220febfd08b8bb99a6fc034677b5a8",
-    "canonicalizerPolicyDigest": "035af4bfe549ffdf8e19c584dcae4ab60b574a4109253227a703475afb321658",
+    "canonicalizerPolicyDigest": "919726462eabc002cb072cd8004fffe7f3e731ed430574dd608788580ca1f163",
     "compiledCoreDigest": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
     "corpusDigest": "6b405beab728f7a69edb73ddfe830583c67a8bd0651f05c83aa5a44be9f10f18",
-    "coverageImplementationDigest": "752690e92a812e82cd98661d44a2e2d13ddc2d090014245b11f84069a597c050",
+    "coverageImplementationDigest": "0ca40b4c3e1d2c7ba2dc9e35c17a9dfe1e6353e81a71133bd88a75be8b3552ea",
     "coveragePolicyDigest": "0285747660651cab2ee1029456dc40c190c42d2515937fa6d3534247df363b54",
     "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
     "functionCount": 111,
-    "functionFactsDigest": "d5fa84e9d8cca79d2352ae106a533dd489291b670ab27ad4adc7e70010a2e214",
+    "functionFactsDigest": "5d6587a515c8874a780895ace32bcae81c05057d67a98e7e8febb295cd75c975",
     "legacyParameterBlockers": 15,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
@@ -21,7 +21,7 @@
     ],
     "completingClosureCount": 0,
     "evaluatedNonEmptyClosureCount": 1,
-    "reasonAssignmentsDigest": "f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203",
+    "reasonAssignmentsDigest": "7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55",
     "reasonCounts": [
       {
         "count": 1,
@@ -52,7 +52,19 @@
         "id": "let.value:unknown-expression-kind"
       },
       {
-        "count": 12,
+        "count": 1,
+        "id": "profile.rows.nodes"
+      },
+      {
+        "count": 1,
+        "id": "profile.rows.properties"
+      },
+      {
+        "count": 1,
+        "id": "profile.rows.values"
+      },
+      {
+        "count": 2,
         "id": "projection.limit-depth"
       },
       {
@@ -68,17 +80,108 @@
         "id": "throw.value:unknown-expression-kind"
       }
     ],
-    "residualFunctionCount": 15,
+    "residualFunctionCount": 6,
     "scope": "current-bounded-profile"
   },
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
   "minimumFamilyCount": null,
   "outcome": "bounded-exhaustion",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 9,
+    "completeTools": 4,
+    "migratedParameterRows": 134,
+    "witnesses": [
+      {
+        "id": "examples/capstone-assertion-engine/compare.kern#2:compareList",
+        "parameterRows": 13,
+        "profileRows": {
+          "nodes": 38,
+          "properties": 69,
+          "values": 432
+        },
+        "tool": "assertion-engine"
+      },
+      {
+        "id": "examples/capstone-assertion-engine/compare.kern#3:compareMap",
+        "parameterRows": 13,
+        "profileRows": {
+          "nodes": 44,
+          "properties": 78,
+          "values": 606
+        },
+        "tool": "assertion-engine"
+      },
+      {
+        "id": "examples/capstone-checker-subset/checker-while.kern#11:lengthReceiverProven",
+        "parameterRows": 12,
+        "profileRows": {
+          "nodes": 34,
+          "properties": 57,
+          "values": 464
+        },
+        "tool": "checker"
+      },
+      {
+        "id": "examples/capstone-checker-subset/checker-while.kern#9:numericBindingProven",
+        "parameterRows": 16,
+        "profileRows": {
+          "nodes": 54,
+          "properties": 80,
+          "values": 639
+        },
+        "tool": "checker"
+      },
+      {
+        "id": "examples/capstone-checker-subset/checker.kern#17:paramCallsitesOk",
+        "parameterRows": 23,
+        "profileRows": {
+          "nodes": 39,
+          "properties": 71,
+          "values": 325
+        },
+        "tool": "checker"
+      },
+      {
+        "id": "examples/capstone-checker-subset/checker.kern#20:mapKeyToken",
+        "parameterRows": 9,
+        "profileRows": {
+          "nodes": 21,
+          "properties": 33,
+          "values": 230
+        },
+        "tool": "checker"
+      },
+      {
+        "id": "examples/capstone-checker-subset/checker.kern#21:mapKnownBefore",
+        "parameterRows": 12,
+        "profileRows": {
+          "nodes": 31,
+          "properties": 48,
+          "values": 391
+        },
+        "tool": "checker"
+      },
+      {
+        "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement",
+        "parameterRows": 15,
+        "profileRows": {
+          "nodes": 70,
+          "properties": 115,
+          "values": 1377
+        },
+        "tool": "canonicalizer"
+      },
+      {
+        "id": "examples/selfhost-validator/validator.kern#15:exportkind",
+        "parameterRows": 21,
+        "profileRows": {
+          "nodes": 39,
+          "properties": 69,
+          "values": 483
+        },
+        "tool": "validator"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],

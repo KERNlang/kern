@@ -104,6 +104,9 @@ function exactInputs() {
   }
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
+    kirLimitOverrides: {
+      maxDepth: 64,
+    },
     milestone: 'M4.104',
     profileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 832 },
   });

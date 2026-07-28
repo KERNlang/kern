@@ -62,14 +62,14 @@ export function assertM499DualRowPromotion(policy) {
     roundTrip: true,
   }, 'M4.99 must preserve exact M4.98 runtime headroom');
   assert.equal(
+    runtime.limits.maxDepth,
+    64,
+    'M4.99 must preserve its historical structural KIR depth',
+  );
+  assert.equal(
     policy.runtimeLimits.maxCollectionLength,
     65_536,
     'later profile promotions must preserve the M4.99 production runtime ceiling',
-  );
-  assert.equal(
-    policy.kirLimits.maxDepth,
-    64,
-    'later profile promotions must preserve the M4.99 KIR depth ceiling',
   );
   return policy;
 }

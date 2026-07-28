@@ -11,17 +11,22 @@ function digest(bytes) {
 
 export function loadHistoricalCanonicalizerPolicy({
   expectedDigest,
+  kirLimitOverrides,
   milestone,
   policySource = canonicalizerPolicySource(),
   profileLimits,
 }) {
   const policy = JSON.parse(Buffer.from(policySource).toString('utf8'));
+  policy.kirLimits = {
+    ...policy.kirLimits,
+    ...structuredClone(kirLimitOverrides),
+  };
   policy.profileLimits = structuredClone(profileLimits);
   validateCanonicalizerPolicy(policy);
   const reconstructedBytes = Buffer.from(`${JSON.stringify(policy, null, 2)}\n`);
   if (digest(reconstructedBytes) !== expectedDigest) {
     throw new TypeError(
-      `${milestone} historical policy rejection: non-profile policy fields must remain exact`,
+      `${milestone} historical policy rejection: unreconstructed policy fields must remain exact`,
     );
   }
   return policy;

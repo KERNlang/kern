@@ -9,17 +9,17 @@ import {
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
-import { m4108ParameterMigration } from './coverage-m4-108-parameter-migration.mjs';
+import { m4112ParameterMigration } from './coverage-m4-112-kir-depth-promotion.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m4108ParameterMigration();
+const EXPECTED_PARAMETER_MIGRATION = m4112ParameterMigration();
 
 const EXPECTED_EXHAUSTION = {
   activeFamilies: ['exception-flow'],
   completingClosureCount: 0,
   evaluatedNonEmptyClosureCount: 1,
-  reasonAssignmentsDigest: 'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
+  reasonAssignmentsDigest: '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
   reasonCounts: [
     { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
     { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
@@ -28,16 +28,19 @@ const EXPECTED_EXHAUSTION = {
     { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
     { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
     { count: 1, id: 'let.value:unknown-expression-kind' },
-    { count: 12, id: 'projection.limit-depth' },
+    { count: 1, id: 'profile.rows.nodes' },
+    { count: 1, id: 'profile.rows.properties' },
+    { count: 1, id: 'profile.rows.values' },
+    { count: 2, id: 'projection.limit-depth' },
     { count: 1, id: 'projection.limit-nodes' },
     { count: 2, id: 'projection.unknown-expression-kind' },
     { count: 1, id: 'throw.value:unknown-expression-kind' },
   ],
-  residualFunctionCount: 15,
+  residualFunctionCount: 6,
   scope: 'current-bounded-profile',
 };
 
-test('M4.108 consumes the validstatement queue and preserves bounded exhaustion', () => {
+test('M4.112 publishes its exact depth-enabled queue and preserves bounded exhaustion', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -85,21 +88,21 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.108 publishes the exact post-migration frontier', () => {
+test('M4.112 publishes the exact post-promotion frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 92,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: 'fd9baa340533b016f0beb7d39feb3d16fd220febfd08b8bb99a6fc034677b5a8',
-    canonicalizerPolicyDigest: '035af4bfe549ffdf8e19c584dcae4ab60b574a4109253227a703475afb321658',
+    canonicalizerPolicyDigest: '919726462eabc002cb072cd8004fffe7f3e731ed430574dd608788580ca1f163',
     compiledCoreDigest: '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
     corpusDigest: '6b405beab728f7a69edb73ddfe830583c67a8bd0651f05c83aa5a44be9f10f18',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '0285747660651cab2ee1029456dc40c190c42d2515937fa6d3534247df363b54',
     familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
     functionCount: 111,
-    functionFactsDigest: 'd5fa84e9d8cca79d2352ae106a533dd489291b670ab27ad4adc7e70010a2e214',
+    functionFactsDigest: '5d6587a515c8874a780895ace32bcae81c05057d67a98e7e8febb295cd75c975',
     legacyParameterBlockers: 15,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,

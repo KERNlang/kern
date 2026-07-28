@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import { verifyCanonicalizerComposition } from './composition.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadPublishedCanonicalizerProjectionAnalysisM4110 } from './projection-analysis-m4-110.mjs';
 
@@ -13,6 +15,8 @@ const PUBLISHED_INPUT_COMMIT = 'd18950f53c69962deff6cdbf15914c60f39d35bc';
 const PROJECTION_ANALYSIS_DIGEST =
   '38f26bb48237832163acb8fa99ee0b65b8dc343f77f6a7570481e54d01d6732f';
 const SUMMARY_URL = new URL('./kir-depth-headroom-m4-111.json', import.meta.url);
+const MEASUREMENT_URL =
+  new URL('./kir-depth-headroom-m4-111-measure.mjs', import.meta.url);
 const ACTIVE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 64, maxNodes: 4096 };
 const CANDIDATE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 76, maxNodes: 4096 };
 const PROFILE_LIMITS = { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2100 };
@@ -39,13 +43,34 @@ const INPUT_IDENTITIES = {
 const INPUT_URLS = {
   compositionRecordSha256: new URL('./composition.json', import.meta.url),
   flattenAdapterSha256: new URL('./flatten.mjs', import.meta.url),
-  measurementHarnessSha256:
-    new URL('./kir-depth-headroom-m4-111-measure.mjs', import.meta.url),
-  policySha256: new URL('./policy.json', import.meta.url),
   runtimeHandlerSha256: new URL('../../packages/core/src/runtime-handler.ts', import.meta.url),
   structuralKirCodecSha256:
     new URL('../../packages/core/src/kir-structural/canonical.ts', import.meta.url),
 };
+const MEASUREMENT_REPLACEMENTS = [
+  {
+    current:
+      'const HISTORICAL_ACTIVE_DEPTH = 64;\nconst CANDIDATE_DEPTH = 76;',
+    historical: 'const CANDIDATE_DEPTH = 76;',
+  },
+  {
+    current:
+      '  if (\n' +
+      '    policy.kirLimits.maxDepth !== CANDIDATE_DEPTH ||\n' +
+      '    policy.runtimeLimits.maxDepth !== HISTORICAL_ACTIVE_DEPTH\n' +
+      '  ) {\n' +
+      "    fail('live KIR depth must retain M4.112 while runtime depth remains 64');\n" +
+      '  }',
+    historical:
+      '  if (policy.kirLimits.maxDepth !== 64 || policy.runtimeLimits.maxDepth !== 64) {\n' +
+      "    fail('active KIR and runtime depth policies must remain 64');\n" +
+      '  }',
+  },
+  {
+    current: '    requiredDepth <= HISTORICAL_ACTIVE_DEPTH ||',
+    historical: '    requiredDepth <= policy.kirLimits.maxDepth ||',
+  },
+];
 const WITNESSES = [
   {
     artifactBytes: 30374,
@@ -252,13 +277,27 @@ function exactInputs() {
       maxBytes: policy.kirLimits.maxBytes,
       maxDepth: policy.kirLimits.maxDepth,
       maxNodes: policy.kirLimits.maxNodes,
-    }).compare(canonicalBytes(ACTIVE_KIR_LIMITS)) !== 0 ||
+    }).compare(canonicalBytes(CANDIDATE_KIR_LIMITS)) !== 0 ||
     canonicalBytes(policy.profileLimits).compare(canonicalBytes(PROFILE_LIMITS)) !== 0 ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.runtimeLimits.maxDepth !== 64
   ) {
-    fail('active KIR, profile, and runtime policies must remain exact');
+    fail('promoted KIR, profile, and runtime policies must remain exact');
   }
+  loadHistoricalCanonicalizerPolicy({
+    expectedDigest: INPUT_IDENTITIES.policySha256,
+    kirLimitOverrides: {
+      maxDepth: 64,
+    },
+    milestone: 'M4.111',
+    profileLimits: PROFILE_LIMITS,
+  });
+  reconstructHistoricalSource({
+    currentSource: readFileSync(MEASUREMENT_URL),
+    expectedDigest: INPUT_IDENTITIES.measurementHarnessSha256,
+    milestone: 'M4.111 measurement',
+    replacements: MEASUREMENT_REPLACEMENTS,
+  });
   for (const [name, url] of Object.entries(INPUT_URLS)) {
     if (digest(readFileSync(url)) !== INPUT_IDENTITIES[name]) {
       fail(`${name} source identity must remain exact`);

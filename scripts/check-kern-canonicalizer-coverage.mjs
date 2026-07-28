@@ -124,6 +124,7 @@ import {
 import {
   loadCanonicalizerKirDepthHeadroomM4111,
 } from './kern-canonicalizer/kir-depth-headroom-m4-111.mjs';
+import { m4112CoverageStatus } from './kern-canonicalizer/coverage-m4-112-kir-depth-promotion.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
@@ -387,8 +388,6 @@ assert.deepEqual(
   m4107ActiveProfile(),
   'current policy must consume the exact latest authenticated profile promotion',
 );
-assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-assert.equal(policy.kirLimits.maxDepth, 64);
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
 assertM457ParameterMigrations(coverage);
 assertM461ParameterMigration(coverage);
@@ -556,7 +555,6 @@ if (process.argv.includes('--write')) {
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.parameterMigration, m4108ParameterMigration());
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -582,10 +580,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 15);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 6);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
+    '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1845,6 +1843,7 @@ process.stdout.write(
   ` ${formatM4109ResidualAnalysisStatus(m4109ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM4110ProjectionAnalysisStatus(m4110ProjectionAnalysis.selectedNextAction)}` +
   ` ${formatM4111KirDepthHeadroomStatus(m4111KirDepthHeadroom)}` +
+  ` ${m4112CoverageStatus(policy, prerequisite)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

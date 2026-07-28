@@ -145,9 +145,29 @@ test('selection accepts only immutable facts created by the current measurement'
   assert.throws(() => selectCanonicalizerTranche(policy, clone), /authenticated measurement/u);
   assert.throws(
     () => selectCanonicalizerTranche(driftedPolicy, measured.functions),
-    /authenticated policy/u,
+    /authenticated coverage policy/u,
   );
   assert.deepEqual(selectCanonicalizerTranche(policy, measured.functions), measured.selection);
+});
+
+test('historical measurement keeps selection bound to its authenticated canonicalizer policy', () => {
+  const coveragePolicy = loadCoveragePolicy();
+  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  canonicalizerPolicy.profileLimits = {
+    maxNodeRows: 1,
+    maxPropertyRows: 1,
+    maxValueRows: 1,
+  };
+  const measured = measureCanonicalizerCoverage(coveragePolicy, canonicalizerPolicy);
+  assert.equal(measured.selection.winner, null);
+  assert.throws(
+    () => selectCanonicalizerTranche(coveragePolicy, measured.functions),
+    /authenticated canonicalizer policy/u,
+  );
+  assert.deepEqual(
+    selectCanonicalizerTranche(coveragePolicy, measured.functions, canonicalizerPolicy),
+    measured.selection,
+  );
 });
 
 test('deep freezing descends through an already shallow-frozen fact container', () => {

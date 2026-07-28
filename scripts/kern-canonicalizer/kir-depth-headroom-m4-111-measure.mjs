@@ -31,6 +31,7 @@ import { loadPublishedCanonicalizerProjectionAnalysisM4110 } from './projection-
 
 const PROJECTION_ANALYSIS_DIGEST =
   '38f26bb48237832163acb8fa99ee0b65b8dc343f77f6a7570481e54d01d6732f';
+const HISTORICAL_ACTIVE_DEPTH = 64;
 const CANDIDATE_DEPTH = 76;
 
 function fail(message) {
@@ -71,13 +72,16 @@ function exactInput(witnessId) {
     fail(`witness ${witnessId} parameter rows must remain exact`);
   }
   const policy = loadCanonicalizerPolicy();
-  if (policy.kirLimits.maxDepth !== 64 || policy.runtimeLimits.maxDepth !== 64) {
-    fail('active KIR and runtime depth policies must remain 64');
+  if (
+    policy.kirLimits.maxDepth !== CANDIDATE_DEPTH ||
+    policy.runtimeLimits.maxDepth !== HISTORICAL_ACTIVE_DEPTH
+  ) {
+    fail('live KIR depth must retain M4.112 while runtime depth remains 64');
   }
   const requiredDepth = requirement.requiredKirLimits.maxDepth;
   if (
     !Number.isSafeInteger(requiredDepth) ||
-    requiredDepth <= policy.kirLimits.maxDepth ||
+    requiredDepth <= HISTORICAL_ACTIVE_DEPTH ||
     requiredDepth > CANDIDATE_DEPTH
   ) {
     fail(`witness ${witnessId} must have an exact selected depth requirement`);

@@ -3,8 +3,8 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerRuntimeBottleneckM496 } from './runtime-bottleneck-m4-96.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.4';
@@ -14,6 +14,7 @@ const M496_RECEIPT_DIGEST =
   '3a80e118c7621923401596d7ab16fd013067363daa88b819817c0208e2afe391';
 const WITNESS_ID =
   'examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk';
+const M497_POLICY_DIGEST = 'f3819746060ae31ee7ae0ac0ddaa4753190b02820366e6ee2971f8c3a1178849';
 const SOURCE_DIGESTS = {
   classFrameSha256: '4e2c5ab73bb1c8906bc06f88b1d5bcb43bb524c6ff92e8d2f9fca7bc7126d3de',
   diagnosticObserverSha256: '6037e9f2e37e3888b45d64458c627c217abfd52105271de226bf47e053e495b6',
@@ -75,6 +76,19 @@ function digest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+export function loadM497HistoricalCanonicalizerPolicy() {
+  return loadHistoricalCanonicalizerPolicy({
+    expectedDigest: M497_POLICY_DIGEST,
+    kirLimitOverrides: { maxDepth: 64 },
+    milestone: 'M4.97',
+    profileLimits: {
+      maxNodeRows: 74,
+      maxPropertyRows: 77,
+      maxValueRows: 580,
+    },
+  });
+}
+
 function assertPlainReceiptData(value, seen = new Set()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
   if (typeof value === 'number') {
@@ -130,7 +144,7 @@ function exactInputs() {
       fail(`${name} source identity must remain exact`);
     }
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadM497HistoricalCanonicalizerPolicy();
   if (
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.kirLimits.maxDepth !== 64

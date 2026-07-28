@@ -59,6 +59,7 @@ import {
   formatM4109ResidualAnalysisStatus,
   formatM4110ProjectionAnalysisStatus,
   formatM4111KirDepthHeadroomStatus,
+  formatM4112KirDepthPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -299,6 +300,21 @@ test('coverage status records the M4.111 structural KIR and runtime headroom GO'
     }),
     'M4.111 authenticates maxDepth 76 across 9 witnesses at maximum floor 31028 with ' +
       '18124 promotion headroom; M4.112 promotes structural KIR depth.',
+  );
+});
+
+test('coverage status records the M4.112 structural KIR depth promotion', () => {
+  assert.equal(
+    formatM4112KirDepthPromotionStatus({
+      kirLimits: { maxBytes: 262_144, maxDepth: 76, maxNodes: 4_096 },
+      parameterMigration: {
+        completeFunctions: 9,
+        completeTools: 4,
+        migratedParameterRows: 134,
+      },
+    }),
+    'M4.112 promotes structural KIR maxDepth to 76 and publishes the exact ' +
+      '9-function/134-row parameter queue across 4 tools; M4.113 consumes it.',
   );
 });
 

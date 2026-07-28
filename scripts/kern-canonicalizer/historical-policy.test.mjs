@@ -15,6 +15,7 @@ const HISTORICAL_POLICY_DIGEST =
 test('historical policy reconstruction substitutes only the archived profile', () => {
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: HISTORICAL_POLICY_DIGEST,
+    kirLimitOverrides: { maxDepth: 64 },
     milestone: 'test',
     profileLimits: HISTORICAL_PROFILE,
   });
@@ -29,10 +30,11 @@ test('historical policy reconstruction rejects unrelated policy drift', () => {
   assert.throws(
     () => loadHistoricalCanonicalizerPolicy({
       expectedDigest: HISTORICAL_POLICY_DIGEST,
+      kirLimitOverrides: { maxDepth: 64 },
       milestone: 'test',
       policySource: Buffer.from(`${JSON.stringify(drifted, null, 2)}\n`),
       profileLimits: HISTORICAL_PROFILE,
     }),
-    /test historical policy rejection: non-profile policy fields must remain exact/u,
+    /test historical policy rejection: unreconstructed policy fields must remain exact/u,
   );
 });

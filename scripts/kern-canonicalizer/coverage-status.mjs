@@ -272,6 +272,13 @@ export function formatM4111KirDepthHeadroomStatus(receipt) {
     'M4.112 promotes structural KIR depth.';
 }
 
+export function formatM4112KirDepthPromotionStatus({ kirLimits, parameterMigration }) {
+  return `M4.112 promotes structural KIR maxDepth to ${kirLimits.maxDepth} and publishes the exact ` +
+    `${parameterMigration.completeFunctions}-function/` +
+    `${parameterMigration.migratedParameterRows}-row parameter queue across ` +
+    `${parameterMigration.completeTools} tools; M4.113 consumes it.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { measureCanonicalizerRuntimeCostM497 as measureLive } from './runtime-cost-m4-97-measure.mjs';
 import {
+  loadM497HistoricalCanonicalizerPolicy,
   loadCanonicalizerRuntimeCostM497,
   measureCanonicalizerRuntimeCostM497,
   validateCanonicalizerRuntimeCostM497,
@@ -39,6 +40,17 @@ function compactMeasurement(measurement) {
     ),
   };
 }
+
+test('M4.97 reconstructs the exact authenticated historical policy', () => {
+  const policy = loadM497HistoricalCanonicalizerPolicy();
+  assert.equal(policy.kirLimits.maxDepth, 64);
+  assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
+  assert.deepEqual(policy.profileLimits, {
+    maxNodeRows: 74,
+    maxPropertyRows: 77,
+    maxValueRows: 580,
+  });
+});
 
 test('M4.97 freezes the exact resumable helper-frame runtime reduction', () => {
   const receipt = loadCanonicalizerRuntimeCostM497();

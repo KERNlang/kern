@@ -16,7 +16,7 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
 const PUBLISHED_DIGEST = 'ad6240c77ed276d1f865beb702ceeb7c85767191dbaa3cf36f526505c4e555fb';
@@ -147,8 +147,15 @@ function assertPublishedInput(receipt, canonicalizerPolicy) {
 
 export function measureCanonicalizerResidualAnalysisM4109() {
   const policy = loadCoveragePolicy();
-  const receipt = measureCanonicalizerCoverage(policy);
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadHistoricalCanonicalizerPolicy({
+    expectedDigest: '035af4bfe549ffdf8e19c584dcae4ab60b574a4109253227a703475afb321658',
+    kirLimitOverrides: {
+      maxDepth: 64,
+    },
+    milestone: 'M4.109',
+    profileLimits: PUBLISHED_BASELINE.currentProfileLimits,
+  });
+  const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
   assertPublishedInput(receipt, canonicalizerPolicy);
 
   const roots = sourceFunctionRoots(policy);

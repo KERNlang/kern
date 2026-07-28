@@ -26,7 +26,11 @@ import {
   handlerChildProfilesForFunction,
   validateCoverageBase,
 } from './coverage-profile.mjs';
-import { canonicalizerPolicySource, loadCanonicalizerPolicy } from './policy.mjs';
+import {
+  canonicalizerPolicySource,
+  loadCanonicalizerPolicy,
+  validateCanonicalizerPolicy,
+} from './policy.mjs';
 import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
 import {
   canonicalizerCompletionProfile,
@@ -360,16 +364,23 @@ function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy) {
     tool,
   };
 }
-export function selectCanonicalizerTranche(policyInput, functions) {
-  const authenticatedPolicyDigest = AUTHENTICATED_FUNCTION_FACTS.get(functions);
-  if (authenticatedPolicyDigest === undefined) fail('function facts require authenticated measurement');
+export function selectCanonicalizerTranche(policyInput, functions, canonicalizerPolicyInput) {
+  const authenticatedDigests = AUTHENTICATED_FUNCTION_FACTS.get(functions);
+  if (authenticatedDigests === undefined) fail('function facts require authenticated measurement');
   validateFunctionFacts(functions);
-  const profileLimits = loadCanonicalizerPolicy().profileLimits;
   const policy = assertCoverageClosed(policyInput, functions);
-  if (authenticatedPolicyDigest !== digest(JSON.stringify(policy))) fail('function facts require authenticated policy');
-  return rankCanonicalizerFamilies(policy, functions, profileLimits);
+  const canonicalizerPolicy = canonicalizerPolicyInput === undefined
+    ? loadCanonicalizerPolicy()
+    : validateCanonicalizerPolicy(structuredClone(canonicalizerPolicyInput));
+  if (authenticatedDigests.coverage !== digest(JSON.stringify(policy))) {
+    fail('function facts require authenticated coverage policy');
+  }
+  if (authenticatedDigests.canonicalizer !== digest(JSON.stringify(canonicalizerPolicy))) {
+    fail('function facts require authenticated canonicalizer policy');
+  }
+  return rankCanonicalizerFamilies(policy, functions, canonicalizerPolicy.profileLimits);
 }
-export function measureCanonicalizerCoverage(policyInput) {
+export function measureCanonicalizerCoverage(policyInput, canonicalizerPolicyInput) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   const policy = policyInput === undefined ? loadCoveragePolicy() : validateCoveragePolicy(policyInput);
@@ -403,7 +414,9 @@ export function measureCanonicalizerCoverage(policyInput) {
       promotion.provenanceDigest !== provenance.digest
     ) fail('base promotion must cite authenticated provenance of its declared kind');
   }
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = canonicalizerPolicyInput === undefined
+    ? loadCanonicalizerPolicy()
+    : validateCanonicalizerPolicy(structuredClone(canonicalizerPolicyInput));
   const functions = [];
   for (const member of policy.corpus) {
     const sourceBytes = readCorpusMemberBytes(member.path);
@@ -420,11 +433,16 @@ export function measureCanonicalizerCoverage(policyInput) {
   }
   functions.sort((left, right) => compareText(left.id, right.id));
   freezeFunctionFacts(functions);
-  AUTHENTICATED_FUNCTION_FACTS.set(functions, digest(JSON.stringify(policy)));
-  const selection = selectCanonicalizerTranche(policy, functions);
+  AUTHENTICATED_FUNCTION_FACTS.set(functions, {
+    canonicalizer: digest(JSON.stringify(canonicalizerPolicy)),
+    coverage: digest(JSON.stringify(policy)),
+  });
+  const selection = selectCanonicalizerTranche(policy, functions, canonicalizerPolicy);
   const constitution = loadValidatedRuntimeConstitutionSource();
   const familyRegistry = coverageFamilyRegistrySource();
-  const boundCanonicalizerPolicySource = canonicalizerPolicySource();
+  const boundCanonicalizerPolicySource = canonicalizerPolicyInput === undefined
+    ? canonicalizerPolicySource()
+    : Buffer.from(`${JSON.stringify(canonicalizerPolicy, null, 2)}\n`);
   const baseProfile = canonicalizerCompletionProfile(policy.base, []);
   const receipt = {
     base: policy.base,

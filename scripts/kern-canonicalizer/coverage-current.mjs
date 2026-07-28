@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { m4107ActiveProfile } from './coverage-m4-107-triple-row-promotion.mjs';
-import { m4108ParameterMigration } from './coverage-m4-108-parameter-migration.mjs';
+import { m4112ParameterMigration } from './coverage-m4-112-kir-depth-promotion.mjs';
 
 const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/capstone-assertion-engine/compare.kern#2:compareList',
@@ -38,7 +38,7 @@ export function currentM493ParameterMigration() {
 export function assertCurrentCanonicalizerPolicy(policy) {
   assert.deepEqual(policy.profileLimits, m4107ActiveProfile());
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 64);
+  assert.equal(policy.kirLimits.maxDepth, 76);
   return policy;
 }
 
@@ -86,17 +86,17 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m4108ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4112ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion?.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 15);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 6);
   assert.equal(
     prerequisite.exhaustion?.reasonAssignmentsDigest,
-    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
+    '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
   );
   return prerequisite;
 }

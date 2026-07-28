@@ -64,17 +64,11 @@ export function assertM4108ParameterMigration(coverage, prerequisite) {
       excludedProperties.includes('fn.params')).length,
     15,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m4108ParameterMigration());
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
     false,
     'M4.108 migrated validstatement must never re-enter a later parameter queue',
   );
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 15);
-  assert.equal(
-    prerequisite.exhaustion?.reasonAssignmentsDigest,
-    'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
-  );
   return fact;
 }

@@ -28,6 +28,16 @@ const LIMIT_AXES = [
   ['maxDepth', 'limit-depth'],
   ['maxNodes', 'limit-nodes'],
 ];
+const HISTORICAL_BASE_KIR_LIMITS = {
+  maxBytes: 262_144,
+  maxDepth: 64,
+  maxNodes: 4_096,
+};
+const PROMOTED_KIR_LIMITS = {
+  maxBytes: 262_144,
+  maxDepth: 76,
+  maxNodes: 4_096,
+};
 
 function fail(message) {
   throw new TypeError(`coverage M4.110 projection analysis rejection: ${message}`);
@@ -150,7 +160,14 @@ export function measureCanonicalizerProjectionAnalysisM4110() {
     fail('live legacy functions must match the exact M4.109 assignments');
   }
 
-  const baseKirLimits = canonicalizerPolicy.kirLimits;
+  if (
+    canonicalBytes(exactKirLimits(canonicalizerPolicy.kirLimits))
+      .compare(canonicalBytes(PROMOTED_KIR_LIMITS)) !== 0
+  ) fail('live structural KIR policy must retain the exact M4.112 promotion');
+  const baseKirLimits = {
+    ...canonicalizerPolicy.kirLimits,
+    ...HISTORICAL_BASE_KIR_LIMITS,
+  };
   const probeLimits = {
     ...baseKirLimits,
     ...Object.fromEntries(LIMIT_AXES.map(([key]) => [key, baseKirLimits[key] * 2])),
