@@ -259,6 +259,12 @@ export function formatM4109ResidualAnalysisStatus(selectedNextAction) {
     'M4.110 investigates the authenticated projection blockers.';
 }
 
+export function formatM4110ProjectionAnalysisStatus(selectedNextAction) {
+  return `M4.110 projection analysis selects maxDepth ${selectedNextAction.kirLimits.maxDepth} for ` +
+    `${selectedNextAction.completeFunctions} functions/${selectedNextAction.migratedParameterRows} rows across ` +
+    `${selectedNextAction.completeTools} tools; M4.111 authenticates structural KIR and runtime-envelope safety.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

@@ -119,6 +119,9 @@ import {
   loadPublishedCanonicalizerResidualAnalysisM4109,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-109.mjs';
 import {
+  loadPublishedCanonicalizerProjectionAnalysisM4110,
+} from './kern-canonicalizer/projection-analysis-m4-110.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -239,6 +242,7 @@ import {
   formatM4107TripleRowPromotionStatus,
   formatM4108ParameterMigrationStatus,
   formatM4109ResidualAnalysisStatus,
+  formatM4110ProjectionAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -266,6 +270,8 @@ const m493RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-93.json
 const m495ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-95.json', import.meta.url);
 const m4101ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-101.json', import.meta.url);
 const m4109ResidualAnalysisUrl = new URL('./kern-canonicalizer/coverage-residual-analysis-m4-109.json', import.meta.url);
+const m4110ProjectionAnalysisUrl =
+  new URL('./kern-canonicalizer/projection-analysis-m4-110.json', import.meta.url);
 const m496RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-96.json', import.meta.url);
 const m4103RuntimeBottleneckUrl = new URL('./kern-canonicalizer/runtime-bottleneck-m4-103.json', import.meta.url);
 const m4104RuntimeCostUrl = new URL('./kern-canonicalizer/runtime-cost-m4-104.json', import.meta.url);
@@ -335,6 +341,8 @@ const m4101ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM
 const m4101ResidualAnalysis = m4101ResidualAnalysisHandoff.record;
 const m4109ResidualAnalysisHandoff = loadPublishedCanonicalizerResidualAnalysisM4109();
 const m4109ResidualAnalysis = m4109ResidualAnalysisHandoff.record;
+const m4110ProjectionAnalysisHandoff = loadPublishedCanonicalizerProjectionAnalysisM4110();
+const m4110ProjectionAnalysis = m4110ProjectionAnalysisHandoff.record;
 const m4102TripleRowHeadroom = assertCanonicalizerTripleRowHeadroomM4102();
 const m4103RuntimeBottleneck = loadCanonicalizerRuntimeBottleneckM4103();
 const m4104RuntimeCost = loadCanonicalizerRuntimeCostM4104();
@@ -1293,6 +1301,48 @@ if (process.argv.includes('--write')) {
   assert.equal(m4109ResidualAnalysis.frontier.profileRowsAvailableFunctions, 0);
   assert.deepEqual(m4109ResidualAnalysis.frontier.actionableCandidates, []);
   assert.equal(m4109ResidualAnalysis.selectedNextAction, null);
+  assertCoverageSummary(m4110ProjectionAnalysisUrl, m4110ProjectionAnalysis);
+  assert.equal(
+    m4110ProjectionAnalysisHandoff.digest,
+    '38f26bb48237832163acb8fa99ee0b65b8dc343f77f6a7570481e54d01d6732f',
+  );
+  assert.equal(
+    m4110ProjectionAnalysisHandoff.inputCommit,
+    'e77fc4567543ad6984b86b97d8a7a8e469020ebd',
+  );
+  assert.equal(m4110ProjectionAnalysis.requirements.length, 15);
+  assert.deepEqual(m4110ProjectionAnalysis.input, {
+    assignmentDigest: 'f200b876c0ed6dd9cd75cfebe1c46c3d6cf97b13e0422886bc13b0f02f46b203',
+    baseKirLimits: { maxBytes: 262144, maxDepth: 64, maxNodes: 4096 },
+    profileLimits: { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2100 },
+    residualAnalysisDigest:
+      'ad6240c77ed276d1f865beb702ceeb7c85767191dbaa3cf36f526505c4e555fb',
+    residualFunctions: 15,
+  });
+  assert.deepEqual(m4110ProjectionAnalysis.summary, {
+    observedSettings: 10,
+    projectedFunctions: 13,
+    unsupportedFunctions: 2,
+  });
+  assert.deepEqual(m4110ProjectionAnalysis.selectedNextAction, {
+    changedLimits: ['maxDepth'],
+    completeFunctions: 9,
+    completeTools: 4,
+    kirLimits: { maxBytes: 262144, maxDepth: 76, maxNodes: 4096 },
+    migratedParameterRows: 134,
+    totalDelta: 12,
+    witnesses: [
+      'examples/capstone-assertion-engine/compare.kern#2:compareList',
+      'examples/capstone-assertion-engine/compare.kern#3:compareMap',
+      'examples/capstone-checker-subset/checker-while.kern#11:lengthReceiverProven',
+      'examples/capstone-checker-subset/checker-while.kern#9:numericBindingProven',
+      'examples/capstone-checker-subset/checker.kern#17:paramCallsitesOk',
+      'examples/capstone-checker-subset/checker.kern#20:mapKeyToken',
+      'examples/capstone-checker-subset/checker.kern#21:mapKnownBefore',
+      'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement',
+      'examples/selfhost-validator/validator.kern#15:exportkind',
+    ],
+  });
   assertCoverageSummary(m496RuntimeBottleneckUrl, m496RuntimeBottleneck);
   assert.deepEqual(m496RuntimeBottleneck.diagnosis, {
     additionalBudget: 500,
@@ -1737,6 +1787,7 @@ process.stdout.write(
     parameterMigration: m4107ParameterMigration(),
   })}` +
   ` ${formatM4109ResidualAnalysisStatus(m4109ResidualAnalysis.selectedNextAction)}` +
+  ` ${formatM4110ProjectionAnalysisStatus(m4110ProjectionAnalysis.selectedNextAction)}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

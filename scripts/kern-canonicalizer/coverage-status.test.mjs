@@ -57,6 +57,7 @@ import {
   formatM4106RuntimeCostStatus,
   formatM4107TripleRowPromotionStatus,
   formatM4109ResidualAnalysisStatus,
+  formatM4110ProjectionAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -269,6 +270,19 @@ test('coverage status records the M4.109 terminal profile frontier', () => {
       changedLimits: ['maxNodeRows'],
     }),
     'M4.109 published analysis selected 1 function by maxNodeRows widening.',
+  );
+});
+
+test('coverage status records the M4.110 projection recommendation', () => {
+  assert.equal(
+    formatM4110ProjectionAnalysisStatus({
+      completeFunctions: 9,
+      completeTools: 4,
+      kirLimits: { maxDepth: 76 },
+      migratedParameterRows: 134,
+    }),
+    'M4.110 projection analysis selects maxDepth 76 for 9 functions/134 rows across 4 tools; ' +
+      'M4.111 authenticates structural KIR and runtime-envelope safety.',
   );
 });
 
