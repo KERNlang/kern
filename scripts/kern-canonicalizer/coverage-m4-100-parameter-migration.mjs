@@ -18,7 +18,7 @@ export const M4100_PARAMETER_MIGRATION_TARGET = {
   bodyDigest: 'af4ecfe26afbc017a828e64531f9f5aac2022348adbbe548ae84b520898dfecf',
   exported: false,
   functionOrdinal: 15,
-  generatedMainSha256: '7c04980d7b1de3ba6f683a138a53c4f70b4de014ab204822ab64175a67513ce2',
+  generatedMainSha256: '605d24185f9351205853087afc991fdd098a5d0bc54a171cbc3b8a4c311aedfd',
   id: 'examples/capstone-checker-subset/checker-while.kern#15:comparisonOperandsOk',
   name: 'comparisonOperandsOk',
   parameters: [
@@ -51,7 +51,7 @@ export const M4100_PARAMETER_MIGRATION_TARGET = {
   profileRows: { nodes: 53, properties: 95, values: 832 },
   quotedReturns: false,
   returns: 'boolean',
-  sourceSha256: 'df856b8a6a674b0803273a65a755e64ebb13f699fed692fc7dd7db88bee8c802',
+  sourceSha256: '1382f193941dd1767815d7f1b0eb6482898bd7bb36fcdb6159057fc1e2c28c1d',
   tool: 'checker',
 };
 

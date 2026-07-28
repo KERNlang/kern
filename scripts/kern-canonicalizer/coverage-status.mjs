@@ -279,6 +279,12 @@ export function formatM4112KirDepthPromotionStatus({ kirLimits, parameterMigrati
     `${parameterMigration.completeTools} tools; M4.113 consumes it.`;
 }
 
+export function formatM4113ParameterMigrationStatus({ migratedFunctions, migratedRows }) {
+  return `M4.113 consumes the exact M4.112 ${migratedFunctions}-function/` +
+    `${migratedRows}-row parameter queue and advances the cumulative base to 101/111 with ` +
+    '6 legacy-parameter blockers; M4.114 remeasures the bounded residual frontier.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

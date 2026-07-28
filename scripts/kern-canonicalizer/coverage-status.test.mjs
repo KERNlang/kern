@@ -60,6 +60,7 @@ import {
   formatM4110ProjectionAnalysisStatus,
   formatM4111KirDepthHeadroomStatus,
   formatM4112KirDepthPromotionStatus,
+  formatM4113ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -315,6 +316,18 @@ test('coverage status records the M4.112 structural KIR depth promotion', () => 
     }),
     'M4.112 promotes structural KIR maxDepth to 76 and publishes the exact ' +
       '9-function/134-row parameter queue across 4 tools; M4.113 consumes it.',
+  );
+});
+
+test('coverage status records the M4.113 parameter migration', () => {
+  assert.equal(
+    formatM4113ParameterMigrationStatus({
+      migratedFunctions: 9,
+      migratedRows: 134,
+    }),
+    'M4.113 consumes the exact M4.112 9-function/134-row parameter queue and advances the ' +
+      'cumulative base to 101/111 with 6 legacy-parameter blockers; ' +
+      'M4.114 remeasures the bounded residual frontier.',
   );
 });
 

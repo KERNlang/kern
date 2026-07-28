@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { verifyCanonicalizerComposition } from './composition.mjs';
+import { canonicalCompositionRecordBytes } from './composition.mjs';
+import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
@@ -41,7 +43,6 @@ const INPUT_IDENTITIES = {
     '04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab',
 };
 const INPUT_URLS = {
-  compositionRecordSha256: new URL('./composition.json', import.meta.url),
   flattenAdapterSha256: new URL('./flatten.mjs', import.meta.url),
   runtimeHandlerSha256: new URL('../../packages/core/src/runtime-handler.ts', import.meta.url),
   structuralKirCodecSha256:
@@ -303,10 +304,25 @@ function exactInputs() {
       fail(`${name} source identity must remain exact`);
     }
   }
-  const composition = verifyCanonicalizerComposition();
-  if (digest(composition.source) !== INPUT_IDENTITIES.canonicalizerCompositeSha256) {
-    fail('canonicalizer composite identity must remain exact');
-  }
+  const composition = loadHistoricalCanonicalizerComposition({
+    expectedDigests: {
+      canonicalizerCompositeSha256: INPUT_IDENTITIES.canonicalizerCompositeSha256,
+      compositionRecordSha256: INPUT_IDENTITIES.compositionRecordSha256,
+      expressionHelpersSha256:
+        'bdb40cb0006af0e92b3a4383c7c71a3df7e417fda1569a1860d8f9a65d08ee52',
+      mainSourceSha256:
+        '23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195',
+      statementHelpersSha256:
+        '02037b400eb35d2fd61a5eaf06e6b83fbd9bb1c12bbe71da82bc39327169c592',
+    },
+    milestone: 'M4.111',
+    statementHelperTargets: [EMITSTATEMENT_M4113_TARGET],
+  });
+  if (
+    digest(composition.composite) !== INPUT_IDENTITIES.canonicalizerCompositeSha256 ||
+    digest(canonicalCompositionRecordBytes(composition.record)) !==
+      INPUT_IDENTITIES.compositionRecordSha256
+  ) fail('historical canonicalizer composition identities must remain exact');
   return { analysis, policy };
 }
 

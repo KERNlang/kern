@@ -16,6 +16,7 @@ import {
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4113CoverageInputs } from './historical-parameter-sources.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.projection-analysis.1';
 const PUBLISHED_DIGEST = '38f26bb48237832163acb8fa99ee0b65b8dc343f77f6a7570481e54d01d6732f';
@@ -148,10 +149,16 @@ function publishedHandoff(value) {
 export function measureCanonicalizerProjectionAnalysisM4110() {
   const residualHandoff = loadPublishedCanonicalizerResidualAnalysisM4109();
   if (residualHandoff.digest !== RESIDUAL_ANALYSIS_DIGEST) fail('M4.109 input digest must remain exact');
-  const policy = loadCoveragePolicy();
-  const coverage = measureCanonicalizerCoverage(policy);
+  const currentPolicy = loadCoveragePolicy();
+  const historical = loadPreM4113CoverageInputs(currentPolicy);
+  const policy = historical.policy;
+  const coverage = measureCanonicalizerCoverage(
+    policy,
+    undefined,
+    { sourceOverrides: historical.sourceOverrides },
+  );
   const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const roots = sourceFunctionRoots(policy);
+  const roots = sourceFunctionRoots(policy, historical.sourceOverrides);
   const legacyFacts = coverage.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
     .sort((left, right) => compareText(left.id, right.id));

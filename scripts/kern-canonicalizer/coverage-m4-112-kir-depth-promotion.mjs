@@ -164,14 +164,7 @@ export function assertM4112KirDepthPromotion(policy) {
   return m4112ActiveKirLimits();
 }
 
-export function m4112CoverageStatus(policy, prerequisite) {
-  assert.deepEqual(prerequisite.parameterMigration, PARAMETER_MIGRATION);
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 6);
-  assert.equal(
-    prerequisite.exhaustion?.reasonAssignmentsDigest,
-    '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
-  );
+export function m4112CoverageStatus(policy) {
   return formatM4112KirDepthPromotionStatus({
     kirLimits: assertM4112KirDepthPromotion(policy),
     parameterMigration: m4112ParameterMigration(),

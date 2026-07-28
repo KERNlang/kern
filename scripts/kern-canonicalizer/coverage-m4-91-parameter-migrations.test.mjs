@@ -103,9 +103,9 @@ test('M4.91 generated consumers reproduce only from repository writers', () => {
 
   const sources = new Map([
     ['examples/capstone-checker-subset/checker.kern',
-      '5bc7cacd87bd1093ecbcd2c6dda6d56ff113a8bcbb9e0a26ca327675a4297bee'],
+      'f8c9b50d5be28074479bebed4c93e6e6d7f8f15ea9efab54c2b396dcde924d99'],
     ['examples/selfhost-validator/validator.kern',
-      'db11517fa7804dac32480bc205bd835b631524a00674e1e85f549dc663d5eb5a'],
+      '96a1c96800132f2401d743eac02f0efe8cb0717980ceb56c2af531798790eaac'],
   ]);
   for (const [path, digest] of sources) {
     assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);

@@ -206,7 +206,6 @@ export function assertValueBandParameterMigrations(receipt) {
   const compareRoots = rootsByPath.get('examples/capstone-assertion-engine/compare.kern');
   assert.equal(compareRoots.length, 4);
   assert.equal(compareRoots.slice(0, 2).every(({ props, children }) =>
-    typeof props.params === 'string' &&
-    props.params.length > 0 &&
-    children.every(({ type }) => type !== 'param')), true);
+    props.params === undefined &&
+    children.some(({ type }) => type === 'param')), true);
 }

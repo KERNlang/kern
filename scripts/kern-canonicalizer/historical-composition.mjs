@@ -9,20 +9,23 @@ import {
   CANONICALIZER_COMPOSITION_RECIPE,
 } from './composition.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
 import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
 
-const target = VALIDSTATEMENT_DIRECT_TARGET;
-const returnSource = target.quotedReturns ? JSON.stringify(target.returns) : target.returns;
-const exportSource = target.exported ? ' export=true' : '';
-const DIRECT_VALIDSTATEMENT_SIGNATURE = [
-  `fn name=${target.name} returns=${returnSource}${exportSource}`,
-  ...target.parameters.map(([name, type]) => `  param name=${name} type=${type}`),
-  '',
-].join('\n');
-const legacyParameters = target.parameters.map(([name, type]) => `${name}:${type}`).join(',');
-const LEGACY_VALIDSTATEMENT_SIGNATURE =
-  `fn name=${target.name} params=${JSON.stringify(legacyParameters)} ` +
-  `returns=${returnSource}${exportSource}\n`;
+function parameterSignatureReplacement(target) {
+  const returnSource = target.quotedReturns ? JSON.stringify(target.returns) : target.returns;
+  const exportSource = target.exported ? ' export=true' : '';
+  const current = [
+    `fn name=${target.name} returns=${returnSource}${exportSource}`,
+    ...target.parameters.map(([name, type]) => `  param name=${name} type=${type}`),
+    '',
+  ].join('\n');
+  const legacyParameters = target.parameters.map(([name, type]) => `${name}:${type}`).join(',');
+  const historical =
+    `fn name=${target.name} params=${JSON.stringify(legacyParameters)} ` +
+    `returns=${returnSource}${exportSource}\n`;
+  return { current, historical };
+}
 
 const DEFAULT_SOURCE_URLS = [
   new URL(
@@ -74,6 +77,10 @@ export function loadHistoricalCanonicalizerComposition({
   expectedDigests,
   milestone,
   sources = DEFAULT_SOURCE_URLS.map((url) => readFileSync(url)),
+  statementHelperTargets = [
+    VALIDSTATEMENT_DIRECT_TARGET,
+    EMITSTATEMENT_M4113_TARGET,
+  ],
 }) {
   const expected = exactExpectedDigests(expectedDigests, milestone);
   if (!Array.isArray(sources) || sources.length !== CANONICALIZER_COMPOSITION_MEMBERS.length) {
@@ -85,10 +92,7 @@ export function loadHistoricalCanonicalizerComposition({
     currentSource: currentStatementHelpers,
     expectedDigest: expected.statementHelpersSha256,
     milestone: `${milestone} statement helpers`,
-    replacements: [{
-      current: DIRECT_VALIDSTATEMENT_SIGNATURE,
-      historical: LEGACY_VALIDSTATEMENT_SIGNATURE,
-    }],
+    replacements: statementHelperTargets.map(parameterSignatureReplacement),
   });
   const members = [expressionHelpers, statementHelpers, mainSource];
   const composite = Buffer.concat(members);

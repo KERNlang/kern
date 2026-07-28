@@ -96,15 +96,12 @@ export function assertM486ParameterMigration(coverage, prerequisite) {
   const roots = document.root.children.filter(({ type }) => type === 'fn');
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM486ParameterTarget(roots[target.functionOrdinal], fact, target);
-  assert.equal(source.split('\n').length - 1, 506);
+  assert.equal(source.split('\n').length - 1, 550);
   assert.equal(roots.length, 24);
   assert.deepEqual(
     roots.filter(({ props }) => typeof props.params === 'string').map(({ props }) => props.name),
     [
       'rejectLine',
-      'paramCallsitesOk',
-      'mapKeyToken',
-      'mapKnownBefore',
       'checkModule',
     ],
   );

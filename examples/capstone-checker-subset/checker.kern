@@ -255,7 +255,30 @@ fn name=argProvenanced returns=boolean
             return value="true"
     return value="false"
 
-fn name=paramCallsitesOk params="callee:string,ordinal:number,callName:string[],callFn:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],argNum:string[],argOp:string[],argLeftKind:string[],argLeftName:string[],argLeftNum:string[],argRightKind:string[],argRightName:string[],argRightNum:string[],stmtKind:string[],stmtFn:string[],stmtName:string[],stmtTarget:string[],paramFn:string[],paramName:string[],paramOrdinal:number[]" returns=boolean
+fn name=paramCallsitesOk returns=boolean
+  param name=callee type=string
+  param name=ordinal type=number
+  param name=callName type=string[]
+  param name=callFn type=string[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=argNum type=string[]
+  param name=argOp type=string[]
+  param name=argLeftKind type=string[]
+  param name=argLeftName type=string[]
+  param name=argLeftNum type=string[]
+  param name=argRightKind type=string[]
+  param name=argRightName type=string[]
+  param name=argRightNum type=string[]
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramOrdinal type=number[]
   handler lang="kern"
     let name=found value="false"
     for name=i from=0 to="callName.length"
@@ -330,7 +353,16 @@ fn name=mapArgToken returns=string
           return value="\"\""
     return value="\"\""
 
-fn name=mapKeyToken params="callId:number,callFn:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],stmtKind:string[],stmtFn:string[],stmtTarget:string[]" returns=string
+fn name=mapKeyToken returns=string
+  param name=callId type=number
+  param name=callFn type=string[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtTarget type=string[]
   handler lang="kern"
     for name=i from=0 to="argCall.length"
       if cond="argCall[i] == callId"
@@ -343,7 +375,19 @@ fn name=mapKeyToken params="callId:number,callFn:string[],argCall:number[],argOr
           return value="\"\""
     return value="\"\""
 
-fn name=mapKnownBefore params="callId:number,callStmt:number[],callFn:string[],callMemberObject:string[],callMemberProp:string[],argCall:number[],argOrdinal:number[],argKind:string[],argName:string[],stmtKind:string[],stmtFn:string[],stmtTarget:string[]" returns=boolean
+fn name=mapKnownBefore returns=boolean
+  param name=callId type=number
+  param name=callStmt type=number[]
+  param name=callFn type=string[]
+  param name=callMemberObject type=string[]
+  param name=callMemberProp type=string[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtTarget type=string[]
   handler lang="kern"
     let name=mapName value="mapArgToken(callId, 0, argCall, argOrdinal, argKind, argName)"
     let name=keyToken value="mapKeyToken(callId, callFn, argCall, argOrdinal, argKind, argName, stmtKind, stmtFn, stmtTarget)"

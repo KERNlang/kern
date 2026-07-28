@@ -116,7 +116,23 @@ fn name=isPositiveSafeIntText returns=boolean
       return value="false"
     return value="checkerSafeIntText(raw)"
 
-fn name=numericBindingProven params="row:number,fnName:string,binding:string,requiredStep:string,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtName:string[],stmtTarget:string[],stmtExprKind:string[],stmtExprName:string[],stmtExprNum:string[],stmtExprLeftKind:string[],stmtExprLeftName:string[],stmtExprRightKind:string[],stmtExprRightNum:string[]" returns=boolean
+fn name=numericBindingProven returns=boolean
+  param name=row type=number
+  param name=fnName type=string
+  param name=binding type=string
+  param name=requiredStep type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtParent type=number[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=stmtExprKind type=string[]
+  param name=stmtExprName type=string[]
+  param name=stmtExprNum type=string[]
+  param name=stmtExprLeftKind type=string[]
+  param name=stmtExprLeftName type=string[]
+  param name=stmtExprRightKind type=string[]
+  param name=stmtExprRightNum type=string[]
   handler lang="kern"
     let name=declared value="false"
     let name=stepped value="false"
@@ -166,7 +182,19 @@ fn name=isLengthType returns=boolean
       return value="false"
     return value="Text.charAt(raw, n - 2) == \"[\" && Text.charAt(raw, n - 1) == \"]\""
 
-fn name=lengthReceiverProven params="row:number,fnName:string,binding:string,stmtKind:string[],stmtFn:string[],stmtParent:number[],stmtName:string[],stmtTarget:string[],stmtExprKind:string[],paramFn:string[],paramName:string[],paramType:string[]" returns=boolean
+fn name=lengthReceiverProven returns=boolean
+  param name=row type=number
+  param name=fnName type=string
+  param name=binding type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtParent type=number[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=stmtExprKind type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramType type=string[]
   handler lang="kern"
     let name=declared value="false"
     let name=end value="subtreeEnd(row, stmtParent)"

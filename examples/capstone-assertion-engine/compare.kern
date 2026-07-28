@@ -28,7 +28,20 @@ use path="./diag"
 # handling forwards a child `return` completion), so the first mismatch
 # found at any depth short-circuits the whole comparison.
 
-fn name=compareList params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[],idxA:number,idxB:number,path:string" returns=string
+fn name=compareList returns=string
+  param name=pA type=number[]
+  param name=kA type=string[]
+  param name=xA type=number[]
+  param name=tA type=string[]
+  param name=vA type=string[]
+  param name=pB type=number[]
+  param name=kB type=string[]
+  param name=xB type=number[]
+  param name=tB type=string[]
+  param name=vB type=string[]
+  param name=idxA type=number
+  param name=idxB type=number
+  param name=path type=string
   handler lang="kern"
     let name=okVal value="passResult()"
     let name=countA value="0"
@@ -54,7 +67,20 @@ fn name=compareList params="pA:number[],kA:string[],xA:number[],tA:string[],vA:s
                     return value="result"
     return value="okVal"
 
-fn name=compareMap params="pA:number[],kA:string[],xA:number[],tA:string[],vA:string[],pB:number[],kB:string[],xB:number[],tB:string[],vB:string[],idxA:number,idxB:number,path:string" returns=string
+fn name=compareMap returns=string
+  param name=pA type=number[]
+  param name=kA type=string[]
+  param name=xA type=number[]
+  param name=tA type=string[]
+  param name=vA type=string[]
+  param name=pB type=number[]
+  param name=kB type=string[]
+  param name=xB type=number[]
+  param name=tB type=string[]
+  param name=vB type=string[]
+  param name=idxA type=number
+  param name=idxB type=number
+  param name=path type=string
   handler lang="kern"
     let name=okVal value="passResult()"
     let name=keysA value="[]"

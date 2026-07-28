@@ -107,10 +107,12 @@ export function migrateLegacyFunctionForPrerequisite(sourceRoot) {
   return { parameters, root };
 }
 
-export function sourceFunctionRoots(policy) {
+export function sourceFunctionRoots(policy, sourceOverrides = new Map()) {
   const roots = new Map();
   for (const member of policy.corpus) {
-    const source = readCorpusMemberBytes(member.path);
+    const source = sourceOverrides.has(member.path)
+      ? Buffer.from(sourceOverrides.get(member.path))
+      : readCorpusMemberBytes(member.path);
     if (createHash('sha256').update(source).digest('hex') !== member.digest) {
       fail(`corpus member ${member.path} changed during prerequisite measurement`);
     }

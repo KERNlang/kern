@@ -1,23 +1,14 @@
 import assert from 'node:assert/strict';
 
 import { m4107ActiveProfile } from './coverage-m4-107-triple-row-promotion.mjs';
-import { m4112ParameterMigration } from './coverage-m4-112-kir-depth-promotion.mjs';
+import { m4113ParameterMigration } from './coverage-m4-113-parameter-migration.mjs';
 
 const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
-  'examples/capstone-assertion-engine/compare.kern#2:compareList',
-  'examples/capstone-assertion-engine/compare.kern#3:compareMap',
-  'examples/capstone-checker-subset/checker-while.kern#11:lengthReceiverProven',
-  'examples/capstone-checker-subset/checker-while.kern#9:numericBindingProven',
-  'examples/capstone-checker-subset/checker.kern#17:paramCallsitesOk',
-  'examples/capstone-checker-subset/checker.kern#20:mapKeyToken',
-  'examples/capstone-checker-subset/checker.kern#21:mapKnownBefore',
   'examples/capstone-checker-subset/checker.kern#24:checkModule',
   'examples/capstone-checker-subset/checker.kern#2:rejectLine',
   'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
-  'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement',
   'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
   'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-  'examples/selfhost-validator/validator.kern#15:exportkind',
   'examples/selfhost-validator/validator.kern#20:validate',
 ];
 
@@ -78,7 +69,7 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 }
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
-  assert.equal(coverage.baseCompleteFunctions, 92);
+  assert.equal(coverage.baseCompleteFunctions, 101);
   assert.equal(coverage.functions.length, 111);
   assert.deepEqual(
     coverage.functions
@@ -86,7 +77,7 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m4112ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4113ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);

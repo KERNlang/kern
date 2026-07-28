@@ -126,6 +126,10 @@ import {
 } from './kern-canonicalizer/kir-depth-headroom-m4-111.mjs';
 import { m4112CoverageStatus } from './kern-canonicalizer/coverage-m4-112-kir-depth-promotion.mjs';
 import {
+  assertM4113ParameterMigrations,
+  m4113CoverageStatus,
+} from './kern-canonicalizer/coverage-m4-113-parameter-migration.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -383,6 +387,7 @@ assertM499DualRowPromotion(policy);
 assertM4100ParameterMigration(coverage, prerequisite);
 assertM4107TripleRowPromotion();
 assertM4108ParameterMigration(coverage, prerequisite);
+assertM4113ParameterMigrations(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4107ActiveProfile(),
@@ -537,13 +542,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 111, 'live M4.108 authored function count must remain exact');
+  assert.equal(actual.functionCount, 111, 'live M4.113 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 92, 'live M4.108 base completion must remain exactly 92/111');
+  assert.equal(actual.baseCompleteFunctions, 101, 'live M4.113 base completion must remain exactly 101/111');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    15,
-    'live M4.108 fn.params blocker count must remain exactly 15',
+    6,
+    'live M4.113 fn.params blocker count must remain exactly 6',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -1490,7 +1495,7 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 92);
+  assert.equal(actual.baseCompleteFunctions, 101);
   assert.equal(actual.functionCount, 111);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
@@ -1843,7 +1848,8 @@ process.stdout.write(
   ` ${formatM4109ResidualAnalysisStatus(m4109ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM4110ProjectionAnalysisStatus(m4110ProjectionAnalysis.selectedNextAction)}` +
   ` ${formatM4111KirDepthHeadroomStatus(m4111KirDepthHeadroom)}` +
-  ` ${m4112CoverageStatus(policy, prerequisite)}` +
+  ` ${m4112CoverageStatus(policy)}` +
+  ` ${m4113CoverageStatus()}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

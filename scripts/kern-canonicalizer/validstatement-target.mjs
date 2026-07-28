@@ -31,7 +31,7 @@ export const VALIDSTATEMENT_DIRECT_TARGET = {
   profileRows: { nodes: 89, properties: 125, values: 1873 },
   quotedReturns: false,
   returns: 'boolean',
-  sourceSha256: '02037b400eb35d2fd61a5eaf06e6b83fbd9bb1c12bbe71da82bc39327169c592',
+  sourceSha256: '11485f2b657a002e8ff4ca93db7b0122768163c65edecb3a1f13da4906569d75',
   tool: 'canonicalizer',
 };
 
