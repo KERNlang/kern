@@ -1,0 +1,130 @@
+{
+  "assignments": [
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#24:checkModule",
+      "parameterRows": 58,
+      "profileRows": {
+        "nodes": 122,
+        "properties": 193,
+        "values": 2411
+      },
+      "reasons": [
+        "profile.rows.nodes",
+        "profile.rows.properties",
+        "profile.rows.values"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/capstone-checker-subset/checker.kern#2:rejectLine",
+      "parameterRows": 5,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-depth"
+      ],
+      "tool": "checker"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "parameterRows": 2,
+      "profileRows": null,
+      "reasons": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff",
+        "projection.limit-depth"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+      "parameterRows": 6,
+      "profileRows": null,
+      "reasons": [
+        "let.value:unknown-expression-kind",
+        "projection.unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize",
+      "parameterRows": 15,
+      "profileRows": null,
+      "reasons": [
+        "projection.unknown-expression-kind",
+        "throw.value:unknown-expression-kind"
+      ],
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#20:validate",
+      "parameterRows": 41,
+      "profileRows": null,
+      "reasons": [
+        "projection.limit-nodes"
+      ],
+      "tool": "validator"
+    }
+  ],
+  "assignmentsDigest": "7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55",
+  "baseline": {
+    "baseCompleteFunctions": 101,
+    "baseId": "kern.kir-canonicalizer.profile.m4.60",
+    "coverageImplementationDigest": "0a89966bad66ff789b92229da6c234a50e89cc056c34d01997663178f6f24e8b",
+    "coveragePolicyDigest": "4c75933f4505db9f7bf73daa8a633517e4719ba4c60b15b3dadc59083ef3a4f7",
+    "currentProfileLimits": {
+      "maxNodeRows": 89,
+      "maxPropertyRows": 125,
+      "maxValueRows": 2100
+    },
+    "functionFactsDigest": "61111421f4b723dd3428a11c3ba2259387632fd0ab0d2c4d39491f969ae4c452",
+    "legacyParameterBlockers": 6,
+    "residualFunctionCount": 6
+  },
+  "format": "kern.kir-canonicalizer.residual-analysis.3",
+  "frontier": {
+    "actionableCandidates": [
+      {
+        "changedLimits": [
+          "maxNodeRows",
+          "maxPropertyRows",
+          "maxValueRows"
+        ],
+        "completeFunctions": 1,
+        "completeTools": 1,
+        "limits": {
+          "maxNodeRows": 122,
+          "maxPropertyRows": 193,
+          "maxValueRows": 2411
+        },
+        "totalDelta": 412,
+        "witnesses": [
+          "examples/capstone-checker-subset/checker.kern#24:checkModule"
+        ]
+      }
+    ],
+    "evaluatedObservedSettings": 1,
+    "profileRowsAvailableFunctions": 1
+  },
+  "selectedNextAction": {
+    "changedLimits": [
+      "maxNodeRows",
+      "maxPropertyRows",
+      "maxValueRows"
+    ],
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "limits": {
+      "maxNodeRows": 122,
+      "maxPropertyRows": 193,
+      "maxValueRows": 2411
+    },
+    "totalDelta": 412,
+    "witnesses": [
+      "examples/capstone-checker-subset/checker.kern#24:checkModule"
+    ]
+  }
+}

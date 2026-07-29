@@ -285,6 +285,14 @@ export function formatM4113ParameterMigrationStatus({ migratedFunctions, migrate
     '6 legacy-parameter blockers; M4.114 remeasures the bounded residual frontier.';
 }
 
+export function formatM4114ResidualAnalysisStatus(selectedNextAction) {
+  return formatResidualAnalysisStatus(
+    'M4.114 published analysis',
+    selectedNextAction,
+    '; M4.115 authenticates structural runtime headroom',
+  );
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

@@ -61,6 +61,7 @@ import {
   formatM4111KirDepthHeadroomStatus,
   formatM4112KirDepthPromotionStatus,
   formatM4113ParameterMigrationStatus,
+  formatM4114ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -328,6 +329,18 @@ test('coverage status records the M4.113 parameter migration', () => {
     'M4.113 consumes the exact M4.112 9-function/134-row parameter queue and advances the ' +
       'cumulative base to 101/111 with 6 legacy-parameter blockers; ' +
       'M4.114 remeasures the bounded residual frontier.',
+  );
+});
+
+test('coverage status records the M4.114 residual recommendation', () => {
+  assert.equal(
+    formatM4114ResidualAnalysisStatus({
+      changedLimits: ['maxNodeRows', 'maxPropertyRows', 'maxValueRows'],
+      completeFunctions: 1,
+    }),
+    'M4.114 published analysis selected 1 function by ' +
+      'maxNodeRows+maxPropertyRows+maxValueRows widening; ' +
+      'M4.115 authenticates structural runtime headroom.',
   );
 });
 

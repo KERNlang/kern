@@ -129,6 +129,7 @@ import {
   assertM4113ParameterMigrations,
   m4113CoverageStatus,
 } from './kern-canonicalizer/coverage-m4-113-parameter-migration.mjs';
+import { assertM4114ResidualAnalysis } from './kern-canonicalizer/coverage-m4-114-central.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
@@ -388,6 +389,7 @@ assertM4100ParameterMigration(coverage, prerequisite);
 assertM4107TripleRowPromotion();
 assertM4108ParameterMigration(coverage, prerequisite);
 assertM4113ParameterMigrations(coverage, prerequisite);
+const m4114CoverageStatusLine = assertM4114ResidualAnalysis();
 assert.deepEqual(
   policy.profileLimits,
   m4107ActiveProfile(),
@@ -1850,6 +1852,7 @@ process.stdout.write(
   ` ${formatM4111KirDepthHeadroomStatus(m4111KirDepthHeadroom)}` +
   ` ${m4112CoverageStatus(policy)}` +
   ` ${m4113CoverageStatus()}` +
+  ` ${m4114CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
