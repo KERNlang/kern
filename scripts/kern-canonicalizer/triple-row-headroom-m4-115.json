@@ -1,0 +1,82 @@
+{
+  "artifactScope": "structural-kir-function",
+  "format": "kern.kir-canonicalizer.triple-row-headroom.1",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 89,
+      "maxPropertyRows": 125,
+      "maxValueRows": 2100
+    },
+    "candidateProfile": {
+      "maxNodeRows": 122,
+      "maxPropertyRows": 193,
+      "maxValueRows": 2411
+    },
+    "diagnosticMaxCollectionLength": 176119,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152,
+    "reservedProductionHeadroom": 16384
+  },
+  "measurement": {
+    "disposition": "diagnostic-only",
+    "runtimePolicyChanged": false
+  },
+  "moduleEnvelope": {
+    "disposition": "not-claimed",
+    "maxDepth": 76
+  },
+  "promotion": {
+    "disposition": "rejected-over-production-ceiling",
+    "nextMilestone": "M4.116",
+    "productionCeilingDeficit": 110583,
+    "promotionBudgetDeficit": 126967,
+    "profilePromotionApproved": false,
+    "requiredFloorReduction": 126967
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "75546d8edbf2753fc49aacaf24ab2fa416d7b3d3bd8984b37dd76317691ce88f",
+    "checkerSourceSha256": "f8c9b50d5be28074479bebed4c93e6e6d7f8f15ea9efab54c2b396dcde924d99",
+    "compositionRecordSha256": "18ff4b7116de086ab43a9d501545727ab27a6b99c10f991215d6d07607ed3216",
+    "coveragePolicySha256": "4c75933f4505db9f7bf73daa8a633517e4719ba4c60b15b3dadc59083ef3a4f7",
+    "coverageSummarySha256": "7027b476b0a76324d1a5456c2f0cc9128cc1d012449c1d4a30f1818335f6c864",
+    "flattenAdapterSha256": "ed283c69e34371c592a0ba48ff18581b100cfb98faedcc4dfdc50383db253c2f",
+    "measurementHarnessSha256": "a2686430ed13626e8678cf1efa074c7795c341c673cabd463447f7422261df0d",
+    "prerequisiteSummarySha256": "faa55d5859d68f110eb388f9bb933e116d647382b706b64ad7d377f7cb470749",
+    "runtimeHandlerSha256": "f2ca9bd81f2f6c37fc5c931037ba008eb3cf1f3675beb4cc2d74b767cff7f8a1",
+    "runtimePolicySha256": "919726462eabc002cb072cd8004fffe7f3e731ed430574dd608788580ca1f163",
+    "structuralKirCodecSha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab",
+    "publishedInputCommit": "11c05d913809b3ca999fee8155b6be76d6eef361",
+    "residualAnalysisInputCommit": "2cb03f0e84f6c586dd28404d331a67dd2bb839bb",
+    "residualAnalysisSha256": "23fd8f52fa70e2a72fb4b4b1b7ae4c477b369a5f46853691b86b7506a9717e0c",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "summary": {
+    "maxExactFloor": 176119,
+    "productionCeilingDeficit": 110583,
+    "promotionBudgetDeficit": 126967,
+    "totalArtifactBytes": 149053,
+    "totalParameterRows": 58,
+    "witnessCount": 1
+  },
+  "witnesses": [
+    {
+      "artifactBytes": 149053,
+      "belowFloor": 176118,
+      "belowFloorOutcome": "failure",
+      "exactFloor": 176119,
+      "floorOutcome": "success",
+      "id": "examples/capstone-checker-subset/checker.kern#24:checkModule",
+      "parameterRows": 58,
+      "productionDelta": -110583,
+      "productionOutcome": "failure",
+      "profileRows": {
+        "nodes": 122,
+        "properties": 193,
+        "values": 2411
+      },
+      "promotionDelta": -126967,
+      "publicParityVerified": true,
+      "roundTrip": true
+    }
+  ]
+}

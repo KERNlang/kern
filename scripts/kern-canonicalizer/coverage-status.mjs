@@ -293,6 +293,16 @@ export function formatM4114ResidualAnalysisStatus(selectedNextAction) {
   );
 }
 
+export function formatM4115TripleRowHeadroomStatus(receipt) {
+  return `M4.115 structural runtime rejects the ` +
+    `${receipt.limits.candidateProfile.maxNodeRows}/` +
+    `${receipt.limits.candidateProfile.maxPropertyRows}/` +
+    `${receipt.limits.candidateProfile.maxValueRows} candidate: exact floor ` +
+    `${receipt.summary.maxExactFloor} exceeds production by ` +
+    `${receipt.summary.productionCeilingDeficit} and promotion budget by ` +
+    `${receipt.summary.promotionBudgetDeficit}; M4.116 investigates the runtime bottleneck.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

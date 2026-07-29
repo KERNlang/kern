@@ -62,6 +62,7 @@ import {
   formatM4112KirDepthPromotionStatus,
   formatM4113ParameterMigrationStatus,
   formatM4114ResidualAnalysisStatus,
+  formatM4115TripleRowHeadroomStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -341,6 +342,28 @@ test('coverage status records the M4.114 residual recommendation', () => {
     'M4.114 published analysis selected 1 function by ' +
       'maxNodeRows+maxPropertyRows+maxValueRows widening; ' +
       'M4.115 authenticates structural runtime headroom.',
+  );
+});
+
+test('coverage status records the M4.115 production-ceiling rejection', () => {
+  assert.equal(
+    formatM4115TripleRowHeadroomStatus({
+      limits: {
+        candidateProfile: {
+          maxNodeRows: 122,
+          maxPropertyRows: 193,
+          maxValueRows: 2411,
+        },
+      },
+      summary: {
+        maxExactFloor: 176_119,
+        productionCeilingDeficit: 110_583,
+        promotionBudgetDeficit: 126_967,
+      },
+    }),
+    'M4.115 structural runtime rejects the 122/193/2411 candidate: exact floor 176119 ' +
+      'exceeds production by 110583 and promotion budget by 126967; ' +
+      'M4.116 investigates the runtime bottleneck.',
   );
 });
 
