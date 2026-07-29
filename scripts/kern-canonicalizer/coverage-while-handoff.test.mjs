@@ -63,7 +63,7 @@ test('M4.58 freezes the exact published while-iteration prerequisite', () => {
 });
 
 test('M4.58 prerequisite history is the exact ordered six-record chain', () => {
-  const chain = loadCanonicalizerPrerequisiteProvenanceChain();
+  const chain = loadCanonicalizerPrerequisiteProvenanceChain().slice(0, 6);
   const whileIteration = loadCanonicalizerWhilePrerequisiteProvenance();
   assert.equal(chain.length, 6);
   assert.deepEqual(chain.at(-1), whileIteration);
@@ -135,7 +135,7 @@ test('the current frontier preserves the M4.60 while promotion', () => {
 
   const coverage = measureCanonicalizerCoverage(policy);
   assert.equal(
-    coverage.prerequisiteProvenances.at(-1).digest,
+    coverage.prerequisiteProvenances[5].digest,
     M458_DIGEST,
   );
 

@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and six-record prerequisite history through M4.131', () => {
+test('the current corpus preserves selection and seven-record prerequisite history through M4.136', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -369,8 +369,8 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.equal(summary.implementationSelectionProvenanceDigest, member.digest);
   assert.deepEqual(receipt.prerequisiteProvenances, prerequisites);
   assert.deepEqual(summary.prerequisiteProvenances, prerequisites);
-  assert.equal(receipt.prerequisiteProvenances.length, 6);
-  assert.equal(summary.prerequisiteProvenances.length, 6);
+  assert.equal(receipt.prerequisiteProvenances.length, 7);
+  assert.equal(summary.prerequisiteProvenances.length, 7);
   assert.deepEqual(receipt.implementationProvenance, {
     family: 'while-iteration',
     provenanceDigest: prerequisites[5].digest,

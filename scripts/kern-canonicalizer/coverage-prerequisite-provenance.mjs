@@ -45,6 +45,12 @@ const WHILE_PREREQUISITE = Object.freeze({
     new URL('./coverage-while-prerequisite-provenance.json', import.meta.url),
   ),
 });
+const NEW_EXPRESSION_PREREQUISITE = Object.freeze({
+  digest: 'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e',
+  source: readFileSync(
+    new URL('./coverage-new-expression-prerequisite-provenance.json', import.meta.url),
+  ),
+});
 
 function fail(message) {
   throw new TypeError(`prerequisite provenance rejection: ${message}`);
@@ -320,9 +326,24 @@ export function loadCanonicalizerWhilePrerequisiteProvenance() {
   );
 }
 
+export function validateCanonicalizerNewExpressionPrerequisiteHandoff(input) {
+  return validateExactPrerequisiteHandoff(
+    input,
+    NEW_EXPRESSION_PREREQUISITE,
+    'new expression',
+  );
+}
+
+export function loadCanonicalizerNewExpressionPrerequisiteProvenance() {
+  return loadExactPrerequisiteProvenance(
+    NEW_EXPRESSION_PREREQUISITE,
+    validateCanonicalizerNewExpressionPrerequisiteHandoff,
+  );
+}
+
 export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
-  if (!Array.isArray(input) || input.length !== 6) {
-    fail('prerequisite provenance chain must contain exactly six records');
+  if (!Array.isArray(input) || input.length !== 7) {
+    fail('prerequisite provenance chain must contain exactly seven records');
   }
   const validators = [
     validateCanonicalizerIndexPrerequisiteHandoff,
@@ -331,6 +352,7 @@ export function validateCanonicalizerPrerequisiteProvenanceChain(input) {
     validateCanonicalizerUnaryPrerequisiteHandoff,
     validateCanonicalizerDoPrerequisiteHandoff,
     validateCanonicalizerWhilePrerequisiteHandoff,
+    validateCanonicalizerNewExpressionPrerequisiteHandoff,
   ];
   return input.map((entry, index) => {
     const row = record(entry, ['digest', 'record'], `chain[${index}]`);
@@ -349,5 +371,6 @@ export function loadCanonicalizerPrerequisiteProvenanceChain() {
     loadCanonicalizerUnaryPrerequisiteProvenance(),
     loadCanonicalizerDoPrerequisiteProvenance(),
     loadCanonicalizerWhilePrerequisiteProvenance(),
+    loadCanonicalizerNewExpressionPrerequisiteProvenance(),
   ]);
 }

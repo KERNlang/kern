@@ -63,7 +63,7 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.135 publishes the exact current migrated frontier', () => {
+test('M4.136 publishes the exact current migrated frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {

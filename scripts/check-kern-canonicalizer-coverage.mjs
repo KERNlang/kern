@@ -10,6 +10,9 @@ import {
   assertM4135BoundedNewExpression,
 } from './kern-canonicalizer/coverage-m4-135-central.mjs';
 import {
+  assertM4136NewExpressionHandoff,
+} from './kern-canonicalizer/coverage-m4-136-central.mjs';
+import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
@@ -444,6 +447,7 @@ const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
 const m4135CoverageStatusLine = assertM4135BoundedNewExpression(coverage, prerequisite);
+const m4136CoverageStatusLine = assertM4136NewExpressionHandoff(coverage, prerequisite);
 assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
@@ -538,7 +542,7 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.prerequisiteProvenances.length, 6);
+  assert.equal(actual.prerequisiteProvenances.length, 7);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
     family: 'while-iteration',
@@ -1949,6 +1953,7 @@ process.stdout.write(
   ` ${m4133CoverageStatusLine}` +
   ` ${m4134CoverageStatusLine}` +
   ` ${m4135CoverageStatusLine}` +
+  ` ${m4136CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

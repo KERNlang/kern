@@ -1,0 +1,39 @@
+{
+  "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+  "snapshot": {
+    "baseline": {
+      "baseCompleteFunctions": 104,
+      "baseId": "kern.kir-canonicalizer.profile.m4.60",
+      "corpusMembers": 9,
+      "functionCount": 112,
+      "legacyParameterBlockers": 3,
+      "toolCount": 4
+    },
+    "minimumFamilyCount": 2,
+    "selectedPrerequisite": {
+      "catalogFacts": 1,
+      "family": "new-expression",
+      "occurrences": 41
+    },
+    "winningClosure": {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "families": [
+        "exception-flow",
+        "new-expression"
+      ],
+      "migratedParameterRows": 15,
+      "occurrences": 75,
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize"
+      ]
+    }
+  },
+  "source": {
+    "commit": "5c5e80fe03f9664ffb2cd87b513b7dfe3d9d867c",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+    "coverageSummarySha256": "b54ea0da184be397ff995d3ffce4ee4be425cd2751de5089543a246be3c7c522",
+    "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.3",
+    "prerequisiteSummarySha256": "019ca1548ad46208c8b34b31cbd5d9bb4d140b4888a9992731a286cfde464a5b"
+  }
+}

@@ -187,7 +187,7 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7",
-  "coverageImplementationDigest": "471778274b923ba56b86399d146c6573732ff67f587129c23a33e59e71fe9636",
+  "coverageImplementationDigest": "a3c2ec637c0bfd30679fc3cf711fa5203a7255082ccf5df3ce160f1613e9cacf",
   "coveragePolicyDigest": "f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad",
   "expressionCatalogDigest": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957",
   "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
@@ -461,6 +461,48 @@
           "coverageSummarySha256": "b6f8ae2a49de9b8c2a859605a6c6a5da1bfcbc90d440efa9cdf259ccb7db7015",
           "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.3",
           "prerequisiteSummarySha256": "31a90a6e1bb413939a56ab9637c12c660dbfb6247b24a347698312839c366c58"
+        }
+      }
+    },
+    {
+      "digest": "ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e",
+      "record": {
+        "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+        "snapshot": {
+          "baseline": {
+            "baseCompleteFunctions": 104,
+            "baseId": "kern.kir-canonicalizer.profile.m4.60",
+            "corpusMembers": 9,
+            "functionCount": 112,
+            "legacyParameterBlockers": 3,
+            "toolCount": 4
+          },
+          "minimumFamilyCount": 2,
+          "selectedPrerequisite": {
+            "catalogFacts": 1,
+            "family": "new-expression",
+            "occurrences": 41
+          },
+          "winningClosure": {
+            "completeFunctions": 1,
+            "completeTools": 1,
+            "families": [
+              "exception-flow",
+              "new-expression"
+            ],
+            "migratedParameterRows": 15,
+            "occurrences": 75,
+            "witnesses": [
+              "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize"
+            ]
+          }
+        },
+        "source": {
+          "commit": "5c5e80fe03f9664ffb2cd87b513b7dfe3d9d867c",
+          "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+          "coverageSummarySha256": "b54ea0da184be397ff995d3ffce4ee4be425cd2751de5089543a246be3c7c522",
+          "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.3",
+          "prerequisiteSummarySha256": "019ca1548ad46208c8b34b31cbd5d9bb4d140b4888a9992731a286cfde464a5b"
         }
       }
     }

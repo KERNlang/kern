@@ -142,7 +142,7 @@ test('M4.60 promotes while iteration through exact prerequisite provenance', () 
   assert.deepEqual(receipt.implementationProvenance, WHILE_PROMOTION);
   assert.deepEqual(summary.implementationProvenance, WHILE_PROMOTION);
   assert.deepEqual(
-    receipt.prerequisiteProvenances.map(({ digest }) => digest),
+    receipt.prerequisiteProvenances.slice(0, 6).map(({ digest }) => digest),
     [
       INDEX_PROVENANCE_DIGEST,
       COUNTED_ITERATION_PROVENANCE_DIGEST,
