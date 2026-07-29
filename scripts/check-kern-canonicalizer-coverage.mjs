@@ -147,6 +147,7 @@ import {
 import { assertM4120ResidualAnalysis } from './kern-canonicalizer/coverage-m4-120-central.mjs';
 import { assertM4121ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-121-central.mjs';
 import { assertM4125ResidualAnalysis } from './kern-canonicalizer/coverage-m4-125-central.mjs';
+import { assertM4126ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-126-central.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
@@ -417,6 +418,7 @@ assertM4119ParameterMigration(coverage);
 const m4120CoverageStatusLine = assertM4120ResidualAnalysis();
 const m4121CoverageStatusLine = assertM4121ProjectionAnalysis();
 const m4125CoverageStatusLine = assertM4125ResidualAnalysis();
+const m4126CoverageStatusLine = assertM4126ProjectionAnalysis();
 assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
@@ -1894,6 +1896,7 @@ process.stdout.write(
   ` ${m4120CoverageStatusLine}` +
   ` ${m4121CoverageStatusLine}` +
   ` ${m4125CoverageStatusLine}` +
+  ` ${m4126CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

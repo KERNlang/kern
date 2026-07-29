@@ -1,0 +1,135 @@
+{
+  "candidates": [
+    {
+      "changedKirLimits": [
+        "maxBytes",
+        "maxDepth",
+        "maxNodes"
+      ],
+      "changedProfileLimits": [
+        "maxNodeRows",
+        "maxPropertyRows",
+        "maxValueRows"
+      ],
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "kirLimits": {
+        "maxBytes": 273051,
+        "maxDepth": 98,
+        "maxNodes": 5313
+      },
+      "migratedParameterRows": 41,
+      "profileLimits": {
+        "maxNodeRows": 202,
+        "maxPropertyRows": 308,
+        "maxValueRows": 4493
+      },
+      "totalDelta": 14422,
+      "witnesses": [
+        "examples/selfhost-validator/validator.kern#20:validate"
+      ]
+    }
+  ],
+  "format": "kern.kir-canonicalizer.projection-analysis.1",
+  "input": {
+    "assignmentDigest": "d56df2cc197c26f4c6f302c32e6447828e1e7359ba6f525f82bda5b6e2b5c481",
+    "baseKirLimits": {
+      "maxBytes": 262144,
+      "maxDepth": 77,
+      "maxNodes": 4096
+    },
+    "profileLimits": {
+      "maxNodeRows": 122,
+      "maxPropertyRows": 193,
+      "maxValueRows": 2411
+    },
+    "residualAnalysisDigest": "eb2b075097025b9f91089a0587e84807279061801850b10402dd0978a2fe9652",
+    "residualFunctions": 4
+  },
+  "requirements": [
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "outcome": "projected",
+      "parameterRows": 2,
+      "profileRows": {
+        "nodes": 54,
+        "properties": 82,
+        "values": 932
+      },
+      "requiredKirLimits": {
+        "maxDepth": 93
+      },
+      "requiredProfileLimits": {},
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+      "outcome": "unsupported",
+      "parameterRows": 6,
+      "projectionCode": "unknown-expression-kind",
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize",
+      "outcome": "unsupported",
+      "parameterRows": 15,
+      "projectionCode": "unknown-expression-kind",
+      "tool": "canonicalizer"
+    },
+    {
+      "id": "examples/selfhost-validator/validator.kern#20:validate",
+      "outcome": "projected",
+      "parameterRows": 41,
+      "profileRows": {
+        "nodes": 202,
+        "properties": 308,
+        "values": 4493
+      },
+      "requiredKirLimits": {
+        "maxBytes": 273051,
+        "maxDepth": 98,
+        "maxNodes": 5313
+      },
+      "requiredProfileLimits": {
+        "maxNodeRows": 202,
+        "maxPropertyRows": 308,
+        "maxValueRows": 4493
+      },
+      "tool": "validator"
+    }
+  ],
+  "selectedNextAction": {
+    "changedKirLimits": [
+      "maxBytes",
+      "maxDepth",
+      "maxNodes"
+    ],
+    "changedProfileLimits": [
+      "maxNodeRows",
+      "maxPropertyRows",
+      "maxValueRows"
+    ],
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "kirLimits": {
+      "maxBytes": 273051,
+      "maxDepth": 98,
+      "maxNodes": 5313
+    },
+    "migratedParameterRows": 41,
+    "profileLimits": {
+      "maxNodeRows": 202,
+      "maxPropertyRows": 308,
+      "maxValueRows": 4493
+    },
+    "totalDelta": 14422,
+    "witnesses": [
+      "examples/selfhost-validator/validator.kern#20:validate"
+    ]
+  },
+  "summary": {
+    "observedSettings": 2,
+    "projectedFunctions": 2,
+    "unsupportedFunctions": 2
+  }
+}
