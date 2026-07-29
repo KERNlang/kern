@@ -25,8 +25,8 @@ import {
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { loadPublishedCanonicalizerResidualAnalysisM4114 } from './coverage-residual-analysis-m4-114.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructLegacyParameterSource } from './historical-parameter-sources.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const WITNESS_ID =
   'examples/capstone-checker-subset/checker.kern#24:checkModule';
@@ -70,7 +70,7 @@ function exactWitness() {
   assert.equal(sourceRoot?.props?.name, 'checkModule');
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   assert.equal(parameters.length, 58);
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4130CanonicalizerPolicy();
   assert.equal(policy.kirLimits.maxDepth, 77);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
   const bytes = encodeStructuralKir(root, policy.kirLimits);

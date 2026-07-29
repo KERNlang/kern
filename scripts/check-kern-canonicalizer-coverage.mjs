@@ -152,6 +152,10 @@ import { assertM4127CombinedHeadroom } from './kern-canonicalizer/coverage-m4-12
 import { assertM4128RuntimeBottleneck } from './kern-canonicalizer/coverage-m4-128-central.mjs';
 import { assertM4129RuntimeCost } from './kern-canonicalizer/coverage-m4-129-central.mjs';
 import {
+  m4130ActiveProfile,
+  m4130CoverageStatus,
+} from './kern-canonicalizer/coverage-m4-130-combined-promotion.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -425,10 +429,11 @@ const m4126CoverageStatusLine = assertM4126ProjectionAnalysis();
 const m4127CoverageStatusLine = assertM4127CombinedHeadroom();
 const m4128CoverageStatusLine = assertM4128RuntimeBottleneck();
 const m4129CoverageStatusLine = assertM4129RuntimeCost();
+const m4130CoverageStatusLine = m4130CoverageStatus(policy);
 assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
-  m4118ActiveProfile(),
+  m4130ActiveProfile(),
   'current policy must consume the exact latest authenticated profile promotion',
 );
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -623,10 +628,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 4);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 3);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    'd56df2cc197c26f4c6f302c32e6447828e1e7359ba6f525f82bda5b6e2b5c481',
+    'a3383dd12d41a3beaca9bf9c0de49ddadc9333c99ca7b14162e0a01ebdb0d338',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1906,6 +1911,7 @@ process.stdout.write(
   ` ${m4127CoverageStatusLine}` +
   ` ${m4128CoverageStatusLine}` +
   ` ${m4129CoverageStatusLine}` +
+  ` ${m4130CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -2,19 +2,13 @@ function lines(...items) {
   return `${items.join('\n')}\n`;
 }
 
-const BOUNDARY_PARAMETERS = Array.from(
-  { length: 93 },
-  (_, index) => `  param name=p${index} type=number`,
-);
-
-const VALUE_BOUNDARY_EXPRESSION = `[${[
-  ...Array.from({ length: 596 }, () => '0'),
-  '-1',
-  'null',
-  'null',
-  'null',
-  'null',
-].join(', ')}]`;
+const VALUE_BOUNDARY_EXPRESSION = `[[${Array.from({ length: 559 }, () => '0').join(', ')}], [${
+  [
+    ...Array.from({ length: 559 }, () => '0'),
+    'null',
+    'null',
+  ].join(', ')
+}]]`;
 
 export const PROFILE_BOUNDARY_FIXTURE = {
   id: 'profile-row-boundary',
@@ -52,32 +46,32 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 123, maxPropertyRows: 193, maxValueRows: 2411 },
-    expectedRows: { nodes: 123, properties: 123, values: 164 },
+    admittedProfileLimits: { maxNodeRows: 203, maxPropertyRows: 308, maxValueRows: 4493 },
+    expectedRows: { nodes: 203, properties: 203, values: 804 },
     source: lines(
-      ...Array.from({ length: 41 }, (_, index) => [
-        `fn name=f${index} returns=void`,
-        '  handler lang=kern',
-        '    return',
-      ]).flat(),
+      'fn name=nodes returns=void',
+      '  handler lang=kern',
+      ...Array.from({ length: 200 }, () => '    do value="0"'),
+      '    return',
     ),
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 122, maxPropertyRows: 194, maxValueRows: 2411 },
-    expectedRows: { nodes: 97, properties: 194, values: 297 },
+    admittedProfileLimits: { maxNodeRows: 202, maxPropertyRows: 309, maxValueRows: 4493 },
+    expectedRows: { nodes: 104, properties: 309, values: 922 },
     source: lines(
-      'fn name=properties returns=void export=true',
-      ...BOUNDARY_PARAMETERS,
+      'fn name=properties returns=void',
       '  handler lang=kern',
-      '    do value="0"',
-      '    for name=i from=0 to=0',
+      ...Array.from(
+        { length: 102 },
+        (_, index) => `    for name=i${index} from=0 to=0`,
+      ),
     ),
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 122, maxPropertyRows: 193, maxValueRows: 2412 },
-    expectedRows: { nodes: 4, properties: 4, values: 2412 },
+    admittedProfileLimits: { maxNodeRows: 202, maxPropertyRows: 308, maxValueRows: 4494 },
+    expectedRows: { nodes: 4, properties: 4, values: 4494 },
     source: lines(
       'fn name=values returns=void',
       '  handler lang=kern',

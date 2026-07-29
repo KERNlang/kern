@@ -133,10 +133,16 @@ function exactInputs() {
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: INPUT_IDENTITIES.runtimePolicySha256,
     kirLimitOverrides: {
+      maxBytes: 262_144,
       maxDepth: 76,
+      maxNodes: 4_096,
     },
     milestone: 'M4.115',
     profileLimits: ACTIVE_PROFILE,
+    runtimeLimitOverrides: {
+      maxBytes: 2_097_152,
+      maxStringBytes: 1_048_576,
+    },
   });
   if (
     !canonicalBytes(policy.profileLimits).equals(canonicalBytes(ACTIVE_PROFILE)) ||

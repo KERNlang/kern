@@ -7,10 +7,14 @@ import {
   PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
 } from './assignment-target-projection-target.mjs';
 import {
+  PRE_M4130_M4127_MEASUREMENT_REPLACEMENTS,
+} from './combined-promotion-target.mjs';
+import {
   canonicalCompositionRecordBytes,
 } from './composition.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import {
   loadPreM4129CanonicalizerComposition,
 } from './historical-composition.mjs';
@@ -152,6 +156,7 @@ function exactInputs() {
   }))) fail('published M4.126 selection must remain exact');
   for (const [name, expected] of Object.entries(INPUT_IDENTITIES)) {
     if (!/^[0-9a-f]{64}$/u.test(expected)) fail(`${name} identity must remain exact`);
+    if (name === 'policySha256') continue;
     const url = INPUT_URLS[name];
     let source = url === undefined ? undefined : readFileSync(url);
     if (name === 'measurementHarnessSha256') {
@@ -159,7 +164,10 @@ function exactInputs() {
         currentSource: source,
         expectedDigest: expected,
         milestone: 'M4.127 measurement',
-        replacements: PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+        replacements: [
+          ...PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+          ...PRE_M4130_M4127_MEASUREMENT_REPLACEMENTS,
+        ],
       });
     }
     if (source !== undefined && digest(source) !== expected) {
@@ -176,17 +184,23 @@ function exactInputs() {
     digest(canonicalCompositionRecordBytes(composition.record)) !==
       INPUT_IDENTITIES.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');
-  const policy = loadCanonicalizerPolicy();
+  const livePolicy = loadCanonicalizerPolicy();
   if (
     !canonicalBytes({
-      maxBytes: policy.kirLimits.maxBytes,
-      maxDepth: policy.kirLimits.maxDepth,
-      maxNodes: policy.kirLimits.maxNodes,
-    }).equals(canonicalBytes(ACTIVE_KIR_LIMITS)) ||
-    !canonicalBytes(policy.profileLimits).equals(canonicalBytes(ACTIVE_PROFILE)) ||
-    policy.runtimeLimits.maxCollectionLength !== 65_536 ||
-    policy.runtimeLimits.maxDepth !== 64
-  ) fail('active KIR, profile, and runtime policy must remain exact');
+      maxBytes: livePolicy.kirLimits.maxBytes,
+      maxDepth: livePolicy.kirLimits.maxDepth,
+      maxNodes: livePolicy.kirLimits.maxNodes,
+    }).equals(canonicalBytes(CANDIDATE_KIR_LIMITS)) ||
+    !canonicalBytes(livePolicy.profileLimits).equals(canonicalBytes(CANDIDATE_PROFILE)) ||
+    livePolicy.runtimeLimits.maxBytes !== 2_184_408 ||
+    livePolicy.runtimeLimits.maxCollectionLength !== 65_536 ||
+    livePolicy.runtimeLimits.maxDepth !== 64 ||
+    livePolicy.runtimeLimits.maxStringBytes !== 1_092_204
+  ) fail('promoted KIR, profile, and runtime policy must remain exact');
+  const policy = loadPreM4130CanonicalizerPolicy();
+  if (digest(canonicalBytes(policy)) !== INPUT_IDENTITIES.policySha256) {
+    fail('historical policy identity must remain exact');
+  }
   return { analysis, policy };
 }
 

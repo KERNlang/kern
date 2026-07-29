@@ -10,7 +10,7 @@ import {
 } from './composition.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import {
   loadCanonicalizerRuntimeBottleneckM4128,
 } from './runtime-bottleneck-m4-128.mjs';
@@ -129,6 +129,7 @@ function exactInputs() {
     m4128.promotion.nextMilestone !== 'M4.129'
   ) fail('M4.128 runtime diagnosis handoff must remain exact');
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
+    if (name === 'runtimePolicySha256') continue;
     if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
@@ -142,7 +143,10 @@ function exactInputs() {
     digest(canonicalCompositionRecordBytes(composition.record)) !==
       SOURCE_DIGESTS.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4130CanonicalizerPolicy();
+  if (digest(canonicalBytes(policy)) !== SOURCE_DIGESTS.runtimePolicySha256) {
+    fail('historical runtime policy identity must remain exact');
+  }
   if (
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.runtimeLimits.maxDepth !== 64

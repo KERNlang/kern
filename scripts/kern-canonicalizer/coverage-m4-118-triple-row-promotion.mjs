@@ -8,6 +8,11 @@ const ACTIVE_PROFILE = {
   maxPropertyRows: 193,
   maxValueRows: 2411,
 };
+const CURRENT_PROFILE = {
+  maxNodeRows: 202,
+  maxPropertyRows: 308,
+  maxValueRows: 4_493,
+};
 
 const PARAMETER_MIGRATION = {
   completeFunctions: 1,
@@ -57,9 +62,13 @@ export function assertM4118TripleRowPromotion(policy) {
     promotionBudgetHeadroom: 10_459,
     roundTrip: true,
   });
-  assert.deepEqual(policy.profileLimits, ACTIVE_PROFILE);
+  assert.deepEqual(policy.profileLimits, CURRENT_PROFILE);
+  assert.equal(policy.kirLimits.maxBytes, 273_051);
+  assert.equal(policy.kirLimits.maxNodes, 5_313);
+  assert.equal(policy.runtimeLimits.maxBytes, 2_184_408);
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
-  assert.equal(policy.kirLimits.maxDepth, 77);
+  assert.equal(policy.runtimeLimits.maxStringBytes, 1_092_204);
+  assert.equal(policy.kirLimits.maxDepth, 98);
   return m4118ActiveProfile();
 }

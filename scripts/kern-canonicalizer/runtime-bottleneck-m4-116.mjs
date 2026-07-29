@@ -7,6 +7,9 @@ import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handl
 import {
   PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
 } from './assignment-target-projection-target.mjs';
+import {
+  PRE_M4130_SINGLE_POLICY_MEASUREMENT_REPLACEMENTS,
+} from './combined-promotion-target.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
@@ -164,6 +167,7 @@ function exactInputs() {
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],
         extraReplacements: [
+          ...PRE_M4130_SINGLE_POLICY_MEASUREMENT_REPLACEMENTS,
           ...PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
           {
             current: '  assert.equal(policy.kirLimits.maxDepth, 77);',
@@ -193,13 +197,19 @@ function exactInputs() {
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
     kirLimitOverrides: {
+      maxBytes: 262_144,
       maxDepth: 76,
+      maxNodes: 4_096,
     },
     milestone: 'M4.116',
     profileLimits: {
       maxNodeRows: 89,
       maxPropertyRows: 125,
       maxValueRows: 2_100,
+    },
+    runtimeLimitOverrides: {
+      maxBytes: 2_097_152,
+      maxStringBytes: 1_048_576,
     },
   });
   if (

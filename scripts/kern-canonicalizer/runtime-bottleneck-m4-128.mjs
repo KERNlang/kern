@@ -17,6 +17,7 @@ import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import {
   loadPreM4129CanonicalizerComposition,
 } from './historical-composition.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.5';
@@ -161,6 +162,7 @@ function exactInputs() {
     )
   ) fail('M4.127 candidate KIR and profile must remain exact');
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
+    if (name === 'runtimePolicySha256') continue;
     let source = readFileSync(url);
     if (name === 'measurementSha256') {
       source = reconstructHistoricalSource({
@@ -173,6 +175,10 @@ function exactInputs() {
     if (digest(source) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
+  }
+  const historicalPolicy = loadPreM4130CanonicalizerPolicy();
+  if (digest(canonicalBytes(historicalPolicy)) !== SOURCE_DIGESTS.runtimePolicySha256) {
+    fail('historical runtime policy identity must remain exact');
   }
   if (
     digestCompiledCoreJavaScript() !==

@@ -57,6 +57,36 @@ const INPUT_URLS = {
 const MEASUREMENT_REPLACEMENTS = [
   {
     current:
+      "import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';\n",
+    historical:
+      "import { loadCanonicalizerPolicy } from './policy.mjs';\n",
+  },
+  {
+    current:
+      '  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);\n' +
+      '  if (parameters.length !== requirement.parameterRows) {\n' +
+      '    fail(`witness ${witnessId} parameter rows must remain exact`);\n' +
+      '  }\n' +
+      '  const policy = loadPreM4130CanonicalizerPolicy();',
+    historical:
+      '  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);\n' +
+      '  if (parameters.length !== requirement.parameterRows) {\n' +
+      '    fail(`witness ${witnessId} parameter rows must remain exact`);\n' +
+      '  }\n' +
+      '  const policy = loadCanonicalizerPolicy();',
+  },
+  {
+    current:
+      'export function measureCanonicalizerKirDepthHeadroomM4122() {\n' +
+      '  const analysis = loadPublishedCanonicalizerProjectionAnalysisM4121();\n' +
+      '  const policy = loadPreM4130CanonicalizerPolicy();',
+    historical:
+      'export function measureCanonicalizerKirDepthHeadroomM4122() {\n' +
+      '  const analysis = loadPublishedCanonicalizerProjectionAnalysisM4121();\n' +
+      '  const policy = loadCanonicalizerPolicy();',
+  },
+  {
+    current:
       "import { loadPreM4124CoverageInputs } from './historical-parameter-sources.mjs';\n",
     historical: '',
   },
@@ -204,19 +234,31 @@ function exactInputs() {
       maxBytes: policy.kirLimits.maxBytes,
       maxDepth: policy.kirLimits.maxDepth,
       maxNodes: policy.kirLimits.maxNodes,
-    }).compare(canonicalBytes(CANDIDATE_KIR_LIMITS)) !== 0 ||
-    canonicalBytes(policy.profileLimits).compare(canonicalBytes(PROFILE_LIMITS)) !== 0 ||
+    }).compare(canonicalBytes({
+      maxBytes: 273_051,
+      maxDepth: 98,
+      maxNodes: 5_313,
+    })) !== 0 ||
+    canonicalBytes(policy.profileLimits).compare(canonicalBytes({
+      maxNodeRows: 202,
+      maxPropertyRows: 308,
+      maxValueRows: 4_493,
+    })) !== 0 ||
+    policy.runtimeLimits.maxBytes !== 2_184_408 ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
-    policy.runtimeLimits.maxDepth !== 64
+    policy.runtimeLimits.maxDepth !== 64 ||
+    policy.runtimeLimits.maxStringBytes !== 1_092_204
   ) fail('promoted KIR, profile, and runtime policies must remain exact');
 
   loadHistoricalCanonicalizerPolicy({
     expectedDigest: INPUT_IDENTITIES.policySha256,
-    kirLimitOverrides: {
-      maxDepth: ACTIVE_KIR_LIMITS.maxDepth,
-    },
+    kirLimitOverrides: ACTIVE_KIR_LIMITS,
     milestone: 'M4.122',
     profileLimits: PROFILE_LIMITS,
+    runtimeLimitOverrides: {
+      maxBytes: 2_097_152,
+      maxStringBytes: 1_048_576,
+    },
   });
   reconstructHistoricalSource({
     currentSource: readFileSync(MEASUREMENT_URL),

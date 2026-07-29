@@ -105,10 +105,16 @@ function exactInputs() {
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
     kirLimitOverrides: {
+      maxBytes: 262_144,
       maxDepth: 64,
+      maxNodes: 4_096,
     },
     milestone: 'M4.104',
     profileLimits: { maxNodeRows: 74, maxPropertyRows: 95, maxValueRows: 832 },
+    runtimeLimitOverrides: {
+      maxBytes: 2_097_152,
+      maxStringBytes: 1_048_576,
+    },
   });
   if (
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||

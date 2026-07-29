@@ -17,7 +17,7 @@ import {
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadPreM4129CoverageInputs } from './historical-parameter-sources.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
 const PUBLISHED_DIGEST = 'eb2b075097025b9f91089a0587e84807279061801850b10402dd0978a2fe9652';
@@ -148,7 +148,7 @@ export function measureCanonicalizerResidualAnalysisM4125() {
   const currentPolicy = loadCoveragePolicy();
   const historical = loadPreM4129CoverageInputs(currentPolicy);
   const policy = historical.policy;
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadPreM4130CanonicalizerPolicy();
   const receipt = measureCanonicalizerCoverage(
     policy,
     canonicalizerPolicy,

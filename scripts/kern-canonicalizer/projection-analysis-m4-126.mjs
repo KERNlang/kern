@@ -17,7 +17,7 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.projection-analysis.1';
 const PUBLISHED_DIGEST = '25f1ba6ed40efdff909a6c95a11c385c12f9eba2b0025375ed4943f14393e369';
@@ -167,8 +167,8 @@ export function measureCanonicalizerProjectionAnalysisM4126() {
     fail('M4.125 input digest must remain exact');
   }
   const policy = loadCoveragePolicy();
-  const coverage = measureCanonicalizerCoverage(policy);
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadPreM4130CanonicalizerPolicy();
+  const coverage = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
   const roots = sourceFunctionRoots(policy);
   const legacyFacts = coverage.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))

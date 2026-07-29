@@ -32,7 +32,7 @@ import {
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4126,
 } from './projection-analysis-m4-126.mjs';
@@ -107,7 +107,7 @@ function exactInput() {
   if (parameters.length !== requirement.parameterRows) {
     fail('validate parameter rows must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4130CanonicalizerPolicy();
   assert.deepEqual({
     maxBytes: policy.kirLimits.maxBytes,
     maxDepth: policy.kirLimits.maxDepth,
@@ -247,7 +247,7 @@ function successful(measurement) {
 }
 
 export function measureCanonicalizerCombinedHeadroomM4127() {
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4130CanonicalizerPolicy();
   const productionBudget = policy.runtimeLimits.maxCollectionLength;
   const promotionBudget = Math.floor(productionBudget * 3 / 4);
   let high = promotionBudget;

@@ -28,8 +28,8 @@ import {
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
+import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import { loadPreM4124CoverageInputs } from './historical-parameter-sources.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadPublishedCanonicalizerProjectionAnalysisM4121 } from './projection-analysis-m4-121.mjs';
 
 const PROJECTION_ANALYSIS_DIGEST =
@@ -85,7 +85,7 @@ function exactInput(witnessId) {
   if (parameters.length !== requirement.parameterRows) {
     fail(`witness ${witnessId} parameter rows must remain exact`);
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4130CanonicalizerPolicy();
   if (
     policy.kirLimits.maxDepth !== CANDIDATE_DEPTH ||
     policy.runtimeLimits.maxDepth !== 64
@@ -272,7 +272,7 @@ function exactFloor(witnessId, promotionBudget, productionBudget) {
 
 export function measureCanonicalizerKirDepthHeadroomM4122() {
   const analysis = loadPublishedCanonicalizerProjectionAnalysisM4121();
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4130CanonicalizerPolicy();
   const productionBudget = policy.runtimeLimits.maxCollectionLength;
   const promotionBudget = Math.floor(productionBudget * 3 / 4);
   const witnesses = analysis.record.selectedNextAction.witnesses.map((witnessId) =>

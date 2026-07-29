@@ -477,16 +477,16 @@ test('the admitted table profile is policy-owned and enforced by KERN', () => {
   const policy = JSON.parse(readFileSync(policyUrl, 'utf8'));
   validateCanonicalizerPolicy(policy);
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 122,
-    maxPropertyRows: 193,
-    maxValueRows: 2411,
+    maxNodeRows: 202,
+    maxPropertyRows: 308,
+    maxValueRows: 4493,
   });
   assert.deepEqual(policy.expansionLimits, {
     kirToSourceMaxFactor: 4,
     runtimeEnvelopeMaxFactor: 2,
   });
-  assert.equal(policy.runtimeLimits.maxStringBytes, 1_048_576);
-  assert.equal(policy.runtimeLimits.maxBytes, 2_097_152);
+  assert.equal(policy.runtimeLimits.maxStringBytes, 1_092_204);
+  assert.equal(policy.runtimeLimits.maxBytes, 2_184_408);
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   for (const limitName of Object.keys(policy.profileLimits)) {
     assert.match(source, new RegExp(limitName, 'u'), `KERN omitted ${limitName}`);

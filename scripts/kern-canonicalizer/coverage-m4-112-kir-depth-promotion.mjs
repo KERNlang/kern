@@ -14,9 +14,9 @@ const ACTIVE_KIR_LIMITS = {
   maxNodes: 4_096,
 };
 const EXACT_KIR_POLICY = {
-  maxBytes: 262_144,
-  maxDepth: 77,
-  maxNodes: 4_096,
+  maxBytes: 273_051,
+  maxDepth: 98,
+  maxNodes: 5_313,
   maxStringBytes: 8_192,
   maxCollectionLength: 1_024,
   maxRecordFields: 512,
@@ -26,12 +26,12 @@ const EXACT_KIR_POLICY = {
   maxDecimalChars: 520,
 };
 const EXACT_RUNTIME_POLICY = {
-  maxBytes: 2_097_152,
+  maxBytes: 2_184_408,
   maxCollectionLength: 65_536,
   maxDepth: 64,
   maxDiagnostics: 8,
   maxEvents: 64,
-  maxStringBytes: 1_048_576,
+  maxStringBytes: 1_092_204,
 };
 const PARAMETER_MIGRATION = {
   completeFunctions: 9,

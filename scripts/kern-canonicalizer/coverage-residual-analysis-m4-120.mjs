@@ -153,10 +153,16 @@ export function measureCanonicalizerResidualAnalysisM4120() {
   const canonicalizerPolicy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: '2572743f5b942cac0e4d33d735d590caee3dbddcfebbb229b8cd94b14118d1b8',
     kirLimitOverrides: {
+      maxBytes: 262_144,
       maxDepth: 76,
+      maxNodes: 4_096,
     },
     milestone: 'M4.120',
     profileLimits: PUBLISHED_BASELINE.currentProfileLimits,
+    runtimeLimitOverrides: {
+      maxBytes: 2_097_152,
+      maxStringBytes: 1_048_576,
+    },
   });
   const receipt = measureCanonicalizerCoverage(
     policy,

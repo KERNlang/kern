@@ -21,7 +21,12 @@ const MEASUREMENT_URL =
   new URL('./kir-depth-headroom-m4-111-measure.mjs', import.meta.url);
 const ACTIVE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 64, maxNodes: 4096 };
 const CANDIDATE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 76, maxNodes: 4096 };
-const LIVE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 77, maxNodes: 4096 };
+const LIVE_KIR_LIMITS = { maxBytes: 273051, maxDepth: 98, maxNodes: 5313 };
+const LIVE_PROFILE_LIMITS = {
+  maxNodeRows: 202,
+  maxPropertyRows: 308,
+  maxValueRows: 4493,
+};
 const PROFILE_LIMITS = { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2100 };
 const INPUT_IDENTITIES = {
   canonicalizerCompositeSha256:
@@ -50,6 +55,36 @@ const INPUT_URLS = {
     new URL('../../packages/core/src/kir-structural/canonical.ts', import.meta.url),
 };
 const MEASUREMENT_REPLACEMENTS = [
+  {
+    current:
+      "import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';\n",
+    historical:
+      "import { loadCanonicalizerPolicy } from './policy.mjs';\n",
+  },
+  {
+    current:
+      '  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);\n' +
+      '  if (parameters.length !== requirement.parameterRows) {\n' +
+      '    fail(`witness ${witnessId} parameter rows must remain exact`);\n' +
+      '  }\n' +
+      '  const policy = loadPreM4130CanonicalizerPolicy();',
+    historical:
+      '  const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);\n' +
+      '  if (parameters.length !== requirement.parameterRows) {\n' +
+      '    fail(`witness ${witnessId} parameter rows must remain exact`);\n' +
+      '  }\n' +
+      '  const policy = loadCanonicalizerPolicy();',
+  },
+  {
+    current:
+      'export function measureCanonicalizerKirDepthHeadroomM4111() {\n' +
+      '  const analysis = loadPublishedCanonicalizerProjectionAnalysisM4110();\n' +
+      '  const policy = loadPreM4130CanonicalizerPolicy();',
+    historical:
+      'export function measureCanonicalizerKirDepthHeadroomM4111() {\n' +
+      '  const analysis = loadPublishedCanonicalizerProjectionAnalysisM4110();\n' +
+      '  const policy = loadCanonicalizerPolicy();',
+  },
   {
     current:
       'const HISTORICAL_ACTIVE_DEPTH = 64;\n' +
@@ -282,18 +317,23 @@ function exactInputs() {
       maxDepth: policy.kirLimits.maxDepth,
       maxNodes: policy.kirLimits.maxNodes,
     }).compare(canonicalBytes(LIVE_KIR_LIMITS)) !== 0 ||
+    canonicalBytes(policy.profileLimits).compare(canonicalBytes(LIVE_PROFILE_LIMITS)) !== 0 ||
+    policy.runtimeLimits.maxBytes !== 2_184_408 ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
-    policy.runtimeLimits.maxDepth !== 64
+    policy.runtimeLimits.maxDepth !== 64 ||
+    policy.runtimeLimits.maxStringBytes !== 1_092_204
   ) {
     fail('promoted KIR and runtime policies must remain exact');
   }
   loadHistoricalCanonicalizerPolicy({
     expectedDigest: INPUT_IDENTITIES.policySha256,
-    kirLimitOverrides: {
-      maxDepth: 64,
-    },
+    kirLimitOverrides: ACTIVE_KIR_LIMITS,
     milestone: 'M4.111',
     profileLimits: PROFILE_LIMITS,
+    runtimeLimitOverrides: {
+      maxBytes: 2_097_152,
+      maxStringBytes: 1_048_576,
+    },
   });
   reconstructHistoricalSource({
     currentSource: readFileSync(MEASUREMENT_URL),
