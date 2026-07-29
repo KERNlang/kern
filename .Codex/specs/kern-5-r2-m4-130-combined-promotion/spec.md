@@ -130,6 +130,18 @@ Checked-in M4.127, M4.128, and M4.129 JSON receipts remain byte-identical.
 - [x] High-risk automatic role-lens review has no unresolved material finding.
 - [ ] Signed commit is fetched/rebased before one push and remote main verifies.
 
+## Verification Evidence
+
+- [VERIFIED] `pnpm fitness:kern-5` passed the complete KERN 5 wall, including
+  593/593 canonicalizer tests and the production checker with 55 golden,
+  8 measured, 3 profile-limit, and 235 hostile fixtures.
+- [VERIFIED] The production coverage gate reports 103/112 base-complete and
+  publishes the exact M4.131 queue as one function, 41 rows, and one tool.
+- [VERIFIED] The six-engine role-lens review completed 6/6 with zero verified
+  findings and no unresolved material finding. Four `needs-check` candidates
+  were traced to intentional current-policy binding, exact archival snapshots,
+  or the production-exercised 4,494-row boundary fixture.
+
 ## Stop Conditions
 
 - M4.129 exact floor or observer parity cannot be reproduced.
