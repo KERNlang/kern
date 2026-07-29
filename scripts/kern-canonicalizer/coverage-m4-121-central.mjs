@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 
 import { formatM4121ProjectionAnalysisStatus } from './coverage-status.mjs';
+import {
+  assertM4122KirDepthHeadroom,
+} from './coverage-m4-122-central.mjs';
 import { loadPublishedCanonicalizerProjectionAnalysisM4121 } from './projection-analysis-m4-121.mjs';
 
 export function assertM4121ProjectionAnalysis() {
@@ -36,5 +39,6 @@ export function assertM4121ProjectionAnalysis() {
       'examples/capstone-checker-subset/checker.kern#2:rejectLine',
     ],
   });
-  return formatM4121ProjectionAnalysisStatus(analysis.selectedNextAction);
+  return `${formatM4121ProjectionAnalysisStatus(analysis.selectedNextAction)} ` +
+    assertM4122KirDepthHeadroom();
 }
