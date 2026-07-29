@@ -63,6 +63,7 @@ import {
   formatM4113ParameterMigrationStatus,
   formatM4114ResidualAnalysisStatus,
   formatM4115TripleRowHeadroomStatus,
+  formatM4116RuntimeBottleneckStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -364,6 +365,28 @@ test('coverage status records the M4.115 production-ceiling rejection', () => {
     'M4.115 structural runtime rejects the 122/193/2411 candidate: exact floor 176119 ' +
       'exceeds production by 110583 and promotion budget by 126967; ' +
       'M4.116 investigates the runtime bottleneck.',
+  );
+});
+
+test('coverage status records the M4.116 typefields bottleneck diagnosis', () => {
+  assert.equal(
+    formatM4116RuntimeBottleneckStatus({
+      diagnosis: {
+        exactFloorTypefieldsIterations: 142_249,
+        valueRowsPerTypefieldsExecution: 2_411,
+      },
+      observations: [
+        {},
+        {},
+        {
+          iterationBudget: 176_119,
+          typefields: { completedFullScans: 59 },
+        },
+      ],
+    }),
+    'M4.116 attributes 142249 of 176119 retained iterations to 59 completed typefields ' +
+      'scans of 2411 value rows; promotion and production fail before statement validation; ' +
+      'M4.117 builds a single-pass authenticated function type-field index.',
   );
 });
 

@@ -303,6 +303,16 @@ export function formatM4115TripleRowHeadroomStatus(receipt) {
     `${receipt.summary.promotionBudgetDeficit}; M4.116 investigates the runtime bottleneck.`;
 }
 
+export function formatM4116RuntimeBottleneckStatus(receipt) {
+  const floor = receipt.observations[2];
+  return `M4.116 attributes ${receipt.diagnosis.exactFloorTypefieldsIterations} of ` +
+    `${floor.iterationBudget} retained iterations to ` +
+    `${floor.typefields.completedFullScans} completed typefields scans of ` +
+    `${receipt.diagnosis.valueRowsPerTypefieldsExecution} value rows; promotion and production ` +
+    'fail before statement validation; M4.117 builds a single-pass authenticated function ' +
+    'type-field index.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

@@ -1,0 +1,303 @@
+{
+  "baseline": {
+    "implementationBaseCommit": "b278b00ae1a03cc36e52449980c76cdcaa9ad536",
+    "m4115ReceiptSha256": "0142e5d39fc94ec76e2cf793a62a922fa9087a12fb4cd83b9499cfc58f922b9d",
+    "productionCeilingDeficit": 110583,
+    "promotionBudgetDeficit": 126967
+  },
+  "diagnosis": {
+    "budgetAttribution": "all-retained-loop-iterations-exact-typefields-full-scans-source-attributed",
+    "exactFloorTypefieldsIterations": 142249,
+    "exactFloorTypefieldsShareBasisPoints": 8077,
+    "mechanism": "repeated-full-value-table-scans-during-function-parameter-type-validation",
+    "nextMilestone": "M4.117",
+    "optimizationTarget": "single-pass-authenticated-function-type-field-index",
+    "productionToFloor": {
+      "additionalCacheHits": 15115,
+      "additionalCacheKeyCodeUnits": 304642579,
+      "additionalCacheMisses": 10900,
+      "additionalForIterations": 110401,
+      "additionalHelperExecutions": 5450,
+      "additionalHelperFrameSuspensions": 4971,
+      "additionalHelperPreparations": 20565,
+      "additionalRetainedIterations": 110583,
+      "additionalWhileIterations": 182,
+      "minimumAdditionalCompletedTypefieldsIterations": 84385,
+      "minimumAdditionalCompletedTypefieldsScans": 35
+    },
+    "productionFailureBeforeStatementValidation": true,
+    "productionMinimumCompletedTypefieldsIterations": 55453,
+    "productionMinimumTypefieldsShareBasisPoints": 8461,
+    "promotionToProduction": {
+      "additionalCacheHits": 596,
+      "additionalCacheKeyCodeUnits": 6069919,
+      "additionalCacheMisses": 208,
+      "additionalForIterations": 16384,
+      "additionalHelperExecutions": 104,
+      "additionalHelperFrameSuspensions": 44,
+      "additionalHelperPreparations": 700,
+      "additionalRetainedIterations": 16384,
+      "additionalWhileIterations": 0,
+      "additionalCompletedTypefieldsIterations": 14466,
+      "additionalCompletedTypefieldsScans": 6
+    },
+    "promotionFailureBeforeStatementValidation": true,
+    "promotionMinimumCompletedTypefieldsIterations": 40987,
+    "promotionMinimumTypefieldsShareBasisPoints": 8338,
+    "valueRowsPerTypefieldsExecution": 2411
+  },
+  "format": "kern.kir-canonicalizer.runtime-bottleneck.4",
+  "limits": {
+    "activeProfile": {
+      "maxNodeRows": 89,
+      "maxPropertyRows": 125,
+      "maxValueRows": 2100
+    },
+    "candidateProfile": {
+      "maxNodeRows": 122,
+      "maxPropertyRows": 193,
+      "maxValueRows": 2411
+    },
+    "exactFloor": 176119,
+    "maxDepth": 76,
+    "productionMaxCollectionLength": 65536,
+    "promotionBudget": 49152
+  },
+  "observations": [
+    {
+      "cache": {
+        "hits": 851,
+        "misses": 742
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 92285,
+        "total": 11082392
+      },
+      "helperExecutionCount": 371,
+      "helperFrameSuspensionCount": 187,
+      "helperPreparationCount": 1222,
+      "iterationBudget": 49152,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 49152
+        },
+        "retained": 49152,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "failure",
+      "parentRestartCount": 0,
+      "phase": "function-parameter-validation-before-statements",
+      "roundTrip": false,
+      "selectedHelperExecutions": {
+        "tablesok": 1,
+        "valuefacts": 1,
+        "childcount": 19,
+        "childat": 18,
+        "stringat": 139,
+        "numberat": 0,
+        "propid": 37,
+        "propcount": 18,
+        "typesource": 18,
+        "typefields": 18,
+        "validstatementlist": 0,
+        "validstatement": 0,
+        "exprsource": 0,
+        "expressionsources": 0,
+        "emitstatementlist": 0,
+        "emitstatement": 0
+      },
+      "selectedHelperPreparations": {
+        "tablesok": 1,
+        "valuefacts": 2,
+        "childcount": 19,
+        "childat": 138,
+        "stringat": 463,
+        "numberat": 0,
+        "propid": 157,
+        "propcount": 19,
+        "typesource": 18,
+        "typefields": 35,
+        "validstatementlist": 0,
+        "validstatement": 0,
+        "exprsource": 0,
+        "expressionsources": 0,
+        "emitstatementlist": 0,
+        "emitstatement": 0
+      },
+      "typefields": {
+        "executionsEntered": 18,
+        "minimumCompletedFullScans": 17
+      }
+    },
+    {
+      "cache": {
+        "hits": 1447,
+        "misses": 950
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 92285,
+        "total": 17152311
+      },
+      "helperExecutionCount": 475,
+      "helperFrameSuspensionCount": 231,
+      "helperPreparationCount": 1922,
+      "iterationBudget": 65536,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 65536
+        },
+        "retained": 65536,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "failure",
+      "parentRestartCount": 0,
+      "phase": "function-parameter-validation-before-statements",
+      "roundTrip": false,
+      "selectedHelperExecutions": {
+        "tablesok": 1,
+        "valuefacts": 1,
+        "childcount": 25,
+        "childat": 24,
+        "stringat": 187,
+        "numberat": 0,
+        "propid": 49,
+        "propcount": 24,
+        "typesource": 24,
+        "typefields": 24,
+        "validstatementlist": 0,
+        "validstatement": 0,
+        "exprsource": 0,
+        "expressionsources": 0,
+        "emitstatementlist": 0,
+        "emitstatement": 0
+      },
+      "selectedHelperPreparations": {
+        "tablesok": 1,
+        "valuefacts": 2,
+        "childcount": 25,
+        "childat": 255,
+        "stringat": 763,
+        "numberat": 0,
+        "propid": 280,
+        "propcount": 25,
+        "typesource": 24,
+        "typefields": 47,
+        "validstatementlist": 0,
+        "validstatement": 0,
+        "exprsource": 0,
+        "expressionsources": 0,
+        "emitstatementlist": 0,
+        "emitstatement": 0
+      },
+      "typefields": {
+        "executionsEntered": 24,
+        "minimumCompletedFullScans": 23
+      }
+    },
+    {
+      "cache": {
+        "hits": 16562,
+        "misses": 11850
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 92325,
+        "total": 321794890
+      },
+      "helperExecutionCount": 5925,
+      "helperFrameSuspensionCount": 5202,
+      "helperPreparationCount": 22487,
+      "iterationBudget": 176119,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 175937,
+          "while": 182
+        },
+        "retained": 176119,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "success",
+      "parentRestartCount": 0,
+      "phase": "complete-validation-and-emission",
+      "roundTrip": true,
+      "selectedHelperExecutions": {
+        "tablesok": 1,
+        "valuefacts": 1,
+        "childcount": 61,
+        "childat": 122,
+        "stringat": 4062,
+        "numberat": 643,
+        "propid": 120,
+        "propcount": 60,
+        "typesource": 59,
+        "typefields": 59,
+        "validstatementlist": 36,
+        "validstatement": 62,
+        "exprsource": 65,
+        "expressionsources": 1,
+        "emitstatementlist": 36,
+        "emitstatement": 62
+      },
+      "selectedHelperPreparations": {
+        "tablesok": 1,
+        "valuefacts": 2,
+        "childcount": 62,
+        "childat": 1959,
+        "stringat": 13954,
+        "numberat": 1285,
+        "propid": 1892,
+        "propcount": 61,
+        "typesource": 120,
+        "typefields": 118,
+        "validstatementlist": 71,
+        "validstatement": 124,
+        "exprsource": 195,
+        "expressionsources": 66,
+        "emitstatementlist": 71,
+        "emitstatement": 124
+      },
+      "typefields": {
+        "completedFullScans": 59,
+        "executionsEntered": 59
+      }
+    }
+  ],
+  "observer": {
+    "defaultOff": true,
+    "eventData": "frozen-scalars",
+    "helperExecuteSemantics": "body-entry-not-completion",
+    "otherHelperLoopAttributionAvailable": false,
+    "publicHandlerOptionExposed": false
+  },
+  "promotion": {
+    "disposition": "runtime-bottleneck-attributed-optimization-required",
+    "nextMilestone": "M4.117",
+    "profilePromotionApproved": false,
+    "promotionReady": false
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "75546d8edbf2753fc49aacaf24ab2fa416d7b3d3bd8984b37dd76317691ce88f",
+    "compiledCoreJavaScriptSha256": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
+    "compositionRecordSha256": "18ff4b7116de086ab43a9d501545727ab27a6b99c10f991215d6d07607ed3216",
+    "diagnosticObserverSha256": "6037e9f2e37e3888b45d64458c627c217abfd52105271de226bf47e053e495b6",
+    "effectMachineSha256": "3de758e08833d0881159f4716710701a605b45a0f56313bb191fabe02666e2eb",
+    "helperRuntimeSha256": "d3254d54b5bf2b86c89776faad6b49f073d0754c0bc10dd269ce887cd0c3229c",
+    "measurementSha256": "8f94040ef6ad833985ea438db7956c6f39287e9e3e458a9dde58d8886afe8cb7",
+    "publicRuntimeHandlerSha256": "f2ca9bd81f2f6c37fc5c931037ba008eb3cf1f3675beb4cc2d74b767cff7f8a1",
+    "runtimePolicySha256": "919726462eabc002cb072cd8004fffe7f3e731ed430574dd608788580ca1f163",
+    "sequenceSha256": "fbd95b89099ceffbb6c2e8f2136620bfe51bda5bd2a22ba93de1db7743a68bfe",
+    "witnessSourceSha256": "f8c9b50d5be28074479bebed4c93e6e6d7f8f15ea9efab54c2b396dcde924d99",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "witness": {
+    "id": "examples/capstone-checker-subset/checker.kern#24:checkModule",
+    "parameterRows": 58,
+    "structuralRows": {
+      "nodes": 122,
+      "properties": 193,
+      "values": 2411
+    }
+  }
+}
