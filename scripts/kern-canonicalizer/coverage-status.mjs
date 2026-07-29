@@ -343,6 +343,21 @@ export function formatM4120ResidualAnalysisStatus(selectedNextAction) {
     'residual frontier; M4.121 investigates projection and canonical-surface blockers.';
 }
 
+export function formatM4121ProjectionAnalysisStatus(selectedNextAction) {
+  if (
+    selectedNextAction === null ||
+    selectedNextAction.changedLimits?.length !== 1 ||
+    selectedNextAction.changedLimits[0] !== 'maxDepth'
+  ) throw new TypeError('M4.121 projection analysis must select only maxDepth');
+  const functionSuffix = selectedNextAction.completeFunctions === 1 ? '' : 's';
+  const toolSuffix = selectedNextAction.completeTools === 1 ? '' : 's';
+  return `M4.121 projection analysis selects maxDepth ${selectedNextAction.kirLimits.maxDepth} for ` +
+    `${selectedNextAction.completeFunctions} function${functionSuffix}/` +
+    `${selectedNextAction.migratedParameterRows} rows across ${selectedNextAction.completeTools} ` +
+    `tool${toolSuffix}; ` +
+    'M4.122 authenticates structural KIR and runtime-envelope safety.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +
