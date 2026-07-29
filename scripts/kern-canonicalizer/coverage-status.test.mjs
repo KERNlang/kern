@@ -67,6 +67,7 @@ import {
   formatM4117RuntimeCostStatus,
   formatM4118TripleRowPromotionStatus,
   formatM4119ParameterMigrationStatus,
+  formatM4120ResidualAnalysisStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -428,6 +429,18 @@ test('coverage status records the M4.119 checkModule parameter migration', () =>
     'M4.119 consumes the exact M4.118 1-function/58-row parameter queue and advances the ' +
       'cumulative base to 102/112; the bounded residual frontier remains five functions ' +
       'for M4.120.',
+  );
+});
+
+test('coverage status records the M4.120 residual recommendation', () => {
+  assert.equal(
+    formatM4120ResidualAnalysisStatus(null),
+    'M4.120 published analysis found no actionable profile widening across the five-function ' +
+      'residual frontier; M4.121 investigates projection and canonical-surface blockers.',
+  );
+  assert.throws(
+    () => formatM4120ResidualAnalysisStatus({ changedLimits: ['maxNodeRows'] }),
+    /must not select a profile widening/u,
   );
 });
 

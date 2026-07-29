@@ -335,6 +335,14 @@ export function formatM4119ParameterMigrationStatus({ parameterMigration }) {
     'base to 102/112; the bounded residual frontier remains five functions for M4.120.';
 }
 
+export function formatM4120ResidualAnalysisStatus(selectedNextAction) {
+  if (selectedNextAction !== null) {
+    throw new TypeError('M4.120 residual analysis must not select a profile widening');
+  }
+  return 'M4.120 published analysis found no actionable profile widening across the five-function ' +
+    'residual frontier; M4.121 investigates projection and canonical-surface blockers.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

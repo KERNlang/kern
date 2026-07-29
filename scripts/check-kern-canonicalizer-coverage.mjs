@@ -144,6 +144,7 @@ import {
 import {
   assertM4119ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-119-parameter-migration.mjs';
+import { assertM4120ResidualAnalysis } from './kern-canonicalizer/coverage-m4-120-central.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
@@ -411,6 +412,7 @@ const m4116CoverageStatusLine = assertM4116RuntimeBottleneckStatus();
 const m4117CoverageStatusLine = assertM4117RuntimeCostStatus();
 assertM4118TripleRowPromotion(policy);
 assertM4119ParameterMigration(coverage);
+const m4120CoverageStatusLine = assertM4120ResidualAnalysis();
 assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
@@ -1885,6 +1887,7 @@ process.stdout.write(
   ` ${formatM4119ParameterMigrationStatus({
     parameterMigration: m4118ParameterMigration(),
   })}` +
+  ` ${m4120CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
