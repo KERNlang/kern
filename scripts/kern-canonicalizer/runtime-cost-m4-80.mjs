@@ -102,7 +102,8 @@ function exactInputs() {
     fail('M4.79 witness identity must remain exact');
   }
   const policy = structuredClone(PUBLISHED_POLICY);
-  const canonicalizer = repositorySource('examples/kern-canonicalizer/canonicalizer.kern').toString('utf8');
+  const canonicalizer =
+    repositorySource('examples/kern-canonicalizer/canonicalizer.kern').toString('utf8');
   const typeStart = canonicalizer.indexOf('fn name=typesource returns=string export=true\n');
   const typeEnd = canonicalizer.indexOf('\nfn name=validbinaryop ', typeStart);
   if (typeStart !== 0 || typeEnd <= typeStart) fail('typesource identity and ordinal must remain exact');
@@ -119,15 +120,22 @@ function exactInputs() {
   const helperSource = repositorySource(
     'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
   ).toString('utf8');
+  const tableStart = helperSource.indexOf(
+    'fn name=typefieldtablefacts returns="number[]" export=false\n',
+  );
   const helperStart = helperSource.indexOf('fn name=typefields returns="number[]" export=true\n');
-  if (helperStart < 0) fail('typefields helper identity must remain exact');
+  if (tableStart < 0 || helperStart <= tableStart) {
+    fail('M4.117 successor type-field index must remain present');
+  }
+  const typeFieldTableFacts = helperSource.slice(tableStart, helperStart);
   const helperEnd = helperSource.indexOf('\nfn name=', helperStart + 1);
   const typeFields = helperSource.slice(helperStart, helperEnd < 0 ? undefined : helperEnd);
-  if ((typeFields.match(/^\s+for\b/gmu) ?? []).length !== 1) {
-    fail('typefields must contain exactly one value-table loop');
-  }
-  if (typeFields.includes('valuechildcount(') || typeFields.includes('recordfield(')) {
-    fail('typefields must not delegate another whole-table scan');
+  if (
+    (typeFieldTableFacts.match(/^\s+for\b/gmu) ?? []).length !== 2 ||
+    (typeFields.match(/^\s+for\b/gmu) ?? []).length !== 0 ||
+    !typeFields.includes('typefieldtablefacts(valueParent, valueRole)')
+  ) {
+    fail('M4.117 successor must retain one table projection and a loop-free fixed view');
   }
   return { m479, policy };
 }

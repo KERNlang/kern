@@ -242,7 +242,7 @@ export function assertM4113ParameterMigrations(coverage, prerequisite) {
     assertM4113ParameterTarget(root, fact, target);
   }
   assert.equal(coverage.baseCompleteFunctions, 101);
-  assert.equal(coverage.functions.length, 111);
+  assert.equal(coverage.functions.length, 112);
   assert.deepEqual(
     coverage.functions
       .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))

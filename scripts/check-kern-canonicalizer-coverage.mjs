@@ -132,6 +132,7 @@ import {
 import { assertM4114ResidualAnalysis } from './kern-canonicalizer/coverage-m4-114-central.mjs';
 import { assertM4115TripleRowHeadroomStatus } from './kern-canonicalizer/triple-row-headroom-m4-115-check.mjs';
 import { assertM4116RuntimeBottleneckStatus } from './kern-canonicalizer/runtime-bottleneck-m4-116-check.mjs';
+import { assertM4117RuntimeCostStatus } from './kern-canonicalizer/runtime-cost-m4-117-check.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
@@ -394,6 +395,7 @@ assertM4113ParameterMigrations(coverage, prerequisite);
 const m4114CoverageStatusLine = assertM4114ResidualAnalysis();
 const m4115CoverageStatusLine = assertM4115TripleRowHeadroomStatus();
 const m4116CoverageStatusLine = assertM4116RuntimeBottleneckStatus();
+const m4117CoverageStatusLine = assertM4117RuntimeCostStatus();
 assert.deepEqual(
   policy.profileLimits,
   m4107ActiveProfile(),
@@ -548,9 +550,9 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 111, 'live M4.113 authored function count must remain exact');
+  assert.equal(actual.functionCount, 112, 'live M4.117 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 101, 'live M4.113 base completion must remain exactly 101/111');
+  assert.equal(actual.baseCompleteFunctions, 101, 'live M4.117 base completion must remain exactly 101/112');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     6,
@@ -1502,7 +1504,7 @@ if (process.argv.includes('--write')) {
     promotionReady: true,
   });
   assert.equal(actual.baseCompleteFunctions, 101);
-  assert.equal(actual.functionCount, 111);
+  assert.equal(actual.functionCount, 112);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
   assert.equal(m497RuntimeCost.result.exactFloor, 53_086);
@@ -1859,6 +1861,7 @@ process.stdout.write(
   ` ${m4114CoverageStatusLine}` +
   ` ${m4115CoverageStatusLine}` +
   ` ${m4116CoverageStatusLine}` +
+  ` ${m4117CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

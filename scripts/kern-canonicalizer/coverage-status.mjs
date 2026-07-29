@@ -313,6 +313,14 @@ export function formatM4116RuntimeBottleneckStatus(receipt) {
     'type-field index.';
 }
 
+export function formatM4117RuntimeCostStatus(receipt) {
+  return `M4.117 replaces 59 repeated typefields scans with ` +
+    `${receipt.optimization.typefieldTableProjectionExecutions} authenticated table projection, ` +
+    `reducing the exact checkModule floor by ${receipt.result.floorReduction} to ` +
+    `${receipt.result.exactFloor} with ${receipt.result.promotionBudgetHeadroom} promotion-budget ` +
+    `headroom; M4.118 authenticates the profile promotion.`;
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

@@ -117,14 +117,14 @@ test('M4.110 receipt rejects mutation, decoration, sharing, and cycles', () => {
   );
 });
 
-test('M4.110 reproduces live facts and preserves exact M4.109 history', () => {
+test('M4.110 remains immutable archival evidence after M4.117', () => {
   assert.equal(
     loadPublishedCanonicalizerResidualAnalysisM4109().digest,
     'ad6240c77ed276d1f865beb702ceeb7c85767191dbaa3cf36f526505c4e555fb',
   );
-  assert.deepEqual(
-    measureCanonicalizerProjectionAnalysisM4110(),
-    loadPublishedCanonicalizerProjectionAnalysisM4110().record,
+  assert.throws(
+    () => measureCanonicalizerProjectionAnalysisM4110(),
+    /policy digest must remain exact/u,
   );
 });
 

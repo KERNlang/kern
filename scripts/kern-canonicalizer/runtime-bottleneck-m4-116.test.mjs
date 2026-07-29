@@ -18,33 +18,6 @@ const RECEIPT_DIGEST = '5342271907023c75b1c3b5acfd714860f6686d31a5a3bf60c37e7d8f
 const M4115_RECEIPT_URL = new URL('./triple-row-headroom-m4-115.json', import.meta.url);
 const M4115_RECEIPT_DIGEST =
   '0142e5d39fc94ec76e2cf793a62a922fa9087a12fb4cd83b9499cfc58f922b9d';
-const SELECTED_HELPERS = [
-  'tablesok',
-  'valuefacts',
-  'childcount',
-  'childat',
-  'stringat',
-  'numberat',
-  'propid',
-  'propcount',
-  'typesource',
-  'typefields',
-  'validstatementlist',
-  'validstatement',
-  'exprsource',
-  'expressionsources',
-  'emitstatementlist',
-  'emitstatement',
-];
-
-function count(values) {
-  return Object.values(values).reduce((total, value) => total + value, 0);
-}
-
-function selected(values) {
-  return Object.fromEntries(SELECTED_HELPERS.map((name) => [name, values[name] ?? 0]));
-}
-
 test('M4.116 publishes an exact three-boundary checkModule runtime diagnosis', () => {
   assert.equal(
     createHash('sha256').update(readFileSync(RECEIPT_URL)).digest('hex'),
@@ -125,31 +98,21 @@ test('M4.116 attributes the dominant cost to repeated full typefields scans', ()
   );
 });
 
-test('M4.116 live observer reproduces all three frozen boundaries', () => {
+test('M4.116 exact observations remain immutable archival evidence after M4.117', () => {
   const receipt = loadCanonicalizerRuntimeBottleneckM4116();
-  for (const expected of receipt.observations) {
-    const actual = measureCanonicalizerRuntimeBottleneckM4116(expected.iterationBudget);
-    assert.equal(actual.envelope.outcome, expected.outcome);
-    assert.equal(actual.roundTrip, expected.roundTrip);
-    assert.equal(actual.observerParityVerified, true);
-    assert.deepEqual(actual.summary.cache, expected.cache);
-    assert.deepEqual(actual.summary.cacheKeyCodeUnits, expected.cacheKeyCodeUnits);
-    assert.deepEqual(actual.summary.loopIterations, expected.loopIterations);
-    assert.equal(count(actual.summary.helperExecutions), expected.helperExecutionCount);
-    assert.equal(
-      count(actual.summary.helperFrameSuspensions),
-      expected.helperFrameSuspensionCount,
-    );
-    assert.equal(count(actual.summary.helperPreparations), expected.helperPreparationCount);
-    assert.deepEqual(
-      selected(actual.summary.helperExecutions),
-      expected.selectedHelperExecutions,
-    );
-    assert.deepEqual(
-      selected(actual.summary.helperPreparations),
-      expected.selectedHelperPreparations,
-    );
-  }
+  assert.deepEqual(receipt.observations.map(({ outcome }) => outcome), [
+    'failure',
+    'failure',
+    'success',
+  ]);
+  const successor = measureCanonicalizerRuntimeBottleneckM4116(
+    receipt.observations[0].iterationBudget,
+  );
+  assert.equal(successor.envelope.outcome, 'success');
+  assert.equal(successor.roundTrip, true);
+  assert.equal(successor.observerParityVerified, true);
+  assert.equal(successor.summary.helperExecutions.typefieldtablefacts, 1);
+  assert.equal(successor.summary.loopIterations.retained, 38_693);
 });
 
 test('M4.116 rejects invalid budgets, receipt drift, decoration, sharing, and cycles', () => {

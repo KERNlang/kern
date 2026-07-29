@@ -70,22 +70,17 @@ test('M4.115 authenticates the exact checkModule structural runtime floor NO-GO'
   assert.deepEqual(receipt.moduleEnvelope, { disposition: 'not-claimed', maxDepth: 76 });
 });
 
-test('M4.115 live measurement reproduces exact success and immediate-below failure', () => {
-  const exact = measureCanonicalizerTripleRowHeadroomM4115(176_119, {
+test('M4.115 exact floor remains immutable archival evidence after M4.117', () => {
+  const receipt = loadCanonicalizerTripleRowHeadroomM4115();
+  assert.equal(receipt.witnesses[0].belowFloorOutcome, 'failure');
+  assert.equal(receipt.witnesses[0].floorOutcome, 'success');
+  const successor = measureCanonicalizerTripleRowHeadroomM4115(176_118, {
     verifyPublicParity: true,
   });
-  assert.equal(exact.envelope.outcome, 'success');
-  assert.equal(exact.roundTrip, true);
-  assert.equal(exact.publicParityVerified, true);
-  assert.equal(exact.artifactBytes, 149_053);
-  assert.deepEqual(exact.witness, {
-    id: 'examples/capstone-checker-subset/checker.kern#24:checkModule',
-    parameterRows: 58,
-    structuralRows: { nodes: 122, properties: 193, values: 2411 },
-  });
-  const below = measureCanonicalizerTripleRowHeadroomM4115(176_118);
-  assert.equal(below.envelope.outcome, 'failure');
-  assert.equal(below.roundTrip, false);
+  assert.equal(successor.envelope.outcome, 'success');
+  assert.equal(successor.roundTrip, true);
+  assert.equal(successor.publicParityVerified, true);
+  assert.equal(successor.artifactBytes, 149_053);
 });
 
 test('M4.115 live measurement rejects invalid budgets', () => {

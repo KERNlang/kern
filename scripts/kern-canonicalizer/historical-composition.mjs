@@ -10,6 +10,7 @@ import {
 } from './composition.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
+import { TYPE_FIELD_INDEX_M4117_REPLACEMENT } from './type-field-index-target.mjs';
 import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
 
 function parameterSignatureReplacement(target) {
@@ -86,14 +87,25 @@ export function loadHistoricalCanonicalizerComposition({
   if (!Array.isArray(sources) || sources.length !== CANONICALIZER_COMPOSITION_MEMBERS.length) {
     fail(milestone, 'sources must contain the exact three ordered canonicalizer members');
   }
-  const [expressionHelpers, currentStatementHelpers, mainSource] =
+  const [currentExpressionHelpers, currentStatementHelpers, mainSource] =
     sources.map((source) => Buffer.from(source));
-  const statementHelpers = reconstructHistoricalSource({
-    currentSource: currentStatementHelpers,
-    expectedDigest: expected.statementHelpersSha256,
-    milestone: `${milestone} statement helpers`,
-    replacements: statementHelperTargets.map(parameterSignatureReplacement),
+  const expressionHelpers = reconstructHistoricalSource({
+    currentSource: currentExpressionHelpers,
+    expectedDigest: expected.expressionHelpersSha256,
+    milestone: `${milestone} expression helpers`,
+    replacements: [TYPE_FIELD_INDEX_M4117_REPLACEMENT],
   });
+  if (!Array.isArray(statementHelperTargets)) {
+    fail(milestone, 'statement helper targets must be an array');
+  }
+  const statementHelpers = statementHelperTargets.length === 0
+    ? currentStatementHelpers
+    : reconstructHistoricalSource({
+      currentSource: currentStatementHelpers,
+      expectedDigest: expected.statementHelpersSha256,
+      milestone: `${milestone} statement helpers`,
+      replacements: statementHelperTargets.map(parameterSignatureReplacement),
+    });
   const members = [expressionHelpers, statementHelpers, mainSource];
   const composite = Buffer.concat(members);
   const record = {

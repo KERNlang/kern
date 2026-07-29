@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115.mjs';
 
@@ -41,9 +42,6 @@ const SOURCE_DIGESTS = {
     'f8c9b50d5be28074479bebed4c93e6e6d7f8f15ea9efab54c2b396dcde924d99',
 };
 const SOURCE_URLS = {
-  canonicalizerCompositeSha256:
-    new URL('../../examples/kern-canonicalizer/canonicalizer.composed.kern', import.meta.url),
-  compositionRecordSha256: new URL('./composition.json', import.meta.url),
   diagnosticObserverSha256:
     new URL('../../packages/core/src/ir/semantics/internal-effect-machine-diagnostics.ts', import.meta.url),
   effectMachineSha256:
@@ -134,6 +132,20 @@ function exactInputs() {
   ) {
     fail('M4.115 witness, boundaries, and NO-GO must remain exact');
   }
+  loadHistoricalCanonicalizerComposition({
+    expectedDigests: {
+      canonicalizerCompositeSha256: SOURCE_DIGESTS.canonicalizerCompositeSha256,
+      compositionRecordSha256: SOURCE_DIGESTS.compositionRecordSha256,
+      expressionHelpersSha256:
+        'bdb40cb0006af0e92b3a4383c7c71a3df7e417fda1569a1860d8f9a65d08ee52',
+      mainSourceSha256:
+        '23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195',
+      statementHelpersSha256:
+        '11485f2b657a002e8ff4ca93db7b0122768163c65edecb3a1f13da4906569d75',
+    },
+    milestone: 'M4.116',
+    statementHelperTargets: [],
+  });
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
     if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);

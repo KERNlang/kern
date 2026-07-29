@@ -14,37 +14,6 @@ import {
 const receiptUrl = new URL('./runtime-cost-m4-106.json', import.meta.url);
 const RECEIPT_DIGEST = '827525373e1716137b53e322c913ec7dcb4f8ea0cd12dc1d8d77605c692a886a';
 
-function compactMeasurement(measurement) {
-  const selected = [
-    'childat',
-    'childcount',
-    'emitstatement',
-    'emitstatementlist',
-    'numberat',
-    'propcount',
-    'propid',
-    'statementfacts',
-    'statementtablefacts',
-    'validstatement',
-    'validstatementlist',
-  ];
-  return {
-    cache: structuredClone(measurement.summary.cache),
-    cacheKeyCodeUnits: structuredClone(measurement.summary.cacheKeyCodeUnits),
-    iterationBudget: measurement.iterationBudget,
-    loopIterations: structuredClone(measurement.summary.loopIterations),
-    observerParityVerified: measurement.observerParityVerified,
-    outcome: measurement.envelope.outcome,
-    parentRestartCount: Object.values(measurement.summary.parentRestarts)
-      .reduce((total, count) => total + count, 0),
-    roundTrip: measurement.roundTrip,
-    selectedHelperExecutions: Object.fromEntries(selected.map((name) => [
-      name,
-      measurement.summary.helperExecutions[name] ?? 0,
-    ])),
-  };
-}
-
 test('M4.106 freezes promotion-budget runtime headroom', () => {
   assert.equal(createHash('sha256').update(readFileSync(receiptUrl)).digest('hex'), RECEIPT_DIGEST);
   const receipt = loadCanonicalizerRuntimeCostM4106();
@@ -82,11 +51,13 @@ test('M4.106 freezes promotion-budget runtime headroom', () => {
   });
 });
 
-test('M4.106 exact candidate fails below 39016 and succeeds at 39016', () => {
+test('M4.106 exact floor remains immutable archival evidence after M4.117', () => {
   const receipt = loadCanonicalizerRuntimeCostM4106();
-  for (const expected of receipt.observations) {
-    assert.deepEqual(compactMeasurement(measureLive(expected.iterationBudget)), expected);
-  }
+  assert.deepEqual(receipt.observations.map(({ outcome }) => outcome), ['failure', 'success']);
+  const successor = measureLive(receipt.result.belowFloor);
+  assert.equal(successor.envelope.outcome, 'success');
+  assert.equal(successor.roundTrip, true);
+  assert.ok(successor.summary.loopIterations.retained < receipt.result.belowFloor);
 });
 
 test('M4.106 rejects invalid budgets, receipt mutation, decoration, and shared references', () => {

@@ -122,20 +122,35 @@ test('M4.106 statement access delegates to one memoizable authenticated fact pas
   assert.ok(validation.includes('if cond="kind == \\"return\\""'));
 });
 
-test('M4.80 type projection delegates to one bounded value-table pass', () => {
+test('M4.117 type projection delegates to one memoizable authenticated fact pass', () => {
   const typeSource = topLevelFunctionSource(mainSource, 'typesource');
   const typeFields = topLevelFunctionSource(helperSource, 'typefields');
+  const typeFieldTableFacts = topLevelFunctionSource(helperSource, 'typefieldtablefacts');
   assert.equal((typeSource.match(/^\s+for\b/gmu) ?? []).length, 0);
   assert.equal(typeSource.includes('valuechildcount('), false);
   assert.equal(typeSource.includes('recordfield('), false);
   assert.ok(typeSource.includes('typefields(id, valueParent, valueRole)'));
-  assert.equal((typeFields.match(/^\s+for\b/gmu) ?? []).length, 1);
-  assert.equal(typeFields.includes('valuechildcount('), false);
-  assert.equal(typeFields.includes('recordfield('), false);
-  assert.ok(typeFields.includes('valueRole[i] == \\"record:kind\\"'));
-  assert.ok(typeFields.includes('valueRole[i] == \\"record:element\\"'));
-  assert.ok(typeFields.includes('if cond="kindId != 0"'));
-  assert.ok(typeFields.includes('if cond="elementId != 0"'));
+  assert.equal((typeFieldTableFacts.match(/^\s+for\b/gmu) ?? []).length, 2);
+  assert.ok(typeFieldTableFacts.includes('for name=i from=0 to="valueParent.length"'));
+  assert.ok(typeFieldTableFacts.includes('let name=parentCount value="valueParent.length + 1"'));
+  assert.ok(typeFieldTableFacts.includes('for name=parent from=0 to="parentCount"'));
+  assert.ok(typeFieldTableFacts.includes('Map.set(kindIds, String(valueParent[i]), -1)'));
+  assert.ok(typeFieldTableFacts.includes('Map.set(elementIds, String(valueParent[i]), -1)'));
+  assert.ok(typeFieldTableFacts.includes('do value="facts.push(count)"'));
+  assert.ok(typeFieldTableFacts.includes('do value="facts.push(kindId)"'));
+  assert.ok(typeFieldTableFacts.includes('do value="facts.push(elementId)"'));
+  assert.equal((typeFields.match(/^\s+for\b/gmu) ?? []).length, 0);
+  assert.equal((typeFields.match(/valuechildcount\(/gu) ?? []).length, 1);
+  assert.equal((typeFields.match(/recordfield\(/gu) ?? []).length, 2);
+  assert.ok(typeFields.includes('if cond="parent < 0 || parent > valueParent.length"'));
+  assert.ok(typeFields.includes(
+    'return value="[outsideCount, outsideKindId, outsideElementId]"',
+  ));
+  assert.ok(typeFields.includes('typefieldtablefacts(valueParent, valueRole)'));
+  assert.equal((typeFields.match(/numberat\(/gu) ?? []).length, 3);
+  assert.ok(typeFields.includes('if cond="kindId < 0 || elementId < 0"'));
+  assert.ok(typeFields.includes('return value="[-1, -1, -1]"'));
+  assert.ok(typeFields.includes('return value="[count, kindId, elementId]"'));
 });
 
 test('M4.89 expression projection delegates to one memoizable table-wide helper', () => {

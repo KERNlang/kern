@@ -175,7 +175,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.match(first.corpusDigest, /^[0-9a-f]{64}$/u);
   assert.equal(first.corpus.length, policy.corpus.length);
   assert.equal(first.corpus.length, 9);
-  assert.equal(first.functions.length, 111);
+  assert.equal(first.functions.length, 112);
   assert.deepEqual(
     first.corpus.filter(({ path }) => CANONICALIZER_COMPOSITION_MEMBERS.includes(path)).map(({ path }) => path),
     CANONICALIZER_COMPOSITION_MEMBERS,

@@ -151,14 +151,14 @@ test('M4.114 published digest rejects canonical and decorated drift', () => {
   );
 });
 
-test('M4.114 reproduces live facts and preserves exact M4.109 history', () => {
+test('M4.114 remains immutable archival evidence after M4.117', () => {
   assert.equal(
     loadPublishedCanonicalizerResidualAnalysisM4109().digest,
     'ad6240c77ed276d1f865beb702ceeb7c85767191dbaa3cf36f526505c4e555fb',
   );
-  assert.deepEqual(
-    measureCanonicalizerResidualAnalysisM4114(),
-    loadPublishedCanonicalizerResidualAnalysisM4114().record,
+  assert.throws(
+    () => measureCanonicalizerResidualAnalysisM4114(),
+    /live semantic facts must match the exact published M4\.113 input/u,
   );
 });
 

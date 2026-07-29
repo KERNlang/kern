@@ -101,7 +101,7 @@
       "tool": "checker"
     },
     {
-      "digest": "bdb40cb0006af0e92b3a4383c7c71a3df7e417fda1569a1860d8f9a65d08ee52",
+      "digest": "c32414ee7aa6f29d092dc21de5065f04c4054c54d070dd4d964763047170ee2f",
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

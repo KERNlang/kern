@@ -58,7 +58,7 @@ export function assertM4108ParameterMigration(coverage, prerequisite) {
   assertM4108ParameterTarget(root, fact, target);
 
   assert.equal(coverage.baseCompleteFunctions, 101);
-  assert.equal(coverage.functions.length, 111);
+  assert.equal(coverage.functions.length, 112);
   assert.equal(
     coverage.functions.filter(({ excludedProperties }) =>
       excludedProperties.includes('fn.params')).length,

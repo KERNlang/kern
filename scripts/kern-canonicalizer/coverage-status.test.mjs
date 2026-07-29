@@ -64,6 +64,7 @@ import {
   formatM4114ResidualAnalysisStatus,
   formatM4115TripleRowHeadroomStatus,
   formatM4116RuntimeBottleneckStatus,
+  formatM4117RuntimeCostStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -387,6 +388,22 @@ test('coverage status records the M4.116 typefields bottleneck diagnosis', () =>
     'M4.116 attributes 142249 of 176119 retained iterations to 59 completed typefields ' +
       'scans of 2411 value rows; promotion and production fail before statement validation; ' +
       'M4.117 builds a single-pass authenticated function type-field index.',
+  );
+});
+
+test('coverage status records the M4.117 type-field index headroom', () => {
+  assert.equal(
+    formatM4117RuntimeCostStatus({
+      optimization: { typefieldTableProjectionExecutions: 1 },
+      result: {
+        exactFloor: 38_693,
+        floorReduction: 137_426,
+        promotionBudgetHeadroom: 10_459,
+      },
+    }),
+    'M4.117 replaces 59 repeated typefields scans with 1 authenticated table projection, ' +
+      'reducing the exact checkModule floor by 137426 to 38693 with 10459 promotion-budget ' +
+      'headroom; M4.118 authenticates the profile promotion.',
   );
 });
 

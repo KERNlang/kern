@@ -160,26 +160,20 @@ test('M4.111 receipt rejects mutation, decoration, sharing, and cycles', () => {
   );
 });
 
-test('M4.111 reproduces every exact runtime floor and immediate-below failure', () => {
+test('M4.111 exact floors remain immutable archival evidence after M4.117', () => {
   const receipt = loadCanonicalizerKirDepthHeadroomM4111();
   for (const witness of receipt.witnesses) {
-    const exact = measureCanonicalizerKirDepthHeadroomWitnessM4111(
-      witness.id,
-      witness.exactFloor,
-      { verifyPublicParity: true },
-    );
-    assert.equal(exact.envelope.outcome, 'success');
-    assert.equal(exact.roundTrip, true);
-    assert.equal(exact.publicParityVerified, true);
-    assert.equal(exact.requiredDepth, witness.requiredDepth);
-    assert.deepEqual(exact.structuralRows, witness.structuralRows);
-    const below = measureCanonicalizerKirDepthHeadroomWitnessM4111(
-      witness.id,
-      witness.belowFloor,
-    );
-    assert.equal(below.envelope.outcome, 'failure');
-    assert.equal(below.roundTrip, false);
+    assert.equal(witness.belowFloor, witness.exactFloor - 1);
+    assert.equal(witness.belowFloorOutcome, 'failure');
+    assert.equal(witness.floorOutcome, 'success');
+    assert.equal(witness.roundTrip, true);
   }
+  const successor = measureCanonicalizerKirDepthHeadroomWitnessM4111(
+    receipt.witnesses[0].id,
+    receipt.witnesses[0].exactFloor,
+  );
+  assert.equal(successor.envelope.outcome, 'success');
+  assert.equal(successor.roundTrip, true);
 });
 
 test('M4.111 preserves M4.110 and loads canonically in a fresh process', () => {
