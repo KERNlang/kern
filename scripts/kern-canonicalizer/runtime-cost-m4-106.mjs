@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import {
   PRE_M4129_M4106_MEASUREMENT_REPLACEMENTS,
 } from './assignment-target-projection-target.mjs';
@@ -137,7 +137,7 @@ function exactInputs() {
   ) {
     fail('M4.105 runtime-bottleneck handoff must remain exact');
   }
-  if (digestCompiledCoreJavaScript() !== M4106_SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
+  if (digestPreM4135CompiledCoreJavaScript() !== M4106_SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by the measurement must remain exact');
   }
   loadHistoricalCanonicalizerComposition({

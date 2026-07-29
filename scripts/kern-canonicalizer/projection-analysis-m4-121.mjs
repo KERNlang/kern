@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadCoveragePolicy, measureCanonicalizerCoverage } from './coverage.mjs';
 import { loadPublishedCanonicalizerResidualAnalysisM4120 } from './coverage-residual-analysis-m4-120.mjs';
-import { canonicalProfileRowsForFunction } from './coverage-profile.mjs';
+import { canonicalProfileRowsForPreM4135 } from './historical-expression-projector.mjs';
 import {
   migrateFunctionFact,
   migrateLegacyFunctionForPrerequisite,
@@ -100,7 +100,7 @@ function project(root, limits) {
   try {
     return {
       outcome: 'projected',
-      profileRows: canonicalProfileRowsForFunction(root, limits),
+      profileRows: canonicalProfileRowsForPreM4135(root, limits),
     };
   } catch (error) {
     const projectionCode =
@@ -253,6 +253,7 @@ export function measureCanonicalizerProjectionAnalysisM4121() {
           roots.get(fact.id),
           policy.base,
           { ...canonicalizerPolicy, kirLimits: fullKirLimits },
+          canonicalProfileRowsForPreM4135,
         ))
         .filter((fact) =>
           canonicalizerFunctionCompletes(baseProfile, fact, canonicalizerPolicy.profileLimits))

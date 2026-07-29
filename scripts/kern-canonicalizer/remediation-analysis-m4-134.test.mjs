@@ -9,6 +9,7 @@ import {
 } from './projection-analysis-m4-133.mjs';
 import { assertM4134RemediationAnalysis } from './coverage-m4-134-central.mjs';
 import {
+  analyzeRemediationExpressionSourceM4134,
   loadPublishedCanonicalizerRemediationAnalysisM4134,
   measureCanonicalizerRemediationAnalysisM4134,
   validatePublishedCanonicalizerRemediationAnalysisM4134,
@@ -164,6 +165,30 @@ test('M4.134 preserves the immutable M4.133 projection analysis', () => {
     loadPublishedCanonicalizerProjectionAnalysisM4133().digest,
     '89da63518b22003642eabba46177dce3e835d2fde82aebfb4ebe10bd3273bf0a',
   );
+});
+
+test('M4.134 rejects any unsupported expression outside the exact constructor population', () => {
+  assert.deepEqual(
+    analyzeRemediationExpressionSourceM4134('new Map()', EXPRESSIONSOURCES_ID),
+    { arity: 0, name: 'Map' },
+  );
+  assert.deepEqual(
+    analyzeRemediationExpressionSourceM4134(
+      'new Error("KERN_CANONICALIZER_PROFILE")',
+      CANONICALIZE_ID,
+    ),
+    { arity: 1, name: 'Error' },
+  );
+  assert.equal(
+    analyzeRemediationExpressionSourceM4134('value === null', EXPRESSIONSOURCES_ID),
+    null,
+  );
+  for (const source of ['await value', 'foo(await value)', 'new Date()', 'foo(new Map())']) {
+    assert.throws(
+      () => analyzeRemediationExpressionSourceM4134(source, EXPRESSIONSOURCES_ID),
+      /coverage M4\.134 remediation analysis rejection/u,
+    );
+  }
 });
 
 test('M4.134 loads byte-identically in a fresh locale-independent process', () => {

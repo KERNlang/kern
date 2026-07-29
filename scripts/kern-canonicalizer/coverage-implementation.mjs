@@ -4,7 +4,6 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CanonicalValueDecodeError } from '../../packages/core/dist/canonical-value/types.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
-import { projectExpressionText } from '../../packages/core/dist/kir-structural/expression.js';
 import { StructuralKirError } from '../../packages/core/dist/kir-structural/types.js';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import { loadValidatedRuntimeConstitutionSource } from './coverage-catalog.mjs';
@@ -21,7 +20,6 @@ import {
 } from './coverage-families.mjs';
 import {
   analyzeProfileBlockersForFunction,
-  canonicalProfileRowsForFunction,
   firstUnsupportedByAuthoredOrder,
   handlerChildProfilesForFunction,
   validateCoverageBase,
@@ -39,6 +37,8 @@ import {
 } from './coverage-selection.mjs';
 import { summarizeCoverageReceipt } from './coverage-summary.mjs';
 import { CANONICALIZER_COMPOSITE_PATH } from './composition.mjs';
+import { canonicalProfileRowsForCoverage, projectCoverageExpression } from './historical-expression-projector.mjs';
+import { PRE_M4135_CANONICALIZER_MAIN_DIGEST } from './new-expression-coverage-target.mjs';
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const POLICY_FORMAT = 'kern.kir-canonicalizer.coverage-policy.3';
 const RECEIPT_FORMAT = 'kern.kir-canonicalizer.coverage-receipt.6';
@@ -77,7 +77,6 @@ function text(value, label) {
   if (typeof value !== 'string' || value.length === 0) fail(`${label} must be non-empty text`);
   return value;
 }
-
 function sortedUniqueText(value, label) {
   if (!Array.isArray(value)) fail(`${label} must be an array`);
   const result = value.map((entry, index) => text(entry, `${label}[${index}]`));
@@ -284,8 +283,7 @@ function withoutExcludedProperties(node) {
     ),
   };
 }
-
-function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy) {
+function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy, preM4135) {
   const nodes = [];
   const expressions = [];
   const properties = [];
@@ -311,7 +309,7 @@ function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy) {
       if (propertyContract.disposition === 'lowered-expression') {
         let projected;
         try {
-          projected = projectExpressionText(expressionSource(value, `${nodePath}.${key}`), `${nodePath}.${key}`);
+          projected = projectCoverageExpression(expressionSource(value, `${nodePath}.${key}`), `${nodePath}.${key}`, preM4135);
         } catch (error) {
           const code = projectionCode(error);
           const blocker = `${node.type}.${key}:${code}`;
@@ -334,7 +332,7 @@ function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy) {
   let profileRows;
   try {
     const projectionInput = excludedProperties.length === 0 ? root : withoutExcludedProperties(root);
-    profileRows = canonicalProfileRowsForFunction(projectionInput, canonicalizerPolicy.kirLimits);
+    profileRows = canonicalProfileRowsForCoverage(projectionInput, canonicalizerPolicy.kirLimits, preM4135, excludedProperties);
   } catch (error) {
     const code = projectionCode(error);
     excludedProperties.push(`projection.${code}`);
@@ -426,6 +424,9 @@ export function measureCanonicalizerCoverage(policyInput, canonicalizerPolicyInp
   const canonicalizerPolicy = canonicalizerPolicyInput === undefined
     ? loadCanonicalizerPolicy()
     : validateCanonicalizerPolicy(structuredClone(canonicalizerPolicyInput));
+  const preM4135 = policy.corpus.find(
+    ({ path }) => path === 'examples/kern-canonicalizer/canonicalizer.kern')
+    ?.digest === PRE_M4135_CANONICALIZER_MAIN_DIGEST;
   const functions = [];
   for (const member of policy.corpus) {
     const override = sourceOverrides.get(member.path);
@@ -445,7 +446,7 @@ export function measureCanonicalizerCoverage(policyInput, canonicalizerPolicyInp
     if (errors.length > 0) fail(`corpus member ${member.path} has parse errors`);
     (parsed.root.children ?? []).forEach((root, ordinal) => {
       if (root.type === 'fn') {
-        functions.push(inspectFunction(root, member.path, member.tool, ordinal, policy.base, canonicalizerPolicy));
+        functions.push(inspectFunction(root, member.path, member.tool, ordinal, policy.base, canonicalizerPolicy, preM4135));
       }
     });
   }

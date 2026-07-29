@@ -127,7 +127,7 @@ test('the current frontier preserves the M4.60 while promotion', () => {
   assert.equal(policy.base.nodeKinds.includes('while'), true);
   assert.equal(policy.base.propertyKeys.includes('while.cond'), true);
   assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow', 'new-expression']);
   assert.equal(
     sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
     'e233d3113792c19c147be3ccabead970d7cbe02062d7fb762a87ccffac246958',
@@ -155,6 +155,7 @@ test('the current frontier preserves the M4.60 while promotion', () => {
       tool: 'validator',
     }],
   });
-  assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
+  assert.equal(prerequisite.outcome, 'selected');
+  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.equal(prerequisite.exhaustion, null);
 });

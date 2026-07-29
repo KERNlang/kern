@@ -12,7 +12,7 @@ import {
 import {
   canonicalCompositionRecordBytes,
 } from './composition.mjs';
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import {
@@ -178,7 +178,7 @@ function exactInputs() {
       fail(`${name} source identity must remain exact`);
     }
   }
-  if (digestCompiledCoreJavaScript() !== INPUT_IDENTITIES.compiledCoreJavaScriptSha256) {
+  if (digestPreM4135CompiledCoreJavaScript() !== INPUT_IDENTITIES.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by measurement must remain exact');
   }
   const composition = loadPreM4129CanonicalizerComposition();

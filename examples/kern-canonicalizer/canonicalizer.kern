@@ -36,7 +36,6 @@ fn name=typesource returns=string export=true
     if cond="element == \"text\""
       return value="\"string[]\""
     return value="\"\""
-
 fn name=validbinaryop returns=boolean export=true
   param name=op type=string
   handler lang="kern"
@@ -49,7 +48,6 @@ fn name=validbinaryop returns=boolean export=true
     if cond="op == \"&&\" || op == \"||\" || op == \"??\" || op == \"&\" || op == \"|\""
       return value="true"
     return value="op == \"^\" || op == \"<<\" || op == \">>\" || op == \">>>\""
-
 fn name=exprsource returns=string export=true
   param name=id type=number
   param name=valueTag type=string[]
@@ -63,7 +61,6 @@ fn name=exprsource returns=string export=true
       return value="\"\""
     let name=sources value="expressionsources(valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
     return value="List.index(sources, valueTag.length - id) ?? \"\""
-
 fn name=expressionsources params="valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[]" returns="string[]" export=true
   handler lang="kern"
     let name=childCounts value="new Map()"
@@ -223,6 +220,17 @@ fn name=expressionsources params="valueTag:string[],valueParent:number[],valueRo
                           assign target=out value="out + Map.get(sources, String(argId))"
                     if cond="argsValid"
                       assign target=source value="out + \")\""
+              if cond="kind == \"new\" && fieldCount == 2"
+                let name=argsKey value="fieldsKeyPrefix + String(Text.length(\"record:args\")) + \":record:args\""
+                let name=constructorKey value="fieldsKeyPrefix + String(Text.length(\"record:constructor\")) + \":record:constructor\""
+                if cond="Map.has(childrenByRole, argsKey) && Map.has(childrenByRole, constructorKey)"
+                  let name=argsId value="Map.get(childrenByRole, argsKey)"
+                  let name=constructorId value="Map.get(childrenByRole, constructorKey)"
+                  if cond="stringat(argsId, valueTag) == \"list\" && stringat(constructorId, valueTag) == \"text\" && stringat(constructorId, valueText) == \"Map\" && !Map.has(childCounts, String(argsId))"
+                    assign target=source value="\"new Map()\""
+                  if cond="stringat(argsId, valueTag) == \"list\" && stringat(constructorId, valueTag) == \"text\" && stringat(constructorId, valueText) == \"Error\" && Map.has(childCounts, String(argsId)) && Map.get(childCounts, String(argsId)) == 1 && Map.has(childrenByOrder, String(argsId) + \":0\")"
+                    if cond="Map.has(sources, String(Map.get(childrenByOrder, String(argsId) + \":0\")))"
+                      assign target=source value="\"new Error(\" + Map.get(sources, String(Map.get(childrenByOrder, String(argsId) + \":0\"))) + \")\""
               if cond="kind == \"list\" && fieldCount == 1"
                 let name=itemsRole value="\"record:items\""
                 let name=itemsKey value="fieldsKeyPrefix + String(Text.length(itemsRole)) + \":\" + itemsRole"
@@ -252,7 +260,6 @@ fn name=expressionsources params="valueTag:string[],valueParent:number[],valueRo
                 do value="Map.set(sources, String(current), source)"
       do value="ordered.push(source)"
     return value="ordered"
-
 fn name=tablesok returns=boolean export=true
   param name=nodeKind type=string[]
   param name=nodeParent type=number[]
@@ -272,7 +279,6 @@ fn name=tablesok returns=boolean export=true
     if cond="!propertyfacts(nodeKind, propNode, propKey, propValue, valueTag)"
       return value="false"
     return value="valuefacts(propValue, valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
-
 fn name=canonicalize params="nodeKind:string[],nodeParent:number[],nodeOrder:number[],propNode:number[],propKey:string[],propValue:number[],valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[],maxNodeRows:number,maxPropertyRows:number,maxValueRows:number" returns=string[] export=true
   handler lang="kern"
     if cond="maxNodeRows <= 0 || maxPropertyRows <= 0 || maxValueRows <= 0 || nodeKind.length > maxNodeRows || propNode.length > maxPropertyRows || valueTag.length > maxValueRows"
@@ -358,7 +364,6 @@ fn name=canonicalize params="nodeKind:string[],nodeParent:number[],nodeOrder:num
           for name=s from=0 to="statementLines.length"
             do value="lines.push(statementLines[s])"
     return value="lines"
-
 fn name=nodetablesok returns=boolean export=true
   param name=nodeKind type=string[]
   param name=nodeParent type=number[]
@@ -387,7 +392,6 @@ fn name=nodetablesok returns=boolean export=true
       do value="Map.set(orders, String(nodeParent[nodeIndex]) + \":\" + String(nodeOrder[nodeIndex]), true)"
       do value="Map.set(siblingCounts, String(nodeParent[nodeIndex]), siblingCount + 1)"
     return value="orderTotal == expectedOrderTotal"
-
 fn name=propertyfacts returns=boolean export=true
   param name=nodeKind type=string[]
   param name=propNode type=number[]
@@ -413,7 +417,6 @@ fn name=propertyfacts returns=boolean export=true
         return value="false"
       do value="Map.set(ownerKeys, String(propValue[propertyIndex]), true)"
     return value="true"
-
 fn name=valuefacts returns=boolean export=true
   param name=propValue type=number[]
   param name=valueTag type=string[]

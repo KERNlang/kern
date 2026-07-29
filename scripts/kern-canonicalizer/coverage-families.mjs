@@ -6,7 +6,7 @@ const FAMILY_REGISTRY_FORMAT = 'kern.kir-canonicalizer.coverage-family-registry.
 const FAMILY_REGISTRY_SOURCE = readFileSync(new URL('./coverage-family-registry.json', import.meta.url));
 export const STRUCTURAL_EXPRESSION_KINDS = new Set([
   'binary', 'boolean', 'call', 'conditional', 'decimal', 'identifier', 'index',
-  'integer', 'lambda', 'list', 'member', 'null', 'record', 'text', 'unary',
+  'integer', 'lambda', 'list', 'member', 'new', 'null', 'record', 'text', 'unary',
 ]);
 
 function fail(message) {

@@ -113,7 +113,7 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195",
+      "digest": "959481ea210be8b1740400fe53ed999f08c61232de7855457f54a21f43213b0c",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
@@ -126,6 +126,7 @@
     }
   ],
   "families": [
-    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] }
+    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
+    { "expressionKinds": ["new"], "id": "new-expression", "nodeKinds": [], "propertyKeys": [] }
   ]
 }

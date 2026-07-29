@@ -16,6 +16,8 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { canonicalProfileRowsForPreM4135 } from './historical-expression-projector.mjs';
+import { loadPreM4135CoverageInputs } from './historical-parameter-sources.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
@@ -127,11 +129,11 @@ function publishedHandoff(value) {
   return { digest, inputCommit: INPUT_COMMIT, record: structuredClone(value) };
 }
 
-function assertPublishedInput(receipt, canonicalizerPolicy) {
+function assertPublishedInput(receipt, canonicalizerPolicy, coveragePolicyDigest) {
   const actual = {
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
-    coveragePolicyDigest: receipt.coveragePolicyDigest,
+    coveragePolicyDigest,
     currentProfileLimits: exactLimits(canonicalizerPolicy.profileLimits),
     functionFactsDigest: receipt.functionFactsDigest,
   };
@@ -148,12 +150,17 @@ function assertPublishedInput(receipt, canonicalizerPolicy) {
 }
 
 export function measureCanonicalizerResidualAnalysisM4132() {
-  const policy = loadCoveragePolicy();
+  const historical = loadPreM4135CoverageInputs(loadCoveragePolicy());
+  const policy = historical.policy;
   const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  assertPublishedInput(receipt, canonicalizerPolicy);
+  const receipt = measureCanonicalizerCoverage(
+    policy,
+    canonicalizerPolicy,
+    { sourceOverrides: historical.sourceOverrides },
+  );
+  assertPublishedInput(receipt, canonicalizerPolicy, historical.coveragePolicyDigest);
 
-  const roots = sourceFunctionRoots(policy);
+  const roots = sourceFunctionRoots(policy, historical.sourceOverrides);
   const legacyFacts = receipt.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params'));
   if (legacyFacts.length !== PUBLISHED_BASELINE.legacyParameterBlockers) {
@@ -165,6 +172,7 @@ export function measureCanonicalizerResidualAnalysisM4132() {
       roots.get(fact.id),
       policy.base,
       { ...canonicalizerPolicy, profileLimits },
+      canonicalProfileRowsForPreM4135,
     ));
 
   const currentLimits = exactLimits(canonicalizerPolicy.profileLimits);

@@ -10,6 +10,7 @@
     { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },
     { "expressionKinds": ["index"], "id": "index-expression", "nodeKinds": [], "propertyKeys": [] },
     { "expressionKinds": ["member"], "id": "member-expression", "nodeKinds": [], "propertyKeys": [] },
+    { "expressionKinds": ["new"], "id": "new-expression", "nodeKinds": [], "propertyKeys": [] },
     { "expressionKinds": ["unary"], "id": "unary-expression", "nodeKinds": [], "propertyKeys": [] },
     { "expressionKinds": [], "id": "while-iteration", "nodeKinds": ["while"], "propertyKeys": ["while.cond"] }
   ]

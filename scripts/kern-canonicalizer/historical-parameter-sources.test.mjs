@@ -63,7 +63,7 @@ test('pre-M4.131 inputs reject unrelated live policy drift', () => {
     mutate(drifted);
     assert.throws(
       () => loadPreM4131CoverageInputs(drifted),
-      /pre-M4\.131 coverage rejection: caller policy must match repository policy/u,
+      /pre-M4\.135 coverage rejection: caller policy must match repository policy/u,
     );
   }
 });

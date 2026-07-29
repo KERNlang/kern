@@ -109,7 +109,7 @@ test('M4.60 promotes while iteration through exact prerequisite provenance', () 
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
   assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow', 'new-expression']);
   assert.equal(policy.base.propertyKeys.includes('do.value'), true);
   assert.equal(policy.base.propertyKeys.includes('for.from'), true);
   assert.equal(policy.base.propertyKeys.includes('for.name'), true);

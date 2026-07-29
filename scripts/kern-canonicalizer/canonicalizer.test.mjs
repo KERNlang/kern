@@ -460,6 +460,7 @@ test('the pre-M4.3b semantic golden corpus bytes remain unchanged', () => {
   const hash = createHash('sha256');
   const nonBinary = VALID_FIXTURES.filter(({ id }) =>
     id !== 'profile-row-boundary' &&
+    id !== 'bounded-new-expressions' &&
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
     !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-') &&
     !id.startsWith('counted-iteration-') && !id.startsWith('binding-') &&

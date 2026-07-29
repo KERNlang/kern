@@ -120,14 +120,6 @@
   "baseCompleteFunctions": 104,
   "blockers": [
     {
-      "count": 7,
-      "id": "projection.unknown-expression-kind"
-    },
-    {
-      "count": 6,
-      "id": "let.value:unknown-expression-kind"
-    },
-    {
       "count": 3,
       "id": "fn.params"
     },
@@ -157,20 +149,20 @@
     },
     {
       "count": 1,
-      "id": "throw.value:unknown-expression-kind"
+      "id": "projection.limit-nodes"
     }
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
-  "canonicalizerDigest": "32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331",
+  "canonicalizerDigest": "e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75",
   "canonicalizerPolicyDigest": "54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4",
-  "compiledCoreDigest": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
+  "compiledCoreDigest": "2641bba874fe19a079f4b03dabbddfee0d0cc56124d86f4080b612652a52eabc",
   "composition": {
-    "digest": "95e95a72f8bb76ddd3a33140be59687697697dcb94e36c5386c113124f899649",
+    "digest": "b1c2e9a9facce2ada290fc6b62c0ebb0b2754b1b0e2d3a559cb66cd8d05915cb",
     "record": {
       "composite": {
-        "bytes": 62061,
+        "bytes": 63461,
         "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
-        "sha256": "32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331"
+        "sha256": "e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75"
       },
       "format": "kern.canonicalizer.composition.1",
       "members": [
@@ -185,30 +177,30 @@
           "sha256": "67af44e97b0e874295f312e4c8033a13c57045a38ca2179c6c00b53abb68b5ce"
         },
         {
-          "bytes": 33386,
+          "bytes": 34786,
           "path": "examples/kern-canonicalizer/canonicalizer.kern",
-          "sha256": "23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195"
+          "sha256": "959481ea210be8b1740400fe53ed999f08c61232de7855457f54a21f43213b0c"
         }
       ],
       "recipe": "concat-ordered-members-exact-bytes.1"
     }
   },
   "corpusMembers": 9,
-  "corpusDigest": "7579cffaa073b3b9de6a7683a99a5b8870ef7291f77c2aa967927e1af6229792",
-  "coverageImplementationDigest": "123d447967d471d873e5068786379ccffea4e177963480e844945172f750b41c",
-  "coveragePolicyDigest": "254f089ec5d7c0162144aaf78114d33ed603c5cca04ae484f53111c7a83e5d9c",
-  "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
-  "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
+  "corpusDigest": "74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7",
+  "coverageImplementationDigest": "5ece4c110b7f4e1452595fd5de0432c5c863972ce2dccb2332efe6a7ee6a6761",
+  "coveragePolicyDigest": "f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad",
+  "expressionCatalogDigest": "abd54e5d4f960ab376d67affb2e519670fc62200d0a52fca1623005ca105edd0",
+  "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 112,
-  "functionFactsDigest": "7cebc6f79375a89e54648e76467e7d66b5dcc90ff7af789bbe2dfb57d6535f42",
+  "functionFactsDigest": "1de3ad0e16d981ce7233d0d3d7964ef6991e98b180435df625831e288904fb08",
   "implementationProvenance": {
     "family": "while-iteration",
     "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "ced8b91df5b8d07eb00f3ee9b48fca64a5af492f33de9dcb9889376f6d9706bc",
+  "policyDigest": "bf18114b9d1b750484acad61dd1e72be10b6cdb0203015b44b6c54cc54d6d200",
   "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
   "prerequisiteProvenances": [
     {
@@ -476,6 +468,19 @@
   "selection": {
     "ranking": [
       {
+        "completeFunctions": 5,
+        "completeTools": 1,
+        "id": "new-expression",
+        "occurrences": 41,
+        "witnesses": [
+          "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts",
+          "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts",
+          "examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok",
+          "examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts",
+          "examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts"
+        ]
+      },
+      {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "exception-flow",
@@ -483,7 +488,19 @@
         "witnesses": []
       }
     ],
-    "winner": null
+    "winner": {
+      "completeFunctions": 5,
+      "completeTools": 1,
+      "id": "new-expression",
+      "occurrences": 41,
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts",
+        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts",
+        "examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok",
+        "examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts",
+        "examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts"
+      ]
+    }
   },
   "selectionProvenances": [
     {

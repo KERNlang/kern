@@ -221,9 +221,10 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assertM4131ParameterMigration(first);
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 3);
   assert.equal(first.baseCompleteFunctions, 104);
-  assert.equal(first.selection.winner, null);
-  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0]);
-  assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['exception-flow']);
+  assert.equal(first.selection.winner?.id, 'new-expression');
+  assert.equal(first.selection.winner?.completeFunctions, 5);
+  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [5, 0]);
+  assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['new-expression', 'exception-flow']);
   const checkedIn = JSON.parse(readFileSync(new URL('./coverage-summary.json', import.meta.url), 'utf8'));
   assert.deepEqual(summarizeCanonicalizerCoverage(first), checkedIn);
   const fresh = spawnSync(process.execPath, [

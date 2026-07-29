@@ -16,6 +16,7 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { canonicalProfileRowsForPreM4135 } from './historical-expression-projector.mjs';
 import { loadPreM4129CoverageInputs } from './historical-parameter-sources.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 
@@ -172,6 +173,7 @@ export function measureCanonicalizerResidualAnalysisM4125() {
       roots.get(fact.id),
       policy.base,
       { ...canonicalizerPolicy, profileLimits },
+      canonicalProfileRowsForPreM4135,
     ));
 
   const currentLimits = exactLimits(canonicalizerPolicy.profileLimits);

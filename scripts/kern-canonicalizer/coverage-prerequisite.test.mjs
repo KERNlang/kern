@@ -15,36 +15,23 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = m4131ParameterMigration();
 
-const EXPECTED_EXHAUSTION = {
-  activeFamilies: ['exception-flow'],
-  completingClosureCount: 0,
-  evaluatedNonEmptyClosureCount: 1,
-  reasonAssignmentsDigest: 'a3383dd12d41a3beaca9bf9c0de49ddadc9333c99ca7b14162e0a01ebdb0d338',
-  reasonCounts: [
-    { count: 1, id: 'if.properties.cond.expression.text.character-u007f' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u0080' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u009f' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u2028' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-u2029' },
-    { count: 1, id: 'if.properties.cond.expression.text.character-ufeff' },
-    { count: 1, id: 'let.value:unknown-expression-kind' },
-    { count: 2, id: 'projection.unknown-expression-kind' },
-    { count: 1, id: 'throw.value:unknown-expression-kind' },
-  ],
-  residualFunctionCount: 3,
-  scope: 'current-bounded-profile',
+const EXPECTED_SELECTION = {
+  catalogFacts: 1,
+  family: 'new-expression',
+  occurrences: 41,
 };
 
-test('M4.131 consumes the combined-promotion queue and preserves bounded exhaustion', () => {
+test('M4.135 preserves the M4.131 queue and publishes the bounded constructor selection', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(actual.outcome, 'bounded-exhaustion');
-  assert.equal(actual.minimumFamilyCount, null);
-  assert.equal(actual.selectedPrerequisite, null);
+  assert.equal(actual.outcome, 'selected');
+  assert.equal(actual.minimumFamilyCount, 2);
+  assert.deepEqual(actual.selectedPrerequisite, EXPECTED_SELECTION);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
-  assert.deepEqual(actual.prerequisiteRanking, []);
-  assert.deepEqual(actual.ranking, []);
-  assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
+  assert.deepEqual(actual.prerequisiteRanking[0], EXPECTED_SELECTION);
+  assert.equal(actual.ranking[0].completeFunctions, 1);
+  assert.equal(actual.ranking[0].migratedParameterRows, 15);
+  assert.equal(actual.exhaustion, null);
 });
 
 test('format 3 rejects drift in the M4.100 migrated frontier', () => {
@@ -52,19 +39,12 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
     (copy) => { copy.future = true; },
-    (copy) => { copy.outcome = 'selected'; },
+    (copy) => { copy.outcome = 'bounded-exhaustion'; },
     (copy) => { copy.minimumFamilyCount = 0; },
     (copy) => { copy.selectedPrerequisite = { catalogFacts: 2, family: 'while-iteration', occurrences: 2 }; },
     (copy) => { copy.prerequisiteRanking.push({ catalogFacts: 2, family: 'while-iteration', occurrences: 2 }); },
     (copy) => { copy.ranking.push({}); },
-    (copy) => { copy.exhaustion = null; },
-    (copy) => { copy.exhaustion.activeFamilies = []; },
-    (copy) => { copy.exhaustion.completingClosureCount = 1; },
-    (copy) => { copy.exhaustion.evaluatedNonEmptyClosureCount = 2; },
-    (copy) => { copy.exhaustion.reasonAssignmentsDigest = '0'.repeat(64); },
-    (copy) => { copy.exhaustion.reasonCounts.reverse(); },
-    (copy) => { copy.exhaustion.residualFunctionCount = 29; },
-    (copy) => { copy.exhaustion.scope = 'future'; },
+    (copy) => { copy.exhaustion = {}; },
     (copy) => { copy.baseline.baseId = 'future'; },
     (copy) => { copy.baseline.coveragePolicyDigest = 'invalid'; },
     (copy) => { copy.baseline.canonicalizerDigest = '0'.repeat(64); },
@@ -83,28 +63,31 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.131 publishes the exact current migrated frontier', () => {
+test('M4.135 publishes the exact current migrated frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 104,
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
-    canonicalizerDigest: '32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331',
+    canonicalizerDigest: 'e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75',
     canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
-    compiledCoreDigest: '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
-    corpusDigest: '7579cffaa073b3b9de6a7683a99a5b8870ef7291f77c2aa967927e1af6229792',
+    compiledCoreDigest: '2641bba874fe19a079f4b03dabbddfee0d0cc56124d86f4080b612652a52eabc',
+    corpusDigest: '74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '254f089ec5d7c0162144aaf78114d33ed603c5cca04ae484f53111c7a83e5d9c',
-    familyRegistryDigest: 'a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87',
+    coveragePolicyDigest: 'f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad',
+    familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
-    functionFactsDigest: '7cebc6f79375a89e54648e76467e7d66b5dcc90ff7af789bbe2dfb57d6535f42',
+    functionFactsDigest: '1de3ad0e16d981ce7233d0d3d7964ef6991e98b180435df625831e288904fb08',
     legacyParameterBlockers: 3,
     profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
     toolCount: 4,
   });
+  assert.match(actual.baseline.compiledCoreDigest, /^[0-9a-f]{64}$/u);
+  assert.match(actual.baseline.functionFactsDigest, /^[0-9a-f]{64}$/u);
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
-  assert.deepEqual(actual.exhaustion, EXPECTED_EXHAUSTION);
+  assert.deepEqual(actual.selectedPrerequisite, EXPECTED_SELECTION);
+  assert.equal(actual.exhaustion, null);
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
   const residualIds = actual.ranking.flatMap(({ witnesses }) => witnesses.map(({ id }) => id));
   assert.equal(residualIds.some((id) => readyIds.has(id)), false);

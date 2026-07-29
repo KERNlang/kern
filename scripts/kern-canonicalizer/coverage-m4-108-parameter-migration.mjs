@@ -64,6 +64,11 @@ export function assertM4108ParameterMigration(coverage, prerequisite) {
     false,
     'M4.108 migrated validstatement must never re-enter a later parameter queue',
   );
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(
+    prerequisite.ranking.some(({ witnesses }) =>
+      witnesses.some(({ id }) => id === target.id)),
+    false,
+    'M4.108 migrated validstatement must never re-enter later prerequisite ranking',
+  );
   return fact;
 }

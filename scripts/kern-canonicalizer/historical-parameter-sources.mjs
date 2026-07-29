@@ -6,6 +6,14 @@ import {
   ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
 } from './assignment-target-projection-target.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  PRE_M4135_CANONICALIZER_MAIN_DIGEST,
+  PRE_M4135_COVERAGE_POLICY_DIGEST,
+  PRE_M4135_COVERAGE_POLICY_REPLACEMENTS,
+} from './new-expression-coverage-target.mjs';
+import {
+  NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
+} from './new-expression-emission-target.mjs';
 
 const MIGRATIONS_BY_PATH = new Map([
   ['examples/capstone-assertion-engine/compare.kern', ['compareList', 'compareMap']],
@@ -56,6 +64,7 @@ const PRE_M4124_POLICY_DIGEST =
 const PRE_M4129_POLICY_DIGEST =
   '04a61b18126cac0ddd723fef2686ae2f77c0bba6501c11dee6756fc3c0b0d400';
 const CHECKER_PATH = 'examples/capstone-checker-subset/checker.kern';
+const CANONICALIZER_MAIN_PATH = 'examples/kern-canonicalizer/canonicalizer.kern';
 const VALIDATOR_PATH = 'examples/selfhost-validator/validator.kern';
 const STATEMENT_HELPERS_PATH =
   'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern';
@@ -68,6 +77,29 @@ const PRE_M4131_POLICY_DIGEST =
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function preM4135CoveragePolicy(currentPolicy, currentPolicySource) {
+  if (!isDeepStrictEqual(currentPolicy, JSON.parse(currentPolicySource))) {
+    throw new TypeError('pre-M4.135 coverage rejection: caller policy must match repository policy');
+  }
+  const policySource = reconstructHistoricalSource({
+    currentSource: currentPolicySource,
+    expectedDigest: PRE_M4135_COVERAGE_POLICY_DIGEST,
+    milestone: 'pre-M4.135 coverage policy',
+    replacements: PRE_M4135_COVERAGE_POLICY_REPLACEMENTS,
+  }).toString('utf8');
+  const mainSource = reconstructHistoricalSource({
+    currentSource: readFileSync(new URL(`../../${CANONICALIZER_MAIN_PATH}`, import.meta.url)),
+    expectedDigest: PRE_M4135_CANONICALIZER_MAIN_DIGEST,
+    milestone: 'pre-M4.135 canonicalizer main source',
+    replacements: NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
+  });
+  return {
+    policy: JSON.parse(policySource),
+    policySource,
+    sourceOverrides: new Map([[CANONICALIZER_MAIN_PATH, mainSource]]),
+  };
 }
 
 function signatureReplacement(source, name) {
@@ -116,9 +148,7 @@ export function reconstructLegacyParameterSource({
 }
 
 function preM4131CoverageInputs(currentPolicy, currentPolicySource) {
-  if (!isDeepStrictEqual(currentPolicy, JSON.parse(currentPolicySource))) {
-    throw new TypeError('pre-M4.131 coverage rejection: caller policy must match repository policy');
-  }
+  const preM4135 = preM4135CoveragePolicy(currentPolicy, currentPolicySource);
   const currentSource = readFileSync(new URL(`../../${VALIDATOR_PATH}`, import.meta.url));
   const historicalSource = reconstructLegacyParameterSource({
     currentSource,
@@ -126,7 +156,7 @@ function preM4131CoverageInputs(currentPolicy, currentPolicySource) {
     milestone: 'pre-M4.131 validator source',
     name: 'validate',
   });
-  const policy = structuredClone(currentPolicy);
+  const policy = structuredClone(preM4135.policy);
   const validator = policy.corpus.find(({ path }) => path === VALIDATOR_PATH);
   if (validator === undefined) {
     throw new TypeError('pre-M4.131 coverage rejection: missing validator corpus member');
@@ -137,14 +167,31 @@ function preM4131CoverageInputs(currentPolicy, currentPolicySource) {
   if (digestOccurrences !== 1) {
     throw new TypeError('pre-M4.131 coverage rejection: validator digest must occur exactly once');
   }
-  const policySource = currentPolicySource.replace(currentDigest, PRE_M4131_VALIDATOR_DIGEST);
+  const policySource = preM4135.policySource.replace(currentDigest, PRE_M4131_VALIDATOR_DIGEST);
   if (digest(policySource) !== PRE_M4131_POLICY_DIGEST) {
     throw new TypeError('pre-M4.131 coverage rejection: policy digest must remain exact');
   }
   return {
     policy,
     policySource,
-    sourceOverrides: new Map([[VALIDATOR_PATH, historicalSource]]),
+    sourceOverrides: new Map([
+      ...preM4135.sourceOverrides,
+      [VALIDATOR_PATH, historicalSource],
+    ]),
+  };
+}
+
+export function loadPreM4135CoverageInputs(currentPolicy) {
+  const currentPolicySource = readFileSync(
+    new URL('./coverage-policy.json', import.meta.url),
+    'utf8',
+  );
+  const historical = preM4135CoveragePolicy(currentPolicy, currentPolicySource);
+  return {
+    coveragePolicyDigest: PRE_M4135_COVERAGE_POLICY_DIGEST,
+    coveragePolicySource: Buffer.from(historical.policySource),
+    policy: historical.policy,
+    sourceOverrides: historical.sourceOverrides,
   };
 }
 
@@ -163,7 +210,12 @@ export function loadPreM4131CoverageInputs(currentPolicy) {
 }
 
 export function loadPreM4113CoverageInputs(currentPolicy) {
-  const sourceOverrides = new Map();
+  const livePolicySource = readFileSync(
+    new URL('./coverage-policy.json', import.meta.url),
+    'utf8',
+  );
+  const preM4135 = preM4135CoveragePolicy(currentPolicy, livePolicySource);
+  const sourceOverrides = new Map(preM4135.sourceOverrides);
   for (const [path, names] of MIGRATIONS_BY_PATH) {
     const currentSource = readFileSync(new URL(`../../${path}`, import.meta.url));
     const sourceText = currentSource.toString('utf8');
@@ -179,13 +231,13 @@ export function loadPreM4113CoverageInputs(currentPolicy) {
       ],
     }));
   }
-  const policy = structuredClone(currentPolicy);
+  const policy = structuredClone(preM4135.policy);
   for (const member of policy.corpus) {
     if (PRE_M4113_DIGESTS.has(member.path)) member.digest = PRE_M4113_DIGESTS.get(member.path);
   }
-  let policySource = readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8');
+  let policySource = preM4135.policySource;
   for (const [path, historicalDigest] of PRE_M4113_DIGESTS) {
-    const currentDigest = currentPolicy.corpus.find((member) => member.path === path)?.digest;
+    const currentDigest = preM4135.policy.corpus.find((member) => member.path === path)?.digest;
     if (typeof currentDigest !== 'string') {
       throw new TypeError(`historical parameter source rejection: missing policy member ${path}`);
     }

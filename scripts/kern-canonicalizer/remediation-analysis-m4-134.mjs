@@ -3,12 +3,14 @@ import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
+import { projectExpressionText } from '../../packages/core/dist/kir-structural/expression.js';
 import { parseExpression } from '../../packages/core/dist/parser-expression.js';
 import {
   loadCoveragePolicy,
   measureCanonicalizerCoverage,
 } from './coverage.mjs';
 import {
+  migrateFunctionFact,
   migrateLegacyFunctionForPrerequisite,
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
@@ -139,22 +141,50 @@ function classifyConstructor(node, id) {
   return { arity, name };
 }
 
-function constructorCounts(root, id) {
-  const occurrences = [];
-  function visitExpression(value) {
-    if (value === null || typeof value !== 'object') return;
-    if (value.kind === 'new') occurrences.push(classifyConstructor(value, id));
-    if (Array.isArray(value)) {
-      for (const item of value) visitExpression(item);
-      return;
-    }
-    for (const nested of Object.values(value)) visitExpression(nested);
+export function analyzeRemediationExpressionSourceM4134(source, id, path = '$') {
+  let node;
+  try {
+    node = parseExpression(source);
+  } catch {
+    fail(`expression in ${id} must remain parseable at ${path}`);
   }
+  if (node.kind === 'new') return classifyConstructor(node, id);
+  const pending = [node];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === null || typeof current !== 'object') continue;
+    if (current.kind === 'new') {
+      fail(`nested new expression in ${id} is outside the exact M4.134 population at ${path}`);
+    }
+    if (Array.isArray(current)) pending.push(...current);
+    else pending.push(...Object.values(current));
+  }
+  try {
+    projectExpressionText(source, path);
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : 'unknown';
+    fail(`expression in ${id} retains unsupported structural shape ${code} at ${path}`);
+  }
+  return null;
+}
+
+function expressionInventory(root, id) {
+  const occurrences = [];
+  const sourceBlockers = new Set();
   function visitNode(node, path) {
     const contract = STRUCTURAL_KIR_NODE_CATALOG.get(node.type);
     for (const [key, value] of Object.entries(node.props ?? {})) {
       if (contract?.properties[key]?.disposition !== 'lowered-expression') continue;
-      visitExpression(parseExpression(expressionSource(value, `${path}.${node.type}.${key}`)));
+      const expressionPath = `${path}.${node.type}.${key}`;
+      const constructor = analyzeRemediationExpressionSourceM4134(
+        expressionSource(value, expressionPath),
+        id,
+        expressionPath,
+      );
+      if (constructor !== null) {
+        occurrences.push(constructor);
+        sourceBlockers.add(`${node.type}.${key}:unknown-expression-kind`);
+      }
     }
     (node.children ?? []).forEach((child, index) =>
       visitNode(child, `${path}.children[${index}]`));
@@ -165,9 +195,12 @@ function constructorCounts(root, id) {
     const key = JSON.stringify(occurrence);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  return [...counts]
-    .map(([key, count]) => ({ ...JSON.parse(key), count }))
-    .sort((left, right) => compareText(left.name, right.name) || left.arity - right.arity);
+  return {
+    constructors: [...counts]
+      .map(([key, count]) => ({ ...JSON.parse(key), count }))
+      .sort((left, right) => compareText(left.name, right.name) || left.arity - right.arity),
+    sourceBlockers: [...sourceBlockers].sort(compareText),
+  };
 }
 
 function candidateOrder(left, right) {
@@ -202,6 +235,7 @@ export function measureCanonicalizerRemediationAnalysisM4134() {
   const legacyFacts = coverage.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
     .sort((left, right) => compareText(left.id, right.id));
+  const legacyFactsById = new Map(legacyFacts.map((fact) => [fact.id, fact]));
   const liveIds = legacyFacts.map(({ id }) => id);
   if (JSON.stringify(liveIds) !== JSON.stringify(EXPECTED_IDS)) {
     fail('live legacy functions must match the exact M4.133 population');
@@ -214,14 +248,27 @@ export function measureCanonicalizerRemediationAnalysisM4134() {
     if (migrated.parameters.length !== requirement.parameterRows) {
       fail(`parameter rows changed for ${requirement.id}`);
     }
+    const inventory = expressionInventory(migrated.root, requirement.id);
     if (requirement.id === QUOTESOURCE_ID) {
+      const migratedFact = migrateFunctionFact(
+        legacyFactsById.get(requirement.id),
+        root,
+        policy.base,
+        canonicalizerPolicy,
+      );
+      const liveSourceBlockers = [
+        ...new Set([...migratedFact.excludedProperties, ...migratedFact.profileBlockers]),
+      ]
+        .filter((reason) => !reason.startsWith('projection.'))
+        .sort(compareText);
       if (
         requirement.outcome !== 'projected' ||
-        JSON.stringify(requirement.canonicalSurfaceBlockers) !== JSON.stringify(CHARACTER_BLOCKERS)
+        JSON.stringify(requirement.canonicalSurfaceBlockers) !== JSON.stringify(CHARACTER_BLOCKERS) ||
+        JSON.stringify(liveSourceBlockers) !== JSON.stringify(CHARACTER_BLOCKERS)
       ) {
         fail('quotesource must retain the exact six canonical-surface blockers');
       }
-      if (constructorCounts(migrated.root, requirement.id).length !== 0) {
+      if (inventory.constructors.length !== 0 || inventory.sourceBlockers.length !== 0) {
         fail('quotesource must not contain constructor expressions');
       }
       return {
@@ -236,8 +283,11 @@ export function measureCanonicalizerRemediationAnalysisM4134() {
     if (requirement.outcome !== 'unsupported' || requirement.projectionCode !== 'unknown-expression-kind') {
       fail(`${requirement.id} must retain unknown-expression-kind`);
     }
+    if (inventory.constructors.length === 0) {
+      fail(`${requirement.id} must retain its exact constructor population`);
+    }
     return {
-      constructors: constructorCounts(migrated.root, requirement.id),
+      constructors: inventory.constructors,
       id: requirement.id,
       outcome: 'unsupported-expression',
       parameterRows: requirement.parameterRows,

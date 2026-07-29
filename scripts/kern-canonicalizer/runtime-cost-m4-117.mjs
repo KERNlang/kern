@@ -10,7 +10,7 @@ import {
 import {
   PRE_M4130_SINGLE_POLICY_MEASUREMENT_REPLACEMENTS,
 } from './combined-promotion-target.mjs';
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import {
   reconstructLegacyParameterMeasurementSource,
 } from './historical-measurement-sources.mjs';
@@ -165,7 +165,7 @@ function exactInputs() {
       fail(`${name} executable input must remain exact`);
     }
   }
-  if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
+  if (digestPreM4135CompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by the measurement must remain exact');
   }
   const policy = loadHistoricalCanonicalizerPolicy({

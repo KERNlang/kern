@@ -8,7 +8,7 @@ import {
 import {
   PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
 } from './assignment-target-projection-target.mjs';
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
@@ -276,7 +276,7 @@ function exactInputs() {
     }
   }
   if (
-    digestCompiledCoreJavaScript() !==
+    digestPreM4135CompiledCoreJavaScript() !==
       INPUT_IDENTITIES.compiledCoreJavaScriptSha256
   ) fail('compiled core JavaScript executed by the measurement must remain exact');
   const composition = loadPreM4129CanonicalizerComposition();

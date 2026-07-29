@@ -12,7 +12,7 @@ import {
 import {
   loadCanonicalizerCombinedHeadroomM4127,
 } from './combined-headroom-m4-127.mjs';
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import {
   loadPreM4129CanonicalizerComposition,
@@ -197,7 +197,7 @@ function exactInputs() {
     fail('historical runtime policy identity must remain exact');
   }
   if (
-    digestCompiledCoreJavaScript() !==
+    digestPreM4135CompiledCoreJavaScript() !==
       receipt.source.compiledCoreJavaScriptSha256
   ) fail('compiled core JavaScript must remain exact');
   const composition = loadPreM4129CanonicalizerComposition();

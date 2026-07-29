@@ -385,7 +385,19 @@ test('the current corpus preserves selection and six-record prerequisite history
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
   assert.equal(receipt.baseCompleteFunctions, 104);
-  assert.equal(receipt.selection.winner, null);
+  assert.deepEqual(receipt.selection.winner, {
+    completeFunctions: 5,
+    completeTools: 1,
+    id: 'new-expression',
+    occurrences: 41,
+    witnesses: [
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts',
+      'examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok',
+      'examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts',
+      'examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts',
+    ],
+  });
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
@@ -404,11 +416,11 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 62061, 'M4.129 must bind the exact current KERN byte count');
+  assert.equal(canonicalizerSource.length, 63461, 'M4.135 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    '32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331',
-    'M4.129 must bind the exact current KERN digest',
+    'e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75',
+    'M4.135 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);
@@ -429,7 +441,7 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
   assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow', 'new-expression']);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);

@@ -9,7 +9,7 @@ import {
 import {
   loadPublishedCanonicalizerResidualAnalysisM4132,
 } from './coverage-residual-analysis-m4-132.mjs';
-import { canonicalProfileRowsForFunction } from './coverage-profile.mjs';
+import { canonicalProfileRowsForPreM4135 } from './historical-expression-projector.mjs';
 import {
   migrateFunctionFact,
   migrateLegacyFunctionForPrerequisite,
@@ -20,6 +20,7 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadPreM4135CoverageInputs } from './historical-parameter-sources.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.projection-analysis.1';
@@ -117,7 +118,7 @@ function project(root, limits) {
   try {
     return {
       outcome: 'projected',
-      profileRows: canonicalProfileRowsForFunction(root, limits),
+      profileRows: canonicalProfileRowsForPreM4135(root, limits),
     };
   } catch (error) {
     if (typeof error?.code !== 'string' || error.code.length === 0) throw error;
@@ -178,10 +179,15 @@ export function measureCanonicalizerProjectionAnalysisM4133() {
   if (residualHandoff.digest !== RESIDUAL_ANALYSIS_DIGEST) {
     fail('M4.132 input digest must remain exact');
   }
-  const policy = loadCoveragePolicy();
+  const historical = loadPreM4135CoverageInputs(loadCoveragePolicy());
+  const policy = historical.policy;
   const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const coverage = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  const roots = sourceFunctionRoots(policy);
+  const coverage = measureCanonicalizerCoverage(
+    policy,
+    canonicalizerPolicy,
+    { sourceOverrides: historical.sourceOverrides },
+  );
+  const roots = sourceFunctionRoots(policy, historical.sourceOverrides);
   const legacyFacts = coverage.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
     .sort((left, right) => compareText(left.id, right.id));
@@ -209,7 +215,13 @@ export function measureCanonicalizerProjectionAnalysisM4133() {
   ]));
   const migratedFacts = new Map(legacyFacts.map((fact) => [
     fact.id,
-    migrateFunctionFact(fact, roots.get(fact.id), policy.base, canonicalizerPolicy),
+    migrateFunctionFact(
+      fact,
+      roots.get(fact.id),
+      policy.base,
+      canonicalizerPolicy,
+      canonicalProfileRowsForPreM4135,
+    ),
   ]));
 
   const requirements = legacyFacts.map((fact) => {
@@ -295,6 +307,7 @@ export function measureCanonicalizerProjectionAnalysisM4133() {
             kirLimits: { ...canonicalizerPolicy.kirLimits, ...kirLimits },
             profileLimits,
           },
+          canonicalProfileRowsForPreM4135,
         ))
         .filter((fact) => canonicalizerFunctionCompletes(baseProfile, fact, profileLimits))
         .sort((left, right) => compareText(left.id, right.id));

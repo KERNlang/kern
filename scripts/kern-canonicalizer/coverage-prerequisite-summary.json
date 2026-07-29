@@ -2,77 +2,68 @@
   "baseline": {
     "baseCompleteFunctions": 104,
     "baseId": "kern.kir-canonicalizer.profile.m4.60",
-    "canonicalizerDigest": "32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331",
+    "canonicalizerDigest": "e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75",
     "canonicalizerPolicyDigest": "54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4",
-    "compiledCoreDigest": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
-    "corpusDigest": "7579cffaa073b3b9de6a7683a99a5b8870ef7291f77c2aa967927e1af6229792",
-    "coverageImplementationDigest": "123d447967d471d873e5068786379ccffea4e177963480e844945172f750b41c",
-    "coveragePolicyDigest": "254f089ec5d7c0162144aaf78114d33ed603c5cca04ae484f53111c7a83e5d9c",
-    "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
+    "compiledCoreDigest": "2641bba874fe19a079f4b03dabbddfee0d0cc56124d86f4080b612652a52eabc",
+    "corpusDigest": "74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7",
+    "coverageImplementationDigest": "5ece4c110b7f4e1452595fd5de0432c5c863972ce2dccb2332efe6a7ee6a6761",
+    "coveragePolicyDigest": "f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad",
+    "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
     "functionCount": 112,
-    "functionFactsDigest": "7cebc6f79375a89e54648e76467e7d66b5dcc90ff7af789bbe2dfb57d6535f42",
+    "functionFactsDigest": "1de3ad0e16d981ce7233d0d3d7964ef6991e98b180435df625831e288904fb08",
     "legacyParameterBlockers": 3,
     "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
     "toolCount": 4
   },
-  "exhaustion": {
-    "activeFamilies": [
-      "exception-flow"
-    ],
-    "completingClosureCount": 0,
-    "evaluatedNonEmptyClosureCount": 1,
-    "reasonAssignmentsDigest": "a3383dd12d41a3beaca9bf9c0de49ddadc9333c99ca7b14162e0a01ebdb0d338",
-    "reasonCounts": [
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u007f"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u0080"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u009f"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u2028"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u2029"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-ufeff"
-      },
-      {
-        "count": 1,
-        "id": "let.value:unknown-expression-kind"
-      },
-      {
-        "count": 2,
-        "id": "projection.unknown-expression-kind"
-      },
-      {
-        "count": 1,
-        "id": "throw.value:unknown-expression-kind"
-      }
-    ],
-    "residualFunctionCount": 3,
-    "scope": "current-bounded-profile"
-  },
+  "exhaustion": null,
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
-  "minimumFamilyCount": null,
-  "outcome": "bounded-exhaustion",
+  "minimumFamilyCount": 2,
+  "outcome": "selected",
   "parameterMigration": {
     "completeFunctions": 0,
     "completeTools": 0,
     "migratedParameterRows": 0,
     "witnesses": []
   },
-  "prerequisiteRanking": [],
-  "ranking": [],
-  "selectedPrerequisite": null
+  "prerequisiteRanking": [
+    {
+      "catalogFacts": 1,
+      "family": "new-expression",
+      "occurrences": 41
+    },
+    {
+      "catalogFacts": 2,
+      "family": "exception-flow",
+      "occurrences": 34
+    }
+  ],
+  "ranking": [
+    {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "families": [
+        "exception-flow",
+        "new-expression"
+      ],
+      "migratedParameterRows": 15,
+      "occurrences": 75,
+      "witnesses": [
+        {
+          "id": "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize",
+          "parameterRows": 15,
+          "profileRows": {
+            "nodes": 100,
+            "properties": 159,
+            "values": 2556
+          },
+          "tool": "canonicalizer"
+        }
+      ]
+    }
+  ],
+  "selectedPrerequisite": {
+    "catalogFacts": 1,
+    "family": "new-expression",
+    "occurrences": 41
+  }
 }

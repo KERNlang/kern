@@ -6,7 +6,7 @@ import { loadCoveragePolicy, measureCanonicalizerCoverage } from './coverage.mjs
 import {
   loadPublishedCanonicalizerResidualAnalysisM4125,
 } from './coverage-residual-analysis-m4-125.mjs';
-import { canonicalProfileRowsForFunction } from './coverage-profile.mjs';
+import { canonicalProfileRowsForPreM4135 } from './historical-expression-projector.mjs';
 import {
   migrateFunctionFact,
   migrateLegacyFunctionForPrerequisite,
@@ -106,7 +106,7 @@ function project(root, limits) {
   try {
     return {
       outcome: 'projected',
-      profileRows: canonicalProfileRowsForFunction(root, limits),
+      profileRows: canonicalProfileRowsForPreM4135(root, limits),
     };
   } catch (error) {
     if (typeof error?.code !== 'string' || error.code.length === 0) throw error;
@@ -277,6 +277,7 @@ export function measureCanonicalizerProjectionAnalysisM4126() {
           roots.get(fact.id),
           policy.base,
           { ...canonicalizerPolicy, kirLimits: fullKirLimits, profileLimits },
+          canonicalProfileRowsForPreM4135,
         ))
         .filter((fact) =>
           canonicalizerFunctionCompletes(baseProfile, fact, profileLimits))

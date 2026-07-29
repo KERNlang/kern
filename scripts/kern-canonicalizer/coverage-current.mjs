@@ -98,16 +98,52 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
   assert.deepEqual(prerequisite.parameterMigration, m4131ParameterMigration());
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.prerequisiteRanking, []);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion?.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 3);
-  assert.equal(
-    prerequisite.exhaustion?.reasonAssignmentsDigest,
-    'a3383dd12d41a3beaca9bf9c0de49ddadc9333c99ca7b14162e0a01ebdb0d338',
+  assert.equal(prerequisite.outcome, 'selected');
+  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.deepEqual(prerequisite.selectedPrerequisite, {
+    catalogFacts: 1,
+    family: 'new-expression',
+    occurrences: 41,
+  });
+  assert.deepEqual(
+    prerequisite.prerequisiteRanking.map(({ catalogFacts, family, occurrences }) => ({
+      catalogFacts,
+      family,
+      occurrences,
+    })),
+    [
+      { catalogFacts: 1, family: 'new-expression', occurrences: 41 },
+      { catalogFacts: 2, family: 'exception-flow', occurrences: 34 },
+    ],
   );
+  assert.deepEqual(
+    prerequisite.ranking.map(({
+      completeFunctions,
+      completeTools,
+      families,
+      migratedParameterRows,
+      occurrences,
+    }) => ({
+      completeFunctions,
+      completeTools,
+      families,
+      migratedParameterRows,
+      occurrences,
+    })),
+    [{
+      completeFunctions: 1,
+      completeTools: 1,
+      families: ['exception-flow', 'new-expression'],
+      migratedParameterRows: 15,
+      occurrences: 75,
+    }],
+  );
+  assert.deepEqual(prerequisite.ranking[0]?.witnesses, [{
+    id: 'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
+    parameterRows: 15,
+    profileRows: { nodes: 100, properties: 159, values: 2556 },
+    tool: 'canonicalizer',
+  }]);
+  assert.equal(prerequisite.exhaustion, null);
   return prerequisite;
 }

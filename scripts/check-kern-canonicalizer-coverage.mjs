@@ -7,6 +7,9 @@ import {
 import { assertM4133ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-133-central.mjs';
 import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4-134-central.mjs';
 import {
+  assertM4135BoundedNewExpression,
+} from './kern-canonicalizer/coverage-m4-135-central.mjs';
+import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
@@ -440,6 +443,7 @@ const m4131CoverageStatusLine = m4131CoverageStatus();
 const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
+const m4135CoverageStatusLine = assertM4135BoundedNewExpression(coverage, prerequisite);
 assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
@@ -603,16 +607,31 @@ if (process.argv.includes('--write')) {
     3,
     'live M4.131 fn.params blocker count must remain exactly 3',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
+  assert.deepEqual(actual.selection.winner, {
+    completeFunctions: 5,
+    completeTools: 1,
+    id: 'new-expression',
+    occurrences: 41,
+    witnesses: [
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts',
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts',
+      'examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok',
+      'examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts',
+      'examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts',
+    ],
+  }, 'live M4.135 measurement must select the exact new-expression winner');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
-    [{ completeFunctions: 0, completeTools: 0, id: 'exception-flow' }],
-    'live M4.60 residual zero-completion ranking must remain exact',
+    [
+      { completeFunctions: 5, completeTools: 1, id: 'new-expression' },
+      { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
+    ],
+    'live M4.135 residual family ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.minimumFamilyCount, null);
+  assert.equal(prerequisite.outcome, 'selected');
+  assert.equal(prerequisite.minimumFamilyCount, 2);
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -632,17 +651,20 @@ if (process.argv.includes('--write')) {
       tool: 'checker',
     }],
   });
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.prerequisiteRanking, []);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
-  assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 3);
-  assert.equal(
-    prerequisite.exhaustion.reasonAssignmentsDigest,
-    'a3383dd12d41a3beaca9bf9c0de49ddadc9333c99ca7b14162e0a01ebdb0d338',
+  assert.deepEqual(prerequisite.selectedPrerequisite, {
+    catalogFacts: 1,
+    family: 'new-expression',
+    occurrences: 41,
+  });
+  assert.deepEqual(
+    prerequisite.prerequisiteRanking.map(({ family }) => family),
+    ['new-expression', 'exception-flow'],
   );
+  assert.deepEqual(
+    prerequisite.ranking.map(({ families }) => families),
+    [['exception-flow', 'new-expression']],
+  );
+  assert.equal(prerequisite.exhaustion, null);
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
   assert.equal(m468PrerequisiteHandoff.sourceCommit,
@@ -1926,6 +1948,7 @@ process.stdout.write(
   ` ${m4132CoverageStatusLine}` +
   ` ${m4133CoverageStatusLine}` +
   ` ${m4134CoverageStatusLine}` +
+  ` ${m4135CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

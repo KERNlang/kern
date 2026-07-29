@@ -6,15 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import {
   canonicalCompositionRecordBytes,
-  verifyCanonicalizerComposition,
 } from './composition.mjs';
 import { loadCoveragePolicy } from './coverage.mjs';
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestPreM4135CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import {
   loadPreM4131CoverageInputs,
   reconstructLegacyParameterSource,
 } from './historical-parameter-sources.mjs';
+import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
@@ -129,6 +129,19 @@ function exactInputs() {
     fail('M4.128 receipt bytes must remain exact');
   }
   const m4128 = loadCanonicalizerRuntimeBottleneckM4128();
+  const historicalComposition = loadHistoricalCanonicalizerComposition({
+    expectedDigests: {
+      canonicalizerCompositeSha256: SOURCE_DIGESTS.canonicalizerCompositeSha256,
+      compositionRecordSha256: SOURCE_DIGESTS.compositionRecordSha256,
+      expressionHelpersSha256: SOURCE_DIGESTS.expressionHelpersSha256,
+      mainSourceSha256: SOURCE_DIGESTS.mainSourceSha256,
+      statementHelpersSha256: SOURCE_DIGESTS.statementHelpersSha256,
+    },
+    expressionHelperReplacements: [],
+    milestone: 'M4.129',
+    statementHelperReplacements: [],
+    statementHelperTargets: [],
+  });
   if (
     m4128.witness.id !== WITNESS_ID ||
     m4128.observations[3].iterationBudget !== 54_894 ||
@@ -143,6 +156,8 @@ function exactInputs() {
     if (name === 'coveragePolicySha256') {
       const historical = loadPreM4131CoverageInputs(loadCoveragePolicy());
       source = historical.coveragePolicySource;
+    } else if (name === 'mainSourceSha256') {
+      source = historicalComposition.mainSource;
     } else if (name === 'measurementSha256') {
       source = reconstructHistoricalSource({
         currentSource: source,
@@ -162,12 +177,12 @@ function exactInputs() {
       fail(`${name} executable input must remain exact`);
     }
   }
-  if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
+  if (digestPreM4135CompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by measurement must remain exact');
   }
-  const composition = verifyCanonicalizerComposition();
+  const composition = historicalComposition;
   if (
-    digest(composition.compositeBytes) !== SOURCE_DIGESTS.canonicalizerCompositeSha256 ||
+    digest(composition.composite) !== SOURCE_DIGESTS.canonicalizerCompositeSha256 ||
     digest(canonicalCompositionRecordBytes(composition.record)) !==
       SOURCE_DIGESTS.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');

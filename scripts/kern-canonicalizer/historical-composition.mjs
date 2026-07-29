@@ -14,6 +14,7 @@ import {
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
 import { TYPE_FIELD_INDEX_M4117_REPLACEMENT } from './type-field-index-target.mjs';
+import { NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS } from './new-expression-emission-target.mjs';
 import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
 
 function parameterSignatureReplacement(target) {
@@ -99,7 +100,7 @@ export function loadHistoricalCanonicalizerComposition({
     EMITSTATEMENT_M4113_TARGET,
   ],
   expressionHelperReplacements = [TYPE_FIELD_INDEX_M4117_REPLACEMENT],
-  mainSourceReplacements = [],
+  mainSourceReplacements = NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
   statementHelperReplacements = [
     ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
   ],
@@ -183,7 +184,7 @@ export function loadPreM4129CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4129_DIGESTS,
     expressionHelperReplacements: [],
-    mainSourceReplacements: [],
+    mainSourceReplacements: NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
     milestone: 'pre-M4.129',
     statementHelperReplacements: [
       ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,

@@ -116,7 +116,7 @@ describe('internal structural KIR writer and bounded reader', () => {
     ['- 0', 'invalid-expression'],
     ['[...items]', 'unknown-expression-kind'],
     ['await value', 'unknown-expression-kind'],
-    ['new User()', 'unknown-expression-kind'],
+    ['new User()', 'invalid-expression'],
     ['x as User', 'unknown-expression-kind'],
   ] as const)('rejects expression outside the closed catalog: %s', (source, code) =>
     expectStructuralCode(() => encodeStructuralKir(letNode(source), limits), code),

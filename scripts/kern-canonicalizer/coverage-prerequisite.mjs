@@ -135,13 +135,13 @@ function projectionCode(error) {
   return typeof error?.code === 'string' && error.code.length > 0 ? error.code : 'projection-error';
 }
 
-export function migrateFunctionFact(fact, sourceRoot, base, canonicalizerPolicy) {
+export function migrateFunctionFact(fact, sourceRoot, base, canonicalizerPolicy, profileRowsForFunction = canonicalProfileRowsForFunction) {
   if (sourceRoot === undefined) fail(`missing source function ${fact.id}`);
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   let profileRows = null;
   let projectionBlocker = null;
   try {
-    profileRows = canonicalProfileRowsForFunction(root, canonicalizerPolicy.kirLimits);
+    profileRows = profileRowsForFunction(root, canonicalizerPolicy.kirLimits);
   } catch (error) {
     projectionBlocker = `projection.${projectionCode(error)}`;
   }

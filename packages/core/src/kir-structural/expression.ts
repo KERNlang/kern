@@ -16,6 +16,7 @@ const EXPRESSION_KINDS = new Set([
   'member',
   'index',
   'call',
+  'new',
   'lambda',
   'binary',
   'unary',
@@ -110,6 +111,36 @@ function projectLambda(node: Extract<ValueIR, { kind: 'lambda' }>, path: string)
   });
 }
 
+function boundedConstructorArity(name: string): 0 | 1 | -1 {
+  return name === 'Map' ? 0 : name === 'Error' ? 1 : -1;
+}
+
+function projectNew(node: Extract<ValueIR, { kind: 'new' }>, path: string): CanonicalValue {
+  const call = node.argument;
+  if (call.kind !== 'call' || call.optional || call.typeArgs !== undefined || call.callee.kind !== 'ident') {
+    fail('invalid-expression', path, 'constructor must be a non-optional untyped call of a bare identifier');
+  }
+  const constructorName = call.callee.name;
+  const expectedArity = boundedConstructorArity(constructorName);
+  if (expectedArity < 0) {
+    fail('invalid-expression', `${path}.constructor`, `unsupported constructor ${constructorName}`);
+  }
+  if (call.args.length !== expectedArity || call.args.some((argument) => argument.kind === 'spread')) {
+    fail(
+      'invalid-expression',
+      `${path}.args`,
+      `${constructorName} constructor expects exactly ${expectedArity} arguments`,
+    );
+  }
+  const fields = Object.create(null) as Record<string, CanonicalValue>;
+  fields.args = {
+    tag: 'list',
+    value: call.args.map((argument, index) => projectValueIr(argument, `${path}.args[${index}]`)),
+  };
+  Reflect.set(fields, 'constructor', { tag: 'text', value: constructorName } satisfies CanonicalValue);
+  return expression('new', fields);
+}
+
 function projectValueIr(node: ValueIR, path: string): CanonicalValue {
   switch (node.kind) {
     case 'numLit':
@@ -149,6 +180,8 @@ function projectValueIr(node: ValueIR, path: string): CanonicalValue {
         callee: projectValueIr(node.callee, `${path}.callee`),
         optional: { tag: 'bool', value: node.optional },
       });
+    case 'new':
+      return projectNew(node, path);
     case 'lambda':
       return projectLambda(node, path);
     case 'binary':
@@ -288,6 +321,23 @@ function validateFields(kind: string, fields: CanonicalValue, path: string): voi
     nestedList(field(values, 'args'), `${path}.args`);
     nested(field(values, 'callee'), `${path}.callee`);
     bool(field(values, 'optional'), `${path}.optional`);
+    return;
+  }
+  if (kind === 'new') {
+    const values = exactRecord(fields, ['args', 'constructor'], path);
+    const args = field(values, 'args');
+    nestedList(args, `${path}.args`);
+    const constructorName = text(field(values, 'constructor'), `${path}.constructor`);
+    const expectedArity = boundedConstructorArity(constructorName);
+    if (expectedArity < 0)
+      fail('invalid-expression', `${path}.constructor`, `unsupported constructor ${constructorName}`);
+    if (args.tag !== 'list' || args.value.length !== expectedArity) {
+      fail(
+        'invalid-expression',
+        `${path}.args`,
+        `${constructorName} constructor expects exactly ${expectedArity} arguments`,
+      );
+    }
     return;
   }
   if (kind === 'lambda') {

@@ -3,6 +3,9 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { reconstructHistoricalSource } from './historical-source.mjs';
+import { PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS } from './new-expression-structural-target.mjs';
+
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
@@ -13,7 +16,7 @@ function fail(message) {
   throw new TypeError(`coverage dependency rejection: ${message}`);
 }
 
-function hashFramedFiles(root, paths) {
+function hashFramedFiles(root, paths, overrides = new Map()) {
   const canonicalRoot = realpathSync(root);
   const hash = createHash('sha256');
   for (const name of [...paths].sort()) {
@@ -23,7 +26,7 @@ function hashFramedFiles(root, paths) {
     const relativePath = relative(canonicalRoot, real);
     const escaped = relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath);
     if (!stat.isFile() || real !== path || escaped) fail(`${name} must be a contained regular file`);
-    const bytes = readFileSync(path);
+    const bytes = overrides.get(name) ?? readFileSync(path);
     hash.update(`${name.length}:${name}:${bytes.length}:`);
     hash.update(bytes);
   }
@@ -60,6 +63,21 @@ export function digestCompiledCoreJavaScript() {
     .map((path) => relative(canonicalRoot, path).split(sep).join('/'));
   if (paths.length === 0) fail('compiled core JavaScript must not be empty');
   return hashFramedFiles(canonicalRoot, paths);
+}
+
+export function digestPreM4135CompiledCoreJavaScript() {
+  const relativePath = 'kir-structural/expression.js';
+  const currentSource = readFileSync(resolve(COMPILED_CORE_ROOT, relativePath));
+  const historicalSource = reconstructHistoricalSource({
+    currentSource,
+    expectedDigest: 'b2f2383c9eb6ecfde619a3191dc539be1b33776af6f32f8c4001cb30449c2032',
+    milestone: 'pre-M4.135 compiled structural expression',
+    replacements: PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
+  });
+  const canonicalRoot = realpathSync(COMPILED_CORE_ROOT);
+  const paths = compiledJavaScriptFiles(canonicalRoot)
+    .map((path) => relative(canonicalRoot, path).split(sep).join('/'));
+  return hashFramedFiles(canonicalRoot, paths, new Map([[relativePath, historicalSource]]));
 }
 
 export function digestCoverageImplementationSources() {
