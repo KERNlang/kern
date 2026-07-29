@@ -132,7 +132,9 @@ function exactInputs() {
   }
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: INPUT_IDENTITIES.runtimePolicySha256,
-    kirLimitOverrides: {},
+    kirLimitOverrides: {
+      maxDepth: 76,
+    },
     milestone: 'M4.115',
     profileLimits: ACTIVE_PROFILE,
   });

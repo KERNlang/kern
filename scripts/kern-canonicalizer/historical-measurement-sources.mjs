@@ -3,6 +3,7 @@ import { reconstructHistoricalSource } from './historical-source.mjs';
 export function reconstructLegacyParameterMeasurementSource({
   currentSource,
   expectedDigest,
+  extraReplacements = [],
   milestone,
   witnessMilestone,
   name,
@@ -20,6 +21,7 @@ export function reconstructLegacyParameterMeasurementSource({
     expectedDigest,
     milestone,
     replacements: [
+      ...extraReplacements,
       {
         current:
           "import { reconstructLegacyParameterSource } from './historical-parameter-sources.mjs';\n",

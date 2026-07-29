@@ -28,9 +28,14 @@ const LIMIT_AXES = [
   ['maxDepth', 'limit-depth'],
   ['maxNodes', 'limit-nodes'],
 ];
-const BASE_KIR_LIMITS = {
+const HISTORICAL_BASE_KIR_LIMITS = {
   maxBytes: 262_144,
   maxDepth: 76,
+  maxNodes: 4_096,
+};
+const PROMOTED_KIR_LIMITS = {
+  maxBytes: 262_144,
+  maxDepth: 77,
   maxNodes: 4_096,
 };
 
@@ -167,12 +172,15 @@ export function measureCanonicalizerProjectionAnalysisM4121() {
   }
   if (
     canonicalBytes(exactKirLimits(canonicalizerPolicy.kirLimits))
-      .compare(canonicalBytes(BASE_KIR_LIMITS)) !== 0
+      .compare(canonicalBytes(PROMOTED_KIR_LIMITS)) !== 0
   ) {
-    fail('live structural KIR policy must retain the exact M4.121 base');
+    fail('live structural KIR policy must retain the exact M4.123 promotion');
   }
 
-  const baseKirLimits = { ...canonicalizerPolicy.kirLimits };
+  const baseKirLimits = {
+    ...canonicalizerPolicy.kirLimits,
+    ...HISTORICAL_BASE_KIR_LIMITS,
+  };
   const probeLimits = {
     ...baseKirLimits,
     ...Object.fromEntries(LIMIT_AXES.map(([key]) => [key, baseKirLimits[key] * 2])),

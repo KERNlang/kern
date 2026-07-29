@@ -132,10 +132,6 @@
       "id": "fn.params"
     },
     {
-      "count": 2,
-      "id": "projection.limit-depth"
-    },
-    {
       "count": 1,
       "id": "if.properties.cond.expression.text.character-u007f"
     },
@@ -161,6 +157,10 @@
     },
     {
       "count": 1,
+      "id": "projection.limit-depth"
+    },
+    {
+      "count": 1,
       "id": "projection.limit-nodes"
     },
     {
@@ -170,7 +170,7 @@
   ],
   "catalogDigest": "fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea",
   "canonicalizerDigest": "f40d056b2aac947350f297196cbe71d5acdb5b82d245963adee910620c7b7180",
-  "canonicalizerPolicyDigest": "2572743f5b942cac0e4d33d735d590caee3dbddcfebbb229b8cd94b14118d1b8",
+  "canonicalizerPolicyDigest": "c1b4f5b8e28eb4c0bb8a7fa0ef0a7dff64a4dd4cc952a5594d9ac95502e349a5",
   "compiledCoreDigest": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
   "composition": {
     "digest": "a98f58589b8e0d8006970aa5e530b393e8f3cd247bea1e86f922b98a89d5649e",
@@ -203,13 +203,13 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "9c53d07530de797655542db955bca431c97ded9cae7617bba2dcfbca64ca2a24",
-  "coverageImplementationDigest": "2d0d3d9f19334233fcc3752beb23689eae702c47064d40729e0392b8d10ffc74",
+  "coverageImplementationDigest": "289dd42da91ebb9e4e3267c1cb1dbf5ac2a14c458361b72437df704665c1251d",
   "coveragePolicyDigest": "bb64551fcdbacd85759a86f9cd7703ffe7fa14505cfe1a935223d7fe2b953534",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 112,
-  "functionFactsDigest": "5f9f2e022f5fd23e8ebdde4523de7a538a49d2d105d2fd04807cd84f99d58906",
+  "functionFactsDigest": "5507bfae939cec9da80876a0d87755a3f43e92d494f530f671862c71bf0819dc",
   "implementationProvenance": {
     "family": "while-iteration",
     "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",

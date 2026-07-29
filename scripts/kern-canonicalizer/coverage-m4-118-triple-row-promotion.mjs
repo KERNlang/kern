@@ -60,6 +60,6 @@ export function assertM4118TripleRowPromotion(policy) {
   assert.deepEqual(policy.profileLimits, ACTIVE_PROFILE);
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
-  assert.equal(policy.kirLimits.maxDepth, 76);
+  assert.equal(policy.kirLimits.maxDepth, 77);
   return m4118ActiveProfile();
 }

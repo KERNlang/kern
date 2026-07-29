@@ -33,6 +33,7 @@ const PROJECTION_ANALYSIS_DIGEST =
   '38f26bb48237832163acb8fa99ee0b65b8dc343f77f6a7570481e54d01d6732f';
 const HISTORICAL_ACTIVE_DEPTH = 64;
 const CANDIDATE_DEPTH = 76;
+const LIVE_DEPTH = 77;
 
 function fail(message) {
   throw new TypeError(`M4.111 KIR depth headroom measurement rejection: ${message}`);
@@ -73,10 +74,10 @@ function exactInput(witnessId) {
   }
   const policy = loadCanonicalizerPolicy();
   if (
-    policy.kirLimits.maxDepth !== CANDIDATE_DEPTH ||
+    policy.kirLimits.maxDepth !== LIVE_DEPTH ||
     policy.runtimeLimits.maxDepth !== HISTORICAL_ACTIVE_DEPTH
   ) {
-    fail('live KIR depth must retain M4.112 while runtime depth remains 64');
+    fail('live KIR depth must retain M4.123 while runtime depth remains 64');
   }
   const requiredDepth = requirement.requiredKirLimits.maxDepth;
   if (

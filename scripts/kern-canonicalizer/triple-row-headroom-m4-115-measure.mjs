@@ -70,7 +70,7 @@ function exactWitness() {
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   assert.equal(parameters.length, 58);
   const policy = loadCanonicalizerPolicy();
-  assert.equal(policy.kirLimits.maxDepth, 76);
+  assert.equal(policy.kirLimits.maxDepth, 77);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
   const bytes = encodeStructuralKir(root, policy.kirLimits);
   const artifact = decodeStructuralKir(bytes, policy.kirLimits);

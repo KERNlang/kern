@@ -613,10 +613,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 5);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 4);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '7590a3a7dbc3bbd11ca4a05c81e52a907d8cdd5619e4b2a78e198975673c84fe',
+    'd56df2cc197c26f4c6f302c32e6447828e1e7359ba6f525f82bda5b6e2b5c481',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');

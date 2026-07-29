@@ -11,7 +11,6 @@ import {
   M4119_PARAMETER_MIGRATION_TARGET,
 } from './coverage-m4-119-parameter-migration.mjs';
 import { m4118ParameterMigration } from './coverage-m4-118-triple-row-promotion.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { parameterMigrationRoots } from './coverage-value-band-parameter-migrations.mjs';
 
 function sha256(bytes) {
@@ -41,18 +40,10 @@ test('M4.119 consumes the exact immutable M4.118 checkModule queue', () => {
 
 test('M4.119 migrates only checkModule to 58 direct parameters', () => {
   const coverage = measureCanonicalizerCoverage();
-  const prerequisite = measureCanonicalizerPrerequisite();
   assertM4119ParameterMigration(coverage);
   assert.equal(coverage.baseCompleteFunctions, 102);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params')).length, 5);
-  assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 0,
-    completeTools: 0,
-    migratedParameterRows: 0,
-    witnesses: [],
-  });
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 5);
 });
 
 test('M4.119 target guard rejects signature, body, identity, fact, and profile drift', () => {

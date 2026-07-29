@@ -21,6 +21,7 @@ const MEASUREMENT_URL =
   new URL('./kir-depth-headroom-m4-111-measure.mjs', import.meta.url);
 const ACTIVE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 64, maxNodes: 4096 };
 const CANDIDATE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 76, maxNodes: 4096 };
+const LIVE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 77, maxNodes: 4096 };
 const PROFILE_LIMITS = { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2100 };
 const INPUT_IDENTITIES = {
   canonicalizerCompositeSha256:
@@ -51,16 +52,18 @@ const INPUT_URLS = {
 const MEASUREMENT_REPLACEMENTS = [
   {
     current:
-      'const HISTORICAL_ACTIVE_DEPTH = 64;\nconst CANDIDATE_DEPTH = 76;',
+      'const HISTORICAL_ACTIVE_DEPTH = 64;\n' +
+      'const CANDIDATE_DEPTH = 76;\n' +
+      'const LIVE_DEPTH = 77;',
     historical: 'const CANDIDATE_DEPTH = 76;',
   },
   {
     current:
       '  if (\n' +
-      '    policy.kirLimits.maxDepth !== CANDIDATE_DEPTH ||\n' +
+      '    policy.kirLimits.maxDepth !== LIVE_DEPTH ||\n' +
       '    policy.runtimeLimits.maxDepth !== HISTORICAL_ACTIVE_DEPTH\n' +
       '  ) {\n' +
-      "    fail('live KIR depth must retain M4.112 while runtime depth remains 64');\n" +
+      "    fail('live KIR depth must retain M4.123 while runtime depth remains 64');\n" +
       '  }',
     historical:
       '  if (policy.kirLimits.maxDepth !== 64 || policy.runtimeLimits.maxDepth !== 64) {\n' +
@@ -278,7 +281,7 @@ function exactInputs() {
       maxBytes: policy.kirLimits.maxBytes,
       maxDepth: policy.kirLimits.maxDepth,
       maxNodes: policy.kirLimits.maxNodes,
-    }).compare(canonicalBytes(CANDIDATE_KIR_LIMITS)) !== 0 ||
+    }).compare(canonicalBytes(LIVE_KIR_LIMITS)) !== 0 ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.runtimeLimits.maxDepth !== 64
   ) {

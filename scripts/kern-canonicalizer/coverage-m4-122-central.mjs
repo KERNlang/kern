@@ -6,6 +6,9 @@ import {
   formatM4122KirDepthHeadroomStatus,
 } from './coverage-status-m4-122.mjs';
 import {
+  m4123CoverageStatus,
+} from './coverage-m4-123-kir-depth-promotion.mjs';
+import {
   loadCanonicalizerKirDepthHeadroomM4122,
 } from './kir-depth-headroom-m4-122.mjs';
 
@@ -78,5 +81,5 @@ export function assertM4122KirDepthHeadroom() {
     receipt.source.publishedInputCommit,
     '7161086c0c2c03b3b12e05d3656138d61f374ab0',
   );
-  return formatM4122KirDepthHeadroomStatus(receipt);
+  return `${formatM4122KirDepthHeadroomStatus(receipt)} ${m4123CoverageStatus()}`;
 }

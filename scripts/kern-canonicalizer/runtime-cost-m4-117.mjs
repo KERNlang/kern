@@ -125,6 +125,10 @@ function exactInputs() {
       source = reconstructLegacyParameterMeasurementSource({
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],
+        extraReplacements: [{
+          current: '  assert.equal(policy.kirLimits.maxDepth, 77);',
+          historical: '  assert.equal(policy.kirLimits.maxDepth, 76);',
+        }],
         milestone: 'M4.117 baseline measurement',
         witnessMilestone: 'M4.116 checkModule witness',
         name: 'checkModule',
@@ -146,7 +150,9 @@ function exactInputs() {
   }
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
-    kirLimitOverrides: {},
+    kirLimitOverrides: {
+      maxDepth: 76,
+    },
     milestone: 'M4.117',
     profileLimits: {
       maxNodeRows: 89,

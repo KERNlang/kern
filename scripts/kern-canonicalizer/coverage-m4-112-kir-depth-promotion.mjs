@@ -15,7 +15,7 @@ const ACTIVE_KIR_LIMITS = {
 };
 const EXACT_KIR_POLICY = {
   maxBytes: 262_144,
-  maxDepth: 76,
+  maxDepth: 77,
   maxNodes: 4_096,
   maxStringBytes: 8_192,
   maxCollectionLength: 1_024,

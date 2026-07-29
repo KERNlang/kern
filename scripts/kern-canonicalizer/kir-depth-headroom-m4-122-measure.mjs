@@ -31,7 +31,7 @@ import { loadPublishedCanonicalizerProjectionAnalysisM4121 } from './projection-
 
 const PROJECTION_ANALYSIS_DIGEST =
   '2579208ec9759c7c31fc76d64dbbe4f09ac9852801506584e78450742a40f1b1';
-const ACTIVE_DEPTH = 76;
+const HISTORICAL_ACTIVE_DEPTH = 76;
 const CANDIDATE_DEPTH = 77;
 const WITNESS_ID = 'examples/capstone-checker-subset/checker.kern#2:rejectLine';
 
@@ -80,15 +80,18 @@ function exactInput(witnessId) {
   }
   const policy = loadCanonicalizerPolicy();
   if (
-    policy.kirLimits.maxDepth !== ACTIVE_DEPTH ||
+    policy.kirLimits.maxDepth !== CANDIDATE_DEPTH ||
     policy.runtimeLimits.maxDepth !== 64
   ) {
-    fail('live KIR depth must remain 76 while runtime depth remains 64');
+    fail('live KIR depth must retain M4.123 while runtime depth remains 64');
   }
   const candidateKirLimits = { ...policy.kirLimits, maxDepth: CANDIDATE_DEPTH };
   const bytes = encodeStructuralKir(root, candidateKirLimits);
   assert.throws(
-    () => encodeStructuralKir(root, { ...policy.kirLimits, maxDepth: ACTIVE_DEPTH }),
+    () => encodeStructuralKir(root, {
+      ...policy.kirLimits,
+      maxDepth: HISTORICAL_ACTIVE_DEPTH,
+    }),
     (error) => error?.code === 'limit-depth',
   );
   const artifact = decodeStructuralKir(bytes, candidateKirLimits);
