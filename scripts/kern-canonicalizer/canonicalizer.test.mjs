@@ -167,6 +167,16 @@ test('M4.89 expression projection delegates to one memoizable table-wide helper'
   assert.ok(expressionSources.includes('do value="Map.set(sources, String(current), source)"'));
 });
 
+test('M4.129 assignment-target kind reuses the authenticated type-field projection', () => {
+  const statementValidation = topLevelFunctionSource(statementSource, 'validstatement');
+  assert.ok(statementValidation.includes(
+    'let name=targetFields value="typefields(targetId, valueParent, valueRole)"',
+  ));
+  assert.ok(statementValidation.includes('let name=targetKindId value="targetFields[1]"'));
+  assert.ok(statementValidation.includes('exprsource(targetId,'));
+  assert.equal(statementValidation.includes('recordfield('), false);
+});
+
 test('M4.93 table validation delegates to three independent boolean linear-pass helpers', () => {
   const tableOwner = topLevelFunctionSource(mainSource, 'tablesok');
   const nodeFacts = topLevelFunctionSource(mainSource, 'nodetablesok');
@@ -278,7 +288,9 @@ test('binding validation and emission stay in the KERN statement member', () => 
       `assignment target validation omitted ${targetKind}`,
     );
   }
+  assert.ok(validationSource.includes('typefields(targetId'), 'assignment targets need authenticated kind projection');
   assert.ok(validationSource.includes('exprsource(targetId'), 'assignment targets need recursive expression validation');
+  assert.equal(validationSource.includes('recordfield('), false, 'assignment validation must not rescan value rows');
   assert.ok(emissionSource.includes('let name=targetExpression'), 'binding emission must canonicalize targets');
   assert.ok(emissionSource.includes('let name=valueExpression'), 'binding emission must canonicalize values');
   assert.ok(emissionSource.includes('quotesource(targetExpression, true)'), 'binding emission must quote validated canonical targets');

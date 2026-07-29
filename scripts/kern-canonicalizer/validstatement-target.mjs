@@ -35,6 +35,13 @@ export const VALIDSTATEMENT_DIRECT_TARGET = {
   tool: 'canonicalizer',
 };
 
+export const CURRENT_VALIDSTATEMENT_TARGET_M4129 = {
+  ...VALIDSTATEMENT_DIRECT_TARGET,
+  bodyDigest: '2ca0aef35e4ed0d77224a92c05dc7b2836fc84d2ad19230f45b09042804912a9',
+  profileRows: { nodes: 90, properties: 127, values: 1882 },
+  sourceSha256: '67af44e97b0e874295f312e4c8033a13c57045a38ca2179c6c00b53abb68b5ce',
+};
+
 export function assertValidstatementDirectRoot(
   root,
   target = VALIDSTATEMENT_DIRECT_TARGET,

@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
+import {
+  PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
+} from './assignment-target-projection-target.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
@@ -160,10 +163,13 @@ function exactInputs() {
         additionalNames: ['rejectLine'],
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],
-        extraReplacements: [{
-          current: '  assert.equal(policy.kirLimits.maxDepth, 77);',
-          historical: '  assert.equal(policy.kirLimits.maxDepth, 76);',
-        }],
+        extraReplacements: [
+          ...PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
+          {
+            current: '  assert.equal(policy.kirLimits.maxDepth, 77);',
+            historical: '  assert.equal(policy.kirLimits.maxDepth, 76);',
+          },
+        ],
         milestone: 'M4.116 measurement',
         witnessMilestone: 'M4.116 checkModule witness',
         name: 'checkModule',

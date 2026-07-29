@@ -4,14 +4,20 @@ import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import {
+  PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+} from './assignment-target-projection-target.mjs';
+import {
   canonicalCompositionRecordBytes,
-  verifyCanonicalizerComposition,
 } from './composition.mjs';
 import {
   loadCanonicalizerCombinedHeadroomM4127,
 } from './combined-headroom-m4-127.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import {
+  loadPreM4129CanonicalizerComposition,
+} from './historical-composition.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.5';
 const RECEIPT_DIGEST =
@@ -155,7 +161,16 @@ function exactInputs() {
     )
   ) fail('M4.127 candidate KIR and profile must remain exact');
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
-    if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
+    let source = readFileSync(url);
+    if (name === 'measurementSha256') {
+      source = reconstructHistoricalSource({
+        currentSource: source,
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: 'M4.128 measurement',
+        replacements: PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+      });
+    }
+    if (digest(source) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
   }
@@ -163,9 +178,9 @@ function exactInputs() {
     digestCompiledCoreJavaScript() !==
       receipt.source.compiledCoreJavaScriptSha256
   ) fail('compiled core JavaScript must remain exact');
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4129CanonicalizerComposition();
   if (
-    digest(composition.compositeBytes) !==
+    digest(composition.composite) !==
       receipt.source.canonicalizerCompositeSha256 ||
     digest(canonicalCompositionRecordBytes(composition.record)) !==
       receipt.source.compositionRecordSha256

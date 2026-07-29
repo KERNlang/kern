@@ -18,6 +18,7 @@ import {
 import { m4107ParameterMigration } from './coverage-m4-107-triple-row-promotion.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
+import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
 
 function targetFixture() {
   const target = M4108_PARAMETER_MIGRATION_TARGET;
@@ -32,7 +33,7 @@ function targetFixture() {
 }
 
 test('M4.108 consumes the exact immutable M4.107 parameter queue', () => {
-  const target = M4108_PARAMETER_MIGRATION_TARGET;
+  const target = VALIDSTATEMENT_DIRECT_TARGET;
   assert.deepEqual(m4107ParameterMigration(), {
     completeFunctions: 1,
     completeTools: 1,

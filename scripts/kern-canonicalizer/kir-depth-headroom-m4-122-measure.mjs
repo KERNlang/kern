@@ -18,8 +18,10 @@ import { resolveInternalRuntimeSourceHandler } from '../../packages/core/dist/ru
 
 import {
   CANONICALIZER_COMPOSITE_PATH,
-  verifyCanonicalizerComposition,
 } from './composition.mjs';
+import {
+  loadPreM4129CanonicalizerComposition,
+} from './historical-composition.mjs';
 import { loadCoveragePolicy } from './coverage.mjs';
 import {
   migrateLegacyFunctionForPrerequisite,
@@ -149,7 +151,7 @@ export function measureCanonicalizerKirDepthHeadroomWitnessM4122(
     fail('iteration budget must be a positive safe integer');
   }
   const input = exactInput(witnessId);
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4129CanonicalizerComposition();
   const limits = {
     ...input.policy.runtimeLimits,
     maxCollectionLength: iterationBudget,

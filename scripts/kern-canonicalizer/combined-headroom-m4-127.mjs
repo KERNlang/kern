@@ -4,11 +4,17 @@ import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import {
+  PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+} from './assignment-target-projection-target.mjs';
+import {
   canonicalCompositionRecordBytes,
-  verifyCanonicalizerComposition,
 } from './composition.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import {
+  loadPreM4129CanonicalizerComposition,
+} from './historical-composition.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4126,
@@ -147,16 +153,25 @@ function exactInputs() {
   for (const [name, expected] of Object.entries(INPUT_IDENTITIES)) {
     if (!/^[0-9a-f]{64}$/u.test(expected)) fail(`${name} identity must remain exact`);
     const url = INPUT_URLS[name];
-    if (url !== undefined && digest(readFileSync(url)) !== expected) {
+    let source = url === undefined ? undefined : readFileSync(url);
+    if (name === 'measurementHarnessSha256') {
+      source = reconstructHistoricalSource({
+        currentSource: source,
+        expectedDigest: expected,
+        milestone: 'M4.127 measurement',
+        replacements: PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+      });
+    }
+    if (source !== undefined && digest(source) !== expected) {
       fail(`${name} source identity must remain exact`);
     }
   }
   if (digestCompiledCoreJavaScript() !== INPUT_IDENTITIES.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by measurement must remain exact');
   }
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4129CanonicalizerComposition();
   if (
-    digest(composition.compositeBytes) !==
+    digest(composition.composite) !==
       INPUT_IDENTITIES.canonicalizerCompositeSha256 ||
     digest(canonicalCompositionRecordBytes(composition.record)) !==
       INPUT_IDENTITIES.compositionRecordSha256

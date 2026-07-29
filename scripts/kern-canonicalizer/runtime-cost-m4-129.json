@@ -1,0 +1,169 @@
+{
+  "baseline": {
+    "m4128ReceiptSha256": "55512e5cdb91aa43b46ea8ccc09edb3cfe1890920071c13bed10c2d9f81440ac",
+    "priorExactFloor": 54894,
+    "priorPromotionBudgetDeficit": 5742,
+    "priorRecordfieldIterations": 8986
+  },
+  "format": "kern.kir-canonicalizer.runtime-cost-reduction.9",
+  "limits": {
+    "candidateKir": {
+      "maxBytes": 273051,
+      "maxDepth": 98,
+      "maxNodes": 5313
+    },
+    "candidateProfile": {
+      "maxNodeRows": 202,
+      "maxPropertyRows": 308,
+      "maxValueRows": 4493
+    },
+    "exactFloor": 45908,
+    "productionBudget": 65536,
+    "promotionBudget": 49152,
+    "runtimeMaxDepth": 64
+  },
+  "observations": [
+    {
+      "cache": {
+        "hits": 22156,
+        "misses": 21432
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 171098,
+        "total": 1033785591
+      },
+      "helperExecutionCount": 10716,
+      "helperFrameSuspensionCount": 10197,
+      "helperPreparationCount": 32872,
+      "iterationBudget": 45907,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 45626,
+          "while": 281
+        },
+        "retained": 45907,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "failure",
+      "parentRestartCount": 0,
+      "roundTrip": false,
+      "selectedHelperExecutions": {
+        "recordfield": 0,
+        "typefields": 44,
+        "typefieldtablefacts": 1,
+        "validstatement": 159,
+        "exprsource": 183,
+        "expressionsources": 1,
+        "emitstatement": 159,
+        "emitstatementlist": 100
+      },
+      "selectedHelperPreparations": {
+        "recordfield": 0,
+        "typefields": 88,
+        "typefieldtablefacts": 45,
+        "validstatement": 318,
+        "exprsource": 549,
+        "expressionsources": 184,
+        "emitstatement": 318,
+        "emitstatementlist": 199
+      }
+    },
+    {
+      "cache": {
+        "hits": 22156,
+        "misses": 21432
+      },
+      "cacheKeyCodeUnits": {
+        "maximum": 171098,
+        "total": 1033785591
+      },
+      "helperExecutionCount": 10716,
+      "helperFrameSuspensionCount": 10197,
+      "helperPreparationCount": 32872,
+      "iterationBudget": 45908,
+      "loopIterations": {
+        "attemptedByType": {
+          "for": 45627,
+          "while": 281
+        },
+        "retained": 45908,
+        "rolledBack": 0
+      },
+      "observerParityVerified": true,
+      "outcome": "success",
+      "parentRestartCount": 0,
+      "roundTrip": true,
+      "selectedHelperExecutions": {
+        "recordfield": 0,
+        "typefields": 44,
+        "typefieldtablefacts": 1,
+        "validstatement": 159,
+        "exprsource": 183,
+        "expressionsources": 1,
+        "emitstatement": 159,
+        "emitstatementlist": 100
+      },
+      "selectedHelperPreparations": {
+        "recordfield": 0,
+        "typefields": 88,
+        "typefieldtablefacts": 45,
+        "validstatement": 318,
+        "exprsource": 549,
+        "expressionsources": 184,
+        "emitstatement": 318,
+        "emitstatementlist": 199
+      }
+    }
+  ],
+  "optimization": {
+    "exactFloorReduction": 8986,
+    "recordfieldExecutions": 0,
+    "removedRecordfieldIterations": 8986,
+    "runtimeEngineChanged": false,
+    "strategy": "reuse-authenticated-type-field-projection-for-assignment-target-kind",
+    "tableWideLoopAdded": false,
+    "typefieldTableProjectionExecutions": 1
+  },
+  "promotion": {
+    "combinedPromotionApproved": false,
+    "disposition": "promotion-budget-headroom-authenticated",
+    "nextMilestone": "M4.130",
+    "promotionReady": true
+  },
+  "result": {
+    "belowFloor": 45907,
+    "belowFloorOutcome": "failure",
+    "exactFloor": 45908,
+    "floorOutcome": "success",
+    "floorReduction": 8986,
+    "productionHeadroom": 19628,
+    "promotionBudgetHeadroom": 3244,
+    "roundTrip": true
+  },
+  "source": {
+    "canonicalizerCompositeSha256": "32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331",
+    "compiledCoreJavaScriptSha256": "502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec",
+    "compositionRecordSha256": "95e95a72f8bb76ddd3a33140be59687697697dcb94e36c5386c113124f899649",
+    "coveragePolicySha256": "dcc9cc2db3478bd92370a373cf519ef192365bc8181bc5c726a9cce5bd4d80d6",
+    "expressionHelpersSha256": "c32414ee7aa6f29d092dc21de5065f04c4054c54d070dd4d964763047170ee2f",
+    "mainSourceSha256": "23cd17bc4b2869851c294fddfcb9f44bc3174a835e6fc2c6231aa01869f8c195",
+    "measurementSha256": "142beca363a7fbf55f232f2e1c8adac136deb55c025d03774348885501686c19",
+    "runtimePolicySha256": "c1b4f5b8e28eb4c0bb8a7fa0ef0a7dff64a4dd4cc952a5594d9ac95502e349a5",
+    "statementHelpersSha256": "67af44e97b0e874295f312e4c8033a13c57045a38ca2179c6c00b53abb68b5ce",
+    "witnessSourceSha256": "96a1c96800132f2401d743eac02f0efe8cb0717980ceb56c2af531798790eaac",
+    "m4128ReceiptSha256": "55512e5cdb91aa43b46ea8ccc09edb3cfe1890920071c13bed10c2d9f81440ac",
+    "publishedInputCommit": "01f3a8156bdc8136b0f3a13ba5a0a968be7ec308",
+    "runtimeHandlerAbi": "kern.runtime.handler.v1"
+  },
+  "witness": {
+    "artifactBytes": 273051,
+    "id": "examples/selfhost-validator/validator.kern#20:validate",
+    "parameterRows": 41,
+    "structuralRows": {
+      "nodes": 202,
+      "properties": 308,
+      "values": 4493
+    }
+  }
+}

@@ -4,12 +4,17 @@ import { fileURLToPath } from 'node:url';
 
 import {
   canonicalCompositionRecordBytes,
-  verifyCanonicalizerComposition,
 } from './composition.mjs';
+import {
+  PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
+} from './assignment-target-projection-target.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  loadPreM4129CanonicalizerComposition,
+} from './historical-composition.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadPublishedCanonicalizerProjectionAnalysisM4121 } from './projection-analysis-m4-121.mjs';
 
@@ -217,7 +222,10 @@ function exactInputs() {
     currentSource: readFileSync(MEASUREMENT_URL),
     expectedDigest: INPUT_IDENTITIES.measurementHarnessSha256,
     milestone: 'M4.122 measurement',
-    replacements: MEASUREMENT_REPLACEMENTS,
+    replacements: [
+      ...PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
+      ...MEASUREMENT_REPLACEMENTS,
+    ],
   });
 
   for (const [name, url] of Object.entries(INPUT_URLS)) {
@@ -229,9 +237,9 @@ function exactInputs() {
     digestCompiledCoreJavaScript() !==
       INPUT_IDENTITIES.compiledCoreJavaScriptSha256
   ) fail('compiled core JavaScript executed by the measurement must remain exact');
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4129CanonicalizerComposition();
   if (
-    digest(composition.compositeBytes) !== INPUT_IDENTITIES.canonicalizerCompositeSha256 ||
+    digest(composition.composite) !== INPUT_IDENTITIES.canonicalizerCompositeSha256 ||
     digest(canonicalCompositionRecordBytes(composition.record)) !==
       INPUT_IDENTITIES.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');

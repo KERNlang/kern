@@ -15,5 +15,5 @@ export function formatM4128RuntimeBottleneckStatus(receipt) {
   }
   return 'M4.128 attributes 8986 exact-floor iterations to two full recordfield scans ' +
     'during assignment-target validation, exceeding the 5742 promotion deficit by 3244; ' +
-    'M4.129 folds target-kind authentication into the existing expression projection.';
+    'M4.129 reuses the existing authenticated type-field projection for target-kind lookup.';
 }

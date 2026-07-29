@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import {
+  PRE_M4129_M4106_MEASUREMENT_REPLACEMENTS,
+} from './assignment-target-projection-target.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
@@ -151,7 +154,10 @@ function exactInputs() {
     currentSource: readFileSync(MEASUREMENT_URL),
     expectedDigest: M4106_SOURCE_DIGESTS.measurementSha256,
     milestone: 'M4.106 measurement',
-    replacements: MEASUREMENT_REPLACEMENTS,
+    replacements: [
+      ...PRE_M4129_M4106_MEASUREMENT_REPLACEMENTS,
+      ...MEASUREMENT_REPLACEMENTS,
+    ],
   });
   const policy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: M4106_SOURCE_DIGESTS.runtimePolicySha256,

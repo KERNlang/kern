@@ -4,6 +4,7 @@ import { parameterMigrationRoots } from './coverage-value-band-parameter-migrati
 import { m4107ParameterMigration } from './coverage-m4-107-triple-row-promotion.mjs';
 import {
   assertValidstatementDirectRoot,
+  CURRENT_VALIDSTATEMENT_TARGET_M4129,
   VALIDSTATEMENT_DIRECT_TARGET,
 } from './validstatement-target.mjs';
 
@@ -14,7 +15,7 @@ const POST_MIGRATION_QUEUE = {
   witnesses: [],
 };
 
-export const M4108_PARAMETER_MIGRATION_TARGET = VALIDSTATEMENT_DIRECT_TARGET;
+export const M4108_PARAMETER_MIGRATION_TARGET = CURRENT_VALIDSTATEMENT_TARGET_M4129;
 
 export function assertM4108ParameterTarget(
   root,
@@ -41,15 +42,16 @@ export function m4108ParameterMigration() {
 
 export function assertM4108ParameterMigration(coverage, prerequisite) {
   const target = M4108_PARAMETER_MIGRATION_TARGET;
+  const historicalTarget = VALIDSTATEMENT_DIRECT_TARGET;
   assert.deepEqual(m4107ParameterMigration(), {
     completeFunctions: 1,
     completeTools: 1,
-    migratedParameterRows: target.parameters.length,
+    migratedParameterRows: historicalTarget.parameters.length,
     witnesses: [{
-      id: target.id,
-      parameterRows: target.parameters.length,
-      profileRows: target.profileRows,
-      tool: target.tool,
+      id: historicalTarget.id,
+      parameterRows: historicalTarget.parameters.length,
+      profileRows: historicalTarget.profileRows,
+      tool: historicalTarget.tool,
     }],
   }, 'M4.108 must consume the exact M4.107 parameter queue');
 

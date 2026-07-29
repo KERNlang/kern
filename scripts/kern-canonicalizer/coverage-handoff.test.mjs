@@ -404,11 +404,11 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 62020, 'M4.119 must bind the exact current KERN byte count');
+  assert.equal(canonicalizerSource.length, 62061, 'M4.129 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'f40d056b2aac947350f297196cbe71d5acdb5b82d245963adee910620c7b7180',
-    'M4.119 must bind the exact current KERN digest',
+    '32611fb5f35fc9040ab216c92e9c32726c06f8253f005abded8f8d0649bc3331',
+    'M4.129 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);

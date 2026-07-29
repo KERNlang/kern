@@ -16,8 +16,10 @@ import { resolveInternalRuntimeSourceHandler } from '../../packages/core/dist/ru
 
 import {
   CANONICALIZER_COMPOSITE_PATH,
-  verifyCanonicalizerComposition,
 } from './composition.mjs';
+import {
+  loadPreM4129CanonicalizerComposition,
+} from './historical-composition.mjs';
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
 import { reconstructLegacyParameterSource } from './historical-parameter-sources.mjs';
@@ -148,7 +150,7 @@ export function measureCanonicalizerRuntimeBottleneckM4116(iterationBudget) {
   if (!Number.isSafeInteger(iterationBudget) || iterationBudget <= 0) {
     throw new TypeError('M4.116 iteration budget must be a positive safe integer');
   }
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4129CanonicalizerComposition();
   const { bytes, policy, tables } = exactWitness();
   const limits = { ...policy.runtimeLimits, maxCollectionLength: iterationBudget };
   const linked = resolveInternalRuntimeSourceHandler(

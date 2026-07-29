@@ -71,7 +71,7 @@ test('historical composition rejects signature and unrelated source drift', () =
         milestone: 'test',
         sources: copy,
       }),
-      /(?:test historical composition|test (?:expression|statement) helpers historical source) rejection:/u,
+      /(?:test historical composition|test (?:expression|statement) helpers historical source|test main source historical source) rejection:/u,
     );
   }
 });

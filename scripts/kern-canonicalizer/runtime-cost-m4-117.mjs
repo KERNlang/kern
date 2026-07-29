@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
-import { verifyCanonicalizerComposition } from './composition.mjs';
+import {
+  PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
+} from './assignment-target-projection-target.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import {
   reconstructLegacyParameterMeasurementSource,
@@ -13,6 +15,9 @@ import {
   reconstructLegacyParameterSource,
 } from './historical-parameter-sources.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import {
+  loadPreM4129CanonicalizerComposition,
+} from './historical-composition.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { loadCanonicalizerRuntimeBottleneckM4116 } from './runtime-bottleneck-m4-116.mjs';
 
@@ -117,19 +122,28 @@ function exactInputs() {
     m4116.diagnosis.exactFloorTypefieldsIterations !== 142_249 ||
     m4116.promotion.nextMilestone !== 'M4.117'
   ) fail('M4.116 bottleneck handoff must remain exact');
-  verifyCanonicalizerComposition();
+  const composition = loadPreM4129CanonicalizerComposition();
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
     if (name === 'runtimePolicySha256') continue;
-    let source = readFileSync(url);
+    let source = {
+      canonicalizerCompositeSha256: composition.composite,
+      compositionRecordSha256: composition.recordBytes,
+      expressionHelpersSha256: composition.expressionHelpers,
+      mainSourceSha256: composition.mainSource,
+      statementHelpersSha256: composition.statementHelpers,
+    }[name] ?? readFileSync(url);
     if (name === 'baselineMeasurementSha256') {
       source = reconstructLegacyParameterMeasurementSource({
         additionalNames: ['rejectLine'],
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],
-        extraReplacements: [{
-          current: '  assert.equal(policy.kirLimits.maxDepth, 77);',
-          historical: '  assert.equal(policy.kirLimits.maxDepth, 76);',
-        }],
+        extraReplacements: [
+          ...PRE_M4129_M4116_MEASUREMENT_REPLACEMENTS,
+          {
+            current: '  assert.equal(policy.kirLimits.maxDepth, 77);',
+            historical: '  assert.equal(policy.kirLimits.maxDepth, 76);',
+          },
+        ],
         milestone: 'M4.117 baseline measurement',
         witnessMilestone: 'M4.116 checkModule witness',
         name: 'checkModule',
