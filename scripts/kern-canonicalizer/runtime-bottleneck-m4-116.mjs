@@ -7,6 +7,12 @@ import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handl
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
+import {
+  reconstructLegacyParameterMeasurementSource,
+} from './historical-measurement-sources.mjs';
+import {
+  reconstructLegacyParameterSource,
+} from './historical-parameter-sources.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { loadCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115.mjs';
 
@@ -148,7 +154,24 @@ function exactInputs() {
   });
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
     if (name === 'runtimePolicySha256') continue;
-    if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
+    let source = readFileSync(url);
+    if (name === 'measurementSha256') {
+      source = reconstructLegacyParameterMeasurementSource({
+        currentSource: source,
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: 'M4.116 measurement',
+        witnessMilestone: 'M4.116 checkModule witness',
+        name: 'checkModule',
+      });
+    } else if (name === 'witnessSourceSha256') {
+      source = reconstructLegacyParameterSource({
+        currentSource: readFileSync(url),
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: 'M4.116 checkModule witness',
+        name: 'checkModule',
+      });
+    }
+    if (digest(source) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
   }

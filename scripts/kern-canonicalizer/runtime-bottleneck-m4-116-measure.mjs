@@ -20,6 +20,7 @@ import {
 } from './composition.mjs';
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
+import { reconstructLegacyParameterSource } from './historical-parameter-sources.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import { loadCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115.mjs';
 
@@ -50,7 +51,12 @@ function exactWitness() {
   assert.equal(m4115.witnesses[0]?.exactFloor, 176_119);
   assert.deepEqual(m4115.limits.candidateProfile, CANDIDATE_PROFILE);
 
-  const source = readFileSync(WITNESS_SOURCE_URL);
+  const source = reconstructLegacyParameterSource({
+    currentSource: readFileSync(WITNESS_SOURCE_URL),
+    expectedDigest: WITNESS_SOURCE_SHA256,
+    milestone: 'M4.116 checkModule witness',
+    name: 'checkModule',
+  });
   assert.equal(createHash('sha256').update(source).digest('hex'), WITNESS_SOURCE_SHA256);
   const parsed = parseDocumentWithDiagnostics(source.toString('utf8'));
   assert.notEqual(parsed.partial, true);

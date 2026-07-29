@@ -117,7 +117,7 @@
       "while.cond"
     ]
   },
-  "baseCompleteFunctions": 101,
+  "baseCompleteFunctions": 102,
   "blockers": [
     {
       "count": 7,
@@ -125,11 +125,11 @@
     },
     {
       "count": 6,
-      "id": "fn.params"
+      "id": "let.value:unknown-expression-kind"
     },
     {
-      "count": 6,
-      "id": "let.value:unknown-expression-kind"
+      "count": 5,
+      "id": "fn.params"
     },
     {
       "count": 2,
@@ -202,21 +202,21 @@
     }
   },
   "corpusMembers": 9,
-  "corpusDigest": "5d4f1db7fe7c2cfcad970068270ae39a222e264d02105e6e83ccdcd00c55808a",
-  "coverageImplementationDigest": "307fe2434a7774a9ee11d48b28ab4517f94af10c5c2a06ac6125da9454a1c5fa",
-  "coveragePolicyDigest": "62518079fabc880efaaf2da72d7904b0cb4d5b834f375f3fd4d78be28b20af94",
+  "corpusDigest": "9c53d07530de797655542db955bca431c97ded9cae7617bba2dcfbca64ca2a24",
+  "coverageImplementationDigest": "b99cc57c7ec9cc55da813e818b60688685fe86b4ae79753fa3b457aa25b61686",
+  "coveragePolicyDigest": "bb64551fcdbacd85759a86f9cd7703ffe7fa14505cfe1a935223d7fe2b953534",
   "expressionCatalogDigest": "d6d2a37f3b2ecc9989e3ff52c2d13357a85bd181e6b066e6ee523a127f05340d",
   "familyRegistryDigest": "a7ea4bdc1af766f893b7491a59c727b0459ecb637a71f9f54d6087ee5baeeb87",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 112,
-  "functionFactsDigest": "974c1a570cd45f868cf98469fc066cd70bb32441380bb38586a33a4735079cbb",
+  "functionFactsDigest": "5f9f2e022f5fd23e8ebdde4523de7a538a49d2d105d2fd04807cd84f99d58906",
   "implementationProvenance": {
     "family": "while-iteration",
     "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "0e0de182be607f1b7a8d5fdaee3b30f509ceafcaddb1dcdfd5ce61f689d25e14",
+  "policyDigest": "ff2f57db4aa8f172d5dde206870590ad527370b1d2cac906571eba24d1b2faef",
   "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
   "prerequisiteProvenances": [
     {

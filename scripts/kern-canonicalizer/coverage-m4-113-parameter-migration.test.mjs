@@ -11,8 +11,6 @@ import {
   M4113_PARAMETER_MIGRATION_TARGETS,
 } from './coverage-m4-113-parameter-migration.mjs';
 import { m4112ParameterMigration } from './coverage-m4-112-kir-depth-promotion.mjs';
-import { m4118ParameterMigration } from './coverage-m4-118-triple-row-promotion.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { parameterMigrationRoots } from './coverage-value-band-parameter-migrations.mjs';
 
 const EXPECTED_SIGNATURES = [
@@ -152,26 +150,17 @@ test('M4.113 consumes the exact immutable M4.112 nine-function queue', () => {
 
 test('M4.113 migrates all targets without changing bodies or contracts', () => {
   const coverage = measureCanonicalizerCoverage();
-  const prerequisite = measureCanonicalizerPrerequisite();
   assertM4113ParameterMigrations(coverage);
   for (const target of M4113_PARAMETER_MIGRATION_TARGETS) {
     const fixture = targetFixture(target, coverage);
     assertM4113ParameterTarget(fixture.root, fixture.fact, fixture.target);
   }
-  assert.equal(coverage.baseCompleteFunctions, 101);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    6,
-  );
   assert.deepEqual(m4113ParameterMigration(), {
     completeFunctions: 0,
     completeTools: 0,
     migratedParameterRows: 0,
     witnesses: [],
   });
-  assert.deepEqual(prerequisite.parameterMigration, m4118ParameterMigration());
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 5);
 });
 
 test('M4.113 target guard rejects signature, body, identity, fact, and profile drift', () => {

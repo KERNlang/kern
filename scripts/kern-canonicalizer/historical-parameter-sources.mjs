@@ -11,7 +11,7 @@ const MIGRATIONS_BY_PATH = new Map([
   ],
   [
     'examples/capstone-checker-subset/checker.kern',
-    ['paramCallsitesOk', 'mapKeyToken', 'mapKnownBefore'],
+    ['paramCallsitesOk', 'mapKeyToken', 'mapKnownBefore', 'checkModule'],
   ],
   [
     'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
@@ -76,6 +76,20 @@ function signatureReplacement(source, name) {
         `fn name=${name} params=${JSON.stringify(parameters.join(','))} `,
       )}\n`,
   };
+}
+
+export function reconstructLegacyParameterSource({
+  currentSource,
+  expectedDigest,
+  milestone,
+  name,
+}) {
+  return reconstructHistoricalSource({
+    currentSource,
+    expectedDigest,
+    milestone,
+    replacements: [signatureReplacement(currentSource.toString('utf8'), name)],
+  });
 }
 
 export function loadPreM4113CoverageInputs(currentPolicy) {

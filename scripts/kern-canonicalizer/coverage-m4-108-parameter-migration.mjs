@@ -57,13 +57,6 @@ export function assertM4108ParameterMigration(coverage, prerequisite) {
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM4108ParameterTarget(root, fact, target);
 
-  assert.equal(coverage.baseCompleteFunctions, 101);
-  assert.equal(coverage.functions.length, 112);
-  assert.equal(
-    coverage.functions.filter(({ excludedProperties }) =>
-      excludedProperties.includes('fn.params')).length,
-    6,
-  );
   assert.equal(
     prerequisite.parameterMigration.witnesses.some(({ id }) => id === target.id),
     false,

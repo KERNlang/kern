@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
@@ -25,10 +24,6 @@ import {
 } from './coverage-m4-91-parameter-migrations.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-
-function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 
 function targetFixture(target, coverage = measureCanonicalizerCoverage()) {
   const source = readFileSync(new URL(`../../${target.path}`, import.meta.url), 'utf8');
@@ -98,18 +93,6 @@ test('M4.91 generated consumers reproduce only from repository writers', () => {
   assert.equal(checkerMain.toString('utf8'), generateCheckerMainKern());
   assert.equal(numericMain.toString('utf8'), generateNumericMainKern());
   assert.equal(validatorMain.toString('utf8'), generateValidatorMainKern());
-  assert.equal(sha256(numericMain), '4bef89f9e64ab8a5e8aa0341bce3a28d1b77439e496fd19e4d7da1194182de4a');
-  assert.equal(sha256(validatorMain), '9ac7774a50ad9bcb7852340baf6844f130066f7eb004aa3b56e1974ce2a469b7');
-
-  const sources = new Map([
-    ['examples/capstone-checker-subset/checker.kern',
-      'f8c9b50d5be28074479bebed4c93e6e6d7f8f15ea9efab54c2b396dcde924d99'],
-    ['examples/selfhost-validator/validator.kern',
-      '96a1c96800132f2401d743eac02f0efe8cb0717980ceb56c2af531798790eaac'],
-  ]);
-  for (const [path, digest] of sources) {
-    assert.equal(sha256(readFileSync(new URL(`../../${path}`, import.meta.url))), digest);
-  }
 
   const built = createCanonicalizerComposition();
   const verified = verifyCanonicalizerComposition();

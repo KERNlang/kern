@@ -25,6 +25,7 @@ import {
 import { migrateLegacyFunctionForPrerequisite } from './coverage-prerequisite.mjs';
 import { loadPublishedCanonicalizerResidualAnalysisM4114 } from './coverage-residual-analysis-m4-114.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
+import { reconstructLegacyParameterSource } from './historical-parameter-sources.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const WITNESS_ID =
@@ -53,7 +54,12 @@ function exactWitness() {
     totalDelta: 412,
     witnesses: [WITNESS_ID],
   });
-  const source = readFileSync(WITNESS_SOURCE_URL);
+  const source = reconstructLegacyParameterSource({
+    currentSource: readFileSync(WITNESS_SOURCE_URL),
+    expectedDigest: WITNESS_SOURCE_SHA256,
+    milestone: 'M4.115 checkModule witness',
+    name: 'checkModule',
+  });
   assert.equal(createHash('sha256').update(source).digest('hex'), WITNESS_SOURCE_SHA256);
   const parsed = parseDocumentWithDiagnostics(source.toString('utf8'));
   assert.notEqual(parsed.partial, true);

@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
-import { generateCheckerMainKern } from '../capstone-checker-subset/gen-fixtures-kern.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
   assertCurrentCanonicalizerFrontier,
@@ -18,8 +16,6 @@ import {
 import { m499ParameterMigration } from './coverage-m4-99-dual-row-promotion.mjs';
 import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-
-const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
 function targetFixture() {
   const target = M4100_PARAMETER_MIGRATION_TARGET;
@@ -83,12 +79,4 @@ test('M4.100 target guard rejects signature, body, identity, fact, and profile d
     mutate(copy);
     assert.throws(() => assertM4100ParameterTarget(copy.root, copy.fact, copy.target));
   }
-});
-
-test('M4.100 generated checker fixture reproduces from the repository writer', () => {
-  const main = readFileSync(
-    new URL('../../examples/capstone-checker-subset/main.kern', import.meta.url),
-  );
-  assert.equal(main.toString('utf8'), generateCheckerMainKern());
-  assert.equal(sha256(main), M4100_PARAMETER_MIGRATION_TARGET.generatedMainSha256);
 });

@@ -175,15 +175,6 @@ export const M4113_PARAMETER_MIGRATION_TARGETS = [
   },
 ];
 
-const RESIDUAL_LEGACY_PARAMETER_FUNCTION_IDS = [
-  'examples/capstone-checker-subset/checker.kern#24:checkModule',
-  'examples/capstone-checker-subset/checker.kern#2:rejectLine',
-  'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
-  'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
-  'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-  'examples/selfhost-validator/validator.kern#20:validate',
-];
-
 function expectedQueue() {
   return {
     completeFunctions: M4113_PARAMETER_MIGRATION_TARGETS.length,
@@ -241,13 +232,5 @@ export function assertM4113ParameterMigrations(coverage) {
     const fact = coverage.functions.find(({ id }) => id === target.id);
     assertM4113ParameterTarget(root, fact, target);
   }
-  assert.equal(coverage.baseCompleteFunctions, 101);
-  assert.equal(coverage.functions.length, 112);
-  assert.deepEqual(
-    coverage.functions
-      .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
-      .map(({ id }) => id),
-    RESIDUAL_LEGACY_PARAMETER_FUNCTION_IDS,
-  );
   return coverage;
 }

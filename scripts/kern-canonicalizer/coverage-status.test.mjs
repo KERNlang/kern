@@ -66,6 +66,7 @@ import {
   formatM4116RuntimeBottleneckStatus,
   formatM4117RuntimeCostStatus,
   formatM4118TripleRowPromotionStatus,
+  formatM4119ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -416,6 +417,17 @@ test('coverage status records the M4.118 triple-row profile promotion', () => {
     }),
     'M4.118 promotes maxNodeRows/maxPropertyRows/maxValueRows to 122/193/2411 and ' +
       'publishes the exact 1-function/58-row parameter queue; M4.119 consumes it.',
+  );
+});
+
+test('coverage status records the M4.119 checkModule parameter migration', () => {
+  assert.equal(
+    formatM4119ParameterMigrationStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 58 },
+    }),
+    'M4.119 consumes the exact M4.118 1-function/58-row parameter queue and advances the ' +
+      'cumulative base to 102/112; the bounded residual frontier remains five functions ' +
+      'for M4.120.',
   );
 });
 

@@ -329,6 +329,12 @@ export function formatM4118TripleRowPromotionStatus({ parameterMigration, profil
     `${parameterMigration.migratedParameterRows}-row parameter queue; M4.119 consumes it.`;
 }
 
+export function formatM4119ParameterMigrationStatus({ parameterMigration }) {
+  return `M4.119 consumes the exact M4.118 ${parameterMigration.completeFunctions}-function/` +
+    `${parameterMigration.migratedParameterRows}-row parameter queue and advances the cumulative ` +
+    'base to 102/112; the bounded residual frontier remains five functions for M4.120.';
+}
+
 export function formatM493RuntimeCostStatus(receipt) {
   return `M4.93 reduces ${receipt.witness.id} table validation from ` +
     `${receipt.baseline.attemptedLoopEntries} attempted loop entries at budget ` +

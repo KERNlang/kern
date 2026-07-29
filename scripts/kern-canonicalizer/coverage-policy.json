@@ -95,7 +95,7 @@
       "tool": "checker"
     },
     {
-      "digest": "f8c9b50d5be28074479bebed4c93e6e6d7f8f15ea9efab54c2b396dcde924d99",
+      "digest": "934608ea0793197402a48e331142129edb98b26256f48fa897285badbd1d4add",
       "path": "examples/capstone-checker-subset/checker.kern",
       "sourceKind": "handwritten",
       "tool": "checker"

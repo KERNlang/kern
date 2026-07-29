@@ -4,6 +4,9 @@ import {
   measureCanonicalizerCoverage,
   summarizeCanonicalizerCoverage,
 } from './kern-canonicalizer/coverage.mjs';
+import {
+  assertCurrentCanonicalizerFrontier,
+} from './kern-canonicalizer/coverage-current.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { m485ParameterMigration } from './kern-canonicalizer/coverage-m4-85-value-row-promotion.mjs';
 import { assertM486ParameterMigration } from './kern-canonicalizer/coverage-m4-86-parameter-migration.mjs';
@@ -139,6 +142,9 @@ import {
   m4118ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-118-triple-row-promotion.mjs';
 import {
+  assertM4119ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-119-parameter-migration.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -262,6 +268,7 @@ import {
   formatM4110ProjectionAnalysisStatus,
   formatM4111KirDepthHeadroomStatus,
   formatM4118TripleRowPromotionStatus,
+  formatM4119ParameterMigrationStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -403,6 +410,8 @@ const m4115CoverageStatusLine = assertM4115TripleRowHeadroomStatus();
 const m4116CoverageStatusLine = assertM4116RuntimeBottleneckStatus();
 const m4117CoverageStatusLine = assertM4117RuntimeCostStatus();
 assertM4118TripleRowPromotion(policy);
+assertM4119ParameterMigration(coverage);
+assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4118ActiveProfile(),
@@ -557,13 +566,13 @@ if (process.argv.includes('--write')) {
     },
   ], 'M4.60 must preserve the ten promoted provenance citations');
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
-  assert.equal(actual.functionCount, 112, 'live M4.117 authored function count must remain exact');
+  assert.equal(actual.functionCount, 112, 'live M4.119 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 101, 'live M4.117 base completion must remain exactly 101/112');
+  assert.equal(actual.baseCompleteFunctions, 102, 'live M4.119 base completion must remain exactly 102/112');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    6,
-    'live M4.113 fn.params blocker count must remain exactly 6',
+    5,
+    'live M4.119 fn.params blocker count must remain exactly 5',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -1510,7 +1519,7 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 101);
+  assert.equal(actual.baseCompleteFunctions, 102);
   assert.equal(actual.functionCount, 112);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
@@ -1872,6 +1881,9 @@ process.stdout.write(
   ` ${formatM4118TripleRowPromotionStatus({
     parameterMigration: m4118ParameterMigration(),
     profileLimits: m4118ActiveProfile(),
+  })}` +
+  ` ${formatM4119ParameterMigrationStatus({
+    parameterMigration: m4118ParameterMigration(),
   })}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
