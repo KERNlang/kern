@@ -7,7 +7,7 @@ import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handl
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { loadCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.4';
@@ -147,6 +147,7 @@ function exactInputs() {
     statementHelperTargets: [],
   });
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
+    if (name === 'runtimePolicySha256') continue;
     if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
@@ -154,7 +155,16 @@ function exactInputs() {
   if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by the measurement must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadHistoricalCanonicalizerPolicy({
+    expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
+    kirLimitOverrides: {},
+    milestone: 'M4.116',
+    profileLimits: {
+      maxNodeRows: 89,
+      maxPropertyRows: 125,
+      maxValueRows: 2_100,
+    },
+  });
   if (
     policy.kirLimits.maxDepth !== 76 ||
     policy.runtimeLimits.maxDepth !== 64 ||

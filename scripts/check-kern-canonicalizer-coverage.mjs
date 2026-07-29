@@ -134,6 +134,11 @@ import { assertM4115TripleRowHeadroomStatus } from './kern-canonicalizer/triple-
 import { assertM4116RuntimeBottleneckStatus } from './kern-canonicalizer/runtime-bottleneck-m4-116-check.mjs';
 import { assertM4117RuntimeCostStatus } from './kern-canonicalizer/runtime-cost-m4-117-check.mjs';
 import {
+  assertM4118TripleRowPromotion,
+  m4118ActiveProfile,
+  m4118ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-118-triple-row-promotion.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -256,6 +261,7 @@ import {
   formatM4109ResidualAnalysisStatus,
   formatM4110ProjectionAnalysisStatus,
   formatM4111KirDepthHeadroomStatus,
+  formatM4118TripleRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './kern-canonicalizer/coverage-status.mjs';
 
@@ -391,14 +397,15 @@ assertM499DualRowPromotion(policy);
 assertM4100ParameterMigration(coverage, prerequisite);
 assertM4107TripleRowPromotion();
 assertM4108ParameterMigration(coverage, prerequisite);
-assertM4113ParameterMigrations(coverage, prerequisite);
+assertM4113ParameterMigrations(coverage);
 const m4114CoverageStatusLine = assertM4114ResidualAnalysis();
 const m4115CoverageStatusLine = assertM4115TripleRowHeadroomStatus();
 const m4116CoverageStatusLine = assertM4116RuntimeBottleneckStatus();
 const m4117CoverageStatusLine = assertM4117RuntimeCostStatus();
+assertM4118TripleRowPromotion(policy);
 assert.deepEqual(
   policy.profileLimits,
-  m4107ActiveProfile(),
+  m4118ActiveProfile(),
   'current policy must consume the exact latest authenticated profile promotion',
 );
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -593,10 +600,10 @@ if (process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, ['exception-flow']);
   assert.equal(prerequisite.exhaustion.completingClosureCount, 0);
   assert.equal(prerequisite.exhaustion.evaluatedNonEmptyClosureCount, 1);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 6);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 5);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
+    '7590a3a7dbc3bbd11ca4a05c81e52a907d8cdd5619e4b2a78e198975673c84fe',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1862,6 +1869,10 @@ process.stdout.write(
   ` ${m4115CoverageStatusLine}` +
   ` ${m4116CoverageStatusLine}` +
   ` ${m4117CoverageStatusLine}` +
+  ` ${formatM4118TripleRowPromotionStatus({
+    parameterMigration: m4118ParameterMigration(),
+    profileLimits: m4118ActiveProfile(),
+  })}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -33,11 +33,6 @@ const EXACT_RUNTIME_POLICY = {
   maxEvents: 64,
   maxStringBytes: 1_048_576,
 };
-const EXACT_PROFILE = {
-  maxNodeRows: 89,
-  maxPropertyRows: 125,
-  maxValueRows: 2_100,
-};
 const PARAMETER_MIGRATION = {
   completeFunctions: 9,
   completeTools: 4,
@@ -160,7 +155,6 @@ export function assertM4112KirDepthPromotion(policy) {
   });
   assert.deepEqual(policy.kirLimits, EXACT_KIR_POLICY);
   assert.deepEqual(policy.runtimeLimits, EXACT_RUNTIME_POLICY);
-  assert.deepEqual(policy.profileLimits, EXACT_PROFILE);
   return m4112ActiveKirLimits();
 }
 

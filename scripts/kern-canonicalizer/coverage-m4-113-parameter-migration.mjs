@@ -233,7 +233,7 @@ export function m4113CoverageStatus() {
   });
 }
 
-export function assertM4113ParameterMigrations(coverage, prerequisite) {
+export function assertM4113ParameterMigrations(coverage) {
   assert.deepEqual(m4112ParameterMigration(), expectedQueue());
   const rootsByPath = parameterMigrationRoots(M4113_PARAMETER_MIGRATION_TARGETS);
   for (const target of M4113_PARAMETER_MIGRATION_TARGETS) {
@@ -249,12 +249,5 @@ export function assertM4113ParameterMigrations(coverage, prerequisite) {
       .map(({ id }) => id),
     RESIDUAL_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, POST_MIGRATION_QUEUE);
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 6);
-  assert.equal(
-    prerequisite.exhaustion?.reasonAssignmentsDigest,
-    '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
-  );
-  return prerequisite;
+  return coverage;
 }

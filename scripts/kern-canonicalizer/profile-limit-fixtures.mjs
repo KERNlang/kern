@@ -3,12 +3,14 @@ function lines(...items) {
 }
 
 const BOUNDARY_PARAMETERS = Array.from(
-  { length: 59 },
+  { length: 93 },
   (_, index) => `  param name=p${index} type=number`,
 );
 
 const VALUE_BOUNDARY_EXPRESSION = `[${[
-  ...Array.from({ length: 521 }, () => '0'),
+  ...Array.from({ length: 596 }, () => '0'),
+  '-1',
+  'null',
   'null',
   'null',
   'null',
@@ -50,10 +52,10 @@ export const PROFILE_BOUNDARY_FIXTURE = {
 export const PROFILE_LIMIT_FIXTURES = [
   {
     id: 'over-node-row-limit',
-    admittedProfileLimits: { maxNodeRows: 90, maxPropertyRows: 125, maxValueRows: 2100 },
-    expectedRows: { nodes: 90, properties: 90, values: 120 },
+    admittedProfileLimits: { maxNodeRows: 123, maxPropertyRows: 193, maxValueRows: 2411 },
+    expectedRows: { nodes: 123, properties: 123, values: 164 },
     source: lines(
-      ...Array.from({ length: 30 }, (_, index) => [
+      ...Array.from({ length: 41 }, (_, index) => [
         `fn name=f${index} returns=void`,
         '  handler lang=kern',
         '    return',
@@ -62,8 +64,8 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-property-row-limit',
-    admittedProfileLimits: { maxNodeRows: 89, maxPropertyRows: 126, maxValueRows: 2100 },
-    expectedRows: { nodes: 63, properties: 126, values: 195 },
+    admittedProfileLimits: { maxNodeRows: 122, maxPropertyRows: 194, maxValueRows: 2411 },
+    expectedRows: { nodes: 97, properties: 194, values: 297 },
     source: lines(
       'fn name=properties returns=void export=true',
       ...BOUNDARY_PARAMETERS,
@@ -74,8 +76,8 @@ export const PROFILE_LIMIT_FIXTURES = [
   },
   {
     id: 'over-value-row-limit',
-    admittedProfileLimits: { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2101 },
-    expectedRows: { nodes: 4, properties: 4, values: 2101 },
+    admittedProfileLimits: { maxNodeRows: 122, maxPropertyRows: 193, maxValueRows: 2412 },
+    expectedRows: { nodes: 4, properties: 4, values: 2412 },
     source: lines(
       'fn name=values returns=void',
       '  handler lang=kern',

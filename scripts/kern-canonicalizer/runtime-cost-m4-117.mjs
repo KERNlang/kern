@@ -7,7 +7,7 @@ import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handl
 import { verifyCanonicalizerComposition } from './composition.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { loadCanonicalizerRuntimeBottleneckM4116 } from './runtime-bottleneck-m4-116.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.8';
@@ -113,6 +113,7 @@ function exactInputs() {
   ) fail('M4.116 bottleneck handoff must remain exact');
   verifyCanonicalizerComposition();
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
+    if (name === 'runtimePolicySha256') continue;
     if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
@@ -120,7 +121,16 @@ function exactInputs() {
   if (digestCompiledCoreJavaScript() !== SOURCE_DIGESTS.compiledCoreJavaScriptSha256) {
     fail('compiled core JavaScript executed by the measurement must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadHistoricalCanonicalizerPolicy({
+    expectedDigest: SOURCE_DIGESTS.runtimePolicySha256,
+    kirLimitOverrides: {},
+    milestone: 'M4.117',
+    profileLimits: {
+      maxNodeRows: 89,
+      maxPropertyRows: 125,
+      maxValueRows: 2_100,
+    },
+  });
   if (
     canonicalBytes(policy.profileLimits).compare(canonicalBytes({
       maxNodeRows: 89,

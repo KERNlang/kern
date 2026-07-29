@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import { loadPublishedCanonicalizerResidualAnalysisM4114 } from './coverage-residual-analysis-m4-114.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { measureCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115-measure.mjs';
 
 export { measureCanonicalizerTripleRowHeadroomM4115 };
@@ -130,7 +130,12 @@ function exactInputs() {
   }))) {
     fail('published M4.114 selection must remain exact');
   }
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadHistoricalCanonicalizerPolicy({
+    expectedDigest: INPUT_IDENTITIES.runtimePolicySha256,
+    kirLimitOverrides: {},
+    milestone: 'M4.115',
+    profileLimits: ACTIVE_PROFILE,
+  });
   if (
     !canonicalBytes(policy.profileLimits).equals(canonicalBytes(ACTIVE_PROFILE)) ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||

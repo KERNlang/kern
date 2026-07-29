@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 
-import { m4107ActiveProfile } from './coverage-m4-107-triple-row-promotion.mjs';
-import { m4113ParameterMigration } from './coverage-m4-113-parameter-migration.mjs';
+import {
+  m4118ActiveProfile,
+  m4118ParameterMigration,
+} from './coverage-m4-118-triple-row-promotion.mjs';
 
 const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/capstone-checker-subset/checker.kern#24:checkModule',
@@ -27,7 +29,7 @@ export function currentM493ParameterMigration() {
 }
 
 export function assertCurrentCanonicalizerPolicy(policy) {
-  assert.deepEqual(policy.profileLimits, m4107ActiveProfile());
+  assert.deepEqual(policy.profileLimits, m4118ActiveProfile());
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.kirLimits.maxDepth, 76);
   return policy;
@@ -36,34 +38,34 @@ export function assertCurrentCanonicalizerPolicy(policy) {
 export function assertCurrentProfileLimitFixtures(fixtures) {
   const byId = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
   assert.deepEqual(byId.get('over-node-row-limit')?.expectedRows, {
-    nodes: 90,
-    properties: 90,
-    values: 120,
+    nodes: 123,
+    properties: 123,
+    values: 164,
   });
   assert.deepEqual(byId.get('over-node-row-limit')?.admittedProfileLimits, {
-    maxNodeRows: 90,
-    maxPropertyRows: 125,
-    maxValueRows: 2100,
+    maxNodeRows: 123,
+    maxPropertyRows: 193,
+    maxValueRows: 2411,
   });
   assert.deepEqual(byId.get('over-property-row-limit')?.expectedRows, {
-    nodes: 63,
-    properties: 126,
-    values: 195,
+    nodes: 97,
+    properties: 194,
+    values: 297,
   });
   assert.deepEqual(byId.get('over-property-row-limit')?.admittedProfileLimits, {
-    maxNodeRows: 89,
-    maxPropertyRows: 126,
-    maxValueRows: 2100,
+    maxNodeRows: 122,
+    maxPropertyRows: 194,
+    maxValueRows: 2411,
   });
   assert.deepEqual(byId.get('over-value-row-limit')?.expectedRows, {
     nodes: 4,
     properties: 4,
-    values: 2101,
+    values: 2412,
   });
   assert.deepEqual(byId.get('over-value-row-limit')?.admittedProfileLimits, {
-    maxNodeRows: 89,
-    maxPropertyRows: 125,
-    maxValueRows: 2101,
+    maxNodeRows: 122,
+    maxPropertyRows: 193,
+    maxValueRows: 2412,
   });
   return fixtures;
 }
@@ -77,17 +79,17 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m4113ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4118ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion?.activeFamilies, ['exception-flow']);
-  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 6);
+  assert.equal(prerequisite.exhaustion?.residualFunctionCount, 5);
   assert.equal(
     prerequisite.exhaustion?.reasonAssignmentsDigest,
-    '7922f23766d95c5492800a9ae2b5f66217027a0214e716a0f6c96efb1c6ebb55',
+    '7590a3a7dbc3bbd11ca4a05c81e52a907d8cdd5619e4b2a78e198975673c84fe',
   );
   return prerequisite;
 }

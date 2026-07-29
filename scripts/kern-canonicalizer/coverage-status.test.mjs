@@ -65,6 +65,7 @@ import {
   formatM4115TripleRowHeadroomStatus,
   formatM4116RuntimeBottleneckStatus,
   formatM4117RuntimeCostStatus,
+  formatM4118TripleRowPromotionStatus,
   formatPublishedResidualAnalysisStatus,
 } from './coverage-status.mjs';
 
@@ -404,6 +405,17 @@ test('coverage status records the M4.117 type-field index headroom', () => {
     'M4.117 replaces 59 repeated typefields scans with 1 authenticated table projection, ' +
       'reducing the exact checkModule floor by 137426 to 38693 with 10459 promotion-budget ' +
       'headroom; M4.118 authenticates the profile promotion.',
+  );
+});
+
+test('coverage status records the M4.118 triple-row profile promotion', () => {
+  assert.equal(
+    formatM4118TripleRowPromotionStatus({
+      parameterMigration: { completeFunctions: 1, migratedParameterRows: 58 },
+      profileLimits: { maxNodeRows: 122, maxPropertyRows: 193, maxValueRows: 2411 },
+    }),
+    'M4.118 promotes maxNodeRows/maxPropertyRows/maxValueRows to 122/193/2411 and ' +
+      'publishes the exact 1-function/58-row parameter queue; M4.119 consumes it.',
   );
 });
 
