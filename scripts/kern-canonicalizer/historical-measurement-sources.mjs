@@ -1,6 +1,7 @@
 import { reconstructHistoricalSource } from './historical-source.mjs';
 
 export function reconstructLegacyParameterMeasurementSource({
+  additionalNames = [],
   currentSource,
   expectedDigest,
   extraReplacements = [],
@@ -10,6 +11,9 @@ export function reconstructLegacyParameterMeasurementSource({
 }) {
   const sourceWrapper = [
     '  const source = reconstructLegacyParameterSource({',
+    ...(additionalNames.length === 0
+      ? []
+      : [`    additionalNames: [${additionalNames.map((value) => `'${value}'`).join(', ')}],`]),
     '    currentSource: readFileSync(WITNESS_SOURCE_URL),',
     '    expectedDigest: WITNESS_SOURCE_SHA256,',
     `    milestone: '${witnessMilestone}',`,

@@ -52,6 +52,23 @@ const INPUT_URLS = {
 const MEASUREMENT_REPLACEMENTS = [
   {
     current:
+      "import { loadPreM4124CoverageInputs } from './historical-parameter-sources.mjs';\n",
+    historical: '',
+  },
+  {
+    current:
+      '  const currentCoveragePolicy = loadCoveragePolicy();\n' +
+      '  const historical = loadPreM4124CoverageInputs(currentCoveragePolicy);\n' +
+      '  const sourceRoot = sourceFunctionRoots(\n' +
+      '    historical.policy,\n' +
+      '    historical.sourceOverrides,\n' +
+      '  ).get(witnessId);',
+    historical:
+      '  const coveragePolicy = loadCoveragePolicy();\n' +
+      '  const sourceRoot = sourceFunctionRoots(coveragePolicy).get(witnessId);',
+  },
+  {
+    current:
       'const HISTORICAL_ACTIVE_DEPTH = 76;\nconst CANDIDATE_DEPTH = 77;',
     historical:
       'const ACTIVE_DEPTH = 76;\nconst CANDIDATE_DEPTH = 77;',

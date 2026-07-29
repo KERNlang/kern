@@ -52,6 +52,7 @@ function exactWitness() {
   assert.deepEqual(m4115.limits.candidateProfile, CANDIDATE_PROFILE);
 
   const source = reconstructLegacyParameterSource({
+    additionalNames: ['rejectLine'],
     currentSource: readFileSync(WITNESS_SOURCE_URL),
     expectedDigest: WITNESS_SOURCE_SHA256,
     milestone: 'M4.116 checkModule witness',

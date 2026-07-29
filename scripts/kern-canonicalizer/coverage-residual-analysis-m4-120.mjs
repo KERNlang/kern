@@ -16,6 +16,7 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadPreM4124CoverageInputs } from './historical-parameter-sources.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
@@ -123,13 +124,13 @@ function publishedHandoff(value) {
   return { digest, inputCommit: INPUT_COMMIT, record: structuredClone(value) };
 }
 
-function assertPublishedInput(receipt, canonicalizerPolicy) {
+function assertPublishedInput(receipt, canonicalizerPolicy, coveragePolicyDigest) {
   // Adding this analyzer changes the implementation digest. The frozen
   // pre-analysis implementation digest remains part of the published baseline.
   const actual = {
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
-    coveragePolicyDigest: receipt.coveragePolicyDigest,
+    coveragePolicyDigest,
     currentProfileLimits: exactLimits(canonicalizerPolicy.profileLimits),
     functionFactsDigest: receipt.functionFactsDigest,
   };
@@ -146,7 +147,9 @@ function assertPublishedInput(receipt, canonicalizerPolicy) {
 }
 
 export function measureCanonicalizerResidualAnalysisM4120() {
-  const policy = loadCoveragePolicy();
+  const currentPolicy = loadCoveragePolicy();
+  const historical = loadPreM4124CoverageInputs(currentPolicy);
+  const policy = historical.policy;
   const canonicalizerPolicy = loadHistoricalCanonicalizerPolicy({
     expectedDigest: '2572743f5b942cac0e4d33d735d590caee3dbddcfebbb229b8cd94b14118d1b8',
     kirLimitOverrides: {
@@ -155,10 +158,14 @@ export function measureCanonicalizerResidualAnalysisM4120() {
     milestone: 'M4.120',
     profileLimits: PUBLISHED_BASELINE.currentProfileLimits,
   });
-  const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  assertPublishedInput(receipt, canonicalizerPolicy);
+  const receipt = measureCanonicalizerCoverage(
+    policy,
+    canonicalizerPolicy,
+    { sourceOverrides: historical.sourceOverrides },
+  );
+  assertPublishedInput(receipt, canonicalizerPolicy, historical.coveragePolicyDigest);
 
-  const roots = sourceFunctionRoots(policy);
+  const roots = sourceFunctionRoots(policy, historical.sourceOverrides);
   const legacyFacts = receipt.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params'));
   if (legacyFacts.length !== PUBLISHED_BASELINE.legacyParameterBlockers) {

@@ -55,6 +55,7 @@ function exactWitness() {
     witnesses: [WITNESS_ID],
   });
   const source = reconstructLegacyParameterSource({
+    additionalNames: ['rejectLine'],
     currentSource: readFileSync(WITNESS_SOURCE_URL),
     expectedDigest: WITNESS_SOURCE_SHA256,
     milestone: 'M4.115 checkModule witness',

@@ -8,7 +8,12 @@ fn name=acceptLine returns=string export=true
   handler lang="kern"
     return value="path + \":1:1|T10_MODULE|accept|ok\""
 
-fn name=rejectLine params="path:string,line:number,col:number,code:string,detail:string" returns=string export=true
+fn name=rejectLine returns=string export=true
+  param name=path type=string
+  param name=line type=number
+  param name=col type=number
+  param name=code type=string
+  param name=detail type=string
   handler lang="kern"
     return value="path + \":\" + String(line) + \":\" + String(col) + \"|\" + code + \"|reject|\" + detail"
 

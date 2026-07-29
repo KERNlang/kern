@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 
 import { reconstructHistoricalSource } from './historical-source.mjs';
 
@@ -11,7 +12,7 @@ const MIGRATIONS_BY_PATH = new Map([
   ],
   [
     'examples/capstone-checker-subset/checker.kern',
-    ['paramCallsitesOk', 'mapKeyToken', 'mapKnownBefore', 'checkModule'],
+    ['rejectLine', 'paramCallsitesOk', 'mapKeyToken', 'mapKnownBefore', 'checkModule'],
   ],
   [
     'examples/kern-canonicalizer/canonicalizer-statement-helpers.kern',
@@ -45,6 +46,11 @@ const PRE_M4113_DIGESTS = new Map([
 
 const PRE_M4113_POLICY_DIGEST =
   '0285747660651cab2ee1029456dc40c190c42d2515937fa6d3534247df363b54';
+const PRE_M4124_CHECKER_DIGEST =
+  '934608ea0793197402a48e331142129edb98b26256f48fa897285badbd1d4add';
+const PRE_M4124_POLICY_DIGEST =
+  'bb64551fcdbacd85759a86f9cd7703ffe7fa14505cfe1a935223d7fe2b953534';
+const CHECKER_PATH = 'examples/capstone-checker-subset/checker.kern';
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -79,6 +85,7 @@ function signatureReplacement(source, name) {
 }
 
 export function reconstructLegacyParameterSource({
+  additionalNames = [],
   currentSource,
   expectedDigest,
   milestone,
@@ -88,7 +95,9 @@ export function reconstructLegacyParameterSource({
     currentSource,
     expectedDigest,
     milestone,
-    replacements: [signatureReplacement(currentSource.toString('utf8'), name)],
+    replacements: [...additionalNames, name]
+      .map((functionName) =>
+        signatureReplacement(currentSource.toString('utf8'), functionName)),
   });
 }
 
@@ -121,6 +130,46 @@ export function loadPreM4113CoverageInputs(currentPolicy) {
   }
   return {
     coveragePolicyDigest: PRE_M4113_POLICY_DIGEST,
+    policy,
+    sourceOverrides,
+  };
+}
+
+export function loadPreM4124CoverageInputs(currentPolicy) {
+  const currentPolicySource = readFileSync(
+    new URL('./coverage-policy.json', import.meta.url),
+    'utf8',
+  );
+  if (!isDeepStrictEqual(currentPolicy, JSON.parse(currentPolicySource))) {
+    throw new TypeError('pre-M4.124 coverage rejection: caller policy must match repository policy');
+  }
+  const currentSource = readFileSync(new URL(`../../${CHECKER_PATH}`, import.meta.url));
+  const sourceOverrides = new Map([[
+    CHECKER_PATH,
+    reconstructLegacyParameterSource({
+      currentSource,
+      expectedDigest: PRE_M4124_CHECKER_DIGEST,
+      milestone: 'pre-M4.124 checker source',
+      name: 'rejectLine',
+    }),
+  ]]);
+  const policy = structuredClone(currentPolicy);
+  const checker = policy.corpus.find(({ path }) => path === CHECKER_PATH);
+  if (checker === undefined) {
+    throw new TypeError('pre-M4.124 coverage rejection: missing checker corpus member');
+  }
+  const currentDigest = checker.digest;
+  checker.digest = PRE_M4124_CHECKER_DIGEST;
+  const digestOccurrences = currentPolicySource.split(currentDigest).length - 1;
+  if (digestOccurrences !== 1) {
+    throw new TypeError('pre-M4.124 coverage rejection: checker digest must occur exactly once');
+  }
+  const policySource = currentPolicySource.replace(currentDigest, PRE_M4124_CHECKER_DIGEST);
+  if (digest(policySource) !== PRE_M4124_POLICY_DIGEST) {
+    throw new TypeError('pre-M4.124 coverage rejection: policy digest must remain exact');
+  }
+  return {
+    coveragePolicyDigest: PRE_M4124_POLICY_DIGEST,
     policy,
     sourceOverrides,
   };

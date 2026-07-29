@@ -51,7 +51,6 @@ export const M4119_PARAMETER_MIGRATION_TARGET = {
   profileRows: { nodes: 122, properties: 193, values: 2411 },
   quotedReturns: false,
   returns: 'string[]',
-  sourceSha256: '934608ea0793197402a48e331142129edb98b26256f48fa897285badbd1d4add',
   tool: 'checker',
 };
 

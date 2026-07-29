@@ -123,6 +123,7 @@ function exactInputs() {
     let source = readFileSync(url);
     if (name === 'baselineMeasurementSha256') {
       source = reconstructLegacyParameterMeasurementSource({
+        additionalNames: ['rejectLine'],
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],
         extraReplacements: [{
@@ -135,6 +136,7 @@ function exactInputs() {
       });
     } else if (name === 'witnessSourceSha256') {
       source = reconstructLegacyParameterSource({
+        additionalNames: ['rejectLine'],
         currentSource: readFileSync(url),
         expectedDigest: SOURCE_DIGESTS[name],
         milestone: 'M4.117 checkModule witness',

@@ -572,11 +572,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 112, 'live M4.119 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 102, 'live M4.119 base completion must remain exactly 102/112');
+  assert.equal(actual.baseCompleteFunctions, 103, 'live M4.124 base completion must remain exactly 103/112');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    5,
-    'live M4.119 fn.params blocker count must remain exactly 5',
+    4,
+    'live M4.124 fn.params blocker count must remain exactly 4',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -1523,7 +1523,7 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 102);
+  assert.equal(actual.baseCompleteFunctions, 103);
   assert.equal(actual.functionCount, 112);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
