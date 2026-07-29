@@ -108,11 +108,8 @@ function project(root, limits) {
       profileRows: canonicalProfileRowsForFunction(root, limits),
     };
   } catch (error) {
-    const projectionCode =
-      typeof error?.code === 'string' && error.code.length > 0
-        ? error.code
-        : 'projection-error';
-    return { outcome: 'unsupported', projectionCode };
+    if (typeof error?.code !== 'string' || error.code.length === 0) throw error;
+    return { outcome: 'unsupported', projectionCode: error.code };
   }
 }
 
