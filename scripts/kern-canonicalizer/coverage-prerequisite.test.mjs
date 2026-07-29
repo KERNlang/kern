@@ -71,7 +71,7 @@ test('M4.135 publishes the exact current migrated frontier', () => {
     baseId: 'kern.kir-canonicalizer.profile.m4.60',
     canonicalizerDigest: 'e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75',
     canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
-    compiledCoreDigest: '2641bba874fe19a079f4b03dabbddfee0d0cc56124d86f4080b612652a52eabc',
+    compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
     corpusDigest: '74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: 'f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad',

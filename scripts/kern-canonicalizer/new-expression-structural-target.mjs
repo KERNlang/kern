@@ -42,14 +42,16 @@ export const PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS = [
       "    if (kind === 'new') {\n" +
       "        const values = exactRecord(fields, ['args', 'constructor'], path);\n" +
       "        const args = field(values, 'args');\n" +
-      '        nestedList(args, `${path}.args`);\n' +
+      "        if (args.tag !== 'list')\n" +
+      "            fail('invalid-expression', `${path}.args`, 'expected expression list');\n" +
       "        const constructorName = text(field(values, 'constructor'), `${path}.constructor`);\n" +
       '        const expectedArity = boundedConstructorArity(constructorName);\n' +
       '        if (expectedArity < 0)\n' +
       "            fail('invalid-expression', `${path}.constructor`, `unsupported constructor ${constructorName}`);\n" +
-      "        if (args.tag !== 'list' || args.value.length !== expectedArity) {\n" +
+      '        if (args.value.length !== expectedArity) {\n' +
       "            fail('invalid-expression', `${path}.args`, `${constructorName} constructor expects exactly ${expectedArity} arguments`);\n" +
       '        }\n' +
+      '        args.value.forEach((argument, index) => nested(argument, `${path}.args[${index}]`));\n' +
       '        return;\n' +
       '    }\n',
     historical: '',

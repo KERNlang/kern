@@ -190,6 +190,27 @@ describe('bounded structural new-expression contract', () => {
     );
   });
 
+  test('reader rejects impossible arity before traversing hostile argument subtrees', () => {
+    const encoded = mutateEncodedExpression('new Map()', (expression) => {
+      const fields = recordField(expression, 'fields');
+      const args = recordField(fields, 'args');
+      if (args.tag !== 'list') throw new Error('expected args list');
+      const hostile = expressionValue('"x"');
+      const kind = recordField(hostile, 'kind');
+      if (kind.tag !== 'text') throw new Error('expected expression kind');
+      kind.value = 'future';
+      args.value.push(hostile);
+    });
+    try {
+      decodeStructuralKir(encoded, limits);
+      throw new Error('expected invalid-expression');
+    } catch (error) {
+      expect(error).toBeInstanceOf(StructuralKirError);
+      expect((error as StructuralKirError).code).toBe('invalid-expression');
+      expect((error as StructuralKirError).path).toMatch(/\.fields\.args$/u);
+    }
+  });
+
   test('writer and reader preserve canonical bytes across both constructors', () => {
     for (const source of ['new Map()', 'new Error("KERN_CANONICALIZER_PROFILE")']) {
       const bytes = encodeStructuralKir(letNode(source), limits);

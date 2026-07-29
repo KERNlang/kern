@@ -326,18 +326,19 @@ function validateFields(kind: string, fields: CanonicalValue, path: string): voi
   if (kind === 'new') {
     const values = exactRecord(fields, ['args', 'constructor'], path);
     const args = field(values, 'args');
-    nestedList(args, `${path}.args`);
+    if (args.tag !== 'list') fail('invalid-expression', `${path}.args`, 'expected expression list');
     const constructorName = text(field(values, 'constructor'), `${path}.constructor`);
     const expectedArity = boundedConstructorArity(constructorName);
     if (expectedArity < 0)
       fail('invalid-expression', `${path}.constructor`, `unsupported constructor ${constructorName}`);
-    if (args.tag !== 'list' || args.value.length !== expectedArity) {
+    if (args.value.length !== expectedArity) {
       fail(
         'invalid-expression',
         `${path}.args`,
         `${constructorName} constructor expects exactly ${expectedArity} arguments`,
       );
     }
+    args.value.forEach((argument, index) => nested(argument, `${path}.args[${index}]`));
     return;
   }
   if (kind === 'lambda') {
