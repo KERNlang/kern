@@ -31,6 +31,7 @@ import {
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
+import { loadPreM4131CoverageInputs } from './historical-parameter-sources.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const M4127_RECEIPT_URL =
@@ -69,7 +70,12 @@ function exactWitness() {
   const policy = loadCanonicalizerPolicy();
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
-  const sourceRoot = sourceFunctionRoots(loadCoveragePolicy()).get(WITNESS_ID);
+  const currentCoveragePolicy = loadCoveragePolicy();
+  const historical = loadPreM4131CoverageInputs(currentCoveragePolicy);
+  const sourceRoot = sourceFunctionRoots(
+    historical.policy,
+    historical.sourceOverrides,
+  ).get(WITNESS_ID);
   if (sourceRoot === undefined) fail(`missing source root ${WITNESS_ID}`);
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   assert.equal(parameters.length, 41);

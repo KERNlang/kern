@@ -23,6 +23,9 @@ import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4126,
 } from './projection-analysis-m4-126.mjs';
+import {
+  PRE_M4131_M4127_MEASUREMENT_REPLACEMENTS,
+} from './validate-parameter-migration-target.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.combined-headroom.1';
 const RECEIPT_DIGEST =
@@ -167,6 +170,7 @@ function exactInputs() {
         replacements: [
           ...PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
           ...PRE_M4130_M4127_MEASUREMENT_REPLACEMENTS,
+          ...PRE_M4131_M4127_MEASUREMENT_REPLACEMENTS,
         ],
       });
     }

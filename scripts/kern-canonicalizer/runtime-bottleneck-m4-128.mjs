@@ -18,7 +18,13 @@ import {
   loadPreM4129CanonicalizerComposition,
 } from './historical-composition.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
+import {
+  reconstructLegacyParameterSource,
+} from './historical-parameter-sources.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  PRE_M4131_RUNTIME_MEASUREMENT_REPLACEMENTS,
+} from './validate-parameter-migration-target.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.5';
 const RECEIPT_DIGEST =
@@ -169,7 +175,17 @@ function exactInputs() {
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],
         milestone: 'M4.128 measurement',
-        replacements: PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+        replacements: [
+          ...PRE_M4129_COMPOSITE_MEASUREMENT_REPLACEMENTS,
+          ...PRE_M4131_RUNTIME_MEASUREMENT_REPLACEMENTS,
+        ],
+      });
+    } else if (name === 'witnessSourceSha256') {
+      source = reconstructLegacyParameterSource({
+        currentSource: source,
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: 'M4.128 validate witness',
+        name: 'validate',
       });
     }
     if (digest(source) !== SOURCE_DIGESTS[name]) {

@@ -32,6 +32,7 @@ import {
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
+import { loadPreM4131CoverageInputs } from './historical-parameter-sources.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4126,
@@ -100,8 +101,12 @@ function exactInput() {
     tool: 'validator',
   });
 
-  const coveragePolicy = loadCoveragePolicy();
-  const sourceRoot = sourceFunctionRoots(coveragePolicy).get(WITNESS_ID);
+  const currentCoveragePolicy = loadCoveragePolicy();
+  const historical = loadPreM4131CoverageInputs(currentCoveragePolicy);
+  const sourceRoot = sourceFunctionRoots(
+    historical.policy,
+    historical.sourceOverrides,
+  ).get(WITNESS_ID);
   if (sourceRoot === undefined) fail(`missing source root ${WITNESS_ID}`);
   const { parameters, root } = migrateLegacyFunctionForPrerequisite(sourceRoot);
   if (parameters.length !== requirement.parameterRows) {

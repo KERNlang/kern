@@ -130,7 +130,7 @@ test('the current frontier preserves the M4.60 while promotion', () => {
   assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(
     sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
-    '96a1c96800132f2401d743eac02f0efe8cb0717980ceb56c2af531798790eaac',
+    'e233d3113792c19c147be3ccabead970d7cbe02062d7fb762a87ccffac246958',
   );
 
   const coverage = measureCanonicalizerCoverage(policy);

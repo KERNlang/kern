@@ -1,20 +1,19 @@
 import assert from 'node:assert/strict';
 
 import {
-  assertM4124ParameterMigration,
-} from './coverage-m4-124-parameter-migration.mjs';
+  assertM4131ParameterMigration,
+  m4131ParameterMigration,
+} from './coverage-m4-131-parameter-migration.mjs';
 import {
   m4130ActiveKirLimits,
   m4130ActiveProfile,
   m4130ActiveRuntimeByteLimits,
-  m4130ParameterMigration,
 } from './coverage-m4-130-combined-promotion.mjs';
 
 const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
   'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
   'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
   'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-  'examples/selfhost-validator/validator.kern#20:validate',
 ];
 
 export function currentM493ParameterMigration() {
@@ -89,8 +88,8 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 }
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
-  assertM4124ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 103);
+  assertM4131ParameterMigration(coverage);
+  assert.equal(coverage.baseCompleteFunctions, 104);
   assert.equal(coverage.functions.length, 112);
   assert.deepEqual(
     coverage.functions
@@ -98,7 +97,7 @@ export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
       .map(({ id }) => id),
     CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
   );
-  assert.deepEqual(prerequisite.parameterMigration, m4130ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4131ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);

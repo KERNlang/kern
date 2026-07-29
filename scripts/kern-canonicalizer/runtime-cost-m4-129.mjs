@@ -8,12 +8,21 @@ import {
   canonicalCompositionRecordBytes,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
+import { loadCoveragePolicy } from './coverage.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import {
+  loadPreM4131CoverageInputs,
+  reconstructLegacyParameterSource,
+} from './historical-parameter-sources.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
   loadCanonicalizerRuntimeBottleneckM4128,
 } from './runtime-bottleneck-m4-128.mjs';
+import {
+  PRE_M4131_RUNTIME_MEASUREMENT_REPLACEMENTS,
+} from './validate-parameter-migration-target.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-cost-reduction.9';
 const RECEIPT_DIGEST = 'e4bd57760198241cbe295ef6dcc7e35b1b7ddbb41026ca066d4016de0cfccd7c';
@@ -130,7 +139,26 @@ function exactInputs() {
   ) fail('M4.128 runtime diagnosis handoff must remain exact');
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
     if (name === 'runtimePolicySha256') continue;
-    if (digest(readFileSync(url)) !== SOURCE_DIGESTS[name]) {
+    let source = readFileSync(url);
+    if (name === 'coveragePolicySha256') {
+      const historical = loadPreM4131CoverageInputs(loadCoveragePolicy());
+      source = historical.coveragePolicySource;
+    } else if (name === 'measurementSha256') {
+      source = reconstructHistoricalSource({
+        currentSource: source,
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: 'M4.129 measurement',
+        replacements: PRE_M4131_RUNTIME_MEASUREMENT_REPLACEMENTS,
+      });
+    } else if (name === 'witnessSourceSha256') {
+      source = reconstructLegacyParameterSource({
+        currentSource: source,
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: 'M4.129 validate witness',
+        name: 'validate',
+      });
+    }
+    if (digest(source) !== SOURCE_DIGESTS[name]) {
       fail(`${name} executable input must remain exact`);
     }
   }

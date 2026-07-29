@@ -156,6 +156,9 @@ import {
   m4130CoverageStatus,
 } from './kern-canonicalizer/coverage-m4-130-combined-promotion.mjs';
 import {
+  m4131CoverageStatus,
+} from './kern-canonicalizer/coverage-m4-131-parameter-migration.mjs';
+import {
   loadCanonicalizerRuntimeCostM493,
 } from './kern-canonicalizer/runtime-cost-m4-93.mjs';
 import {
@@ -430,6 +433,7 @@ const m4127CoverageStatusLine = assertM4127CombinedHeadroom();
 const m4128CoverageStatusLine = assertM4128RuntimeBottleneck();
 const m4129CoverageStatusLine = assertM4129RuntimeCost();
 const m4130CoverageStatusLine = m4130CoverageStatus(policy);
+const m4131CoverageStatusLine = m4131CoverageStatus();
 assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
@@ -587,11 +591,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 112, 'live M4.119 authored function count must remain exact');
   assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 103, 'live M4.124 base completion must remain exactly 103/112');
+  assert.equal(actual.baseCompleteFunctions, 104, 'live M4.131 base completion must remain exactly 104/112');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    4,
-    'live M4.124 fn.params blocker count must remain exactly 4',
+    3,
+    'live M4.131 fn.params blocker count must remain exactly 3',
   );
   assert.equal(actual.selection.winner, null, 'live M4.60 measurement must have no ordinary winner');
   assert.deepEqual(
@@ -1538,7 +1542,7 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 103);
+  assert.equal(actual.baseCompleteFunctions, 104);
   assert.equal(actual.functionCount, 112);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
@@ -1912,6 +1916,7 @@ process.stdout.write(
   ` ${m4128CoverageStatusLine}` +
   ` ${m4129CoverageStatusLine}` +
   ` ${m4130CoverageStatusLine}` +
+  ` ${m4131CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

@@ -383,7 +383,48 @@ fn name=sortstrings returns=string[] export=true
       assign target=last value="min"
     return value="out"
 
-fn name=validate params="schemaVersion:number,moduleId:number[],moduleRoot:string[],moduleStatus:string[],fnModule:number[],fnName:string[],fnReturns:string[],fnAsync:number[],fnStream:number[],fnHandlers:number[],fnParams:string[],fnExport:number[],paramFn:number[],paramName:string[],paramHasChildren:number[],paramHasValue:number[],paramHasDefault:number[],paramOptional:number[],paramVariadic:number[],classModule:number[],className:string[],classExtends:string[],classExport:number[],fieldClass:number[],fieldName:string[],memberClass:number[],memberKind:string[],memberName:string[],memberAsync:number[],memberStream:number[],memberStatic:number[],memberHandlers:number[],useModule:number[],usePath:string[],useTarget:number[],useCandidate:string[],fromUse:number[],fromName:string[],fromAs:string[],fromKind:string[],fromExport:number[]" returns=string[] export=true
+fn name=validate returns=string[] export=true
+  param name=schemaVersion type=number
+  param name=moduleId type=number[]
+  param name=moduleRoot type=string[]
+  param name=moduleStatus type=string[]
+  param name=fnModule type=number[]
+  param name=fnName type=string[]
+  param name=fnReturns type=string[]
+  param name=fnAsync type=number[]
+  param name=fnStream type=number[]
+  param name=fnHandlers type=number[]
+  param name=fnParams type=string[]
+  param name=fnExport type=number[]
+  param name=paramFn type=number[]
+  param name=paramName type=string[]
+  param name=paramHasChildren type=number[]
+  param name=paramHasValue type=number[]
+  param name=paramHasDefault type=number[]
+  param name=paramOptional type=number[]
+  param name=paramVariadic type=number[]
+  param name=classModule type=number[]
+  param name=className type=string[]
+  param name=classExtends type=string[]
+  param name=classExport type=number[]
+  param name=fieldClass type=number[]
+  param name=fieldName type=string[]
+  param name=memberClass type=number[]
+  param name=memberKind type=string[]
+  param name=memberName type=string[]
+  param name=memberAsync type=number[]
+  param name=memberStream type=number[]
+  param name=memberStatic type=number[]
+  param name=memberHandlers type=number[]
+  param name=useModule type=number[]
+  param name=usePath type=string[]
+  param name=useTarget type=number[]
+  param name=useCandidate type=string[]
+  param name=fromUse type=number[]
+  param name=fromName type=string[]
+  param name=fromAs type=string[]
+  param name=fromKind type=string[]
+  param name=fromExport type=number[]
   handler lang="kern"
     let name=fails value="[]"
     if cond="schemaVersion != 1"
