@@ -1,0 +1,136 @@
+{
+  "candidates": [
+    {
+      "completeFunctions": 2,
+      "constructors": [
+        {
+          "arity": 1,
+          "name": "Error",
+          "count": 17
+        },
+        {
+          "arity": 0,
+          "name": "Map",
+          "count": 4
+        }
+      ],
+      "id": "bounded-new-expression-support",
+      "parameterRows": 21,
+      "requiredContracts": [
+        "kern-canonical-source-emission",
+        "structural-expression-projection",
+        "structural-expression-validation"
+      ],
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+        "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize"
+      ]
+    },
+    {
+      "blockedCharacters": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff"
+      ],
+      "completeFunctions": 1,
+      "id": "quotesource-code-point-rewrite",
+      "parameterRows": 2,
+      "requiredContracts": [
+        "portable-text-code-point-operation",
+        "quotesource-source-rewrite"
+      ],
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource"
+      ]
+    }
+  ],
+  "format": "kern.kir-canonicalizer.remediation-analysis.1",
+  "input": {
+    "baseCompleteFunctions": 104,
+    "functionCount": 112,
+    "projectionAnalysisDigest": "89da63518b22003642eabba46177dce3e835d2fde82aebfb4ebe10bd3273bf0a",
+    "residualFunctions": 3
+  },
+  "requirements": [
+    {
+      "blockers": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff"
+      ],
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "outcome": "canonical-surface",
+      "parameterRows": 2,
+      "remediation": "quotesource-code-point-rewrite",
+      "tool": "canonicalizer"
+    },
+    {
+      "constructors": [
+        {
+          "arity": 0,
+          "name": "Map",
+          "count": 4
+        }
+      ],
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+      "outcome": "unsupported-expression",
+      "parameterRows": 6,
+      "projectionCode": "unknown-expression-kind",
+      "remediation": "bounded-new-expression-support",
+      "tool": "canonicalizer"
+    },
+    {
+      "constructors": [
+        {
+          "arity": 1,
+          "name": "Error",
+          "count": 17
+        }
+      ],
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize",
+      "outcome": "unsupported-expression",
+      "parameterRows": 15,
+      "projectionCode": "unknown-expression-kind",
+      "remediation": "bounded-new-expression-support",
+      "tool": "canonicalizer"
+    }
+  ],
+  "selectedNextAction": {
+    "completeFunctions": 2,
+    "constructors": [
+      {
+        "arity": 1,
+        "name": "Error",
+        "count": 17
+      },
+      {
+        "arity": 0,
+        "name": "Map",
+        "count": 4
+      }
+    ],
+    "id": "bounded-new-expression-support",
+    "parameterRows": 21,
+    "requiredContracts": [
+      "kern-canonical-source-emission",
+      "structural-expression-projection",
+      "structural-expression-validation"
+    ],
+    "witnesses": [
+      "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+      "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize"
+    ]
+  },
+  "summary": {
+    "canonicalSurfaceFunctions": 1,
+    "constructorFunctions": 2,
+    "constructorOccurrences": 21,
+    "remediationCandidates": 2
+  }
+}
