@@ -9,29 +9,32 @@ import {
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
-import { m4131ParameterMigration } from './coverage-m4-131-parameter-migration.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
-const EXPECTED_PARAMETER_MIGRATION = m4131ParameterMigration();
-
-const EXPECTED_SELECTION = {
-  catalogFacts: 2,
-  family: 'exception-flow',
-  occurrences: 34,
+const EXPECTED_PARAMETER_MIGRATION = {
+  completeFunctions: 1,
+  completeTools: 1,
+  migratedParameterRows: 15,
+  witnesses: [{
+    id: 'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
+    parameterRows: 15,
+    profileRows: { nodes: 100, properties: 159, values: 2556 },
+    tool: 'canonicalizer',
+  }],
 };
 
-test('M4.137 promotes the bounded constructor and selects exception flow', () => {
+test('M4.141 exhausts structural families and exposes the canonicalize queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(actual.outcome, 'selected');
-  assert.equal(actual.minimumFamilyCount, 1);
-  assert.deepEqual(actual.selectedPrerequisite, EXPECTED_SELECTION);
+  assert.equal(actual.outcome, 'bounded-exhaustion');
+  assert.equal(actual.minimumFamilyCount, null);
+  assert.equal(actual.selectedPrerequisite, null);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
-  assert.deepEqual(actual.prerequisiteRanking[0], EXPECTED_SELECTION);
-  assert.equal(actual.ranking[0].completeFunctions, 1);
-  assert.equal(actual.ranking[0].migratedParameterRows, 15);
-  assert.equal(actual.exhaustion, null);
+  assert.deepEqual(actual.prerequisiteRanking, []);
+  assert.deepEqual(actual.ranking, []);
+  assert.deepEqual(actual.exhaustion.activeFamilies, []);
+  assert.equal(actual.exhaustion.residualFunctionCount, 2);
 });
 
 test('format 3 rejects drift in the M4.100 migrated frontier', () => {
@@ -39,7 +42,7 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
     (copy) => { copy.future = true; },
-    (copy) => { copy.outcome = 'bounded-exhaustion'; },
+    (copy) => { copy.outcome = 'selected'; },
     (copy) => { copy.minimumFamilyCount = 0; },
     (copy) => { copy.selectedPrerequisite = { catalogFacts: 2, family: 'while-iteration', occurrences: 2 }; },
     (copy) => { copy.prerequisiteRanking.push({ catalogFacts: 2, family: 'while-iteration', occurrences: 2 }); },
@@ -63,18 +66,18 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.139 publishes the exact current bounded exception-flow frontier', () => {
+test('M4.141 publishes the exact current terminal structural frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 109,
-    baseId: 'kern.kir-canonicalizer.profile.m4.137',
+    baseId: 'kern.kir-canonicalizer.profile.m4.141',
     canonicalizerDigest: 'd96dee80f12236a3d9089bf44aeee699e6a3c35856e71f79a0743691248ea16e',
     canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
     compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
     corpusDigest: '83f7830687fc69bdc8bfdc83e10cfad2a18768076ab55300f23df3379fd89772',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '5a909a0b0d17ab3fafdeb8223bd2b9acd8c491f68284c338ac0a80f3075636c3',
+    coveragePolicyDigest: '2091c8c213efd5b006bc22f183f47bd7a651ec21779efe66b1670b1019fbaaf0',
     familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
     functionFactsDigest: 'b55e5822c5a3f4f20316a2abc12107fdfa10d93af3ece6316aa0f686ef3fc0dc',
@@ -86,11 +89,15 @@ test('M4.139 publishes the exact current bounded exception-flow frontier', () =>
   assert.match(actual.baseline.functionFactsDigest, /^[0-9a-f]{64}$/u);
   assert.match(actual.baseline.coverageImplementationDigest, /^[0-9a-f]{64}$/u);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
-  assert.deepEqual(actual.selectedPrerequisite, EXPECTED_SELECTION);
-  assert.equal(actual.exhaustion, null);
+  assert.equal(actual.selectedPrerequisite, null);
+  assert.equal(
+    actual.exhaustion.reasonAssignmentsDigest,
+    '1da9a57ec132a8147f75ab0d252e188aa86b2744b23d58cf3dfa3510b7bcc106',
+  );
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
-  const residualIds = actual.ranking.flatMap(({ witnesses }) => witnesses.map(({ id }) => id));
-  assert.equal(residualIds.some((id) => readyIds.has(id)), false);
+  assert.deepEqual([...readyIds], [
+    'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
+  ]);
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);

@@ -372,8 +372,8 @@ test('the current corpus preserves selection and eight-record prerequisite histo
   assert.equal(receipt.prerequisiteProvenances.length, 8);
   assert.equal(summary.prerequisiteProvenances.length, 8);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'new-expression',
-    provenanceDigest: prerequisites[6].digest,
+    family: 'exception-flow',
+    provenanceDigest: prerequisites[7].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -386,11 +386,11 @@ test('the current corpus preserves selection and eight-record prerequisite histo
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
   assert.equal(receipt.baseCompleteFunctions, 109);
   assert.equal(receipt.selection.winner, null);
-  assert.deepEqual(receipt.selection.ranking.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(receipt.selection.ranking, []);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('the current M4.139 executable preserves the exact M4.137 profile promotion', () => {
+test('the current M4.141 policy preserves the exact earlier profile promotions', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -421,7 +421,7 @@ test('the current M4.139 executable preserves the exact M4.137 profile promotion
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"throw\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.137');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.141');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
@@ -432,7 +432,7 @@ test('the current M4.139 executable preserves the exact M4.137 profile promotion
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
   assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
   assert.equal(policy.families.some(({ id }) => id === 'new-expression'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(policy.families, []);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
   assert.equal(policy.base.expressionKinds.includes('new'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
@@ -484,4 +484,7 @@ test('the current M4.139 executable preserves the exact M4.137 profile promotion
   assert.equal(policy.base.promotions[10].family, 'new-expression');
   assert.equal(policy.base.promotions[10].provenanceDigest, prerequisites[6].digest);
   assert.equal(policy.base.promotions[10].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[11].family, 'exception-flow');
+  assert.equal(policy.base.promotions[11].provenanceDigest, prerequisites[7].digest);
+  assert.equal(policy.base.promotions[11].provenanceKind, 'prerequisite');
 });

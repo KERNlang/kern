@@ -34,7 +34,7 @@ function validRoot() {
 
 test('the promoted while profile admits exact recursive condition loops', () => {
   const base = loadCoveragePolicy().base;
-  assert.equal(base.id, 'kern.kir-canonicalizer.profile.m4.137');
+  assert.equal(base.id, 'kern.kir-canonicalizer.profile.m4.141');
   assert.equal(base.nodeKinds.includes('while'), true);
   assert.equal(base.propertyKeys.includes('while.cond'), true);
   assert.deepEqual(profileBlockersForFunction(validRoot(), base), []);

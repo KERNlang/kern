@@ -1,15 +1,44 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
-import { assertM4137NewExpressionPromotion } from './coverage-m4-137-central.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import {
+  loadCanonicalizerNewExpressionPrerequisiteProvenance,
+} from './coverage-prerequisite-provenance.mjs';
+import {
+  formatM4137NewExpressionPromotionStatus,
+} from './coverage-status-m4-137.mjs';
 
-test('M4.137 status binds the exact promoted base and exception-flow handoff', () => {
+test('M4.137 status remains reproducible from its immutable frontier', () => {
+  const coverage = {
+    base: {
+      expressionKinds: ['new'],
+      id: 'kern.kir-canonicalizer.profile.m4.137',
+    },
+    baseCompleteFunctions: 109,
+    functions: Array.from({ length: 112 }),
+    selection: { winner: null },
+  };
+  const prerequisite = {
+    minimumFamilyCount: 1,
+    outcome: 'selected',
+    ranking: [{
+      completeFunctions: 1,
+      migratedParameterRows: 15,
+      witnesses: [{
+        id: 'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
+      }],
+    }],
+    selectedPrerequisite: {
+      catalogFacts: 2,
+      family: 'exception-flow',
+      occurrences: 34,
+    },
+  };
   assert.equal(
-    assertM4137NewExpressionPromotion(
-      measureCanonicalizerCoverage(),
-      measureCanonicalizerPrerequisite(),
+    formatM4137NewExpressionPromotionStatus(
+      coverage,
+      prerequisite,
+      loadCanonicalizerNewExpressionPrerequisiteProvenance(),
     ),
     'M4.137 promotes new-expression through the exact M4.136 provenance and advances ' +
       'the cumulative base to 109/112; exception-flow is the sole selected prerequisite ' +

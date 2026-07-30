@@ -126,7 +126,7 @@ export function coverageFamilyRegistrySource() {
 }
 
 export function validateCoverageFamilies(families, base) {
-  if (!Array.isArray(families) || families.length === 0) fail('families must be a non-empty array');
+  if (!Array.isArray(families)) fail('families must be an array');
   const registry = loadFamilyRegistry();
   const claimedNodes = new Set(base.nodeKinds);
   const claimedExpressions = new Set(base.expressionKinds);

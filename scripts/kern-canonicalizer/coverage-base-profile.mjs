@@ -4,7 +4,7 @@ import { isAuthenticatedHistoricalCoverageBase } from './historical-coverage-aut
 export const BASE_EXPRESSION_KINDS = [
   'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'new', 'null', 'text', 'unary',
 ];
-export const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.137';
+export const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.141';
 export const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -61,9 +61,14 @@ export const BASE_PROMOTIONS = [
     provenanceDigest: 'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e',
     provenanceKind: 'prerequisite',
   },
+  {
+    family: 'exception-flow',
+    provenanceDigest: '2c36f8d7ec2e91cba6742241e72c79adacc917ad59e3105aabdf15f7e9e712e4',
+    provenanceKind: 'prerequisite',
+  },
 ];
 export const BASE_NODE_KINDS = [
-  'assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'while',
+  'assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'throw', 'while',
 ];
 export const BASE_PROPERTIES = Object.freeze({
   assign: { optional: [], required: ['target', 'value'] },
@@ -76,6 +81,7 @@ export const BASE_PROPERTIES = Object.freeze({
   let: { optional: [], required: ['name', 'value'] },
   param: { optional: [], required: ['name', 'type'] },
   return: { optional: ['value'], required: [] },
+  throw: { optional: [], required: ['value'] },
   while: { optional: [], required: ['cond'] },
 });
 const BASE_EXCLUDED_PROPERTY_IDENTITIES = new Set([
@@ -87,6 +93,7 @@ const BASE_EXCLUDED_PROPERTY_IDENTITIES = new Set([
   'let.kind',
   'let.trailingComment',
   'let.type',
+  'throw.trailingComment',
 ]);
 export const BASE_PROPERTY_KEYS = BASE_NODE_KINDS.flatMap((kind) =>
   Object.keys(STRUCTURAL_KIR_NODE_CATALOG.get(kind)?.properties ?? {}).map((key) => `${kind}.${key}`)
@@ -99,10 +106,10 @@ function sameText(left, right) {
 function isExactHistoricalM460Base(base) {
   return (
     base.id === 'kern.kir-canonicalizer.profile.m4.60' &&
-    sameText(base.nodeKinds, BASE_NODE_KINDS) &&
+    sameText(base.nodeKinds, BASE_NODE_KINDS.filter((kind) => kind !== 'throw')) &&
     sameText(base.expressionKinds, BASE_EXPRESSION_KINDS.filter((kind) => kind !== 'new')) &&
-    sameText(base.propertyKeys, BASE_PROPERTY_KEYS) &&
-    JSON.stringify(base.promotions) === JSON.stringify(BASE_PROMOTIONS.slice(0, -1))
+    sameText(base.propertyKeys, BASE_PROPERTY_KEYS.filter((key) => key !== 'throw.value')) &&
+    JSON.stringify(base.promotions) === JSON.stringify(BASE_PROMOTIONS.slice(0, -2))
   );
 }
 
@@ -118,7 +125,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.137 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.141 cumulative profile');
   }
   return base;
 }

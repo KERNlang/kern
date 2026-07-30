@@ -6,9 +6,11 @@ export const PRE_M4135_CANONICALIZER_MAIN_DIGEST =
 export const PRE_M4135_COVERAGE_POLICY_REPLACEMENTS = [
   {
     current: '    "expressionKinds": ["binary", "boolean", "call", "identifier", "index", "integer", "list", "member", "new", "null", "text", "unary"],\n' +
-      '    "id": "kern.kir-canonicalizer.profile.m4.137",\n',
+      '    "id": "kern.kir-canonicalizer.profile.m4.141",\n' +
+      '    "nodeKinds": ["assign", "do", "else", "fn", "for", "handler", "if", "let", "param", "return", "throw", "while"],\n',
     historical: '    "expressionKinds": ["binary", "boolean", "call", "identifier", "index", "integer", "list", "member", "null", "text", "unary"],\n' +
-      '    "id": "kern.kir-canonicalizer.profile.m4.60",\n',
+      '    "id": "kern.kir-canonicalizer.profile.m4.60",\n' +
+      '    "nodeKinds": ["assign", "do", "else", "fn", "for", "handler", "if", "let", "param", "return", "while"],\n',
   },
   {
     current: '      {\n' +
@@ -20,6 +22,11 @@ export const PRE_M4135_COVERAGE_POLICY_REPLACEMENTS = [
       '        "family": "new-expression",\n' +
       '        "provenanceDigest": "ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e",\n' +
       '        "provenanceKind": "prerequisite"\n' +
+      '      },\n' +
+      '      {\n' +
+      '        "family": "exception-flow",\n' +
+      '        "provenanceDigest": "2c36f8d7ec2e91cba6742241e72c79adacc917ad59e3105aabdf15f7e9e712e4",\n' +
+      '        "provenanceKind": "prerequisite"\n' +
       '      }\n',
     historical: '      {\n' +
       '        "family": "while-iteration",\n' +
@@ -28,9 +35,11 @@ export const PRE_M4135_COVERAGE_POLICY_REPLACEMENTS = [
       '      }\n',
   },
   {
-    current: '    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] }\n',
-    historical: '    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },\n' +
-      '    { "expressionKinds": ["new"], "id": "new-expression", "nodeKinds": [], "propertyKeys": [] }\n',
+    current: '      "return.trailingComment", "return.value",\n' +
+      '      "throw.value",\n' +
+      '      "while.cond"\n',
+    historical: '      "return.trailingComment", "return.value",\n' +
+      '      "while.cond"\n',
   },
   {
     current: '      "digest": "959481ea210be8b1740400fe53ed999f08c61232de7855457f54a21f43213b0c",\n' +
@@ -39,8 +48,9 @@ export const PRE_M4135_COVERAGE_POLICY_REPLACEMENTS = [
       '      "path": "examples/kern-canonicalizer/canonicalizer.kern",\n',
   },
   {
-    current: '    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] },\n' +
-      '    { "expressionKinds": ["new"], "id": "new-expression", "nodeKinds": [], "propertyKeys": [] }\n',
-    historical: '    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] }\n',
+    current: '  "families": []\n',
+    historical: '  "families": [\n' +
+      '    { "expressionKinds": [], "id": "exception-flow", "nodeKinds": ["throw"], "propertyKeys": ["throw.value"] }\n' +
+      '  ]\n',
   },
 ];

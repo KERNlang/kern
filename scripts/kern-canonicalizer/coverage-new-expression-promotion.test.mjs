@@ -14,7 +14,6 @@ import { baseExpressionProfileBlockers } from './coverage-profile.mjs';
 import { authenticateHistoricalCoveragePolicy } from './historical-coverage-auth.mjs';
 import { loadPreM4135CoverageInputs } from './historical-parameter-sources.mjs';
 
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.137';
 const NEW_EXPRESSION_PROVENANCE_DIGEST =
   'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e';
 const NEW_EXPRESSION_PROMOTION = {
@@ -49,9 +48,9 @@ const newExpression = (constructor, args, extra = {}) => expression('new', {
   ...extra,
 });
 
-test('M4.137 promotes new-expression through the exact M4.136 provenance', () => {
+test('M4.141 preserves the exact M4.137 new-expression promotion', () => {
   const policy = loadCoveragePolicy();
-  assert.equal(policy.base.id, PROFILE_ID);
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.141');
   assert.deepEqual(policy.base.expressionKinds, [
     'binary',
     'boolean',
@@ -66,8 +65,8 @@ test('M4.137 promotes new-expression through the exact M4.136 provenance', () =>
     'text',
     'unary',
   ]);
-  assert.deepEqual(policy.base.promotions.at(-1), NEW_EXPRESSION_PROMOTION);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(policy.base.promotions.at(-2), NEW_EXPRESSION_PROMOTION);
+  assert.deepEqual(policy.families, []);
 
   const handoff = loadCanonicalizerNewExpressionPrerequisiteProvenance();
   assert.equal(handoff.digest, NEW_EXPRESSION_PROVENANCE_DIGEST);
@@ -75,17 +74,17 @@ test('M4.137 promotes new-expression through the exact M4.136 provenance', () =>
   const summary = summarizeCanonicalizerCoverage(receipt);
   assert.deepEqual(receipt.base, policy.base);
   assert.deepEqual(summary.base, policy.base);
-  assert.deepEqual(receipt.implementationProvenance, NEW_EXPRESSION_PROMOTION);
-  assert.deepEqual(summary.implementationProvenance, NEW_EXPRESSION_PROMOTION);
+  assert.deepEqual(receipt.base.promotions.at(-2), NEW_EXPRESSION_PROMOTION);
+  assert.deepEqual(summary.base.promotions.at(-2), NEW_EXPRESSION_PROMOTION);
   assert.deepEqual(receipt.prerequisiteProvenances.slice(0, 7).at(-1), handoff);
 });
 
-test('M4.137 rejects profile, provenance, and family-registry drift', () => {
+test('M4.141 rejects drift in preserved M4.137 provenance', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.base.id = 'kern.kir-canonicalizer.profile.future'; },
     (copy) => { copy.base.expressionKinds.splice(copy.base.expressionKinds.indexOf('new'), 1); },
-    (copy) => { copy.base.promotions.at(-1).provenanceDigest = '0'.repeat(64); },
+    (copy) => { copy.base.promotions.at(-2).provenanceDigest = '0'.repeat(64); },
     (copy) => {
       copy.families.push({
         expressionKinds: ['new'],

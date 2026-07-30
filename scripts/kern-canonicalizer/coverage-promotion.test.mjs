@@ -11,7 +11,7 @@ import {
 import { baseExpressionProfileBlockers, profileBlockersForFunction } from './coverage-profile.mjs';
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.137';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.141';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
@@ -24,6 +24,8 @@ const DO_PROVENANCE_DIGEST = '3d865f4983e7febd26540db681c88d8749d156f5d180405b83
 const WHILE_PROVENANCE_DIGEST = '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07';
 const NEW_EXPRESSION_PROVENANCE_DIGEST =
   'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e';
+const EXCEPTION_FLOW_PROVENANCE_DIGEST =
+  '2c36f8d7ec2e91cba6742241e72c79adacc917ad59e3105aabdf15f7e9e712e4';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   provenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -79,12 +81,17 @@ const NEW_EXPRESSION_PROMOTION = {
   provenanceDigest: NEW_EXPRESSION_PROVENANCE_DIGEST,
   provenanceKind: 'prerequisite',
 };
-test('M4.137 promotes new expression through exact prerequisite provenance', () => {
+const EXCEPTION_FLOW_PROMOTION = {
+  family: 'exception-flow',
+  provenanceDigest: EXCEPTION_FLOW_PROVENANCE_DIGEST,
+  provenanceKind: 'prerequisite',
+};
+test('M4.141 preserves cumulative promotions and promotes exact exception-flow provenance', () => {
   const policy = loadCoveragePolicy();
   assert.equal(policy.base.id, PROFILE_ID);
   assert.deepEqual(
     policy.base.nodeKinds,
-    ['assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'while'],
+    ['assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'throw', 'while'],
   );
   assert.deepEqual(policy.base.expressionKinds, [
     'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'new', 'null', 'text', 'unary',
@@ -103,9 +110,10 @@ test('M4.137 promotes new expression through exact prerequisite provenance', () 
       DO_PROMOTION,
       WHILE_PROMOTION,
       NEW_EXPRESSION_PROMOTION,
+      EXCEPTION_FLOW_PROMOTION,
     ],
   );
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
+  assert.deepEqual(policy.families, []);
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
   assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.6');
@@ -122,8 +130,8 @@ test('M4.137 promotes new expression through exact prerequisite provenance', () 
     ],
   );
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
-  assert.deepEqual(receipt.implementationProvenance, NEW_EXPRESSION_PROMOTION);
-  assert.deepEqual(summary.implementationProvenance, NEW_EXPRESSION_PROMOTION);
+  assert.deepEqual(receipt.implementationProvenance, EXCEPTION_FLOW_PROMOTION);
+  assert.deepEqual(summary.implementationProvenance, EXCEPTION_FLOW_PROMOTION);
   assert.deepEqual(
     receipt.prerequisiteProvenances.slice(0, 7).map(({ digest }) => digest),
     [
@@ -143,7 +151,7 @@ test('M4.137 promotes new expression through exact prerequisite provenance', () 
   );
 });
 
-test('M4.137 rejects profile identity, typed evidence, and candidate overlap drift', () => {
+test('M4.141 rejects profile identity, typed evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.2'; },
@@ -208,6 +216,14 @@ test('M4.137 rejects profile identity, typed evidence, and candidate overlap dri
         id: 'new-expression',
         nodeKinds: [],
         propertyKeys: [],
+      });
+    },
+    (copy) => {
+      copy.families.push({
+        expressionKinds: [],
+        id: 'exception-flow',
+        nodeKinds: ['throw'],
+        propertyKeys: ['throw.value'],
       });
     },
   ];

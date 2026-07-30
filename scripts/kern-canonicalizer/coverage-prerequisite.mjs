@@ -9,14 +9,13 @@ import {
   readCorpusMemberBytes,
 } from './coverage.mjs';
 import {
-  canonicalProfileRowsForFunction,
-  handlerChildProfilesForFunction,
-  profileBlockersForFunction,
+  canonicalProfileRowsForFunction, handlerChildProfilesForFunction, profileBlockersForFunction,
 } from './coverage-profile.mjs';
 import {
   canonicalizerCompletionProfile,
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
+import { isExactPlainArray } from './coverage-prerequisite-shape.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.3';
@@ -339,7 +338,8 @@ function exactWitness(value, policy) {
 function exactMigration(value, policy) {
   if (
     !exactKeys(value, ['completeFunctions', 'completeTools', 'migratedParameterRows', 'witnesses']) ||
-    !Array.isArray(value.witnesses) || value.witnesses.some((witness) => !exactWitness(witness, policy)) ||
+    !isExactPlainArray(value.witnesses) ||
+    value.witnesses.some((witness) => !exactWitness(witness, policy)) ||
     value.witnesses.some(({ id }, index) => index > 0 && value.witnesses[index - 1].id >= id)
   ) return false;
   return value.completeFunctions === value.witnesses.length &&
@@ -377,10 +377,10 @@ function exactClosureRow(value, familyCount, migratedIds, policy) {
   if (
     !exactKeys(value, [
       'completeFunctions', 'completeTools', 'families', 'migratedParameterRows', 'occurrences', 'witnesses',
-    ]) || !Array.isArray(value.families) || value.families.length !== familyCount ||
+    ]) || !isExactPlainArray(value.families) || value.families.length !== familyCount ||
     value.families.some((family) => !familyIds.has(family)) ||
     JSON.stringify(value.families) !== JSON.stringify([...new Set(value.families)].sort(compareText)) ||
-    !Array.isArray(value.witnesses) || value.witnesses.length === 0 ||
+    !isExactPlainArray(value.witnesses) || value.witnesses.length === 0 ||
     value.witnesses.some((witness) => !exactWitness(witness, policy) || migratedIds.has(witness.id)) ||
     new Set(value.witnesses.map(({ id }) => id)).size !== value.witnesses.length ||
     !Number.isSafeInteger(value.occurrences) || value.occurrences < 1
@@ -390,14 +390,14 @@ function exactClosureRow(value, familyCount, migratedIds, policy) {
     value.migratedParameterRows === value.witnesses.reduce((total, row) => total + row.parameterRows, 0);
 }
 
-function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy, expected) {
+export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy, expected) {
   const keys = [
     'baseline', 'exhaustion', 'format', 'minimumFamilyCount', 'outcome', 'parameterMigration',
     'prerequisiteRanking', 'ranking', 'selectedPrerequisite',
   ];
   if (!exactKeys(summary, keys) || summary.format !== FORMAT) fail('invalid format-3 summary shape');
   if (
-    !Array.isArray(summary.prerequisiteRanking) || !Array.isArray(summary.ranking) ||
+    !isExactPlainArray(summary.prerequisiteRanking) || !isExactPlainArray(summary.ranking) ||
     !exactBaseline(summary.baseline, policy) || !exactMigration(summary.parameterMigration, policy) ||
     summary.parameterMigration.completeFunctions > summary.baseline.legacyParameterBlockers ||
     summary.parameterMigration.completeTools > summary.baseline.toolCount
@@ -447,7 +447,8 @@ function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy, expect
       exhaustion.residualFunctionCount + summary.parameterMigration.completeFunctions !==
         summary.baseline.legacyParameterBlockers ||
       !/^[0-9a-f]{64}$/u.test(exhaustion.reasonAssignmentsDigest) ||
-      !Array.isArray(exhaustion.reasonCounts) || exhaustion.reasonCounts.length === 0 ||
+      !isExactPlainArray(exhaustion.activeFamilies) ||
+      !isExactPlainArray(exhaustion.reasonCounts) || exhaustion.reasonCounts.length === 0 ||
       exhaustion.reasonCounts.some((row, index) =>
         !exactKeys(row, ['count', 'id']) || !Number.isSafeInteger(row.count) || row.count < 1 ||
         row.count > exhaustion.residualFunctionCount || typeof row.id !== 'string' || row.id.length === 0 ||
@@ -509,7 +510,6 @@ function buildCanonicalizerPrerequisiteSummary(policy) {
   };
   return summary;
 }
-
 export function validateCanonicalizerPrerequisiteSummary(summary, policy = loadCoveragePolicy()) {
   return validateCanonicalizerPrerequisiteSummaryAgainst(
     summary, policy, buildCanonicalizerPrerequisiteSummary(policy),

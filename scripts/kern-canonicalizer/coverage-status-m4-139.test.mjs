@@ -1,15 +1,38 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
-import { assertM4139BoundedExceptionFlow } from './coverage-m4-139-central.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import {
+  loadCanonicalizerExceptionFlowPrerequisiteProvenance,
+} from './coverage-prerequisite-provenance.mjs';
+import {
+  formatM4139BoundedExceptionFlowStatus,
+} from './coverage-status-m4-139.mjs';
 
-test('M4.139 binds bounded valued-throw implementation to the exact live frontier', () => {
+function archivedFrontier() {
+  return {
+    coverage: {
+      base: { id: 'kern.kir-canonicalizer.profile.m4.137' },
+      baseCompleteFunctions: 109,
+    },
+    prerequisite: {
+      parameterMigration: { migratedParameterRows: 0 },
+      ranking: [{ completeFunctions: 1, migratedParameterRows: 15 }],
+      selectedPrerequisite: {
+        catalogFacts: 2,
+        family: 'exception-flow',
+        occurrences: 34,
+      },
+    },
+  };
+}
+
+test('M4.139 status remains bound to its immutable bounded frontier', () => {
+  const { coverage, prerequisite } = archivedFrontier();
   assert.equal(
-    assertM4139BoundedExceptionFlow(
-      measureCanonicalizerCoverage(),
-      measureCanonicalizerPrerequisite(),
+    formatM4139BoundedExceptionFlowStatus(
+      coverage,
+      prerequisite,
+      loadCanonicalizerExceptionFlowPrerequisiteProvenance(),
     ),
     'M4.139 publishes bounded valued-throw validation and canonical emission; ' +
       'the M4.137 base remains 109/112 and exception-flow remains the exact ' +
@@ -18,17 +41,17 @@ test('M4.139 binds bounded valued-throw implementation to the exact live frontie
   );
 });
 
-test('M4.139 rejects live base and prerequisite drift', () => {
-  const coverage = measureCanonicalizerCoverage();
-  const prerequisite = measureCanonicalizerPrerequisite();
+test('M4.139 status rejects archived base and prerequisite drift', () => {
+  const { coverage, prerequisite } = archivedFrontier();
+  const handoff = loadCanonicalizerExceptionFlowPrerequisiteProvenance();
   const changedCoverage = structuredClone(coverage);
   changedCoverage.baseCompleteFunctions = 110;
   assert.throws(
-    () => assertM4139BoundedExceptionFlow(changedCoverage, prerequisite),
+    () => formatM4139BoundedExceptionFlowStatus(changedCoverage, prerequisite, handoff),
   );
   const changedPrerequisite = structuredClone(prerequisite);
   changedPrerequisite.selectedPrerequisite.occurrences = 35;
   assert.throws(
-    () => assertM4139BoundedExceptionFlow(coverage, changedPrerequisite),
+    () => formatM4139BoundedExceptionFlowStatus(coverage, changedPrerequisite, handoff),
   );
 });

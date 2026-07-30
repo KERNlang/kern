@@ -439,7 +439,7 @@ const m4131CoverageStatusLine = m4131CoverageStatus();
 const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
-const m4140CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+let m4141CoverageStatusLine;
 assert.deepEqual(
   policy.profileLimits,
   m4130ActiveProfile(),
@@ -456,7 +456,9 @@ assertM482ParameterMigration(coverage);
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
+  m4141CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 } else {
+  m4141CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
   assert.equal(actual.selectionProvenances[0].digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
@@ -536,11 +538,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.prerequisiteProvenances.length, 8);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
-    family: 'new-expression',
-    provenanceDigest: prerequisiteHandoffs[6].digest,
+    family: 'exception-flow',
+    provenanceDigest: prerequisiteHandoffs[7].digest,
     provenanceKind: 'prerequisite',
   });
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.137');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.141');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -597,26 +599,27 @@ if (process.argv.includes('--write')) {
       provenanceDigest: 'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.137 must preserve the eleven promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.137 handwritten corpus count must remain exact');
+    {
+      family: 'exception-flow',
+      provenanceDigest: '2c36f8d7ec2e91cba6742241e72c79adacc917ad59e3105aabdf15f7e9e712e4',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.141 must preserve the twelve promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.141 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 112, 'live M4.119 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.137 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 109, 'live M4.137 base completion must remain exactly 109/112');
+  assert.equal(actual.toolCount, 4, 'live M4.141 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 109, 'live M4.141 base completion must remain exactly 109/112');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     3,
     'live M4.131 fn.params blocker count must remain exactly 3',
   );
-  assert.equal(actual.selection.winner, null, 'live M4.137 ordinary selection must be exhausted');
-  assert.deepEqual(
-    actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
-    [{ completeFunctions: 0, completeTools: 0, id: 'exception-flow' }],
-    'live M4.137 residual family ranking must remain exact',
-  );
+  assert.equal(actual.selection.winner, null, 'live M4.141 ordinary selection must be exhausted');
+  assert.deepEqual(actual.selection.ranking, [], 'live M4.141 active family ranking must be empty');
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(prerequisite.outcome, 'selected');
-  assert.equal(prerequisite.minimumFamilyCount, 1);
+  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -636,20 +639,15 @@ if (process.argv.includes('--write')) {
       tool: 'checker',
     }],
   });
-  assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 2,
-    family: 'exception-flow',
-    occurrences: 34,
-  });
-  assert.deepEqual(
-    prerequisite.prerequisiteRanking.map(({ family }) => family),
-    ['exception-flow'],
+  assert.equal(prerequisite.selectedPrerequisite, null);
+  assert.deepEqual(prerequisite.prerequisiteRanking, []);
+  assert.deepEqual(prerequisite.ranking, []);
+  assert.deepEqual(prerequisite.exhaustion.activeFamilies, []);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 2);
+  assert.equal(
+    prerequisite.exhaustion.reasonAssignmentsDigest,
+    '1da9a57ec132a8147f75ab0d252e188aa86b2744b23d58cf3dfa3510b7bcc106',
   );
-  assert.deepEqual(
-    prerequisite.ranking.map(({ families }) => families),
-    [['exception-flow']],
-  );
-  assert.equal(prerequisite.exhaustion, null);
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
   assert.equal(m468PrerequisiteHandoff.sourceCommit,
@@ -1934,7 +1932,7 @@ process.stdout.write(
   ` ${m4133CoverageStatusLine}` +
   ` ${m4134CoverageStatusLine}` +
   ` ${formatM4138ExceptionFlowHandoffStatus(loadCanonicalizerExceptionFlowPrerequisiteProvenance())}` +
-  ` ${m4140CoverageStatusLine}` +
+  ` ${m4141CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
