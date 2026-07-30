@@ -5,9 +5,9 @@ import test from 'node:test';
 
 import {
   canonicalPrerequisiteProvenanceBytes,
-  loadCanonicalizerNewExpressionPrerequisiteProvenance,
+  loadCanonicalizerExceptionFlowPrerequisiteProvenance,
   loadCanonicalizerPrerequisiteProvenanceChain,
-  validateCanonicalizerNewExpressionPrerequisiteHandoff,
+  validateCanonicalizerExceptionFlowPrerequisiteHandoff,
   validateCanonicalizerPrerequisiteProvenanceChain,
 } from './coverage-prerequisite-provenance.mjs';
 
@@ -17,51 +17,50 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-test('M4.136 freezes the exact published new-expression prerequisite', () => {
-  const handoff = loadCanonicalizerNewExpressionPrerequisiteProvenance();
+test('M4.138 freezes the exact published exception-flow prerequisite', () => {
+  const handoff = loadCanonicalizerExceptionFlowPrerequisiteProvenance();
   assert.deepEqual(handoff.record.source, {
-    commit: '5c5e80fe03f9664ffb2cd87b513b7dfe3d9d867c',
+    commit: '5b35add93c04871beac52d0b93d74fa06a7039ae',
     coverageSummaryFormat: 'kern.kir-canonicalizer.coverage-summary.6',
-    coverageSummarySha256: 'b54ea0da184be397ff995d3ffce4ee4be425cd2751de5089543a246be3c7c522',
+    coverageSummarySha256: '7e6b79ade0125e120b19009d53e2cb4b05e17633cd38bd6f4787075ded58e615',
     prerequisiteSummaryFormat: 'kern.kir-canonicalizer.prerequisite-summary.3',
-    prerequisiteSummarySha256: '019ca1548ad46208c8b34b31cbd5d9bb4d140b4888a9992731a286cfde464a5b',
+    prerequisiteSummarySha256: 'd07915389748776424f0075f512abc7fe0d2957864a09a11c111179f60b9fb62',
   });
   assert.deepEqual(handoff.record.snapshot, {
     baseline: {
-      baseCompleteFunctions: 104,
-      baseId: 'kern.kir-canonicalizer.profile.m4.60',
+      baseCompleteFunctions: 109,
+      baseId: 'kern.kir-canonicalizer.profile.m4.137',
       corpusMembers: 9,
       functionCount: 112,
       legacyParameterBlockers: 3,
       toolCount: 4,
     },
-    minimumFamilyCount: 2,
+    minimumFamilyCount: 1,
     selectedPrerequisite: {
-      catalogFacts: 1,
-      family: 'new-expression',
-      occurrences: 41,
+      catalogFacts: 2,
+      family: 'exception-flow',
+      occurrences: 34,
     },
     winningClosure: {
       completeFunctions: 1,
       completeTools: 1,
-      families: ['exception-flow', 'new-expression'],
+      families: ['exception-flow'],
       migratedParameterRows: 15,
-      occurrences: 75,
+      occurrences: 34,
       witnesses: [CANONICALIZE_ID],
     },
   });
   const bytes = readFileSync(
-    new URL('./coverage-new-expression-prerequisite-provenance.json', import.meta.url),
+    new URL('./coverage-exception-flow-prerequisite-provenance.json', import.meta.url),
   );
   assert.deepEqual(canonicalPrerequisiteProvenanceBytes(handoff.record), bytes);
   assert.equal(sha256(bytes), handoff.digest);
 });
 
-test('M4.136 prerequisite history is the exact seven-record append-only chain', () => {
-  const currentChain = loadCanonicalizerPrerequisiteProvenanceChain();
-  const chain = currentChain.slice(0, 7);
-  assert.equal(chain.length, 7);
-  assert.deepEqual(chain.at(-1), loadCanonicalizerNewExpressionPrerequisiteProvenance());
+test('M4.138 prerequisite history is the exact eight-record append-only chain', () => {
+  const chain = loadCanonicalizerPrerequisiteProvenanceChain();
+  assert.equal(chain.length, 8);
+  assert.deepEqual(chain.at(-1), loadCanonicalizerExceptionFlowPrerequisiteProvenance());
   assert.deepEqual(
     chain.map(({ record }) => record.snapshot.selectedPrerequisite.family),
     [
@@ -72,18 +71,19 @@ test('M4.136 prerequisite history is the exact seven-record append-only chain', 
       'do-statement',
       'while-iteration',
       'new-expression',
+      'exception-flow',
     ],
   );
   const mutations = [
     (copy) => { copy.reverse(); },
     (copy) => { copy.pop(); },
-    (copy) => { copy.push(copy[6]); },
-    (copy) => { copy[6].digest = '0'.repeat(64); },
-    (copy) => { copy[6].record.source.commit = '0'.repeat(40); },
-    (copy) => { copy[6].record.snapshot.selectedPrerequisite.family = 'exception-flow'; },
+    (copy) => { copy.push(copy[7]); },
+    (copy) => { copy[7].digest = '0'.repeat(64); },
+    (copy) => { copy[7].record.source.commit = '0'.repeat(40); },
+    (copy) => { copy[7].record.snapshot.selectedPrerequisite.family = 'new-expression'; },
   ];
   for (const mutate of mutations) {
-    const copy = structuredClone(currentChain);
+    const copy = structuredClone(chain);
     mutate(copy);
     assert.throws(
       () => validateCanonicalizerPrerequisiteProvenanceChain(copy),
@@ -92,8 +92,8 @@ test('M4.136 prerequisite history is the exact seven-record append-only chain', 
   }
 });
 
-test('M4.136 exact handoff rejects structurally valid causal drift', () => {
-  const handoff = loadCanonicalizerNewExpressionPrerequisiteProvenance();
+test('M4.138 exact handoff rejects structurally valid causal drift', () => {
+  const handoff = loadCanonicalizerExceptionFlowPrerequisiteProvenance();
   const mutations = [
     (copy) => { copy.source.coverageSummarySha256 = '0'.repeat(64); },
     (copy) => { copy.source.prerequisiteSummarySha256 = '0'.repeat(64); },
@@ -109,7 +109,7 @@ test('M4.136 exact handoff rejects structurally valid causal drift', () => {
     const copy = structuredClone(handoff.record);
     mutate(copy);
     assert.throws(
-      () => validateCanonicalizerNewExpressionPrerequisiteHandoff(copy),
+      () => validateCanonicalizerExceptionFlowPrerequisiteHandoff(copy),
       /prerequisite provenance rejection/u,
     );
   }

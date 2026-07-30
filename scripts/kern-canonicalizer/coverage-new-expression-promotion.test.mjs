@@ -77,8 +77,7 @@ test('M4.137 promotes new-expression through the exact M4.136 provenance', () =>
   assert.deepEqual(summary.base, policy.base);
   assert.deepEqual(receipt.implementationProvenance, NEW_EXPRESSION_PROMOTION);
   assert.deepEqual(summary.implementationProvenance, NEW_EXPRESSION_PROMOTION);
-  assert.deepEqual(receipt.prerequisiteProvenances.at(-1), handoff);
-  assert.equal(receipt.prerequisiteProvenances.length, 7);
+  assert.deepEqual(receipt.prerequisiteProvenances.slice(0, 7).at(-1), handoff);
 });
 
 test('M4.137 rejects profile, provenance, and family-registry drift', () => {

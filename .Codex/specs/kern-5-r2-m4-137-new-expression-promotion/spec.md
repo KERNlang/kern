@@ -3,7 +3,7 @@
 **Status:** VERIFIED — READY TO PUBLISH
 **Date:** 2026-07-30
 **Base commit:** `ea82f5e4f951e5a27064790e711dc81a898c313b`
-**Confidence:** 0.98
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -160,17 +160,18 @@ and the measured residual frontier. The next slice must consume that published
 frontier honestly; it may not infer exception-flow implementation or parameter
 migration from this promotion alone.
 
-## Current Evidence
+## Published M4.137 Evidence
 
-[VERIFIED] The focused M4.137 contract suite passes 55/55 tests. Receipt
-generation succeeds with:
+[VERIFIED] At published M4.137 commit
+`5b35add93c04871beac52d0b93d74fa06a7039ae`, the focused contract suite
+passes 55/55 tests and receipt generation produces:
 
 - coverage summary SHA-256
-  `d9b82dac62a6db2817bef824de4c17b1449bec7885860a167487a7c51ae6b875`;
+  `7e6b79ade0125e120b19009d53e2cb4b05e17633cd38bd6f4787075ded58e615`;
 - prerequisite summary SHA-256
-  `3a55b1024d043e4f585ac03df845c1fc3d74e538dd86ce816043e18d46fda093`;
+  `d07915389748776424f0075f512abc7fe0d2957864a09a11c111179f60b9fb62`;
 - coverage implementation digest
-  `d0039abea55f3fbc8f6fbdcdbab69b83d88bd55b9cbef26385faf8e6f0d5df9f`;
+  `f8308a44e888d7e4b0b0d9546ec49831fd7515c2c04d90355445f53d7ddfce40`;
 - coverage policy digest
   `edecde1e3bd5e27ef3025ff6da045a77b71e9718e4fd573bc0bedc17a060e6c5`;
 - profile digest
@@ -189,11 +190,12 @@ conformance, KIR proofs, runtime ABI/quarantine, source-runner convergence,
 and the dedicated canonicalizer gate.
 
 [VERIFIED] Agon review
-`review-1785370468008-9sgy7l-m4-137-new-expression-promotion` completed with
-6/6 usable engines. Consensus reported zero verified findings; the correctness
-reviewer reported no findings. All four needs-check items were rejected against
-the current source: the alleged unused import is absent, the current-frontier
-assertion delegates to the M4.137 assertion, historical replacements require
-one exact occurrence plus the archived SHA-256, and historical authentication
-requires allowlisted bytes whose parsed value exactly matches the supplied
-policy.
+`review-1785370267599-friai7` completed with 6/6 usable engines and identified
+three needs-check findings that were confirmed and fixed: historical
+authentication now requires allowlisted archived bytes whose parsed value
+exactly matches the supplied policy, a dead import was removed, and the
+current-frontier assertion delegates to the M4.137 assertion owner. The
+review-fix regression set passes 38/38, including rejection of fabricated
+historical policy data. Post-fix review
+`review-1785370468008-9sgy7l-m4-137-new-expression-promotion` then completed
+with 6/6 usable engines, zero verified findings, and no correctness findings.

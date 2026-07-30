@@ -72,10 +72,9 @@ import { assertM465ParameterMigrations } from './kern-canonicalizer/coverage-m4-
 import { assertM469ParameterMigration } from './kern-canonicalizer/coverage-m4-69-parameter-migration.mjs';
 import { assertM473ParameterMigration } from './kern-canonicalizer/coverage-m4-73-parameter-migration.mjs';
 import { assertM477ParameterMigration } from './kern-canonicalizer/coverage-m4-77-parameter-migration.mjs';
-import { loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
-import {
-  loadCanonicalizerResidualAnalysisHandoff,
-} from './kern-canonicalizer/coverage-residual-analysis.mjs';
+import { loadCanonicalizerExceptionFlowPrerequisiteProvenance, loadCanonicalizerPrerequisiteProvenanceChain } from './kern-canonicalizer/coverage-prerequisite-provenance.mjs';
+import { formatM4138ExceptionFlowHandoffStatus } from './kern-canonicalizer/coverage-status-m4-138.mjs';
+import { loadCanonicalizerResidualAnalysisHandoff } from './kern-canonicalizer/coverage-residual-analysis.mjs';
 import {
   loadPublishedCanonicalizerResidualAnalysisM438,
 } from './kern-canonicalizer/coverage-residual-analysis-m4-38.mjs';
@@ -534,7 +533,7 @@ if (process.argv.includes('--write')) {
     },
     toolCount: 4,
   }, 'frozen M4.11 member-expression selection provenance must remain exact');
-  assert.equal(actual.prerequisiteProvenances.length, 7);
+  assert.equal(actual.prerequisiteProvenances.length, 8);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
     family: 'new-expression',
@@ -1935,6 +1934,7 @@ process.stdout.write(
   ` ${m4133CoverageStatusLine}` +
   ` ${m4134CoverageStatusLine}` +
   ` ${m4137CoverageStatusLine}` +
+  ` ${formatM4138ExceptionFlowHandoffStatus(loadCanonicalizerExceptionFlowPrerequisiteProvenance())}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

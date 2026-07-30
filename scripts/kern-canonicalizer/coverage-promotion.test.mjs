@@ -125,7 +125,7 @@ test('M4.137 promotes new expression through exact prerequisite provenance', () 
   assert.deepEqual(receipt.implementationProvenance, NEW_EXPRESSION_PROMOTION);
   assert.deepEqual(summary.implementationProvenance, NEW_EXPRESSION_PROMOTION);
   assert.deepEqual(
-    receipt.prerequisiteProvenances.map(({ digest }) => digest),
+    receipt.prerequisiteProvenances.slice(0, 7).map(({ digest }) => digest),
     [
       INDEX_PROVENANCE_DIGEST,
       COUNTED_ITERATION_PROVENANCE_DIGEST,

@@ -1,0 +1,38 @@
+{
+  "format": "kern.kir-canonicalizer.prerequisite-provenance.1",
+  "snapshot": {
+    "baseline": {
+      "baseCompleteFunctions": 109,
+      "baseId": "kern.kir-canonicalizer.profile.m4.137",
+      "corpusMembers": 9,
+      "functionCount": 112,
+      "legacyParameterBlockers": 3,
+      "toolCount": 4
+    },
+    "minimumFamilyCount": 1,
+    "selectedPrerequisite": {
+      "catalogFacts": 2,
+      "family": "exception-flow",
+      "occurrences": 34
+    },
+    "winningClosure": {
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "families": [
+        "exception-flow"
+      ],
+      "migratedParameterRows": 15,
+      "occurrences": 34,
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize"
+      ]
+    }
+  },
+  "source": {
+    "commit": "5b35add93c04871beac52d0b93d74fa06a7039ae",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+    "coverageSummarySha256": "7e6b79ade0125e120b19009d53e2cb4b05e17633cd38bd6f4787075ded58e615",
+    "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.3",
+    "prerequisiteSummarySha256": "d07915389748776424f0075f512abc7fe0d2957864a09a11c111179f60b9fb62"
+  }
+}
