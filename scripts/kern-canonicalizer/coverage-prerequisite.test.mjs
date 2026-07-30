@@ -63,21 +63,21 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.137 publishes the exact current promoted frontier', () => {
+test('M4.139 publishes the exact current bounded exception-flow frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 109,
     baseId: 'kern.kir-canonicalizer.profile.m4.137',
-    canonicalizerDigest: 'e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75',
+    canonicalizerDigest: 'd96dee80f12236a3d9089bf44aeee699e6a3c35856e71f79a0743691248ea16e',
     canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
     compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
-    corpusDigest: '74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7',
+    corpusDigest: '83f7830687fc69bdc8bfdc83e10cfad2a18768076ab55300f23df3379fd89772',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'edecde1e3bd5e27ef3025ff6da045a77b71e9718e4fd573bc0bedc17a060e6c5',
+    coveragePolicyDigest: '5a909a0b0d17ab3fafdeb8223bd2b9acd8c491f68284c338ac0a80f3075636c3',
     familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
-    functionFactsDigest: '43c1d9d7fe4aec5c8ebc5041cc6a9973531a7709f557e671840cb82e2117c85f',
+    functionFactsDigest: 'b55e5822c5a3f4f20316a2abc12107fdfa10d93af3ece6316aa0f686ef3fc0dc',
     legacyParameterBlockers: 3,
     profileDigest: 'fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b',
     toolCount: 4,

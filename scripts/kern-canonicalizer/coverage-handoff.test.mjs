@@ -390,7 +390,7 @@ test('the current corpus preserves selection and eight-record prerequisite histo
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('the current M4.137 profile promotes exact new expression into the cumulative base', () => {
+test('the current M4.139 executable preserves the exact M4.137 profile promotion', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -405,11 +405,11 @@ test('the current M4.137 profile promotes exact new expression into the cumulati
     'd7116ba9cb7bb3c86d5692dfb72f98a715322b028f59cec622dc21588aaa66cc',
     'M4.5a must retain the exact pre-call implementation selection bytes',
   );
-  assert.equal(canonicalizerSource.length, 63461, 'M4.135 must bind the exact current KERN byte count');
+  assert.equal(canonicalizerSource.length, 64088, 'M4.139 must bind the exact current KERN byte count');
   assert.equal(
     createHash('sha256').update(canonicalizerSource).digest('hex'),
-    'e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75',
-    'M4.135 must bind the exact current KERN digest',
+    'd96dee80f12236a3d9089bf44aeee699e6a3c35856e71f79a0743691248ea16e',
+    'M4.139 must bind the exact current KERN digest',
   );
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"do\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"unary\\" && fieldCount == 2"/u);
@@ -418,6 +418,7 @@ test('the current M4.137 profile promotes exact new expression into the cumulati
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"index\\" && fieldCount == 3"/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"for\\""/u);
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"while\\""/u);
+  assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"throw\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.137');

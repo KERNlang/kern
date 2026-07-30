@@ -8,6 +8,7 @@ import {
   assertM4113ParameterMigrations,
   assertM4113ParameterTarget,
   m4113ParameterMigration,
+  M4113_CURRENT_PARAMETER_TARGETS,
   M4113_PARAMETER_MIGRATION_TARGETS,
 } from './coverage-m4-113-parameter-migration.mjs';
 import { m4112ParameterMigration } from './coverage-m4-112-kir-depth-promotion.mjs';
@@ -151,7 +152,7 @@ test('M4.113 consumes the exact immutable M4.112 nine-function queue', () => {
 test('M4.113 migrates all targets without changing bodies or contracts', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM4113ParameterMigrations(coverage);
-  for (const target of M4113_PARAMETER_MIGRATION_TARGETS) {
+  for (const target of M4113_CURRENT_PARAMETER_TARGETS) {
     const fixture = targetFixture(target, coverage);
     assertM4113ParameterTarget(fixture.root, fixture.fact, fixture.target);
   }

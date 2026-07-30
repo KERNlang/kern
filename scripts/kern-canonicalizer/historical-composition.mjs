@@ -13,6 +13,7 @@ import {
 } from './assignment-target-projection-target.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
+import { EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS } from './exception-flow-emission-target.mjs';
 import { TYPE_FIELD_INDEX_M4117_REPLACEMENT } from './type-field-index-target.mjs';
 import { NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS } from './new-expression-emission-target.mjs';
 import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
@@ -103,6 +104,7 @@ export function loadHistoricalCanonicalizerComposition({
   mainSourceReplacements = NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
   statementHelperReplacements = [
     ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
+    ...EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
   ],
 }) {
   const expected = exactExpectedDigests(expectedDigests, milestone);
@@ -188,6 +190,7 @@ export function loadPreM4129CanonicalizerComposition() {
     milestone: 'pre-M4.129',
     statementHelperReplacements: [
       ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
+      ...EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
     ],
     statementHelperTargets: [],
   });

@@ -73,8 +73,8 @@ test('M4.104 statement emission sparsely quotes only previously validated canoni
   assert.equal((validatedQuote.match(/Text\.indexOf\(/gu) ?? []).length, 6);
   assert.equal((validatedQuote.match(/Text\.indexOf\(value,/gu) ?? []).length, 1);
   assert.equal((validatedQuote.match(/Text\.slice\(/gu) ?? []).length, 2);
-  assert.equal((statementEmitter.match(/quotesource\(/gu) ?? []).length, 9);
-  assert.equal((statementEmitter.match(/, true\)/gu) ?? []).length, 9);
+  assert.equal((statementEmitter.match(/quotesource\(/gu) ?? []).length, 10);
+  assert.equal((statementEmitter.match(/, true\)/gu) ?? []).length, 10);
 });
 
 test('M4.104 child lookup starts at the authenticated parent row and returns immediately', () => {
@@ -258,6 +258,29 @@ test('counted-iteration validation and emission stay in the KERN statement membe
   }
   assert.ok(emissionBranch.includes('quotesource(fromExpression, true)'), 'for emission must quote validated canonical from source');
   assert.ok(emissionBranch.includes('quotesource(toExpression, true)'), 'for emission must quote validated canonical to source');
+});
+
+test('M4.139 valued throw validation and emission stay bounded in the KERN statement member', () => {
+  const validation = topLevelFunctionSource(statementSource, 'validstatement');
+  const emission = topLevelFunctionSource(statementSource, 'emitstatement');
+  const validationStart = validation.indexOf('if cond="kind == \\"throw\\""');
+  const emissionStart = emission.indexOf('if cond="kind == \\"throw\\""');
+  assert.ok(validationStart >= 0, 'missing KERN-owned throw validation branch');
+  assert.ok(emissionStart >= 0, 'missing KERN-owned throw emission branch');
+  const validationBranch = validation.slice(
+    validationStart,
+    validation.indexOf('\n    if cond=', validationStart + 1),
+  );
+  const emissionBranch = emission.slice(
+    emissionStart,
+    emission.indexOf('\n    if cond=', emissionStart + 1),
+  );
+  assert.ok(validationBranch.includes('facts[0] != 0'), 'throw must remain a leaf');
+  assert.ok(validationBranch.includes('valueId <= 0 || facts[1] != 1'));
+  assert.ok(validationBranch.includes('exprsource(valueId,'));
+  assert.ok(emissionBranch.includes('throw value='));
+  assert.ok(emissionBranch.includes('quotesource(expression, true)'));
+  assert.ok(emissionBranch.includes('return value="out"'));
 });
 
 test('binding validation and emission stay in the KERN statement member', () => {
@@ -464,7 +487,8 @@ test('the pre-M4.3b semantic golden corpus bytes remain unchanged', () => {
     !id.startsWith('binary-') && !id.startsWith('conditional-') &&
     !id.startsWith('call-') && !id.startsWith('member-') && !id.startsWith('index-') &&
     !id.startsWith('counted-iteration-') && !id.startsWith('binding-') &&
-    !id.startsWith('unary-') && !id.startsWith('do-') && !id.startsWith('while-'));
+    !id.startsWith('unary-') && !id.startsWith('do-') && !id.startsWith('while-') &&
+    !id.startsWith('throw-'));
   for (const fixture of nonBinary) {
     hash.update(`${fixture.id.length}:${fixture.id}:${Buffer.byteLength(fixture.golden)}:`);
     hash.update(fixture.golden);

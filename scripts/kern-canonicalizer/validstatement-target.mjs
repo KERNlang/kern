@@ -42,6 +42,13 @@ export const CURRENT_VALIDSTATEMENT_TARGET_M4129 = {
   sourceSha256: '67af44e97b0e874295f312e4c8033a13c57045a38ca2179c6c00b53abb68b5ce',
 };
 
+export const CURRENT_VALIDSTATEMENT_TARGET_M4139 = {
+  ...VALIDSTATEMENT_DIRECT_TARGET,
+  bodyDigest: '6913100a2edb7e81f74cc178d24cb116f554ce258e2b883ebdfd2d8c9e94611f',
+  profileRows: { nodes: 97, properties: 135, values: 2016 },
+  sourceSha256: '604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b',
+};
+
 export function assertValidstatementDirectRoot(
   root,
   target = VALIDSTATEMENT_DIRECT_TARGET,

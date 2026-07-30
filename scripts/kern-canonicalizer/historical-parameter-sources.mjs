@@ -5,6 +5,13 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
 } from './assignment-target-projection-target.mjs';
+import {
+  EXCEPTION_FLOW_M4139_COVERAGE_POLICY_REPLACEMENT,
+  PRE_M4139_STATEMENT_HELPERS_DIGEST,
+} from './exception-flow-coverage-target.mjs';
+import {
+  EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
+} from './exception-flow-emission-target.mjs';
 import { authenticateHistoricalCoveragePolicy } from './historical-coverage-auth.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
@@ -88,7 +95,10 @@ function preM4135CoveragePolicy(currentPolicy, currentPolicySource) {
     currentSource: currentPolicySource,
     expectedDigest: PRE_M4135_COVERAGE_POLICY_DIGEST,
     milestone: 'pre-M4.135 coverage policy',
-    replacements: PRE_M4135_COVERAGE_POLICY_REPLACEMENTS,
+    replacements: [
+      EXCEPTION_FLOW_M4139_COVERAGE_POLICY_REPLACEMENT,
+      ...PRE_M4135_COVERAGE_POLICY_REPLACEMENTS,
+    ],
   }).toString('utf8');
   const mainSource = reconstructHistoricalSource({
     currentSource: readFileSync(new URL(`../../${CANONICALIZER_MAIN_PATH}`, import.meta.url)),
@@ -96,10 +106,19 @@ function preM4135CoveragePolicy(currentPolicy, currentPolicySource) {
     milestone: 'pre-M4.135 canonicalizer main source',
     replacements: NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
   });
+  const statementHelpersSource = reconstructHistoricalSource({
+    currentSource: readFileSync(new URL(`../../${STATEMENT_HELPERS_PATH}`, import.meta.url)),
+    expectedDigest: PRE_M4139_STATEMENT_HELPERS_DIGEST,
+    milestone: 'pre-M4.139 statement helpers',
+    replacements: EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
+  });
   return {
     policy: JSON.parse(policySource),
     policySource,
-    sourceOverrides: new Map([[CANONICALIZER_MAIN_PATH, mainSource]]),
+    sourceOverrides: new Map([
+      [CANONICALIZER_MAIN_PATH, mainSource],
+      [STATEMENT_HELPERS_PATH, statementHelpersSource],
+    ]),
   };
 }
 
@@ -227,7 +246,10 @@ export function loadPreM4113CoverageInputs(currentPolicy) {
       replacements: [
         ...names.map((name) => signatureReplacement(sourceText, name)),
         ...(path === STATEMENT_HELPERS_PATH
-          ? [ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT]
+          ? [
+              ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
+              ...EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
+            ]
           : []),
       ],
     }));
@@ -279,7 +301,10 @@ export function loadPreM4124CoverageInputs(currentPolicy) {
       currentSource: statementHelpersSource,
       expectedDigest: PRE_M4129_STATEMENT_HELPERS_DIGEST,
       milestone: 'pre-M4.129 statement helpers',
-      replacements: [ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT],
+      replacements: [
+        ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
+        ...EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
+      ],
     }));
   const policy = preM4131.policy;
   const checker = policy.corpus.find(({ path }) => path === CHECKER_PATH);
@@ -337,7 +362,10 @@ export function loadPreM4129CoverageInputs(currentPolicy) {
     currentSource,
     expectedDigest: PRE_M4129_STATEMENT_HELPERS_DIGEST,
     milestone: 'pre-M4.129 statement helpers',
-    replacements: [ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT],
+    replacements: [
+      ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
+      ...EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
+    ],
   });
   const policy = preM4131.policy;
   const statementHelpers = policy.corpus.find(

@@ -4,7 +4,7 @@ import { parameterMigrationRoots } from './coverage-value-band-parameter-migrati
 import { m4107ParameterMigration } from './coverage-m4-107-triple-row-promotion.mjs';
 import {
   assertValidstatementDirectRoot,
-  CURRENT_VALIDSTATEMENT_TARGET_M4129,
+  CURRENT_VALIDSTATEMENT_TARGET_M4139,
   VALIDSTATEMENT_DIRECT_TARGET,
 } from './validstatement-target.mjs';
 
@@ -15,7 +15,7 @@ const POST_MIGRATION_QUEUE = {
   witnesses: [],
 };
 
-export const M4108_PARAMETER_MIGRATION_TARGET = CURRENT_VALIDSTATEMENT_TARGET_M4129;
+export const M4108_PARAMETER_MIGRATION_TARGET = CURRENT_VALIDSTATEMENT_TARGET_M4139;
 
 export function assertM4108ParameterTarget(
   root,

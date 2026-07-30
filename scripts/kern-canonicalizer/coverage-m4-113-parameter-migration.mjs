@@ -5,7 +5,10 @@ import {
   parameterMigrationRoots,
   semanticBodyDigest,
 } from './coverage-value-band-parameter-migrations.mjs';
-import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
+import {
+  CURRENT_EMITSTATEMENT_TARGET_M4139,
+  EMITSTATEMENT_M4113_TARGET,
+} from './emitstatement-target.mjs';
 import { m4112ParameterMigration } from './coverage-m4-112-kir-depth-promotion.mjs';
 import { formatM4113ParameterMigrationStatus } from './coverage-status.mjs';
 
@@ -175,6 +178,11 @@ export const M4113_PARAMETER_MIGRATION_TARGETS = [
   },
 ];
 
+export const M4113_CURRENT_PARAMETER_TARGETS = M4113_PARAMETER_MIGRATION_TARGETS.map((target) =>
+  target.id === EMITSTATEMENT_M4113_TARGET.id
+    ? CURRENT_EMITSTATEMENT_TARGET_M4139
+    : target);
+
 function expectedQueue() {
   return {
     completeFunctions: M4113_PARAMETER_MIGRATION_TARGETS.length,
@@ -226,8 +234,8 @@ export function m4113CoverageStatus() {
 
 export function assertM4113ParameterMigrations(coverage) {
   assert.deepEqual(m4112ParameterMigration(), expectedQueue());
-  const rootsByPath = parameterMigrationRoots(M4113_PARAMETER_MIGRATION_TARGETS);
-  for (const target of M4113_PARAMETER_MIGRATION_TARGETS) {
+  const rootsByPath = parameterMigrationRoots(M4113_CURRENT_PARAMETER_TARGETS);
+  for (const target of M4113_CURRENT_PARAMETER_TARGETS) {
     const root = rootsByPath.get(target.path)?.[target.functionOrdinal];
     const fact = coverage.functions.find(({ id }) => id === target.id);
     assertM4113ParameterTarget(root, fact, target);

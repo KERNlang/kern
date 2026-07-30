@@ -17,6 +17,7 @@ import {
 import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
 import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import { EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS } from './exception-flow-emission-target.mjs';
 import {
   loadCanonicalizerRuntimeBottleneckM4128,
 } from './runtime-bottleneck-m4-128.mjs';
@@ -139,7 +140,7 @@ function exactInputs() {
     },
     expressionHelperReplacements: [],
     milestone: 'M4.129',
-    statementHelperReplacements: [],
+    statementHelperReplacements: EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
     statementHelperTargets: [],
   });
   if (
@@ -158,6 +159,8 @@ function exactInputs() {
       source = historical.coveragePolicySource;
     } else if (name === 'mainSourceSha256') {
       source = historicalComposition.mainSource;
+    } else if (name === 'statementHelpersSha256') {
+      source = historicalComposition.statementHelpers;
     } else if (name === 'measurementSha256') {
       source = reconstructHistoricalSource({
         currentSource: source,
