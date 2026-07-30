@@ -1,0 +1,37 @@
+{
+  "family": "exception-flow",
+  "format": "kern.kir-canonicalizer.implementation-handoff.1",
+  "milestone": "M4.140",
+  "prerequisite": {
+    "digest": "2c36f8d7ec2e91cba6742241e72c79adacc917ad59e3105aabdf15f7e9e712e4",
+    "family": "exception-flow"
+  },
+  "source": {
+    "canonicalizerSha256": "d96dee80f12236a3d9089bf44aeee699e6a3c35856e71f79a0743691248ea16e",
+    "commit": "e3090ad1ac18d49ff1c0eb7d2de167a23e9b70a8",
+    "coverageImplementationDigest": "5864acd99c1c1c3bd7d82776e0898082933d9970dafe5eba7fd753840741e9e4",
+    "coveragePolicySha256": "5a909a0b0d17ab3fafdeb8223bd2b9acd8c491f68284c338ac0a80f3075636c3",
+    "coverageSummaryFormat": "kern.kir-canonicalizer.coverage-summary.6",
+    "coverageSummarySha256": "551d55389b8cfd5bcd93ec9552a78876711b79c8eb03dd026f648cd5342268b2",
+    "prerequisiteSummaryFormat": "kern.kir-canonicalizer.prerequisite-summary.3",
+    "prerequisiteSummarySha256": "5b09615e2a0216689429e803291281b01ae678a9a79ca7d6a5fa56279445257d"
+  },
+  "targets": [
+    {
+      "bodyDigest": "6913100a2edb7e81f74cc178d24cb116f554ce258e2b883ebdfd2d8c9e94611f",
+      "functionOrdinal": 2,
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#2:validstatement",
+      "name": "validstatement",
+      "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+      "sourceSha256": "604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b"
+    },
+    {
+      "bodyDigest": "81b93004de7013b6e27d500afdb5d3bec6ba8bff01268974249ed7e5010e1659",
+      "functionOrdinal": 4,
+      "id": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern#4:emitstatement",
+      "name": "emitstatement",
+      "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
+      "sourceSha256": "604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b"
+    }
+  ]
+}

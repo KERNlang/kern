@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   assertM4131ParameterMigration,
 } from './coverage-m4-131-parameter-migration.mjs';
-import { assertM4139BoundedExceptionFlow } from './coverage-m4-139-central.mjs';
+import { assertM4140ExceptionFlowImplementationHandoff } from './coverage-m4-140-central.mjs';
 import {
   m4130ActiveKirLimits,
   m4130ActiveProfile,
@@ -83,7 +83,7 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
   assertM4131ParameterMigration(coverage);
-  const status = assertM4139BoundedExceptionFlow(coverage, prerequisite);
+  const status = assertM4140ExceptionFlowImplementationHandoff(coverage, prerequisite);
   assert.equal(prerequisite.outcome, 'selected');
   assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.deepEqual(prerequisite.selectedPrerequisite, {

@@ -439,7 +439,7 @@ const m4131CoverageStatusLine = m4131CoverageStatus();
 const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
-const m4139CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+const m4140CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4130ActiveProfile(),
@@ -1934,7 +1934,7 @@ process.stdout.write(
   ` ${m4133CoverageStatusLine}` +
   ` ${m4134CoverageStatusLine}` +
   ` ${formatM4138ExceptionFlowHandoffStatus(loadCanonicalizerExceptionFlowPrerequisiteProvenance())}` +
-  ` ${m4139CoverageStatusLine}` +
+  ` ${m4140CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

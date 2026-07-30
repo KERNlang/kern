@@ -6,3 +6,4 @@
 # byte-shifts in the snapshot. Hand-edits will be reverted by the drift
 # check on next CI run.
 generated/** linguist-generated=true
+scripts/kern-canonicalizer/coverage-exception-flow-implementation-handoff.json text eol=lf
