@@ -1,0 +1,52 @@
+{
+  "assignments": [
+    {
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "parameterRows": 2,
+      "profileRows": {
+        "nodes": 54,
+        "properties": 82,
+        "values": 932
+      },
+      "reasons": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff"
+      ],
+      "tool": "canonicalizer"
+    }
+  ],
+  "assignmentsDigest": "e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720",
+  "baseline": {
+    "baseCompleteFunctions": 111,
+    "baseId": "kern.kir-canonicalizer.profile.m4.141",
+    "canonicalizerDigest": "836e71de0c456247fdd8e5725d388aeb0f60853083616f82666d2fd2c191d266",
+    "canonicalizerPolicyDigest": "13d9315aeaf7ffa89ec17ad86b01e39e4a7084657000beb11f8bd0d478b21db7",
+    "compiledCoreDigest": "29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2",
+    "corpusDigest": "8308f89b292ed823e8b551e0533c550008ee98ba5f817081ae4c9919421a3b6c",
+    "coverageImplementationDigest": "10b3ae6b227aa3c42094a175b63989d9b3089277d3a4730972581f1ec7a9b22c",
+    "coveragePolicyDigest": "28b76e1260febf3e518a2a6d97b11f96bf202fcce149fb201b92b5b0a5d98019",
+    "coverageSummaryDigest": "fc030f9b1140e15cca55fdcea93bcf7da15fd75825ae1cb6577b5620e0b95bf0",
+    "currentProfileLimits": {
+      "maxNodeRows": 205,
+      "maxPropertyRows": 332,
+      "maxValueRows": 6304
+    },
+    "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
+    "functionFactsDigest": "8a75842adba91baaeb54c959bbd2647dab0165817dfa7a2e1d341efc914adc54",
+    "legacyParameterBlockers": 1,
+    "prerequisiteSummaryDigest": "0ef253dba0b3ab80593d9fd3985e210736c3c9bc69763b21480330f1c0ba21f7",
+    "profileDigest": "fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b",
+    "residualFunctionCount": 1
+  },
+  "format": "kern.kir-canonicalizer.residual-analysis.3",
+  "frontier": {
+    "actionableCandidates": [],
+    "evaluatedObservedSettings": 0,
+    "profileRowsAvailableFunctions": 1
+  },
+  "selectedNextAction": null
+}
