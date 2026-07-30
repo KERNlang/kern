@@ -3,10 +3,15 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
   validateCanonicalizerPrerequisiteSummaryStructure,
 } from './coverage-prerequisite-structure.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
+import {
+  loadPreM4147CanonicalizerComposition,
+} from './historical-composition.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 
 const POLICY_URL = new URL('./coverage-policy-m4-142.json', import.meta.url);
 const COVERAGE_URL = new URL('./coverage-summary-m4-142.json', import.meta.url);
@@ -94,5 +99,26 @@ export function loadPublishedM4142CoverageInput() {
     policyDigest: POLICY_DIGEST,
     prerequisite: structuredClone(prerequisite),
     prerequisiteDigest: PREREQUISITE_DIGEST,
+  };
+}
+
+export function measureAuthenticatedM4142CoverageInput() {
+  const published = loadPublishedM4142CoverageInput();
+  const composition = loadPreM4147CanonicalizerComposition();
+  const sourceOverrides = new Map([[
+    'examples/kern-canonicalizer/canonicalizer.kern',
+    composition.mainSource,
+  ]]);
+  const coverage = measureCanonicalizerCoverage(
+    published.policy,
+    loadPreM4146CanonicalizerPolicy(),
+    { sourceOverrides },
+  );
+  return {
+    canonicalizerDigest: composition.digests.canonicalizerCompositeSha256,
+    coverage,
+    coveragePolicyDigest: published.policyDigest,
+    policy: published.policy,
+    sourceOverrides,
   };
 }

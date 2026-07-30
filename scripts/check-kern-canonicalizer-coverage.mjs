@@ -19,6 +19,12 @@ import {
 import {
   assertPublishedM4141ExceptionFlowPromotion,
 } from './kern-canonicalizer/coverage-m4-141-central.mjs';
+import {
+  assertM4142ParameterMigration,
+} from './kern-canonicalizer/coverage-m4-142-parameter-migration.mjs';
+import {
+  measureAuthenticatedM4142CoverageInput,
+} from './kern-canonicalizer/coverage-input-m4-142.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { m485ParameterMigration } from './kern-canonicalizer/coverage-m4-85-value-row-promotion.mjs';
 import { assertM486ParameterMigration } from './kern-canonicalizer/coverage-m4-86-parameter-migration.mjs';
@@ -449,11 +455,14 @@ const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
 const m4141CoverageStatusLine = assertPublishedM4141ExceptionFlowPromotion();
-const m4142CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+const m4142CoverageStatusLine = assertM4142ParameterMigration(
+  measureAuthenticatedM4142CoverageInput().coverage,
+);
 const m4143CoverageStatusLine = assertM4143ResidualAnalysis();
 const m4144CoverageStatusLine = assertM4144ProjectionAnalysis();
 const m4145CoverageStatusLine = assertM4145CombinedHeadroom();
 const m4146CoverageStatusLine = m4146CoverageStatus(policy);
+const m4147CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4146ActiveProfile(),
@@ -1946,6 +1955,7 @@ process.stdout.write(
   ` ${m4144CoverageStatusLine}` +
   ` ${m4145CoverageStatusLine}` +
   ` ${m4146CoverageStatusLine}` +
+  ` ${m4147CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

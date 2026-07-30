@@ -1,28 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  CANONICALIZE_PARAMETER_TARGET_M4142,
-} from './canonicalize-parameter-target.mjs';
 import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
-  assertM4142ParameterMigration,
-  assertM4142ParameterTarget,
-  m4142ParameterMigration,
-} from './coverage-m4-142-parameter-migration.mjs';
-import {
-  measureAuthenticatedM4142CoverageInput,
-} from './coverage-input-m4-142.mjs';
+  assertM4147ParameterMigration,
+  assertM4147ParameterTarget,
+  m4147ParameterMigration,
+} from './coverage-m4-147-parameter-migration.mjs';
 import { parameterMigrationRoots } from './coverage-value-band-parameter-migrations.mjs';
+import {
+  EXPRESSIONSOURCES_PARAMETER_TARGET_M4147,
+} from './expressionsources-parameter-target.mjs';
 
-test('M4.142 migrates only canonicalize to the exact direct parameter sequence', () => {
+test('M4.147 migrates only expressionsources to the exact direct parameter sequence', () => {
   assert.equal(
-    assertM4142ParameterMigration(measureAuthenticatedM4142CoverageInput().coverage),
-    'M4.142 consumes the exact M4.141 1-function/15-row canonicalize queue and advances ' +
-      'the cumulative base to 110/112 with 2 legacy-parameter blockers and an empty parameter ' +
-      'queue; M4.143 remeasures the bounded residual frontier.',
+    assertM4147ParameterMigration(measureCanonicalizerCoverage()),
+    'M4.147 consumes the exact M4.146 1-function/6-row expressionsources queue and ' +
+      'advances the cumulative base to 111/112 with 1 legacy-parameter blocker and an ' +
+      'empty parameter queue; M4.148 remeasures the bounded quotesource residual frontier.',
   );
-  assert.deepEqual(m4142ParameterMigration(), {
+  assert.deepEqual(m4147ParameterMigration(), {
     completeFunctions: 0,
     completeTools: 0,
     migratedParameterRows: 0,
@@ -30,8 +27,8 @@ test('M4.142 migrates only canonicalize to the exact direct parameter sequence',
   });
 });
 
-test('M4.142 target evidence is recursively immutable', () => {
-  const target = CANONICALIZE_PARAMETER_TARGET_M4142;
+test('M4.147 target evidence is recursively immutable', () => {
+  const target = EXPRESSIONSOURCES_PARAMETER_TARGET_M4147;
   assert.equal(Object.isFrozen(target), true);
   assert.equal(Object.isFrozen(target.parameters), true);
   assert.equal(Object.isFrozen(target.profileRows), true);
@@ -41,14 +38,14 @@ test('M4.142 target evidence is recursively immutable', () => {
   assert.throws(() => { target.profileRows.nodes += 1; }, TypeError);
 });
 
-test('M4.142 target guard rejects signature, body, identity, fact, and profile drift', () => {
-  const target = CANONICALIZE_PARAMETER_TARGET_M4142;
+test('M4.147 target guard rejects signature, body, identity, fact, and profile drift', () => {
+  const target = EXPRESSIONSOURCES_PARAMETER_TARGET_M4147;
   const root = parameterMigrationRoots([target]).get(target.path)?.[target.functionOrdinal];
   const coverage = measureCanonicalizerCoverage();
   const fact = coverage.functions.find(({ id }) => id === target.id);
-  assertM4142ParameterTarget(root, fact);
+  assertM4147ParameterTarget(root, fact);
   const mutations = [
-    (copy) => { copy.root.props.params = 'nodeKind:string[]'; },
+    (copy) => { copy.root.props.params = 'valueTag:string[]'; },
     (copy) => { copy.root.props.name = 'substituted'; },
     (copy) => { copy.root.props.returns = 'string'; },
     (copy) => { copy.root.props.export = undefined; },
@@ -58,7 +55,7 @@ test('M4.142 target guard rejects signature, body, identity, fact, and profile d
     (copy) => { copy.root.children.push(copy.root.children.shift()); },
     (copy) => {
       copy.root.children.find(({ type }) => type === 'handler')
-        .children[0].props.cond = 'false';
+        .children[0].props.value = 'new Set()';
     },
     (copy) => { copy.fact.id = `${copy.fact.id}-substituted`; },
     (copy) => { copy.fact.excludedProperties.push('fn.params'); },
@@ -71,6 +68,6 @@ test('M4.142 target guard rejects signature, body, identity, fact, and profile d
   for (const mutate of mutations) {
     const copy = structuredClone({ fact, root });
     mutate(copy);
-    assert.throws(() => assertM4142ParameterTarget(copy.root, copy.fact));
+    assert.throws(() => assertM4147ParameterTarget(copy.root, copy.fact));
   }
 });

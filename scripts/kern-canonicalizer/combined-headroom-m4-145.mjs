@@ -6,9 +6,8 @@ import { isDeepStrictEqual } from 'node:util';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import {
-  canonicalCompositionRecordBytes,
-  verifyCanonicalizerComposition,
-} from './composition.mjs';
+  loadPreM4147CanonicalizerComposition,
+} from './historical-composition.mjs';
 import {
   PRE_M4146_M4145_MEASUREMENT_REPLACEMENTS,
 } from './combined-promotion-target.mjs';
@@ -143,11 +142,11 @@ function exactInputs() {
     digestCompiledCoreJavaScript() !==
       INPUT_IDENTITIES.compiledCoreJavaScriptSha256
   ) fail('compiled core JavaScript executed by measurement must remain exact');
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4147CanonicalizerComposition();
   if (
-    digest(composition.compositeBytes) !==
+    digest(composition.composite) !==
       INPUT_IDENTITIES.canonicalizerCompositeSha256 ||
-    digest(canonicalCompositionRecordBytes(composition.record)) !==
+    digest(composition.recordBytes) !==
       INPUT_IDENTITIES.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');
 

@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   loadHistoricalCanonicalizerComposition,
   loadPreM4142CanonicalizerComposition,
+  loadPreM4147CanonicalizerComposition,
 } from './historical-composition.mjs';
 
 const EXPECTED_DIGESTS = {
@@ -61,6 +62,30 @@ test('pre-M4.142 composition reverses only the bounded member split and canonica
   assert.doesNotMatch(
     historical.statementHelpers.toString('utf8'),
     /fn name=nodetablesok /u,
+  );
+});
+
+test('pre-M4.147 composition reverses only the expressionsources signature', () => {
+  const historical = loadPreM4147CanonicalizerComposition();
+  assert.deepEqual(historical.digests, {
+    canonicalizerCompositeSha256:
+      '9e7ecb330e665b7bf2a0d7e13d78f4cf3c0b9e5b27a799bdafbabd0e18ca770a',
+    compositionRecordSha256:
+      '3093e49e5c543d874a30bf501cb364e192d3dcb17fdad010204997b71ea99726',
+    expressionHelpersSha256:
+      'c32414ee7aa6f29d092dc21de5065f04c4054c54d070dd4d964763047170ee2f',
+    mainSourceSha256:
+      'a7dab28a69cf8b7b14e4747f586526eabfc87b22bd2eca6e648b89695195f598',
+    statementHelpersSha256:
+      'bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a',
+  });
+  assert.match(
+    historical.mainSource.toString('utf8'),
+    /fn name=expressionsources params="valueTag:string\[\],valueParent:number\[\]/u,
+  );
+  assert.doesNotMatch(
+    historical.mainSource.toString('utf8'),
+    /fn name=expressionsources returns="string\[\]" export=true\n  param /u,
   );
 });
 

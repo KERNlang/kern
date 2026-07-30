@@ -5,10 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
-  loadCoveragePolicy,
-  measureCanonicalizerCoverage,
-} from './coverage.mjs';
-import {
   assertM4143PublishedInput,
   loadPublishedCanonicalizerResidualAnalysisM4143,
   measureCanonicalizerResidualAnalysisM4143,
@@ -25,6 +21,9 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import {
+  measureAuthenticatedM4142CoverageInput,
+} from './coverage-input-m4-142.mjs';
 import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.projection-analysis.2';
@@ -163,11 +162,15 @@ export function measureCanonicalizerProjectionAnalysisM4144() {
     fail('live M4.143 residual analysis must exactly reproduce the published input');
   }
 
-  const policy = loadCoveragePolicy();
+  const historical = measureAuthenticatedM4142CoverageInput();
+  const policy = historical.policy;
   const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
-  const coverage = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  assertM4143PublishedInput(coverage, canonicalizerPolicy);
-  const roots = sourceFunctionRoots(policy);
+  const coverage = historical.coverage;
+  assertM4143PublishedInput(coverage, canonicalizerPolicy, {
+    canonicalizerDigest: historical.canonicalizerDigest,
+    coveragePolicyDigest: historical.coveragePolicyDigest,
+  });
+  const roots = sourceFunctionRoots(policy, historical.sourceOverrides);
   const legacyFacts = coverage.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
     .sort((left, right) => compareText(left.id, right.id));

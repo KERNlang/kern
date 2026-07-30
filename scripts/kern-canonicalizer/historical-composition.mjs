@@ -12,6 +12,9 @@ import {
   CANONICALIZE_PARAMETER_TARGET_M4142,
 } from './canonicalize-parameter-target.mjs';
 import {
+  EXPRESSIONSOURCES_PARAMETER_TARGET_M4147,
+} from './expressionsources-parameter-target.mjs';
+import {
   ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
 } from './assignment-target-projection-target.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
@@ -75,6 +78,18 @@ const PRE_M4142_DIGESTS = Object.freeze({
   statementHelpersSha256:
     '604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b',
 });
+const PRE_M4147_DIGESTS = Object.freeze({
+  canonicalizerCompositeSha256:
+    '9e7ecb330e665b7bf2a0d7e13d78f4cf3c0b9e5b27a799bdafbabd0e18ca770a',
+  compositionRecordSha256:
+    '3093e49e5c543d874a30bf501cb364e192d3dcb17fdad010204997b71ea99726',
+  expressionHelpersSha256:
+    'c32414ee7aa6f29d092dc21de5065f04c4054c54d070dd4d964763047170ee2f',
+  mainSourceSha256:
+    'a7dab28a69cf8b7b14e4747f586526eabfc87b22bd2eca6e648b89695195f598',
+  statementHelpersSha256:
+    'bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a',
+});
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -120,9 +135,11 @@ export function loadHistoricalCanonicalizerComposition({
   ],
   expressionHelperReplacements = [TYPE_FIELD_INDEX_M4117_REPLACEMENT],
   mainSourceReplacements = [
+    parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
     parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
     ...NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
   ],
+  reconstructMemberLayout = true,
   statementHelperReplacements = [
     ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
     ...EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
@@ -134,10 +151,15 @@ export function loadHistoricalCanonicalizerComposition({
   }
   const [currentExpressionHelpers, liveStatementHelpers, liveMainSource] =
     sources.map((source) => Buffer.from(source));
-  const historicalLayout = reconstructPreM4142CanonicalizerMemberLayout({
-    mainSource: liveMainSource,
-    statementHelpersSource: liveStatementHelpers,
-  });
+  const historicalLayout = reconstructMemberLayout
+    ? reconstructPreM4142CanonicalizerMemberLayout({
+      mainSource: liveMainSource,
+      statementHelpersSource: liveStatementHelpers,
+    })
+    : {
+      mainSource: liveMainSource,
+      statementHelpersSource: liveStatementHelpers,
+    };
   const currentStatementHelpers = historicalLayout.statementHelpersSource;
   const mainSource = historicalLayout.mainSource;
   const expressionHelpers = expressionHelperReplacements.length === 0
@@ -214,6 +236,7 @@ export function loadPreM4129CanonicalizerComposition() {
     expectedDigests: PRE_M4129_DIGESTS,
     expressionHelperReplacements: [],
     mainSourceReplacements: [
+      parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
       parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
       ...NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
     ],
@@ -231,9 +254,24 @@ export function loadPreM4142CanonicalizerComposition() {
     expectedDigests: PRE_M4142_DIGESTS,
     expressionHelperReplacements: [],
     mainSourceReplacements: [
+      parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
       parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
     ],
     milestone: 'pre-M4.142',
+    statementHelperReplacements: [],
+    statementHelperTargets: [],
+  });
+}
+
+export function loadPreM4147CanonicalizerComposition() {
+  return loadHistoricalCanonicalizerComposition({
+    expectedDigests: PRE_M4147_DIGESTS,
+    expressionHelperReplacements: [],
+    mainSourceReplacements: [
+      parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
+    ],
+    milestone: 'pre-M4.147',
+    reconstructMemberLayout: false,
     statementHelperReplacements: [],
     statementHelperTargets: [],
   });

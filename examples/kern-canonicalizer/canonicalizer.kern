@@ -61,7 +61,13 @@ fn name=exprsource returns=string export=true
       return value="\"\""
     let name=sources value="expressionsources(valueTag, valueParent, valueRole, valueOrder, valueText, valueBool)"
     return value="List.index(sources, valueTag.length - id) ?? \"\""
-fn name=expressionsources params="valueTag:string[],valueParent:number[],valueRole:string[],valueOrder:number[],valueText:string[],valueBool:number[]" returns="string[]" export=true
+fn name=expressionsources returns="string[]" export=true
+  param name=valueTag type=string[]
+  param name=valueParent type=number[]
+  param name=valueRole type=string[]
+  param name=valueOrder type=number[]
+  param name=valueText type=string[]
+  param name=valueBool type=number[]
   handler lang="kern"
     let name=childCounts value="new Map()"
     let name=childrenByOrder value="new Map()"

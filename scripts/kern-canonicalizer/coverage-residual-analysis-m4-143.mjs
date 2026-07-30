@@ -5,10 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
-  loadCoveragePolicy,
-  measureCanonicalizerCoverage,
-} from './coverage.mjs';
-import {
   migrateFunctionFact,
   partitionMigratedFunctions,
   sourceFunctionRoots,
@@ -19,6 +15,7 @@ import {
 } from './coverage-selection.mjs';
 import {
   loadPublishedM4142CoverageInput,
+  measureAuthenticatedM4142CoverageInput,
 } from './coverage-input-m4-142.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import {
@@ -165,7 +162,14 @@ function publishedHandoff(value) {
   return { digest, inputCommit: INPUT_COMMIT, record: structuredClone(value) };
 }
 
-export function assertM4143PublishedInput(receipt, canonicalizerPolicy) {
+export function assertM4143PublishedInput(
+  receipt,
+  canonicalizerPolicy,
+  {
+    canonicalizerDigest = receipt.canonicalizerDigest,
+    coveragePolicyDigest = receipt.coveragePolicyDigest,
+  } = {},
+) {
   assertPlainReceiptData(canonicalizerPolicy);
   const validatedCanonicalizerPolicy = validateCanonicalizerPolicy(
     structuredClone(canonicalizerPolicy),
@@ -201,11 +205,11 @@ export function assertM4143PublishedInput(receipt, canonicalizerPolicy) {
   const liveSemanticInput = {
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
-    canonicalizerDigest: receipt.canonicalizerDigest,
+    canonicalizerDigest,
     canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
     compiledCoreDigest: receipt.compiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
-    coveragePolicyDigest: receipt.coveragePolicyDigest,
+    coveragePolicyDigest,
     currentProfileLimits: exactLimits(canonicalizerPolicy.profileLimits),
     familyRegistryDigest: receipt.familyRegistryDigest,
     functionFactsDigest: receipt.functionFactsDigest,
@@ -230,12 +234,16 @@ export function assertM4143PublishedInput(receipt, canonicalizerPolicy) {
 }
 
 export function measureCanonicalizerResidualAnalysisM4143() {
-  const policy = loadCoveragePolicy();
+  const historical = measureAuthenticatedM4142CoverageInput();
+  const policy = historical.policy;
   const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
-  const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  assertM4143PublishedInput(receipt, canonicalizerPolicy);
+  const receipt = historical.coverage;
+  assertM4143PublishedInput(receipt, canonicalizerPolicy, {
+    canonicalizerDigest: historical.canonicalizerDigest,
+    coveragePolicyDigest: historical.coveragePolicyDigest,
+  });
 
-  const roots = sourceFunctionRoots(policy);
+  const roots = sourceFunctionRoots(policy, historical.sourceOverrides);
   const legacyFacts = receipt.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params'));
   if (legacyFacts.length !== PUBLISHED_BASELINE.legacyParameterBlockers) {

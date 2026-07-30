@@ -4,14 +4,14 @@ import {
   assertM4131ParameterMigration,
 } from './coverage-m4-131-parameter-migration.mjs';
 import {
-  assertM4142ParameterMigration,
-} from './coverage-m4-142-parameter-migration.mjs';
-import {
   m4146ActiveKirLimits,
   m4146ActiveProfile,
   m4146ActiveRuntimeByteLimits,
-  m4146ParameterMigration,
 } from './coverage-m4-146-combined-promotion.mjs';
+import {
+  assertM4147ParameterMigration,
+  m4147ParameterMigration,
+} from './coverage-m4-147-parameter-migration.mjs';
 import {
   assertExactPlainData,
 } from './coverage-prerequisite-shape.mjs';
@@ -114,7 +114,7 @@ export function assertCurrentCanonicalizerFrontier(
     toolCount: new Set(coverage.corpus.map(({ tool }) => tool)).size,
   });
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.deepEqual(prerequisite.parameterMigration, m4146ParameterMigration());
+  assert.deepEqual(prerequisite.parameterMigration, m4147ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
@@ -156,6 +156,6 @@ export function assertCurrentCanonicalizerFrontier(
     scope: 'current-bounded-profile',
   });
   assertM4131ParameterMigration(coverage);
-  const status = assertM4142ParameterMigration(coverage);
+  const status = assertM4147ParameterMigration(coverage);
   return status;
 }

@@ -30,7 +30,7 @@ function digest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-test('pre-M4.142 inputs reconstruct only the archived canonicalize signature', () => {
+test('pre-M4.142 inputs reconstruct the archived expressionsources and canonicalize signatures', () => {
   const currentPolicy = loadCoveragePolicy();
   const historical = loadPreM4142CoverageInputs(currentPolicy);
   const currentSource = readFileSync(new URL(`../../${CANONICALIZER_PATH}`, import.meta.url));
@@ -50,6 +50,10 @@ test('pre-M4.142 inputs reconstruct only the archived canonicalize signature', (
   assert.match(
     historicalSource.toString('utf8'),
     /fn name=canonicalize params="nodeKind:string\[\],nodeParent:number\[\]/u,
+  );
+  assert.match(
+    historicalSource.toString('utf8'),
+    /fn name=expressionsources params="valueTag:string\[\],valueParent:number\[\]/u,
   );
   assert.doesNotMatch(
     historicalSource.toString('utf8'),

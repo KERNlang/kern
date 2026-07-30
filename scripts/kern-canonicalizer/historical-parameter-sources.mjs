@@ -190,6 +190,7 @@ function preM4142CoverageInputs(currentPolicy, currentPolicySource) {
   }
   const historicalLayout = currentPreM4142MemberLayout();
   const historicalSource = reconstructLegacyParameterSource({
+    additionalNames: ['expressionsources'],
     currentSource: historicalLayout.mainSource,
     expectedDigest: PRE_M4142_CANONICALIZER_DIGEST,
     milestone: 'pre-M4.142 canonicalizer source',
