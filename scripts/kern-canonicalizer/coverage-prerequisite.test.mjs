@@ -4,6 +4,13 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import {
+  loadCoveragePolicy,
+  measureCanonicalizerCoverage,
+} from './coverage.mjs';
+import {
+  assertCurrentCanonicalizerFrontier,
+} from './coverage-current.mjs';
+import {
   measureCanonicalizerPrerequisite,
   migrateLegacyFunctionForPrerequisite,
   parseLegacyParametersForPrerequisite,
@@ -96,18 +103,60 @@ test('M4.142 publishes the exact current terminal structural frontier', () => {
   assertCoverageSummary(summaryUrl, actual);
 });
 
+test('current frontier rejects forged baseline identity and exhaustion evidence', () => {
+  const coverage = measureCanonicalizerCoverage(loadCoveragePolicy());
+  const prerequisite = measureCanonicalizerPrerequisite();
+  assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+  for (const mutate of [
+    (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.future'; },
+    (copy) => { copy.baseline.baseId = 'future'; },
+    (copy) => { copy.baseline.functionFactsDigest = '0'.repeat(64); },
+    (copy) => { copy.exhaustion.reasonAssignmentsDigest = '0'.repeat(64); },
+    (copy) => { copy.exhaustion.reasonCounts[0].id = 'future'; },
+    (copy) => { copy.exhaustion.completingClosureCount = 1; },
+    (copy) => { Object.defineProperty(copy.exhaustion, 'future', { value: true }); },
+    (copy) => { Object.setPrototypeOf(copy, { inherited: true }); },
+    (copy) => { Object.setPrototypeOf(copy.baseline, { inherited: true }); },
+    (copy) => { Object.setPrototypeOf(copy.exhaustion, { inherited: true }); },
+  ]) {
+    const copy = structuredClone(prerequisite);
+    mutate(copy);
+    assert.throws(() => assertCurrentCanonicalizerFrontier(coverage, copy));
+  }
+
+  let getterRead = false;
+  const accessor = structuredClone(prerequisite);
+  Object.defineProperty(accessor.baseline, 'baseId', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterRead = true;
+      return prerequisite.baseline.baseId;
+    },
+  });
+  assert.throws(
+    () => assertCurrentCanonicalizerFrontier(coverage, accessor),
+    /current prerequisite summary must contain only exact plain JSON data/u,
+  );
+  assert.equal(getterRead, false);
+});
+
 test('the live prerequisite measurement is stable in a fresh process', () => {
+  const moduleUrl = new URL('./coverage-prerequisite.mjs', import.meta.url).href;
   const fresh = spawnSync(process.execPath, [
     '--input-type=module',
     '-e',
-    "import {measureCanonicalizerPrerequisite} from './scripts/kern-canonicalizer/coverage-prerequisite.mjs'; process.stdout.write(JSON.stringify(measureCanonicalizerPrerequisite()))",
+    `import {measureCanonicalizerPrerequisite} from ${JSON.stringify(moduleUrl)}; ` +
+      'process.stdout.write(JSON.stringify(measureCanonicalizerPrerequisite()))',
   ], {
     cwd: new URL('../../', import.meta.url),
     encoding: 'utf8',
     env: { ...process.env, LANG: 'C', LC_ALL: 'C', TZ: 'UTC' },
   });
   assert.equal(fresh.status, 0, fresh.stderr);
-  assert.deepEqual(JSON.parse(fresh.stdout), measureCanonicalizerPrerequisite());
+  const parsed = JSON.parse(fresh.stdout);
+  validateCanonicalizerPrerequisiteSummary(parsed);
+  assert.deepEqual(parsed, measureCanonicalizerPrerequisite());
 });
 
 test('M4.15 counterfactual parameters fail closed outside exact portable pairs', () => {

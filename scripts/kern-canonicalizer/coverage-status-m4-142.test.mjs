@@ -49,6 +49,24 @@ test('M4.142 status rejects substituted migration data', () => {
     (copy) => { copy.parameterMigration.migratedParameterRows = 14; },
     (copy) => { copy.parameterMigration.witnesses[0].id = 'substituted'; },
     (copy) => { copy.parameterMigration.witnesses[0].profileRows.values = 2555; },
+    (copy) => { copy.parameterMigration.toJSON = () => exactInput.parameterMigration; },
+    (copy) => {
+      Object.defineProperty(copy.parameterMigration, 'future', { value: true });
+    },
+    (copy) => { copy.parameterMigration[Symbol('future')] = true; },
+    (copy) => {
+      Object.defineProperty(copy.parameterMigration.witnesses[0], 'future', { value: true });
+    },
+    (copy) => {
+      Object.defineProperty(copy.parameterMigration.witnesses, 'length', { writable: false });
+    },
+    (copy) => {
+      Object.defineProperty(copy.parameterMigration.witnesses[0].profileRows, 'nodes', {
+        configurable: true,
+        enumerable: true,
+        get: () => 100,
+      });
+    },
     (copy) => { copy.postMigrationQueue.completeFunctions = 1; },
     (copy) => { copy.postMigrationQueue.witnesses.push({ id: 'substituted' }); },
     (copy) => { copy.totalFunctions = 111; },

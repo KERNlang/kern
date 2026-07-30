@@ -12,6 +12,13 @@ import {
   m4130ActiveProfile,
   m4130ActiveRuntimeByteLimits,
 } from './coverage-m4-130-combined-promotion.mjs';
+import {
+  assertExactPlainData,
+} from './coverage-prerequisite-shape.mjs';
+import {
+  validateCanonicalizerPrerequisiteSummaryStructure,
+} from './coverage-prerequisite-structure.mjs';
+import { loadPublishedM4142CoverageInput } from './coverage-input-m4-142.mjs';
 
 export function currentM493ParameterMigration() {
   return {
@@ -88,17 +95,37 @@ export function assertCurrentCanonicalizerFrontier(
   coverage,
   prerequisite,
 ) {
-  assertM4131ParameterMigration(coverage);
-  const status = assertM4142ParameterMigration(coverage);
-  assert.equal(prerequisite.baseline.baseCompleteFunctions, 110);
-  assert.equal(prerequisite.baseline.legacyParameterBlockers, 2);
+  assertExactPlainData(prerequisite, 'current prerequisite summary');
+  validateCanonicalizerPrerequisiteSummaryStructure(prerequisite);
+  assert.deepEqual(prerequisite.baseline, {
+    baseCompleteFunctions: coverage.baseCompleteFunctions,
+    baseId: coverage.base.id,
+    canonicalizerDigest: coverage.canonicalizerDigest,
+    canonicalizerPolicyDigest: coverage.canonicalizerPolicyDigest,
+    compiledCoreDigest: coverage.compiledCoreDigest,
+    corpusDigest: coverage.corpusDigest,
+    coverageImplementationDigest: coverage.coverageImplementationDigest,
+    coveragePolicyDigest: coverage.coveragePolicyDigest,
+    familyRegistryDigest: coverage.familyRegistryDigest,
+    functionCount: coverage.functions.length,
+    functionFactsDigest: coverage.functionFactsDigest,
+    legacyParameterBlockers: coverage.functions.filter(({ excludedProperties }) =>
+      excludedProperties.includes('fn.params')).length,
+    profileDigest: coverage.profileDigest,
+    toolCount: new Set(coverage.corpus.map(({ tool }) => tool)).size,
+  });
+  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(prerequisite.parameterMigration, m4142ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, []);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 2);
+  assert.deepEqual(
+    prerequisite.exhaustion,
+    loadPublishedM4142CoverageInput().prerequisite.exhaustion,
+  );
+  assertM4131ParameterMigration(coverage);
+  const status = assertM4142ParameterMigration(coverage);
   return status;
 }

@@ -1,6 +1,12 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import {
   CANONICALIZE_PARAMETER_TARGET_M4142,
 } from './canonicalize-parameter-target.mjs';
+import {
+  isExactPlainArray,
+  isExactPlainRecord,
+} from './coverage-prerequisite-shape.mjs';
 
 const EXACT_QUEUE = {
   completeFunctions: 1,
@@ -20,6 +26,26 @@ const EMPTY_QUEUE = {
   witnesses: [],
 };
 
+function isExactProfileRows(value) {
+  return isExactPlainRecord(value, ['nodes', 'properties', 'values']);
+}
+
+function isExactMigrationQueue(value, expected) {
+  if (
+    !isExactPlainRecord(
+      value,
+      ['completeFunctions', 'completeTools', 'migratedParameterRows', 'witnesses'],
+    ) ||
+    !isExactPlainArray(value.witnesses)
+  ) {
+    return false;
+  }
+  return value.witnesses.every((witness) =>
+    isExactPlainRecord(witness, ['id', 'parameterRows', 'profileRows', 'tool']) &&
+    isExactProfileRows(witness.profileRows)) &&
+    isDeepStrictEqual(value, expected);
+}
+
 export function formatM4142ParameterMigrationStatus({
   baseCompleteFunctions,
   legacyParameterBlockers,
@@ -30,8 +56,8 @@ export function formatM4142ParameterMigrationStatus({
   if (
     baseCompleteFunctions !== 110 ||
     legacyParameterBlockers !== 2 ||
-    JSON.stringify(parameterMigration) !== JSON.stringify(EXACT_QUEUE) ||
-    JSON.stringify(postMigrationQueue) !== JSON.stringify(EMPTY_QUEUE) ||
+    !isExactMigrationQueue(parameterMigration, EXACT_QUEUE) ||
+    !isExactMigrationQueue(postMigrationQueue, EMPTY_QUEUE) ||
     totalFunctions !== 112
   ) {
     throw new TypeError('M4.142 status requires the exact canonicalize parameter migration');

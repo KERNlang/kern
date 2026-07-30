@@ -6,6 +6,7 @@ import {
 } from './kern-canonicalizer/coverage.mjs';
 import { assertM4133ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-133-central.mjs';
 import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4-134-central.mjs';
+import { assertM4143ResidualAnalysis } from './kern-canonicalizer/coverage-m4-143-central.mjs';
 import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
@@ -145,9 +146,7 @@ import {
   m4118ActiveProfile,
   m4118ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-118-triple-row-promotion.mjs';
-import {
-  assertM4119ParameterMigration,
-} from './kern-canonicalizer/coverage-m4-119-parameter-migration.mjs';
+import { assertM4119ParameterMigration } from './kern-canonicalizer/coverage-m4-119-parameter-migration.mjs';
 import { assertM4120ResidualAnalysis } from './kern-canonicalizer/coverage-m4-120-central.mjs';
 import { assertM4121ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-121-central.mjs';
 import { assertM4125ResidualAnalysis } from './kern-canonicalizer/coverage-m4-125-central.mjs';
@@ -159,9 +158,7 @@ import {
   m4130ActiveProfile,
   m4130CoverageStatus,
 } from './kern-canonicalizer/coverage-m4-130-combined-promotion.mjs';
-import {
-  m4131CoverageStatus,
-} from './kern-canonicalizer/coverage-m4-131-parameter-migration.mjs';
+import { m4131CoverageStatus } from './kern-canonicalizer/coverage-m4-131-parameter-migration.mjs';
 import { assertM4132ResidualAnalysis } from './kern-canonicalizer/coverage-m4-132-central.mjs';
 import {
   loadCanonicalizerRuntimeCostM493,
@@ -444,6 +441,7 @@ const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
 const m4141CoverageStatusLine = assertPublishedM4141ExceptionFlowPromotion();
 const m4142CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+const m4143CoverageStatusLine = assertM4143ResidualAnalysis();
 assert.deepEqual(
   policy.profileLimits,
   m4130ActiveProfile(),
@@ -1932,6 +1930,7 @@ process.stdout.write(
   ` ${formatM4138ExceptionFlowHandoffStatus(loadCanonicalizerExceptionFlowPrerequisiteProvenance())}` +
   ` ${m4141CoverageStatusLine}` +
   ` ${m4142CoverageStatusLine}` +
+  ` ${m4143CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
