@@ -1,0 +1,145 @@
+{
+  "candidates": [
+    {
+      "changedKirLimits": [
+        "maxBytes",
+        "maxDepth",
+        "maxNodes"
+      ],
+      "changedProfileLimits": [
+        "maxNodeRows",
+        "maxPropertyRows",
+        "maxValueRows"
+      ],
+      "completeFunctions": 1,
+      "completeTools": 1,
+      "kirLimits": {
+        "maxBytes": 367368,
+        "maxDepth": 122,
+        "maxNodes": 7136
+      },
+      "migratedParameterRows": 6,
+      "profileLimits": {
+        "maxNodeRows": 205,
+        "maxPropertyRows": 332,
+        "maxValueRows": 6304
+      },
+      "totalDelta": 98002,
+      "witnesses": [
+        "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources"
+      ]
+    }
+  ],
+  "format": "kern.kir-canonicalizer.projection-analysis.2",
+  "input": {
+    "assignmentDigest": "1da9a57ec132a8147f75ab0d252e188aa86b2744b23d58cf3dfa3510b7bcc106",
+    "baseKirLimits": {
+      "maxBytes": 273051,
+      "maxDepth": 98,
+      "maxNodes": 5313
+    },
+    "inputCommit": "e3cc1d133ef90c4e802d8df5318935e3c826398b",
+    "profileLimits": {
+      "maxNodeRows": 202,
+      "maxPropertyRows": 308,
+      "maxValueRows": 4493
+    },
+    "residualAnalysisDigest": "22639a2453389244611a91560afcd8d03ecefca8874089015f338622e5ba6e3e",
+    "residualFunctions": 2
+  },
+  "requirements": [
+    {
+      "canonicalSurfaceBlockers": [
+        "if.properties.cond.expression.text.character-u007f",
+        "if.properties.cond.expression.text.character-u0080",
+        "if.properties.cond.expression.text.character-u009f",
+        "if.properties.cond.expression.text.character-u2028",
+        "if.properties.cond.expression.text.character-u2029",
+        "if.properties.cond.expression.text.character-ufeff"
+      ],
+      "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+      "kirMinimumRejections": {},
+      "outcome": "projected",
+      "parameterRows": 2,
+      "profileRows": {
+        "nodes": 54,
+        "properties": 82,
+        "values": 932
+      },
+      "requiredKirLimits": {},
+      "requiredProfileLimits": {},
+      "tool": "canonicalizer"
+    },
+    {
+      "canonicalSurfaceBlockers": [],
+      "id": "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources",
+      "kirMinimumRejections": {
+        "maxBytes": {
+          "code": "limit-bytes",
+          "limit": 367367
+        },
+        "maxDepth": {
+          "code": "limit-depth",
+          "limit": 121
+        },
+        "maxNodes": {
+          "code": "limit-nodes",
+          "limit": 7135
+        }
+      },
+      "outcome": "projected",
+      "parameterRows": 6,
+      "profileRows": {
+        "nodes": 205,
+        "properties": 332,
+        "values": 6304
+      },
+      "requiredKirLimits": {
+        "maxBytes": 367368,
+        "maxDepth": 122,
+        "maxNodes": 7136
+      },
+      "requiredProfileLimits": {
+        "maxNodeRows": 205,
+        "maxPropertyRows": 332,
+        "maxValueRows": 6304
+      },
+      "tool": "canonicalizer"
+    }
+  ],
+  "selectedNextAction": {
+    "changedKirLimits": [
+      "maxBytes",
+      "maxDepth",
+      "maxNodes"
+    ],
+    "changedProfileLimits": [
+      "maxNodeRows",
+      "maxPropertyRows",
+      "maxValueRows"
+    ],
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "kirLimits": {
+      "maxBytes": 367368,
+      "maxDepth": 122,
+      "maxNodes": 7136
+    },
+    "migratedParameterRows": 6,
+    "profileLimits": {
+      "maxNodeRows": 205,
+      "maxPropertyRows": 332,
+      "maxValueRows": 6304
+    },
+    "totalDelta": 98002,
+    "witnesses": [
+      "examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources"
+    ]
+  },
+  "summary": {
+    "canonicalSurfaceFunctions": 1,
+    "observedSettings": 1,
+    "projectedFunctions": 2,
+    "unsupportedFunctions": 0
+  }
+}

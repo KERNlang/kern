@@ -7,6 +7,7 @@ import {
 import { assertM4133ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-133-central.mjs';
 import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4-134-central.mjs';
 import { assertM4143ResidualAnalysis } from './kern-canonicalizer/coverage-m4-143-central.mjs';
+import { assertM4144ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-144-central.mjs';
 import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
@@ -442,6 +443,7 @@ const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
 const m4141CoverageStatusLine = assertPublishedM4141ExceptionFlowPromotion();
 const m4142CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 const m4143CoverageStatusLine = assertM4143ResidualAnalysis();
+const m4144CoverageStatusLine = assertM4144ProjectionAnalysis();
 assert.deepEqual(
   policy.profileLimits,
   m4130ActiveProfile(),
@@ -1931,6 +1933,7 @@ process.stdout.write(
   ` ${m4141CoverageStatusLine}` +
   ` ${m4142CoverageStatusLine}` +
   ` ${m4143CoverageStatusLine}` +
+  ` ${m4144CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +
