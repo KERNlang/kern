@@ -1,0 +1,83 @@
+{
+  "baseline": {
+    "assignmentsDigest": "e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720",
+    "blockerCount": 6,
+    "m4148Digest": "bf5b7c6886f7f114995f59d916f4a87ecc2ea3f7fffc5289448d7ebb32abde2f",
+    "m4148InputCommit": "4115914127dc627edf8348af8a487ac1beae941a",
+    "quotesourceId": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+    "sourceDigest": "c32414ee7aa6f29d092dc21de5065f04c4054c54d070dd4d964763047170ee2f"
+  },
+  "candidate": {
+    "equivalence": {
+      "mismatches": 0,
+      "scalarValuesEvaluated": 1112064
+    },
+    "id": "quotesource-neighbor-sentinel-rewrite",
+    "parameterRows": 2,
+    "predicate": "c < \" \" || (c > \"~\" && c < \"\\u00a0\") || (c > \"\\u2027\" && c < \"\\u202a\") || (c > \"\\ufefe\" && c < \"\\uff00\")",
+    "profileBlockers": [],
+    "profileRows": {
+      "nodes": 54,
+      "properties": 82,
+      "values": 932
+    },
+    "runtimeContract": "portable-unicode-code-point-order",
+    "sentinels": [
+      {
+        "codePoint": "U+007E",
+        "literal": "~",
+        "role": "c1-lower-exclusive"
+      },
+      {
+        "codePoint": "U+00A0",
+        "literal": "\\u00a0",
+        "role": "c1-upper-exclusive"
+      },
+      {
+        "codePoint": "U+2027",
+        "literal": "\\u2027",
+        "role": "line-lower-exclusive"
+      },
+      {
+        "codePoint": "U+202A",
+        "literal": "\\u202a",
+        "role": "line-upper-exclusive"
+      },
+      {
+        "codePoint": "U+FEFE",
+        "literal": "\\ufefe",
+        "role": "bom-lower-exclusive"
+      },
+      {
+        "codePoint": "U+FF00",
+        "literal": "\\uff00",
+        "role": "bom-upper-exclusive"
+      }
+    ]
+  },
+  "current": {
+    "blockedReasons": [
+      "if.properties.cond.expression.text.character-u007f",
+      "if.properties.cond.expression.text.character-u0080",
+      "if.properties.cond.expression.text.character-u009f",
+      "if.properties.cond.expression.text.character-u2028",
+      "if.properties.cond.expression.text.character-u2029",
+      "if.properties.cond.expression.text.character-ufeff"
+    ],
+    "parameterRows": 2,
+    "predicate": "c < \" \" || c == \"\\u007f\" || (c >= \"\\u0080\" && c <= \"\\u009f\") || c == \"\\u2028\" || c == \"\\u2029\" || c == \"\\ufeff\"",
+    "profileRows": {
+      "nodes": 54,
+      "properties": 82,
+      "values": 932
+    }
+  },
+  "format": "kern.kir-canonicalizer.canonical-surface-analysis.1",
+  "selectedNextAction": {
+    "action": "replace-exact-quotesource-predicate",
+    "id": "quotesource-neighbor-sentinel-rewrite",
+    "milestone": "M4.150",
+    "source": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+    "witness": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource"
+  }
+}
