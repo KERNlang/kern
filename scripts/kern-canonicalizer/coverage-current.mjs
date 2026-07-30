@@ -2,19 +2,13 @@ import assert from 'node:assert/strict';
 
 import {
   assertM4131ParameterMigration,
-  m4131ParameterMigration,
 } from './coverage-m4-131-parameter-migration.mjs';
+import { assertM4137NewExpressionPromotion } from './coverage-m4-137-central.mjs';
 import {
   m4130ActiveKirLimits,
   m4130ActiveProfile,
   m4130ActiveRuntimeByteLimits,
 } from './coverage-m4-130-combined-promotion.mjs';
-
-const CURRENT_LEGACY_PARAMETER_FUNCTION_IDS = [
-  'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
-  'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
-  'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-];
 
 export function currentM493ParameterMigration() {
   return {
@@ -89,61 +83,14 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
 
 export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
   assertM4131ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 104);
-  assert.equal(coverage.functions.length, 112);
-  assert.deepEqual(
-    coverage.functions
-      .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))
-      .map(({ id }) => id),
-    CURRENT_LEGACY_PARAMETER_FUNCTION_IDS,
-  );
-  assert.deepEqual(prerequisite.parameterMigration, m4131ParameterMigration());
+  const status = assertM4137NewExpressionPromotion(coverage, prerequisite);
   assert.equal(prerequisite.outcome, 'selected');
-  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 1,
-    family: 'new-expression',
-    occurrences: 41,
+    catalogFacts: 2,
+    family: 'exception-flow',
+    occurrences: 34,
   });
-  assert.deepEqual(
-    prerequisite.prerequisiteRanking.map(({ catalogFacts, family, occurrences }) => ({
-      catalogFacts,
-      family,
-      occurrences,
-    })),
-    [
-      { catalogFacts: 1, family: 'new-expression', occurrences: 41 },
-      { catalogFacts: 2, family: 'exception-flow', occurrences: 34 },
-    ],
-  );
-  assert.deepEqual(
-    prerequisite.ranking.map(({
-      completeFunctions,
-      completeTools,
-      families,
-      migratedParameterRows,
-      occurrences,
-    }) => ({
-      completeFunctions,
-      completeTools,
-      families,
-      migratedParameterRows,
-      occurrences,
-    })),
-    [{
-      completeFunctions: 1,
-      completeTools: 1,
-      families: ['exception-flow', 'new-expression'],
-      migratedParameterRows: 15,
-      occurrences: 75,
-    }],
-  );
-  assert.deepEqual(prerequisite.ranking[0]?.witnesses, [{
-    id: 'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-    parameterRows: 15,
-    profileRows: { nodes: 100, properties: 159, values: 2556 },
-    tool: 'canonicalizer',
-  }]);
   assert.equal(prerequisite.exhaustion, null);
-  return prerequisite;
+  return status;
 }

@@ -1,23 +1,23 @@
 {
   "baseline": {
-    "baseCompleteFunctions": 104,
-    "baseId": "kern.kir-canonicalizer.profile.m4.60",
+    "baseCompleteFunctions": 109,
+    "baseId": "kern.kir-canonicalizer.profile.m4.137",
     "canonicalizerDigest": "e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75",
     "canonicalizerPolicyDigest": "54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4",
     "compiledCoreDigest": "29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2",
     "corpusDigest": "74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7",
-    "coverageImplementationDigest": "a3c2ec637c0bfd30679fc3cf711fa5203a7255082ccf5df3ce160f1613e9cacf",
-    "coveragePolicyDigest": "f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad",
+    "coverageImplementationDigest": "f8308a44e888d7e4b0b0d9546ec49831fd7515c2c04d90355445f53d7ddfce40",
+    "coveragePolicyDigest": "edecde1e3bd5e27ef3025ff6da045a77b71e9718e4fd573bc0bedc17a060e6c5",
     "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
     "functionCount": 112,
-    "functionFactsDigest": "1de3ad0e16d981ce7233d0d3d7964ef6991e98b180435df625831e288904fb08",
+    "functionFactsDigest": "43c1d9d7fe4aec5c8ebc5041cc6a9973531a7709f557e671840cb82e2117c85f",
     "legacyParameterBlockers": 3,
-    "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
+    "profileDigest": "fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b",
     "toolCount": 4
   },
   "exhaustion": null,
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
-  "minimumFamilyCount": 2,
+  "minimumFamilyCount": 1,
   "outcome": "selected",
   "parameterMigration": {
     "completeFunctions": 0,
@@ -26,11 +26,6 @@
     "witnesses": []
   },
   "prerequisiteRanking": [
-    {
-      "catalogFacts": 1,
-      "family": "new-expression",
-      "occurrences": 41
-    },
     {
       "catalogFacts": 2,
       "family": "exception-flow",
@@ -42,11 +37,10 @@
       "completeFunctions": 1,
       "completeTools": 1,
       "families": [
-        "exception-flow",
-        "new-expression"
+        "exception-flow"
       ],
       "migratedParameterRows": 15,
-      "occurrences": 75,
+      "occurrences": 34,
       "witnesses": [
         {
           "id": "examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize",
@@ -62,8 +56,8 @@
     }
   ],
   "selectedPrerequisite": {
-    "catalogFacts": 1,
-    "family": "new-expression",
-    "occurrences": 41
+    "catalogFacts": 2,
+    "family": "exception-flow",
+    "occurrences": 34
   }
 }

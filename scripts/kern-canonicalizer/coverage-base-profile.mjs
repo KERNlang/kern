@@ -1,9 +1,10 @@
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
+import { isAuthenticatedHistoricalCoverageBase } from './historical-coverage-auth.mjs';
 
 export const BASE_EXPRESSION_KINDS = [
-  'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text', 'unary',
+  'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'new', 'null', 'text', 'unary',
 ];
-export const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.60';
+export const BASE_PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.137';
 export const BASE_PROMOTIONS = [
   {
     family: 'binary-expression',
@@ -55,6 +56,11 @@ export const BASE_PROMOTIONS = [
     provenanceDigest: '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
     provenanceKind: 'prerequisite',
   },
+  {
+    family: 'new-expression',
+    provenanceDigest: 'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e',
+    provenanceKind: 'prerequisite',
+  },
 ];
 export const BASE_NODE_KINDS = [
   'assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'while',
@@ -90,7 +96,21 @@ function sameText(left, right) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function isExactHistoricalM460Base(base) {
+  return (
+    base.id === 'kern.kir-canonicalizer.profile.m4.60' &&
+    sameText(base.nodeKinds, BASE_NODE_KINDS) &&
+    sameText(base.expressionKinds, BASE_EXPRESSION_KINDS.filter((kind) => kind !== 'new')) &&
+    sameText(base.propertyKeys, BASE_PROPERTY_KEYS) &&
+    JSON.stringify(base.promotions) === JSON.stringify(BASE_PROMOTIONS.slice(0, -1))
+  );
+}
+
 export function validateCoverageBase(base) {
+  if (
+    isAuthenticatedHistoricalCoverageBase(base) &&
+    isExactHistoricalM460Base(base)
+  ) return base;
   if (
     base.id !== BASE_PROFILE_ID ||
     !sameText(base.nodeKinds, BASE_NODE_KINDS) ||
@@ -98,7 +118,7 @@ export function validateCoverageBase(base) {
     !sameText(base.propertyKeys, BASE_PROPERTY_KEYS) ||
     JSON.stringify(base.promotions) !== JSON.stringify(BASE_PROMOTIONS)
   ) {
-    throw new TypeError('coverage policy rejection: base must exactly match the M4.60 cumulative profile');
+    throw new TypeError('coverage policy rejection: base must exactly match the M4.137 cumulative profile');
   }
   return base;
 }

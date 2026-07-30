@@ -7,12 +7,6 @@ import {
 import { assertM4133ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-133-central.mjs';
 import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4-134-central.mjs';
 import {
-  assertM4135BoundedNewExpression,
-} from './kern-canonicalizer/coverage-m4-135-central.mjs';
-import {
-  assertM4136NewExpressionHandoff,
-} from './kern-canonicalizer/coverage-m4-136-central.mjs';
-import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
@@ -446,9 +440,7 @@ const m4131CoverageStatusLine = m4131CoverageStatus();
 const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
-const m4135CoverageStatusLine = assertM4135BoundedNewExpression(coverage, prerequisite);
-const m4136CoverageStatusLine = assertM4136NewExpressionHandoff(coverage, prerequisite);
-assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+const m4137CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4130ActiveProfile(),
@@ -545,11 +537,11 @@ if (process.argv.includes('--write')) {
   assert.equal(actual.prerequisiteProvenances.length, 7);
   assert.deepEqual(actual.prerequisiteProvenances, prerequisiteHandoffs);
   assert.deepEqual(actual.implementationProvenance, {
-    family: 'while-iteration',
-    provenanceDigest: prerequisiteHandoffs[5].digest,
+    family: 'new-expression',
+    provenanceDigest: prerequisiteHandoffs[6].digest,
     provenanceKind: 'prerequisite',
   });
-  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.60');
+  assert.equal(actual.base.id, 'kern.kir-canonicalizer.profile.m4.137');
   assert.deepEqual(actual.base.promotions, [
     {
       family: 'binary-expression',
@@ -601,41 +593,31 @@ if (process.argv.includes('--write')) {
       provenanceDigest: '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
       provenanceKind: 'prerequisite',
     },
-  ], 'M4.60 must preserve the ten promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.60 handwritten corpus count must remain exact');
+    {
+      family: 'new-expression',
+      provenanceDigest: 'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e',
+      provenanceKind: 'prerequisite',
+    },
+  ], 'M4.137 must preserve the eleven promoted provenance citations');
+  assert.equal(actual.corpusMembers, 9, 'live M4.137 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 112, 'live M4.119 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.60 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 104, 'live M4.131 base completion must remain exactly 104/112');
+  assert.equal(actual.toolCount, 4, 'live M4.137 tool count must remain exact');
+  assert.equal(actual.baseCompleteFunctions, 109, 'live M4.137 base completion must remain exactly 109/112');
   assert.equal(
     actual.blockers.find(({ id }) => id === 'fn.params')?.count,
     3,
     'live M4.131 fn.params blocker count must remain exactly 3',
   );
-  assert.deepEqual(actual.selection.winner, {
-    completeFunctions: 5,
-    completeTools: 1,
-    id: 'new-expression',
-    occurrences: 41,
-    witnesses: [
-      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts',
-      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts',
-      'examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok',
-      'examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts',
-      'examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts',
-    ],
-  }, 'live M4.135 measurement must select the exact new-expression winner');
+  assert.equal(actual.selection.winner, null, 'live M4.137 ordinary selection must be exhausted');
   assert.deepEqual(
     actual.selection.ranking.map(({ completeFunctions, completeTools, id }) => ({ completeFunctions, completeTools, id })),
-    [
-      { completeFunctions: 5, completeTools: 1, id: 'new-expression' },
-      { completeFunctions: 0, completeTools: 0, id: 'exception-flow' },
-    ],
-    'live M4.135 residual family ranking must remain exact',
+    [{ completeFunctions: 0, completeTools: 0, id: 'exception-flow' }],
+    'live M4.137 residual family ranking must remain exact',
   );
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(prerequisite.outcome, 'selected');
-  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.equal(
     m481PrerequisiteHandoff.digest,
     'd41669c95edfab7e6a088abd14841f93fd49ea9c0daa4a0369230effb8859e7d',
@@ -656,17 +638,17 @@ if (process.argv.includes('--write')) {
     }],
   });
   assert.deepEqual(prerequisite.selectedPrerequisite, {
-    catalogFacts: 1,
-    family: 'new-expression',
-    occurrences: 41,
+    catalogFacts: 2,
+    family: 'exception-flow',
+    occurrences: 34,
   });
   assert.deepEqual(
     prerequisite.prerequisiteRanking.map(({ family }) => family),
-    ['new-expression', 'exception-flow'],
+    ['exception-flow'],
   );
   assert.deepEqual(
     prerequisite.ranking.map(({ families }) => families),
-    [['exception-flow', 'new-expression']],
+    [['exception-flow']],
   );
   assert.equal(prerequisite.exhaustion, null);
   assert.equal(m468PrerequisiteHandoff.digest,
@@ -1574,7 +1556,7 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 104);
+  assert.equal(actual.baseCompleteFunctions, 109);
   assert.equal(actual.functionCount, 112);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
@@ -1952,8 +1934,7 @@ process.stdout.write(
   ` ${m4132CoverageStatusLine}` +
   ` ${m4133CoverageStatusLine}` +
   ` ${m4134CoverageStatusLine}` +
-  ` ${m4135CoverageStatusLine}` +
-  ` ${m4136CoverageStatusLine}` +
+  ` ${m4137CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

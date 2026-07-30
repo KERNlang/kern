@@ -42,7 +42,7 @@ test('M4.124 consumes the exact immutable M4.123 rejectLine queue', () => {
 test('M4.124 migrates only rejectLine to five direct parameters', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM4124ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 104);
+  assert.equal(coverage.baseCompleteFunctions, 109);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params')).length, 3);
   assert.deepEqual(m4124ParameterMigration(), {

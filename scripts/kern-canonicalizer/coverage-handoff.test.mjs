@@ -351,7 +351,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and seven-record prerequisite history through M4.136', () => {
+test('the current corpus preserves selection and seven-record prerequisite history through M4.137', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -372,8 +372,8 @@ test('the current corpus preserves selection and seven-record prerequisite histo
   assert.equal(receipt.prerequisiteProvenances.length, 7);
   assert.equal(summary.prerequisiteProvenances.length, 7);
   assert.deepEqual(receipt.implementationProvenance, {
-    family: 'while-iteration',
-    provenanceDigest: prerequisites[5].digest,
+    family: 'new-expression',
+    provenanceDigest: prerequisites[6].digest,
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(summary.implementationProvenance, receipt.implementationProvenance);
@@ -384,24 +384,13 @@ test('the current corpus preserves selection and seven-record prerequisite histo
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 104);
-  assert.deepEqual(receipt.selection.winner, {
-    completeFunctions: 5,
-    completeTools: 1,
-    id: 'new-expression',
-    occurrences: 41,
-    witnesses: [
-      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts',
-      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts',
-      'examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok',
-      'examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts',
-      'examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts',
-    ],
-  });
+  assert.equal(receipt.baseCompleteFunctions, 109);
+  assert.equal(receipt.selection.winner, null);
+  assert.deepEqual(receipt.selection.ranking.map(({ id }) => id), ['exception-flow']);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('the current M4.60 profile promotes exact while iteration into the cumulative base', () => {
+test('the current M4.137 profile promotes exact new expression into the cumulative base', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -431,7 +420,7 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
   assert.match(canonicalizerSource.toString('utf8'), /if cond="kind == \\"while\\""/u);
   const policy = JSON.parse(readFileSync(new URL('./coverage-policy.json', import.meta.url), 'utf8'));
   assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.137');
   assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
   assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
@@ -441,8 +430,10 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
   assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
   assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
   assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow', 'new-expression']);
+  assert.equal(policy.families.some(({ id }) => id === 'new-expression'), false);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(policy.base.expressionKinds.includes('index'), true);
+  assert.equal(policy.base.expressionKinds.includes('new'), true);
   assert.equal(policy.base.expressionKinds.includes('unary'), true);
   assert.equal(policy.base.nodeKinds.includes('if'), true);
   assert.equal(policy.base.nodeKinds.includes('else'), true);
@@ -489,4 +480,7 @@ test('the current M4.60 profile promotes exact while iteration into the cumulati
   assert.equal(policy.base.promotions[9].family, 'while-iteration');
   assert.equal(policy.base.promotions[9].provenanceDigest, prerequisites[5].digest);
   assert.equal(policy.base.promotions[9].provenanceKind, 'prerequisite');
+  assert.equal(policy.base.promotions[10].family, 'new-expression');
+  assert.equal(policy.base.promotions[10].provenanceDigest, prerequisites[6].digest);
+  assert.equal(policy.base.promotions[10].provenanceKind, 'prerequisite');
 });

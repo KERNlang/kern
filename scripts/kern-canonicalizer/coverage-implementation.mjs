@@ -12,6 +12,7 @@ import {
   requireAuthenticatedCoverageDependencies,
   verifyAuthenticatedCoverageDependencies,
 } from './coverage-dependencies.mjs';
+import { carryHistoricalCoverageAuthentication } from './historical-coverage-auth.mjs';
 import {
   assertFamiliesCoverageClosed,
   coverageFamilyRegistrySource,
@@ -48,15 +49,9 @@ const COVERAGE_POLICY_SOURCE = readFileSync(new URL('./coverage-policy.json', im
 const PROFILE_SOURCE = readFileSync(new URL('./coverage-profile.mjs', import.meta.url));
 const EXPRESSION_CATALOG_SOURCE = readFileSync(resolve(ROOT, 'packages/core/src/kir-structural/expression.ts'));
 const AUTHENTICATED_FUNCTION_FACTS = new WeakMap();
-function fail(message) {
-  throw new TypeError(`coverage policy rejection: ${message}`);
-}
-function digest(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
-function compareText(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+function fail(message) { throw new TypeError(`coverage policy rejection: ${message}`); }
+function digest(value) { return createHash('sha256').update(value).digest('hex'); }
+function compareText(left, right) { return left < right ? -1 : left > right ? 1 : 0; }
 function record(value, keys, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be a record`);
   const prototype = Object.getPrototypeOf(value);
@@ -188,6 +183,7 @@ export function validateCoveragePolicy(input, options = {}) {
     promotions,
     propertyKeys: sortedUniqueText(baseInput.propertyKeys, 'base.propertyKeys'),
   };
+  carryHistoricalCoverageAuthentication(input, { base });
   for (const kind of base.nodeKinds) {
     if (STRUCTURAL_KIR_NODE_CATALOG.get(kind)?.disposition !== 'structural-candidate') {
       fail(`base invents node kind ${kind}`);
@@ -199,7 +195,10 @@ export function validateCoveragePolicy(input, options = {}) {
   validateCoverageBase(base);
   const corpus = validateCorpus(policy.corpus, options.allowMissingCorpus === true);
   const families = validateCoverageFamilies(policy.families, base);
-  return { base, corpus, families, format: POLICY_FORMAT };
+  return carryHistoricalCoverageAuthentication(
+    input,
+    { base, corpus, families, format: POLICY_FORMAT },
+  );
 }
 
 export function loadCoveragePolicy() {

@@ -155,8 +155,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
     toolCount: 4,
   });
   assert.deepEqual(first.implementationProvenance, {
-    family: 'while-iteration',
-    provenanceDigest: '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07',
+    family: 'new-expression',
+    provenanceDigest: 'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e',
     provenanceKind: 'prerequisite',
   });
   assert.deepEqual(
@@ -221,11 +221,10 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assertM491ParameterMigrations(first);
   assertM4131ParameterMigration(first);
   assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 3);
-  assert.equal(first.baseCompleteFunctions, 104);
-  assert.equal(first.selection.winner?.id, 'new-expression');
-  assert.equal(first.selection.winner?.completeFunctions, 5);
-  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [5, 0]);
-  assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['new-expression', 'exception-flow']);
+  assert.equal(first.baseCompleteFunctions, 109);
+  assert.equal(first.selection.winner, null);
+  assert.deepEqual(first.selection.ranking.map(({ completeFunctions }) => completeFunctions), [0]);
+  assert.deepEqual(first.selection.ranking.map(({ id }) => id), ['exception-flow']);
   const checkedIn = JSON.parse(readFileSync(new URL('./coverage-summary.json', import.meta.url), 'utf8'));
   assert.deepEqual(summarizeCanonicalizerCoverage(first), checkedIn);
   const fresh = spawnSync(process.execPath, [

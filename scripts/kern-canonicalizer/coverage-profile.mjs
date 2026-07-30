@@ -157,6 +157,15 @@ function localBaseExpressionBlocker(value) {
     const operator = fields.get('op').value;
     return PORTABLE_UNARY_OPERATORS.has(operator) ? null : `expression.unary.operator.${operator}`;
   }
+  if (kind.value === 'new') {
+    try {
+      validateExpressionValue(value, '$.new');
+      return null;
+    } catch (error) {
+      if (error instanceof StructuralKirError) return 'expression.new.shape';
+      throw error;
+    }
+  }
   if (kind.value !== 'list') return `expression.${kind.value}.profile`;
   const items = fields.get('items');
   return fields.size === 1 && items?.tag === 'list' ? null : 'expression.list.shape';

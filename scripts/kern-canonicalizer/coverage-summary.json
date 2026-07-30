@@ -9,11 +9,12 @@
       "integer",
       "list",
       "member",
+      "new",
       "null",
       "text",
       "unary"
     ],
-    "id": "kern.kir-canonicalizer.profile.m4.60",
+    "id": "kern.kir-canonicalizer.profile.m4.137",
     "nodeKinds": [
       "assign",
       "do",
@@ -77,6 +78,11 @@
         "family": "while-iteration",
         "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
         "provenanceKind": "prerequisite"
+      },
+      {
+        "family": "new-expression",
+        "provenanceDigest": "ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e",
+        "provenanceKind": "prerequisite"
       }
     ],
     "propertyKeys": [
@@ -117,7 +123,7 @@
       "while.cond"
     ]
   },
-  "baseCompleteFunctions": 104,
+  "baseCompleteFunctions": 109,
   "blockers": [
     {
       "count": 3,
@@ -187,21 +193,21 @@
   },
   "corpusMembers": 9,
   "corpusDigest": "74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7",
-  "coverageImplementationDigest": "a3c2ec637c0bfd30679fc3cf711fa5203a7255082ccf5df3ce160f1613e9cacf",
-  "coveragePolicyDigest": "f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad",
+  "coverageImplementationDigest": "f8308a44e888d7e4b0b0d9546ec49831fd7515c2c04d90355445f53d7ddfce40",
+  "coveragePolicyDigest": "edecde1e3bd5e27ef3025ff6da045a77b71e9718e4fd573bc0bedc17a060e6c5",
   "expressionCatalogDigest": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957",
   "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
   "format": "kern.kir-canonicalizer.coverage-summary.6",
   "functionCount": 112,
-  "functionFactsDigest": "1de3ad0e16d981ce7233d0d3d7964ef6991e98b180435df625831e288904fb08",
+  "functionFactsDigest": "43c1d9d7fe4aec5c8ebc5041cc6a9973531a7709f557e671840cb82e2117c85f",
   "implementationProvenance": {
-    "family": "while-iteration",
-    "provenanceDigest": "5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07",
+    "family": "new-expression",
+    "provenanceDigest": "ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e",
     "provenanceKind": "prerequisite"
   },
   "implementationSelectionProvenanceDigest": "83e045d827f7865bd03003d882baf3fe42d66d998c0daa894a05f534cbf8df2d",
-  "policyDigest": "bf18114b9d1b750484acad61dd1e72be10b6cdb0203015b44b6c54cc54d6d200",
-  "profileDigest": "382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b",
+  "policyDigest": "ae03c439fb03590fed4ec7d97b10a67d5c8019efcccf2016119d36e1cc17dcb3",
+  "profileDigest": "fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b",
   "prerequisiteProvenances": [
     {
       "digest": "3833955568710b89c7760bc579de5985d09b6c942ff006bac4bcc809757a7869",
@@ -510,19 +516,6 @@
   "selection": {
     "ranking": [
       {
-        "completeFunctions": 5,
-        "completeTools": 1,
-        "id": "new-expression",
-        "occurrences": 41,
-        "witnesses": [
-          "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts",
-          "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts",
-          "examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok",
-          "examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts",
-          "examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts"
-        ]
-      },
-      {
         "completeFunctions": 0,
         "completeTools": 0,
         "id": "exception-flow",
@@ -530,19 +523,7 @@
         "witnesses": []
       }
     ],
-    "winner": {
-      "completeFunctions": 5,
-      "completeTools": 1,
-      "id": "new-expression",
-      "occurrences": 41,
-      "witnesses": [
-        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#16:typefieldtablefacts",
-        "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#18:statementtablefacts",
-        "examples/kern-canonicalizer/canonicalizer.kern#6:nodetablesok",
-        "examples/kern-canonicalizer/canonicalizer.kern#7:propertyfacts",
-        "examples/kern-canonicalizer/canonicalizer.kern#8:valuefacts"
-      ]
-    }
+    "winner": null
   },
   "selectionProvenances": [
     {

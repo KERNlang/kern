@@ -123,11 +123,11 @@ test('M4.58 exact handoff pin rejects structurally valid causal drift', () => {
 
 test('the current frontier preserves the M4.60 while promotion', () => {
   const policy = loadCoveragePolicy();
-  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.60');
+  assert.equal(policy.base.id, 'kern.kir-canonicalizer.profile.m4.137');
   assert.equal(policy.base.nodeKinds.includes('while'), true);
   assert.equal(policy.base.propertyKeys.includes('while.cond'), true);
   assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow', 'new-expression']);
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   assert.equal(
     sha256(readFileSync(new URL('../../examples/selfhost-validator/validator.kern', import.meta.url))),
     'e233d3113792c19c147be3ccabead970d7cbe02062d7fb762a87ccffac246958',
@@ -156,6 +156,6 @@ test('the current frontier preserves the M4.60 while promotion', () => {
     }],
   });
   assert.equal(prerequisite.outcome, 'selected');
-  assert.equal(prerequisite.minimumFamilyCount, 2);
+  assert.equal(prerequisite.minimumFamilyCount, 1);
   assert.equal(prerequisite.exhaustion, null);
 });

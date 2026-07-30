@@ -11,8 +11,7 @@ import {
 import { baseExpressionProfileBlockers, profileBlockersForFunction } from './coverage-profile.mjs';
 import { canonicalizerFunctionCompletes } from './coverage-selection.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
-
-const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.60';
+const PROFILE_ID = 'kern.kir-canonicalizer.profile.m4.137';
 const BINARY_PROVENANCE_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const CONDITIONAL_PROVENANCE_DIGEST = 'fe15f0ff4b8b80653ddef7f3b8736f38fa2b34a928d05a32bb9eff4d0f254f2b';
 const CALL_PROVENANCE_DIGEST = '7eee28b09785d36539e45293afbe0325fe9b50c20ffc7057e0aa3997d9371605';
@@ -23,6 +22,8 @@ const BINDING_PROVENANCE_DIGEST = '00f67756052785ece657b451bc22c5f43ce088021cb6c
 const UNARY_PROVENANCE_DIGEST = 'e64147e572dff26720b7efae7353583ac2b97b0b37001a9cd835909684dfd9e5';
 const DO_PROVENANCE_DIGEST = '3d865f4983e7febd26540db681c88d8749d156f5d180405b831b5ccd7fb54d72';
 const WHILE_PROVENANCE_DIGEST = '5583173bffc4c6b4ebd33c245c2b71d1577c12e3bb26626d29a142aaa648cb07';
+const NEW_EXPRESSION_PROVENANCE_DIGEST =
+  'ca3b4053df5707126d97c21300cf20004d7c01e9fcc0b78d40dd249fd8d1af0e';
 const BINARY_PROMOTION = {
   family: 'binary-expression',
   provenanceDigest: BINARY_PROVENANCE_DIGEST,
@@ -73,16 +74,20 @@ const WHILE_PROMOTION = {
   provenanceDigest: WHILE_PROVENANCE_DIGEST,
   provenanceKind: 'prerequisite',
 };
-test('M4.60 promotes while iteration through exact prerequisite provenance', () => {
+const NEW_EXPRESSION_PROMOTION = {
+  family: 'new-expression',
+  provenanceDigest: NEW_EXPRESSION_PROVENANCE_DIGEST,
+  provenanceKind: 'prerequisite',
+};
+test('M4.137 promotes new expression through exact prerequisite provenance', () => {
   const policy = loadCoveragePolicy();
-  assert.equal(policy.format, 'kern.kir-canonicalizer.coverage-policy.3');
   assert.equal(policy.base.id, PROFILE_ID);
   assert.deepEqual(
     policy.base.nodeKinds,
     ['assign', 'do', 'else', 'fn', 'for', 'handler', 'if', 'let', 'param', 'return', 'while'],
   );
   assert.deepEqual(policy.base.expressionKinds, [
-    'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'null', 'text', 'unary',
+    'binary', 'boolean', 'call', 'identifier', 'index', 'integer', 'list', 'member', 'new', 'null', 'text', 'unary',
   ]);
   assert.deepEqual(
     policy.base.promotions,
@@ -97,32 +102,10 @@ test('M4.60 promotes while iteration through exact prerequisite provenance', () 
       UNARY_PROMOTION,
       DO_PROMOTION,
       WHILE_PROMOTION,
+      NEW_EXPRESSION_PROMOTION,
     ],
   );
-  assert.equal(policy.families.some(({ id }) => id === 'binary-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'conditional'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'call-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'member-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'index-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'counted-iteration'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'binding'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'unary-expression'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'do-statement'), false);
-  assert.equal(policy.families.some(({ id }) => id === 'while-iteration'), false);
-  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow', 'new-expression']);
-  assert.equal(policy.base.propertyKeys.includes('do.value'), true);
-  assert.equal(policy.base.propertyKeys.includes('for.from'), true);
-  assert.equal(policy.base.propertyKeys.includes('for.name'), true);
-  assert.equal(policy.base.propertyKeys.includes('for.to'), true);
-  assert.equal(policy.base.propertyKeys.includes('for.step'), false);
-  assert.equal(policy.base.propertyKeys.includes('while.cond'), true);
-  for (const property of ['assign.target', 'assign.value', 'let.name', 'let.value']) {
-    assert.equal(policy.base.propertyKeys.includes(property), true);
-  }
-  for (const property of ['assign.op', 'assign.trailingComment', 'let.kind', 'let.trailingComment']) {
-    assert.equal(policy.base.propertyKeys.includes(property), false);
-  }
-
+  assert.deepEqual(policy.families.map(({ id }) => id), ['exception-flow']);
   const receipt = measureCanonicalizerCoverage(policy);
   const summary = summarizeCanonicalizerCoverage(receipt);
   assert.equal(receipt.format, 'kern.kir-canonicalizer.coverage-receipt.6');
@@ -139,10 +122,10 @@ test('M4.60 promotes while iteration through exact prerequisite provenance', () 
     ],
   );
   assert.equal(receipt.implementationSelectionProvenanceDigest, MEMBER_PROVENANCE_DIGEST);
-  assert.deepEqual(receipt.implementationProvenance, WHILE_PROMOTION);
-  assert.deepEqual(summary.implementationProvenance, WHILE_PROMOTION);
+  assert.deepEqual(receipt.implementationProvenance, NEW_EXPRESSION_PROMOTION);
+  assert.deepEqual(summary.implementationProvenance, NEW_EXPRESSION_PROMOTION);
   assert.deepEqual(
-    receipt.prerequisiteProvenances.slice(0, 6).map(({ digest }) => digest),
+    receipt.prerequisiteProvenances.map(({ digest }) => digest),
     [
       INDEX_PROVENANCE_DIGEST,
       COUNTED_ITERATION_PROVENANCE_DIGEST,
@@ -150,6 +133,7 @@ test('M4.60 promotes while iteration through exact prerequisite provenance', () 
       UNARY_PROVENANCE_DIGEST,
       DO_PROVENANCE_DIGEST,
       WHILE_PROVENANCE_DIGEST,
+      NEW_EXPRESSION_PROVENANCE_DIGEST,
     ],
   );
   assert.deepEqual(summary.prerequisiteProvenances, receipt.prerequisiteProvenances);
@@ -159,7 +143,7 @@ test('M4.60 promotes while iteration through exact prerequisite provenance', () 
   );
 });
 
-test('M4.60 rejects profile identity, typed evidence, and candidate overlap drift', () => {
+test('M4.137 rejects profile identity, typed evidence, and candidate overlap drift', () => {
   const policy = loadCoveragePolicy();
   const mutations = [
     (copy) => { copy.format = 'kern.kir-canonicalizer.coverage-policy.2'; },
@@ -168,35 +152,18 @@ test('M4.60 rejects profile identity, typed evidence, and candidate overlap drif
     (copy) => { copy.base.expressionKinds.shift(); },
     (copy) => { copy.base.nodeKinds.shift(); },
     (copy) => { copy.base.promotions.pop(); },
-    (copy) => { copy.base.promotions[0].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[1].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[2].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[3].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[4].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[5].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[6].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[7].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[8].provenanceDigest = '0'.repeat(64); },
-    (copy) => { copy.base.promotions[9].provenanceDigest = '0'.repeat(64); },
+    ...policy.base.promotions.map((_, index) => (copy) => {
+      copy.base.promotions[index].provenanceDigest = '0'.repeat(64);
+    }),
     (copy) => { copy.base.promotions[0].provenanceKind = 'prerequisite'; },
-    (copy) => { copy.base.promotions[4].provenanceKind = 'selection'; },
     (copy) => { copy.base.promotions[4].provenanceKind = 'future'; },
-    (copy) => { copy.base.promotions[5].provenanceKind = 'selection'; },
-    (copy) => { copy.base.promotions[6].provenanceKind = 'selection'; },
-    (copy) => { copy.base.promotions[7].provenanceKind = 'selection'; },
-    (copy) => { copy.base.promotions[8].provenanceKind = 'selection'; },
-    (copy) => { copy.base.promotions[9].provenanceKind = 'selection'; },
+    ...policy.base.promotions.slice(4).map((_, offset) => (copy) => {
+      copy.base.promotions[offset + 4].provenanceKind = 'selection';
+    }),
     (copy) => { copy.base.promotions.reverse(); },
-    (copy) => { copy.base.promotions.push(structuredClone(BINARY_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(CONDITIONAL_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(CALL_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(MEMBER_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(INDEX_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(COUNTED_ITERATION_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(BINDING_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(UNARY_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(DO_PROMOTION)); },
-    (copy) => { copy.base.promotions.push(structuredClone(WHILE_PROMOTION)); },
+    ...policy.base.promotions.map((promotion) => (copy) => {
+      copy.base.promotions.push(structuredClone(promotion));
+    }),
     (copy) => {
       copy.families.unshift({
         expressionKinds: ['index'],
@@ -233,6 +200,14 @@ test('M4.60 rejects profile identity, typed evidence, and candidate overlap drif
         id: 'while-iteration',
         nodeKinds: ['while'],
         propertyKeys: ['while.cond'],
+      });
+    },
+    (copy) => {
+      copy.families.push({
+        expressionKinds: ['new'],
+        id: 'new-expression',
+        nodeKinds: [],
+        propertyKeys: [],
       });
     },
   ];

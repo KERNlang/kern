@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   ASSIGNMENT_TARGET_PROJECTION_M4129_STATEMENT_REPLACEMENT,
 } from './assignment-target-projection-target.mjs';
+import { authenticateHistoricalCoveragePolicy } from './historical-coverage-auth.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
   PRE_M4135_CANONICALIZER_MAIN_DIGEST,
@@ -190,7 +191,7 @@ export function loadPreM4135CoverageInputs(currentPolicy) {
   return {
     coveragePolicyDigest: PRE_M4135_COVERAGE_POLICY_DIGEST,
     coveragePolicySource: Buffer.from(historical.policySource),
-    policy: historical.policy,
+    policy: authenticateHistoricalCoveragePolicy(historical.policy, historical.policySource),
     sourceOverrides: historical.sourceOverrides,
   };
 }
@@ -204,7 +205,7 @@ export function loadPreM4131CoverageInputs(currentPolicy) {
   return {
     coveragePolicyDigest: PRE_M4131_POLICY_DIGEST,
     coveragePolicySource: Buffer.from(historical.policySource),
-    policy: historical.policy,
+    policy: authenticateHistoricalCoveragePolicy(historical.policy, historical.policySource),
     sourceOverrides: historical.sourceOverrides,
   };
 }
@@ -248,7 +249,7 @@ export function loadPreM4113CoverageInputs(currentPolicy) {
   }
   return {
     coveragePolicyDigest: PRE_M4113_POLICY_DIGEST,
-    policy,
+    policy: authenticateHistoricalCoveragePolicy(policy, policySource),
     sourceOverrides,
   };
 }
@@ -314,7 +315,7 @@ export function loadPreM4124CoverageInputs(currentPolicy) {
   }
   return {
     coveragePolicyDigest: PRE_M4124_POLICY_DIGEST,
-    policy,
+    policy: authenticateHistoricalCoveragePolicy(policy, policySource),
     sourceOverrides,
   };
 }
@@ -362,7 +363,7 @@ export function loadPreM4129CoverageInputs(currentPolicy) {
   }
   return {
     coveragePolicyDigest: PRE_M4129_POLICY_DIGEST,
-    policy,
+    policy: authenticateHistoricalCoveragePolicy(policy, policySource),
     sourceOverrides: new Map([
       ...preM4131.sourceOverrides,
       [STATEMENT_HELPERS_PATH, historicalSource],

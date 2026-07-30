@@ -16,16 +16,16 @@ const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.u
 const EXPECTED_PARAMETER_MIGRATION = m4131ParameterMigration();
 
 const EXPECTED_SELECTION = {
-  catalogFacts: 1,
-  family: 'new-expression',
-  occurrences: 41,
+  catalogFacts: 2,
+  family: 'exception-flow',
+  occurrences: 34,
 };
 
-test('M4.135 preserves the M4.131 queue and publishes the bounded constructor selection', () => {
+test('M4.137 promotes the bounded constructor and selects exception flow', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'selected');
-  assert.equal(actual.minimumFamilyCount, 2);
+  assert.equal(actual.minimumFamilyCount, 1);
   assert.deepEqual(actual.selectedPrerequisite, EXPECTED_SELECTION);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
   assert.deepEqual(actual.prerequisiteRanking[0], EXPECTED_SELECTION);
@@ -63,23 +63,23 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.136 publishes the exact current migrated frontier', () => {
+test('M4.137 publishes the exact current promoted frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 104,
-    baseId: 'kern.kir-canonicalizer.profile.m4.60',
+    baseCompleteFunctions: 109,
+    baseId: 'kern.kir-canonicalizer.profile.m4.137',
     canonicalizerDigest: 'e6b33ada0310452eb01f33426ef5a7d807b83b3de1637e01befdb541fcaa8e75',
     canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
     compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
     corpusDigest: '74fe58267bb285f999f25c37264a5ea86a3a4a655b7b084e8ee78add6e0071d7',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: 'f1a2a34ca9625a8753a3472e03af6acd6551a3d90ae1a81b1260685a28857cad',
+    coveragePolicyDigest: 'edecde1e3bd5e27ef3025ff6da045a77b71e9718e4fd573bc0bedc17a060e6c5',
     familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
-    functionFactsDigest: '1de3ad0e16d981ce7233d0d3d7964ef6991e98b180435df625831e288904fb08',
+    functionFactsDigest: '43c1d9d7fe4aec5c8ebc5041cc6a9973531a7709f557e671840cb82e2117c85f',
     legacyParameterBlockers: 3,
-    profileDigest: '382fc8ca3efb672c72eeb0e33ead337e05d7beab08dcdf67e2e9849b3ad9f24b',
+    profileDigest: 'fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b',
     toolCount: 4,
   });
   assert.match(actual.baseline.compiledCoreDigest, /^[0-9a-f]{64}$/u);
