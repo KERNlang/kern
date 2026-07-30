@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
   loadCanonicalizerExceptionFlowImplementationHandoff,
 } from './coverage-implementation-handoff.mjs';
-import { assertM4141ExceptionFlowPromotion } from './coverage-m4-141-central.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import {
+  assertM4141ExceptionFlowPromotion,
+  loadPublishedM4141ExceptionFlowFrontier,
+  M4141_COVERAGE_IMPLEMENTATION_DIGEST,
+} from './coverage-m4-141-central.mjs';
 import {
   loadCanonicalizerExceptionFlowPrerequisiteProvenance,
 } from './coverage-prerequisite-provenance.mjs';
+import { isExactPlainArray } from './coverage-prerequisite-shape.mjs';
 import {
   formatM4141ExceptionFlowPromotionStatus,
 } from './coverage-status-m4-141.mjs';
@@ -17,17 +20,28 @@ import {
 let measuredFrontier;
 
 function currentFrontier() {
-  measuredFrontier ??= {
-    coverage: measureCanonicalizerCoverage(),
-    implementation: loadCanonicalizerExceptionFlowImplementationHandoff(),
-    prerequisite: measureCanonicalizerPrerequisite(),
-    selection: loadCanonicalizerExceptionFlowPrerequisiteProvenance(),
-  };
+  if (measuredFrontier === undefined) {
+    const published = loadPublishedM4141ExceptionFlowFrontier();
+    measuredFrontier = {
+      coverage: published.coverage,
+      implementation: loadCanonicalizerExceptionFlowImplementationHandoff(),
+      prerequisite: published.prerequisite,
+      selection: loadCanonicalizerExceptionFlowPrerequisiteProvenance(),
+    };
+  }
   return measuredFrontier;
 }
 
 test('M4.141 binds exact dual evidence and publishes only the canonicalize queue', () => {
   const { coverage, prerequisite } = currentFrontier();
+  assert.equal(
+    coverage.coverageImplementationDigest,
+    M4141_COVERAGE_IMPLEMENTATION_DIGEST,
+  );
+  assert.equal(
+    prerequisite.baseline.coverageImplementationDigest,
+    M4141_COVERAGE_IMPLEMENTATION_DIGEST,
+  );
   assert.equal(
     assertM4141ExceptionFlowPromotion(
       coverage,
@@ -118,14 +132,14 @@ test('M4.141 status rejects forged source identity and incomplete cumulative bas
     ),
     /exact authorized exception-flow frontier/u,
   );
-  const forgedImplementationCoverage = structuredClone(coverage);
-  const forgedImplementationPrerequisite = structuredClone(prerequisite);
-  forgedImplementationCoverage.coverageImplementationDigest = '0'.repeat(64);
-  forgedImplementationPrerequisite.baseline.coverageImplementationDigest = '0'.repeat(64);
+  const forgedPolicyCoverage = structuredClone(coverage);
+  const forgedPolicyPrerequisite = structuredClone(prerequisite);
+  forgedPolicyCoverage.coveragePolicyDigest = '0'.repeat(64);
+  forgedPolicyPrerequisite.baseline.coveragePolicyDigest = '0'.repeat(64);
   assert.throws(
     () => formatM4141ExceptionFlowPromotionStatus(
-      forgedImplementationCoverage,
-      forgedImplementationPrerequisite,
+      forgedPolicyCoverage,
+      forgedPolicyPrerequisite,
       selection,
       implementation,
     ),
@@ -206,4 +220,15 @@ test('M4.141 status rejects decorated prerequisite arrays', () => {
       path.join('.'),
     );
   }
+});
+
+test('M4.141 status rejects accessor-backed prerequisite arrays', () => {
+  const witness = { id: 'canonicalize' };
+  const accessorBacked = [witness];
+  Object.defineProperty(accessorBacked, '0', {
+    configurable: true,
+    enumerable: true,
+    get: () => witness,
+  });
+  assert.equal(isExactPlainArray(accessorBacked), false);
 });

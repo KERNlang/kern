@@ -13,18 +13,13 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 1,
-  completeTools: 1,
-  migratedParameterRows: 15,
-  witnesses: [{
-    id: 'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-    parameterRows: 15,
-    profileRows: { nodes: 100, properties: 159, values: 2556 },
-    tool: 'canonicalizer',
-  }],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
-test('M4.141 exhausts structural families and exposes the canonicalize queue', () => {
+test('M4.142 exhausts structural families after consuming the canonicalize queue', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -66,22 +61,22 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.141 publishes the exact current terminal structural frontier', () => {
+test('M4.142 publishes the exact current terminal structural frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 109,
+    baseCompleteFunctions: 110,
     baseId: 'kern.kir-canonicalizer.profile.m4.141',
-    canonicalizerDigest: 'd96dee80f12236a3d9089bf44aeee699e6a3c35856e71f79a0743691248ea16e',
+    canonicalizerDigest: '9e7ecb330e665b7bf2a0d7e13d78f4cf3c0b9e5b27a799bdafbabd0e18ca770a',
     canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
     compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
-    corpusDigest: '83f7830687fc69bdc8bfdc83e10cfad2a18768076ab55300f23df3379fd89772',
+    corpusDigest: '923813c69d6f7e8cdb15e68237e61f155ab7bca0f764102cfeb29b5071288c89',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '2091c8c213efd5b006bc22f183f47bd7a651ec21779efe66b1670b1019fbaaf0',
+    coveragePolicyDigest: '3512347baf3870f21b879b632041eea72ffea304e037f0a26fcf720cbe596877',
     familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
-    functionFactsDigest: 'b55e5822c5a3f4f20316a2abc12107fdfa10d93af3ece6316aa0f686ef3fc0dc',
-    legacyParameterBlockers: 3,
+    functionFactsDigest: '72c677544b56de4b6e714d0f124f88f7f3db811b6442aeb6c8cb405ad7b9998f',
+    legacyParameterBlockers: 2,
     profileDigest: 'fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b',
     toolCount: 4,
   });
@@ -95,9 +90,7 @@ test('M4.141 publishes the exact current terminal structural frontier', () => {
     '1da9a57ec132a8147f75ab0d252e188aa86b2744b23d58cf3dfa3510b7bcc106',
   );
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
-  assert.deepEqual([...readyIds], [
-    'examples/kern-canonicalizer/canonicalizer.kern#5:canonicalize',
-  ]);
+  assert.deepEqual([...readyIds], []);
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);

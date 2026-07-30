@@ -25,6 +25,9 @@ import {
   validateCanonicalizerIndexPrerequisiteHandoff,
   validateCanonicalizerPrerequisiteProvenance,
 } from './coverage-prerequisite-provenance.mjs';
+import {
+  loadPreM4142CanonicalizerComposition,
+} from './historical-composition.mjs';
 
 const M43A_DIGEST = '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027';
 const M43C_COMMIT = '736e2d1237b6d154b7abbf5f853103c459627424';
@@ -351,7 +354,7 @@ test('M4.3d freezes distinct promoted-base and implementation-selection provenan
   );
 });
 
-test('the current corpus preserves selection and eight-record prerequisite history through M4.138', () => {
+test('the M4.142 corpus preserves selection and eight-record prerequisite history through M4.138', () => {
   const receipt = measureCanonicalizerCoverage();
   const summary = summarizeCanonicalizerCoverage(receipt);
   const promoted = loadCanonicalizerSelectionProvenance();
@@ -384,19 +387,17 @@ test('the current corpus preserves selection and eight-record prerequisite histo
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 109);
+  assert.equal(receipt.baseCompleteFunctions, 110);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(receipt.selection.ranking, []);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);
 });
 
-test('the current M4.141 policy preserves the exact earlier profile promotions', () => {
+test('the current M4.142 state preserves the exact earlier profile promotions', () => {
   const implementationSource = readFileSync(new URL('./coverage-implementation.mjs', import.meta.url), 'utf8');
   const selectionSource = readFileSync(new URL('./coverage-selection.mjs', import.meta.url), 'utf8');
   const prerequisites = loadCanonicalizerPrerequisiteProvenanceChain();
-  const canonicalizerSource = readFileSync(
-    new URL('../../examples/kern-canonicalizer/canonicalizer.composed.kern', import.meta.url),
-  );
+  const canonicalizerSource = loadPreM4142CanonicalizerComposition().composite;
   assert.equal(implementationSource.includes('function completes('), false);
   assert.match(selectionSource, /export function rankCanonicalizerFamilies/u);
   assert.ok(implementationSource.split('\n').length - 1 < 500);

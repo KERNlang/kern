@@ -118,13 +118,13 @@
       "tool": "canonicalizer"
     },
     {
-      "digest": "604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b",
+      "digest": "bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a",
       "path": "examples/kern-canonicalizer/canonicalizer-statement-helpers.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"
     },
     {
-      "digest": "959481ea210be8b1740400fe53ed999f08c61232de7855457f54a21f43213b0c",
+      "digest": "a7dab28a69cf8b7b14e4747f586526eabfc87b22bd2eca6e648b89695195f598",
       "path": "examples/kern-canonicalizer/canonicalizer.kern",
       "sourceKind": "handwritten",
       "tool": "canonicalizer"

@@ -7,8 +7,14 @@ import { loadCoveragePolicy } from './coverage.mjs';
 import {
   loadPreM4124CoverageInputs,
   loadPreM4131CoverageInputs,
+  loadPreM4142CoverageInputs,
 } from './historical-parameter-sources.mjs';
 
+const CANONICALIZER_PATH = 'examples/kern-canonicalizer/canonicalizer.kern';
+const PRE_M4142_CANONICALIZER_DIGEST =
+  '959481ea210be8b1740400fe53ed999f08c61232de7855457f54a21f43213b0c';
+const PRE_M4142_POLICY_DIGEST =
+  '2091c8c213efd5b006bc22f183f47bd7a651ec21779efe66b1670b1019fbaaf0';
 const CHECKER_PATH = 'examples/capstone-checker-subset/checker.kern';
 const PRE_M4124_CHECKER_DIGEST =
   '934608ea0793197402a48e331142129edb98b26256f48fa897285badbd1d4add';
@@ -23,6 +29,33 @@ const PRE_M4131_POLICY_DIGEST =
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
+
+test('pre-M4.142 inputs reconstruct only the archived canonicalize signature', () => {
+  const currentPolicy = loadCoveragePolicy();
+  const historical = loadPreM4142CoverageInputs(currentPolicy);
+  const currentSource = readFileSync(new URL(`../../${CANONICALIZER_PATH}`, import.meta.url));
+  const historicalSource = historical.sourceOverrides.get(CANONICALIZER_PATH);
+
+  assert.equal(historical.coveragePolicyDigest, PRE_M4142_POLICY_DIGEST);
+  assert.equal(digest(historical.coveragePolicySource), PRE_M4142_POLICY_DIGEST);
+  assert.equal(
+    historical.policy.corpus.find(({ path }) => path === CANONICALIZER_PATH)?.digest,
+    PRE_M4142_CANONICALIZER_DIGEST,
+  );
+  assert.equal(digest(historicalSource), PRE_M4142_CANONICALIZER_DIGEST);
+  assert.match(
+    currentSource.toString('utf8'),
+    /fn name=canonicalize returns=string\[\] export=true\n  param name=nodeKind/u,
+  );
+  assert.match(
+    historicalSource.toString('utf8'),
+    /fn name=canonicalize params="nodeKind:string\[\],nodeParent:number\[\]/u,
+  );
+  assert.doesNotMatch(
+    historicalSource.toString('utf8'),
+    /fn name=canonicalize returns=string\[\] export=true\n  param name=nodeKind/u,
+  );
+});
 
 test('pre-M4.131 inputs reconstruct only the archived validate signature', () => {
   const currentPolicy = loadCoveragePolicy();
@@ -63,7 +96,7 @@ test('pre-M4.131 inputs reject unrelated live policy drift', () => {
     mutate(drifted);
     assert.throws(
       () => loadPreM4131CoverageInputs(drifted),
-      /pre-M4\.135 coverage rejection: caller policy must match repository policy/u,
+      /pre-M4\.142 coverage rejection: caller policy must match repository policy/u,
     );
   }
 });

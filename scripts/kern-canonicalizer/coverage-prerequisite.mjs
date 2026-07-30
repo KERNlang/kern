@@ -461,10 +461,10 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
   return summary;
 }
 
-function buildCanonicalizerPrerequisiteSummary(policy) {
-  const receipt = measureCanonicalizerCoverage(policy);
+export function buildCanonicalizerPrerequisiteSummary(policy, sourceOverrides = new Map()) {
+  const receipt = measureCanonicalizerCoverage(policy, undefined, { sourceOverrides });
   const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const roots = sourceFunctionRoots(policy);
+  const roots = sourceFunctionRoots(policy, sourceOverrides);
   if (roots.size !== receipt.functions.length) fail('source functions must exactly match measured facts');
   const migrated = receipt.functions
     .filter(({ excludedProperties }) => excludedProperties.includes('fn.params'))

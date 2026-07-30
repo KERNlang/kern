@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   assertM4131ParameterMigration,
 } from './coverage-m4-131-parameter-migration.mjs';
-import { assertM4141ExceptionFlowPromotion } from './coverage-m4-141-central.mjs';
+import {
+  assertM4142ParameterMigration,
+  m4142ParameterMigration,
+} from './coverage-m4-142-parameter-migration.mjs';
 import {
   m4130ActiveKirLimits,
   m4130ActiveProfile,
@@ -81,14 +84,21 @@ export function assertCurrentProfileLimitFixtures(fixtures) {
   return fixtures;
 }
 
-export function assertCurrentCanonicalizerFrontier(coverage, prerequisite) {
+export function assertCurrentCanonicalizerFrontier(
+  coverage,
+  prerequisite,
+) {
   assertM4131ParameterMigration(coverage);
-  const status = assertM4141ExceptionFlowPromotion(coverage, prerequisite);
+  const status = assertM4142ParameterMigration(coverage);
+  assert.equal(prerequisite.baseline.baseCompleteFunctions, 110);
+  assert.equal(prerequisite.baseline.legacyParameterBlockers, 2);
+  assert.deepEqual(prerequisite.parameterMigration, m4142ParameterMigration());
   assert.equal(prerequisite.outcome, 'bounded-exhaustion');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, []);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 2);
   return status;
 }

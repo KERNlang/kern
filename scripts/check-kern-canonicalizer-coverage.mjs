@@ -9,6 +9,9 @@ import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4
 import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
+import {
+  assertPublishedM4141ExceptionFlowPromotion,
+} from './kern-canonicalizer/coverage-m4-141-central.mjs';
 import { measureCanonicalizerPrerequisite } from './kern-canonicalizer/coverage-prerequisite.mjs';
 import { m485ParameterMigration } from './kern-canonicalizer/coverage-m4-85-value-row-promotion.mjs';
 import { assertM486ParameterMigration } from './kern-canonicalizer/coverage-m4-86-parameter-migration.mjs';
@@ -439,7 +442,8 @@ const m4131CoverageStatusLine = m4131CoverageStatus();
 const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
 const m4134CoverageStatusLine = assertM4134RemediationAnalysis();
-let m4141CoverageStatusLine;
+const m4141CoverageStatusLine = assertPublishedM4141ExceptionFlowPromotion();
+const m4142CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4130ActiveProfile(),
@@ -456,9 +460,10 @@ assertM482ParameterMigration(coverage);
 if (process.argv.includes('--write')) {
   writeCoverageSummary(summaryUrl, actual);
   writeCoverageSummary(prerequisiteSummaryUrl, prerequisite);
-  m4141CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
-} else {
-  m4141CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+  assertCoverageSummary(summaryUrl, actual);
+  assertCoverageSummary(prerequisiteSummaryUrl, prerequisite);
+}
+if (!process.argv.includes('--write')) {
   assert.equal(actual.format, 'kern.kir-canonicalizer.coverage-summary.6');
   assert.equal(actual.selectionProvenances.length, 4);
   assert.equal(actual.selectionProvenances[0].digest, '35d0904ddcf41c4d9e1421ea8edba8f215d2db820006d37b2cff5e1d48236027');
@@ -605,15 +610,9 @@ if (process.argv.includes('--write')) {
       provenanceKind: 'prerequisite',
     },
   ], 'M4.141 must preserve the twelve promoted provenance citations');
-  assert.equal(actual.corpusMembers, 9, 'live M4.141 handwritten corpus count must remain exact');
+  assert.equal(actual.corpusMembers, 9, 'live M4.142 handwritten corpus count must remain exact');
   assert.equal(actual.functionCount, 112, 'live M4.119 authored function count must remain exact');
-  assert.equal(actual.toolCount, 4, 'live M4.141 tool count must remain exact');
-  assert.equal(actual.baseCompleteFunctions, 109, 'live M4.141 base completion must remain exactly 109/112');
-  assert.equal(
-    actual.blockers.find(({ id }) => id === 'fn.params')?.count,
-    3,
-    'live M4.131 fn.params blocker count must remain exactly 3',
-  );
+  assert.equal(actual.toolCount, 4, 'live M4.142 tool count must remain exact');
   assert.equal(actual.selection.winner, null, 'live M4.141 ordinary selection must be exhausted');
   assert.deepEqual(actual.selection.ranking, [], 'live M4.141 active family ranking must be empty');
   assertCoverageSummary(summaryUrl, actual);
@@ -1553,7 +1552,6 @@ if (process.argv.includes('--write')) {
     profilePromotionApproved: false,
     promotionReady: true,
   });
-  assert.equal(actual.baseCompleteFunctions, 109);
   assert.equal(actual.functionCount, 112);
   assert.equal(m4101ResidualAnalysis.assignments.length, 16);
   assertCoverageSummary(m497RuntimeCostUrl, m497RuntimeCost);
@@ -1933,6 +1931,7 @@ process.stdout.write(
   ` ${m4134CoverageStatusLine}` +
   ` ${formatM4138ExceptionFlowHandoffStatus(loadCanonicalizerExceptionFlowPrerequisiteProvenance())}` +
   ` ${m4141CoverageStatusLine}` +
+  ` ${m4142CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

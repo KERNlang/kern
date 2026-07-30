@@ -49,6 +49,11 @@ export const CURRENT_VALIDSTATEMENT_TARGET_M4139 = {
   sourceSha256: '604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b',
 };
 
+export const CURRENT_VALIDSTATEMENT_TARGET_M4142 = {
+  ...CURRENT_VALIDSTATEMENT_TARGET_M4139,
+  sourceSha256: 'bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a',
+};
+
 export function assertValidstatementDirectRoot(
   root,
   target = VALIDSTATEMENT_DIRECT_TARGET,

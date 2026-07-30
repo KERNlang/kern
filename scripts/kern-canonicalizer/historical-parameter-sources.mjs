@@ -22,6 +22,9 @@ import {
 import {
   NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
 } from './new-expression-emission-target.mjs';
+import {
+  reconstructPreM4142CanonicalizerMemberLayout,
+} from './historical-canonicalizer-member-layout.mjs';
 
 const MIGRATIONS_BY_PATH = new Map([
   ['examples/capstone-assertion-engine/compare.kern', ['compareList', 'compareMap']],
@@ -82,17 +85,30 @@ const PRE_M4131_VALIDATOR_DIGEST =
   '96a1c96800132f2401d743eac02f0efe8cb0717980ceb56c2af531798790eaac';
 const PRE_M4131_POLICY_DIGEST =
   'dcc9cc2db3478bd92370a373cf519ef192365bc8181bc5c726a9cce5bd4d80d6';
+const PRE_M4142_CANONICALIZER_DIGEST =
+  '959481ea210be8b1740400fe53ed999f08c61232de7855457f54a21f43213b0c';
+const PRE_M4142_STATEMENT_HELPERS_DIGEST =
+  '604c0e05b3b3d08560df7738ce2d80bc50a0fa38901a2f2eb415767ac1ec4e5b';
+const PRE_M4142_POLICY_DIGEST =
+  '2091c8c213efd5b006bc22f183f47bd7a651ec21779efe66b1670b1019fbaaf0';
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function currentPreM4142MemberLayout() {
+  return reconstructPreM4142CanonicalizerMemberLayout({
+    mainSource: readFileSync(new URL(`../../${CANONICALIZER_MAIN_PATH}`, import.meta.url)),
+    statementHelpersSource: readFileSync(
+      new URL(`../../${STATEMENT_HELPERS_PATH}`, import.meta.url),
+    ),
+  });
+}
+
 function preM4135CoveragePolicy(currentPolicy, currentPolicySource) {
-  if (!isDeepStrictEqual(currentPolicy, JSON.parse(currentPolicySource))) {
-    throw new TypeError('pre-M4.135 coverage rejection: caller policy must match repository policy');
-  }
+  const preM4142 = preM4142CoverageInputs(currentPolicy, currentPolicySource);
   const policySource = reconstructHistoricalSource({
-    currentSource: currentPolicySource,
+    currentSource: preM4142.policySource,
     expectedDigest: PRE_M4135_COVERAGE_POLICY_DIGEST,
     milestone: 'pre-M4.135 coverage policy',
     replacements: [
@@ -101,13 +117,13 @@ function preM4135CoveragePolicy(currentPolicy, currentPolicySource) {
     ],
   }).toString('utf8');
   const mainSource = reconstructHistoricalSource({
-    currentSource: readFileSync(new URL(`../../${CANONICALIZER_MAIN_PATH}`, import.meta.url)),
+    currentSource: preM4142.sourceOverrides.get(CANONICALIZER_MAIN_PATH),
     expectedDigest: PRE_M4135_CANONICALIZER_MAIN_DIGEST,
     milestone: 'pre-M4.135 canonicalizer main source',
     replacements: NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
   });
   const statementHelpersSource = reconstructHistoricalSource({
-    currentSource: readFileSync(new URL(`../../${STATEMENT_HELPERS_PATH}`, import.meta.url)),
+    currentSource: preM4142.sourceOverrides.get(STATEMENT_HELPERS_PATH),
     expectedDigest: PRE_M4139_STATEMENT_HELPERS_DIGEST,
     milestone: 'pre-M4.139 statement helpers',
     replacements: EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
@@ -116,6 +132,7 @@ function preM4135CoveragePolicy(currentPolicy, currentPolicySource) {
     policy: JSON.parse(policySource),
     policySource,
     sourceOverrides: new Map([
+      ...preM4142.sourceOverrides,
       [CANONICALIZER_MAIN_PATH, mainSource],
       [STATEMENT_HELPERS_PATH, statementHelpersSource],
     ]),
@@ -167,6 +184,52 @@ export function reconstructLegacyParameterSource({
   });
 }
 
+function preM4142CoverageInputs(currentPolicy, currentPolicySource) {
+  if (!isDeepStrictEqual(currentPolicy, JSON.parse(currentPolicySource))) {
+    throw new TypeError('pre-M4.142 coverage rejection: caller policy must match repository policy');
+  }
+  const historicalLayout = currentPreM4142MemberLayout();
+  const historicalSource = reconstructLegacyParameterSource({
+    currentSource: historicalLayout.mainSource,
+    expectedDigest: PRE_M4142_CANONICALIZER_DIGEST,
+    milestone: 'pre-M4.142 canonicalizer source',
+    name: 'canonicalize',
+  });
+  const policy = structuredClone(currentPolicy);
+  const canonicalizer = policy.corpus.find(({ path }) => path === CANONICALIZER_MAIN_PATH);
+  const statementHelpers = policy.corpus.find(({ path }) => path === STATEMENT_HELPERS_PATH);
+  if (canonicalizer === undefined || statementHelpers === undefined) {
+    throw new TypeError('pre-M4.142 coverage rejection: missing canonicalizer corpus members');
+  }
+  const currentCanonicalizerDigest = canonicalizer.digest;
+  const currentStatementHelpersDigest = statementHelpers.digest;
+  canonicalizer.digest = PRE_M4142_CANONICALIZER_DIGEST;
+  statementHelpers.digest = PRE_M4142_STATEMENT_HELPERS_DIGEST;
+  const canonicalizerDigestOccurrences =
+    currentPolicySource.split(currentCanonicalizerDigest).length - 1;
+  const statementHelpersDigestOccurrences =
+    currentPolicySource.split(currentStatementHelpersDigest).length - 1;
+  if (canonicalizerDigestOccurrences !== 1 || statementHelpersDigestOccurrences !== 1) {
+    throw new TypeError(
+      'pre-M4.142 coverage rejection: canonicalizer member digests must occur exactly once',
+    );
+  }
+  const policySource = currentPolicySource
+    .replace(currentCanonicalizerDigest, PRE_M4142_CANONICALIZER_DIGEST)
+    .replace(currentStatementHelpersDigest, PRE_M4142_STATEMENT_HELPERS_DIGEST);
+  if (digest(policySource) !== PRE_M4142_POLICY_DIGEST) {
+    throw new TypeError('pre-M4.142 coverage rejection: policy digest must remain exact');
+  }
+  return {
+    policy,
+    policySource,
+    sourceOverrides: new Map([
+      [CANONICALIZER_MAIN_PATH, historicalSource],
+      [STATEMENT_HELPERS_PATH, historicalLayout.statementHelpersSource],
+    ]),
+  };
+}
+
 function preM4131CoverageInputs(currentPolicy, currentPolicySource) {
   const preM4135 = preM4135CoveragePolicy(currentPolicy, currentPolicySource);
   const currentSource = readFileSync(new URL(`../../${VALIDATOR_PATH}`, import.meta.url));
@@ -215,6 +278,20 @@ export function loadPreM4135CoverageInputs(currentPolicy) {
   };
 }
 
+export function loadPreM4142CoverageInputs(currentPolicy) {
+  const currentPolicySource = readFileSync(
+    new URL('./coverage-policy.json', import.meta.url),
+    'utf8',
+  );
+  const historical = preM4142CoverageInputs(currentPolicy, currentPolicySource);
+  return {
+    coveragePolicyDigest: PRE_M4142_POLICY_DIGEST,
+    coveragePolicySource: Buffer.from(historical.policySource),
+    policy: authenticateHistoricalCoveragePolicy(historical.policy, historical.policySource),
+    sourceOverrides: historical.sourceOverrides,
+  };
+}
+
 export function loadPreM4131CoverageInputs(currentPolicy) {
   const currentPolicySource = readFileSync(
     new URL('./coverage-policy.json', import.meta.url),
@@ -237,7 +314,9 @@ export function loadPreM4113CoverageInputs(currentPolicy) {
   const preM4135 = preM4135CoveragePolicy(currentPolicy, livePolicySource);
   const sourceOverrides = new Map(preM4135.sourceOverrides);
   for (const [path, names] of MIGRATIONS_BY_PATH) {
-    const currentSource = readFileSync(new URL(`../../${path}`, import.meta.url));
+    const currentSource = path === STATEMENT_HELPERS_PATH
+      ? currentPreM4142MemberLayout().statementHelpersSource
+      : readFileSync(new URL(`../../${path}`, import.meta.url));
     const sourceText = currentSource.toString('utf8');
     sourceOverrides.set(path, reconstructHistoricalSource({
       currentSource,
@@ -287,9 +366,7 @@ export function loadPreM4124CoverageInputs(currentPolicy) {
   const preM4131 = preM4131CoverageInputs(currentPolicy, livePolicySource);
   const currentPolicySource = preM4131.policySource;
   const currentSource = readFileSync(new URL(`../../${CHECKER_PATH}`, import.meta.url));
-  const statementHelpersSource = readFileSync(
-    new URL(`../../${STATEMENT_HELPERS_PATH}`, import.meta.url),
-  );
+  const statementHelpersSource = currentPreM4142MemberLayout().statementHelpersSource;
   const sourceOverrides = new Map(preM4131.sourceOverrides);
   sourceOverrides.set(CHECKER_PATH, reconstructLegacyParameterSource({
       currentSource,
@@ -355,9 +432,7 @@ export function loadPreM4129CoverageInputs(currentPolicy) {
   }
   const preM4131 = preM4131CoverageInputs(currentPolicy, livePolicySource);
   const currentPolicySource = preM4131.policySource;
-  const currentSource = readFileSync(
-    new URL(`../../${STATEMENT_HELPERS_PATH}`, import.meta.url),
-  );
+  const currentSource = currentPreM4142MemberLayout().statementHelpersSource;
   const historicalSource = reconstructHistoricalSource({
     currentSource,
     expectedDigest: PRE_M4129_STATEMENT_HELPERS_DIGEST,

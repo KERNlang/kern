@@ -59,8 +59,7 @@ const PARAMETER_MIGRATION = {
     tool: 'canonicalizer',
   }],
 };
-const COVERAGE_SUMMARY_URL = new URL('./coverage-summary.json', import.meta.url);
-
+const COVERAGE_SUMMARY_URL = new URL('./coverage-summary-m4-141.json', import.meta.url);
 function fail(cause) {
   throw new TypeError(
     'M4.141 must promote the exact authorized exception-flow frontier',
@@ -75,6 +74,10 @@ function checkedCoverageSummary() {
     !/^[0-9a-f]{64}$/u.test(summary.coverageImplementationDigest)
   ) fail();
   return summary;
+}
+
+export function m4141ParameterMigration() {
+  return structuredClone(PARAMETER_MIGRATION);
 }
 
 export function formatM4141ExceptionFlowPromotionStatus(

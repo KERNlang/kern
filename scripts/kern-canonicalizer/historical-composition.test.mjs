@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { loadHistoricalCanonicalizerComposition } from './historical-composition.mjs';
+import {
+  loadHistoricalCanonicalizerComposition,
+  loadPreM4142CanonicalizerComposition,
+} from './historical-composition.mjs';
 
 const EXPECTED_DIGESTS = {
   canonicalizerCompositeSha256:
@@ -41,6 +44,23 @@ test('historical composition reconstructs the exact pre-M4.108 executable inputs
       'fn name=validstatement params="id:number,returnType:string,',
     ),
     true,
+  );
+});
+
+test('pre-M4.142 composition reverses only the bounded member split and canonicalize signature', () => {
+  const historical = loadPreM4142CanonicalizerComposition();
+  assert.equal(
+    historical.digests.canonicalizerCompositeSha256,
+    'd96dee80f12236a3d9089bf44aeee699e6a3c35856e71f79a0743691248ea16e',
+  );
+  assert.match(
+    historical.mainSource.toString('utf8'),
+    /fn name=canonicalize params="nodeKind:string\[\],nodeParent:number\[\]/u,
+  );
+  assert.match(historical.mainSource.toString('utf8'), /fn name=nodetablesok /u);
+  assert.doesNotMatch(
+    historical.statementHelpers.toString('utf8'),
+    /fn name=nodetablesok /u,
   );
 });
 

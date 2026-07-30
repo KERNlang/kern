@@ -10,9 +10,18 @@ const BASELINE_KEYS = [
 export function isExactPlainArray(value) {
   if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
   const enumerableKeys = Object.keys(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
   return Reflect.ownKeys(value).length === value.length + 1 &&
     enumerableKeys.length === value.length &&
-    enumerableKeys.every((key, index) => key === String(index));
+    enumerableKeys.every((key, index) => {
+      const descriptor = descriptors[key];
+      return key === String(index) &&
+        descriptor !== undefined &&
+        Object.hasOwn(descriptor, 'value') &&
+        descriptor.enumerable &&
+        descriptor.configurable &&
+        descriptor.writable;
+    });
 }
 
 export function canonicalizerPrerequisiteFrontierDigest(summary) {

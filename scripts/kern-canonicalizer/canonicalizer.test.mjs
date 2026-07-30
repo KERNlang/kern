@@ -179,9 +179,9 @@ test('M4.129 assignment-target kind reuses the authenticated type-field projecti
 
 test('M4.93 table validation delegates to three independent boolean linear-pass helpers', () => {
   const tableOwner = topLevelFunctionSource(mainSource, 'tablesok');
-  const nodeFacts = topLevelFunctionSource(mainSource, 'nodetablesok');
-  const propertyFacts = topLevelFunctionSource(mainSource, 'propertyfacts');
-  const valueFacts = topLevelFunctionSource(mainSource, 'valuefacts');
+  const nodeFacts = topLevelFunctionSource(statementSource, 'nodetablesok');
+  const propertyFacts = topLevelFunctionSource(statementSource, 'propertyfacts');
+  const valueFacts = topLevelFunctionSource(statementSource, 'valuefacts');
   assert.ok(tableOwner.includes('nodetablesok(nodeKind, nodeParent, nodeOrder)'));
   assert.ok(tableOwner.includes('propertyfacts(nodeKind, propNode, propKey, propValue, valueTag)'));
   assert.ok(tableOwner.includes(
@@ -203,7 +203,7 @@ test('M4.93 table validation delegates to three independent boolean linear-pass 
 });
 
 test('M4.98 authenticates property order before bounded lookup early exits', () => {
-  const propertyFacts = topLevelFunctionSource(mainSource, 'propertyfacts');
+  const propertyFacts = topLevelFunctionSource(statementSource, 'propertyfacts');
   const propertyId = topLevelFunctionSource(helperSource, 'propid');
   const propertyCount = topLevelFunctionSource(helperSource, 'propcount');
   assert.ok(propertyFacts.includes(

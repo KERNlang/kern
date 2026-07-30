@@ -42,9 +42,9 @@ test('M4.131 consumes the exact immutable M4.130 validate queue', () => {
 test('M4.131 migrates only validate to 41 direct parameters', () => {
   const coverage = measureCanonicalizerCoverage();
   assertM4131ParameterMigration(coverage);
-  assert.equal(coverage.baseCompleteFunctions, 109);
+  assert.equal(coverage.baseCompleteFunctions, 110);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>
-    excludedProperties.includes('fn.params')).length, 3);
+    excludedProperties.includes('fn.params')).length, 2);
   assert.deepEqual(m4131ParameterMigration(), {
     completeFunctions: 0,
     completeTools: 0,
