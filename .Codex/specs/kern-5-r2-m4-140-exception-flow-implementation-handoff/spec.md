@@ -240,16 +240,22 @@ After the final implementation, live authenticated receipts are:
 passed through repository policy, lint, build, workspace, infrastructure,
 both canonicalizer passes, and all fixture lanes.
 
-[VERIFIED] The first high-risk role review completed at
-`review-1785381523794-wr5n7s` and found one genuine fail-closed blocker:
-an untrusted `targets.map` method could spoof the validated target list. RED
-coverage reproduced the exploit. The boundary now requires a plain, dense,
-undecorated array before reading elements or invoking array behavior; tests
-also cover sparse, symbol-decorated, accessor, and spoofed-map inputs.
+[VERIFIED] The first high-risk role review completed 6/6 at
+`review-1785381557490-dfjebc-m4-140-exception-flow-implementa`. It found the
+zero-ordinal rejection and malformed-value test gap fixed before the final
+wall. Its structural hardening also requires a plain, dense, undecorated
+target array before reading elements; tests cover sparse, symbol-decorated,
+accessor, shared, and spoofed-map inputs.
 
-[VERIFIED] A second high-risk role review completed 6/6 at
-`review-1785382437422-1w6m33` with zero verified findings and no unresolved
-material blocker.
+[VERIFIED] The post-fix high-risk role review completed 6/6 at
+`review-1785384347965-r0lnif-m4-140-post-review-fixes` with zero verified
+findings, six needs-check candidates, zero speculative findings, and no
+unresolved material blocker. The needs-check candidates were resolved as
+intentional fail-closed formatter validation, independent immutable
+prerequisite loading, hermetic externally pinned historical evidence,
+bounded O(1) evidence revalidation, one cohesive 244-line evidence module,
+and an incorrect entry-point test-gap claim: the current-frontier owner is
+already exercised by the standalone checker and multiple test suites.
 
 ## Stop Conditions
 
