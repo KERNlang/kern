@@ -24,6 +24,9 @@ import {
 import {
   formatM4141ExceptionFlowPromotionStatus,
 } from './coverage-status-m4-141.mjs';
+import {
+  loadPreM4146CanonicalizerPolicy,
+} from './historical-policy.mjs';
 
 const publishedCoverageSummaryUrl = new URL(
   './coverage-summary-m4-141.json',
@@ -74,10 +77,11 @@ export function loadPublishedM4141ExceptionFlowFrontier() {
   const publishedPrerequisite = loadPublishedSummary(publishedPrerequisiteSummaryUrl);
   assertPublishedM4141ImplementationDigest(publishedCoverage, publishedPrerequisite);
   const historical = loadPreM4142CoverageInputs(loadCoveragePolicy());
+  const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
   const composition = loadPreM4142CanonicalizerComposition();
   const coverage = measureCanonicalizerCoverage(
     historical.policy,
-    undefined,
+    canonicalizerPolicy,
     { sourceOverrides: historical.sourceOverrides },
   );
   coverage.canonicalizerDigest = composition.digests.canonicalizerCompositeSha256;
@@ -95,6 +99,7 @@ export function loadPublishedM4141ExceptionFlowFrontier() {
   const prerequisite = measureCanonicalizerPrerequisiteForInputs(
     historical.policy,
     historical.sourceOverrides,
+    canonicalizerPolicy,
   );
   prerequisite.baseline.canonicalizerDigest = coverage.canonicalizerDigest;
   prerequisite.baseline.coverageImplementationDigest =

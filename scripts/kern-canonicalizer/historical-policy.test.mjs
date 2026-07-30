@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
+import {
+  loadHistoricalCanonicalizerPolicy,
+  loadPreM4146CanonicalizerPolicy,
+} from './historical-policy.mjs';
 import { canonicalizerPolicySource } from './policy.mjs';
 
 const HISTORICAL_PROFILE = {
@@ -47,5 +50,29 @@ test('historical policy reconstruction rejects unrelated policy drift', () => {
       runtimeLimitOverrides: HISTORICAL_RUNTIME_BYTE_LIMITS,
     }),
     /test historical policy rejection: unreconstructed policy fields must remain exact/u,
+  );
+});
+
+test('pre-M4.146 policy reconstruction preserves the exact M4.145 input policy', () => {
+  const policy = loadPreM4146CanonicalizerPolicy();
+  assert.deepEqual(
+    {
+      maxBytes: policy.kirLimits.maxBytes,
+      maxDepth: policy.kirLimits.maxDepth,
+      maxNodes: policy.kirLimits.maxNodes,
+    },
+    { maxBytes: 273_051, maxDepth: 98, maxNodes: 5_313 },
+  );
+  assert.deepEqual(policy.profileLimits, {
+    maxNodeRows: 202,
+    maxPropertyRows: 308,
+    maxValueRows: 4_493,
+  });
+  assert.deepEqual(
+    {
+      maxBytes: policy.runtimeLimits.maxBytes,
+      maxStringBytes: policy.runtimeLimits.maxStringBytes,
+    },
+    { maxBytes: 2_184_408, maxStringBytes: 1_092_204 },
   );
 });

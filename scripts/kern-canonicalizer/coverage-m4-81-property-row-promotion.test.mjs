@@ -35,7 +35,7 @@ test('M4.81 promotes only the authenticated property-row ceiling', () => {
   assertCurrentCanonicalizerPolicy(policy);
   assertCurrentProfileLimitFixtures(PROFILE_LIMIT_FIXTURES);
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
-  assert.equal(policy.kirLimits.maxDepth, 98);
+  assert.equal(policy.kirLimits.maxDepth, 122);
 });
 
 test('M4.81 preserves its authenticated one-function parameter queue as an immutable handoff', () => {

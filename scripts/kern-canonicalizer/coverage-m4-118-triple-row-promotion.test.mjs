@@ -26,13 +26,13 @@ test('M4.118 promotes only the authenticated triple-row profile', () => {
     maxValueRows: 2411,
   });
   assert.deepEqual(policy.profileLimits, {
-    maxNodeRows: 202,
-    maxPropertyRows: 308,
-    maxValueRows: 4493,
+    maxNodeRows: 205,
+    maxPropertyRows: 332,
+    maxValueRows: 6304,
   });
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
-  assert.equal(policy.kirLimits.maxDepth, 98);
+  assert.equal(policy.kirLimits.maxDepth, 122);
 });
 
 test('M4.118 publishes the exact checkModule parameter queue', () => {

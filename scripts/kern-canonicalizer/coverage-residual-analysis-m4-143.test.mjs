@@ -25,7 +25,7 @@ import {
   validatePublishedCanonicalizerResidualAnalysisM4143,
 } from './coverage-residual-analysis-m4-143.mjs';
 import { formatM4143ResidualAnalysisStatus } from './coverage-status-m4-143.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 
 const summaryUrl = new URL('./coverage-residual-analysis-m4-143.json', import.meta.url);
 const PUBLISHED_DIGEST = '22639a2453389244611a91560afcd8d03ecefca8874089015f338622e5ba6e3e';
@@ -126,7 +126,7 @@ test('M4.143 authenticates the exact archived M4.142 rolling input', () => {
 });
 
 test('M4.143 rejects drift in every live semantic dependency identity', () => {
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
   const receipt = measureCanonicalizerCoverage(loadCoveragePolicy(), canonicalizerPolicy);
   for (const key of [
     'canonicalizerDigest',

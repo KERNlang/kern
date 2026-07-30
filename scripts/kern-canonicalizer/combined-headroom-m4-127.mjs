@@ -47,6 +47,11 @@ const CANDIDATE_KIR_LIMITS = {
   maxDepth: 98,
   maxNodes: 5_313,
 };
+const LIVE_KIR_LIMITS = {
+  maxBytes: 367_368,
+  maxDepth: 122,
+  maxNodes: 7_136,
+};
 const ACTIVE_PROFILE = {
   maxNodeRows: 122,
   maxPropertyRows: 193,
@@ -56,6 +61,11 @@ const CANDIDATE_PROFILE = {
   maxNodeRows: 202,
   maxPropertyRows: 308,
   maxValueRows: 4_493,
+};
+const LIVE_PROFILE = {
+  maxNodeRows: 205,
+  maxPropertyRows: 332,
+  maxValueRows: 6_304,
 };
 const EXACT_FLOOR = 54_894;
 const INPUT_IDENTITIES = {
@@ -194,12 +204,12 @@ function exactInputs() {
       maxBytes: livePolicy.kirLimits.maxBytes,
       maxDepth: livePolicy.kirLimits.maxDepth,
       maxNodes: livePolicy.kirLimits.maxNodes,
-    }).equals(canonicalBytes(CANDIDATE_KIR_LIMITS)) ||
-    !canonicalBytes(livePolicy.profileLimits).equals(canonicalBytes(CANDIDATE_PROFILE)) ||
-    livePolicy.runtimeLimits.maxBytes !== 2_184_408 ||
+    }).equals(canonicalBytes(LIVE_KIR_LIMITS)) ||
+    !canonicalBytes(livePolicy.profileLimits).equals(canonicalBytes(LIVE_PROFILE)) ||
+    livePolicy.runtimeLimits.maxBytes !== 2_938_944 ||
     livePolicy.runtimeLimits.maxCollectionLength !== 65_536 ||
     livePolicy.runtimeLimits.maxDepth !== 64 ||
-    livePolicy.runtimeLimits.maxStringBytes !== 1_092_204
+    livePolicy.runtimeLimits.maxStringBytes !== 1_469_472
   ) fail('promoted KIR, profile, and runtime policy must remain exact');
   const policy = loadPreM4130CanonicalizerPolicy();
   if (digest(canonicalBytes(policy)) !== INPUT_IDENTITIES.policySha256) {

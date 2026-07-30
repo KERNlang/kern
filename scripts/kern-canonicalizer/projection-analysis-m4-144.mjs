@@ -25,7 +25,7 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.projection-analysis.2';
 const PUBLISHED_DIGEST = '0aa57f2721cd76c9fed61ab5aaf22deccb868277e3627587712c92c907a6b086';
@@ -164,7 +164,7 @@ export function measureCanonicalizerProjectionAnalysisM4144() {
   }
 
   const policy = loadCoveragePolicy();
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
   const coverage = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
   assertM4143PublishedInput(coverage, canonicalizerPolicy);
   const roots = sourceFunctionRoots(policy);

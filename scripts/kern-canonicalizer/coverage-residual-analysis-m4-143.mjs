@@ -22,9 +22,11 @@ import {
 } from './coverage-input-m4-142.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import {
-  loadCanonicalizerPolicy,
   validateCanonicalizerPolicy,
 } from './policy.mjs';
+import {
+  loadPreM4146CanonicalizerPolicy,
+} from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
 const PUBLISHED_DIGEST = '22639a2453389244611a91560afcd8d03ecefca8874089015f338622e5ba6e3e';
@@ -229,7 +231,7 @@ export function assertM4143PublishedInput(receipt, canonicalizerPolicy) {
 
 export function measureCanonicalizerResidualAnalysisM4143() {
   const policy = loadCoveragePolicy();
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
   const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
   assertM4143PublishedInput(receipt, canonicalizerPolicy);
 

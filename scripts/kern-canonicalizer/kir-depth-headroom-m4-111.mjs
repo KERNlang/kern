@@ -21,11 +21,11 @@ const MEASUREMENT_URL =
   new URL('./kir-depth-headroom-m4-111-measure.mjs', import.meta.url);
 const ACTIVE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 64, maxNodes: 4096 };
 const CANDIDATE_KIR_LIMITS = { maxBytes: 262144, maxDepth: 76, maxNodes: 4096 };
-const LIVE_KIR_LIMITS = { maxBytes: 273051, maxDepth: 98, maxNodes: 5313 };
+const LIVE_KIR_LIMITS = { maxBytes: 367368, maxDepth: 122, maxNodes: 7136 };
 const LIVE_PROFILE_LIMITS = {
-  maxNodeRows: 202,
-  maxPropertyRows: 308,
-  maxValueRows: 4493,
+  maxNodeRows: 205,
+  maxPropertyRows: 332,
+  maxValueRows: 6304,
 };
 const PROFILE_LIMITS = { maxNodeRows: 89, maxPropertyRows: 125, maxValueRows: 2100 };
 const INPUT_IDENTITIES = {
@@ -318,10 +318,10 @@ function exactInputs() {
       maxNodes: policy.kirLimits.maxNodes,
     }).compare(canonicalBytes(LIVE_KIR_LIMITS)) !== 0 ||
     canonicalBytes(policy.profileLimits).compare(canonicalBytes(LIVE_PROFILE_LIMITS)) !== 0 ||
-    policy.runtimeLimits.maxBytes !== 2_184_408 ||
+    policy.runtimeLimits.maxBytes !== 2_938_944 ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.runtimeLimits.maxDepth !== 64 ||
-    policy.runtimeLimits.maxStringBytes !== 1_092_204
+    policy.runtimeLimits.maxStringBytes !== 1_469_472
   ) {
     fail('promoted KIR and runtime policies must remain exact');
   }

@@ -10,6 +10,10 @@ import { assertM4143ResidualAnalysis } from './kern-canonicalizer/coverage-m4-14
 import { assertM4144ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-144-central.mjs';
 import { assertM4145CombinedHeadroom } from './kern-canonicalizer/coverage-m4-145-central.mjs';
 import {
+  m4146ActiveProfile,
+  m4146CoverageStatus,
+} from './kern-canonicalizer/coverage-m4-146-combined-promotion.mjs';
+import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
 import {
@@ -47,6 +51,9 @@ import {
   assertM494ParameterMigration,
 } from './kern-canonicalizer/coverage-m4-94-parameter-migration.mjs';
 import { loadCanonicalizerPolicy } from './kern-canonicalizer/policy.mjs';
+import {
+  loadPreM4146CanonicalizerPolicy,
+} from './kern-canonicalizer/historical-policy.mjs';
 import { assertM482ParameterMigration } from './kern-canonicalizer/coverage-m4-82-parameter-migration.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM444 } from './kern-canonicalizer/coverage-prerequisite-m4-44.mjs';
 import { loadPublishedCanonicalizerPrerequisiteM448 } from './kern-canonicalizer/coverage-prerequisite-m4-48.mjs';
@@ -157,7 +164,6 @@ import { assertM4127CombinedHeadroom } from './kern-canonicalizer/coverage-m4-12
 import { assertM4128RuntimeBottleneck } from './kern-canonicalizer/coverage-m4-128-central.mjs';
 import { assertM4129RuntimeCost } from './kern-canonicalizer/coverage-m4-129-central.mjs';
 import {
-  m4130ActiveProfile,
   m4130CoverageStatus,
 } from './kern-canonicalizer/coverage-m4-130-combined-promotion.mjs';
 import { m4131CoverageStatus } from './kern-canonicalizer/coverage-m4-131-parameter-migration.mjs';
@@ -436,7 +442,8 @@ const m4126CoverageStatusLine = assertM4126ProjectionAnalysis();
 const m4127CoverageStatusLine = assertM4127CombinedHeadroom();
 const m4128CoverageStatusLine = assertM4128RuntimeBottleneck();
 const m4129CoverageStatusLine = assertM4129RuntimeCost();
-const m4130CoverageStatusLine = m4130CoverageStatus(policy);
+const m4130CoverageStatusLine =
+  m4130CoverageStatus(loadPreM4146CanonicalizerPolicy());
 const m4131CoverageStatusLine = m4131CoverageStatus();
 const m4132CoverageStatusLine = assertM4132ResidualAnalysis();
 const m4133CoverageStatusLine = assertM4133ProjectionAnalysis();
@@ -446,9 +453,10 @@ const m4142CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, pre
 const m4143CoverageStatusLine = assertM4143ResidualAnalysis();
 const m4144CoverageStatusLine = assertM4144ProjectionAnalysis();
 const m4145CoverageStatusLine = assertM4145CombinedHeadroom();
+const m4146CoverageStatusLine = m4146CoverageStatus(policy);
 assert.deepEqual(
   policy.profileLimits,
-  m4130ActiveProfile(),
+  m4146ActiveProfile(),
   'current policy must consume the exact latest authenticated profile promotion',
 );
 const prerequisiteHandoffs = loadCanonicalizerPrerequisiteProvenanceChain();
@@ -644,10 +652,10 @@ if (!process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.deepEqual(prerequisite.exhaustion.activeFamilies, []);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 2);
+  assert.equal(prerequisite.exhaustion.residualFunctionCount, 1);
   assert.equal(
     prerequisite.exhaustion.reasonAssignmentsDigest,
-    '1da9a57ec132a8147f75ab0d252e188aa86b2744b23d58cf3dfa3510b7bcc106',
+    'e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720',
   );
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
@@ -1937,6 +1945,7 @@ process.stdout.write(
   ` ${m4143CoverageStatusLine}` +
   ` ${m4144CoverageStatusLine}` +
   ` ${m4145CoverageStatusLine}` +
+  ` ${m4146CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

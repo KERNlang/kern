@@ -235,19 +235,19 @@ function exactInputs() {
       maxDepth: policy.kirLimits.maxDepth,
       maxNodes: policy.kirLimits.maxNodes,
     }).compare(canonicalBytes({
-      maxBytes: 273_051,
-      maxDepth: 98,
-      maxNodes: 5_313,
+      maxBytes: 367_368,
+      maxDepth: 122,
+      maxNodes: 7_136,
     })) !== 0 ||
     canonicalBytes(policy.profileLimits).compare(canonicalBytes({
-      maxNodeRows: 202,
-      maxPropertyRows: 308,
-      maxValueRows: 4_493,
+      maxNodeRows: 205,
+      maxPropertyRows: 332,
+      maxValueRows: 6_304,
     })) !== 0 ||
-    policy.runtimeLimits.maxBytes !== 2_184_408 ||
+    policy.runtimeLimits.maxBytes !== 2_938_944 ||
     policy.runtimeLimits.maxCollectionLength !== 65_536 ||
     policy.runtimeLimits.maxDepth !== 64 ||
-    policy.runtimeLimits.maxStringBytes !== 1_092_204
+    policy.runtimeLimits.maxStringBytes !== 1_469_472
   ) fail('promoted KIR, profile, and runtime policies must remain exact');
 
   loadHistoricalCanonicalizerPolicy({

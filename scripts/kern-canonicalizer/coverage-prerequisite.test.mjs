@@ -20,13 +20,18 @@ import { assertCoverageSummary } from './coverage-summary-writer.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 0,
-  completeTools: 0,
-  migratedParameterRows: 0,
-  witnesses: [],
+  completeFunctions: 1,
+  completeTools: 1,
+  migratedParameterRows: 6,
+  witnesses: [{
+    id: 'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
+    parameterRows: 6,
+    profileRows: { nodes: 205, properties: 332, values: 6_304 },
+    tool: 'canonicalizer',
+  }],
 };
 
-test('M4.142 exhausts structural families after consuming the canonicalize queue', () => {
+test('M4.146 publishes the expressionsources queue at the exhausted structural frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.equal(actual.outcome, 'bounded-exhaustion');
@@ -36,7 +41,7 @@ test('M4.142 exhausts structural families after consuming the canonicalize queue
   assert.deepEqual(actual.prerequisiteRanking, []);
   assert.deepEqual(actual.ranking, []);
   assert.deepEqual(actual.exhaustion.activeFamilies, []);
-  assert.equal(actual.exhaustion.residualFunctionCount, 2);
+  assert.equal(actual.exhaustion.residualFunctionCount, 1);
 });
 
 test('format 3 rejects drift in the M4.100 migrated frontier', () => {
@@ -68,21 +73,21 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.142 publishes the exact current terminal structural frontier', () => {
+test('M4.146 publishes the exact current terminal structural frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
   assert.deepEqual(actual.baseline, {
     baseCompleteFunctions: 110,
     baseId: 'kern.kir-canonicalizer.profile.m4.141',
     canonicalizerDigest: '9e7ecb330e665b7bf2a0d7e13d78f4cf3c0b9e5b27a799bdafbabd0e18ca770a',
-    canonicalizerPolicyDigest: '54d5a78b40f47e1ca1bfdbf1a7d3836c756aae1ace22ff0245d008af78178ff4',
+    canonicalizerPolicyDigest: '13d9315aeaf7ffa89ec17ad86b01e39e4a7084657000beb11f8bd0d478b21db7',
     compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
     corpusDigest: '923813c69d6f7e8cdb15e68237e61f155ab7bca0f764102cfeb29b5071288c89',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
     coveragePolicyDigest: '3512347baf3870f21b879b632041eea72ffea304e037f0a26fcf720cbe596877',
     familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
-    functionFactsDigest: '72c677544b56de4b6e714d0f124f88f7f3db811b6442aeb6c8cb405ad7b9998f',
+    functionFactsDigest: '1d38a8c7166a0a0e69a83ef87129ebee46ec221b0c3e936689594bf50065a751',
     legacyParameterBlockers: 2,
     profileDigest: 'fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b',
     toolCount: 4,
@@ -94,10 +99,12 @@ test('M4.142 publishes the exact current terminal structural frontier', () => {
   assert.equal(actual.selectedPrerequisite, null);
   assert.equal(
     actual.exhaustion.reasonAssignmentsDigest,
-    '1da9a57ec132a8147f75ab0d252e188aa86b2744b23d58cf3dfa3510b7bcc106',
+    'e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720',
   );
   const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
-  assert.deepEqual([...readyIds], []);
+  assert.deepEqual([...readyIds], [
+    'examples/kern-canonicalizer/canonicalizer.kern#3:expressionsources',
+  ]);
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);

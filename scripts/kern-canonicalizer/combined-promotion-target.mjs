@@ -35,3 +35,16 @@ export const PRE_M4130_SINGLE_POLICY_MEASUREMENT_REPLACEMENTS = [
     historical: '  const policy = loadCanonicalizerPolicy();',
   },
 ];
+
+export const PRE_M4146_M4145_MEASUREMENT_REPLACEMENTS = [
+  {
+    current:
+      "import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';\n",
+    historical:
+      "import { loadCanonicalizerPolicy } from './policy.mjs';\n",
+  },
+  {
+    current: '  const policy = loadPreM4146CanonicalizerPolicy();',
+    historical: '  const policy = loadCanonicalizerPolicy();',
+  },
+];

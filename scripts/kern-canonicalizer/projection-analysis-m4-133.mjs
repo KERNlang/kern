@@ -21,7 +21,7 @@ import {
 } from './coverage-selection.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadPreM4135CoverageInputs } from './historical-parameter-sources.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.projection-analysis.1';
 const PUBLISHED_DIGEST = '89da63518b22003642eabba46177dce3e835d2fde82aebfb4ebe10bd3273bf0a';
@@ -181,7 +181,7 @@ export function measureCanonicalizerProjectionAnalysisM4133() {
   }
   const historical = loadPreM4135CoverageInputs(loadCoveragePolicy());
   const policy = historical.policy;
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const canonicalizerPolicy = loadPreM4146CanonicalizerPolicy();
   const coverage = measureCanonicalizerCoverage(
     policy,
     canonicalizerPolicy,

@@ -9,9 +9,14 @@ import {
   canonicalCompositionRecordBytes,
   verifyCanonicalizerComposition,
 } from './composition.mjs';
+import {
+  PRE_M4146_M4145_MEASUREMENT_REPLACEMENTS,
+} from './combined-promotion-target.mjs';
 import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { assertExactPlainData } from './coverage-prerequisite-shape.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4144,
@@ -116,9 +121,21 @@ function exactInputs() {
 
   for (const [name, expected] of Object.entries(INPUT_IDENTITIES)) {
     if (!/^[0-9a-f]{64}$/u.test(expected)) fail(`${name} identity must remain exact`);
-    if (name === 'compiledCoreJavaScriptSha256') continue;
+    if (
+      name === 'compiledCoreJavaScriptSha256' ||
+      name === 'policySha256'
+    ) continue;
     const url = INPUT_URLS[name];
-    if (url !== undefined && digest(readFileSync(url)) !== expected) {
+    let source = url === undefined ? undefined : readFileSync(url);
+    if (name === 'measurementHarnessSha256') {
+      source = reconstructHistoricalSource({
+        currentSource: source,
+        expectedDigest: expected,
+        milestone: 'M4.145 measurement',
+        replacements: PRE_M4146_M4145_MEASUREMENT_REPLACEMENTS,
+      });
+    }
+    if (source !== undefined && digest(source) !== expected) {
       fail(`${name} source identity must remain exact`);
     }
   }
@@ -134,21 +151,29 @@ function exactInputs() {
       INPUT_IDENTITIES.compositionRecordSha256
   ) fail('canonicalizer composition identities must remain exact');
 
-  const policy = loadCanonicalizerPolicy();
+  const livePolicy = loadCanonicalizerPolicy();
   if (
     !isDeepStrictEqual({
-      maxBytes: policy.kirLimits.maxBytes,
-      maxDepth: policy.kirLimits.maxDepth,
-      maxNodes: policy.kirLimits.maxNodes,
-    }, ACTIVE_KIR_LIMITS) ||
-    !isDeepStrictEqual(policy.profileLimits, ACTIVE_PROFILE) ||
-    policy.runtimeLimits.maxCollectionLength !== 65_536 ||
-    policy.runtimeLimits.maxDepth !== 64 ||
-    !isDeepStrictEqual(policy.expansionLimits, {
+      maxBytes: livePolicy.kirLimits.maxBytes,
+      maxDepth: livePolicy.kirLimits.maxDepth,
+      maxNodes: livePolicy.kirLimits.maxNodes,
+    }, CANDIDATE_KIR_LIMITS) ||
+    !isDeepStrictEqual(livePolicy.profileLimits, CANDIDATE_PROFILE) ||
+    !isDeepStrictEqual({
+      maxBytes: livePolicy.runtimeLimits.maxBytes,
+      maxStringBytes: livePolicy.runtimeLimits.maxStringBytes,
+    }, DERIVED_RUNTIME_BYTES) ||
+    livePolicy.runtimeLimits.maxCollectionLength !== 65_536 ||
+    livePolicy.runtimeLimits.maxDepth !== 64 ||
+    !isDeepStrictEqual(livePolicy.expansionLimits, {
       kirToSourceMaxFactor: 4,
       runtimeEnvelopeMaxFactor: 2,
     })
-  ) fail('active KIR, profile, runtime, and expansion policy must remain exact');
+  ) fail('promoted KIR, profile, runtime, and expansion policy must remain exact');
+  const policy = loadPreM4146CanonicalizerPolicy();
+  if (digest(canonicalBytes(policy)) !== INPUT_IDENTITIES.policySha256) {
+    fail('historical policy identity must remain exact');
+  }
   if (
     CANDIDATE_KIR_LIMITS.maxBytes *
       policy.expansionLimits.kirToSourceMaxFactor !==

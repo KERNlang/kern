@@ -31,7 +31,7 @@ import {
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
 import { flattenKirRoots, tableArguments } from './flatten.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 import {
   loadPublishedCanonicalizerProjectionAnalysisM4144,
 } from './projection-analysis-m4-144.mjs';
@@ -125,7 +125,7 @@ function exactInput() {
     fail('expressionsources parameter rows must remain exact');
   }
 
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4146CanonicalizerPolicy();
   assert.deepEqual({
     maxBytes: policy.kirLimits.maxBytes,
     maxDepth: policy.kirLimits.maxDepth,

@@ -11,9 +11,9 @@ import {
   m4130ParameterMigration,
 } from './coverage-m4-130-combined-promotion.mjs';
 import {
-  loadCanonicalizerPolicy,
   validateCanonicalizerPolicy,
 } from './policy.mjs';
+import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
 
 const M4129_RECEIPT_DIGEST =
   'e4bd57760198241cbe295ef6dcc7e35b1b7ddbb41026ca066d4016de0cfccd7c';
@@ -21,7 +21,7 @@ const WITNESS_ID =
   'examples/selfhost-validator/validator.kern#20:validate';
 
 test('M4.130 promotes only the authenticated combined KIR and profile limits', () => {
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4146CanonicalizerPolicy();
   assert.deepEqual(assertM4130CombinedPromotion(policy), {
     kirLimits: { maxBytes: 273_051, maxDepth: 98, maxNodes: 5_313 },
     profileLimits: {
@@ -57,7 +57,7 @@ test('M4.130 promotes only the authenticated combined KIR and profile limits', (
 });
 
 test('M4.130 runtime byte ceilings are exact and fail closed one below either factor', () => {
-  const policy = loadCanonicalizerPolicy();
+  const policy = loadPreM4146CanonicalizerPolicy();
   assert.equal(
     policy.runtimeLimits.maxStringBytes,
     policy.kirLimits.maxBytes * policy.expansionLimits.kirToSourceMaxFactor,

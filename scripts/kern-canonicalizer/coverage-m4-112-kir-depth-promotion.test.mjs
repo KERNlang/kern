@@ -26,7 +26,7 @@ test('M4.112 promotes only the authenticated structural KIR depth', () => {
     maxDepth: 76,
     maxNodes: 4_096,
   });
-  assert.equal(policy.kirLimits.maxDepth, 98);
+  assert.equal(policy.kirLimits.maxDepth, 122);
   assert.equal(policy.runtimeLimits.maxCollectionLength, 65_536);
   assert.equal(policy.runtimeLimits.maxDepth, 64);
 });

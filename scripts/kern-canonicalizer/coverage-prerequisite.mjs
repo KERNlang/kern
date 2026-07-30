@@ -16,13 +16,18 @@ import {
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
 import { isExactPlainArray } from './coverage-prerequisite-shape.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
+import {
+  parseLegacyParameters,
+} from './coverage-prerequisite-parameters.mjs';
+import {
+  migrateLegacyFunctionForPrerequisite,
+} from './coverage-prerequisite-migration.mjs';
+import {
+  loadCanonicalizerPolicy,
+  validateCanonicalizerPolicy,
+} from './policy.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.3';
-const PORTABLE_PARAMETER_TYPES = new Set([
-  'boolean', 'boolean[]', 'number', 'number[]', 'string', 'string[]',
-]);
-
 function fail(message) {
   throw new TypeError(`coverage prerequisite rejection: ${message}`);
 }
@@ -31,80 +36,8 @@ function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function exactLegacyParameters(raw) {
-  if (typeof raw !== 'string' || raw.trim().length === 0) fail('legacy parameters must be non-empty text');
-  const names = new Set();
-  return raw.split(',').map((entry) => {
-    const parts = entry.split(':').map((part) => part.trim());
-    if (
-      parts.length !== 2 ||
-      !isPortableBindingName(parts[0]) ||
-      !PORTABLE_PARAMETER_TYPES.has(parts[1]) ||
-      names.has(parts[0])
-    ) {
-      fail('legacy parameters must be unique portable name:type pairs');
-    }
-    names.add(parts[0]);
-    return { name: parts[0], type: parts[1] };
-  });
-}
-
-export function parseLegacyParametersForPrerequisite(raw) {
-  return exactLegacyParameters(raw);
-}
-
-export function migrateLegacyFunctionForPrerequisite(sourceRoot) {
-  if (
-    sourceRoot === null ||
-    typeof sourceRoot !== 'object' ||
-    Array.isArray(sourceRoot) ||
-    sourceRoot.type !== 'fn' ||
-    !Array.isArray(sourceRoot.children)
-  ) {
-    fail('legacy function must be a function without direct parameter children');
-  }
-  const directParameters = sourceRoot.children.filter(({ type }) => type === 'param');
-  if (directParameters.length > 0) {
-    if (typeof sourceRoot.props?.params === 'string') {
-      fail('legacy function must be a function without direct parameter children');
-    }
-    const firstNonParameter = sourceRoot.children
-      .findIndex(({ type }) => type !== 'param');
-    if (
-      firstNonParameter === 0 ||
-      sourceRoot.children.slice(firstNonParameter).some(({ type }) => type === 'param') ||
-      directParameters.some((parameter) =>
-        parameter === null ||
-        typeof parameter !== 'object' ||
-        !Array.isArray(parameter.children) ||
-        parameter.children.length !== 0 ||
-        parameter.props === null ||
-        typeof parameter.props !== 'object' ||
-        Array.isArray(parameter.props) ||
-        Object.keys(parameter.props).sort().join(',') !== 'name,type' ||
-        (parameter.__quotedProps?.length ?? 0) !== 0
-      )
-    ) {
-      fail('direct parameters must be one exact canonical prefix');
-    }
-    const parameters = exactLegacyParameters(
-      directParameters.map(({ props }) => `${props.name}:${props.type}`).join(','),
-    );
-    return { parameters, root: structuredClone(sourceRoot) };
-  }
-  const root = structuredClone(sourceRoot);
-  const parameters = exactLegacyParameters(root.props?.params);
-  delete root.props.params;
-  if (Array.isArray(root.__quotedProps)) {
-    root.__quotedProps = root.__quotedProps.filter((property) => property !== 'params');
-    if (root.__quotedProps.length === 0) delete root.__quotedProps;
-  }
-  root.children = [
-    ...parameters.map(({ name, type }) => ({ children: [], props: { name, type }, type: 'param' })),
-    ...root.children,
-  ];
-  return { parameters, root };
-}
+export const parseLegacyParametersForPrerequisite = parseLegacyParameters;
+export { migrateLegacyFunctionForPrerequisite };
 
 export function sourceFunctionRoots(policy, sourceOverrides = new Map()) {
   const roots = new Map();
@@ -461,9 +394,19 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
   return summary;
 }
 
-export function buildCanonicalizerPrerequisiteSummary(policy, sourceOverrides = new Map()) {
-  const receipt = measureCanonicalizerCoverage(policy, undefined, { sourceOverrides });
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
+export function buildCanonicalizerPrerequisiteSummary(
+  policy,
+  sourceOverrides = new Map(),
+  canonicalizerPolicyInput,
+) {
+  const canonicalizerPolicy = canonicalizerPolicyInput === undefined
+    ? loadCanonicalizerPolicy()
+    : validateCanonicalizerPolicy(structuredClone(canonicalizerPolicyInput));
+  const receipt = measureCanonicalizerCoverage(
+    policy,
+    canonicalizerPolicy,
+    { sourceOverrides },
+  );
   const roots = sourceFunctionRoots(policy, sourceOverrides);
   if (roots.size !== receipt.functions.length) fail('source functions must exactly match measured facts');
   const migrated = receipt.functions

@@ -4,9 +4,9 @@
     "runtimeEnvelopeMaxFactor": 2
   },
   "kirLimits": {
-    "maxBytes": 273051,
-    "maxDepth": 98,
-    "maxNodes": 5313,
+    "maxBytes": 367368,
+    "maxDepth": 122,
+    "maxNodes": 7136,
     "maxStringBytes": 8192,
     "maxCollectionLength": 1024,
     "maxRecordFields": 512,
@@ -16,16 +16,16 @@
     "maxDecimalChars": 520
   },
   "runtimeLimits": {
-    "maxBytes": 2184408,
+    "maxBytes": 2938944,
     "maxCollectionLength": 65536,
     "maxDepth": 64,
     "maxDiagnostics": 8,
     "maxEvents": 64,
-    "maxStringBytes": 1092204
+    "maxStringBytes": 1469472
   },
   "profileLimits": {
-    "maxNodeRows": 202,
-    "maxPropertyRows": 308,
-    "maxValueRows": 4493
+    "maxNodeRows": 205,
+    "maxPropertyRows": 332,
+    "maxValueRows": 6304
   }
 }
