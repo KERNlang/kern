@@ -355,6 +355,16 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
     ) {
       fail('selected format-3 summary must contain a positive winning closure');
     }
+  } else if (summary.outcome === 'parameter-ready') {
+    if (
+      summary.minimumFamilyCount !== null || summary.selectedPrerequisite !== null ||
+      summary.prerequisiteRanking.length !== 0 || summary.ranking.length !== 0 ||
+      summary.exhaustion !== null ||
+      summary.parameterMigration.completeFunctions === 0 ||
+      summary.parameterMigration.completeFunctions !== summary.baseline.legacyParameterBlockers
+    ) {
+      fail('parameter-ready format-3 summary must contain the exact terminal migration queue');
+    }
   } else {
     if (
       summary.outcome !== 'bounded-exhaustion' || summary.minimumFamilyCount !== null ||
@@ -418,8 +428,14 @@ export function buildCanonicalizerPrerequisiteSummary(
     canonicalizerPolicy.profileLimits,
   );
   const parameterMigration = parameterMigrationRow(parameterReady);
-  if (residual.length === 0) fail('no residual functions remain after base-only parameter migration');
-  const selection = selectClosures(policy, residual, receipt.functions, canonicalizerPolicy.profileLimits);
+  const selection = residual.length === 0
+    ? {
+        evaluatedNonEmptyClosureCount: 0,
+        minimumFamilyCount: null,
+        outcome: 'parameter-ready',
+        ranking: [],
+      }
+    : selectClosures(policy, residual, receipt.functions, canonicalizerPolicy.profileLimits);
   const prerequisites = selection.outcome === 'selected'
     ? prerequisiteRanking(selection.ranking[0], policy, receipt.functions)
     : [];

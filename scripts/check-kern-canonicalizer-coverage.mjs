@@ -8,7 +8,7 @@ import { assertM4133ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-
 import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4-134-central.mjs';
 import { assertM4143ResidualAnalysis } from './kern-canonicalizer/coverage-m4-143-central.mjs';
 import { assertM4148ResidualAnalysis } from './kern-canonicalizer/coverage-m4-148-central.mjs';
-import { assertM4149CanonicalSurfaceAnalysis } from './kern-canonicalizer/coverage-m4-149-central.mjs';
+import { assertM4150QuotesourceImplementation } from './kern-canonicalizer/coverage-m4-150-central.mjs';
 import { assertM4144ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-144-central.mjs';
 import { assertM4145CombinedHeadroom } from './kern-canonicalizer/coverage-m4-145-central.mjs';
 import {
@@ -466,7 +466,7 @@ const m4145CoverageStatusLine = assertM4145CombinedHeadroom();
 const m4146CoverageStatusLine = m4146CoverageStatus(policy);
 const m4147CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 const m4148CoverageStatusLine = assertM4148ResidualAnalysis();
-const m4149CoverageStatusLine = assertM4149CanonicalSurfaceAnalysis();
+const m4149M4150CoverageStatusLine = assertM4150QuotesourceImplementation(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4146ActiveProfile(),
@@ -640,7 +640,7 @@ if (!process.argv.includes('--write')) {
   assert.deepEqual(actual.selection.ranking, [], 'live M4.141 active family ranking must be empty');
   assertCoverageSummary(summaryUrl, actual);
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.outcome, 'parameter-ready');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(
     m481PrerequisiteHandoff.digest,
@@ -664,12 +664,9 @@ if (!process.argv.includes('--write')) {
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, []);
-  assert.equal(prerequisite.exhaustion.residualFunctionCount, 1);
-  assert.equal(
-    prerequisite.exhaustion.reasonAssignmentsDigest,
-    'e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720',
-  );
+  assert.equal(prerequisite.exhaustion, null);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 2);
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
   assert.equal(m468PrerequisiteHandoff.sourceCommit,
@@ -1961,7 +1958,7 @@ process.stdout.write(
   ` ${m4146CoverageStatusLine}` +
   ` ${m4147CoverageStatusLine}` +
   ` ${m4148CoverageStatusLine}` +
-  ` ${m4149CoverageStatusLine}` +
+  ` ${m4149M4150CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

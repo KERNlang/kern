@@ -19,6 +19,9 @@ import {
 } from './coverage-residual-analysis-m4-148.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
+import {
+  reconstructPreM4150ExpressionHelpers,
+} from './quotesource-rewrite-m4-150-target.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.canonical-surface-analysis.1';
 const PUBLISHED_DIGEST = 'bca47b2e75cd13cbbaa3b54e7e98e92f515e44f15cf92e3edea8c8c6bf59dc1d';
@@ -252,10 +255,7 @@ function exactSourceRoot() {
   if (stat === undefined || !stat.isFile() || realpathSync(path) !== path) {
     fail('quotesource owner must be a regular non-symlink file');
   }
-  const source = readFileSync(path);
-  if (sha256(source) !== QUOTESOURCE_SOURCE_DIGEST) {
-    fail('quotesource owner must match the exact M4.148 source');
-  }
+  const source = reconstructPreM4150ExpressionHelpers(readFileSync(path));
   const parsed = parseDocumentWithDiagnostics(source.toString('utf8'));
   if (parsed.diagnostics.some(({ severity }) => severity === 'error')) {
     fail('quotesource owner must remain parse-clean');

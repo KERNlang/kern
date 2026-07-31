@@ -5,13 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import {
-  loadCoveragePolicy,
   measureCanonicalizerCoverage,
   summarizeCanonicalizerCoverage,
 } from './coverage.mjs';
+import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
+import { authenticateCoverageDependencies } from './coverage-dependencies.mjs';
 import {
+  buildCanonicalizerPrerequisiteSummary,
   migrateFunctionFact,
-  measureCanonicalizerPrerequisite,
   partitionMigratedFunctions,
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
@@ -22,6 +23,11 @@ import {
 import { loadPublishedM4147CoverageInput } from './coverage-input-m4-147.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
+import {
+  M4150_COVERAGE_POLICY_DIGEST,
+  QUOTESOURCE_M4150_PATH,
+  reconstructPreM4150ExpressionHelpers,
+} from './quotesource-rewrite-m4-150-target.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
 const PUBLISHED_DIGEST = 'bf5b7c6886f7f114995f59d916f4a87ecc2ea3f7fffc5289448d7ebb32abde2f';
@@ -177,12 +183,36 @@ export function assertM4148PublishedInput(
   if (receipt.canonicalizerPolicyDigest !== canonicalizerPolicyDigest) {
     fail('canonicalizer policy must match the measured receipt');
   }
+  const liveEvidence = loadCanonicalizerCoverageEvidence();
+  const liveDependencies = authenticateCoverageDependencies();
+  const liveCanonicalizerDigest = createHash('sha256')
+    .update(liveEvidence.source)
+    .digest('hex');
+  if (
+    receipt.canonicalizerDigest !== liveCanonicalizerDigest ||
+    !isDeepStrictEqual(receipt.composition, liveEvidence.composition) ||
+    receipt.coverageImplementationDigest !== liveDependencies.coverageImplementationDigest ||
+    receipt.coveragePolicyDigest !== M4150_COVERAGE_POLICY_DIGEST ||
+    prerequisite.baseline.canonicalizerDigest !== receipt.canonicalizerDigest ||
+    prerequisite.baseline.coverageImplementationDigest !==
+      receipt.coverageImplementationDigest ||
+    prerequisite.baseline.coveragePolicyDigest !== receipt.coveragePolicyDigest
+  ) {
+    fail('successor identities must match authenticated live dependencies before normalization');
+  }
   const normalizedCoverage = summarizeCanonicalizerCoverage(receipt);
+  normalizedCoverage.canonicalizerDigest = published.coverage.canonicalizerDigest;
+  normalizedCoverage.composition = structuredClone(published.coverage.composition);
   normalizedCoverage.coverageImplementationDigest =
     published.coverage.coverageImplementationDigest;
+  normalizedCoverage.coveragePolicyDigest = published.coverage.coveragePolicyDigest;
   const normalizedPrerequisite = structuredClone(prerequisite);
+  normalizedPrerequisite.baseline.canonicalizerDigest =
+    published.prerequisite.baseline.canonicalizerDigest;
   normalizedPrerequisite.baseline.coverageImplementationDigest =
     published.prerequisite.baseline.coverageImplementationDigest;
+  normalizedPrerequisite.baseline.coveragePolicyDigest =
+    published.prerequisite.baseline.coveragePolicyDigest;
   if (
     !isDeepStrictEqual(normalizedCoverage, published.coverage) ||
     !isDeepStrictEqual(normalizedPrerequisite, published.prerequisite)
@@ -213,11 +243,11 @@ export function assertM4148PublishedInput(
   const liveSemanticInput = {
     baseCompleteFunctions: receipt.baseCompleteFunctions,
     baseId: receipt.base.id,
-    canonicalizerDigest: receipt.canonicalizerDigest,
+    canonicalizerDigest: normalizedCoverage.canonicalizerDigest,
     canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
     compiledCoreDigest: receipt.compiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
-    coveragePolicyDigest: receipt.coveragePolicyDigest,
+    coveragePolicyDigest: normalizedCoverage.coveragePolicyDigest,
     currentProfileLimits: exactLimits(canonicalizerPolicy.profileLimits),
     familyRegistryDigest: receipt.familyRegistryDigest,
     functionFactsDigest: receipt.functionFactsDigest,
@@ -245,18 +275,46 @@ export function assertM4148PublishedInput(
   }
 }
 
-export function measureCanonicalizerResidualAnalysisM4148() {
-  const policy = loadCoveragePolicy();
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  const prerequisite = measureCanonicalizerPrerequisite();
+export function measureM4148HistoricalCoverageInputs() {
   const published = loadPublishedM4147CoverageInput();
-  if (!isDeepStrictEqual(policy, published.policy)) {
-    fail('live coverage policy must match the exact archived M4.147 policy');
-  }
+  const policy = published.policy;
+  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  const sourceOverrides = new Map([[
+    QUOTESOURCE_M4150_PATH,
+    reconstructPreM4150ExpressionHelpers(),
+  ]]);
+  const receipt = measureCanonicalizerCoverage(
+    policy,
+    canonicalizerPolicy,
+    { sourceOverrides },
+  );
+  const prerequisite = buildCanonicalizerPrerequisiteSummary(
+    policy,
+    sourceOverrides,
+    canonicalizerPolicy,
+  );
+  return {
+    canonicalizerPolicy,
+    policy,
+    prerequisite,
+    published,
+    receipt,
+    sourceOverrides,
+  };
+}
+
+export function measureCanonicalizerResidualAnalysisM4148() {
+  const {
+    canonicalizerPolicy,
+    policy,
+    prerequisite,
+    published,
+    receipt,
+    sourceOverrides,
+  } = measureM4148HistoricalCoverageInputs();
   assertM4148PublishedInput(receipt, prerequisite, canonicalizerPolicy, published);
 
-  const roots = sourceFunctionRoots(policy);
+  const roots = sourceFunctionRoots(policy, sourceOverrides);
   const legacyFacts = receipt.functions.filter(({ excludedProperties }) =>
     excludedProperties.includes('fn.params'));
   if (legacyFacts.length !== PUBLISHED_BASELINE.legacyParameterBlockers) {

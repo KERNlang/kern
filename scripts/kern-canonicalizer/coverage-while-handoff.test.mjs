@@ -155,7 +155,7 @@ test('the current frontier preserves the M4.60 while promotion', () => {
       tool: 'validator',
     }],
   });
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.equal(prerequisite.outcome, 'parameter-ready');
   assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.deepEqual(prerequisite.exhaustion.activeFamilies, []);
+  assert.equal(prerequisite.exhaustion, null);
 });

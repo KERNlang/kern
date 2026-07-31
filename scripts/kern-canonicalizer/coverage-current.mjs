@@ -10,7 +10,6 @@ import {
 } from './coverage-m4-146-combined-promotion.mjs';
 import {
   assertM4147ParameterMigration,
-  m4147ParameterMigration,
 } from './coverage-m4-147-parameter-migration.mjs';
 import {
   assertExactPlainData,
@@ -114,47 +113,23 @@ export function assertCurrentCanonicalizerFrontier(
     toolCount: new Set(coverage.corpus.map(({ tool }) => tool)).size,
   });
   assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.deepEqual(prerequisite.parameterMigration, m4147ParameterMigration());
-  assert.equal(prerequisite.outcome, 'bounded-exhaustion');
+  assert.deepEqual(prerequisite.parameterMigration, {
+    completeFunctions: 1,
+    completeTools: 1,
+    migratedParameterRows: 2,
+    witnesses: [{
+      id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
+      parameterRows: 2,
+      profileRows: { nodes: 54, properties: 82, values: 932 },
+      tool: 'canonicalizer',
+    }],
+  });
+  assert.equal(prerequisite.outcome, 'parameter-ready');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.exhaustion, {
-    activeFamilies: [],
-    completingClosureCount: 0,
-    evaluatedNonEmptyClosureCount: 0,
-    reasonAssignmentsDigest:
-      'e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720',
-    reasonCounts: [
-      {
-        count: 1,
-        id: 'if.properties.cond.expression.text.character-u007f',
-      },
-      {
-        count: 1,
-        id: 'if.properties.cond.expression.text.character-u0080',
-      },
-      {
-        count: 1,
-        id: 'if.properties.cond.expression.text.character-u009f',
-      },
-      {
-        count: 1,
-        id: 'if.properties.cond.expression.text.character-u2028',
-      },
-      {
-        count: 1,
-        id: 'if.properties.cond.expression.text.character-u2029',
-      },
-      {
-        count: 1,
-        id: 'if.properties.cond.expression.text.character-ufeff',
-      },
-    ],
-    residualFunctionCount: 1,
-    scope: 'current-bounded-profile',
-  });
+  assert.equal(prerequisite.exhaustion, null);
   assertM4131ParameterMigration(coverage);
   const status = assertM4147ParameterMigration(coverage);
   return status;

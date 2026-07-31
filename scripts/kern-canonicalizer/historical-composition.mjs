@@ -20,6 +20,9 @@ import {
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { EMITSTATEMENT_M4113_TARGET } from './emitstatement-target.mjs';
 import { EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS } from './exception-flow-emission-target.mjs';
+import {
+  QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+} from './quotesource-rewrite-m4-150-target.mjs';
 import { TYPE_FIELD_INDEX_M4117_REPLACEMENT } from './type-field-index-target.mjs';
 import { NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS } from './new-expression-emission-target.mjs';
 import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
@@ -133,7 +136,10 @@ export function loadHistoricalCanonicalizerComposition({
     VALIDSTATEMENT_DIRECT_TARGET,
     EMITSTATEMENT_M4113_TARGET,
   ],
-  expressionHelperReplacements = [TYPE_FIELD_INDEX_M4117_REPLACEMENT],
+  expressionHelperReplacements = [
+    QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+    TYPE_FIELD_INDEX_M4117_REPLACEMENT,
+  ],
   mainSourceReplacements = [
     parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
     parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
@@ -234,7 +240,7 @@ export function loadHistoricalCanonicalizerComposition({
 export function loadPreM4129CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4129_DIGESTS,
-    expressionHelperReplacements: [],
+    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
     mainSourceReplacements: [
       parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
       parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
@@ -252,7 +258,7 @@ export function loadPreM4129CanonicalizerComposition() {
 export function loadPreM4142CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4142_DIGESTS,
-    expressionHelperReplacements: [],
+    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
     mainSourceReplacements: [
       parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
       parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
@@ -266,7 +272,7 @@ export function loadPreM4142CanonicalizerComposition() {
 export function loadPreM4147CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4147_DIGESTS,
-    expressionHelperReplacements: [],
+    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
     mainSourceReplacements: [
       parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
     ],

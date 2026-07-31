@@ -1,15 +1,15 @@
 {
   "composite": {
-    "bytes": 64448,
+    "bytes": 64440,
     "path": "examples/kern-canonicalizer/canonicalizer.composed.kern",
-    "sha256": "836e71de0c456247fdd8e5725d388aeb0f60853083616f82666d2fd2c191d266"
+    "sha256": "d3671c6647993e13cc09e3ebb9ffb18a20009b27761d2d8bb29a2a64d093b8c2"
   },
   "format": "kern.canonicalizer.composition.1",
   "members": [
     {
-      "bytes": 16617,
+      "bytes": 16609,
       "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
-      "sha256": "c32414ee7aa6f29d092dc21de5065f04c4054c54d070dd4d964763047170ee2f"
+      "sha256": "2073ed0c915c0375a43accc202e1c99ceacef84ec1972ef2fc6d25ebcdf7986a"
     },
     {
       "bytes": 20896,

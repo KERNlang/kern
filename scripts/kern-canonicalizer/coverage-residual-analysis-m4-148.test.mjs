@@ -16,11 +16,6 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import {
-  loadCoveragePolicy,
-  measureCanonicalizerCoverage,
-} from './coverage.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
-import {
   loadPublishedCanonicalizerResidualAnalysisM4143,
 } from './coverage-residual-analysis-m4-143.mjs';
 import {
@@ -31,11 +26,11 @@ import { assertM4148ResidualAnalysis } from './coverage-m4-148-central.mjs';
 import {
   assertM4148PublishedInput,
   loadPublishedCanonicalizerResidualAnalysisM4148,
+  measureM4148HistoricalCoverageInputs,
   measureCanonicalizerResidualAnalysisM4148,
   validatePublishedCanonicalizerResidualAnalysisM4148,
 } from './coverage-residual-analysis-m4-148.mjs';
 import { formatM4148ResidualAnalysisStatus } from './coverage-status-m4-148.mjs';
-import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const summaryUrl = new URL('./coverage-residual-analysis-m4-148.json', import.meta.url);
 const PUBLISHED_DIGEST = 'bf5b7c6886f7f114995f59d916f4a87ecc2ea3f7fffc5289448d7ebb32abde2f';
@@ -127,16 +122,18 @@ test('M4.148 authenticates the exact archived M4.147 rolling input', () => {
 });
 
 test('M4.148 rejects drift in every live or archived semantic dependency identity', () => {
-  const policy = loadCoveragePolicy();
-  const canonicalizerPolicy = loadCanonicalizerPolicy();
-  const receipt = measureCanonicalizerCoverage(policy, canonicalizerPolicy);
-  const prerequisite = measureCanonicalizerPrerequisite();
-  const published = loadPublishedM4147CoverageInput();
+  const {
+    canonicalizerPolicy,
+    prerequisite,
+    published,
+    receipt,
+  } = measureM4148HistoricalCoverageInputs();
   for (const key of [
     'canonicalizerDigest',
     'canonicalizerPolicyDigest',
     'compiledCoreDigest',
     'corpusDigest',
+    'coverageImplementationDigest',
     'coveragePolicyDigest',
     'familyRegistryDigest',
     'functionFactsDigest',
@@ -148,6 +145,33 @@ test('M4.148 rejects drift in every live or archived semantic dependency identit
       () => assertM4148PublishedInput(copy, prerequisite, canonicalizerPolicy, published),
       /coverage M4\.148 residual analysis rejection/u,
       key,
+    );
+  }
+
+  const compositionDrift = structuredClone(receipt);
+  compositionDrift.composition.digest = '0'.repeat(64);
+  assert.throws(
+    () => assertM4148PublishedInput(
+      compositionDrift,
+      prerequisite,
+      canonicalizerPolicy,
+      published,
+    ),
+    /coverage M4\.148 residual analysis rejection/u,
+    'composition',
+  );
+
+  for (const key of [
+    'canonicalizerDigest',
+    'coverageImplementationDigest',
+    'coveragePolicyDigest',
+  ]) {
+    const copy = structuredClone(prerequisite);
+    copy.baseline[key] = '0'.repeat(64);
+    assert.throws(
+      () => assertM4148PublishedInput(receipt, copy, canonicalizerPolicy, published),
+      /coverage M4\.148 residual analysis rejection/u,
+      `prerequisite ${key}`,
     );
   }
 

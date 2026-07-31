@@ -19,6 +19,9 @@ import { loadPreM4130CanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS } from './exception-flow-emission-target.mjs';
 import {
+  QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+} from './quotesource-rewrite-m4-150-target.mjs';
+import {
   loadCanonicalizerRuntimeBottleneckM4128,
 } from './runtime-bottleneck-m4-128.mjs';
 import {
@@ -138,7 +141,7 @@ function exactInputs() {
       mainSourceSha256: SOURCE_DIGESTS.mainSourceSha256,
       statementHelpersSha256: SOURCE_DIGESTS.statementHelpersSha256,
     },
-    expressionHelperReplacements: [],
+    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
     milestone: 'M4.129',
     statementHelperReplacements: EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
     statementHelperTargets: [],
@@ -157,6 +160,8 @@ function exactInputs() {
     if (name === 'coveragePolicySha256') {
       const historical = loadPreM4131CoverageInputs(loadCoveragePolicy());
       source = historical.coveragePolicySource;
+    } else if (name === 'expressionHelpersSha256') {
+      source = historicalComposition.expressionHelpers;
     } else if (name === 'mainSourceSha256') {
       source = historicalComposition.mainSource;
     } else if (name === 'statementHelpersSha256') {

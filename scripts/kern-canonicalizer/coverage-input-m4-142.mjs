@@ -105,10 +105,16 @@ export function loadPublishedM4142CoverageInput() {
 export function measureAuthenticatedM4142CoverageInput() {
   const published = loadPublishedM4142CoverageInput();
   const composition = loadPreM4147CanonicalizerComposition();
-  const sourceOverrides = new Map([[
-    'examples/kern-canonicalizer/canonicalizer.kern',
-    composition.mainSource,
-  ]]);
+  const sourceOverrides = new Map([
+    [
+      'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
+      composition.expressionHelpers,
+    ],
+    [
+      'examples/kern-canonicalizer/canonicalizer.kern',
+      composition.mainSource,
+    ],
+  ]);
   const coverage = measureCanonicalizerCoverage(
     published.policy,
     loadPreM4146CanonicalizerPolicy(),

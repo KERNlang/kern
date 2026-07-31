@@ -23,6 +23,10 @@ import {
   NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS,
 } from './new-expression-emission-target.mjs';
 import {
+  QUOTESOURCE_M4150_PATH,
+  reconstructPreM4150CoverageInputs,
+} from './quotesource-rewrite-m4-150-target.mjs';
+import {
   reconstructPreM4142CanonicalizerMemberLayout,
 } from './historical-canonicalizer-member-layout.mjs';
 
@@ -185,9 +189,7 @@ export function reconstructLegacyParameterSource({
 }
 
 function preM4142CoverageInputs(currentPolicy, currentPolicySource) {
-  if (!isDeepStrictEqual(currentPolicy, JSON.parse(currentPolicySource))) {
-    throw new TypeError('pre-M4.142 coverage rejection: caller policy must match repository policy');
-  }
+  const preM4150 = reconstructPreM4150CoverageInputs(currentPolicy, currentPolicySource);
   const historicalLayout = currentPreM4142MemberLayout();
   const historicalSource = reconstructLegacyParameterSource({
     additionalNames: ['expressionsources'],
@@ -196,7 +198,7 @@ function preM4142CoverageInputs(currentPolicy, currentPolicySource) {
     milestone: 'pre-M4.142 canonicalizer source',
     name: 'canonicalize',
   });
-  const policy = structuredClone(currentPolicy);
+  const policy = structuredClone(preM4150.policy);
   const canonicalizer = policy.corpus.find(({ path }) => path === CANONICALIZER_MAIN_PATH);
   const statementHelpers = policy.corpus.find(({ path }) => path === STATEMENT_HELPERS_PATH);
   if (canonicalizer === undefined || statementHelpers === undefined) {
@@ -207,15 +209,15 @@ function preM4142CoverageInputs(currentPolicy, currentPolicySource) {
   canonicalizer.digest = PRE_M4142_CANONICALIZER_DIGEST;
   statementHelpers.digest = PRE_M4142_STATEMENT_HELPERS_DIGEST;
   const canonicalizerDigestOccurrences =
-    currentPolicySource.split(currentCanonicalizerDigest).length - 1;
+    preM4150.policySource.split(currentCanonicalizerDigest).length - 1;
   const statementHelpersDigestOccurrences =
-    currentPolicySource.split(currentStatementHelpersDigest).length - 1;
+    preM4150.policySource.split(currentStatementHelpersDigest).length - 1;
   if (canonicalizerDigestOccurrences !== 1 || statementHelpersDigestOccurrences !== 1) {
     throw new TypeError(
       'pre-M4.142 coverage rejection: canonicalizer member digests must occur exactly once',
     );
   }
-  const policySource = currentPolicySource
+  const policySource = preM4150.policySource
     .replace(currentCanonicalizerDigest, PRE_M4142_CANONICALIZER_DIGEST)
     .replace(currentStatementHelpersDigest, PRE_M4142_STATEMENT_HELPERS_DIGEST);
   if (digest(policySource) !== PRE_M4142_POLICY_DIGEST) {
@@ -225,6 +227,7 @@ function preM4142CoverageInputs(currentPolicy, currentPolicySource) {
     policy,
     policySource,
     sourceOverrides: new Map([
+      [QUOTESOURCE_M4150_PATH, preM4150.expressionHelpers],
       [CANONICALIZER_MAIN_PATH, historicalSource],
       [STATEMENT_HELPERS_PATH, historicalLayout.statementHelpersSource],
     ]),

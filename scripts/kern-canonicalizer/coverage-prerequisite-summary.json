@@ -2,61 +2,39 @@
   "baseline": {
     "baseCompleteFunctions": 111,
     "baseId": "kern.kir-canonicalizer.profile.m4.141",
-    "canonicalizerDigest": "836e71de0c456247fdd8e5725d388aeb0f60853083616f82666d2fd2c191d266",
+    "canonicalizerDigest": "d3671c6647993e13cc09e3ebb9ffb18a20009b27761d2d8bb29a2a64d093b8c2",
     "canonicalizerPolicyDigest": "13d9315aeaf7ffa89ec17ad86b01e39e4a7084657000beb11f8bd0d478b21db7",
     "compiledCoreDigest": "29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2",
-    "corpusDigest": "8308f89b292ed823e8b551e0533c550008ee98ba5f817081ae4c9919421a3b6c",
-    "coverageImplementationDigest": "829d6db2f2631bbb6039e96e4a761709259f27d85ef2163cac0efbbac8d0e7c1",
-    "coveragePolicyDigest": "28b76e1260febf3e518a2a6d97b11f96bf202fcce149fb201b92b5b0a5d98019",
+    "corpusDigest": "f6eefb9f9068cbaed989d3c97f0f8daf2c89b36911d7c3d6a67a1f4e53763633",
+    "coverageImplementationDigest": "47014dfb75b57b33440115ec3b7cb9bf91790ba3a74f0de61b32e25a92dad77d",
+    "coveragePolicyDigest": "45693b57321d2ab074be68657682524c6621f9081a94c32ecbd653534d0cf3bf",
     "familyRegistryDigest": "2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8",
     "functionCount": 112,
-    "functionFactsDigest": "8a75842adba91baaeb54c959bbd2647dab0165817dfa7a2e1d341efc914adc54",
+    "functionFactsDigest": "c52749e445635c3ddfec966dc8c163d276a218c80aa4df289669cc872d06970a",
     "legacyParameterBlockers": 1,
     "profileDigest": "fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b",
     "toolCount": 4
   },
-  "exhaustion": {
-    "activeFamilies": [],
-    "completingClosureCount": 0,
-    "evaluatedNonEmptyClosureCount": 0,
-    "reasonAssignmentsDigest": "e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720",
-    "reasonCounts": [
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u007f"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u0080"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u009f"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u2028"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-u2029"
-      },
-      {
-        "count": 1,
-        "id": "if.properties.cond.expression.text.character-ufeff"
-      }
-    ],
-    "residualFunctionCount": 1,
-    "scope": "current-bounded-profile"
-  },
+  "exhaustion": null,
   "format": "kern.kir-canonicalizer.prerequisite-summary.3",
   "minimumFamilyCount": null,
-  "outcome": "bounded-exhaustion",
+  "outcome": "parameter-ready",
   "parameterMigration": {
-    "completeFunctions": 0,
-    "completeTools": 0,
-    "migratedParameterRows": 0,
-    "witnesses": []
+    "completeFunctions": 1,
+    "completeTools": 1,
+    "migratedParameterRows": 2,
+    "witnesses": [
+      {
+        "id": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource",
+        "parameterRows": 2,
+        "profileRows": {
+          "nodes": 54,
+          "properties": 82,
+          "values": 932
+        },
+        "tool": "canonicalizer"
+      }
+    ]
   },
   "prerequisiteRanking": [],
   "ranking": [],

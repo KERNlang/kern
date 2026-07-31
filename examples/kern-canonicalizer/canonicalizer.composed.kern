@@ -102,7 +102,7 @@ fn name=quotesource params="value:string,validated:boolean" returns=string expor
               if cond="c == \"\\t\""
                 assign target=out value="out + \"\\\\t\""
               else
-                if cond="c < \" \" || c == \"\\u007f\" || (c >= \"\\u0080\" && c <= \"\\u009f\") || c == \"\\u2028\" || c == \"\\u2029\" || c == \"\\ufeff\""
+                if cond="c < \" \" || (c > \"~\" && c < \"\\u00a0\") || (c > \"\\u2027\" && c < \"\\u202a\") || (c > \"\\ufefe\" && c < \"\\uff00\")"
                   return value="\"\""
                 assign target=out value="out + c"
     return value="out + \"\\\"\""
