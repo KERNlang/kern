@@ -3322,6 +3322,27 @@ trusted-publishing/provenance configuration is inspected.
     an extracted-tarball success smoke, the internal KIR containment guard,
     and the complete canonicalizer wall at 732/732 and terminal 112/112.
 
+  - [x] M4.153 KERN-authored frontend tokenizer shadow: adds a handwritten,
+    bounded line scanner for all eleven bootstrap token kinds and the four
+    tokenizer diagnostics. KERN returns a sealed monotone tape of exact source
+    deltas for token starts plus local diagnostic end spans; the test-only
+    adapter validates the tape and independently normalizes bootstrap UTF-16
+    positions and KERN fragments to UTF-8 byte locations. The complete public
+    envelope is measured against a policy-owned JSON byte ceiling before any
+    record is parsed.
+    Deterministic fixtures cover nested expressions, quoted/style escapes,
+    numeric bases and BigInt diagnostics, evolved identifiers, slash paths,
+    and non-BMP text inside aggregate tokens. Standalone non-ASCII unknowns,
+    malformed UTF-16, and malformed bootstrap aggregate-token slices fail
+    closed, while config-owned byte, code-point, token, diagnostic, record,
+    and runtime bounds are enforced atomically.
+    The gate includes 307 fixture/generated/committed-corpus parity cases,
+    six excluded-profile cases, eight
+    boundary cases, policy/source containment checks, and discriminating
+    token-kind/diagnostic mutations. Only
+    `kern-frontend-tokenizer-shadow: internal-oracle` is promoted; the full
+    frontend, compiler, fixed point, and interpreter remain open.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

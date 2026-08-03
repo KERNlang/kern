@@ -22,7 +22,8 @@
     "test:runtime-abi": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-handler-(public|helper-link)' && node --test ./scripts/runtime-handler-public-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
     "check:source-runner-convergence": "node ./scripts/check-source-runner-convergence.mjs",
     "test:source-runner-convergence": "pnpm --filter @kernlang/core test --testPathPatterns='runner-capability-(class-frame|plan)|source-runner-engine|runtime-envelope-effect-machine-(do|each|expression-v1|helper|lambda|non-root|module-ownership|class-)' && node --test ./scripts/source-runner*-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs",
-    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-canonicalizer/composition.mjs && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.composed.kern --with-semantics --quiet && node --test scripts/kern-canonicalizer/*.test.mjs && node scripts/check-kern-canonicalizer.mjs && node scripts/check-kern-canonicalizer-cli.mjs && node scripts/check-kern-canonicalizer-coverage.mjs"
+    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-canonicalizer/composition.mjs && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.composed.kern --with-semantics --quiet && node --test scripts/kern-canonicalizer/*.test.mjs && node scripts/check-kern-canonicalizer.mjs && node scripts/check-kern-canonicalizer-cli.mjs && node scripts/check-kern-canonicalizer-coverage.mjs",
+    "test:kern-frontend-tokenizer": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-tokenizer/*.test.mjs && node scripts/check-kern-frontend-tokenizer.mjs"
   },
   "gates": [
     {
@@ -192,6 +193,12 @@
       "label": "KERN-authored bounded KIR canonicalizer profile",
       "status": "current",
       "argv": ["pnpm", "test:kern-canonicalizer"]
+    },
+    {
+      "id": "kern-frontend-tokenizer-shadow",
+      "label": "KERN-authored bounded frontend tokenizer shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-tokenizer"]
     },
     {
       "id": "kern-frontend",
@@ -440,6 +447,12 @@
       "label": "Bounded KERN-authored KIR canonicalizer profile",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-canonicalizer"
+    },
+    {
+      "id": "kern-frontend-tokenizer-shadow",
+      "label": "Bounded KERN-authored line-tokenizer shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-tokenizer"
     },
     {
       "id": "kern-formatter",

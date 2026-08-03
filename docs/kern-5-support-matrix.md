@@ -49,6 +49,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | current | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Source runner convergence, call-site isolation, and blocker non-growth | current | `pnpm test:source-runner-convergence` |
 | kern-kir-canonicalizer | KERN-authored bounded KIR canonicalizer profile | current | `pnpm test:kern-canonicalizer` |
+| kern-frontend-tokenizer-shadow | KERN-authored bounded frontend tokenizer shadow | current | `pnpm test:kern-frontend-tokenizer` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -102,6 +103,7 @@ wall and must remain absent until promoted.
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | internal-oracle | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Sync/async source-runner convergence and pre-execution selector | internal-oracle | `pnpm test:source-runner-convergence` |
 | kern-kir-canonicalizer-profile | Bounded KERN-authored KIR canonicalizer profile | internal-oracle | `pnpm test:kern-canonicalizer` |
+| kern-frontend-tokenizer-shadow | Bounded KERN-authored line-tokenizer shadow | internal-oracle | `pnpm test:kern-frontend-tokenizer` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -121,6 +123,16 @@ uses the TypeScript bootstrap frontend, is bounded to the admitted structural
 profile, and rejects comment syntax because it cannot preserve trivia. It
 therefore does not promote the `kern-formatter` or `kern-frontend` ownership
 rows.
+
+M4.153 begins frontend ownership with a handwritten KERN line-tokenizer shadow.
+It covers the eleven bootstrap line-token kinds and four tokenizer diagnostics
+over a bounded scalar-safe profile, with KERN-owned boundary deltas and a
+terminal source seal validated and normalized to UTF-8 byte positions by the
+oracle. The whole public envelope is byte-ceiling checked before parsing.
+Standalone non-ASCII unknown tokens and malformed UTF-16 fail closed. This is
+an `internal-oracle` slice;
+multi-line parsing, token-stream parsing, KIR production, and production
+frontend cutover remain absent, so `kern-frontend` stays `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

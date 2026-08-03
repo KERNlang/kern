@@ -1,0 +1,122 @@
+fn name=identstart returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    if cond="c >= \"A\" && c <= \"Z\""
+      return value="true"
+    if cond="c >= \"a\" && c <= \"z\""
+      return value="true"
+    return value="c == \"_\""
+
+fn name=identchar returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    if cond="identstart(c)"
+      return value="true"
+    if cond="c >= \"0\" && c <= \"9\""
+      return value="true"
+    return value="c == \"-\""
+
+fn name=validdigit returns=boolean
+  param name=c type=string
+  param name=radix type=number
+  handler lang="kern"
+    if cond="radix == 2"
+      return value="c == \"0\" || c == \"1\""
+    if cond="radix == 8"
+      return value="c >= \"0\" && c <= \"7\""
+    if cond="radix == 10"
+      return value="c >= \"0\" && c <= \"9\""
+    if cond="c >= \"0\" && c <= \"9\""
+      return value="true"
+    if cond="c >= \"a\" && c <= \"f\""
+      return value="true"
+    return value="c >= \"A\" && c <= \"F\""
+
+fn name=consumedigits returns=number
+  param name=line type=string
+  param name=start type=number
+  param name=radix type=number
+  handler lang="kern"
+    let name=i value="start"
+    let name=started value="false"
+    let name=underscore value="false"
+    let name=n value="Text.length(line)"
+    while cond="i < n"
+      let name=c value="Text.charAt(line, i)"
+      if cond="validdigit(c, radix)"
+        assign target=started value="true"
+        assign target=underscore value="false"
+        assign target=i value="i + 1"
+        continue
+      if cond="c == \"_\" && started && !underscore && i + 1 < n && validdigit(Text.charAt(line, i + 1), radix)"
+        assign target=underscore value="true"
+        assign target=i value="i + 1"
+        continue
+      break
+    return value="i"
+
+fn name=numberend returns=number
+  param name=line type=string
+  param name=start type=number
+  handler lang="kern"
+    let name=n value="Text.length(line)"
+    let name=i value="start"
+    let name=ch value="Text.charAt(line, i)"
+    if cond="ch == \"0\" && i + 1 < n"
+      let name=next value="Text.charAt(line, i + 1)"
+      let name=radix value="0"
+      if cond="next == \"x\" || next == \"X\""
+        assign target=radix value="16"
+      else
+        if cond="next == \"b\" || next == \"B\""
+          assign target=radix value="2"
+        else
+          if cond="next == \"o\" || next == \"O\""
+            assign target=radix value="8"
+      if cond="radix > 0"
+        let name=after value="consumedigits(line, i + 2, radix)"
+        if cond="after == i + 2"
+          return value="-1"
+        assign target=i value="after"
+        if cond="i < n"
+          if cond="Text.charAt(line, i) == \"n\""
+            assign target=i value="i + 1"
+        return value="i"
+    let name=hasint value="validdigit(ch, 10)"
+    let name=j value="i"
+    if cond="hasint"
+      assign target=j value="consumedigits(line, i, 10)"
+    let name=hasfrac value="false"
+    if cond="j < n"
+      if cond="Text.charAt(line, j) == \".\""
+        if cond="j + 1 < n"
+          if cond="validdigit(Text.charAt(line, j + 1), 10)"
+            assign target=j value="consumedigits(line, j + 1, 10)"
+            assign target=hasfrac value="true"
+    if cond="!hasint"
+      if cond="!hasfrac"
+        return value="-1"
+    if cond="j < n"
+      if cond="Text.charAt(line, j) == \"n\""
+        assign target=j value="j + 1"
+    return value="j"
+
+fn name=trimspace returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    if cond="c == \"\\u0009\" || c == \"\\u000a\" || c == \"\\u000b\" || c == \"\\u000c\" || c == \"\\u000d\" || c == \" \""
+      return value="true"
+    if cond="c == \"\\u00a0\" || c == \"\\u1680\" || (c >= \"\\u2000\" && c <= \"\\u200a\")"
+      return value="true"
+    return value="c == \"\\u2028\" || c == \"\\u2029\" || c == \"\\u202f\" || c == \"\\u205f\" || c == \"\\u3000\" || c == \"\\ufeff\""
+
+fn name=trimtoken returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=start value="0"
+    let name=end value="Text.length(value)"
+    while cond="start < end && trimspace(Text.charAt(value, start))"
+      assign target=start value="start + 1"
+    while cond="end > start && trimspace(Text.charAt(value, end - 1))"
+      assign target=end value="end - 1"
+    return value="Text.slice(value, start, end)"

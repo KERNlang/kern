@@ -1,0 +1,36 @@
+{
+  "format": "kern.frontend.tokenizer-shadow.2",
+  "profileLimits": {
+    "maxSourceBytes": 4096,
+    "maxCodePoints": 2048,
+    "maxTokens": 1024,
+    "maxDiagnostics": 64,
+    "maxRecords": 1088,
+    "maxOutputJsonBytes": 262144
+  },
+  "runtimeLimits": {
+    "maxBytes": 1048576,
+    "maxCollectionLength": 8192,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 8,
+    "maxStringBytes": 65536
+  },
+  "corpus": [
+    {
+      "path": "examples/capstone-checker-subset/checker-while.kern",
+      "maxLines": 64
+    },
+    {
+      "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+      "maxLines": 64
+    },
+    {
+      "path": "examples/selfhost-validator/validator.kern",
+      "maxLines": 64
+    }
+  ],
+  "generated": {
+    "maxCases": 96
+  }
+}
