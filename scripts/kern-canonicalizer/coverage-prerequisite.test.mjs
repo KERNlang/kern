@@ -11,30 +11,27 @@ import {
   assertCurrentCanonicalizerFrontier,
 } from './coverage-current.mjs';
 import {
+  buildCanonicalizerPrerequisiteSummary,
   measureCanonicalizerPrerequisite,
   migrateLegacyFunctionForPrerequisite,
   parseLegacyParametersForPrerequisite,
   validateCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
 import { assertCoverageSummary } from './coverage-summary-writer.mjs';
+import { loadCanonicalizerPolicy } from './policy.mjs';
 
 const summaryUrl = new URL('./coverage-prerequisite-summary.json', import.meta.url);
 const EXPECTED_PARAMETER_MIGRATION = {
-  completeFunctions: 1,
-  completeTools: 1,
-  migratedParameterRows: 2,
-  witnesses: [{
-    id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
-    parameterRows: 2,
-    profileRows: { nodes: 54, properties: 82, values: 932 },
-    tool: 'canonicalizer',
-  }],
+  completeFunctions: 0,
+  completeTools: 0,
+  migratedParameterRows: 0,
+  witnesses: [],
 };
 
-test('M4.150 publishes the exact terminal quotesource parameter queue', () => {
+test('M4.151 publishes the exact terminal complete frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
-  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(actual.outcome, 'parameter-ready');
+  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.4');
+  assert.equal(actual.outcome, 'complete');
   assert.equal(actual.minimumFamilyCount, null);
   assert.equal(actual.selectedPrerequisite, null);
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
@@ -43,10 +40,27 @@ test('M4.150 publishes the exact terminal quotesource parameter queue', () => {
   assert.equal(actual.exhaustion, null);
 });
 
-test('format 3 rejects drift in the M4.100 migrated frontier', () => {
+test('format 4 refuses a complete outcome when profile limits leave the base incomplete', () => {
+  const canonicalizerPolicy = loadCanonicalizerPolicy();
+  canonicalizerPolicy.profileLimits = {
+    maxNodeRows: 1,
+    maxPropertyRows: 1,
+    maxValueRows: 1,
+  };
+  assert.throws(
+    () => buildCanonicalizerPrerequisiteSummary(
+      loadCoveragePolicy(),
+      new Map(),
+      canonicalizerPolicy,
+    ),
+    /format 4 complete outcome requires full base coverage/u,
+  );
+});
+
+test('format 4 rejects drift in the terminal complete frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
   const mutations = [
-    (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.2'; },
+    (copy) => { copy.format = 'kern.kir-canonicalizer.prerequisite-summary.3'; },
     (copy) => { copy.future = true; },
     (copy) => { copy.outcome = 'selected'; },
     (copy) => { copy.minimumFamilyCount = 0; },
@@ -72,22 +86,22 @@ test('format 3 rejects drift in the M4.100 migrated frontier', () => {
   }
 });
 
-test('M4.150 publishes the exact current terminal parameter frontier', () => {
+test('M4.151 publishes the exact current complete frontier', () => {
   const actual = measureCanonicalizerPrerequisite();
-  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
+  assert.equal(actual.format, 'kern.kir-canonicalizer.prerequisite-summary.4');
   assert.deepEqual(actual.baseline, {
-    baseCompleteFunctions: 111,
+    baseCompleteFunctions: 112,
     baseId: 'kern.kir-canonicalizer.profile.m4.141',
-    canonicalizerDigest: 'd3671c6647993e13cc09e3ebb9ffb18a20009b27761d2d8bb29a2a64d093b8c2',
+    canonicalizerDigest: 'f5c6a15806a1ffc031a171b234b13c205ce1d43134bf6fe89cc7e5fda1bc7cc4',
     canonicalizerPolicyDigest: '13d9315aeaf7ffa89ec17ad86b01e39e4a7084657000beb11f8bd0d478b21db7',
     compiledCoreDigest: '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
-    corpusDigest: 'f6eefb9f9068cbaed989d3c97f0f8daf2c89b36911d7c3d6a67a1f4e53763633',
+    corpusDigest: '365842b501ba4f4c343f970eb05a93569a9cd62e88c9550a3c0923dee1f663c7',
     coverageImplementationDigest: actual.baseline.coverageImplementationDigest,
-    coveragePolicyDigest: '45693b57321d2ab074be68657682524c6621f9081a94c32ecbd653534d0cf3bf',
+    coveragePolicyDigest: '605f091d7fee18ad4cfd4ab130ae7ae89632d7da75c973d04dd6f9b7d5ab833a',
     familyRegistryDigest: '2be9640b87d863298e5fa93704d526d8b09f58a5c4eed78a46cb8213cca56df8',
     functionCount: 112,
-    functionFactsDigest: 'c52749e445635c3ddfec966dc8c163d276a218c80aa4df289669cc872d06970a',
-    legacyParameterBlockers: 1,
+    functionFactsDigest: '9a2846e534915b225c6e094a032a3ec464f6b8f2afe30c5f93b12a29d983d6dd',
+    legacyParameterBlockers: 0,
     profileDigest: 'fe14493f42136a4c6d5593b0ec6eb8c5c96c89076264cbdb961e8c2e03acb44b',
     toolCount: 4,
   });
@@ -97,10 +111,7 @@ test('M4.150 publishes the exact current terminal parameter frontier', () => {
   assert.deepEqual(actual.parameterMigration, EXPECTED_PARAMETER_MIGRATION);
   assert.equal(actual.selectedPrerequisite, null);
   assert.equal(actual.exhaustion, null);
-  const readyIds = new Set(actual.parameterMigration.witnesses.map(({ id }) => id));
-  assert.deepEqual([...readyIds], [
-    'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
-  ]);
+  assert.deepEqual(actual.parameterMigration.witnesses, []);
   const checkedIn = JSON.parse(readFileSync(summaryUrl, 'utf8'));
   assert.deepEqual(actual, checkedIn);
   assertCoverageSummary(summaryUrl, actual);
@@ -117,7 +128,7 @@ test('current frontier rejects forged baseline identity and terminal queue evide
     (copy) => { copy.outcome = 'bounded-exhaustion'; },
     (copy) => { copy.exhaustion = {}; },
     (copy) => { copy.parameterMigration.migratedParameterRows = 1; },
-    (copy) => { copy.parameterMigration.witnesses = []; },
+    (copy) => { copy.parameterMigration.witnesses.push({ id: 'future' }); },
     (copy) => { copy.selectedPrerequisite = {}; },
     (copy) => { Object.setPrototypeOf(copy, { inherited: true }); },
     (copy) => { Object.setPrototypeOf(copy.baseline, { inherited: true }); },

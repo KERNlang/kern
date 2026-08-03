@@ -9,8 +9,8 @@ import {
   m4146ActiveRuntimeByteLimits,
 } from './coverage-m4-146-combined-promotion.mjs';
 import {
-  assertM4147ParameterMigration,
-} from './coverage-m4-147-parameter-migration.mjs';
+  assertM4151QuotesourceParameterMigration,
+} from './coverage-m4-151-parameter-migration.mjs';
 import {
   assertExactPlainData,
 } from './coverage-prerequisite-shape.mjs';
@@ -112,25 +112,20 @@ export function assertCurrentCanonicalizerFrontier(
     profileDigest: coverage.profileDigest,
     toolCount: new Set(coverage.corpus.map(({ tool }) => tool)).size,
   });
-  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
+  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.4');
   assert.deepEqual(prerequisite.parameterMigration, {
-    completeFunctions: 1,
-    completeTools: 1,
-    migratedParameterRows: 2,
-    witnesses: [{
-      id: 'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern#5:quotesource',
-      parameterRows: 2,
-      profileRows: { nodes: 54, properties: 82, values: 932 },
-      tool: 'canonicalizer',
-    }],
+    completeFunctions: 0,
+    completeTools: 0,
+    migratedParameterRows: 0,
+    witnesses: [],
   });
-  assert.equal(prerequisite.outcome, 'parameter-ready');
+  assert.equal(prerequisite.outcome, 'complete');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(prerequisite.selectedPrerequisite, null);
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.equal(prerequisite.exhaustion, null);
   assertM4131ParameterMigration(coverage);
-  const status = assertM4147ParameterMigration(coverage);
+  const status = assertM4151QuotesourceParameterMigration(coverage, prerequisite);
   return status;
 }

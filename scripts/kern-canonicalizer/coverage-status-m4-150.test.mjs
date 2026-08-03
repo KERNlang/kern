@@ -2,13 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  loadCoveragePolicy,
-  measureCanonicalizerCoverage,
-} from './coverage.mjs';
-import {
   assertM4150QuotesourceImplementation,
 } from './coverage-m4-150-central.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import { measureM4150FrontierForM4151 } from './coverage-m4-151-input.mjs';
 import { formatM4150QuotesourceRewriteStatus } from './coverage-status-m4-150.mjs';
 import { assertM4150QuotesourceRewrite } from './quotesource-rewrite-m4-150.mjs';
 
@@ -18,9 +14,10 @@ const STATUS =
   'exposes the exact 1-function/2-row parameter queue; M4.151 consumes it.';
 
 function current() {
+  const { coverage, prerequisite } = measureM4150FrontierForM4151();
   return {
-    coverage: measureCanonicalizerCoverage(loadCoveragePolicy()),
-    prerequisite: measureCanonicalizerPrerequisite(),
+    coverage,
+    prerequisite,
     rewrite: assertM4150QuotesourceRewrite(),
   };
 }

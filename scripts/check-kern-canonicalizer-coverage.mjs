@@ -9,6 +9,7 @@ import { assertM4134RemediationAnalysis } from './kern-canonicalizer/coverage-m4
 import { assertM4143ResidualAnalysis } from './kern-canonicalizer/coverage-m4-143-central.mjs';
 import { assertM4148ResidualAnalysis } from './kern-canonicalizer/coverage-m4-148-central.mjs';
 import { assertM4150QuotesourceImplementation } from './kern-canonicalizer/coverage-m4-150-central.mjs';
+import { measureM4150FrontierForM4151 } from './kern-canonicalizer/coverage-m4-151-input.mjs';
 import { assertM4144ProjectionAnalysis } from './kern-canonicalizer/coverage-m4-144-central.mjs';
 import { assertM4145CombinedHeadroom } from './kern-canonicalizer/coverage-m4-145-central.mjs';
 import {
@@ -18,6 +19,8 @@ import {
 import {
   assertCurrentCanonicalizerFrontier,
 } from './kern-canonicalizer/coverage-current.mjs';
+import { assertM4147ParameterMigration } from './kern-canonicalizer/coverage-m4-147-parameter-migration.mjs';
+import { measureM4148HistoricalCoverageInputs } from './kern-canonicalizer/coverage-residual-analysis-m4-148.mjs';
 import {
   assertPublishedM4141ExceptionFlowPromotion,
 } from './kern-canonicalizer/coverage-m4-141-central.mjs';
@@ -464,9 +467,16 @@ const m4143CoverageStatusLine = assertM4143ResidualAnalysis();
 const m4144CoverageStatusLine = assertM4144ProjectionAnalysis();
 const m4145CoverageStatusLine = assertM4145CombinedHeadroom();
 const m4146CoverageStatusLine = m4146CoverageStatus(policy);
-const m4147CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
+const m4147CoverageStatusLine = assertM4147ParameterMigration(
+  measureM4148HistoricalCoverageInputs().receipt,
+);
 const m4148CoverageStatusLine = assertM4148ResidualAnalysis();
-const m4149M4150CoverageStatusLine = assertM4150QuotesourceImplementation(coverage, prerequisite);
+const m4150Frontier = measureM4150FrontierForM4151();
+const m4149M4150CoverageStatusLine = assertM4150QuotesourceImplementation(
+  m4150Frontier.coverage,
+  m4150Frontier.prerequisite,
+);
+const m4151CoverageStatusLine = assertCurrentCanonicalizerFrontier(coverage, prerequisite);
 assert.deepEqual(
   policy.profileLimits,
   m4146ActiveProfile(),
@@ -639,8 +649,8 @@ if (!process.argv.includes('--write')) {
   assert.equal(actual.selection.winner, null, 'live M4.141 ordinary selection must be exhausted');
   assert.deepEqual(actual.selection.ranking, [], 'live M4.141 active family ranking must be empty');
   assertCoverageSummary(summaryUrl, actual);
-  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.3');
-  assert.equal(prerequisite.outcome, 'parameter-ready');
+  assert.equal(prerequisite.format, 'kern.kir-canonicalizer.prerequisite-summary.4');
+  assert.equal(prerequisite.outcome, 'complete');
   assert.equal(prerequisite.minimumFamilyCount, null);
   assert.equal(
     m481PrerequisiteHandoff.digest,
@@ -665,8 +675,8 @@ if (!process.argv.includes('--write')) {
   assert.deepEqual(prerequisite.prerequisiteRanking, []);
   assert.deepEqual(prerequisite.ranking, []);
   assert.equal(prerequisite.exhaustion, null);
-  assert.equal(prerequisite.parameterMigration.completeFunctions, 1);
-  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 2);
+  assert.equal(prerequisite.parameterMigration.completeFunctions, 0);
+  assert.equal(prerequisite.parameterMigration.migratedParameterRows, 0);
   assert.equal(m468PrerequisiteHandoff.digest,
     '0038f2a831533a8c6494a56a83cc4af96a50a2416d62de772707624cf634412c');
   assert.equal(m468PrerequisiteHandoff.sourceCommit,
@@ -1854,8 +1864,10 @@ process.stdout.write(
   `${leadingBlocker ? `${leadingBlocker.count} blocked by ${leadingBlocker.id}` : 'no profile blockers'}; ` +
   `${formatCoverageWinnerStatus(actual.selection.winner)}; ` +
   `${prerequisite.parameterMigration.completeFunctions} functions/${prerequisite.parameterMigration.migratedParameterRows} rows ` +
-  `parameter-ready; ` +
-  (prerequisite.parameterMigration.completeFunctions > 0
+  `in parameter queue; ` +
+  (prerequisite.outcome === 'complete'
+    ? 'terminal complete frontier.'
+    : prerequisite.parameterMigration.completeFunctions > 0
     ? 'next action parameter migration.'
     : prerequisite.selectedPrerequisite === null
       ? 'bounded active-family exhaustion.'
@@ -1959,6 +1971,7 @@ process.stdout.write(
   ` ${m4147CoverageStatusLine}` +
   ` ${m4148CoverageStatusLine}` +
   ` ${m4149M4150CoverageStatusLine}` +
+  ` ${m4151CoverageStatusLine}` +
   ` ${formatM443ResidualAnalysisStatus(m443ResidualAnalysis.selectedNextAction)}` +
   ` ${formatM442ResidualAnalysisStatus(m442ResidualAnalysis.selectedNextAction)}` +
   ` ${formatPublishedResidualAnalysisStatus(m438ResidualAnalysis.selectedNextAction)}` +

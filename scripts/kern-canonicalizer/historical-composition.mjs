@@ -23,6 +23,9 @@ import { EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS } from './exception-flow-em
 import {
   QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
 } from './quotesource-rewrite-m4-150-target.mjs';
+import {
+  QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
+} from './quotesource-parameter-m4-151-target.mjs';
 import { TYPE_FIELD_INDEX_M4117_REPLACEMENT } from './type-field-index-target.mjs';
 import { NEW_EXPRESSION_EMISSION_M4135_REPLACEMENTS } from './new-expression-emission-target.mjs';
 import { VALIDSTATEMENT_DIRECT_TARGET } from './validstatement-target.mjs';
@@ -93,6 +96,18 @@ const PRE_M4147_DIGESTS = Object.freeze({
   statementHelpersSha256:
     'bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a',
 });
+const PRE_M4151_DIGESTS = Object.freeze({
+  canonicalizerCompositeSha256:
+    'd3671c6647993e13cc09e3ebb9ffb18a20009b27761d2d8bb29a2a64d093b8c2',
+  compositionRecordSha256:
+    '89f0b37cd9ca2e40bfe4fd3998816990720ff6306001c1f93289e3b80bb977a0',
+  expressionHelpersSha256:
+    '2073ed0c915c0375a43accc202e1c99ceacef84ec1972ef2fc6d25ebcdf7986a',
+  mainSourceSha256:
+    '59469585c235eec61ea9b695cae3ce2ec94677eb0fdef6a88f41801d8191a0da',
+  statementHelpersSha256:
+    'bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a',
+});
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -137,6 +152,7 @@ export function loadHistoricalCanonicalizerComposition({
     EMITSTATEMENT_M4113_TARGET,
   ],
   expressionHelperReplacements = [
+    QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
     QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
     TYPE_FIELD_INDEX_M4117_REPLACEMENT,
   ],
@@ -240,7 +256,10 @@ export function loadHistoricalCanonicalizerComposition({
 export function loadPreM4129CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4129_DIGESTS,
-    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
+    expressionHelperReplacements: [
+      QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
+      QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+    ],
     mainSourceReplacements: [
       parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
       parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
@@ -258,7 +277,10 @@ export function loadPreM4129CanonicalizerComposition() {
 export function loadPreM4142CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4142_DIGESTS,
-    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
+    expressionHelperReplacements: [
+      QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
+      QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+    ],
     mainSourceReplacements: [
       parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
       parameterSignatureReplacement(CANONICALIZE_PARAMETER_TARGET_M4142),
@@ -272,11 +294,26 @@ export function loadPreM4142CanonicalizerComposition() {
 export function loadPreM4147CanonicalizerComposition() {
   return loadHistoricalCanonicalizerComposition({
     expectedDigests: PRE_M4147_DIGESTS,
-    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
+    expressionHelperReplacements: [
+      QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
+      QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+    ],
     mainSourceReplacements: [
       parameterSignatureReplacement(EXPRESSIONSOURCES_PARAMETER_TARGET_M4147),
     ],
     milestone: 'pre-M4.147',
+    reconstructMemberLayout: false,
+    statementHelperReplacements: [],
+    statementHelperTargets: [],
+  });
+}
+
+export function loadPreM4151CanonicalizerComposition() {
+  return loadHistoricalCanonicalizerComposition({
+    expectedDigests: PRE_M4151_DIGESTS,
+    expressionHelperReplacements: [QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT],
+    mainSourceReplacements: [],
+    milestone: 'pre-M4.151',
     reconstructMemberLayout: false,
     statementHelperReplacements: [],
     statementHelperTargets: [],

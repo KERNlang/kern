@@ -6,7 +6,7 @@ import {
   M4149_CANDIDATE_PREDICATE,
   M4149_CURRENT_PREDICATE,
 } from './canonical-surface-analysis-m4-149.mjs';
-import { measureCanonicalizerPrerequisite } from './coverage-prerequisite.mjs';
+import { assertM4150QuotesourceRewrite } from './quotesource-rewrite-m4-150.mjs';
 
 const SOURCE_URL = new URL(
   '../../examples/kern-canonicalizer/canonicalizer-expression-helpers.kern',
@@ -26,14 +26,8 @@ test('M4.150 applies only the exact M4.149 quotesource predicate rewrite', () =>
 });
 
 test('M4.150 exposes the last function as an exact terminal parameter queue', () => {
-  const prerequisite = measureCanonicalizerPrerequisite();
-  assert.equal(prerequisite.outcome, 'parameter-ready');
-  assert.equal(prerequisite.exhaustion, null);
-  assert.equal(prerequisite.minimumFamilyCount, null);
-  assert.equal(prerequisite.selectedPrerequisite, null);
-  assert.deepEqual(prerequisite.prerequisiteRanking, []);
-  assert.deepEqual(prerequisite.ranking, []);
-  assert.deepEqual(prerequisite.parameterMigration, {
+  const handoff = assertM4150QuotesourceRewrite();
+  assert.deepEqual(handoff.parameterMigration, {
     completeFunctions: 1,
     completeTools: 1,
     migratedParameterRows: 2,
@@ -43,5 +37,10 @@ test('M4.150 exposes the last function as an exact terminal parameter queue', ()
       profileRows: { nodes: 54, properties: 82, values: 932 },
       tool: 'canonicalizer',
     }],
+  });
+  assert.deepEqual(handoff.selectedNextAction, {
+    action: 'consume-exact-parameter-queue',
+    milestone: 'M4.151',
+    witness: QUOTESOURCE_ID,
   });
 });

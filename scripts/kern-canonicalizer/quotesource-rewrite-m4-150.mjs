@@ -1,13 +1,10 @@
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import {
   loadPublishedCanonicalizerSurfaceAnalysisM4149,
   M4149_CANDIDATE_PREDICATE,
   M4149_CURRENT_PREDICATE,
 } from './canonical-surface-analysis-m4-149.mjs';
-import { verifyCanonicalizerComposition } from './composition.mjs';
+import { loadPreM4151CanonicalizerComposition } from './historical-composition.mjs';
 import {
   M4150_CANDIDATE_PREDICATE,
   M4150_CURRENT_PREDICATE,
@@ -29,10 +26,6 @@ const QUOTESOURCE_ID = `${QUOTESOURCE_M4150_PATH}#5:quotesource`;
 
 function fail(message) {
   throw new TypeError(`coverage M4.150 quotesource rewrite rejection: ${message}`);
-}
-
-function digest(value) {
-  return createHash('sha256').update(value).digest('hex');
 }
 
 function predicateMatches(root, predicate) {
@@ -80,14 +73,13 @@ export function assertM4150QuotesourceRewrite() {
   ) {
     fail('quotesource must contain only the exact M4.149 candidate predicate');
   }
-  const composition = verifyCanonicalizerComposition();
+  const composition = loadPreM4151CanonicalizerComposition();
   const expressionMember = composition.record.members[0];
   if (
     expressionMember.path !== QUOTESOURCE_M4150_PATH ||
     expressionMember.sha256 !== M4150_EXPRESSION_HELPERS_DIGEST ||
-    composition.record.composite.sha256 !== COMPOSITE_DIGEST ||
-    digest(readFileSync(new URL('./composition.json', import.meta.url))) !==
-      COMPOSITION_RECORD_DIGEST
+    composition.digests.canonicalizerCompositeSha256 !== COMPOSITE_DIGEST ||
+    composition.digests.compositionRecordSha256 !== COMPOSITION_RECORD_DIGEST
   ) {
     fail('canonicalizer composition must authenticate the exact M4.150 source');
   }

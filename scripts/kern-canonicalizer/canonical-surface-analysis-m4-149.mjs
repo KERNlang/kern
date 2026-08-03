@@ -255,7 +255,7 @@ function exactSourceRoot() {
   if (stat === undefined || !stat.isFile() || realpathSync(path) !== path) {
     fail('quotesource owner must be a regular non-symlink file');
   }
-  const source = reconstructPreM4150ExpressionHelpers(readFileSync(path));
+  const source = reconstructPreM4150ExpressionHelpers();
   const parsed = parseDocumentWithDiagnostics(source.toString('utf8'));
   if (parsed.diagnostics.some(({ severity }) => severity === 'error')) {
     fail('quotesource owner must remain parse-clean');

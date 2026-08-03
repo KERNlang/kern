@@ -6,6 +6,7 @@ import {
   loadHistoricalCanonicalizerComposition,
   loadPreM4142CanonicalizerComposition,
   loadPreM4147CanonicalizerComposition,
+  loadPreM4151CanonicalizerComposition,
 } from './historical-composition.mjs';
 
 const EXPECTED_DIGESTS = {
@@ -86,6 +87,30 @@ test('pre-M4.147 composition reverses only the expressionsources signature', () 
   assert.doesNotMatch(
     historical.mainSource.toString('utf8'),
     /fn name=expressionsources returns="string\[\]" export=true\n  param /u,
+  );
+});
+
+test('pre-M4.151 composition reverses only the quotesource parameter signature', () => {
+  const historical = loadPreM4151CanonicalizerComposition();
+  assert.deepEqual(historical.digests, {
+    canonicalizerCompositeSha256:
+      'd3671c6647993e13cc09e3ebb9ffb18a20009b27761d2d8bb29a2a64d093b8c2',
+    compositionRecordSha256:
+      '89f0b37cd9ca2e40bfe4fd3998816990720ff6306001c1f93289e3b80bb977a0',
+    expressionHelpersSha256:
+      '2073ed0c915c0375a43accc202e1c99ceacef84ec1972ef2fc6d25ebcdf7986a',
+    mainSourceSha256:
+      '59469585c235eec61ea9b695cae3ce2ec94677eb0fdef6a88f41801d8191a0da',
+    statementHelpersSha256:
+      'bf8d34b94cb5871b6f63bca8a982fd0a592f81cd513290ad7bd2cbaef459e05a',
+  });
+  assert.match(
+    historical.expressionHelpers.toString('utf8'),
+    /fn name=quotesource params="value:string,validated:boolean" returns=string export=true/u,
+  );
+  assert.doesNotMatch(
+    historical.expressionHelpers.toString('utf8'),
+    /fn name=quotesource returns=string export=true\n  param /u,
   );
 });
 

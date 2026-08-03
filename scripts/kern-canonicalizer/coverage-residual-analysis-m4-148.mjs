@@ -24,10 +24,10 @@ import { loadPublishedM4147CoverageInput } from './coverage-input-m4-147.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
 import {
-  M4150_COVERAGE_POLICY_DIGEST,
   QUOTESOURCE_M4150_PATH,
   reconstructPreM4150ExpressionHelpers,
 } from './quotesource-rewrite-m4-150-target.mjs';
+import { M4151_COVERAGE_POLICY_DIGEST } from './quotesource-parameter-m4-151-target.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.residual-analysis.3';
 const PUBLISHED_DIGEST = 'bf5b7c6886f7f114995f59d916f4a87ecc2ea3f7fffc5289448d7ebb32abde2f';
@@ -192,7 +192,7 @@ export function assertM4148PublishedInput(
     receipt.canonicalizerDigest !== liveCanonicalizerDigest ||
     !isDeepStrictEqual(receipt.composition, liveEvidence.composition) ||
     receipt.coverageImplementationDigest !== liveDependencies.coverageImplementationDigest ||
-    receipt.coveragePolicyDigest !== M4150_COVERAGE_POLICY_DIGEST ||
+    receipt.coveragePolicyDigest !== M4151_COVERAGE_POLICY_DIGEST ||
     prerequisite.baseline.canonicalizerDigest !== receipt.canonicalizerDigest ||
     prerequisite.baseline.coverageImplementationDigest !==
       receipt.coverageImplementationDigest ||
@@ -292,6 +292,7 @@ export function measureM4148HistoricalCoverageInputs() {
     policy,
     sourceOverrides,
     canonicalizerPolicy,
+    'kern.kir-canonicalizer.prerequisite-summary.3',
   );
   return {
     canonicalizerPolicy,

@@ -22,6 +22,9 @@ import {
   QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
 } from './quotesource-rewrite-m4-150-target.mjs';
 import {
+  QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
+} from './quotesource-parameter-m4-151-target.mjs';
+import {
   loadCanonicalizerRuntimeBottleneckM4128,
 } from './runtime-bottleneck-m4-128.mjs';
 import {
@@ -141,7 +144,10 @@ function exactInputs() {
       mainSourceSha256: SOURCE_DIGESTS.mainSourceSha256,
       statementHelpersSha256: SOURCE_DIGESTS.statementHelpersSha256,
     },
-    expressionHelperReplacements: [QUOTESOURCE_M4150_SOURCE_REPLACEMENT],
+    expressionHelperReplacements: [
+      QUOTESOURCE_PARAMETER_M4151_SOURCE_REPLACEMENT,
+      QUOTESOURCE_M4150_SOURCE_REPLACEMENT,
+    ],
     milestone: 'M4.129',
     statementHelperReplacements: EXCEPTION_FLOW_M4139_STATEMENT_REPLACEMENTS,
     statementHelperTargets: [],

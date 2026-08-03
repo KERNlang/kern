@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
+import { measureM4150FrontierForM4151 } from './coverage-m4-151-input.mjs';
 import {
   assertM4124ParameterMigration,
   assertM4124ParameterTarget,
@@ -15,7 +15,7 @@ import { parameterMigrationRoots } from './coverage-value-band-parameter-migrati
 function targetFixture() {
   const target = M4124_PARAMETER_MIGRATION_TARGET;
   const root = parameterMigrationRoots([target]).get(target.path)?.[target.functionOrdinal];
-  const fact = measureCanonicalizerCoverage().functions.find(({ id }) => id === target.id);
+  const fact = measureM4150FrontierForM4151().coverage.functions.find(({ id }) => id === target.id);
   return { fact, root, target };
 }
 
@@ -40,7 +40,7 @@ test('M4.124 consumes the exact immutable M4.123 rejectLine queue', () => {
 });
 
 test('M4.124 migrates only rejectLine to five direct parameters', () => {
-  const coverage = measureCanonicalizerCoverage();
+  const coverage = measureM4150FrontierForM4151().coverage;
   assertM4124ParameterMigration(coverage);
   assert.equal(coverage.baseCompleteFunctions, 111);
   assert.equal(coverage.functions.filter(({ excludedProperties }) =>

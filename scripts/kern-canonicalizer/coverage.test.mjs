@@ -189,7 +189,7 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assert.equal(new Set(first.corpus.map(({ tool }) => tool)).size, 4);
   assert.deepEqual(new Set(first.corpus.map(({ sourceKind }) => sourceKind)), new Set(['handwritten']));
   assert.ok(first.functions.length > 0);
-  assert.ok(first.functions.some(({ firstUnsupported }) => firstUnsupported !== null));
+  assert.ok(first.functions.every(({ firstUnsupported }) => firstUnsupported === null));
   const diagFunctions = first.functions.filter(({ id }) => id.startsWith('examples/capstone-assertion-engine/diag.kern#'));
   assert.deepEqual(diagFunctions.map(({ id }) => id), [
     'examples/capstone-assertion-engine/diag.kern#0:pathAppendKey',
@@ -221,8 +221,8 @@ test('the handwritten corpus produces one deterministic catalog-bound selection 
   assertM482ParameterMigration(first);
   assertM491ParameterMigrations(first);
   assertM4131ParameterMigration(first);
-  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 1);
-  assert.equal(first.baseCompleteFunctions, 111);
+  assert.equal(first.functions.filter(({ excludedProperties }) => excludedProperties.includes('fn.params')).length, 0);
+  assert.equal(first.baseCompleteFunctions, 112);
   assert.equal(first.selection.winner, null);
   assert.deepEqual(first.selection.ranking, []);
   const checkedIn = JSON.parse(readFileSync(new URL('./coverage-summary.json', import.meta.url), 'utf8'));

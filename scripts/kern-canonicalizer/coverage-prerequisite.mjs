@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
-
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import { isPortableBindingName } from '../../packages/core/dist/ir/semantics/portable-scalar-domain.js';
-
 import {
   loadCoveragePolicy,
   measureCanonicalizerCoverage,
@@ -26,19 +24,12 @@ import {
   loadCanonicalizerPolicy,
   validateCanonicalizerPolicy,
 } from './policy.mjs';
-
-const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.3';
-function fail(message) {
-  throw new TypeError(`coverage prerequisite rejection: ${message}`);
-}
-
-function compareText(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
+const FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.4';
+const ARCHIVED_FORMAT = 'kern.kir-canonicalizer.prerequisite-summary.3';
+function fail(message) { throw new TypeError(`coverage prerequisite rejection: ${message}`); }
+function compareText(left, right) { return left < right ? -1 : left > right ? 1 : 0; }
 export const parseLegacyParametersForPrerequisite = parseLegacyParameters;
 export { migrateLegacyFunctionForPrerequisite };
-
 export function sourceFunctionRoots(policy, sourceOverrides = new Map()) {
   const roots = new Map();
   for (const member of policy.corpus) {
@@ -62,7 +53,6 @@ export function sourceFunctionRoots(policy, sourceOverrides = new Map()) {
   }
   return roots;
 }
-
 function projectionCode(error) {
   return typeof error?.code === 'string' && error.code.length > 0 ? error.code : 'projection-error';
 }
@@ -298,6 +288,16 @@ function exactBaseline(value, policy) {
     value.toolCount <= new Set(policy.corpus.map(({ tool }) => tool)).size;
 }
 
+function exactCompleteSummary(summary) {
+  return summary.minimumFamilyCount === null && summary.selectedPrerequisite === null &&
+    summary.prerequisiteRanking.length === 0 && summary.ranking.length === 0 &&
+    summary.exhaustion === null && summary.baseline.legacyParameterBlockers === 0 &&
+    summary.baseline.baseCompleteFunctions === summary.baseline.functionCount &&
+    summary.parameterMigration.completeFunctions === 0 &&
+    summary.parameterMigration.completeTools === 0 &&
+    summary.parameterMigration.migratedParameterRows === 0 &&
+    summary.parameterMigration.witnesses.length === 0;
+}
 function exactPrerequisiteRow(value) {
   return exactKeys(value, ['catalogFacts', 'family', 'occurrences']) &&
     Number.isSafeInteger(value.catalogFacts) && value.catalogFacts > 0 &&
@@ -328,14 +328,16 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
     'baseline', 'exhaustion', 'format', 'minimumFamilyCount', 'outcome', 'parameterMigration',
     'prerequisiteRanking', 'ranking', 'selectedPrerequisite',
   ];
-  if (!exactKeys(summary, keys) || summary.format !== FORMAT) fail('invalid format-3 summary shape');
+  if (!exactKeys(summary, keys) || ![FORMAT, ARCHIVED_FORMAT].includes(summary.format)) {
+    fail('invalid prerequisite summary shape');
+  }
   if (
     !isExactPlainArray(summary.prerequisiteRanking) || !isExactPlainArray(summary.ranking) ||
     !exactBaseline(summary.baseline, policy) || !exactMigration(summary.parameterMigration, policy) ||
     summary.parameterMigration.completeFunctions > summary.baseline.legacyParameterBlockers ||
     summary.parameterMigration.completeTools > summary.baseline.toolCount
   ) {
-    fail('format-3 rankings must be arrays');
+    fail('format-4 rankings must be arrays');
   }
   if (summary.outcome === 'selected') {
     const migratedIds = new Set(summary.parameterMigration.witnesses.map(({ id }) => id));
@@ -353,8 +355,11 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
       JSON.stringify(summary.prerequisiteRanking.map(({ family }) => family).sort(compareText)) !==
         JSON.stringify(summary.ranking[0].families)
     ) {
-      fail('selected format-3 summary must contain a positive winning closure');
+      fail('selected format-4 summary must contain a positive winning closure');
     }
+  } else if (summary.outcome === 'complete') {
+    if (summary.format !== FORMAT || !exactCompleteSummary(summary))
+      fail('complete format-4 summary must authenticate full closure');
   } else if (summary.outcome === 'parameter-ready') {
     if (
       summary.minimumFamilyCount !== null || summary.selectedPrerequisite !== null ||
@@ -363,7 +368,7 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
       summary.parameterMigration.completeFunctions === 0 ||
       summary.parameterMigration.completeFunctions !== summary.baseline.legacyParameterBlockers
     ) {
-      fail('parameter-ready format-3 summary must contain the exact terminal migration queue');
+      fail('parameter-ready format-4 summary must contain the exact terminal migration queue');
     }
   } else {
     if (
@@ -371,7 +376,7 @@ export function validateCanonicalizerPrerequisiteSummaryAgainst(summary, policy,
       summary.selectedPrerequisite !== null || summary.prerequisiteRanking.length !== 0 ||
       summary.ranking.length !== 0
     ) {
-      fail('bounded-exhaustion format-3 summary must have a null selection and empty rankings');
+      fail('bounded-exhaustion format-4 summary must have a null selection and empty rankings');
     }
     const exhaustionKeys = [
       'activeFamilies', 'completingClosureCount', 'evaluatedNonEmptyClosureCount',
@@ -408,6 +413,7 @@ export function buildCanonicalizerPrerequisiteSummary(
   policy,
   sourceOverrides = new Map(),
   canonicalizerPolicyInput,
+  outputFormat = FORMAT,
 ) {
   const canonicalizerPolicy = canonicalizerPolicyInput === undefined
     ? loadCanonicalizerPolicy()
@@ -428,7 +434,17 @@ export function buildCanonicalizerPrerequisiteSummary(
     canonicalizerPolicy.profileLimits,
   );
   const parameterMigration = parameterMigrationRow(parameterReady);
-  const selection = residual.length === 0
+  const fullyComplete = receipt.baseCompleteFunctions === receipt.functions.length;
+  if (outputFormat === FORMAT && migrated.length === 0 && !fullyComplete)
+    fail('format 4 complete outcome requires full base coverage');
+  const selection = outputFormat === FORMAT && migrated.length === 0 && fullyComplete
+    ? {
+        evaluatedNonEmptyClosureCount: 0,
+        minimumFamilyCount: null,
+        outcome: 'complete',
+        ranking: [],
+      }
+    : residual.length === 0
     ? {
         evaluatedNonEmptyClosureCount: 0,
         minimumFamilyCount: null,
@@ -459,7 +475,7 @@ export function buildCanonicalizerPrerequisiteSummary(
     exhaustion: selection.outcome === 'bounded-exhaustion'
       ? boundedExhaustion(policy, residual, selection.evaluatedNonEmptyClosureCount)
       : null,
-    format: FORMAT,
+    format: outputFormat,
     minimumFamilyCount: selection.minimumFamilyCount,
     outcome: selection.outcome,
     parameterMigration,

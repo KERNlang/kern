@@ -54,7 +54,9 @@ fn name=validinteger returns=boolean export=true
           return value="false"
     return value="value != \"-0\""
 
-fn name=quotesource params="value:string,validated:boolean" returns=string export=true
+fn name=quotesource returns=string export=true
+  param name=value type=string
+  param name=validated type=boolean
   handler lang="kern"
     if cond="validated && Text.indexOf(value, \"\\\\\\\\\") < 0"
       let name=fastOut value="\"\\\"\""

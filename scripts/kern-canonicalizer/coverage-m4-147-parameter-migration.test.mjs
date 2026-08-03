@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { measureCanonicalizerCoverage } from './coverage.mjs';
 import {
   assertM4147ParameterMigration,
   assertM4147ParameterTarget,
@@ -11,10 +10,13 @@ import { parameterMigrationRoots } from './coverage-value-band-parameter-migrati
 import {
   EXPRESSIONSOURCES_PARAMETER_TARGET_M4147,
 } from './expressionsources-parameter-target.mjs';
+import {
+  measureM4148HistoricalCoverageInputs,
+} from './coverage-residual-analysis-m4-148.mjs';
 
 test('M4.147 migrates only expressionsources to the exact direct parameter sequence', () => {
   assert.equal(
-    assertM4147ParameterMigration(measureCanonicalizerCoverage()),
+    assertM4147ParameterMigration(measureM4148HistoricalCoverageInputs().receipt),
     'M4.147 consumes the exact M4.146 1-function/6-row expressionsources queue and ' +
       'advances the cumulative base to 111/112 with 1 legacy-parameter blocker and an ' +
       'empty parameter queue; M4.148 remeasures the bounded quotesource residual frontier.',
@@ -41,7 +43,7 @@ test('M4.147 target evidence is recursively immutable', () => {
 test('M4.147 target guard rejects signature, body, identity, fact, and profile drift', () => {
   const target = EXPRESSIONSOURCES_PARAMETER_TARGET_M4147;
   const root = parameterMigrationRoots([target]).get(target.path)?.[target.functionOrdinal];
-  const coverage = measureCanonicalizerCoverage();
+  const coverage = measureM4148HistoricalCoverageInputs().receipt;
   const fact = coverage.functions.find(({ id }) => id === target.id);
   assertM4147ParameterTarget(root, fact);
   const mutations = [

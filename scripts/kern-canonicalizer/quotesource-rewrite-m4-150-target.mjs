@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  reconstructPreM4151CoverageInputs,
+  reconstructPreM4151ExpressionHelpers,
+} from './quotesource-parameter-m4-151-target.mjs';
 
 export const QUOTESOURCE_M4150_PATH =
   'examples/kern-canonicalizer/canonicalizer-expression-helpers.kern';
@@ -21,8 +23,6 @@ export const M4150_CURRENT_PREDICATE =
 export const M4150_CANDIDATE_PREDICATE =
   'c < " " || (c > "~" && c < "\\u00a0") || ' +
   '(c > "\\u2027" && c < "\\u202a") || (c > "\\ufefe" && c < "\\uff00")';
-
-const SOURCE_URL = new URL(`../../${QUOTESOURCE_M4150_PATH}`, import.meta.url);
 
 function fail(message) {
   throw new TypeError(`coverage M4.150 quotesource target rejection: ${message}`);
@@ -42,14 +42,9 @@ export const QUOTESOURCE_M4150_SOURCE_REPLACEMENT = Object.freeze({
 });
 
 export function readExactM4150ExpressionHelpers() {
-  const path = fileURLToPath(SOURCE_URL);
-  const stat = lstatSync(path, { throwIfNoEntry: false });
-  if (stat === undefined || !stat.isFile() || realpathSync(path) !== path) {
-    fail('current expression-helper owner must be a regular non-symlink file');
-  }
-  const source = readFileSync(path);
+  const source = reconstructPreM4151ExpressionHelpers();
   if (digest(source) !== M4150_EXPRESSION_HELPERS_DIGEST) {
-    fail('current expression-helper bytes must match the exact M4.150 rewrite');
+    fail('M4.151 predecessor bytes must match the exact M4.150 rewrite');
   }
   return source;
 }
@@ -69,7 +64,16 @@ export function reconstructPreM4150CoverageInputs(
   currentPolicy,
   currentPolicySource,
 ) {
-  const source = Buffer.from(currentPolicySource).toString('utf8');
+  let preM4151;
+  try {
+    preM4151 = reconstructPreM4151CoverageInputs(currentPolicy, currentPolicySource);
+  } catch (cause) {
+    throw new TypeError(
+      'coverage M4.150 quotesource target rejection: successor M4.151 input is not exact',
+      { cause },
+    );
+  }
+  const source = preM4151.policySource;
   let parsed;
   try {
     parsed = JSON.parse(source);
@@ -78,11 +82,11 @@ export function reconstructPreM4150CoverageInputs(
   }
   if (
     digest(source) !== M4150_COVERAGE_POLICY_DIGEST ||
-    !isDeepStrictEqual(currentPolicy, parsed)
+    !isDeepStrictEqual(preM4151.policy, parsed)
   ) {
     fail('current coverage policy must match exact repository bytes');
   }
-  const policy = structuredClone(currentPolicy);
+  const policy = structuredClone(preM4151.policy);
   const member = policy.corpus.find(({ path }) => path === QUOTESOURCE_M4150_PATH);
   if (member?.digest !== M4150_EXPRESSION_HELPERS_DIGEST) {
     fail('current coverage policy must authenticate the M4.150 source');
@@ -98,7 +102,7 @@ export function reconstructPreM4150CoverageInputs(
     fail('reconstructed pre-M4.150 policy bytes must retain the archived digest');
   }
   return {
-    expressionHelpers: reconstructPreM4150ExpressionHelpers(),
+    expressionHelpers: reconstructPreM4150ExpressionHelpers(preM4151.expressionHelpers),
     policy,
     policySource,
   };

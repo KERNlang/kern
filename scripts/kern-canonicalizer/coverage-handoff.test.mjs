@@ -387,7 +387,7 @@ test('the M4.142 corpus preserves selection and eight-record prerequisite histor
   assert.notEqual(receipt.canonicalizerDigest, implementation.record.source.canonicalizerSha256);
   assert.notEqual(receipt.coveragePolicyDigest, implementation.record.source.coveragePolicySha256);
   assert.equal(implementation.record.snapshot.selection.occurrences, 1115);
-  assert.equal(receipt.baseCompleteFunctions, 111);
+  assert.equal(receipt.baseCompleteFunctions, 112);
   assert.equal(receipt.selection.winner, null);
   assert.deepEqual(receipt.selection.ranking, []);
   assert.deepEqual(call.record.snapshot.selection, M45_SELECTION);

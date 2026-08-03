@@ -11,5 +11,6 @@ export function measureCanonicalizerPrerequisiteForInputs(
     policy,
     sourceOverrides,
     canonicalizerPolicy,
+    'kern.kir-canonicalizer.prerequisite-summary.3',
   );
 }
