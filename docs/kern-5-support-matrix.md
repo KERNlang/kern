@@ -115,6 +115,13 @@ means KERN-authored logic participates in a release-blocking differential
 harness but is not yet the production API or semantic authority. `not-shipped`
 means the ownership boundary cannot support a KERN 5 release claim.
 
+M4.152 adds an opt-in `kern canonicalize` distribution preview backed by the
+authenticated KERN canonicalizer. It remains `internal-oracle`: the command
+uses the TypeScript bootstrap frontend, is bounded to the admitted structural
+profile, and rejects comment syntax because it cannot preserve trivia. It
+therefore does not promote the `kern-formatter` or `kern-frontend` ownership
+rows.
+
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the
 current TypeScript authority to source evidence. It does not prove executable

@@ -334,6 +334,7 @@ export function printHelp(): void {
   console.log('Commands:');
   console.log('  dev <dir|file> [--target=...] [--outdir=...]  Watch & hot-transpile .kern files');
   console.log('  compile <dir|file> --outdir=<dir>             Compile .kern → .ts (core nodes)');
+  console.log('  canonicalize <file.kern> [--check] [--json]   Run the bounded KERN canonicalizer preview');
   console.log('  scan [--force] [--dry-run]                    Detect project → generate kern.config.ts');
   console.log('  init-templates [--force] [--dry-run]          Scan deps → scaffold template .kern files');
   console.log(

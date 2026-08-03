@@ -13,7 +13,7 @@
   "homepage": "https://github.com/KERNlang/kern#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "build": "tsc -b && pnpm --filter @kernlang/playground build",
+    "build": "tsc -b && node ./scripts/build-kern-canonicalizer-cli-assets.mjs && pnpm --filter @kernlang/playground build",
     "test": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test && pnpm test:infra && pnpm check:rule-coverage",
     "test:non-semantics": "pnpm -r --filter '!kern-monorepo' --filter '!@kernlang/review-python' test --testPathIgnorePatterns=ir-semantics && pnpm test:infra && pnpm check:rule-coverage",
     "check:rule-coverage": "node ./scripts/check-rule-coverage.mjs",
@@ -54,7 +54,7 @@
     "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs",
     "check:source-runner-convergence": "node ./scripts/check-source-runner-convergence.mjs",
     "test:source-runner-convergence": "pnpm --filter @kernlang/core test --testPathPatterns='runner-capability-(class-frame|plan)|source-runner-engine|runtime-envelope-effect-machine-(do|each|expression-v1|helper|lambda|non-root|module-ownership|class-)' && node --test ./scripts/source-runner*-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs",
-    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-canonicalizer/composition.mjs && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.composed.kern --with-semantics --quiet && node --test scripts/kern-canonicalizer/*.test.mjs && node scripts/check-kern-canonicalizer.mjs && node scripts/check-kern-canonicalizer-coverage.mjs",
+    "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-canonicalizer/composition.mjs && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.composed.kern --with-semantics --quiet && node --test scripts/kern-canonicalizer/*.test.mjs && node scripts/check-kern-canonicalizer.mjs && node scripts/check-kern-canonicalizer-cli.mjs && node scripts/check-kern-canonicalizer-coverage.mjs",
     "write:kern-canonicalizer-composition": "node ./scripts/kern-canonicalizer/composition.mjs --write",
     "write:kern-canonicalizer-coverage": "pnpm --filter @kernlang/core build && node ./scripts/check-kern-canonicalizer-coverage.mjs --write",
     "build:kern-alpha-receipt": "node ./scripts/kir-v1/alpha-receipt.mjs",

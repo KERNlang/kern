@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runApply } from './commands/apply.js';
+import { runCanonicalize } from './commands/canonicalize.js';
 import { runCheck } from './commands/check.js';
 import { runCompile } from './commands/compile.js';
 import { runConfidence } from './commands/confidence.js';
@@ -28,6 +29,7 @@ const cmd = args[0];
 const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   dev: runDev,
   check: runCheck,
+  canonicalize: runCanonicalize,
   compile: runCompile,
   init: runInit,
   test: runTest,

@@ -3292,6 +3292,36 @@ trusted-publishing/provenance configuration is inspected.
     material finding remains. KERN 5 remains incomplete: M4.65 must freeze and
     migrate only this exact four-function/37-row parameter queue.
 
+  - [x] M4.65-M4.151 canonicalizer frontier closure: the serial authenticated
+    parameter, profile-headroom, structural-family, runtime-cost, and residual
+    slices recorded in `.Codex/specs/kern-5-r2-m4-*` and the corresponding main
+    commits complete the bounded KERN-authored corpus at 112/112 functions.
+    M4.151 commit `c063801418827b5053811c28ab6745e53bd7e020` leaves zero
+    profile blockers, zero legacy `fn.params` blockers, an empty migration
+    queue, and terminal prerequisite-summary format 4 outcome `complete`.
+    The focused gate passes 732/732 structural/authentication tests plus 58
+    golden/idempotence/KIR fixtures, eight measured witnesses, three
+    profile-limit fixtures, and 250 hostile fixtures. This closes the bounded
+    repository canonicalizer frontier; it does not promote the formatter,
+    frontend, compiler, fixed point, or interpreter ownership rows.
+
+  - [x] M4.152 packaged canonicalizer preview: carries the exact authenticated
+    KERN composite and policy in `@kernlang/cli` dist, copies the existing
+    structural module codec's bounded emitted closure privately without adding
+    a core package export, and adds
+    `kern canonicalize <file.kern> [--check] [--json]`. The command runs the
+    KERN handler over decoded structural KIR, preserves KIR bytes, rejects
+    parse/profile/asset failures and non-preservable comments without partial
+    source, and matches the complete
+    existing golden corpus through built dist. Because comments/trivia are not
+    preserved and the bootstrap frontend remains TypeScript, both
+    `kern-formatter` and `kern-frontend` remain `not-shipped`.
+    Verification passes thirteen command-contract tests, 58 packaged-dist
+    golden/fixed-point replays, three bounded profile rejections, isolated
+    asset-tamper rejection, actual `pnpm pack` artifact/content inspection,
+    an extracted-tarball success smoke, the internal KIR containment guard,
+    and the complete canonicalizer wall at 732/732 and terminal 112/112.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
