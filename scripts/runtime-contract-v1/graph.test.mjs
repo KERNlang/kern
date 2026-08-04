@@ -105,6 +105,10 @@ test('source and built closures reject every frozen dynamic-loader escape family
     'const get = (target, key) => target[key]; const Build = get({}, "constructor")<unknown>; Build("return process")()',
     'const get = (target, key) => target[key]; const invoke = (fn) => (true ? fn : null)("return process")(); invoke(get({}, "constructor"))',
     'var { constructor: Build } = (() => {}); { var Build; Build("return process")(); }',
+    'var { constructor: Build } = (() => {}); function leak(value = Build("return process")()) { var Build = () => 7; return value; } leak()',
+    'var { constructor: Build } = (() => {}); function leak({ value = Build("return process")() } = {}) { function Build() {} return value; } leak()',
+    'var { constructor: Build } = (() => {}); const leak = (value = Build("return process")()) => { var Build = () => 7; return value; }; leak()',
+    'var { constructor: Build } = (() => {}); class C { leak(value = Build("return process")()) { var Build = () => 7; return value; } } new C().leak()',
     'globalThis["Fun" + "ction"]("return import(\\"node:fs\\")")()',
     '(() => {})["con" + "structor"]("return import(\\"node:fs\\")")()',
     'Reflect.get(globalThis, "Function")("return import(\\"node:fs\\")")()',
@@ -181,6 +185,11 @@ test('ordinary descriptor inspection and approved direct reflection remain avail
     'const box = {}; box.value ||= 7; box.value &&= 8; box.value ??= 9; export const result = box.value',
     'const value = true ? 7 : 8; export const result = (0, value || 9)',
     'var value = 7; { var value; } export const result = value',
+    'const get = (target, key) => target[key]; try { throw 0; } catch (Build) { Build = get({}, "constructor"); } const Build = () => 7; Build()',
+    'const get = (target, key) => target[key]; class C { static { var Build = get({}, "constructor"); } } class D { static { var Build = () => 7; Build(); } } const Build = () => 7; Build()',
+    'const get = (target, key) => target[key]; for (let Build = get({}, "constructor"); false;) {} const Build = () => 7; Build()',
+    'const get = (target, key) => target[key]; switch (0) { case 0: let Build = get({}, "constructor"); break; } const Build = () => 7; Build()',
+    'const get = (target, key) => target[key]; for (let Build of [0]) { Build = get({}, "constructor"); } const Build = () => 7; Build()',
   ];
   for (const source of safeSources) {
     assert.deepEqual(runtimeModuleSpecifiers(source, 'safe.ts'), [], source);

@@ -15,32 +15,62 @@ function scopeAncestors(ts, node) {
   const scopes = [];
   let current = node;
   while (current) {
-    if (ts.isBlock(current) || ts.isFunctionLike(current) || ts.isSourceFile(current)) scopes.push(current);
+    if (
+      ts.isBlock(current) || ts.isFunctionLike(current) || ts.isSourceFile(current) ||
+      ts.isCatchClause(current) || ts.isCaseBlock(current) || ts.isForStatement(current) ||
+      ts.isForInStatement(current) || ts.isForOfStatement(current) || ts.isModuleBlock(current) ||
+      ts.isClassStaticBlockDeclaration(current)
+    ) scopes.push(current);
     current = current.parent;
   }
   return scopes;
+}
+
+function functionHasParameterExpressions(ts, node) {
+  return node.parameters.some((parameter) =>
+    parameter.dotDotDotToken || parameter.initializer || !ts.isIdentifier(parameter.name));
+}
+
+function functionVarScope(ts, node) {
+  return functionHasParameterExpressions(ts, node) && node.body && ts.isBlock(node.body) ? node.body : node;
+}
+
+function nearestVarScope(ts, start, sourceFile) {
+  let current = start;
+  while (current) {
+    if (ts.isClassStaticBlockDeclaration(current) || ts.isModuleBlock(current)) return current;
+    if (ts.isFunctionLike(current)) return functionVarScope(ts, current);
+    if (ts.isSourceFile(current)) return current;
+    current = current.parent;
+  }
+  return sourceFile;
 }
 
 export function createAliasMap(ts, sourceFile) {
   const aliases = new Map();
   const bindingScopes = new WeakMap();
   const scopeBindings = new Map();
-  function register(identifier, start, blockScoped = true) {
-    const ancestors = scopeAncestors(ts, start);
-    const scope = (blockScoped
-      ? ancestors[0]
-      : ancestors.find((candidate) => ts.isFunctionLike(candidate) || ts.isSourceFile(candidate))) ?? sourceFile;
+  function registerInScope(identifier, scope) {
     bindingScopes.set(identifier, scope);
     const names = scopeBindings.get(scope) ?? new Set();
     names.add(identifier.text);
     scopeBindings.set(scope, names);
+  }
+  function register(identifier, start, blockScoped = true) {
+    const ancestors = scopeAncestors(ts, start);
+    registerInScope(identifier, blockScoped ? ancestors[0] ?? sourceFile : nearestVarScope(ts, start, sourceFile));
   }
   function visit(node) {
     if (ts.isVariableDeclaration(node)) {
       const blockScoped = !ts.isVariableDeclarationList(node.parent) ||
         (node.parent.flags & ts.NodeFlags.BlockScoped) !== 0;
       for (const identifier of bindingIdentifiers(ts, node.name)) register(identifier, node.parent, blockScoped);
-    } else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
+    } else if (ts.isFunctionDeclaration(node) && node.name) {
+      const owner = ts.isBlock(node.parent) && ts.isFunctionLike(node.parent.parent) && node.parent.parent.body === node.parent
+        ? node.parent.parent : null;
+      if (owner) registerInScope(node.name, functionVarScope(ts, owner));
+      else register(node.name, node.parent);
+    } else if (ts.isClassDeclaration(node) && node.name) {
       register(node.name, node.parent);
     }
     if (ts.isFunctionLike(node)) {
