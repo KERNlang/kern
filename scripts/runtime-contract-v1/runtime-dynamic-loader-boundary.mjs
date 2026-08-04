@@ -2,20 +2,15 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
 import {
-  aggregateFlowCategory,
-  assignmentFlowCategory,
-  assignmentTargetRoot,
-  bindAssignmentPattern,
-  bindForOfStatement,
-  callFlowCategory,
-  createAliasMap,
+  aggregateFlowCategory, assignmentFlowCategory,
+  assignmentTargetRoot, bindAssignmentPattern, bindForOfStatement,
+  callFlowCategory, containerCallFlowCategory, createAliasMap,
   functionFlowCategory,
   isFlowAssignment,
   isForbiddenCallableCategory,
   isFunctionCategory,
   joinFlowCategories,
-  memberFlowCategory,
-  objectFlowCategory,
+  memberFlowCategory, objectEnumerationFlowCategory, objectFlowCategory,
   scopedAliasCategories,
   scopedAliasKey, scopedAliasWriteKey,
   transparentFlowExpression,
@@ -179,6 +174,8 @@ function expressionCategory(node, aliases, stringAliases) {
     }
   }
   if (ts.isCallExpression(expression)) {
+    const containerFlow = containerCallFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases), (value) => staticString(value, stringAliases));
+    if (containerFlow) return containerFlow;
     const flow = callFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases));
     if (flow) return flow;
     const callee = transparentFlowExpression(ts, expression.expression);
@@ -196,6 +193,9 @@ function expressionCategory(node, aliases, stringAliases) {
       if (member === 'constructor' || (member === null && target === 'function-object')) {
         return 'constructor-descriptor';
       }
+    }
+    if ((objectMember === 'values' || objectMember === 'entries') && expression.arguments.length === 1) {
+      return objectEnumerationFlowCategory(expressionCategory(expression.arguments[0], aliases, stringAliases), objectMember === 'entries');
     }
     if (
       objectMember === 'getOwnPropertyDescriptors' &&

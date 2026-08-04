@@ -162,7 +162,12 @@ function objectRecordCategory(entries, fallback) {
 
 export function memberFlowCategory(category, member) {
   const record = objectRecord(category);
-  if (!record) return containedFlowCategory(category);
+  if (!record) {
+    const container = CONTAINER_FLOW_PREFIX.exec(category ?? '');
+    if (!container) return null;
+    if (container[1] === 'array' && member !== null && !/^(0|[1-9]\d*)$/u.test(member)) return null;
+    return container[2];
+  }
   const entries = new Map(record.entries);
   return member === null
     ? joinFlowCategories(...entries.values(), record.fallback)
@@ -291,17 +296,23 @@ function flowedCategory(category) {
   return isFunctionCategory(value) ? 'function-object' : value;
 }
 
+function spreadFlowCategory(ts, expression, categoryOf) {
+  const spread = ts.isSpreadElement(expression);
+  const category = categoryOf(spread ? expression.expression : expression);
+  return spread ? containedFlowCategory(category) ?? category : category;
+}
+
 export function callFlowCategory(ts, expression, categoryOf) {
   const calleeCategory = categoryOf(expression.expression);
   const invoked = flowIndices(calleeCategory, 'i');
   if (invoked.some((index) =>
     expression.arguments[index] &&
-    isForbiddenCallableCategory(flowedCategory(categoryOf(expression.arguments[index]))))) {
+    isForbiddenCallableCategory(flowedCategory(spreadFlowCategory(ts, expression.arguments[index], categoryOf))))) {
     return 'dynamic-invocation';
   }
   for (const [key, kind] of [['a', 'array'], ['o', 'object']]) {
     const contained = new Set(flowIndices(calleeCategory, key)
-      .map((index) => expression.arguments[index] ? flowedCategory(categoryOf(expression.arguments[index])) : null)
+      .map((index) => expression.arguments[index] ? flowedCategory(spreadFlowCategory(ts, expression.arguments[index], categoryOf)) : null)
       .filter(Boolean));
     if (contained.size === 1) return `${kind}-flow:${contained.values().next().value}`;
     if (contained.size > 1) return 'ambiguous-dynamic';
@@ -311,11 +322,32 @@ export function callFlowCategory(ts, expression, categoryOf) {
   }
   const categories = new Set(
     flowIndices(calleeCategory, 'r')
-      .map((index) => expression.arguments[index] ? flowedCategory(categoryOf(expression.arguments[index])) : null)
+      .map((index) => expression.arguments[index] ? flowedCategory(spreadFlowCategory(ts, expression.arguments[index], categoryOf)) : null)
       .filter(Boolean),
   );
   if (categories.size === 1) return categories.values().next().value;
   if (categories.size > 1) return 'ambiguous-dynamic';
+  return null;
+}
+
+export function containerCallFlowCategory(ts, expression, categoryOf, computedMember) {
+  const callee = transparentFlowExpression(ts, expression.expression);
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return null;
+  const container = CONTAINER_FLOW_PREFIX.exec(categoryOf(callee.expression) ?? '');
+  if (container?.[1] !== 'array') return null;
+  const member = ts.isPropertyAccessExpression(callee) ? callee.name.text : computedMember(callee.argumentExpression);
+  const contained = container[2];
+  if (['some', 'every', 'forEach'].includes(member)) {
+    const callback = expression.arguments[0];
+    return callback &&
+      isForbiddenCallableCategory(flowedCategory(contained)) &&
+      flowIndices(categoryOf(callback), 'i').includes(0)
+      ? 'dynamic-invocation'
+      : null;
+  }
+  if (['at', 'find', 'findLast', 'pop', 'shift'].includes(member)) return contained;
+  if (member === 'values') return `array-flow:${contained}`;
+  if (member === 'entries') return `array-flow:array-flow:${contained}`;
   return null;
 }
 
@@ -343,7 +375,7 @@ export function aggregateFlowCategory(ts, expression, categoryOf, memberName = (
     }
     return objectRecordCategory(entries, fallback);
   }
-  const categories = new Set(expression.elements.map(categoryOf).filter((category) =>
+  const categories = new Set(expression.elements.map((element) => spreadFlowCategory(ts, element, categoryOf)).filter((category) =>
     isFunctionCategory(category) || isForbiddenCallableCategory(category) || containedFlowCategory(category) || objectRecord(category)));
   if (categories.size === 0) return null;
   if (categories.size > 1) return 'ambiguous-dynamic';
@@ -356,6 +388,11 @@ export function containedFlowCategory(category) {
 
 export function objectFlowCategory(category) {
   return category ? `object-flow:${category}` : null;
+}
+
+export function objectEnumerationFlowCategory(category, entries = false) {
+  const value = memberFlowCategory(category, null);
+  return value ? `${entries ? 'array-flow:array-flow:' : 'array-flow:'}${value}` : null;
 }
 
 export function assignmentTargetRoot(ts, target) {
