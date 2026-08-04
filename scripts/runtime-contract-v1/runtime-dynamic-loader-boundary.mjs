@@ -17,6 +17,7 @@ import {
   objectFlowCategory,
   scopedAliasCategories,
   scopedAliasKey,
+  scopedAliasWriteKey,
   transparentFlowExpression,
 } from './runtime-dynamic-loader-flow.mjs';
 
@@ -292,13 +293,13 @@ function collectAliases(sourceFile) {
       const literal = staticString(initializer, stringAliases);
       if (literal !== null) add(stringAliases, name.text, literal);
       const category = categoryOf(initializer);
-      if (category) add(aliases, scopedAliasKey(aliases, name, category), category);
+      if (category) add(aliases, scopedAliasWriteKey(aliases, name, category), category);
     }
     function bindCategoryTarget(target, category) {
       const { container, root } = assignmentTargetRoot(ts, target);
       const value = container ? objectFlowCategory(category) : category;
       if (value && !ts.isIdentifier(root)) fail(`unresolved dynamic assignment target ${JSON.stringify(target.getText(sourceFile))}`);
-      if (value) add(aliases, scopedAliasKey(aliases, root, value), value);
+      if (value) add(aliases, scopedAliasWriteKey(aliases, root, value), value);
     }
     function visit(node) {
       if (ts.isVariableDeclaration(node)) bind(node.name, node.initializer);

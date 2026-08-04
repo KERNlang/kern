@@ -90,6 +90,10 @@ function bindingScope(aliases, identifier) {
   if (!metadata) return null;
   const declared = metadata.bindingScopes.get(identifier);
   if (declared) return declared;
+  return referenceScope(metadata, identifier);
+}
+
+function referenceScope(metadata, identifier) {
   return scopeAncestors(metadata.ts, identifier).find((scope) =>
     metadata.scopeBindings.get(scope)?.has(identifier.text)) ?? metadata.sourceFile;
 }
@@ -105,6 +109,12 @@ export function scopedAliasCategories(aliases, identifier) {
 
 export function scopedAliasKey(aliases, identifier, _category) {
   const scope = bindingScope(aliases, identifier);
+  return `${scope?.pos}:${scope?.end}:${identifier.text}`;
+}
+
+export function scopedAliasWriteKey(aliases, identifier, _category) {
+  const metadata = ALIAS_METADATA.get(aliases);
+  const scope = metadata ? referenceScope(metadata, identifier) : null;
   return `${scope?.pos}:${scope?.end}:${identifier.text}`;
 }
 
