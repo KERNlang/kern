@@ -241,3 +241,49 @@ export function containedFlowCategory(category) {
 export function objectFlowCategory(category) {
   return category ? `object-flow:${category}` : null;
 }
+
+export function bindAssignmentPattern(ts, target, category, memberName, memberCategory, bind) {
+  const current = transparentExpression(ts, target);
+  if (ts.isIdentifier(current)) {
+    if (category) bind(current, category);
+    return;
+  }
+  if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    bindAssignmentPattern(ts, current.left, category, memberName, memberCategory, bind);
+    return;
+  }
+  if (ts.isArrayLiteralExpression(current)) {
+    const elementCategory = containedFlowCategory(category) ?? category;
+    for (const element of current.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      bindAssignmentPattern(
+        ts,
+        ts.isSpreadElement(element) ? element.expression : element,
+        elementCategory,
+        memberName,
+        memberCategory,
+        bind,
+      );
+    }
+    return;
+  }
+  if (!ts.isObjectLiteralExpression(current)) return;
+  for (const property of current.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      bindAssignmentPattern(
+        ts, property.expression, containedFlowCategory(category) ?? category,
+        memberName, memberCategory, bind,
+      );
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      bindAssignmentPattern(
+        ts, property.name, memberCategory(category, property.name.text),
+        memberName, memberCategory, bind,
+      );
+    } else if (ts.isPropertyAssignment(property)) {
+      bindAssignmentPattern(
+        ts, property.initializer, memberCategory(category, memberName(property.name)),
+        memberName, memberCategory, bind,
+      );
+    }
+  }
+}

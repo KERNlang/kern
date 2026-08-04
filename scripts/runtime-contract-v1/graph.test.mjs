@@ -77,6 +77,12 @@ test('source and built closures reject every frozen dynamic-loader escape family
     'const { Function: Build } = globalThis; Build("return import(\\"node:fs\\")")()',
     'const { process: hostProcess } = globalThis; hostProcess.getBuiltinModule("node:fs")',
     'const { constructor: Build } = (() => {}); Build("return import(\\"node:fs\\")")()',
+    'let Build; ({ constructor: Build } = (() => {})); Build("return process")()',
+    'let Build; ({ ["con" + "structor"]: Build } = (() => {})); Build("return process")()',
+    'let Build; [Build] = [Math.max.constructor]; Build("return process")()',
+    'let Build; ({ value: { constructor: Build } } = { value: (() => {}) }); Build("return process")()',
+    'let Build; ({ constructor: Build = fallback } = (() => {})); Build("return process")()',
+    'let host; ({ ...host } = globalThis); host.Function("return process")()',
     'globalThis["Fun" + "ction"]("return import(\\"node:fs\\")")()',
     '(() => {})["con" + "structor"]("return import(\\"node:fs\\")")()',
     'Reflect.get(globalThis, "Function")("return import(\\"node:fs\\")")()',
@@ -145,6 +151,8 @@ test('ordinary descriptor inspection and approved direct reflection remain avail
     'const get = (target, key) => target[key]; export const value = get({}, "safe")',
     'const get = (target, key) => target[key]; export const length = get({}, "safe").length',
     'const get = (target, key) => target[key]; if (flag) { const value = get({}, key); void value; } if (other) { const value = []; value.push(1); }',
+    'let value; ({ safe: value } = { safe: 7 }); export const result = value',
+    'let value; [value] = [7]; export const result = value',
   ];
   for (const source of safeSources) {
     assert.deepEqual(runtimeModuleSpecifiers(source, 'safe.ts'), [], source);

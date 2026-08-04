@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
-
 import ts from 'typescript';
 
 import {
   aggregateFlowCategory,
+  bindAssignmentPattern,
   callFlowCategory,
   containedFlowCategory,
   createAliasMap,
@@ -15,9 +15,8 @@ import {
   scopedAliasKey,
 } from './runtime-dynamic-loader-flow.mjs';
 
-const proofInventory = JSON.parse(
-  readFileSync(new URL('./proof-inventory.json', import.meta.url), 'utf8'),
-);
+const proofInventory = JSON.parse(readFileSync(
+  new URL('./proof-inventory.json', import.meta.url), 'utf8'));
 const forbiddenDynamicBindings = new Set(proofInventory.forbiddenDynamicBindings);
 const forbiddenDirectBindings = new Set(
   [...forbiddenDynamicBindings].filter(
@@ -55,9 +54,7 @@ export const RUNTIME_REFLECTIVE_ESCAPE_MEMBERS = Object.freeze(
   [...reflectiveLoaderMembers],
 );
 
-function fail(message) {
-  throw new Error(`runtime-envelope import closure: ${message}`);
-}
+function fail(message) { throw new Error(`runtime-envelope import closure: ${message}`); }
 
 function importHasRuntimeValue(node) {
   const clause = node.importClause;
@@ -236,6 +233,18 @@ function expressionCategory(node, aliases, stringAliases) {
   return null;
 }
 
+function destructuredMemberCategory(base, member) {
+  const contained = containedFlowCategory(base);
+  if (contained) return contained;
+  if (isFunctionCategory(base) && member === null) return 'ambiguous-dynamic';
+  if (member === 'constructor' && isFunctionCategory(base)) return 'dynamic-constructor';
+  if ((base === 'globalThis' || base === 'global') && member && globalLoaderMembers.has(member)) return member;
+  if (base === 'module' && member === 'require') return 'require';
+  if (base === 'process' && member && processLoaderMembers.has(member)) return member;
+  if (base === 'Reflect' && member && reflectiveLoaderMembers.has(member)) return 'reflective-loader';
+  return base && forbiddenAliasBindings.has(base) ? base : null;
+}
+
 function collectAliases(sourceFile) {
   const aliases = createAliasMap(ts, sourceFile);
   const stringAliases = new Map();
@@ -277,16 +286,7 @@ function collectAliases(sourceFile) {
           } else if (element.propertyName && ts.isComputedPropertyName(element.propertyName)) {
             member = staticString(element.propertyName.expression, stringAliases);
           }
-          let category = null;
-          if (isFunctionCategory(base) && member === null) category = 'ambiguous-dynamic';
-          else if (member === 'constructor' && isFunctionCategory(base)) category = 'dynamic-constructor';
-          else if ((base === 'globalThis' || base === 'global') && member && globalLoaderMembers.has(member)) {
-            category = member;
-          } else if (base === 'module' && member === 'require') category = 'require';
-          else if (base === 'process' && member && processLoaderMembers.has(member)) category = member;
-          else if (base === 'Reflect' && member && reflectiveLoaderMembers.has(member)) {
-            category = 'reflective-loader';
-          }
+          const category = destructuredMemberCategory(base, member);
           if (category) add(aliases, scopedAliasKey(aliases, element.name, category), category);
         }
         return;
@@ -315,6 +315,21 @@ function collectAliases(sourceFile) {
             if (category) add(aliases, scopedAliasKey(aliases, target, category), category);
           }
         }
+      }
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        (ts.isArrayLiteralExpression(unwrappedExpression(node.left)) || ts.isObjectLiteralExpression(unwrappedExpression(node.left)))
+      ) {
+        bindAssignmentPattern(
+          ts,
+          node.left,
+          expressionCategory(node.right, aliases, stringAliases),
+          (name) => ts.isComputedPropertyName(name) ? staticString(name.expression, stringAliases) :
+            'text' in name ? name.text : null,
+          destructuredMemberCategory,
+          (name, category) => add(aliases, scopedAliasKey(aliases, name, category), category),
+        );
       }
       ts.forEachChild(node, visit);
     }
