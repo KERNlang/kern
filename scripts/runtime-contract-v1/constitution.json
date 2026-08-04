@@ -1,0 +1,170 @@
+{
+  "format": "kern.runtime.contract.v1",
+  "abi": "kern.runtime.handler.v1",
+  "publicEntry": "@kernlang/core/runtime/handler",
+  "internalFormat": "kern.runtime.internal.r0",
+  "publicSymbols": [
+    "KERN_RUNTIME_HANDLER_ABI",
+    "KernRuntimeHandlerCapabilityValue",
+    "KernRuntimeHandlerCapabilityCall",
+    "KernRuntimeHandlerCapabilityContext",
+    "KernRuntimeHandlerCapability",
+    "KernRuntimeHandlerAsyncCapability",
+    "KernRuntimeHandlerCapabilities",
+    "KernRuntimeHandlerAsyncCapabilities",
+    "KernRuntimeHandlerLimits",
+    "KernRuntimeHandlerIdentity",
+    "KernRuntimeHandlerRequest",
+    "KernRuntimeHandlerValue",
+    "KernRuntimeHandlerSlot",
+    "KernRuntimeHandlerEvent",
+    "KernRuntimeHandlerDiagnosticCode",
+    "KernRuntimeHandlerDiagnostic",
+    "KernRuntimeHandlerEnvelope",
+    "KernRuntimeHandlerOptions",
+    "KernRuntimeHandlerAsyncOptions",
+    "KernRuntimeHandlerError",
+    "executeKernRuntimeHandlerSync",
+    "executeKernRuntimeHandlerAsync"
+  ],
+  "limits": [
+    "maxBytes",
+    "maxCollectionLength",
+    "maxDepth",
+    "maxDiagnostics",
+    "maxEvents",
+    "maxStringBytes"
+  ],
+  "capability": {
+    "callFields": [
+      "input",
+      "namespace",
+      "operation"
+    ],
+    "contextFields": [
+      "runId",
+      "sourceName"
+    ],
+    "valueDomain": [
+      "null",
+      "boolean",
+      "number",
+      "string",
+      "list",
+      "record"
+    ]
+  },
+  "valueTags": [
+    "null",
+    "boolean",
+    "text",
+    "integer",
+    "decimal",
+    "list",
+    "record"
+  ],
+  "slotPresences": [
+    "absent",
+    "value"
+  ],
+  "eventOperations": [
+    "stdout",
+    "stderr",
+    "capability"
+  ],
+  "diagnostics": {
+    "category": "runtime",
+    "phases": [
+      "execution",
+      "link"
+    ],
+    "codes": [
+      "capability-error",
+      "encoded-limit",
+      "escaped-control",
+      "execution-cancelled",
+      "execution-timeout",
+      "handler-entry-ambiguous",
+      "handler-entry-not-found",
+      "handler-entry-unsupported",
+      "handler-link-error",
+      "invalid-handler-arguments",
+      "invalid-handler-result",
+      "internal-runner-error",
+      "non-portable-value",
+      "uncaught-throw",
+      "unsupported-runtime-input"
+    ],
+    "locations": "separately-versioned-kir-evidence"
+  },
+  "completionKinds": [
+    "normal",
+    "return",
+    "error"
+  ],
+  "outcomes": [
+    "success",
+    "failure"
+  ],
+  "thrownErrorCodes": [
+    "disabled",
+    "invalid-abi",
+    "invalid-limits",
+    "invalid-options",
+    "invalid-request"
+  ],
+  "rejectionPhases": {
+    "pre-dispatch-before-effect": [
+      "invalid-abi",
+      "invalid-request",
+      "invalid-options",
+      "invalid-limits",
+      "unsupported-handler-admission",
+      "invalid-handler-arguments",
+      "invalid-capability-input"
+    ],
+    "post-provider-pre-publication": [
+      "invalid-provider-result"
+    ],
+    "post-effect-declared-result-mismatch": [
+      "invalid-handler-result"
+    ]
+  },
+  "determinism": {
+    "conditionedOn": [
+      "admitted-request",
+      "limits",
+      "normalized-capability-transcript",
+      "scheduler-cancellation-transcript"
+    ],
+    "unconditional": false
+  },
+  "runtimeModuleEdges": [
+    "runtime-esm-import",
+    "runtime-esm-re-export",
+    "import-equals-require",
+    "direct-literal-require",
+    "literal-dynamic-import",
+    "package-entry",
+    "source-alias",
+    "built-javascript"
+  ],
+  "controlEffects": {
+    "scope": "caller-authorized-scheduler-and-provider-timeout",
+    "invariant": "balanced-cleanup-zero-residual-resources",
+    "semanticEffectLedger": "provider-publication-and-state-only"
+  },
+  "forbiddenPublicTypes": [
+    "Trace",
+    "TraceEvent",
+    "InternalRuntimeEnvelope",
+    "InternalRuntimeEvent"
+  ],
+  "claims": {
+    "runtimeAbiFrozen": false,
+    "kirV1Frozen": false,
+    "publicKirReader": false,
+    "semanticCutover": false,
+    "phase1Complete": false
+  }
+}

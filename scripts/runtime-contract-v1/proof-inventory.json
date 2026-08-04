@@ -1,0 +1,362 @@
+{
+  "format": "kern.runtime.contract.proof-inventory.v1",
+  "importEdges": [
+    "runtime-esm-import",
+    "runtime-esm-re-export",
+    "import-equals-require",
+    "direct-literal-require",
+    "literal-dynamic-import",
+    "package-entry",
+    "source-alias",
+    "built-javascript"
+  ],
+  "forbiddenDynamicBindings": [
+    "Bun",
+    "Deno",
+    "Function",
+    "WebAssembly",
+    "constructor",
+    "createRequire",
+    "eval",
+    "global",
+    "globalThis",
+    "importScripts",
+    "module",
+    "process"
+  ],
+  "behavior": [
+    {
+      "id": "success-typed-return",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "success-capability-transcript",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-link",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-uncaught-throw",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-invalid-handler-arguments",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-unsupported-handler",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-invalid-capability-input",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-invalid-provider-result",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "failure-declared-result-mismatch",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "scheduler-pre-aborted",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "scheduler-timeout",
+      "modes": [
+        "async"
+      ]
+    },
+    {
+      "id": "portable-value-rejection",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    }
+  ],
+  "ingress": [
+    {
+      "id": "disabled",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ]
+    },
+    {
+      "id": "invalid-abi",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ]
+    },
+    {
+      "id": "invalid-request",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ]
+    },
+    {
+      "id": "invalid-limits",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ]
+    },
+    {
+      "id": "invalid-options",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ]
+    }
+  ],
+  "limitValidation": [
+    {
+      "id": "maxBytes",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    },
+    {
+      "id": "maxCollectionLength",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    },
+    {
+      "id": "maxDepth",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    },
+    {
+      "id": "maxDiagnostics",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    },
+    {
+      "id": "maxEvents",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    },
+    {
+      "id": "maxStringBytes",
+      "boundaries": [
+        "minimum-valid",
+        "zero-invalid"
+      ]
+    }
+  ],
+  "limitEnforcement": [
+    {
+      "id": "bytes",
+      "boundaries": [
+        "at",
+        "over"
+      ]
+    },
+    {
+      "id": "collection",
+      "boundaries": [
+        "at",
+        "over"
+      ]
+    },
+    {
+      "id": "depth",
+      "boundaries": [
+        "at",
+        "over"
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "boundaries": [
+        "at",
+        "truncated"
+      ]
+    },
+    {
+      "id": "events",
+      "boundaries": [
+        "at",
+        "over"
+      ]
+    },
+    {
+      "id": "string-bytes",
+      "boundaries": [
+        "at",
+        "over"
+      ]
+    }
+  ],
+  "schedulerEffects": [
+    {
+      "id": "invalid-input-no-scheduler",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 0,
+      "listenerRemoves": 0,
+      "timerRegistrations": 0,
+      "timerClears": 0
+    },
+    {
+      "id": "invalid-input-live-signal",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 1,
+      "listenerRemoves": 1,
+      "timerRegistrations": 0,
+      "timerClears": 0
+    },
+    {
+      "id": "invalid-input-pre-aborted",
+      "diagnostic": "execution-cancelled",
+      "listenerAdds": 0,
+      "listenerRemoves": 0,
+      "timerRegistrations": 0,
+      "timerClears": 0
+    },
+    {
+      "id": "invalid-input-timeout",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 0,
+      "listenerRemoves": 0,
+      "timerRegistrations": 1,
+      "timerClears": 1
+    },
+    {
+      "id": "invalid-input-signal-timeout",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 1,
+      "listenerRemoves": 1,
+      "timerRegistrations": 1,
+      "timerClears": 1
+    }
+  ],
+  "effects": [
+    {
+      "id": "pre-invalid-abi",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "none",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "pre-invalid-request",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "none",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "pre-invalid-options",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "none",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "pre-invalid-limits",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "none",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "pre-unsupported-handler",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "none",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "pre-invalid-arguments",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "none",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "pre-invalid-capability-input",
+      "phase": "pre-dispatch-before-effect",
+      "controlEffects": "scheduler-conditioned",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "post-invalid-provider-result",
+      "phase": "post-provider-pre-publication",
+      "controlEffects": "provider-timeout-conditioned",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    },
+    {
+      "id": "post-declared-result-mismatch",
+      "phase": "post-effect-declared-result-mismatch",
+      "controlEffects": "scheduler-conditioned",
+      "modes": [
+        "sync",
+        "async"
+      ]
+    }
+  ]
+}

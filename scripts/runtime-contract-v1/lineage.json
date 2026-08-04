@@ -1,0 +1,12 @@
+{
+  "format": "kern.runtime.contract.lineage.v1",
+  "versions": [
+    {
+      "abi": "kern.runtime.handler.v1",
+      "constitutionSha256": "f626dfe8c55bec728d2d84b88dee9e07f53b82ea54ffc8083c2f7eaffdb4ad20",
+      "proofInventorySha256": "993f490d13840d972ee7998c87f52afea5c0b044849585bf32d7e4a263cf4f86",
+      "declarationSchemaSha256": "f611dbdd9d7cb688cf6c990203faf97188302dfa7e3d5cc78bdebc0844f855c3",
+      "goldensSha256": "1ab12a799ff03725d810b677bb8597df19045488e0eca524af3f370c3b9e79da"
+    }
+  ]
+}

@@ -1,0 +1,684 @@
+{
+  "format": "kern.runtime.contract.goldens.v1",
+  "limits": {
+    "maxBytes": 65536,
+    "maxCollectionLength": 64,
+    "maxDepth": 16,
+    "maxDiagnostics": 8,
+    "maxEvents": 64,
+    "maxStringBytes": 4096
+  },
+  "envelopes": {
+    "success-typed-return": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "text",
+          "value": "ready"
+        }
+      }
+    },
+    "success-capability-transcript": {
+      "completion": {
+        "kind": "return"
+      },
+      "diagnostics": [],
+      "events": [
+        {
+          "input": {
+            "presence": "value",
+            "value": {
+              "tag": "text",
+              "value": "hello"
+            }
+          },
+          "namespace": "demo",
+          "op": "capability",
+          "operation": "answer",
+          "result": {
+            "presence": "value",
+            "value": {
+              "tag": "text",
+              "value": "world"
+            }
+          }
+        }
+      ],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "success",
+      "result": {
+        "presence": "value",
+        "value": {
+          "tag": "text",
+          "value": "world"
+        }
+      }
+    },
+    "failure-link": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "handler-link-error",
+          "phase": "link"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "failure-uncaught-throw": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "uncaught-throw",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "failure-invalid-handler-arguments": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "invalid-handler-arguments",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "failure-unsupported-handler": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "handler-entry-unsupported",
+          "phase": "link"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "failure-invalid-capability-input": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "unsupported-runtime-input",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "failure-invalid-provider-result": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "capability-error",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "failure-declared-result-mismatch": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "invalid-handler-result",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "scheduler-pre-aborted": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "execution-cancelled",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "scheduler-timeout": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "execution-timeout",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    },
+    "portable-value-rejection": {
+      "completion": {
+        "kind": "error"
+      },
+      "diagnostics": [
+        {
+          "category": "runtime",
+          "code": "non-portable-value",
+          "phase": "execution"
+        }
+      ],
+      "events": [],
+      "format": "kern.runtime.handler.v1",
+      "outcome": "failure",
+      "result": {
+        "presence": "absent"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "success-typed-return",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [
+          "ready"
+        ],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  param name=value type=string\n  handler lang=\"kern\"\n    return value=\"value\""
+      },
+      "provider": null,
+      "scheduler": null,
+      "limits": null,
+      "expected": "success-typed-return"
+    },
+    {
+      "id": "success-capability-transcript",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    capability namespace=demo operation=answer input=\"\\\"hello\\\"\" name=value\n    return value=\"value\""
+      },
+      "provider": {
+        "kind": "portable",
+        "namespace": "demo",
+        "operation": "answer",
+        "value": "world"
+      },
+      "scheduler": null,
+      "limits": null,
+      "expected": "success-capability-transcript"
+    },
+    {
+      "id": "failure-link",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn"
+      },
+      "provider": null,
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-link"
+    },
+    {
+      "id": "failure-uncaught-throw",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    throw value=\"new Error(\\\"boom\\\")\""
+      },
+      "provider": null,
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-uncaught-throw"
+    },
+    {
+      "id": "failure-invalid-handler-arguments",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [
+          "wrong"
+        ],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=number\n  param name=value type=number\n  handler lang=\"kern\"\n    return value=\"value\""
+      },
+      "provider": null,
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-invalid-handler-arguments"
+    },
+    {
+      "id": "failure-unsupported-handler",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [
+          "wrong"
+        ],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=Custom\n  param name=value type=Custom\n  handler lang=\"kern\"\n    return value=\"value\""
+      },
+      "provider": null,
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-unsupported-handler"
+    },
+    {
+      "id": "failure-invalid-capability-input",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    capability namespace=demo operation=answer input=\"{ value: 1, value: 2 }\" name=value\n    return value=\"value\""
+      },
+      "provider": {
+        "kind": "poison",
+        "namespace": "demo",
+        "operation": "answer"
+      },
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-invalid-capability-input"
+    },
+    {
+      "id": "failure-invalid-provider-result",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    capability namespace=llm operation=complete name=value\n    return value=\"value\""
+      },
+      "provider": {
+        "kind": "non-portable",
+        "namespace": "llm",
+        "operation": "complete"
+      },
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-invalid-provider-result"
+    },
+    {
+      "id": "failure-declared-result-mismatch",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=number\n  handler lang=\"kern\"\n    capability namespace=llm operation=complete name=value\n    return value=\"value\""
+      },
+      "provider": {
+        "kind": "portable",
+        "namespace": "llm",
+        "operation": "complete",
+        "value": "text"
+      },
+      "scheduler": null,
+      "limits": null,
+      "expected": "failure-declared-result-mismatch"
+    },
+    {
+      "id": "scheduler-pre-aborted",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    return value=\"\\\"never\\\"\""
+      },
+      "provider": null,
+      "scheduler": "pre-aborted",
+      "limits": null,
+      "expected": "scheduler-pre-aborted"
+    },
+    {
+      "id": "scheduler-timeout",
+      "modes": [
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    capability namespace=llm operation=complete name=value\n    return value=\"value\""
+      },
+      "provider": {
+        "kind": "pending",
+        "namespace": "llm",
+        "operation": "complete"
+      },
+      "scheduler": "timeout",
+      "limits": null,
+      "expected": "scheduler-timeout"
+    },
+    {
+      "id": "portable-value-rejection",
+      "modes": [
+        "sync",
+        "async"
+      ],
+      "request": {
+        "arguments": [],
+        "handlerName": "answer",
+        "sourcePath": "app/main.kern",
+        "source": "fn name=answer returns=string\n  handler lang=\"kern\"\n    print value=\"\\\"one\\\"\"\n    print value=\"\\\"two\\\"\"\n    return value=\"\\\"ok\\\"\""
+      },
+      "provider": null,
+      "scheduler": null,
+      "limits": {
+        "maxEvents": 1
+      },
+      "expected": "portable-value-rejection"
+    }
+  ],
+  "ingress": [
+    {
+      "id": "disabled",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ],
+      "error": {
+        "name": "KernRuntimeHandlerError",
+        "code": "disabled",
+        "message": "runtime handler is default-off"
+      }
+    },
+    {
+      "id": "invalid-abi",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ],
+      "error": {
+        "name": "KernRuntimeHandlerError",
+        "code": "invalid-abi",
+        "message": "runtime handler ABI is unsupported"
+      }
+    },
+    {
+      "id": "invalid-request",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ],
+      "error": {
+        "name": "KernRuntimeHandlerError",
+        "code": "invalid-request",
+        "message": "request arguments and source have invalid types"
+      }
+    },
+    {
+      "id": "invalid-limits",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ],
+      "error": {
+        "name": "KernRuntimeHandlerError",
+        "code": "invalid-limits",
+        "message": "runtime handler limits are invalid"
+      }
+    },
+    {
+      "id": "invalid-options",
+      "modes": [
+        "sync-throw",
+        "async-reject"
+      ],
+      "error": {
+        "name": "KernRuntimeHandlerError",
+        "code": "invalid-options",
+        "message": "options contains unknown fields"
+      }
+    }
+  ],
+  "limitValidation": [
+    {
+      "id": "maxBytes",
+      "minimum": 1,
+      "invalid": 0
+    },
+    {
+      "id": "maxCollectionLength",
+      "minimum": 1,
+      "invalid": 0
+    },
+    {
+      "id": "maxDepth",
+      "minimum": 1,
+      "invalid": 0
+    },
+    {
+      "id": "maxDiagnostics",
+      "minimum": 1,
+      "invalid": 0
+    },
+    {
+      "id": "maxEvents",
+      "minimum": 1,
+      "invalid": 0
+    },
+    {
+      "id": "maxStringBytes",
+      "minimum": 1,
+      "invalid": 0
+    }
+  ],
+  "limitEnforcement": [
+    {
+      "id": "bytes",
+      "boundaries": [
+        "at",
+        "over"
+      ],
+      "expected": [
+        "success",
+        "handler-link-error"
+      ]
+    },
+    {
+      "id": "collection",
+      "boundaries": [
+        "at",
+        "over"
+      ],
+      "expected": [
+        "success",
+        "non-portable-value"
+      ]
+    },
+    {
+      "id": "depth",
+      "boundaries": [
+        "at",
+        "over"
+      ],
+      "expected": [
+        "success",
+        "limit-exceeded"
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "boundaries": [
+        "at",
+        "truncated"
+      ],
+      "expected": [
+        "handler-link-error",
+        "encoded-limit"
+      ]
+    },
+    {
+      "id": "events",
+      "boundaries": [
+        "at",
+        "over"
+      ],
+      "expected": [
+        "success",
+        "non-portable-value"
+      ]
+    },
+    {
+      "id": "string-bytes",
+      "boundaries": [
+        "at",
+        "over"
+      ],
+      "expected": [
+        "success",
+        "handler-entry-unsupported"
+      ]
+    }
+  ],
+  "schedulerEffects": [
+    {
+      "id": "invalid-input-no-scheduler",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 0,
+      "listenerRemoves": 0,
+      "timerRegistrations": 0,
+      "timerClears": 0
+    },
+    {
+      "id": "invalid-input-live-signal",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 1,
+      "listenerRemoves": 1,
+      "timerRegistrations": 0,
+      "timerClears": 0
+    },
+    {
+      "id": "invalid-input-pre-aborted",
+      "diagnostic": "execution-cancelled",
+      "listenerAdds": 0,
+      "listenerRemoves": 0,
+      "timerRegistrations": 0,
+      "timerClears": 0
+    },
+    {
+      "id": "invalid-input-timeout",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 0,
+      "listenerRemoves": 0,
+      "timerRegistrations": 1,
+      "timerClears": 1
+    },
+    {
+      "id": "invalid-input-signal-timeout",
+      "diagnostic": "unsupported-runtime-input",
+      "listenerAdds": 1,
+      "listenerRemoves": 1,
+      "timerRegistrations": 1,
+      "timerClears": 1
+    }
+  ]
+}
