@@ -3,6 +3,7 @@ import ts from 'typescript';
 
 import {
   aggregateFlowCategory,
+  assignmentTargetRoot,
   bindAssignmentPattern,
   callFlowCategory,
   containedFlowCategory,
@@ -258,44 +259,29 @@ function collectAliases(sourceFile) {
       map.set(name, values);
       changed = true;
     }
+    const categoryOf = (value) => expressionCategory(value, aliases, stringAliases);
+    const memberNameOf = (name) => ts.isComputedPropertyName(name) ? staticString(name.expression, stringAliases) :
+      'text' in name ? name.text : null;
     function bind(name, initializer) {
       if (!initializer) return;
-      if (ts.isArrayBindingPattern(name)) {
-        const base = containedFlowCategory(expressionCategory(initializer, aliases, stringAliases)) ??
-          expressionCategory(initializer, aliases, stringAliases);
-        for (const element of name.elements) {
-          if (ts.isBindingElement(element) && ts.isIdentifier(element.name) && base) {
-            add(aliases, scopedAliasKey(aliases, element.name, base), base);
-          }
-        }
-        return;
-      }
-      if (ts.isObjectBindingPattern(name)) {
-        const base = containedFlowCategory(expressionCategory(initializer, aliases, stringAliases)) ??
-          expressionCategory(initializer, aliases, stringAliases);
-        for (const element of name.elements) {
-          if (!ts.isIdentifier(element.name)) continue;
-          if (element.dotDotDotToken) {
-            if (base) add(aliases, scopedAliasKey(aliases, element.name, base), base);
-            continue;
-          }
-          let member = null;
-          if (!element.propertyName && ts.isIdentifier(element.name)) member = element.name.text;
-          else if (element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteral(element.propertyName))) {
-            member = element.propertyName.text;
-          } else if (element.propertyName && ts.isComputedPropertyName(element.propertyName)) {
-            member = staticString(element.propertyName.expression, stringAliases);
-          }
-          const category = destructuredMemberCategory(base, member);
-          if (category) add(aliases, scopedAliasKey(aliases, element.name, category), category);
-        }
+      if (ts.isArrayBindingPattern(name) || ts.isObjectBindingPattern(name)) {
+        bindAssignmentPattern(
+          ts, name, categoryOf(initializer), categoryOf,
+          memberNameOf, destructuredMemberCategory, bindCategoryTarget,
+        );
         return;
       }
       if (!ts.isIdentifier(name)) return;
       const literal = staticString(initializer, stringAliases);
       if (literal !== null) add(stringAliases, name.text, literal);
-      const category = expressionCategory(initializer, aliases, stringAliases);
+      const category = categoryOf(initializer);
       if (category) add(aliases, scopedAliasKey(aliases, name, category), category);
+    }
+    function bindCategoryTarget(target, category) {
+      const { container, root } = assignmentTargetRoot(ts, target);
+      const value = container ? objectFlowCategory(category) : category;
+      if (value && !ts.isIdentifier(root)) fail(`unresolved dynamic assignment target ${JSON.stringify(target.getText(sourceFile))}`);
+      if (value) add(aliases, scopedAliasKey(aliases, root, value), value);
     }
     function visit(node) {
       if (ts.isVariableDeclaration(node)) bind(node.name, node.initializer);
@@ -307,14 +293,8 @@ function collectAliases(sourceFile) {
         node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
         (ts.isIdentifier(node.left) || ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
       ) {
-        const target = ts.isIdentifier(node.left) ? node.left : unwrappedExpression(node.left.expression);
-        if (ts.isIdentifier(target)) {
-          if (ts.isIdentifier(node.left)) bind(target, node.right);
-          else {
-            const category = objectFlowCategory(expressionCategory(node.right, aliases, stringAliases));
-            if (category) add(aliases, scopedAliasKey(aliases, target, category), category);
-          }
-        }
+        if (ts.isIdentifier(node.left)) bind(node.left, node.right);
+        else bindCategoryTarget(node.left, categoryOf(node.right));
       }
       if (
         ts.isBinaryExpression(node) &&
@@ -324,11 +304,11 @@ function collectAliases(sourceFile) {
         bindAssignmentPattern(
           ts,
           node.left,
-          expressionCategory(node.right, aliases, stringAliases),
-          (name) => ts.isComputedPropertyName(name) ? staticString(name.expression, stringAliases) :
-            'text' in name ? name.text : null,
+          categoryOf(node.right),
+          categoryOf,
+          memberNameOf,
           destructuredMemberCategory,
-          (name, category) => add(aliases, scopedAliasKey(aliases, name, category), category),
+          bindCategoryTarget,
         );
       }
       ts.forEachChild(node, visit);

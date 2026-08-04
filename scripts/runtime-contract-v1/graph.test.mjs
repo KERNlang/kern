@@ -83,6 +83,14 @@ test('source and built closures reject every frozen dynamic-loader escape family
     'let Build; ({ value: { constructor: Build } } = { value: (() => {}) }); Build("return process")()',
     'let Build; ({ constructor: Build = fallback } = (() => {})); Build("return process")()',
     'let host; ({ ...host } = globalThis); host.Function("return process")()',
+    'const box = {}; ({ constructor: box.build } = (() => {})); box.build("return process")()',
+    'const box = []; ({ constructor: box[0] } = (() => {})); box[0]("return process")()',
+    'const box = { slot: {} }; ({ constructor: box.slot.build } = (() => {})); box.slot.build("return process")()',
+    'const box = {}; [box.build] = [Math.max.constructor]; box.build("return process")()',
+    'const { value: { constructor: Build } } = { value: (() => {}) }; Build("return process")()',
+    'const { safe: Build = Math.max.constructor } = {}; Build("return process")()',
+    'let Build; ({ safe: Build = Math.max.constructor } = {}); Build("return process")()',
+    'function leak() { ({ constructor: this.build } = (() => {})); this.build("return process")(); }',
     'globalThis["Fun" + "ction"]("return import(\\"node:fs\\")")()',
     '(() => {})["con" + "structor"]("return import(\\"node:fs\\")")()',
     'Reflect.get(globalThis, "Function")("return import(\\"node:fs\\")")()',
@@ -153,6 +161,9 @@ test('ordinary descriptor inspection and approved direct reflection remain avail
     'const get = (target, key) => target[key]; if (flag) { const value = get({}, key); void value; } if (other) { const value = []; value.push(1); }',
     'let value; ({ safe: value } = { safe: 7 }); export const result = value',
     'let value; [value] = [7]; export const result = value',
+    'const box = {}; ({ safe: box.value } = { safe: 7 }); export const result = box.value',
+    'const box = []; [box[0]] = [7]; export const result = box[0]',
+    'const { safe: value = 7 } = {}; export const result = value',
   ];
   for (const source of safeSources) {
     assert.deepEqual(runtimeModuleSpecifiers(source, 'safe.ts'), [], source);

@@ -242,27 +242,62 @@ export function objectFlowCategory(category) {
   return category ? `object-flow:${category}` : null;
 }
 
-export function bindAssignmentPattern(ts, target, category, memberName, memberCategory, bind) {
+export function assignmentTargetRoot(ts, target) {
+  let root = transparentExpression(ts, target);
+  const container = !ts.isIdentifier(root);
+  while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
+    root = transparentExpression(ts, root.expression);
+  }
+  return { container, root };
+}
+
+function mergedFlowCategory(primary, fallback) {
+  if (!primary) return fallback;
+  if (!fallback || fallback === primary) return primary;
+  return 'ambiguous-dynamic';
+}
+
+export function bindAssignmentPattern(ts, target, category, categoryOf, memberName, memberCategory, bind) {
   const current = transparentExpression(ts, target);
-  if (ts.isIdentifier(current)) {
+  if (ts.isIdentifier(current) || ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
     if (category) bind(current, category);
     return;
   }
   if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-    bindAssignmentPattern(ts, current.left, category, memberName, memberCategory, bind);
+    bindAssignmentPattern(
+      ts, current.left, mergedFlowCategory(category, categoryOf(current.right)),
+      categoryOf, memberName, memberCategory, bind,
+    );
     return;
   }
-  if (ts.isArrayLiteralExpression(current)) {
+  if (ts.isArrayLiteralExpression(current) || ts.isArrayBindingPattern(current)) {
     const elementCategory = containedFlowCategory(category) ?? category;
     for (const element of current.elements) {
       if (ts.isOmittedExpression(element)) continue;
+      const binding = ts.isBindingElement(element);
+      const fallback = binding && element.initializer ? categoryOf(element.initializer) : null;
       bindAssignmentPattern(
         ts,
-        ts.isSpreadElement(element) ? element.expression : element,
-        elementCategory,
+        binding ? element.name : ts.isSpreadElement(element) ? element.expression : element,
+        mergedFlowCategory(elementCategory, fallback),
+        categoryOf,
         memberName,
         memberCategory,
         bind,
+      );
+    }
+    return;
+  }
+  if (ts.isObjectBindingPattern(current)) {
+    for (const element of current.elements) {
+      const rest = element.dotDotDotToken;
+      const member = !rest && element.propertyName ? memberName(element.propertyName) :
+        !rest && ts.isIdentifier(element.name) ? element.name.text : null;
+      const selected = rest ? containedFlowCategory(category) ?? category : memberCategory(category, member);
+      const fallback = element.initializer ? categoryOf(element.initializer) : null;
+      bindAssignmentPattern(
+        ts, element.name, mergedFlowCategory(selected, fallback),
+        categoryOf, memberName, memberCategory, bind,
       );
     }
     return;
@@ -272,17 +307,18 @@ export function bindAssignmentPattern(ts, target, category, memberName, memberCa
     if (ts.isSpreadAssignment(property)) {
       bindAssignmentPattern(
         ts, property.expression, containedFlowCategory(category) ?? category,
-        memberName, memberCategory, bind,
+        categoryOf, memberName, memberCategory, bind,
       );
     } else if (ts.isShorthandPropertyAssignment(property)) {
+      const fallback = property.objectAssignmentInitializer ? categoryOf(property.objectAssignmentInitializer) : null;
       bindAssignmentPattern(
-        ts, property.name, memberCategory(category, property.name.text),
-        memberName, memberCategory, bind,
+        ts, property.name, mergedFlowCategory(memberCategory(category, property.name.text), fallback),
+        categoryOf, memberName, memberCategory, bind,
       );
     } else if (ts.isPropertyAssignment(property)) {
       bindAssignmentPattern(
         ts, property.initializer, memberCategory(category, memberName(property.name)),
-        memberName, memberCategory, bind,
+        categoryOf, memberName, memberCategory, bind,
       );
     }
   }
