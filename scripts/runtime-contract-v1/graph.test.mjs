@@ -91,6 +91,19 @@ test('source and built closures reject every frozen dynamic-loader escape family
     'const { safe: Build = Math.max.constructor } = {}; Build("return process")()',
     'let Build; ({ safe: Build = Math.max.constructor } = {}); Build("return process")()',
     'function leak() { ({ constructor: this.build } = (() => {})); this.build("return process")(); }',
+    'const get = (target, key) => target[key]; const box = {}; box.build ||= get({}, "constructor"); box.build("return process")()',
+    'const get = (target, key) => target[key]; const box = { build: true }; box.build &&= get({}, "constructor"); box.build("return process")()',
+    'const get = (target, key) => target[key]; const box = {}; box.build ??= get({}, "constructor"); box.build("return process")()',
+    'const get = (target, key) => target[key]; const box = {}; (box.build ??= get({}, "constructor"))("return process")()',
+    'const get = (target, key) => target[key]; const { safe: Build = true ? get({}, "constructor") : null } = {}; Build("return process")()',
+    'const get = (target, key) => target[key]; const { safe: Build = (0, get({}, "constructor")) } = {}; Build("return process")()',
+    'const get = (target, key) => target[key]; const { safe: Build = false || get({}, "constructor") } = {}; Build("return process")()',
+    'const get = (target, key) => target[key]; const { safe: Build = true && get({}, "constructor") } = {}; Build("return process")()',
+    'const get = (target, key) => target[key]; const { safe: Build = null ?? get({}, "constructor") } = {}; Build("return process")()',
+    'const get = (target, key) => target[key]; async function leak() { const { safe: Build = await get({}, "constructor") } = {}; Build("return process")(); }',
+    'const get = (target, key) => target[key]; const Build = get({}, "constructor") satisfies unknown; Build("return process")()',
+    'const get = (target, key) => target[key]; const Build = get({}, "constructor")<unknown>; Build("return process")()',
+    'const get = (target, key) => target[key]; const invoke = (fn) => (true ? fn : null)("return process")(); invoke(get({}, "constructor"))',
     'globalThis["Fun" + "ction"]("return import(\\"node:fs\\")")()',
     '(() => {})["con" + "structor"]("return import(\\"node:fs\\")")()',
     'Reflect.get(globalThis, "Function")("return import(\\"node:fs\\")")()',
@@ -164,6 +177,8 @@ test('ordinary descriptor inspection and approved direct reflection remain avail
     'const box = {}; ({ safe: box.value } = { safe: 7 }); export const result = box.value',
     'const box = []; [box[0]] = [7]; export const result = box[0]',
     'const { safe: value = 7 } = {}; export const result = value',
+    'const box = {}; box.value ||= 7; box.value &&= 8; box.value ??= 9; export const result = box.value',
+    'const value = true ? 7 : 8; export const result = (0, value || 9)',
   ];
   for (const source of safeSources) {
     assert.deepEqual(runtimeModuleSpecifiers(source, 'safe.ts'), [], source);

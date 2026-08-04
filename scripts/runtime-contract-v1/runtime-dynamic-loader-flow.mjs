@@ -1,5 +1,6 @@
 const FUNCTION_FLOW_PREFIX = 'function-flow:';
 const CONTAINER_FLOW_PREFIX = /^(array|object)-flow:(.+)$/u;
+const OBJECT_RECORD_PREFIX = 'object-record-flow:';
 const ALIAS_METADATA = new WeakMap();
 
 function bindingIdentifiers(ts, name, out = []) {
@@ -67,8 +68,7 @@ export function scopedAliasCategories(aliases, identifier) {
   return categories.size > 0 ? categories : null;
 }
 
-export function scopedAliasKey(aliases, identifier, category) {
-  if (!category.includes('derived-dynamic')) return identifier.text;
+export function scopedAliasKey(aliases, identifier, _category) {
   const scope = bindingScope(aliases, identifier);
   return `${scope?.pos}:${scope?.end}:${identifier.text}`;
 }
@@ -84,40 +84,96 @@ function parameterReferences(ts, root, parameterIndices) {
   return found;
 }
 
-function invokedParameter(ts, callee, parameterIndices) {
-  let current = callee;
-  while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current)) {
-    current = current.expression;
-  }
-  if (ts.isIdentifier(current)) return parameterIndices.get(current.text);
-  if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
-    const receiver = current.expression;
-    const member = ts.isPropertyAccessExpression(current) ? current.name.text :
-      ts.isStringLiteral(current.argumentExpression) ? current.argumentExpression.text : null;
-    if (ts.isIdentifier(receiver) && ['apply', 'bind', 'call', 'constructor'].includes(member)) {
-      return parameterIndices.get(receiver.text);
-    }
-  }
-  return undefined;
-}
-
-function transparentExpression(ts, expression) {
+export function transparentFlowExpression(ts, expression) {
   let current = expression;
   while (
     ts.isParenthesizedExpression(current) ||
     ts.isAsExpression(current) ||
     ts.isNonNullExpression(current) ||
     ts.isTypeAssertionExpression(current) ||
-    ts.isSatisfiesExpression(current)
+    ts.isSatisfiesExpression(current) ||
+    ts.isExpressionWithTypeArguments(current)
   ) {
     current = current.expression;
   }
   return current;
 }
 
-function directParameter(ts, expression, parameterIndices) {
-  const current = transparentExpression(ts, expression);
-  return ts.isIdentifier(current) ? parameterIndices.get(current.text) : undefined;
+export function joinFlowCategories(...categories) {
+  const distinct = new Set(categories.filter(Boolean));
+  if (distinct.size === 0) return null;
+  return distinct.size === 1 ? distinct.values().next().value : 'ambiguous-dynamic';
+}
+
+function objectRecord(category) {
+  if (!category?.startsWith(OBJECT_RECORD_PREFIX)) return null;
+  return JSON.parse(category.slice(OBJECT_RECORD_PREFIX.length));
+}
+
+function objectRecordCategory(entries, fallback) {
+  if (entries.size === 0 && !fallback) return null;
+  return `${OBJECT_RECORD_PREFIX}${JSON.stringify({ entries: [...entries], fallback })}`;
+}
+
+export function memberFlowCategory(category, member) {
+  const record = objectRecord(category);
+  if (!record) return containedFlowCategory(category);
+  const entries = new Map(record.entries);
+  return member === null
+    ? joinFlowCategories(...entries.values(), record.fallback)
+    : joinFlowCategories(entries.get(member), record.fallback);
+}
+
+function isLogicalValueOperator(ts, kind) {
+  return kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+    kind === ts.SyntaxKind.QuestionQuestionToken;
+}
+
+export function isFlowAssignment(ts, kind) {
+  return kind === ts.SyntaxKind.EqualsToken || kind === ts.SyntaxKind.BarBarEqualsToken ||
+    kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken || kind === ts.SyntaxKind.QuestionQuestionEqualsToken;
+}
+
+export function assignmentFlowCategory(ts, expression, categoryOf) {
+  const kind = expression.operatorToken.kind;
+  if (kind === ts.SyntaxKind.EqualsToken) return categoryOf(expression.right);
+  if (isFlowAssignment(ts, kind)) {
+    return joinFlowCategories(categoryOf(expression.left), categoryOf(expression.right));
+  }
+  return null;
+}
+
+function selectedParameterIndices(ts, expression, parameterIndices) {
+  const current = transparentFlowExpression(ts, expression);
+  if (ts.isIdentifier(current)) {
+    const index = parameterIndices.get(current.text);
+    return index === undefined ? new Set() : new Set([index]);
+  }
+  if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+    const member = ts.isPropertyAccessExpression(current) ? current.name.text :
+      ts.isStringLiteral(current.argumentExpression) ? current.argumentExpression.text : null;
+    return ['apply', 'bind', 'call', 'constructor'].includes(member)
+      ? selectedParameterIndices(ts, current.expression, parameterIndices) : new Set();
+  }
+  if (ts.isConditionalExpression(current)) {
+    return new Set([
+      ...selectedParameterIndices(ts, current.whenTrue, parameterIndices),
+      ...selectedParameterIndices(ts, current.whenFalse, parameterIndices),
+    ]);
+  }
+  if (ts.isAwaitExpression(current)) return selectedParameterIndices(ts, current.expression, parameterIndices);
+  if (!ts.isBinaryExpression(current)) return new Set();
+  const kind = current.operatorToken.kind;
+  if (kind === ts.SyntaxKind.CommaToken || kind === ts.SyntaxKind.EqualsToken) {
+    return selectedParameterIndices(ts, current.right, parameterIndices);
+  }
+  if (isLogicalValueOperator(ts, kind) || isFlowAssignment(ts, kind)) {
+    return new Set([
+      ...selectedParameterIndices(ts, current.left, parameterIndices),
+      ...selectedParameterIndices(ts, current.right, parameterIndices),
+    ]);
+  }
+  return new Set();
 }
 
 export function functionFlowCategory(ts, node) {
@@ -134,13 +190,13 @@ export function functionFlowCategory(ts, node) {
   const body = node.body;
   if (!body) return 'function-object';
   function recordReturn(expression) {
-    const direct = directParameter(ts, expression, parameterIndices);
-    if (direct !== undefined) {
-      returned.add(direct);
+    const direct = selectedParameterIndices(ts, expression, parameterIndices);
+    if (direct.size > 0) {
+      for (const index of direct) returned.add(index);
       return;
     }
     const references = parameterReferences(ts, expression, parameterIndices);
-    const unwrapped = transparentExpression(ts, expression);
+    const unwrapped = transparentFlowExpression(ts, expression);
     const container = ts.isArrayLiteralExpression(unwrapped)
       ? arrayContained
       : ts.isObjectLiteralExpression(unwrapped) ? objectContained : null;
@@ -152,8 +208,7 @@ export function functionFlowCategory(ts, node) {
     if (ts.isReturnStatement(current) && current.expression) recordReturn(current.expression);
     if (ts.isCallExpression(current) || ts.isNewExpression(current) || ts.isTaggedTemplateExpression(current)) {
       const callee = ts.isTaggedTemplateExpression(current) ? current.tag : current.expression;
-      const index = invokedParameter(ts, callee, parameterIndices);
-      if (index !== undefined) invoked.add(index);
+      for (const index of selectedParameterIndices(ts, callee, parameterIndices)) invoked.add(index);
     }
     ts.forEachChild(current, visit);
   }
@@ -219,19 +274,35 @@ export function callFlowCategory(ts, expression, categoryOf) {
   return null;
 }
 
-export function aggregateFlowCategory(ts, expression, categoryOf) {
-  const values = ts.isArrayLiteralExpression(expression)
-    ? expression.elements
-    : expression.properties.flatMap((property) =>
-        ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)
-          ? [ts.isPropertyAssignment(property) ? property.initializer : property.name]
-          : ts.isSpreadAssignment(property) ? [property.expression] : []);
-  const categories = new Set(values.map(categoryOf).filter((category) =>
-    isFunctionCategory(category) || isForbiddenCallableCategory(category) || containedFlowCategory(category)));
+export function aggregateFlowCategory(ts, expression, categoryOf, memberName = () => null) {
+  if (ts.isObjectLiteralExpression(expression)) {
+    const entries = new Map();
+    let fallback = null;
+    function add(member, category) {
+      if (!category) return;
+      if (member === null) fallback = joinFlowCategories(fallback, category);
+      else entries.set(member, joinFlowCategories(entries.get(member), category));
+    }
+    for (const property of expression.properties) {
+      if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+        const value = ts.isPropertyAssignment(property) ? property.initializer : property.name;
+        add(memberName(property.name), categoryOf(value));
+      } else if (ts.isSpreadAssignment(property)) {
+        const spread = objectRecord(categoryOf(property.expression));
+        if (!spread) add(null, categoryOf(property.expression));
+        else {
+          for (const [member, category] of spread.entries) add(member, category);
+          add(null, spread.fallback);
+        }
+      }
+    }
+    return objectRecordCategory(entries, fallback);
+  }
+  const categories = new Set(expression.elements.map(categoryOf).filter((category) =>
+    isFunctionCategory(category) || isForbiddenCallableCategory(category) || containedFlowCategory(category) || objectRecord(category)));
   if (categories.size === 0) return null;
   if (categories.size > 1) return 'ambiguous-dynamic';
-  const kind = ts.isArrayLiteralExpression(expression) ? 'array' : 'object';
-  return `${kind}-flow:${categories.values().next().value}`;
+  return `array-flow:${categories.values().next().value}`;
 }
 
 export function containedFlowCategory(category) {
@@ -243,29 +314,23 @@ export function objectFlowCategory(category) {
 }
 
 export function assignmentTargetRoot(ts, target) {
-  let root = transparentExpression(ts, target);
+  let root = transparentFlowExpression(ts, target);
   const container = !ts.isIdentifier(root);
   while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
-    root = transparentExpression(ts, root.expression);
+    root = transparentFlowExpression(ts, root.expression);
   }
   return { container, root };
 }
 
-function mergedFlowCategory(primary, fallback) {
-  if (!primary) return fallback;
-  if (!fallback || fallback === primary) return primary;
-  return 'ambiguous-dynamic';
-}
-
 export function bindAssignmentPattern(ts, target, category, categoryOf, memberName, memberCategory, bind) {
-  const current = transparentExpression(ts, target);
+  const current = transparentFlowExpression(ts, target);
   if (ts.isIdentifier(current) || ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
     if (category) bind(current, category);
     return;
   }
   if (ts.isBinaryExpression(current) && current.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     bindAssignmentPattern(
-      ts, current.left, mergedFlowCategory(category, categoryOf(current.right)),
+      ts, current.left, joinFlowCategories(category, categoryOf(current.right)),
       categoryOf, memberName, memberCategory, bind,
     );
     return;
@@ -279,7 +344,7 @@ export function bindAssignmentPattern(ts, target, category, categoryOf, memberNa
       bindAssignmentPattern(
         ts,
         binding ? element.name : ts.isSpreadElement(element) ? element.expression : element,
-        mergedFlowCategory(elementCategory, fallback),
+        joinFlowCategories(elementCategory, fallback),
         categoryOf,
         memberName,
         memberCategory,
@@ -296,7 +361,7 @@ export function bindAssignmentPattern(ts, target, category, categoryOf, memberNa
       const selected = rest ? containedFlowCategory(category) ?? category : memberCategory(category, member);
       const fallback = element.initializer ? categoryOf(element.initializer) : null;
       bindAssignmentPattern(
-        ts, element.name, mergedFlowCategory(selected, fallback),
+        ts, element.name, joinFlowCategories(selected, fallback),
         categoryOf, memberName, memberCategory, bind,
       );
     }
@@ -312,7 +377,7 @@ export function bindAssignmentPattern(ts, target, category, categoryOf, memberNa
     } else if (ts.isShorthandPropertyAssignment(property)) {
       const fallback = property.objectAssignmentInitializer ? categoryOf(property.objectAssignmentInitializer) : null;
       bindAssignmentPattern(
-        ts, property.name, mergedFlowCategory(memberCategory(category, property.name.text), fallback),
+        ts, property.name, joinFlowCategories(memberCategory(category, property.name.text), fallback),
         categoryOf, memberName, memberCategory, bind,
       );
     } else if (ts.isPropertyAssignment(property)) {

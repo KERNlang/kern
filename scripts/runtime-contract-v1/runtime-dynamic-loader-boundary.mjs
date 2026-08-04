@@ -3,17 +3,22 @@ import ts from 'typescript';
 
 import {
   aggregateFlowCategory,
+  assignmentFlowCategory,
   assignmentTargetRoot,
   bindAssignmentPattern,
   callFlowCategory,
   containedFlowCategory,
   createAliasMap,
   functionFlowCategory,
+  isFlowAssignment,
   isForbiddenCallableCategory,
   isFunctionCategory,
+  joinFlowCategories,
+  memberFlowCategory,
   objectFlowCategory,
   scopedAliasCategories,
   scopedAliasKey,
+  transparentFlowExpression,
 } from './runtime-dynamic-loader-flow.mjs';
 
 const proofInventory = JSON.parse(readFileSync(
@@ -105,21 +110,8 @@ function identifierIsNonRuntimeName(node) {
   );
 }
 
-function unwrappedExpression(node) {
-  let current = node;
-  while (
-    ts.isParenthesizedExpression(current) ||
-    ts.isAsExpression(current) ||
-    ts.isTypeAssertionExpression(current) ||
-    ts.isNonNullExpression(current)
-  ) {
-    current = current.expression;
-  }
-  return current;
-}
-
 function staticString(node, stringAliases) {
-  const expression = unwrappedExpression(node);
+  const expression = transparentFlowExpression(ts, node);
   if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
   if (ts.isTemplateExpression(expression)) {
     let value = expression.head.text;
@@ -143,7 +135,7 @@ function staticString(node, stringAliases) {
 }
 
 function expressionCategory(node, aliases, stringAliases) {
-  const expression = unwrappedExpression(node);
+  const expression = transparentFlowExpression(ts, node);
   if (ts.isIdentifier(expression)) {
     const categories = scopedAliasCategories(aliases, expression);
     if (categories?.size === 1) return categories.values().next().value;
@@ -158,16 +150,42 @@ function expressionCategory(node, aliases, stringAliases) {
   }
   if (ts.isClassExpression(expression)) return 'function-object';
   if (ts.isArrayLiteralExpression(expression) || ts.isObjectLiteralExpression(expression)) {
-    return aggregateFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases));
+    return aggregateFlowCategory(ts, expression,
+      (value) => expressionCategory(value, aliases, stringAliases),
+      (name) => ts.isComputedPropertyName(name) ? staticString(name.expression, stringAliases) :
+        'text' in name ? name.text : null);
+  }
+  if (ts.isConditionalExpression(expression)) {
+    return joinFlowCategories(
+      expressionCategory(expression.whenTrue, aliases, stringAliases),
+      expressionCategory(expression.whenFalse, aliases, stringAliases),
+    );
+  }
+  if (ts.isAwaitExpression(expression)) return expressionCategory(expression.expression, aliases, stringAliases);
+  if (ts.isBinaryExpression(expression)) {
+    const kind = expression.operatorToken.kind;
+    if (kind === ts.SyntaxKind.CommaToken) return expressionCategory(expression.right, aliases, stringAliases);
+    if (
+      kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+      kind === ts.SyntaxKind.QuestionQuestionToken
+    ) {
+      return joinFlowCategories(
+        expressionCategory(expression.left, aliases, stringAliases),
+        expressionCategory(expression.right, aliases, stringAliases),
+      );
+    }
+    if (isFlowAssignment(ts, kind)) {
+      return assignmentFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases));
+    }
   }
   if (ts.isCallExpression(expression)) {
     const flow = callFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases));
     if (flow) return flow;
-    const callee = unwrappedExpression(expression.expression);
+    const callee = transparentFlowExpression(ts, expression.expression);
     const objectMember =
       (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) &&
-      ts.isIdentifier(unwrappedExpression(callee.expression)) &&
-      unwrappedExpression(callee.expression).text === 'Object'
+      ts.isIdentifier(transparentFlowExpression(ts, callee.expression)) &&
+      transparentFlowExpression(ts, callee.expression).text === 'Object'
         ? (ts.isPropertyAccessExpression(callee)
             ? callee.name.text
             : staticString(callee.argumentExpression, stringAliases))
@@ -199,7 +217,7 @@ function expressionCategory(node, aliases, stringAliases) {
       : staticString(expression.argumentExpression, stringAliases);
     if (isFunctionCategory(base) && member === null) return 'ambiguous-dynamic';
     if (base === 'function-namespace') return member === null ? 'ambiguous-dynamic' : 'function-object';
-    const contained = containedFlowCategory(base);
+    const contained = memberFlowCategory(base, member);
     if (contained) return contained;
     if (base === 'derived-dynamic') {
       return member === null || ['apply', 'bind', 'call', 'constructor'].includes(member)
@@ -216,7 +234,7 @@ function expressionCategory(node, aliases, stringAliases) {
     if (base === 'module' && member === 'require') return 'require';
     if (base === 'process' && member && processLoaderMembers.has(member)) return member;
     if (base === 'Reflect' && member && reflectiveLoaderMembers.has(member)) return 'reflective-loader';
-    const receiver = unwrappedExpression(expression.expression);
+    const receiver = transparentFlowExpression(ts, expression.expression);
     if (base && base !== 'Reflect' && forbiddenAliasBindings.has(base)) return base;
     if (ts.isIdentifier(receiver) && globalFunctionNamespaces.has(receiver.text) && member !== 'prototype') {
       return 'function-object';
@@ -235,7 +253,7 @@ function expressionCategory(node, aliases, stringAliases) {
 }
 
 function destructuredMemberCategory(base, member) {
-  const contained = containedFlowCategory(base);
+  const contained = memberFlowCategory(base, member);
   if (contained) return contained;
   if (isFunctionCategory(base) && member === null) return 'ambiguous-dynamic';
   if (member === 'constructor' && isFunctionCategory(base)) return 'dynamic-constructor';
@@ -286,20 +304,22 @@ function collectAliases(sourceFile) {
     function visit(node) {
       if (ts.isVariableDeclaration(node)) bind(node.name, node.initializer);
       if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
-        add(aliases, node.name.text, ts.isFunctionDeclaration(node) ? functionFlowCategory(ts, node) : 'function-object');
+        const category = ts.isFunctionDeclaration(node) ? functionFlowCategory(ts, node) : 'function-object';
+        add(aliases, scopedAliasKey(aliases, node.name, category), category);
       }
       if (
         ts.isBinaryExpression(node) &&
-        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        isFlowAssignment(ts, node.operatorToken.kind) &&
         (ts.isIdentifier(node.left) || ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
       ) {
-        if (ts.isIdentifier(node.left)) bind(node.left, node.right);
-        else bindCategoryTarget(node.left, categoryOf(node.right));
+        if (ts.isIdentifier(node.left) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) bind(node.left, node.right);
+        else bindCategoryTarget(node.left, assignmentFlowCategory(ts, node, categoryOf));
       }
       if (
         ts.isBinaryExpression(node) &&
         node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        (ts.isArrayLiteralExpression(unwrappedExpression(node.left)) || ts.isObjectLiteralExpression(unwrappedExpression(node.left)))
+        (ts.isArrayLiteralExpression(transparentFlowExpression(ts, node.left)) ||
+          ts.isObjectLiteralExpression(transparentFlowExpression(ts, node.left)))
       ) {
         bindAssignmentPattern(
           ts,
@@ -469,7 +489,7 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
             )
           : forbiddenDirectBindings.has(category))
       ) {
-        fail(`forbidden dynamic binding ${category} in ${sourcePath}`);
+        fail(`forbidden dynamic binding ${category} ${JSON.stringify(node.getText(sourceFile))} in ${sourcePath}`);
       }
     }
     ts.forEachChild(node, visit);
