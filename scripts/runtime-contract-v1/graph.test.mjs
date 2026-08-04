@@ -104,6 +104,7 @@ test('source and built closures reject every frozen dynamic-loader escape family
     'const get = (target, key) => target[key]; const Build = get({}, "constructor") satisfies unknown; Build("return process")()',
     'const get = (target, key) => target[key]; const Build = get({}, "constructor")<unknown>; Build("return process")()',
     'const get = (target, key) => target[key]; const invoke = (fn) => (true ? fn : null)("return process")(); invoke(get({}, "constructor"))',
+    'var { constructor: Build } = (() => {}); { var Build; Build("return process")(); }',
     'globalThis["Fun" + "ction"]("return import(\\"node:fs\\")")()',
     '(() => {})["con" + "structor"]("return import(\\"node:fs\\")")()',
     'Reflect.get(globalThis, "Function")("return import(\\"node:fs\\")")()',
@@ -179,6 +180,7 @@ test('ordinary descriptor inspection and approved direct reflection remain avail
     'const { safe: value = 7 } = {}; export const result = value',
     'const box = {}; box.value ||= 7; box.value &&= 8; box.value ??= 9; export const result = box.value',
     'const value = true ? 7 : 8; export const result = (0, value || 9)',
+    'var value = 7; { var value; } export const result = value',
   ];
   for (const source of safeSources) {
     assert.deepEqual(runtimeModuleSpecifiers(source, 'safe.ts'), [], source);

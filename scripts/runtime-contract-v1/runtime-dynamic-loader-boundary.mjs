@@ -7,7 +7,6 @@ import {
   assignmentTargetRoot,
   bindAssignmentPattern,
   callFlowCategory,
-  containedFlowCategory,
   createAliasMap,
   functionFlowCategory,
   isFlowAssignment,

@@ -25,8 +25,11 @@ export function createAliasMap(ts, sourceFile) {
   const aliases = new Map();
   const bindingScopes = new WeakMap();
   const scopeBindings = new Map();
-  function register(identifier, start) {
-    const scope = scopeAncestors(ts, start)[0] ?? sourceFile;
+  function register(identifier, start, blockScoped = true) {
+    const ancestors = scopeAncestors(ts, start);
+    const scope = (blockScoped
+      ? ancestors[0]
+      : ancestors.find((candidate) => ts.isFunctionLike(candidate) || ts.isSourceFile(candidate))) ?? sourceFile;
     bindingScopes.set(identifier, scope);
     const names = scopeBindings.get(scope) ?? new Set();
     names.add(identifier.text);
@@ -34,7 +37,9 @@ export function createAliasMap(ts, sourceFile) {
   }
   function visit(node) {
     if (ts.isVariableDeclaration(node)) {
-      for (const identifier of bindingIdentifiers(ts, node.name)) register(identifier, node.parent);
+      const blockScoped = !ts.isVariableDeclarationList(node.parent) ||
+        (node.parent.flags & ts.NodeFlags.BlockScoped) !== 0;
+      for (const identifier of bindingIdentifiers(ts, node.name)) register(identifier, node.parent, blockScoped);
     } else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
       register(node.name, node.parent);
     }
