@@ -367,6 +367,17 @@ export function assignmentTargetRoot(ts, target) {
   return { container, root };
 }
 
+export function bindForOfStatement(ts, node, categoryOf, memberName, memberCategory, bind) {
+  const source = categoryOf(node.expression);
+  const category = containedFlowCategory(source) ?? source;
+  const targets = ts.isVariableDeclarationList(node.initializer)
+    ? node.initializer.declarations.map((declaration) => declaration.name)
+    : [node.initializer];
+  for (const target of targets) {
+    bindAssignmentPattern(ts, target, category, categoryOf, memberName, memberCategory, bind);
+  }
+}
+
 export function bindAssignmentPattern(ts, target, category, categoryOf, memberName, memberCategory, bind) {
   const current = transparentFlowExpression(ts, target);
   if (ts.isIdentifier(current) || ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {

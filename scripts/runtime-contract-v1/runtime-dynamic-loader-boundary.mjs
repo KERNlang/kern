@@ -6,6 +6,7 @@ import {
   assignmentFlowCategory,
   assignmentTargetRoot,
   bindAssignmentPattern,
+  bindForOfStatement,
   callFlowCategory,
   createAliasMap,
   functionFlowCategory,
@@ -16,8 +17,7 @@ import {
   memberFlowCategory,
   objectFlowCategory,
   scopedAliasCategories,
-  scopedAliasKey,
-  scopedAliasWriteKey,
+  scopedAliasKey, scopedAliasWriteKey,
   transparentFlowExpression,
 } from './runtime-dynamic-loader-flow.mjs';
 
@@ -303,6 +303,7 @@ function collectAliases(sourceFile) {
     }
     function visit(node) {
       if (ts.isVariableDeclaration(node)) bind(node.name, node.initializer);
+      if (ts.isForOfStatement(node)) bindForOfStatement(ts, node, categoryOf, memberNameOf, destructuredMemberCategory, bindCategoryTarget);
       if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {
         const category = ts.isFunctionDeclaration(node) ? functionFlowCategory(ts, node) : 'function-object';
         add(aliases, scopedAliasKey(aliases, node.name, category), category);
