@@ -33,7 +33,11 @@ test('public handler ABI rejects every forbidden owner directly', () => {
       [publicHandler, `import '${importPath}';`],
       [target, 'export {};'],
     ]);
-    assert.throws(() => assertPublicHandlerAbiClosure(syntheticCore, reader(entries)), /is reachable/u, target);
+    assert.throws(
+      () => assertPublicHandlerAbiClosure(syntheticCore, reader(entries)),
+      /unapproved machine owner|is reachable/u,
+      target,
+    );
   }
 });
 
@@ -46,7 +50,10 @@ test('public handler ABI rejects transitive and re-export bridges', () => {
       [bridge, bridgeSource],
       [target, 'export const run = () => {};'],
     ]);
-    assert.throws(() => assertPublicHandlerAbiClosure(syntheticCore, reader(entries)), /runner\.ts is reachable/u);
+    assert.throws(
+      () => assertPublicHandlerAbiClosure(syntheticCore, reader(entries)),
+      /unapproved machine owner|runner\.ts is reachable/u,
+    );
   }
 });
 

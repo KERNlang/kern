@@ -235,7 +235,7 @@ test('direct executable-envelope policy rejects createRequire loader bypasses', 
   );
   assert.throws(
     () => assertExecutableEnvelopeDirectClosure(syntheticCoreSource, reader(sources)),
-    /unapproved Node builtin node:module/u,
+    /forbidden dynamic binding createRequire/u,
   );
 });
 

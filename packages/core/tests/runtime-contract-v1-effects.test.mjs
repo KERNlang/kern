@@ -8,9 +8,14 @@ import {
   KERN_RUNTIME_HANDLER_ABI,
   KernRuntimeHandlerError,
 } from '@kernlang/core/runtime/handler';
+import { observeRuntimeTimers } from './runtime-contract-v1-timer-observer.mjs';
 
-const goldens = JSON.parse(readFileSync('scripts/runtime-contract-v1/goldens.json', 'utf8'));
-const proofInventory = JSON.parse(readFileSync('scripts/runtime-contract-v1/proof-inventory.json', 'utf8'));
+const goldens = JSON.parse(
+  readFileSync(new URL('../../../scripts/runtime-contract-v1/goldens.json', import.meta.url), 'utf8'),
+);
+const proofInventory = JSON.parse(
+  readFileSync(new URL('../../../scripts/runtime-contract-v1/proof-inventory.json', import.meta.url), 'utf8'),
+);
 
 function request(source, arguments_ = [], abi = KERN_RUNTIME_HANDLER_ABI) {
   return { abi, arguments: arguments_, identity: { handlerName: 'answer', sourcePath: 'a' }, source };
@@ -37,7 +42,7 @@ const providerSource = source([], 'string', [
 
 test('every pre-provider rejection keeps providers, publications, timers, and state untouched', async () => {
   assert.deepEqual(
-    proofInventory.effects.slice(0, 7).map(({ id }) => id),
+    proofInventory.effects.map(({ id }) => id),
     [
       'pre-invalid-abi',
       'pre-invalid-request',
@@ -46,16 +51,19 @@ test('every pre-provider rejection keeps providers, publications, timers, and st
       'pre-unsupported-handler',
       'pre-invalid-arguments',
       'pre-invalid-capability-input',
+      'post-invalid-provider-result',
+      'post-declared-result-mismatch',
     ],
   );
   const cases = [
-    { id: 'pre-invalid-abi', invocation: request(providerSource, [], 'wrong-abi'), override: {} },
-    { id: 'pre-invalid-request', invocation: { ...request(providerSource), arguments: {} }, override: {} },
-    { id: 'pre-invalid-options', invocation: request(providerSource), override: { unknown: true } },
+    { id: 'pre-invalid-abi', invocation: request(providerSource, [], 'wrong-abi'), override: {}, error: 'invalid-abi' },
+    { id: 'pre-invalid-request', invocation: { ...request(providerSource), arguments: {} }, override: {}, error: 'invalid-request' },
+    { id: 'pre-invalid-options', invocation: request(providerSource), override: { unknown: true }, error: 'invalid-options' },
     {
       id: 'pre-invalid-limits',
       invocation: request(providerSource),
       override: { limits: { ...goldens.limits, maxBytes: 0 } },
+      error: 'invalid-limits',
     },
     {
       id: 'pre-unsupported-handler',
@@ -64,6 +72,7 @@ test('every pre-provider rejection keeps providers, publications, timers, and st
         'return value="value"',
       ]), ['wrong']),
       override: {},
+      diagnostic: 'handler-entry-unsupported',
     },
     {
       id: 'pre-invalid-arguments',
@@ -72,6 +81,7 @@ test('every pre-provider rejection keeps providers, publications, timers, and st
         'return value="value"',
       ]), ['wrong']),
       override: {},
+      diagnostic: 'invalid-handler-arguments',
     },
     {
       id: 'pre-invalid-capability-input',
@@ -81,50 +91,58 @@ test('every pre-provider rejection keeps providers, publications, timers, and st
         'return value="value"',
       ])),
       override: {},
+      diagnostic: 'unsupported-runtime-input',
     },
   ];
-  const originalSetTimeout = globalThis.setTimeout;
   for (const fixture of cases) {
     for (const mode of ['sync', 'async']) {
-      const state = { first: 0, later: 0, timers: 0 };
+      const state = { first: 0, later: 0 };
       const capabilities = {
         demo: {
           first() { state.first += 1; return 'first'; },
           later() { state.later += 1; return 'later'; },
         },
       };
-      globalThis.setTimeout = (...arguments_) => {
-        state.timers += 1;
-        return originalSetTimeout(...arguments_);
-      };
-      try {
+      const observation = await observeRuntimeTimers(async () => {
         const accepted = options(capabilities, fixture.override);
-        let envelope;
-        if (mode === 'sync') {
-          try {
-            envelope = executeKernRuntimeHandlerSync(fixture.invocation, accepted);
-          } catch (error) {
-            assert.ok(error instanceof KernRuntimeHandlerError, fixture.id);
-          }
-        } else {
-          try {
-            envelope = await executeKernRuntimeHandlerAsync(fixture.invocation, {
+        let envelope = null;
+        if (fixture.error && mode === 'sync') {
+          assert.throws(
+            () => executeKernRuntimeHandlerSync(fixture.invocation, accepted),
+            (error) => error instanceof KernRuntimeHandlerError && error.code === fixture.error,
+            fixture.id,
+          );
+        } else if (fixture.error) {
+          await assert.rejects(
+            executeKernRuntimeHandlerAsync(fixture.invocation, {
               ...accepted,
               asyncCapabilities: capabilities,
               capabilityTimeoutMs: 20,
-            });
-          } catch (error) {
-            assert.ok(error instanceof KernRuntimeHandlerError, fixture.id);
-          }
+            }),
+            (error) => error instanceof KernRuntimeHandlerError && error.code === fixture.error,
+            fixture.id,
+          );
+        } else if (mode === 'sync') {
+          envelope = executeKernRuntimeHandlerSync(fixture.invocation, accepted);
+        } else {
+          envelope = await executeKernRuntimeHandlerAsync(fixture.invocation, {
+            ...accepted,
+            asyncCapabilities: capabilities,
+            capabilityTimeoutMs: 20,
+          });
         }
-        if (envelope) {
+        if (!fixture.error) {
+          assert.ok(envelope, `${fixture.id} ${mode} envelope`);
+          assert.equal(envelope.diagnostics[0]?.code, fixture.diagnostic, `${fixture.id} ${mode} diagnostic`);
           assert.deepEqual(envelope.events, [], `${fixture.id} ${mode} events`);
           assert.deepEqual(envelope.result, { presence: 'absent' }, `${fixture.id} ${mode} result`);
         }
-        assert.deepEqual(state, { first: 0, later: 0, timers: 0 }, `${fixture.id} ${mode} effects`);
-      } finally {
-        globalThis.setTimeout = originalSetTimeout;
-      }
+      }, () => {
+        const unrelatedTimer = globalThis.setTimeout(() => {}, 1_000);
+        globalThis.clearTimeout(unrelatedTimer);
+      });
+      assert.deepEqual(observation.counts, { timerRegistrations: 0, timerClears: 0 });
+      assert.deepEqual(state, { first: 0, later: 0 }, `${fixture.id} ${mode} effects`);
     }
   }
 });

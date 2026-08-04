@@ -50,6 +50,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'internal-runtime-envelope',
       'diff-hygiene',
       'runtime-handler-abi',
+      'runtime-contract-v1',
       'core-runtime-internalization',
       'source-runner-convergence',
       'kern-kir-canonicalizer',
@@ -176,6 +177,13 @@ test('runtime ABI gate keeps every public handler entry and helper-link oracle',
     ),
     'test:runtime-abi helper-link selector must match a real test file',
   );
+});
+
+test('runtime contract v1 gate executes both candidate and rejection-effects evidence', () => {
+  const runtimeContract = packageJson.scripts['test:kern-runtime-contract-v1'];
+  assert.match(runtimeContract, /packages\/core\/tests\/runtime-contract-v1-candidate\.test\.mjs/u);
+  assert.match(runtimeContract, /packages\/core\/tests\/runtime-contract-v1-effects\.test\.mjs/u);
+  assert.equal(policy.entrypoints['test:kern-runtime-contract-v1'], runtimeContract);
 });
 
 test('aggregate uses argv without a shell, preserves order, and stops at first failure', () => {

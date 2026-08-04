@@ -17,6 +17,7 @@
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
     "test:kern-runtime-envelope": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-envelope|portable-machine-evaluator' && node --test ./scripts/runtime-envelope-import-closure.test.mjs ./scripts/runtime-envelope-handler-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
+    "test:kern-runtime-contract-v1": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/core test --testPathPatterns=runtime-contract-v1-parity && node --test scripts/runtime-contract-v1/*.test.mjs packages/core/tests/runtime-contract-v1-candidate.test.mjs packages/core/tests/runtime-contract-v1-effects.test.mjs && node ./scripts/check-runtime-contract-v1.mjs",
     "test:kern-5-fitness": "node --test scripts/kern-5-fitness.test.mjs",
     "test:core-runtime-internalization": "pnpm --filter @kernlang/core --filter kern-lang build && node scripts/check-core-runtime-internalization.mjs && node --test scripts/core-runtime-internalization.test.mjs",
     "test:runtime-abi": "pnpm --filter @kernlang/core test --testPathPatterns='runtime-handler-(public|helper-link)' && node --test ./scripts/runtime-handler-public-import-closure.test.mjs && node ./scripts/check-runtime-envelope.mjs",
@@ -175,6 +176,12 @@
       "label": "Default-off public typed runtime handler ABI",
       "status": "current",
       "argv": ["pnpm", "test:runtime-abi"]
+    },
+    {
+      "id": "runtime-contract-v1",
+      "label": "Frozen runtime handler, capability, event, diagnostic, limit, and rejection contract v1",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-runtime-contract-v1"]
     },
     {
       "id": "core-runtime-internalization",
@@ -426,9 +433,9 @@
     },
     {
       "id": "typed-runtime-handler-abi",
-      "label": "Default-off public typed runtime handler ABI",
+      "label": "Frozen default-off public typed runtime handler ABI",
       "status": "internal-oracle",
-      "evidence": "pnpm test:runtime-abi"
+      "evidence": "pnpm test:kern-runtime-contract-v1"
     },
     {
       "id": "core-runtime-internalization",

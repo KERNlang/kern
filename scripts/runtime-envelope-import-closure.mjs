@@ -1,175 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
-import ts from 'typescript';
 
-const runtimeContractProofInventory = JSON.parse(
-  readFileSync(new URL('./runtime-contract-v1/proof-inventory.json', import.meta.url), 'utf8'),
-);
-const forbiddenDynamicBindings = new Set(runtimeContractProofInventory.forbiddenDynamicBindings);
-const forbiddenDirectBindings = new Set(
-  [...forbiddenDynamicBindings].filter((name) => !['constructor', 'global', 'globalThis', 'module'].includes(name)),
-);
-export const RUNTIME_DYNAMIC_ESCAPE_BINDINGS = Object.freeze(
-  [...runtimeContractProofInventory.forbiddenDynamicBindings],
-);
+import {
+  RUNTIME_DYNAMIC_ESCAPE_BINDINGS,
+  RUNTIME_REFLECTIVE_ESCAPE_MEMBERS,
+  runtimeModuleSpecifiers,
+} from './runtime-contract-v1/runtime-dynamic-loader-boundary.mjs';
+import {
+  assertExactRuntimeMachineOwners,
+  runtimeMachineOwnerPaths,
+} from './runtime-contract-v1/runtime-machine-owner-allowlist.mjs';
+
+export { RUNTIME_DYNAMIC_ESCAPE_BINDINGS, RUNTIME_REFLECTIVE_ESCAPE_MEMBERS, runtimeModuleSpecifiers };
 
 function fail(message) {
   throw new Error(`runtime-envelope import closure: ${message}`);
-}
-
-function importHasRuntimeValue(node) {
-  const clause = node.importClause;
-  if (!clause) return true;
-  if (clause.isTypeOnly) return false;
-  if (clause.name) return true;
-  if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) return true;
-  return clause.namedBindings?.elements.some((element) => !element.isTypeOnly) ?? false;
-}
-
-function exportHasRuntimeValue(node) {
-  if (node.isTypeOnly) return false;
-  if (!node.exportClause || ts.isNamespaceExport(node.exportClause)) return true;
-  return node.exportClause.elements.some((element) => !element.isTypeOnly);
-}
-
-function identifierIsNonRuntimeName(node) {
-  const parent = node.parent;
-  if (ts.isTypeNode(parent) || ts.isQualifiedName(parent)) return true;
-  if (
-    (ts.isPropertySignature(parent) ||
-      ts.isPropertyDeclaration(parent) ||
-      ts.isPropertyAssignment(parent) ||
-      ts.isMethodDeclaration(parent) ||
-      ts.isMethodSignature(parent) ||
-      ts.isGetAccessorDeclaration(parent) ||
-      ts.isSetAccessorDeclaration(parent) ||
-      ts.isPropertyAccessExpression(parent)) &&
-    parent.name === node
-  ) {
-    return true;
-  }
-  return (
-    (ts.isVariableDeclaration(parent) ||
-      ts.isParameter(parent) ||
-      ts.isFunctionDeclaration(parent) ||
-      ts.isFunctionExpression(parent) ||
-      ts.isClassDeclaration(parent) ||
-      ts.isClassExpression(parent) ||
-      ts.isInterfaceDeclaration(parent) ||
-      ts.isTypeAliasDeclaration(parent) ||
-      ts.isImportClause(parent) ||
-      ts.isImportSpecifier(parent) ||
-      ts.isNamespaceImport(parent) ||
-      ts.isBindingElement(parent)) &&
-    parent.name === node
-  );
-}
-
-function unwrappedExpression(node) {
-  let current = node;
-  while (ts.isParenthesizedExpression(current)) current = current.expression;
-  return current;
-}
-
-function isDynamicConstructorAccess(node) {
-  if (node.name.text !== 'constructor') return false;
-  const parent = node.parent;
-  if (
-    ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === node) ||
-    (ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === 'constructor')
-  ) {
-    return true;
-  }
-  const base = unwrappedExpression(node.expression);
-  return ts.isArrowFunction(base) || ts.isFunctionExpression(base) || ts.isClassExpression(base);
-}
-
-function hostIdentifier(node) {
-  const expression = unwrappedExpression(node);
-  return ts.isIdentifier(expression) ? expression.text : null;
-}
-
-function isHostLoaderMemberAccess(node) {
-  const host = hostIdentifier(node.expression);
-  if (host === 'process') return ['_linkedBinding', 'binding', 'getBuiltinModule'].includes(node.name.text);
-  if (host === 'module') return node.name.text === 'require';
-  return (
-    (host === 'globalThis' || host === 'global') &&
-    ['Function', 'eval', 'importScripts', 'process', 'require'].includes(node.name.text)
-  );
-}
-
-function isHostLoaderElementAccess(node) {
-  const host = hostIdentifier(node.expression);
-  const member = ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : null;
-  if (host === 'process') return member === null || ['_linkedBinding', 'binding', 'getBuiltinModule'].includes(member);
-  if (host === 'module') return member === null || member === 'require';
-  if (host === 'globalThis' || host === 'global') {
-    return member === null || ['Function', 'eval', 'importScripts', 'process', 'require'].includes(member);
-  }
-  if (member !== 'constructor') return false;
-  const parent = node.parent;
-  return (
-    ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === node) ||
-    (ts.isElementAccessExpression(parent) && parent.expression === node)
-  );
-}
-
-export function runtimeModuleSpecifiers(source, sourcePath) {
-  const sourceFile = ts.createSourceFile(sourcePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  if ((sourceFile.parseDiagnostics ?? []).length > 0) fail(`cannot parse ${sourcePath}`);
-  const specifiers = [];
-  function visit(node) {
-    if (ts.isImportDeclaration(node) && importHasRuntimeValue(node)) {
-      if (!ts.isStringLiteral(node.moduleSpecifier)) fail(`non-literal import in ${sourcePath}`);
-      specifiers.push(node.moduleSpecifier.text);
-    } else if (
-      ts.isImportEqualsDeclaration(node) &&
-      !node.isTypeOnly &&
-      ts.isExternalModuleReference(node.moduleReference)
-    ) {
-      const specifier = node.moduleReference.expression;
-      if (!specifier || !ts.isStringLiteral(specifier)) fail(`non-literal import-equals in ${sourcePath}`);
-      specifiers.push(specifier.text);
-    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && exportHasRuntimeValue(node)) {
-      if (!ts.isStringLiteral(node.moduleSpecifier)) fail(`non-literal export in ${sourcePath}`);
-      specifiers.push(node.moduleSpecifier.text);
-    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-      const [argument] = node.arguments;
-      if (!argument || !ts.isStringLiteral(argument)) fail(`non-literal dynamic import in ${sourcePath}`);
-      specifiers.push(argument.text);
-    } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require') {
-      const [argument] = node.arguments;
-      if (!argument || !ts.isStringLiteral(argument)) fail(`non-literal require in ${sourcePath}`);
-      specifiers.push(argument.text);
-    } else if (
-      ts.isPropertyAccessExpression(node) &&
-      (isDynamicConstructorAccess(node) || isHostLoaderMemberAccess(node))
-    ) {
-      fail(`dynamic loader member ${node.name.text} in ${sourcePath}`);
-    } else if (
-      ts.isElementAccessExpression(node) &&
-      isHostLoaderElementAccess(node)
-    ) {
-      fail(`computed dynamic binding in ${sourcePath}`);
-    } else if (
-      ts.isIdentifier(node) &&
-      node.text === 'require' &&
-      !(ts.isCallExpression(node.parent) && node.parent.expression === node)
-    ) {
-      fail(`indirect require in ${sourcePath}`);
-    } else if (
-      ts.isIdentifier(node) &&
-      node.text !== 'constructor' &&
-      forbiddenDirectBindings.has(node.text) &&
-      !identifierIsNonRuntimeName(node)
-    ) {
-      fail(`forbidden dynamic binding ${node.text} in ${sourcePath}`);
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-  return specifiers;
 }
 
 function barePackageName(specifier) {
@@ -450,11 +295,36 @@ export function assertPublicHandlerAbiClosure(
   coreSourceRoot,
   readText = (path) => readFileSync(path, 'utf8'),
 ) {
-  return assertRuntimeImportClosureExcludes(
+  const allowed = runtimeMachineOwnerPaths(coreSourceRoot, '.ts');
+  const guardedRead = (path) => {
+    if (!allowed.has(path)) fail(`unapproved machine owner ${path}`);
+    return readText(path);
+  };
+  const visited = assertRuntimeImportClosureExcludes(
     [resolve(coreSourceRoot, 'runtime-handler.ts')],
     handlerEnvelopeForbiddenPaths(coreSourceRoot),
-    readText,
+    guardedRead,
     EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
     false,
   );
+  return assertExactRuntimeMachineOwners(coreSourceRoot, visited, '.ts');
+}
+
+/** The emitted public entry must contain the identical enumerated owner graph. */
+export function assertPublicHandlerBuiltAbiClosure(
+  coreDistRoot,
+  readText = (path) => readFileSync(path, 'utf8'),
+) {
+  const allowed = runtimeMachineOwnerPaths(coreDistRoot, '.js');
+  const guardedRead = (path) => {
+    if (!allowed.has(path)) fail(`unapproved machine owner ${path}`);
+    return readText(path);
+  };
+  const visited = runtimeJavaScriptImportClosure(
+    [resolve(coreDistRoot, 'runtime-handler.js')],
+    guardedRead,
+    EXECUTABLE_ENVELOPE_ALLOWED_BARE_SPECIFIERS,
+    false,
+  );
+  return assertExactRuntimeMachineOwners(coreDistRoot, visited, '.js');
 }

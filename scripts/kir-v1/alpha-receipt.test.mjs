@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   generateAlphaReceipt,
+  RUNTIME_CONTRACT_RECEIPT_BINDINGS,
   validateAlphaReceiptBindings,
   validateAlphaReceiptPolicy,
 } from './alpha-receipt.mjs';
@@ -14,11 +15,8 @@ const sha = '0123456789abcdef0123456789abcdef01234567';
 
 function policy() {
   return {
-    bindings: ['scripts/kir-v1/alpha-receipt-policy.json'],
-    exclusions: [
-      { id: 'public-release', reason: 'deferred-to-r4' },
-      { id: 'runtime-handler-abi', reason: 'deferred-to-r2-m3' },
-    ],
+    bindings: [...RUNTIME_CONTRACT_RECEIPT_BINDINGS, 'scripts/kir-v1/alpha-receipt-policy.json'].sort(),
+    exclusions: [{ id: 'public-release', reason: 'deferred-to-r4' }],
     format: 'kern.kir.alpha-receipt.r1.5d.2',
     maxCommandOutputBytes: 65_536,
     oracleTimeoutMs: 5_000,
@@ -29,7 +27,7 @@ function policy() {
       kirV1Frozen: false,
       publicReaderExport: false,
       runtimeCutover: false,
-      runtimeHandlerAbi: false,
+      runtimeHandlerAbi: true,
       semanticSelfHosting: false,
     },
   };
@@ -39,6 +37,11 @@ function fixture() {
   const rootDir = path.join(os.tmpdir(), `kern-alpha-receipt-${process.pid}-${Math.random().toString(16).slice(2)}`);
   const policyPath = path.join(rootDir, 'scripts/kir-v1');
   mkdirSync(policyPath, { recursive: true });
+  for (const binding of RUNTIME_CONTRACT_RECEIPT_BINDINGS) {
+    const bindingPath = path.join(rootDir, binding);
+    mkdirSync(path.dirname(bindingPath), { recursive: true });
+    writeFileSync(bindingPath, `${binding}\n`);
+  }
   writeFileSync(path.join(policyPath, 'alpha-receipt-policy.json'), JSON.stringify(policy()));
   return rootDir;
 }
@@ -64,6 +67,18 @@ test('checked-in policy is closed, sorted, and self-bound', () => {
   assert.equal(bindings.every((binding) => /^[0-9a-f]{64}$/u.test(binding.sha256)), true);
 });
 
+test('runtime contract denominator tracks every normative artifact mechanically', () => {
+  const actual = JSON.parse(readFileSync('scripts/kir-v1/alpha-receipt-policy.json', 'utf8'));
+  for (const binding of RUNTIME_CONTRACT_RECEIPT_BINDINGS) {
+    assert.equal(actual.bindings.includes(binding), true, binding);
+  }
+  for (const missing of RUNTIME_CONTRACT_RECEIPT_BINDINGS) {
+    const mutated = structuredClone(actual);
+    mutated.bindings.splice(mutated.bindings.indexOf(missing), 1);
+    assert.throws(() => validateAlphaReceiptPolicy(mutated), /complete runtime contract denominator/u, missing);
+  }
+});
+
 test('clean HEAD produces one canonical immutable receipt and regenerates byte-identically', (t) => {
   const rootDir = fixture();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -75,6 +90,7 @@ test('clean HEAD produces one canonical immutable receipt and regenerates byte-i
   assert.equal(first.receipt.commitSha, sha);
   assert.equal(first.receipt.status.alphaAccepted, true);
   assert.equal(first.receipt.status.kirV1Frozen, false);
+  assert.equal(first.receipt.status.runtimeHandlerAbi, true);
   assert.deepEqual(first.receipt.oracles, [{ argv: ['pnpm', 'test:oracle'], id: 'oracle', status: 'passed' }]);
   assert.equal(firstBytes.toString('utf8').includes('oracle output'), false);
 });

@@ -1,0 +1,16 @@
+{
+  "format": "kern.runtime.contract.authority.v1",
+  "introductionCommit": "8d2859a681b1cc244e7c6228cb0f6b336cac67af",
+  "artifacts": [
+    "scripts/runtime-contract-v1/constitution.json",
+    "scripts/runtime-contract-v1/proof-inventory.json",
+    "scripts/runtime-contract-v1/public-declaration-schema.json",
+    "scripts/runtime-contract-v1/goldens.json",
+    "scripts/runtime-contract-v1/lineage.json"
+  ],
+  "supersededCommits": [
+    "7b9f01675df11fbf9c3f0a40187bd865fd04a918",
+    "cb0712563c4b3bb9e18d11f9651e45c92e1e5820",
+    "2581a8723f70f1aa24b55265a836ef266ea65c73"
+  ]
+}

@@ -288,6 +288,9 @@ const rootPackage = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 if (rootPackage.scripts?.['test:runtime-abi'] === undefined) {
   fail('test:runtime-abi must exist after public ABI promotion');
 }
+if (rootPackage.scripts?.['test:kern-runtime-contract-v1'] === undefined) {
+  fail('test:kern-runtime-contract-v1 must exist after runtime contract freeze');
+}
 
 const policy = JSON.parse(readFileSync(join(ROOT, 'scripts/kern-5-fitness-policy.json'), 'utf8'));
 const publicGate = policy.gates.find((gate) => gate.id === 'runtime-handler-abi');
@@ -295,8 +298,11 @@ if (publicGate?.status !== 'current') {
   fail('runtime-handler-abi must be a current fitness gate after public promotion');
 }
 const publicHandlerOwnership = policy.ownership.find((entry) => entry.id === 'typed-runtime-handler-abi');
-if (publicHandlerOwnership?.status !== 'internal-oracle' || publicHandlerOwnership.evidence !== 'pnpm test:runtime-abi') {
-  fail('typed runtime handler ABI must be a default-off internal oracle with an executable gate');
+if (
+  publicHandlerOwnership?.status !== 'internal-oracle' ||
+  publicHandlerOwnership.evidence !== 'pnpm test:kern-runtime-contract-v1'
+) {
+  fail('typed runtime handler ABI must be a frozen default-off internal oracle with anchored v1 evidence');
 }
 const capabilityOwnership = policy.ownership.find((entry) => entry.id === 'internal-runtime-capability-seam');
 if (capabilityOwnership?.status !== 'internal-oracle') {
@@ -346,13 +352,16 @@ if (effectMachineArchitectureOwnership?.status !== 'internal-oracle') {
 }
 
 const eligibility = JSON.parse(readFileSync(join(ROOT, 'scripts/kir-v1/eligibility.json'), 'utf8'));
-if (eligibility.claims?.runtimeAbiFrozen !== false) {
-  fail('KIR eligibility must continue to state that the runtime ABI is unfrozen');
+if (eligibility.claims?.runtimeAbiFrozen !== true) {
+  fail('KIR eligibility must state that the runtime ABI is independently frozen');
 }
-for (const id of ['trace-abi', 'handler-abi', 'capability-abi']) {
-  if (!eligibility.deferredContracts?.some((contract) => contract.id === id)) {
-    fail(`${id} must remain explicitly deferred`);
-  }
+if (
+  JSON.stringify(eligibility.deferredContracts) !==
+  JSON.stringify([{ id: 'kir-runtime-binding', milestone: 'P1-composition' }])
+) {
+  fail('only the KIR-to-runtime binding may remain deferred after the runtime contract freeze');
 }
 
-process.stdout.write('runtime handler ABI: PASS (default-off public facade; machine-only containment)\n');
+process.stdout.write(
+  'runtime handler ABI: PASS (frozen default-off public facade; anchored v1 evidence; machine-only containment)\n',
+);

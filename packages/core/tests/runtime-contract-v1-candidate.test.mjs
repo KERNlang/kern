@@ -10,10 +10,17 @@ import {
 } from '@kernlang/core/runtime/handler';
 import { encodeInternalRuntimeEnvelope } from '../dist/runtime-envelope/normalize.js';
 import { normalizeInternalRuntimeSlot } from '../dist/runtime-envelope/value.js';
+import { observeRuntimeTimers } from './runtime-contract-v1-timer-observer.mjs';
 
-const constitution = JSON.parse(readFileSync('scripts/runtime-contract-v1/constitution.json', 'utf8'));
-const goldens = JSON.parse(readFileSync('scripts/runtime-contract-v1/goldens.json', 'utf8'));
-const proofInventory = JSON.parse(readFileSync('scripts/runtime-contract-v1/proof-inventory.json', 'utf8'));
+const constitution = JSON.parse(
+  readFileSync(new URL('../../../scripts/runtime-contract-v1/constitution.json', import.meta.url), 'utf8'),
+);
+const goldens = JSON.parse(
+  readFileSync(new URL('../../../scripts/runtime-contract-v1/goldens.json', import.meta.url), 'utf8'),
+);
+const proofInventory = JSON.parse(
+  readFileSync(new URL('../../../scripts/runtime-contract-v1/proof-inventory.json', import.meta.url), 'utf8'),
+);
 
 function request(fixture, abi = KERN_RUNTIME_HANDLER_ABI) {
   return {
@@ -213,63 +220,51 @@ test('literal enforcement witnesses freeze every declared limit family', async (
 
 test('phase ledger proves exact provider, publication, and timer permissions', async () => {
   const invalidInput = goldens.cases.find(({ id }) => id === 'failure-invalid-capability-input');
-  const originalSetTimeout = globalThis.setTimeout;
-  const originalClearTimeout = globalThis.clearTimeout;
   async function observeInvalidInput(mode, witness) {
-    const counts = {
+    const listenerCounts = {
       listenerAdds: 0,
       listenerRemoves: 0,
-      timerRegistrations: 0,
-      timerClears: 0,
     };
     const poisonCalls = { count: 0 };
     const poisonMaps = providerMaps(invalidInput.provider, poisonCalls);
     const signal = {
       aborted: witness.id === 'invalid-input-pre-aborted',
-      addEventListener() { counts.listenerAdds += 1; },
-      removeEventListener() { counts.listenerRemoves += 1; },
+      addEventListener() { listenerCounts.listenerAdds += 1; },
+      removeEventListener() { listenerCounts.listenerRemoves += 1; },
     };
     const hasSignal = witness.id.includes('signal') || witness.id.includes('aborted');
     const hasTimeout = witness.id.includes('timeout');
     const schedulerControl = witness.id === 'invalid-input-no-scheduler'
       ? undefined
       : { ...(hasSignal ? { signal } : {}), ...(hasTimeout ? { timeoutMs: 20 } : {}) };
-    globalThis.setTimeout = (...arguments_) => {
-      counts.timerRegistrations += 1;
-      return originalSetTimeout(...arguments_);
-    };
-    globalThis.clearTimeout = (timer) => {
-      counts.timerClears += 1;
-      return originalClearTimeout(timer);
-    };
-    try {
+    const observed = await observeRuntimeTimers(async () => {
       const options = {
         capabilities: poisonMaps.capabilities,
         enabled: true,
         limits: runtimeLimits(),
         scheduler: schedulerControl,
       };
-      const envelope = mode === 'sync'
+      return mode === 'sync'
         ? executeKernRuntimeHandlerSync(request(invalidInput.request), options)
-        : await executeKernRuntimeHandlerAsync(request(invalidInput.request), {
+        : executeKernRuntimeHandlerAsync(request(invalidInput.request), {
             ...options,
             asyncCapabilities: poisonMaps.asyncCapabilities,
             capabilityTimeoutMs: 20,
           });
-      assert.equal(envelope.diagnostics[0]?.code, witness.diagnostic, `${witness.id} ${mode}`);
-      assert.deepEqual(envelope.events, []);
-      assert.deepEqual(envelope.result, { presence: 'absent' });
-      assert.equal(poisonCalls.count, 0);
-      assert.deepEqual(counts, {
-        listenerAdds: witness.listenerAdds,
-        listenerRemoves: witness.listenerRemoves,
-        timerRegistrations: witness.timerRegistrations,
-        timerClears: witness.timerClears,
-      });
-    } finally {
-      globalThis.setTimeout = originalSetTimeout;
-      globalThis.clearTimeout = originalClearTimeout;
-    }
+    }, () => {
+      const unrelatedTimer = globalThis.setTimeout(() => {}, 1_000);
+      globalThis.clearTimeout(unrelatedTimer);
+    });
+    assert.equal(observed.value.diagnostics[0]?.code, witness.diagnostic, `${witness.id} ${mode}`);
+    assert.deepEqual(observed.value.events, []);
+    assert.deepEqual(observed.value.result, { presence: 'absent' });
+    assert.equal(poisonCalls.count, 0);
+    assert.deepEqual({ ...listenerCounts, ...observed.counts }, {
+      listenerAdds: witness.listenerAdds,
+      listenerRemoves: witness.listenerRemoves,
+      timerRegistrations: witness.timerRegistrations,
+      timerClears: witness.timerClears,
+    });
   }
   for (const witness of goldens.schedulerEffects) {
     await observeInvalidInput('sync', witness);
@@ -290,32 +285,17 @@ test('phase ledger proves exact provider, publication, and timer permissions', a
 
   const asyncCalls = { count: 0 };
   const asyncMaps = providerMaps(invalidProvider.provider, asyncCalls);
-  let asyncTimers = 0;
-  let asyncClears = 0;
-  globalThis.setTimeout = (...arguments_) => {
-    asyncTimers += 1;
-    return originalSetTimeout(...arguments_);
-  };
-  globalThis.clearTimeout = (timer) => {
-    asyncClears += 1;
-    return originalClearTimeout(timer);
-  };
-  try {
-    const asyncEnvelope = await executeKernRuntimeHandlerAsync(request(invalidProvider.request), {
+  const asyncObservation = await observeRuntimeTimers(() =>
+    executeKernRuntimeHandlerAsync(request(invalidProvider.request), {
       asyncCapabilities: asyncMaps.asyncCapabilities,
       capabilities: asyncMaps.capabilities,
       capabilityTimeoutMs: 20,
       enabled: true,
       limits: runtimeLimits(),
-    });
-    assert.equal(asyncCalls.count, 1);
-    assert.equal(asyncTimers, 1);
-    assert.equal(asyncClears, 1);
-    assert.deepEqual(asyncEnvelope, goldens.envelopes[invalidProvider.expected]);
-  } finally {
-    globalThis.setTimeout = originalSetTimeout;
-    globalThis.clearTimeout = originalClearTimeout;
-  }
+    }));
+  assert.equal(asyncCalls.count, 1);
+  assert.deepEqual(asyncObservation.counts, { timerRegistrations: 1, timerClears: 1 });
+  assert.deepEqual(asyncObservation.value, goldens.envelopes[invalidProvider.expected]);
 });
 
 test('candidate evidence keeps every promotion claim false', () => {

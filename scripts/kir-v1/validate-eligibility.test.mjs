@@ -8,23 +8,28 @@ import { hostileModules } from '../kir-seam-probe/fixtures.mjs';
 import { projectModules as projectModulesForTest } from '../kir-seam-probe/project.mjs';
 
 const policy = JSON.parse(readFileSync('scripts/kir-v1/eligibility.json', 'utf8'));
+const acceptedRuntimeAuthority = () => ({ runtimeAbiFrozen: true });
+
+function withRuntimeAuthority(options = {}) {
+  return { ...options, validateRuntimeAuthority: acceptedRuntimeAuthority };
+}
 
 function mutate(change, options) {
   const copy = structuredClone(policy);
   change(copy);
-  return () => validateKirV1Eligibility(copy, options);
+  return () => validateKirV1Eligibility(copy, withRuntimeAuthority(options));
 }
 
 function overlay(path, source) {
-  return {
+  return withRuntimeAuthority({
     readText(sourcePath) {
       return sourcePath === path ? source : readFileSync(sourcePath, 'utf8');
     },
-  };
+  });
 }
 
 test('repository inventory is an explicit Alpha no-go proof', () => {
-  const result = validateKirV1Eligibility(structuredClone(policy));
+  const result = validateKirV1Eligibility(structuredClone(policy), withRuntimeAuthority());
   assert.equal(result.proofLabel, 'ALPHA-NO-GO');
   assert.equal(result.sourceNodeCount, policy.sourceCatalog.nodes.length);
   assert.equal(result.witnessedNodeCount, 7);
@@ -181,14 +186,14 @@ test('every source node has an explicit exact coverage disposition', () => {
   );
 });
 
-test('every runner contract remains an explicit M3 deferral', () => {
+test('every runner contract remains an explicit KIR-to-runtime binding deferral', () => {
   assert.throws(
     mutate((copy) => { copy.runnerCoverage[0].disposition = 'candidate-witnessed'; }),
-    /must remain an explicit M3 runtime deferral/u,
+    /must remain an explicit KIR-to-runtime binding deferral/u,
   );
   assert.throws(
     mutate((copy) => { copy.runnerCoverage[0].milestone = 'M2'; }),
-    /must remain an explicit M3 runtime deferral/u,
+    /must remain an explicit KIR-to-runtime binding deferral/u,
   );
   assert.throws(
     mutate((copy) => copy.runnerCoverage.reverse()),
@@ -266,8 +271,8 @@ test('unknown input and fallback policy remain fail closed', () => {
   }
 });
 
-test('R1.5a cannot claim Alpha, KIR v1, runtime ABI, export, or cutover', () => {
-  for (const claim of Object.keys(policy.claims)) {
+test('Phase 1.1 claims only the independently frozen runtime ABI', () => {
+  for (const claim of ['kirV1Frozen', 'alphaAccepted', 'publicExport', 'semanticCutover']) {
     assert.throws(
       mutate((copy) => { copy.claims[claim] = true; }),
       new RegExp(`${claim} must remain false`),
@@ -275,18 +280,28 @@ test('R1.5a cannot claim Alpha, KIR v1, runtime ABI, export, or cutover', () => 
     );
   }
   assert.throws(
+    mutate((copy) => { copy.claims.runtimeAbiFrozen = false; }),
+    /runtimeAbiFrozen must remain true/u,
+  );
+  assert.throws(
     mutate((copy) => { copy.decision = 'go'; }),
     /must remain ALPHA-NO-GO/u,
   );
+  assert.throws(
+    () => validateKirV1Eligibility(structuredClone(policy), {
+      validateRuntimeAuthority: () => ({ runtimeAbiFrozen: false }),
+    }),
+    /requires anchored runtime contract evidence/u,
+  );
 });
 
-test('runtime-facing ABIs remain deferred to M3', () => {
+test('only KIR-to-runtime composition remains deferred', () => {
   assert.throws(
-    mutate((copy) => { copy.deferredContracts[0].milestone = 'R1'; }),
-    /M3 deferred contracts changed/u,
+    mutate((copy) => { copy.deferredContracts[0].milestone = 'M3'; }),
+    /Phase 1 deferred contracts changed/u,
   );
   assert.throws(
     mutate((copy) => copy.deferredContracts.pop()),
-    /M3 deferred contracts changed/u,
+    /Phase 1 deferred contracts changed/u,
   );
 });

@@ -46,6 +46,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
 | kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
 | runtime-handler-abi | Default-off public typed runtime handler ABI | current | `pnpm test:runtime-abi` |
+| runtime-contract-v1 | Frozen runtime handler, capability, event, diagnostic, limit, and rejection contract v1 | current | `pnpm test:kern-runtime-contract-v1` |
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | current | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Source runner convergence, call-site isolation, and blocker non-growth | current | `pnpm test:source-runner-convergence` |
 | kern-kir-canonicalizer | KERN-authored bounded KIR canonicalizer profile | current | `pnpm test:kern-canonicalizer` |
@@ -99,7 +100,7 @@ wall and must remain absent until promoted.
 | internal-runtime-effect-machine-try | Private effect-machine try, catch, and finally frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine-evaluator-boundary | Legacy-free stable machine and scalar-evaluator import boundary | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
-| typed-runtime-handler-abi | Default-off public typed runtime handler ABI | internal-oracle | `pnpm test:runtime-abi` |
+| typed-runtime-handler-abi | Frozen default-off public typed runtime handler ABI | internal-oracle | `pnpm test:kern-runtime-contract-v1` |
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | internal-oracle | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Sync/async source-runner convergence and pre-execution selector | internal-oracle | `pnpm test:source-runner-convergence` |
 | kern-kir-canonicalizer-profile | Bounded KERN-authored KIR canonicalizer profile | internal-oracle | `pnpm test:kern-canonicalizer` |
@@ -182,8 +183,9 @@ blocked on the planned interpreter shadow and fixed-point gates.
 
 Requirements are checked before execution. Unknown, undeclared, missing,
 unsupported, and unprovided capabilities reject before application code can
-continue. These providers remain host capabilities; their existence does not
-constitute a KERN-authored capability ABI or semantic runtime.
+continue. These providers remain host implementations. Runtime contract v1
+freezes their invocation boundary without claiming a KERN-authored semantic
+runtime.
 
 ## Reference App
 
@@ -198,8 +200,7 @@ output, and JSON transport framing.
 Until their ownership rows and gates are promoted, KERN 5.0 does not claim:
 
 - a production KERN checker v2 or production checker shadow;
-- a frozen versioned KIR/value/diagnostic/trace contract;
-- a typed runtime/handler or capability ABI;
+- a frozen versioned KIR/value/diagnostic contract or KIR-to-runtime binding;
 - a KERN-authored formatter, source frontend, compiler, or semantic interpreter;
 - a clean Stage 0 to Stage 1 to Stage 2 fixed point;
 - an exact packed-release/bootstrap proof;

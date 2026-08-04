@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 
+import { validateRuntimeContractV1Authority } from '../runtime-contract-v1/validate-runtime-contract-v1-authority.mjs';
 import { validateCoverageLedger } from './validate-coverage-ledger.mjs';
 
 const EXPECTED_BLOCKERS = Object.freeze({
@@ -33,17 +34,15 @@ const EXPECTED_SKEW = Object.freeze({
   unknownDiagnosticIds: 'reject-before-effect',
   fallback: 'forbidden',
 });
-const EXPECTED_FALSE_CLAIMS = Object.freeze([
-  'kirV1Frozen',
-  'alphaAccepted',
-  'runtimeAbiFrozen',
-  'publicExport',
-  'semanticCutover',
-]);
+const EXPECTED_CLAIMS = Object.freeze({
+  kirV1Frozen: false,
+  alphaAccepted: false,
+  runtimeAbiFrozen: true,
+  publicExport: false,
+  semanticCutover: false,
+});
 const EXPECTED_DEFERRED = Object.freeze([
-  ['trace-abi', 'M3'],
-  ['handler-abi', 'M3'],
-  ['capability-abi', 'M3'],
+  ['kir-runtime-binding', 'P1-composition'],
 ]);
 const EXPECTED_RUNNER_REASON = 'runtime-kir-binding-deferred';
 
@@ -237,11 +236,11 @@ function validateRunnerCoverage(rows, runnerIds) {
   rows.forEach((row, index) => {
     exactKeys(row, ['id', 'disposition', 'milestone', 'reasonId'], `runnerCoverage[${index}]`);
     if (
-      row.disposition !== 'deferred-runtime-m3' ||
-      row.milestone !== 'M3' ||
+      row.disposition !== 'deferred-kir-runtime-binding' ||
+      row.milestone !== 'P1-composition' ||
       row.reasonId !== EXPECTED_RUNNER_REASON
     ) {
-      fail(`runner coverage ${row.id} must remain an explicit M3 runtime deferral`);
+      fail(`runner coverage ${row.id} must remain an explicit KIR-to-runtime binding deferral`);
     }
   });
   sameOrdered(rows.map((row) => row.id), [...runnerIds], 'runner coverage ids');
@@ -261,7 +260,7 @@ function validateBlockers(policy) {
   sameOrdered([...ids], Object.keys(EXPECTED_BLOCKERS), 'blocker ids');
 }
 
-function validateDecisions(policy) {
+function validateDecisions(policy, validateRuntimeAuthority) {
   exactKeys(policy.identity, Object.keys(EXPECTED_IDENTITY), 'identity');
   sameOrdered(policy.identity.semanticIncludes, EXPECTED_IDENTITY.semanticIncludes, 'semantic identity inclusions');
   sameOrdered(policy.identity.semanticExcludes, EXPECTED_IDENTITY.semanticExcludes, 'semantic identity exclusions');
@@ -274,10 +273,12 @@ function validateDecisions(policy) {
   for (const [key, value] of Object.entries(EXPECTED_SKEW)) {
     if (policy.skewPolicy[key] !== value) fail(`skewPolicy.${key} must remain ${value}`);
   }
-  exactKeys(policy.claims, EXPECTED_FALSE_CLAIMS, 'claims');
-  for (const claim of EXPECTED_FALSE_CLAIMS) {
-    if (policy.claims[claim] !== false) fail(`${claim} must remain false in R1.5a`);
+  exactKeys(policy.claims, Object.keys(EXPECTED_CLAIMS), 'claims');
+  for (const [claim, expected] of Object.entries(EXPECTED_CLAIMS)) {
+    if (policy.claims[claim] !== expected) fail(`${claim} must remain ${expected} in Phase 1.1`);
   }
+  const runtimeEvidence = validateRuntimeAuthority();
+  if (runtimeEvidence?.runtimeAbiFrozen !== true) fail('runtimeAbiFrozen requires anchored runtime contract evidence');
 }
 
 function validateDeferred(policy) {
@@ -286,11 +287,12 @@ function validateDeferred(policy) {
     exactKeys(contract, ['id', 'milestone'], `deferredContracts[${index}]`);
     return [contract.id, contract.milestone];
   });
-  if (JSON.stringify(actual) !== JSON.stringify(EXPECTED_DEFERRED)) fail('M3 deferred contracts changed');
+  if (JSON.stringify(actual) !== JSON.stringify(EXPECTED_DEFERRED)) fail('Phase 1 deferred contracts changed');
 }
 
 export function validateKirV1Eligibility(policy, options = {}) {
   const readText = options.readText ?? ((sourcePath) => readFileSync(sourcePath, 'utf8'));
+  const validateRuntimeAuthority = options.validateRuntimeAuthority ?? validateRuntimeContractV1Authority;
   exactKeys(
     policy,
     [
@@ -322,7 +324,7 @@ export function validateKirV1Eligibility(policy, options = {}) {
   const witnessedIds = validateCandidate(policy, sourceIds, readText);
   const { ledger } = validateCoverageLedgerBinding(policy, sourceIds, readText);
   validateBlockers(policy);
-  validateDecisions(policy);
+  validateDecisions(policy, validateRuntimeAuthority);
   validateDeferred(policy);
 
   validateSourceCoverage(policy.sourceCoverage, sourceIds, ledger);

@@ -405,22 +405,14 @@
   "claims": {
     "kirV1Frozen": false,
     "alphaAccepted": false,
-    "runtimeAbiFrozen": false,
+    "runtimeAbiFrozen": true,
     "publicExport": false,
     "semanticCutover": false
   },
   "deferredContracts": [
     {
-      "id": "trace-abi",
-      "milestone": "M3"
-    },
-    {
-      "id": "handler-abi",
-      "milestone": "M3"
-    },
-    {
-      "id": "capability-abi",
-      "milestone": "M3"
+      "id": "kir-runtime-binding",
+      "milestone": "P1-composition"
     }
   ],
   "sourceCoverage": [
@@ -1938,98 +1930,98 @@
   "runnerCoverage": [
     {
       "id": "assign",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "branch",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "capability",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "do",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "each",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "expression-v1",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "fmt",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "for",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "if",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "lambda",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "let",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "print",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "return",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "throw",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "try",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     },
     {
       "id": "while",
-      "disposition": "deferred-runtime-m3",
-      "milestone": "M3",
+      "disposition": "deferred-kir-runtime-binding",
+      "milestone": "P1-composition",
       "reasonId": "runtime-kir-binding-deferred"
     }
   ]

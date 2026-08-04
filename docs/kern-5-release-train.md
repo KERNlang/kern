@@ -173,7 +173,8 @@ trusted-publishing/provenance configuration is inspected.
   oracle-free planned path over the internal reader candidate. This is not
   executable handler-semantic ownership or runtime cutover.
 - [ ] R1.5 eligible KIR/value/diagnostic contract freeze and Alpha manifest.
-  Runtime trace, handler, scheduler, and capability ABIs are M3 work in R2.
+  Runtime implementation landed through M3; Phase 1.1 separately freezes its
+  public default-off contract before final KIR composition.
   - [x] R1.5a source/runner eligibility inventory and identity constitution.
   - [x] R1.5b bounded strict UTF-8 canonical/value reader.
   - [ ] R1.5c coverage-closed module/node writer-reader parity.
@@ -208,6 +209,13 @@ trusted-publishing/provenance configuration is inspected.
     The Node 22 full fitness wall and terminal `claude,codex,agy` review passed
     on 2026-07-17 with zero verified, needs-check, or speculative findings
     (`ALPHA-NO-GO`; no public KIR v1 or formatter claim).
+  - [x] Phase 1.1 anchored runtime contract v1 freeze: the immutable
+    `kern.runtime.handler.v1` constitution, lineage, literal sync/async goldens,
+    declaration boundary, normalized event and diagnostic domains, phased
+    rejection behavior, and acyclic source/built module closures are recovered
+    from an exact introduction commit. `pnpm test:kern-runtime-contract-v1`
+    is current; KIR v1, `pnpm test:kern-ir`, public KIR export, semantic
+    cutover, and Phase 1 completion remain explicitly false.
 - [ ] R2 M3 runtime and handler ownership.
   - [x] M3.1 internal transactional runtime envelope: default-off sync/async
     normalization with closed portable values, structural diagnostics, failure
@@ -3375,9 +3383,10 @@ trusted-publishing/provenance configuration is inspected.
 The original broad R1.4-before-ownership order was withdrawn after the R1.3
 probe. The selected projection covers seven of 302 source node kinds, while the
 native runner requires 16 semantic contracts. R1.5a makes that denominator and
-the remaining blockers executable. Trace, handler, scheduler, and capability
-ABIs stay in M3 because they describe runtime convergence rather than KIR wire
-identity. The split prevents an internal shadow schema from becoming an
+the remaining blockers executable. M3 implemented trace normalization,
+handler, scheduler, and capability behavior; Phase 1.1 freezes the public
+runtime boundary while KIR-to-runtime composition remains deferred. The split
+prevents an internal shadow schema from becoming an
 accidental public promise.
 
 **Binary exit:**
@@ -3573,7 +3582,8 @@ pnpm test:kern-semantic-ownership     # CURRENT bootstrap-dependent ownership pr
 pnpm test:kern-ir-eligibility         # CURRENT Alpha no-go coverage/identity inventory
 pnpm test:kern-canonical-value        # CURRENT bounded internal value reader
 pnpm test:kern-ir                      # TARGET
-pnpm test:runtime-abi                  # TARGET
+pnpm test:runtime-abi                  # CURRENT public facade containment
+pnpm test:kern-runtime-contract-v1     # CURRENT anchored runtime v1 freeze
 pnpm test:kern-frontend                # TARGET
 pnpm test:kern-compiler                # TARGET
 pnpm test:selfhost-fixed-point         # TARGET

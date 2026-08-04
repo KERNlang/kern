@@ -51,6 +51,19 @@ test('runtime-envelope checker invokes the handler/source closure policy', () =>
   assert.match(checker, /assertHandlerEnvelopeDirectClosure\(CORE_SOURCE\)/u);
 });
 
+test('runtime-envelope checker requires the frozen runtime contract v1 evidence', () => {
+  const checker = readFileSync(resolve(process.cwd(), 'scripts/check-runtime-envelope.mjs'), 'utf8');
+  assert.match(checker, /publicHandlerOwnership\.evidence !== 'pnpm test:kern-runtime-contract-v1'/u);
+  assert.doesNotMatch(checker, /publicHandlerOwnership\.evidence !== 'pnpm test:runtime-abi'/u);
+  assert.match(checker, /frozen default-off internal oracle with anchored v1 evidence/u);
+  assert.match(checker, /eligibility\.claims\?\.runtimeAbiFrozen !== true/u);
+  assert.doesNotMatch(checker, /eligibility\.claims\?\.runtimeAbiFrozen !== false/u);
+  assert.match(checker, /id: 'kir-runtime-binding', milestone: 'P1-composition'/u);
+  for (const staleId of ['trace-abi', 'handler-abi', 'capability-abi']) {
+    assert.doesNotMatch(checker, new RegExp(`'${staleId}'`, 'u'));
+  }
+});
+
 test('both handler roots reject every compatibility, reference, legacy, and host owner', () => {
   for (const root of [handler, sourceHandler]) {
     for (const specifier of forbiddenSpecifiers) {
