@@ -8,6 +8,11 @@ import test from 'node:test';
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import { validateRuntimeCatalogConstitution } from './coverage-catalog.mjs';
+import {
+  digestM4145CompiledCoreJavaScript,
+  digestPreM4135CompiledCoreJavaScript,
+  reconstructM4145CompiledCoreJavaScriptPaths,
+} from './coverage-dependencies.mjs';
 import { freezeFunctionFacts, validateFunctionFacts } from './coverage-facts.mjs';
 import {
   loadCoveragePolicy,
@@ -33,7 +38,7 @@ function repositoryCorpusFixture(prefix) {
   return mkdtempSync(join(process.cwd(), `.kern-canonicalizer-${prefix}-`));
 }
 
-function compiledCoreDigest() {
+function compiledCorePaths() {
   const root = resolve(process.cwd(), 'packages/core/dist');
   const files = [];
   function visit(directory) {
@@ -45,10 +50,15 @@ function compiledCoreDigest() {
     }
   }
   visit(root);
+  return files.map((path) => relative(root, path).split(sep).join('/')).sort();
+}
+
+function compiledCoreDigest({ omitted = new Set(), overrides = new Map() } = {}) {
+  const root = resolve(process.cwd(), 'packages/core/dist');
   const hash = createHash('sha256');
-  for (const path of files.sort()) {
-    const name = relative(root, path).split(sep).join('/');
-    const bytes = readFileSync(path);
+  for (const name of compiledCorePaths()) {
+    if (omitted.has(name)) continue;
+    const bytes = overrides.get(name) ?? readFileSync(resolve(root, name));
     hash.update(`${name.length}:${name}:${bytes.length}:`);
     hash.update(bytes);
   }
@@ -307,6 +317,67 @@ test('firstUnsupported orders root profile blockers before descendant structural
 
 test('the receipt binds the compiled core JavaScript used during measurement', () => {
   assert.equal(measureCanonicalizerCoverage().compiledCoreDigest, compiledCoreDigest());
+});
+
+test('current compiled core identity is sensitive to both post-M4.145 runtime modules', () => {
+  const current = compiledCoreDigest();
+  const root = resolve(process.cwd(), 'packages/core/dist');
+  for (const name of [
+    'kir-structural/runtime-inflate.js',
+    'runtime-envelope/kir-handler.js',
+  ]) {
+    const bytes = readFileSync(resolve(root, name));
+    assert.notEqual(
+      compiledCoreDigest({ overrides: new Map([[name, Buffer.concat([bytes, Buffer.from('\n')])]]) }),
+      current,
+      name,
+    );
+  }
+});
+
+test('historical compiled core identities authenticate exact M4.145 membership', () => {
+  const currentPaths = compiledCorePaths();
+  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
+  const omitted = new Set(currentPaths.filter((path) => !historicalPaths.includes(path)));
+  assert.deepEqual([...omitted].sort(), [
+    'kir-structural/runtime-inflate.js',
+    'runtime-envelope/kir-handler.js',
+  ]);
+  assert.equal(
+    digestM4145CompiledCoreJavaScript(),
+    '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
+  );
+  assert.equal(digestM4145CompiledCoreJavaScript(), compiledCoreDigest({ omitted }));
+  assert.equal(
+    digestPreM4135CompiledCoreJavaScript(),
+    '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
+  );
+  const sibling = 'runtime-envelope/source-handler.js';
+  assert.ok(historicalPaths.includes(sibling));
+  const siblingBytes = readFileSync(resolve(process.cwd(), 'packages/core/dist', sibling));
+  assert.notEqual(
+    compiledCoreDigest({
+      omitted,
+      overrides: new Map([[sibling, Buffer.concat([siblingBytes, Buffer.from('\n')])]]),
+    }),
+    digestM4145CompiledCoreJavaScript(),
+  );
+});
+
+test('M4.145 compiled core membership fails closed on inventory drift', () => {
+  const currentPaths = compiledCorePaths();
+  for (const paths of [
+    [...currentPaths, 'runtime-envelope/future-handler.js'],
+    currentPaths.filter((path) => path !== 'runtime-envelope/kir-handler.js'),
+    [...currentPaths.slice(0, -1), currentPaths[0]],
+    [...currentPaths.slice(0, -1), '../escaped.js'],
+    [...currentPaths.slice(0, -1), 'runtime-envelope\\lookalike.js'],
+  ]) {
+    assert.throws(
+      () => reconstructM4145CompiledCoreJavaScriptPaths(paths),
+      /coverage dependency rejection/u,
+    );
+  }
 });
 
 test('the implementation digest path-frames every executed local dependency', () => {

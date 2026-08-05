@@ -8,6 +8,7 @@ import { moduleSpecifiers } from './check-canonical-value.mjs';
 const sourceRoot = 'packages/core/src';
 const ownRoot = path.join(sourceRoot, 'kir-structural');
 const evidenceConsumerRoot = path.join(sourceRoot, 'kir-evidence');
+const runtimeConsumer = path.join(sourceRoot, 'runtime-envelope', 'kir-handler.ts');
 const graphEntry = path.join(ownRoot, 'canonical.ts');
 
 function sourceFiles(directory) {
@@ -34,11 +35,31 @@ export function structuralKirReferences(source, sourcePath) {
   });
 }
 
-export function runStructuralKirCodecCheck() {
-  for (const sourcePath of sourceFiles(sourceRoot)) {
+export function isAllowedStructuralKirConsumer(sourcePath) {
+  const normalized = path.normalize(sourcePath);
+  return normalized.startsWith(`${evidenceConsumerRoot}${path.sep}`) || normalized === runtimeConsumer;
+}
+
+export function runStructuralKirCodecCheck(options = {}) {
+  const additionalSources = options.additionalSources ?? [];
+  const injectedSources = new Map();
+  for (const [index, source] of additionalSources.entries()) {
+    if (
+      !source ||
+      typeof source !== 'object' ||
+      typeof source.path !== 'string' ||
+      typeof source.source !== 'string' ||
+      injectedSources.has(path.normalize(source.path))
+    ) {
+      throw new Error(`invalid additional structural KIR source at index ${index}`);
+    }
+    injectedSources.set(path.normalize(source.path), source.source);
+  }
+  for (const sourcePath of [...sourceFiles(sourceRoot), ...injectedSources.keys()]) {
     if (sourcePath.startsWith(`${ownRoot}${path.sep}`)) continue;
-    if (structuralKirReferences(readFileSync(sourcePath, 'utf8'), sourcePath).length > 0) {
-      if (sourcePath.startsWith(`${evidenceConsumerRoot}${path.sep}`)) continue;
+    const source = injectedSources.get(sourcePath) ?? readFileSync(sourcePath, 'utf8');
+    if (structuralKirReferences(source, sourcePath).length > 0) {
+      if (isAllowedStructuralKirConsumer(sourcePath)) continue;
       throw new Error(`structural KIR codec must remain internal and unconsumed; found reference in ${sourcePath}`);
     }
   }
@@ -70,7 +91,7 @@ export function runStructuralKirCodecCheck() {
   }
 
   process.stdout.write(
-    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence-only consumer; handler type catalog; ALPHA-NO-GO).\n`,
+    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence plus one exact decoded-runtime consumer; handler type catalog; ALPHA-NO-GO).\n`,
   );
 }
 

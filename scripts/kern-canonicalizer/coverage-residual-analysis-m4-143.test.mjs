@@ -144,6 +144,8 @@ test('M4.143 rejects drift in every live semantic dependency identity', () => {
       () => assertM4143PublishedInput(copy, canonicalizerPolicy),
       key === 'canonicalizerPolicyDigest'
         ? /canonicalizer policy must match the measured receipt/u
+        : key === 'compiledCoreDigest'
+          ? /successor compiled core identity must match the authenticated current tree/u
         : /live semantic facts must match the exact published M4\.142 input/u,
       key,
     );

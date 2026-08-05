@@ -25,6 +25,11 @@ function current() {
 test('M4.150 status freezes the exact source rewrite and terminal parameter queue', () => {
   const { coverage, prerequisite, rewrite } = current();
   assert.equal(
+    coverage.compiledCoreDigest,
+    '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
+  );
+  assert.equal(prerequisite.baseline.compiledCoreDigest, coverage.compiledCoreDigest);
+  assert.equal(
     formatM4150QuotesourceRewriteStatus(rewrite, coverage, prerequisite),
     STATUS,
   );

@@ -98,7 +98,7 @@ export function runCanonicalValueCheck() {
   }
 
   process.stdout.write(
-    'Canonical value reader: PASS (INTERNAL; browser graph closed; only structural and evidence codecs consume it; ALPHA-NO-GO; no KIR v1, public export, runtime adoption, or probe replacement).\n',
+    'Canonical value reader: PASS (INTERNAL; direct consumers closed to structural and evidence codecs; sanctioned transitive runtime use only via structural Module KIR; ALPHA-NO-GO; no KIR v1, public export, direct runtime consumer, or probe replacement).\n',
   );
 }
 

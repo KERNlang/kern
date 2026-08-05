@@ -84,6 +84,27 @@ export const ALPHA_RECEIPT_AUTHORITY_BINDINGS = Object.freeze([
   'scripts/release/artifact-types.mjs',
 ]);
 
+export const KIR_RUNTIME_BINDING_RECEIPT_BINDINGS = Object.freeze([
+  'docs/kern-5-support-matrix.md',
+  'packages/core/src/kir-structural/runtime-inflate.ts',
+  'packages/core/src/runtime-envelope/kir-handler.ts',
+  'packages/core/tests/kern-kir-runtime-binding.test.ts',
+  'scripts/check-canonical-value.mjs',
+  'scripts/check-kir-structural-codec.mjs',
+  'scripts/check-kir-structural-codec.test.mjs',
+  'scripts/check-runtime-envelope.mjs',
+  'scripts/kir-v1/eligibility.json',
+  'scripts/kir-v1/kir-runtime-binding.test.mjs',
+  'scripts/kir-v1/validate-eligibility.mjs',
+  'scripts/kir-v1/validate-eligibility.test.mjs',
+  'scripts/runtime-envelope-handler-import-closure.test.mjs',
+]);
+
+const REQUIRED_KIR_RUNTIME_BINDING_ORACLE = Object.freeze({
+  id: 'internal-decoded-module-kir-binding',
+  argv: Object.freeze(['pnpm', 'test:kern-kir-runtime-binding']),
+});
+
 function exactKeys(value, keys, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
   const actual = Object.keys(value).sort();
@@ -144,6 +165,12 @@ export function validateAlphaReceiptPolicy(policy) {
   if (missingReceiptAuthority.length > 0) {
     throw new Error(`bindings must include the receipt authority: ${missingReceiptAuthority.join(',')}`);
   }
+  const missingKirRuntimeBinding = KIR_RUNTIME_BINDING_RECEIPT_BINDINGS.filter(
+    (binding) => !policy.bindings.includes(binding),
+  );
+  if (missingKirRuntimeBinding.length > 0) {
+    throw new Error(`bindings must include the KIR runtime binding denominator: ${missingKirRuntimeBinding.join(',')}`);
+  }
   if (!Array.isArray(policy.oracles) || policy.oracles.length === 0) throw new Error('oracles must be non-empty');
   const oracleIds = new Set();
   policy.oracles.forEach((oracle, index) => {
@@ -160,6 +187,18 @@ export function validateAlphaReceiptPolicy(policy) {
       throw new Error(`oracles[${index}].argv must be pnpm plus one safe script name`);
     }
   });
+  const kirRuntimeBindingOracle = policy.oracles.find(
+    ({ id }) => id === REQUIRED_KIR_RUNTIME_BINDING_ORACLE.id,
+  );
+  if (
+    !kirRuntimeBindingOracle ||
+    kirRuntimeBindingOracle.argv.length !== REQUIRED_KIR_RUNTIME_BINDING_ORACLE.argv.length ||
+    kirRuntimeBindingOracle.argv.some(
+      (argument, index) => argument !== REQUIRED_KIR_RUNTIME_BINDING_ORACLE.argv[index],
+    )
+  ) {
+    throw new Error('oracles must include the exact KIR runtime binding oracle');
+  }
   if (!Array.isArray(policy.exclusions) || policy.exclusions.length === 0) throw new Error('exclusions must be non-empty');
   const exclusionIds = new Set();
   policy.exclusions.forEach((exclusion, index) => {

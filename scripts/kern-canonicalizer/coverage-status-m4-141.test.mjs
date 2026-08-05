@@ -35,6 +35,11 @@ function currentFrontier() {
 test('M4.141 binds exact dual evidence and publishes only the canonicalize queue', () => {
   const { coverage, prerequisite } = currentFrontier();
   assert.equal(
+    coverage.compiledCoreDigest,
+    '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
+  );
+  assert.equal(prerequisite.baseline.compiledCoreDigest, coverage.compiledCoreDigest);
+  assert.equal(
     coverage.coverageImplementationDigest,
     M4141_COVERAGE_IMPLEMENTATION_DIGEST,
   );

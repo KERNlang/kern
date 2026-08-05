@@ -10,6 +10,7 @@ import {
   discoverRuntimeContractCoreTestBindings,
   discoverRuntimeContractDirectoryBindings,
   generateAlphaReceipt,
+  KIR_RUNTIME_BINDING_RECEIPT_BINDINGS,
   RUNTIME_CONTRACT_CORE_TEST_BINDINGS,
   RUNTIME_CONTRACT_DIRECTORY_BINDINGS,
   RUNTIME_CONTRACT_RECEIPT_BINDINGS,
@@ -40,6 +41,7 @@ function policy() {
   return {
     bindings: [
       ...ALPHA_RECEIPT_AUTHORITY_BINDINGS,
+      ...KIR_RUNTIME_BINDING_RECEIPT_BINDINGS,
       ...RUNTIME_CONTRACT_RECEIPT_BINDINGS,
       'scripts/kir-v1/alpha-receipt-policy.json',
     ].sort(),
@@ -47,7 +49,7 @@ function policy() {
     format: 'kern.kir.alpha-receipt.r1.5d.2',
     maxCommandOutputBytes: 65_536,
     oracleTimeoutMs: 5_000,
-    oracles: [{ argv: ['pnpm', 'test:oracle'], id: 'oracle' }],
+    oracles: [{ argv: ['pnpm', 'test:kern-kir-runtime-binding'], id: 'internal-decoded-module-kir-binding' }],
     outputRoot: '.kern/alpha',
     status: {
       alphaAccepted: true,
@@ -139,6 +141,38 @@ test('receipt binds the literal safe-pattern and receipt-authority denominator',
   }
 });
 
+test('receipt binds the complete decoded KIR runtime denominator', () => {
+  const actual = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/kir-v1/alpha-receipt-policy.json'), 'utf8'));
+  for (const binding of KIR_RUNTIME_BINDING_RECEIPT_BINDINGS) {
+    assert.equal(actual.bindings.includes(binding), true, binding);
+    const mutated = structuredClone(actual);
+    mutated.bindings.splice(mutated.bindings.indexOf(binding), 1);
+    assert.throws(() => validateAlphaReceiptPolicy(mutated), /KIR runtime binding denominator/u, binding);
+  }
+  assert.deepEqual(
+    actual.oracles.find(({ id }) => id === 'internal-decoded-module-kir-binding'),
+    { id: 'internal-decoded-module-kir-binding', argv: ['pnpm', 'test:kern-kir-runtime-binding'] },
+  );
+  const missingOracle = structuredClone(actual);
+  missingOracle.oracles.splice(
+    missingOracle.oracles.findIndex(({ id }) => id === 'internal-decoded-module-kir-binding'),
+    1,
+  );
+  assert.throws(() => validateAlphaReceiptPolicy(missingOracle), /exact KIR runtime binding oracle/u);
+  const substitutedOracle = structuredClone(actual);
+  substitutedOracle.oracles.find(({ id }) => id === 'internal-decoded-module-kir-binding').argv = [
+    'pnpm',
+    'test:kern-kir-module-graph',
+  ];
+  assert.throws(() => validateAlphaReceiptPolicy(substitutedOracle), /exact KIR runtime binding oracle/u);
+  const reorderedBindings = structuredClone(actual);
+  [reorderedBindings.bindings[0], reorderedBindings.bindings[1]] = [
+    reorderedBindings.bindings[1],
+    reorderedBindings.bindings[0],
+  ];
+  assert.throws(() => validateAlphaReceiptPolicy(reorderedBindings), /bindings must be unique and sorted/u);
+});
+
 test('runtime contract directory discovery admits only a closed flat file inventory', (t) => {
   const rootDir = path.join(os.tmpdir(), `kern-runtime-directory-${process.pid}-${Math.random().toString(16).slice(2)}`);
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -182,7 +216,13 @@ test('clean HEAD produces one canonical immutable receipt and regenerates byte-i
   assert.equal(first.receipt.status.alphaAccepted, true);
   assert.equal(first.receipt.status.kirV1Frozen, false);
   assert.equal(first.receipt.status.runtimeHandlerAbi, true);
-  assert.deepEqual(first.receipt.oracles, [{ argv: ['pnpm', 'test:oracle'], id: 'oracle', status: 'passed' }]);
+  assert.deepEqual(first.receipt.oracles, [
+    {
+      argv: ['pnpm', 'test:kern-kir-runtime-binding'],
+      id: 'internal-decoded-module-kir-binding',
+      status: 'passed',
+    },
+  ]);
   assert.equal(firstBytes.toString('utf8').includes('oracle output'), false);
 });
 

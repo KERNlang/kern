@@ -295,7 +295,11 @@ test('Phase 1.1 claims only the independently frozen runtime ABI', () => {
   );
 });
 
-test('only KIR-to-runtime composition remains deferred', () => {
+test('only public versioned KIR-to-runtime cutover remains deferred', () => {
+  assert.throws(
+    mutate((copy) => { copy.deferredContracts[0].id = 'internal-decoded-module-kir-binding'; }),
+    /Phase 1 deferred contracts changed/u,
+  );
   assert.throws(
     mutate((copy) => { copy.deferredContracts[0].milestone = 'M3'; }),
     /Phase 1 deferred contracts changed/u,

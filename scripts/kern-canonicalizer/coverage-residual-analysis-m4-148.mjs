@@ -9,7 +9,10 @@ import {
   summarizeCanonicalizerCoverage,
 } from './coverage.mjs';
 import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
-import { authenticateCoverageDependencies } from './coverage-dependencies.mjs';
+import {
+  authenticateCoverageDependencies,
+  digestM4145CompiledCoreJavaScript,
+} from './coverage-dependencies.mjs';
 import {
   buildCanonicalizerPrerequisiteSummary,
   migrateFunctionFact,
@@ -191,6 +194,7 @@ export function assertM4148PublishedInput(
   if (
     receipt.canonicalizerDigest !== liveCanonicalizerDigest ||
     !isDeepStrictEqual(receipt.composition, liveEvidence.composition) ||
+    receipt.compiledCoreDigest !== liveDependencies.compiledCoreDigest ||
     receipt.coverageImplementationDigest !== liveDependencies.coverageImplementationDigest ||
     receipt.coveragePolicyDigest !== M4151_COVERAGE_POLICY_DIGEST ||
     prerequisite.baseline.canonicalizerDigest !== receipt.canonicalizerDigest ||
@@ -200,13 +204,16 @@ export function assertM4148PublishedInput(
   ) {
     fail('successor identities must match authenticated live dependencies before normalization');
   }
+  const historicalCompiledCoreDigest = digestM4145CompiledCoreJavaScript();
   const normalizedCoverage = summarizeCanonicalizerCoverage(receipt);
   normalizedCoverage.canonicalizerDigest = published.coverage.canonicalizerDigest;
   normalizedCoverage.composition = structuredClone(published.coverage.composition);
+  normalizedCoverage.compiledCoreDigest = historicalCompiledCoreDigest;
   normalizedCoverage.coverageImplementationDigest =
     published.coverage.coverageImplementationDigest;
   normalizedCoverage.coveragePolicyDigest = published.coverage.coveragePolicyDigest;
   const normalizedPrerequisite = structuredClone(prerequisite);
+  normalizedPrerequisite.baseline.compiledCoreDigest = historicalCompiledCoreDigest;
   normalizedPrerequisite.baseline.canonicalizerDigest =
     published.prerequisite.baseline.canonicalizerDigest;
   normalizedPrerequisite.baseline.coverageImplementationDigest =
@@ -245,7 +252,7 @@ export function assertM4148PublishedInput(
     baseId: receipt.base.id,
     canonicalizerDigest: normalizedCoverage.canonicalizerDigest,
     canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
-    compiledCoreDigest: receipt.compiledCoreDigest,
+    compiledCoreDigest: historicalCompiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
     coveragePolicyDigest: normalizedCoverage.coveragePolicyDigest,
     currentProfileLimits: exactLimits(canonicalizerPolicy.profileLimits),

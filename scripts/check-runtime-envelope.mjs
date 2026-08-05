@@ -357,9 +357,9 @@ if (eligibility.claims?.runtimeAbiFrozen !== true) {
 }
 if (
   JSON.stringify(eligibility.deferredContracts) !==
-  JSON.stringify([{ id: 'kir-runtime-binding', milestone: 'P1-composition' }])
+  JSON.stringify([{ id: 'public-versioned-kir-runtime-cutover', milestone: 'P1-composition' }])
 ) {
-  fail('only the KIR-to-runtime binding may remain deferred after the runtime contract freeze');
+  fail('only the public versioned KIR-to-runtime cutover may remain deferred after the runtime contract freeze');
 }
 
 process.stdout.write(

@@ -411,7 +411,7 @@
   },
   "deferredContracts": [
     {
-      "id": "kir-runtime-binding",
+      "id": "public-versioned-kir-runtime-cutover",
       "milestone": "P1-composition"
     }
   ],

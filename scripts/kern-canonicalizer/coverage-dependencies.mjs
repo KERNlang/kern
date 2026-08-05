@@ -9,6 +9,14 @@ import { PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS } from './new-expression-str
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
+const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY = Object.freeze({
+  count: 307,
+  digest: 'ee23cb36b34cc20a6f16a6c89cb83f6ba0d87e0d5e5a62e74fa3def18f78d191',
+});
+const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
+  'kir-structural/runtime-inflate.js',
+  'runtime-envelope/kir-handler.js',
+]);
 
 let authenticatedDependencies;
 
@@ -33,6 +41,33 @@ function hashFramedFiles(root, paths, overrides = new Map()) {
   return hash.digest('hex');
 }
 
+function hashPathInventory(paths) {
+  const hash = createHash('sha256');
+  for (const name of [...paths].sort()) hash.update(`${name.length}:${name}`);
+  return hash.digest('hex');
+}
+
+function assertCanonicalRelativeJavaScriptPaths(paths, label) {
+  if (!Array.isArray(paths)) {
+    fail(`${label} must be an array`);
+  }
+  const seen = new Set();
+  for (const name of paths) {
+    const segments = typeof name === 'string' ? name.split('/') : [];
+    if (
+      segments.length === 0 ||
+      segments.some((segment) => segment === '' || segment === '.' || segment === '..') ||
+      !name.endsWith('.js') ||
+      isAbsolute(name) ||
+      name.includes('\\') ||
+      seen.has(name)
+    ) {
+      fail(`${label} must contain unique normalized relative JavaScript paths`);
+    }
+    seen.add(name);
+  }
+}
+
 function compiledJavaScriptFiles(directory, output = []) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
@@ -41,6 +76,46 @@ function compiledJavaScriptFiles(directory, output = []) {
     else if (entry.isFile() && entry.name.endsWith('.js')) output.push(path);
   }
   return output;
+}
+
+function compiledCoreJavaScriptPaths() {
+  const stat = lstatSync(COMPILED_CORE_ROOT);
+  if (!stat.isDirectory()) fail('compiled core root must be a regular directory');
+  const canonicalRoot = realpathSync(COMPILED_CORE_ROOT);
+  const paths = compiledJavaScriptFiles(canonicalRoot)
+    .map((path) => relative(canonicalRoot, path).split(sep).join('/'));
+  if (paths.length === 0) fail('compiled core JavaScript must not be empty');
+  assertCanonicalRelativeJavaScriptPaths(paths, 'compiled core inventory');
+  return { canonicalRoot, paths };
+}
+
+export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(paths, 'M4.145 successor compiled core inventory');
+  if (
+    paths.length !== M4145_SUCCESSOR_COMPILED_CORE_INVENTORY.count ||
+    hashPathInventory(paths) !== M4145_SUCCESSOR_COMPILED_CORE_INVENTORY.digest
+  ) {
+    fail('M4.145 historical membership requires the authenticated successor inventory');
+  }
+  assertCanonicalRelativeJavaScriptPaths(
+    POST_M4145_COMPILED_CORE_PATHS,
+    'post-M4.145 compiled core paths',
+  );
+  const successors = new Set(POST_M4145_COMPILED_CORE_PATHS);
+  if (POST_M4145_COMPILED_CORE_PATHS.some((path) => !paths.includes(path))) {
+    fail('post-M4.145 compiled core paths must exist in the authenticated successor inventory');
+  }
+  const historicalPaths = paths.filter((path) => !successors.has(path));
+  if (historicalPaths.length + successors.size !== paths.length) {
+    fail('M4.145 historical membership must remove every successor path exactly once');
+  }
+  return historicalPaths;
+}
+
+function m4145CompiledCoreJavaScriptPaths() {
+  const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
+  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
+  return { canonicalRoot, paths: historicalPaths };
 }
 
 function localImplementationModules(directory = IMPLEMENTATION_ROOT, output = []) {
@@ -56,12 +131,12 @@ function localImplementationModules(directory = IMPLEMENTATION_ROOT, output = []
 }
 
 export function digestCompiledCoreJavaScript() {
-  const stat = lstatSync(COMPILED_CORE_ROOT);
-  if (!stat.isDirectory()) fail('compiled core root must be a regular directory');
-  const canonicalRoot = realpathSync(COMPILED_CORE_ROOT);
-  const paths = compiledJavaScriptFiles(canonicalRoot)
-    .map((path) => relative(canonicalRoot, path).split(sep).join('/'));
-  if (paths.length === 0) fail('compiled core JavaScript must not be empty');
+  const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
+  return hashFramedFiles(canonicalRoot, paths);
+}
+
+export function digestM4145CompiledCoreJavaScript() {
+  const { canonicalRoot, paths } = m4145CompiledCoreJavaScriptPaths();
   return hashFramedFiles(canonicalRoot, paths);
 }
 
@@ -74,9 +149,7 @@ export function digestPreM4135CompiledCoreJavaScript() {
     milestone: 'pre-M4.135 compiled structural expression',
     replacements: PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
   });
-  const canonicalRoot = realpathSync(COMPILED_CORE_ROOT);
-  const paths = compiledJavaScriptFiles(canonicalRoot)
-    .map((path) => relative(canonicalRoot, path).split(sep).join('/'));
+  const { canonicalRoot, paths } = m4145CompiledCoreJavaScriptPaths();
   return hashFramedFiles(canonicalRoot, paths, new Map([[relativePath, historicalSource]]));
 }
 

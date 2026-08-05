@@ -11,7 +11,7 @@ import {
 import {
   PRE_M4146_M4145_MEASUREMENT_REPLACEMENTS,
 } from './combined-promotion-target.mjs';
-import { digestCompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { digestM4145CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import { assertExactPlainData } from './coverage-prerequisite-shape.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadPreM4146CanonicalizerPolicy } from './historical-policy.mjs';
@@ -139,7 +139,7 @@ function exactInputs() {
     }
   }
   if (
-    digestCompiledCoreJavaScript() !==
+    digestM4145CompiledCoreJavaScript() !==
       INPUT_IDENTITIES.compiledCoreJavaScriptSha256
   ) fail('compiled core JavaScript executed by measurement must remain exact');
   const composition = loadPreM4147CanonicalizerComposition();

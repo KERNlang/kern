@@ -42,7 +42,7 @@ const EXPECTED_CLAIMS = Object.freeze({
   semanticCutover: false,
 });
 const EXPECTED_DEFERRED = Object.freeze([
-  ['kir-runtime-binding', 'P1-composition'],
+  ['public-versioned-kir-runtime-cutover', 'P1-composition'],
 ]);
 const EXPECTED_RUNNER_REASON = 'runtime-kir-binding-deferred';
 

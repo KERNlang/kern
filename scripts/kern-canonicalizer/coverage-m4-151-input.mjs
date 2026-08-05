@@ -4,6 +4,7 @@ import {
   loadCoveragePolicy,
   measureCanonicalizerCoverage,
 } from './coverage.mjs';
+import { digestM4145CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import {
   buildCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
@@ -37,6 +38,7 @@ export function measureM4150FrontierForM4151() {
     record: composition.record,
   };
   coverage.coveragePolicyDigest = PRE_M4151_COVERAGE_POLICY_DIGEST;
+  coverage.compiledCoreDigest = digestM4145CompiledCoreJavaScript();
   const prerequisite = buildCanonicalizerPrerequisiteSummary(
     historical.policy,
     sourceOverrides,
@@ -44,6 +46,7 @@ export function measureM4150FrontierForM4151() {
     'kern.kir-canonicalizer.prerequisite-summary.3',
   );
   prerequisite.baseline.canonicalizerDigest = coverage.canonicalizerDigest;
+  prerequisite.baseline.compiledCoreDigest = coverage.compiledCoreDigest;
   prerequisite.baseline.coveragePolicyDigest = coverage.coveragePolicyDigest;
   return { coverage, prerequisite };
 }

@@ -39,6 +39,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kir-structural-constitution | Structural KIR node and property constitution | current | `pnpm test:kern-kir-structural-constitution` |
 | kir-structural-codec | Bounded structural KIR writer and reader | current | `pnpm test:kern-kir-structural-codec` |
 | kir-module-graph | Structural KIR module and symbol graph | current | `pnpm test:kern-kir-module-graph` |
+| internal-decoded-module-kir-binding | Decoded Module KIR to internal runtime handler binding | current | `pnpm test:kern-kir-runtime-binding` |
 | kir-coverage-closure | Structural KIR coverage witness closure | current | `pnpm test:kern-kir-coverage-closure` |
 | kir-evidence | Diagnostic and UTF-8 location evidence | current | `pnpm test:kern-kir-evidence` |
 | kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | current | `pnpm test:kern-alpha-receipt` |
@@ -82,6 +83,7 @@ wall and must remain absent until promoted.
 | kir-structural-constitution | Structural KIR node and property constitution | internal-oracle | `pnpm test:kern-kir-structural-constitution` |
 | kir-structural-codec | Bounded structural KIR writer and reader | internal-oracle | `pnpm test:kern-kir-structural-codec` |
 | kir-module-graph | Structural KIR module and symbol graph | internal-oracle | `pnpm test:kern-kir-module-graph` |
+| internal-decoded-module-kir-binding | Decoded Module KIR to internal runtime handler binding | internal-oracle | `pnpm test:kern-kir-runtime-binding` |
 | kir-coverage-closure | Structural KIR coverage witness closure | internal-oracle | `pnpm test:kern-kir-coverage-closure` |
 | kir-evidence | Diagnostic and UTF-8 location evidence | internal-oracle | `pnpm test:kern-kir-evidence` |
 | kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | internal-oracle | `pnpm test:kern-alpha-receipt` |
@@ -200,7 +202,7 @@ output, and JSON transport framing.
 Until their ownership rows and gates are promoted, KERN 5.0 does not claim:
 
 - a production KERN checker v2 or production checker shadow;
-- a frozen versioned KIR/value/diagnostic contract or KIR-to-runtime binding;
+- a frozen versioned KIR/value/diagnostic contract or public/full KIR-to-runtime cutover beyond the sanctioned internal decoded-Module-KIR binder;
 - a KERN-authored formatter, source frontend, compiler, or semantic interpreter;
 - a clean Stage 0 to Stage 1 to Stage 2 fixed point;
 - an exact packed-release/bootstrap proof;

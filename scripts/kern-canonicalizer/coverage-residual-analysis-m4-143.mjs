@@ -10,6 +10,10 @@ import {
   sourceFunctionRoots,
 } from './coverage-prerequisite.mjs';
 import {
+  digestCompiledCoreJavaScript,
+  digestM4145CompiledCoreJavaScript,
+} from './coverage-dependencies.mjs';
+import {
   canonicalizerCompletionProfile,
   canonicalizerFunctionCompletes,
 } from './coverage-selection.mjs';
@@ -180,6 +184,10 @@ export function assertM4143PublishedInput(
   if (receipt.canonicalizerPolicyDigest !== suppliedCanonicalizerPolicyDigest) {
     fail('canonicalizer policy must match the measured receipt');
   }
+  if (receipt.compiledCoreDigest !== digestCompiledCoreJavaScript()) {
+    fail('successor compiled core identity must match the authenticated current tree');
+  }
+  const historicalCompiledCoreDigest = digestM4145CompiledCoreJavaScript();
   const published = loadPublishedM4142CoverageInput();
   const archived = {
     baseCompleteFunctions: published.coverage.baseCompleteFunctions,
@@ -207,7 +215,7 @@ export function assertM4143PublishedInput(
     baseId: receipt.base.id,
     canonicalizerDigest,
     canonicalizerPolicyDigest: receipt.canonicalizerPolicyDigest,
-    compiledCoreDigest: receipt.compiledCoreDigest,
+    compiledCoreDigest: historicalCompiledCoreDigest,
     corpusDigest: receipt.corpusDigest,
     coveragePolicyDigest,
     currentProfileLimits: exactLimits(canonicalizerPolicy.profileLimits),
