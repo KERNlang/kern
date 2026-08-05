@@ -7,6 +7,10 @@ import {
 } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
+  PRE_BRANCH_CONSTITUTION_SOURCE_DIGEST,
+  PRE_BRANCH_CONSTITUTION_SOURCE_REPLACEMENTS,
+} from './branch-path-structural-target.mjs';
+import {
   PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_DIGEST,
   PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_REPLACEMENTS,
 } from './new-expression-structural-target.mjs';
@@ -161,13 +165,23 @@ export function resolveRuntimeConstitutionSource(source) {
   if (!(source instanceof Uint8Array)) fail();
   const bytes = Buffer.from(source);
   if (bytes.equals(loadValidatedRuntimeConstitutionSource())) return bytes;
+  if (bytes.equals(loadPreBranchRuntimeConstitutionSource())) return bytes;
   if (bytes.equals(loadPreExpressionV1RuntimeConstitutionSource())) return bytes;
   fail();
 }
 
-export function loadPreExpressionV1RuntimeConstitutionSource() {
+export function loadPreBranchRuntimeConstitutionSource() {
   return reconstructHistoricalSource({
     currentSource: loadValidatedRuntimeConstitutionSource(),
+    expectedDigest: PRE_BRANCH_CONSTITUTION_SOURCE_DIGEST,
+    milestone: 'pre-branch structural constitution',
+    replacements: PRE_BRANCH_CONSTITUTION_SOURCE_REPLACEMENTS,
+  });
+}
+
+export function loadPreExpressionV1RuntimeConstitutionSource() {
+  return reconstructHistoricalSource({
+    currentSource: loadPreBranchRuntimeConstitutionSource(),
     expectedDigest: PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_DIGEST,
     milestone: 'pre-expression-v1 structural constitution',
     replacements: PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_REPLACEMENTS,

@@ -414,6 +414,7 @@ export function buildCanonicalizerPrerequisiteSummary(
   sourceOverrides = new Map(),
   canonicalizerPolicyInput,
   outputFormat = FORMAT,
+  measurementOptions = {},
 ) {
   const canonicalizerPolicy = canonicalizerPolicyInput === undefined
     ? loadCanonicalizerPolicy()
@@ -421,7 +422,7 @@ export function buildCanonicalizerPrerequisiteSummary(
   const receipt = measureCanonicalizerCoverage(
     policy,
     canonicalizerPolicy,
-    { sourceOverrides },
+    { ...measurementOptions, sourceOverrides },
   );
   const roots = sourceFunctionRoots(policy, sourceOverrides);
   if (roots.size !== receipt.functions.length) fail('source functions must exactly match measured facts');

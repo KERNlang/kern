@@ -24,6 +24,7 @@ function expectedDisposition(node, properties) {
     properties.some(
       (property) =>
         property.disposition === 'lowered-expression' ||
+        property.disposition === 'lowered-branch-path-value' ||
         property.disposition === 'lowered-import-path' ||
         property.disposition === 'lowered-type',
     )
@@ -51,7 +52,7 @@ export function validateCoverageLedger(ledger, constitution) {
     ['schemaVersion', 'format', 'constitutionFormat', 'proofLabel', 'counts', 'nodes', 'properties'],
     'ledger',
   );
-  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5f.1') {
+  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5g.1') {
     fail('unsupported ledger version');
   }
   if (ledger.constitutionFormat !== constitution.format || ledger.proofLabel !== 'ALPHA-NO-GO') {
@@ -101,7 +102,8 @@ export function validateCoverageLedger(ledger, constitution) {
       if (JSON.stringify(row[key]) !== JSON.stringify(source?.[key])) fail(`property row ${index} ${key} drifted`);
     }
     validateFixture(row, `ledger.properties[${index}]`);
-    const expectedWitnesses = row.required ? 1 : 2;
+    const expectedWitnesses =
+      row.disposition === 'lowered-branch-path-value' ? 2 + (row.required ? 0 : 1) : row.required ? 1 : 2;
     if (!Array.isArray(row.witnessIds) || row.witnessIds.length !== expectedWitnesses) {
       fail(`property ${row.nodeKind}.${row.propertyName} witness count drifted`);
     }

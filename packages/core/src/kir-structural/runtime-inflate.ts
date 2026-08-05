@@ -1,6 +1,7 @@
 import type { CanonicalValue } from '../canonical-value/types.js';
 import type { PortableHandlerTypePosition } from '../portable-handler-type.js';
 import type { IRNode } from '../types.js';
+import { inflateBranchPathValue } from './branch-path-value.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from './catalog.generated.js';
 import { validateHandlerType } from './handler-type.js';
 import { StructuralKirError, type StructuralKirNode } from './types.js';
@@ -179,11 +180,19 @@ function inflateProperty(
 
 export function inflateStructuralKirNode(node: StructuralKirNode, path = '$.root', parentKind?: string): IRNode {
   const props: Record<string, unknown> = {};
+  const quotedProps: string[] = [];
   for (const entry of node.properties) {
-    props[entry.key] = inflateProperty(node, entry.key, entry.value, `${path}.properties.${entry.key}`, parentKind);
+    const propertyPath = `${path}.properties.${entry.key}`;
+    const contract = STRUCTURAL_KIR_NODE_CATALOG.get(node.kind)?.properties[entry.key];
+    if (contract?.disposition === 'lowered-branch-path-value') {
+      const pathValue = inflateBranchPathValue(entry.value, propertyPath);
+      props[entry.key] = pathValue.source;
+      if (pathValue.quoted) quotedProps.push(entry.key);
+    } else props[entry.key] = inflateProperty(node, entry.key, entry.value, propertyPath, parentKind);
   }
   return {
     type: node.kind,
+    ...(quotedProps.length === 0 ? {} : { __quotedProps: quotedProps }),
     ...(node.children.length === 0
       ? {}
       : {

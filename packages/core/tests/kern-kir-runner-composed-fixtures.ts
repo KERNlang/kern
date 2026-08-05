@@ -14,6 +14,14 @@ export const COMPOSED_RUNNER_WITNESSES = [
     excludedProperties: [],
   },
   {
+    id: 'branch',
+    witnessId: 'kir-runtime-compose.branch.v1',
+    semanticEnvelopeId: 'quoted-path-seven',
+    fixtureId: 'branch-quoted-path-seven',
+    oracleId: 'exact-branch-result',
+    excludedProperties: [],
+  },
+  {
     id: 'capability',
     witnessId: 'kir-runtime-compose.capability.v1',
     semanticEnvelopeId: 'storage-get-secret',
@@ -151,6 +159,7 @@ function text(value: string): InternalRuntimeEnvelope['result'] {
 export const COMPOSED_RUNNER_ORACLES: Readonly<Record<ComposedRunnerWitness['oracleId'], InternalRuntimeEnvelope>> =
   Object.freeze({
     'exact-assign-result': success(integer('7')),
+    'exact-branch-result': success(integer('7')),
     'exact-capability-event-and-result': success(text('secret'), [
       {
         input: { presence: 'absent' },
@@ -222,6 +231,37 @@ export function buildComposedRunnerFixture(witness: ComposedRunnerWitness): Comp
         ],
         'number',
       );
+    case 'branch-quoted-path-seven': {
+      const body = (on: string): IRNode[] => [
+        { type: 'let', props: { name: 'paid', value: '"binding-value"' } },
+        {
+          type: 'branch',
+          props: { name: 'route', on },
+          children: [
+            { type: 'path', props: { value: 'paid' }, children: [{ type: 'return', props: { value: '1' } }] },
+            {
+              type: 'path',
+              props: { value: 'paid' },
+              __quotedProps: ['value'],
+              children: [{ type: 'return', props: { value: '7' } }],
+            },
+            { type: 'path', props: { default: true }, children: [{ type: 'return', props: { value: '9' } }] },
+          ],
+        },
+      ];
+      const host = (): SemanticEnv => makeEnv();
+      return {
+        asyncHost: host(),
+        body: body('"paid"'),
+        controlBody: body('"missing"'),
+        fixtureId: 'branch-quoted-path-seven',
+        oracleId: 'exact-branch-result',
+        returns: 'number',
+        runnerId: 'branch',
+        semanticEnvelopeId: 'quoted-path-seven',
+        syncHost: host(),
+      };
+    }
     case 'capability-storage-get': {
       return {
         asyncHost: makeEnv({ capabilities: { storage: { get: () => 'secret' } } }),

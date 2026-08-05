@@ -39,6 +39,15 @@ function rejectedNode(disposition) {
 }
 
 function expectedCanonicalValue(row) {
+  if (row.disposition === 'lowered-expression' && row.fixture === 'paid') {
+    return {
+      tag: 'record',
+      value: [
+        { key: 'fields', value: { tag: 'record', value: [{ key: 'name', value: { tag: 'text', value: 'paid' } }] } },
+        { key: 'kind', value: { tag: 'text', value: 'identifier' } },
+      ],
+    };
+  }
   if (row.disposition === 'lowered-expression' && row.fixture === '1 + 6') {
     const integer = (value) => ({
       tag: 'record',
@@ -75,6 +84,15 @@ function expectedCanonicalValue(row) {
     };
   }
   if (row.disposition === 'lowered-import-path') return { tag: 'text', value: row.fixture };
+  if (row.disposition === 'lowered-branch-path-value') {
+    return {
+      tag: 'record',
+      value: [
+        { key: 'form', value: { tag: 'text', value: 'unquoted-expression' } },
+        { key: 'source', value: { tag: 'text', value: row.fixture } },
+      ],
+    };
+  }
   if (row.disposition === 'lowered-type') {
     return {
       tag: 'record',
@@ -160,11 +178,31 @@ export function runCoverageClosure() {
     }
     executed += 1;
 
+    if (row.disposition === 'lowered-branch-path-value') {
+      const quotedId = row.witnessIds[1];
+      const quotedWitness = propertyWitness(row, populated);
+      quotedWitness.node.__quotedProps = ['value'];
+      const root = roundTrip(quotedWitness.node, quotedId);
+      const target = quotedWitness.target(root);
+      const property = target.properties.find((entry) => entry.key === row.propertyName);
+      const expected = {
+        tag: 'record',
+        value: [
+          { key: 'form', value: { tag: 'text', value: 'quoted-text' } },
+          { key: 'source', value: { tag: 'text', value: row.fixture } },
+        ],
+      };
+      if (!property || JSON.stringify(property.value) !== JSON.stringify(expected)) {
+        throw new Error(`${quotedId}: quoted branch-path provenance drifted`);
+      }
+      executed += 1;
+    }
+
     if (!row.required) {
       const omitted = { ...base };
       delete omitted[row.propertyName];
       const omittedWitness = propertyWitness(row, omitted);
-      const omittedId = row.witnessIds[1];
+      const omittedId = row.witnessIds.at(-1);
       if (rejectedNode(node.disposition)) {
         const code = node.disposition === 'explicit-missing-schema' ? 'unknown-node-kind' : 'excluded-host-payload';
         expectCode(() => encodeStructuralKir(omittedWitness.node, limits), code, omittedId);

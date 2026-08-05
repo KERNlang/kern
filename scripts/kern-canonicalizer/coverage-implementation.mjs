@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { CanonicalValueDecodeError } from '../../packages/core/dist/canonical-value/types.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 import { StructuralKirError } from '../../packages/core/dist/kir-structural/types.js';
+import { withoutExcludedProperties } from './coverage-projection-input.mjs';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import { resolveRuntimeConstitutionSource } from './coverage-catalog.mjs';
 import { freezeFunctionFacts, validateFunctionFacts } from './coverage-facts.mjs';
@@ -270,18 +271,6 @@ function projectionCode(error) {
   throw error;
 }
 
-function withoutExcludedProperties(node) {
-  const contract = STRUCTURAL_KIR_NODE_CATALOG.get(node.type);
-  return {
-    ...node,
-    children: (node.children ?? []).map(withoutExcludedProperties),
-    props: Object.fromEntries(
-      Object.entries(node.props ?? {}).filter(
-        ([key]) => !contract?.properties[key]?.disposition?.startsWith('excluded-'),
-      ),
-    ),
-  };
-}
 function inspectFunction(root, path, tool, ordinal, base, canonicalizerPolicy, preM4135) {
   const nodes = [];
   const expressions = [];

@@ -37,8 +37,8 @@ test('repository inventory is an explicit Alpha no-go proof', () => {
   assert.equal(result.coveredSourceNodeCount, 302);
   assert.equal(result.unresolvedSourceNodeCount, 0);
   assert.equal(result.runnerContractCount, 16);
-  assert.equal(result.witnessedRunnerContractCount, 13);
-  assert.equal(result.structurallyBlockedRunnerContractCount, 3);
+  assert.equal(result.witnessedRunnerContractCount, 14);
+  assert.equal(result.structurallyBlockedRunnerContractCount, 2);
   assert.equal(result.unclassifiedRunnerContractCount, 0);
 });
 
@@ -195,7 +195,7 @@ test('every runner contract has an exact composed witness or mechanically derive
     /runner coverage assign drifted/u,
   );
   assert.throws(
-    mutate((copy) => { copy.runnerCoverage[1].blockerId = 'invented'; }),
+    mutate((copy) => { copy.runnerCoverage[1].semanticEnvelopeId = 'invented'; }),
     /runner coverage branch drifted/u,
   );
   assert.throws(
@@ -208,16 +208,10 @@ test('every runner contract has an exact composed witness or mechanically derive
   );
 });
 
-test('expression-v1 admission leaves exactly the three constitution-derived blockers', () => {
+test('branch admission leaves exactly the two constitution-derived blockers', () => {
   assert.deepEqual(
     policy.runnerCoverage.filter((row) => row.disposition === 'structural-blocker'),
     [
-      {
-        id: 'branch',
-        disposition: 'structural-blocker',
-        blockerId: 'required-on:excluded-host-expression',
-        nextMilestone: 'P1-constitution-expansion',
-      },
       {
         id: 'each',
         disposition: 'structural-blocker',
@@ -231,6 +225,18 @@ test('expression-v1 admission leaves exactly the three constitution-derived bloc
         nextMilestone: 'P1-constitution-expansion',
       },
     ],
+  );
+  assert.deepEqual(
+    policy.runnerCoverage.find((row) => row.id === 'branch'),
+    {
+      id: 'branch',
+      witnessId: 'kir-runtime-compose.branch.v1',
+      semanticEnvelopeId: 'quoted-path-seven',
+      fixtureId: 'branch-quoted-path-seven',
+      oracleId: 'exact-branch-result',
+      excludedProperties: [],
+      disposition: 'internal-composed-witness',
+    },
   );
   assert.deepEqual(
     policy.runnerCoverage.find((row) => row.id === 'expression-v1'),
@@ -358,7 +364,7 @@ test('structural blockers are derived from the live constitution', () => {
   );
 
   const branch = JSON.parse(readFileSync(constitutionPath, 'utf8'));
-  branch.properties.find((property) => property.nodeKind === 'branch' && property.propertyName === 'on').required = false;
+  branch.properties.find((property) => property.nodeKind === 'branch' && property.propertyName === 'on').disposition = 'excluded-host-expression';
   assert.throws(
     () => validateRunnerComposedEvidence(
       policy.runnerWitnessCatalog,
@@ -366,7 +372,7 @@ test('structural blockers are derived from the live constitution', () => {
       policy.runnerCatalog.contracts,
       (sourcePath) => sourcePath === constitutionPath ? JSON.stringify(branch) : readFileSync(sourcePath, 'utf8'),
     ),
-    /runner branch requires a composed witness/u,
+    /blocked runner branch must not have a composed witness/u,
   );
 });
 

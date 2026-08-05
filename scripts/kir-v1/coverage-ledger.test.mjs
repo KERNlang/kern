@@ -41,3 +41,20 @@ test('disposition and property contract mutations fail closed', () => {
     /witness count drifted/u,
   );
 });
+
+test('branch path provenance witness count follows property optionality', () => {
+  const requiredConstitution = structuredClone(constitution);
+  const requiredLedger = structuredClone(ledger);
+  const constitutionPathValue = requiredConstitution.properties.find(
+    (row) => row.nodeKind === 'path' && row.propertyName === 'value',
+  );
+  const ledgerPathValue = requiredLedger.properties.find(
+    (row) => row.nodeKind === 'path' && row.propertyName === 'value',
+  );
+  assert.ok(constitutionPathValue);
+  assert.ok(ledgerPathValue);
+  constitutionPathValue.required = true;
+  ledgerPathValue.required = true;
+  ledgerPathValue.witnessIds = ledgerPathValue.witnessIds.slice(0, 2);
+  assert.doesNotThrow(() => validateCoverageLedger(requiredLedger, requiredConstitution));
+});

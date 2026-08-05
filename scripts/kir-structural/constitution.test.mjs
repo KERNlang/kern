@@ -100,33 +100,23 @@ test('only structured runtime-handler type locations are lowered', () => {
   );
 });
 
-test('only expression-v1.expr overrides raw host-expression exclusion', () => {
-  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5f.1');
+test('the closed branch and expression rows are the only property policy overrides', () => {
+  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5g.1');
   assert.deepEqual(
     checkedIn.properties
       .filter((row) => row.schemaKind === 'rawExpr' && row.disposition === 'lowered-expression')
       .map((row) => `${row.nodeKind}.${row.propertyName}`),
-    ['expression-v1.expr'],
+    ['branch.on', 'expression-v1.expr'],
   );
   assert.deepEqual(
-    checkedIn.properties.find((row) => row.nodeKind === 'expression-v1' && row.propertyName === 'expr'),
-    {
-      nodeKind: 'expression-v1',
-      propertyName: 'expr',
-      schemaKind: 'rawExpr',
-      required: true,
-      values: null,
-      disposition: 'lowered-expression',
-      reasonId: 'portable-expression-required',
-    },
+    checkedIn.properties
+      .filter((row) => row.disposition === 'lowered-branch-path-value')
+      .map((row) => `${row.nodeKind}.${row.propertyName}`),
+    ['path.value'],
   );
-  for (const [nodeKind, propertyName] of [['branch', 'on'], ['each', 'in']]) {
-    const row = checkedIn.properties.find(
-      (property) => property.nodeKind === nodeKind && property.propertyName === propertyName,
-    );
-    assert.equal(row.required, true);
-    assert.equal(row.disposition, 'excluded-host-expression');
-  }
+  const eachInput = checkedIn.properties.find((row) => row.nodeKind === 'each' && row.propertyName === 'in');
+  assert.equal(eachInput.required, true);
+  assert.equal(eachInput.disposition, 'excluded-host-expression');
   const type = checkedIn.properties.find(
     (row) => row.nodeKind === 'expression-v1' && row.propertyName === 'type',
   );
@@ -134,16 +124,16 @@ test('only expression-v1.expr overrides raw host-expression exclusion', () => {
   assert.equal(type.disposition, 'excluded-host-type');
 });
 
-test('expression-v1 override fails closed when its source schema drifts', () => {
+test('property policy overrides fail closed when a source schema drifts', () => {
   const schemas = clone(NODE_SCHEMAS);
-  schemas['expression-v1'].props.expr.kind = 'identifier';
+  schemas.branch.props.on.kind = 'identifier';
   assert.throws(
     () => buildStructuralConstitution(NODE_TYPES, schemas),
     /property policy override schema drift/u,
   );
 
   const missingTarget = clone(NODE_SCHEMAS);
-  delete missingTarget['expression-v1'].props.expr;
+  delete missingTarget.path.props.value;
   assert.throws(
     () => buildStructuralConstitution(NODE_TYPES, missingTarget),
     /property policy override target drift/u,

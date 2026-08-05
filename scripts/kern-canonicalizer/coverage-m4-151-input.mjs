@@ -5,6 +5,7 @@ import {
   measureCanonicalizerCoverage,
 } from './coverage.mjs';
 import { digestM4145CompiledCoreJavaScript } from './coverage-dependencies.mjs';
+import { loadPreExpressionV1RuntimeConstitutionSource } from './coverage-catalog.mjs';
 import {
   buildCanonicalizerPrerequisiteSummary,
 } from './coverage-prerequisite.mjs';
@@ -26,10 +27,11 @@ export function measureM4150FrontierForM4151() {
   );
   const canonicalizerPolicy = loadCanonicalizerPolicy();
   const sourceOverrides = new Map([[QUOTESOURCE_M4151_PATH, historical.expressionHelpers]]);
+  const constitutionSource = loadPreExpressionV1RuntimeConstitutionSource();
   const coverage = measureCanonicalizerCoverage(
     historical.policy,
     canonicalizerPolicy,
-    { sourceOverrides },
+    { constitutionSource, sourceOverrides },
   );
   const composition = loadPreM4151CanonicalizerComposition();
   coverage.canonicalizerDigest = composition.digests.canonicalizerCompositeSha256;
@@ -44,6 +46,7 @@ export function measureM4150FrontierForM4151() {
     sourceOverrides,
     canonicalizerPolicy,
     'kern.kir-canonicalizer.prerequisite-summary.3',
+    { constitutionSource },
   );
   prerequisite.baseline.canonicalizerDigest = coverage.canonicalizerDigest;
   prerequisite.baseline.compiledCoreDigest = coverage.compiledCoreDigest;

@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
 import {
   POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
   PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
@@ -13,10 +14,11 @@ const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
 const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY = Object.freeze({
-  count: 307,
-  digest: 'ee23cb36b34cc20a6f16a6c89cb83f6ba0d87e0d5e5a62e74fa3def18f78d191',
+  count: 308,
+  digest: '6bdf2cb4af540eeddf4a24a852597c43364b313c80ddcfb6983cbd238ad33610',
 });
 const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
+  'kir-structural/branch-path-value.js',
   'kir-structural/runtime-inflate.js',
   'runtime-envelope/kir-handler.js',
 ]);
@@ -119,12 +121,26 @@ function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
   const overrides = new Map();
+  const preBranchSources = new Map();
+  for (const reconstruction of POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-branch compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const historicalSource = reconstructHistoricalSource({
+      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-branch compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    });
+    preBranchSources.set(reconstruction.path, historicalSource);
+    overrides.set(reconstruction.path, historicalSource);
+  }
   for (const reconstruction of POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-M4.153 compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     overrides.set(reconstruction.path, reconstructHistoricalSource({
-      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preBranchSources.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `M4.145 compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,

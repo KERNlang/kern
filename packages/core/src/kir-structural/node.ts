@@ -7,6 +7,7 @@ import {
 import { compareCodePoints, validateCanonicalValueLimits } from '../canonical-value/validate.js';
 import type { PortableHandlerTypePosition } from '../portable-handler-type.js';
 import type { IRNode } from '../types.js';
+import { projectBranchPathValue, validateBranchPathValue } from './branch-path-value.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from './catalog.generated.js';
 import { projectExpressionText, validateExpressionValue } from './expression.js';
 import { projectHandlerType, validateHandlerType } from './handler-type.js';
@@ -160,6 +161,7 @@ function projectProperty(
   kind: string,
   name: string,
   parentKind: string | undefined,
+  quoted: boolean,
 ): CanonicalValue {
   if (contract.disposition.startsWith('excluded-')) {
     fail('excluded-host-payload', path, `${contract.disposition}: ${contract.reasonId}`);
@@ -170,6 +172,7 @@ function projectProperty(
   if (contract.disposition === 'included-value') return includedValue(value, contract, path);
   if (contract.disposition === 'lowered-import-path') return { tag: 'text', value: normalizeImportPath(value, path) };
   if (contract.disposition === 'lowered-expression') return projectExpressionText(expressionSource(value, path), path);
+  if (contract.disposition === 'lowered-branch-path-value') return projectBranchPathValue(value, quoted, path);
   if (contract.disposition === 'lowered-type') {
     const position = handlerTypePosition(kind, name, parentKind);
     if (position === undefined) fail('excluded-host-payload', path, 'type is outside a structured handler signature');
@@ -242,6 +245,19 @@ function projectNode(
   const contract = nodeContract(kind, `${path}.type`);
   const rawProperties =
     node.props === undefined ? (Object.create(null) as UnknownRecord) : object(node.props, `${path}.props`);
+  const quotedProperties = new Set<string>();
+  if (node.__quotedProps !== undefined) {
+    for (const [index, value] of array(node.__quotedProps, `${path}.__quotedProps`).entries()) {
+      const name = text(value, `${path}.__quotedProps[${index}]`);
+      if (quotedProperties.has(name) || !Object.hasOwn(rawProperties, name)) {
+        fail('invalid-artifact', `${path}.__quotedProps[${index}]`, 'quoted property metadata is stale or duplicated');
+      }
+      if (kind === 'path' && contract.properties[name]?.disposition !== 'lowered-branch-path-value') {
+        fail('invalid-artifact', `${path}.__quotedProps[${index}]`, 'path quote metadata is reserved for value');
+      }
+      quotedProperties.add(name);
+    }
+  }
   assertRequired(rawProperties, contract, `${path}.props`);
   const properties: CanonicalRecordEntry[] = [];
   for (const name of Object.keys(rawProperties).sort(compareCodePoints)) {
@@ -250,7 +266,15 @@ function projectNode(
     if (canonicalizesToOmission(kind, name, rawProperties[name])) continue;
     properties.push({
       key: name,
-      value: projectProperty(rawProperties[name], propertyContract, `${path}.props.${name}`, kind, name, parentKind),
+      value: projectProperty(
+        rawProperties[name],
+        propertyContract,
+        `${path}.props.${name}`,
+        kind,
+        name,
+        parentKind,
+        quotedProperties.has(name),
+      ),
     });
   }
   const rawChildren = node.children === undefined ? [] : array(node.children, `${path}.children`);
@@ -313,6 +337,10 @@ function validateProperty(
     fail('excluded-host-payload', path, `${contract.disposition} is forbidden`);
   if (contract.disposition === 'lowered-expression') {
     validateExpressionValue(value, path);
+    return;
+  }
+  if (contract.disposition === 'lowered-branch-path-value') {
+    validateBranchPathValue(value, path);
     return;
   }
   if (contract.disposition === 'lowered-import-path') {

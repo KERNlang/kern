@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.coverage-witness-ledger.r1.5f.1",
-  "constitutionFormat": "kern.kir.structural.r1.5f.1",
+  "format": "kern.kir.coverage-witness-ledger.r1.5g.1",
+  "constitutionFormat": "kern.kir.structural.r1.5g.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
     "nodes": 302,
@@ -1295,13 +1295,13 @@
     },
     {
       "id": "branch",
-      "disposition": "required-excluded-host-payload",
-      "witnessId": "kir-c4.node.branch.required-excluded-host-payload.reject"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-c4.node.branch.lowered-semantic.accept"
     },
     {
       "id": "path",
-      "disposition": "included-structural",
-      "witnessId": "kir-c4.node.path.included-structural.accept"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-c4.node.path.lowered-semantic.accept"
     },
     {
       "id": "resolve",
@@ -13801,7 +13801,7 @@
       "reasonId": "portable-identifier",
       "fixture": "w_branch_name",
       "witnessIds": [
-        "kir-c4.prop.branch.name.included-value.populated.reject"
+        "kir-c4.prop.branch.name.included-value.populated.accept"
       ]
     },
     {
@@ -13810,11 +13810,11 @@
       "schemaKind": "rawExpr",
       "required": true,
       "values": null,
-      "disposition": "excluded-host-expression",
-      "reasonId": "opaque-host-expression-forbidden",
-      "fixture": "host()",
+      "disposition": "lowered-expression",
+      "reasonId": "portable-expression-required",
+      "fixture": "paid",
       "witnessIds": [
-        "kir-c4.prop.branch.on.excluded-host-expression.populated.reject"
+        "kir-c4.prop.branch.on.lowered-expression.populated.accept"
       ]
     },
     {
@@ -13837,12 +13837,13 @@
       "schemaKind": "string",
       "required": false,
       "values": null,
-      "disposition": "included-value",
-      "reasonId": "portable-text",
-      "fixture": "witness",
+      "disposition": "lowered-branch-path-value",
+      "reasonId": "portable-branch-path-value",
+      "fixture": "paid",
       "witnessIds": [
-        "kir-c4.prop.path.value.included-value.populated.accept",
-        "kir-c4.prop.path.value.included-value.omitted.accept"
+        "kir-c4.prop.path.value.lowered-branch-path-value.populated-unquoted.accept",
+        "kir-c4.prop.path.value.lowered-branch-path-value.populated-quoted.accept",
+        "kir-c4.prop.path.value.lowered-branch-path-value.omitted.accept"
       ]
     },
     {

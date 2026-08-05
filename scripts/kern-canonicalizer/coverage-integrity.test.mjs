@@ -8,7 +8,9 @@ import test from 'node:test';
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import {
+  loadPreBranchRuntimeConstitutionSource,
   loadPreExpressionV1RuntimeConstitutionSource,
+  resolveRuntimeConstitutionSource,
   validateRuntimeCatalogConstitution,
 } from './coverage-catalog.mjs';
 import {
@@ -343,6 +345,7 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
   const omitted = new Set(currentPaths.filter((path) => !historicalPaths.includes(path)));
   assert.deepEqual([...omitted].sort(), [
+    'kir-structural/branch-path-value.js',
     'kir-structural/runtime-inflate.js',
     'runtime-envelope/kir-handler.js',
   ]);
@@ -367,7 +370,13 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   );
 });
 
-test('historical structural constitution reconstructs the pre-expression-v1 bytes', () => {
+test('historical structural constitution chains exact pre-branch and pre-expression bytes', () => {
+  const preBranch = loadPreBranchRuntimeConstitutionSource();
+  assert.equal(
+    digest(preBranch),
+    'fad83fc3f7a4b2b7b5f6b89bff2a47721cc06f1bba8a13a9b55be0bba8997ed7',
+  );
+  assert.equal(digest(resolveRuntimeConstitutionSource(preBranch)), digest(preBranch));
   assert.equal(
     digest(loadPreExpressionV1RuntimeConstitutionSource()),
     'fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea',
