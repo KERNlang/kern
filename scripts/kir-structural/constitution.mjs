@@ -1,4 +1,4 @@
-export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5e.1';
+export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5f.1';
 
 const PROPERTY_POLICIES = Object.freeze({
   identifier: ['included-value', 'portable-identifier'],
@@ -12,6 +12,15 @@ const PROPERTY_POLICIES = Object.freeze({
   rawBlock: ['excluded-raw-block', 'opaque-host-block-forbidden'],
 });
 
+const PROPERTY_POLICY_OVERRIDE_ROWS = Object.freeze([
+  Object.freeze({
+    key: 'expression-v1.expr',
+    schemaKind: 'rawExpr',
+    disposition: 'lowered-expression',
+    reasonId: 'portable-expression-required',
+  }),
+]);
+
 function compareCodePoints(left, right) {
   const a = Array.from(left, (character) => character.codePointAt(0));
   const b = Array.from(right, (character) => character.codePointAt(0));
@@ -22,15 +31,39 @@ function compareCodePoints(left, right) {
   return a.length - b.length;
 }
 
-function propertyRow(nodeKind, propertyName, schema) {
+export function buildPropertyPolicyOverrideMap(rows, nodeTypes, nodeSchemas) {
+  const catalog = new Set(nodeTypes);
+  const overrides = new Map();
+  for (const row of rows) {
+    if (overrides.has(row.key)) throw new Error(`duplicate property policy override at ${row.key}`);
+    const separator = row.key.indexOf('.');
+    const nodeKind = row.key.slice(0, separator);
+    const propertyName = row.key.slice(separator + 1);
+    const schema = nodeSchemas[nodeKind]?.props[propertyName];
+    if (separator <= 0 || separator !== row.key.lastIndexOf('.') || !catalog.has(nodeKind) || schema === undefined) {
+      throw new Error(`property policy override target drift at ${row.key}`);
+    }
+    if (schema.kind !== row.schemaKind) {
+      throw new Error(`property policy override schema drift at ${row.key}`);
+    }
+    overrides.set(row.key, row);
+  }
+  return overrides;
+}
+
+function propertyRow(nodeKind, propertyName, schema, overrides) {
+  const override = overrides.get(`${nodeKind}.${propertyName}`);
+  if (override !== undefined && schema.kind !== override.schemaKind) {
+    throw new Error(`property policy override schema drift at ${nodeKind}.${propertyName}`);
+  }
   const policy =
-    nodeKind === 'fn' && propertyName === 'returns'
+    override === undefined ? (nodeKind === 'fn' && propertyName === 'returns'
       ? ['lowered-type', 'portable-handler-return-type']
       : nodeKind === 'param' && propertyName === 'type'
         ? ['lowered-type', 'portable-handler-parameter-type']
         : nodeKind === 'fn' && propertyName === 'params'
           ? ['excluded-host-type', 'structured-handler-parameters-required']
-          : PROPERTY_POLICIES[schema.kind];
+          : PROPERTY_POLICIES[schema.kind]) : [override.disposition, override.reasonId];
   if (policy === undefined) throw new Error(`unknown property kind ${schema.kind} at ${nodeKind}.${propertyName}`);
   return {
     nodeKind,
@@ -45,6 +78,7 @@ function propertyRow(nodeKind, propertyName, schema) {
 
 export function buildStructuralConstitution(nodeTypes, nodeSchemas) {
   const catalog = new Set(nodeTypes);
+  const overrides = buildPropertyPolicyOverrideMap(PROPERTY_POLICY_OVERRIDE_ROWS, nodeTypes, nodeSchemas);
   const nodes = [];
   const properties = [];
   for (const nodeKind of nodeTypes) {
@@ -67,7 +101,7 @@ export function buildStructuralConstitution(nodeTypes, nodeSchemas) {
       reasonId: 'schema-bound',
     });
     for (const [propertyName, propertySchema] of Object.entries(schema.props).sort(([left], [right]) => compareCodePoints(left, right))) {
-      properties.push(propertyRow(nodeKind, propertyName, propertySchema));
+      properties.push(propertyRow(nodeKind, propertyName, propertySchema, overrides));
     }
   }
   const nonCatalogSchemas = Object.keys(nodeSchemas)

@@ -7,7 +7,10 @@ import test from 'node:test';
 
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
-import { validateRuntimeCatalogConstitution } from './coverage-catalog.mjs';
+import {
+  loadPreExpressionV1RuntimeConstitutionSource,
+  validateRuntimeCatalogConstitution,
+} from './coverage-catalog.mjs';
 import {
   digestM4145CompiledCoreJavaScript,
   digestPreM4135CompiledCoreJavaScript,
@@ -347,7 +350,7 @@ test('historical compiled core identities authenticate exact M4.145 membership',
     digestM4145CompiledCoreJavaScript(),
     '29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2',
   );
-  assert.equal(digestM4145CompiledCoreJavaScript(), compiledCoreDigest({ omitted }));
+  assert.notEqual(digestM4145CompiledCoreJavaScript(), compiledCoreDigest({ omitted }));
   assert.equal(
     digestPreM4135CompiledCoreJavaScript(),
     '502bde3b1a95cbafa2039a0227d626aeceb605c0d9de5ebe24183ab9b37f10ec',
@@ -361,6 +364,23 @@ test('historical compiled core identities authenticate exact M4.145 membership',
       overrides: new Map([[sibling, Buffer.concat([siblingBytes, Buffer.from('\n')])]]),
     }),
     digestM4145CompiledCoreJavaScript(),
+  );
+});
+
+test('historical structural constitution reconstructs the pre-expression-v1 bytes', () => {
+  assert.equal(
+    digest(loadPreExpressionV1RuntimeConstitutionSource()),
+    'fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea',
+  );
+  assert.throws(
+    () => measureCanonicalizerCoverage(undefined, undefined, { constitutionSource: 'invented' }),
+    /coverage catalog rejection/u,
+  );
+  assert.throws(
+    () => measureCanonicalizerCoverage(undefined, undefined, {
+      constitutionSource: Buffer.from('{"attacker":"controlled"}'),
+    }),
+    /coverage catalog rejection/u,
   );
 });
 

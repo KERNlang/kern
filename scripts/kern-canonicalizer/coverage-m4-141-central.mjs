@@ -6,6 +6,7 @@ import {
   measureCanonicalizerCoverage,
   summarizeCanonicalizerCoverage,
 } from './coverage.mjs';
+import { loadPreExpressionV1RuntimeConstitutionSource } from './coverage-catalog.mjs';
 import { digestM4145CompiledCoreJavaScript } from './coverage-dependencies.mjs';
 import {
   loadCanonicalizerExceptionFlowImplementationHandoff,
@@ -83,7 +84,10 @@ export function loadPublishedM4141ExceptionFlowFrontier() {
   const coverage = measureCanonicalizerCoverage(
     historical.policy,
     canonicalizerPolicy,
-    { sourceOverrides: historical.sourceOverrides },
+    {
+      constitutionSource: loadPreExpressionV1RuntimeConstitutionSource(),
+      sourceOverrides: historical.sourceOverrides,
+    },
   );
   coverage.canonicalizerDigest = composition.digests.canonicalizerCompositeSha256;
   coverage.composition = {

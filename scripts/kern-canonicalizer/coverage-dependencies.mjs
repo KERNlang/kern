@@ -4,7 +4,10 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { reconstructHistoricalSource } from './historical-source.mjs';
-import { PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS } from './new-expression-structural-target.mjs';
+import {
+  POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
+  PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
+} from './new-expression-structural-target.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
@@ -115,7 +118,19 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
 function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
-  return { canonicalRoot, paths: historicalPaths };
+  const overrides = new Map();
+  for (const reconstruction of POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-M4.153 compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(reconstruction.path, reconstructHistoricalSource({
+      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `M4.145 compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    }));
+  }
+  return { canonicalRoot, overrides, paths: historicalPaths };
 }
 
 function localImplementationModules(directory = IMPLEMENTATION_ROOT, output = []) {
@@ -136,8 +151,8 @@ export function digestCompiledCoreJavaScript() {
 }
 
 export function digestM4145CompiledCoreJavaScript() {
-  const { canonicalRoot, paths } = m4145CompiledCoreJavaScriptPaths();
-  return hashFramedFiles(canonicalRoot, paths);
+  const { canonicalRoot, overrides, paths } = m4145CompiledCoreJavaScriptPaths();
+  return hashFramedFiles(canonicalRoot, paths, overrides);
 }
 
 export function digestPreM4135CompiledCoreJavaScript() {
@@ -149,8 +164,9 @@ export function digestPreM4135CompiledCoreJavaScript() {
     milestone: 'pre-M4.135 compiled structural expression',
     replacements: PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
   });
-  const { canonicalRoot, paths } = m4145CompiledCoreJavaScriptPaths();
-  return hashFramedFiles(canonicalRoot, paths, new Map([[relativePath, historicalSource]]));
+  const { canonicalRoot, overrides, paths } = m4145CompiledCoreJavaScriptPaths();
+  overrides.set(relativePath, historicalSource);
+  return hashFramedFiles(canonicalRoot, paths, overrides);
 }
 
 export function digestCoverageImplementationSources() {

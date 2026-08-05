@@ -51,7 +51,7 @@ export function validateCoverageLedger(ledger, constitution) {
     ['schemaVersion', 'format', 'constitutionFormat', 'proofLabel', 'counts', 'nodes', 'properties'],
     'ledger',
   );
-  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5e.1') {
+  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5f.1') {
     fail('unsupported ledger version');
   }
   if (ledger.constitutionFormat !== constitution.format || ledger.proofLabel !== 'ALPHA-NO-GO') {

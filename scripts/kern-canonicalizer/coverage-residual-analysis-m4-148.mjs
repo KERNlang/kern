@@ -8,6 +8,7 @@ import {
   measureCanonicalizerCoverage,
   summarizeCanonicalizerCoverage,
 } from './coverage.mjs';
+import { loadValidatedRuntimeConstitutionSource } from './coverage-catalog.mjs';
 import { loadCanonicalizerCoverageEvidence } from './coverage-composition.mjs';
 import {
   authenticateCoverageDependencies,
@@ -40,6 +41,8 @@ const COVERAGE_SUMMARY_DIGEST =
   'fc030f9b1140e15cca55fdcea93bcf7da15fd75825ae1cb6577b5620e0b95bf0';
 const PREREQUISITE_SUMMARY_DIGEST =
   '0ef253dba0b3ab80593d9fd3985e210736c3c9bc69763b21480330f1c0ba21f7';
+const PUBLISHED_CATALOG_DIGEST =
+  'fa3a0cddc280ff2d8dd9f09cf575953b5adbaaf6f8c716c05e06faf2d43cd6ea';
 const EXPECTED_ASSIGNMENTS_DIGEST =
   'e953208c40e51714c3e0338455f67437fb6a6fda6c3f9fb42df0870dda003720';
 const PROFILE_AXES = [
@@ -147,6 +150,23 @@ function canonicalBytes(value) {
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function authenticatePublishedM4147Input(published) {
+  assertPlainReceiptData(published);
+  if (published.coverage.catalogDigest !== PUBLISHED_CATALOG_DIGEST) {
+    fail('archived M4.147 catalog digest must match its independent pin');
+  }
+  const coverageDigest = createHash('sha256').update(canonicalBytes(published.coverage)).digest('hex');
+  const prerequisiteDigest = createHash('sha256')
+    .update(canonicalBytes(published.prerequisite))
+    .digest('hex');
+  if (
+    published.coverageDigest !== COVERAGE_SUMMARY_DIGEST ||
+    coverageDigest !== COVERAGE_SUMMARY_DIGEST ||
+    published.prerequisiteDigest !== PREREQUISITE_SUMMARY_DIGEST ||
+    prerequisiteDigest !== PREREQUISITE_SUMMARY_DIGEST
+  ) fail('archived M4.147 summaries must match their independently pinned bytes');
+}
+
 function exactLimits(limits) {
   return Object.fromEntries(PROFILE_AXES.map(([limit]) => [limit, limits[limit]]));
 }
@@ -179,6 +199,7 @@ export function assertM4148PublishedInput(
   canonicalizerPolicy,
   published = loadPublishedM4147CoverageInput(),
 ) {
+  authenticatePublishedM4147Input(published);
   assertPlainReceiptData(canonicalizerPolicy);
   const canonicalizerPolicyDigest = createHash('sha256')
     .update(canonicalBytes(canonicalizerPolicy))
@@ -191,8 +212,12 @@ export function assertM4148PublishedInput(
   const liveCanonicalizerDigest = createHash('sha256')
     .update(liveEvidence.source)
     .digest('hex');
+  const liveCatalogDigest = createHash('sha256')
+    .update(loadValidatedRuntimeConstitutionSource())
+    .digest('hex');
   if (
     receipt.canonicalizerDigest !== liveCanonicalizerDigest ||
+    receipt.catalogDigest !== liveCatalogDigest ||
     !isDeepStrictEqual(receipt.composition, liveEvidence.composition) ||
     receipt.compiledCoreDigest !== liveDependencies.compiledCoreDigest ||
     receipt.coverageImplementationDigest !== liveDependencies.coverageImplementationDigest ||
@@ -206,6 +231,7 @@ export function assertM4148PublishedInput(
   }
   const historicalCompiledCoreDigest = digestM4145CompiledCoreJavaScript();
   const normalizedCoverage = summarizeCanonicalizerCoverage(receipt);
+  normalizedCoverage.catalogDigest = published.coverage.catalogDigest;
   normalizedCoverage.canonicalizerDigest = published.coverage.canonicalizerDigest;
   normalizedCoverage.composition = structuredClone(published.coverage.composition);
   normalizedCoverage.compiledCoreDigest = historicalCompiledCoreDigest;

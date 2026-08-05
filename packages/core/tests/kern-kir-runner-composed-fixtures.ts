@@ -30,6 +30,14 @@ export const COMPOSED_RUNNER_WITNESSES = [
     excludedProperties: [],
   },
   {
+    id: 'expression-v1',
+    witnessId: 'kir-runtime-compose.expression-v1.v1',
+    semanticEnvelopeId: 'binary-seven',
+    fixtureId: 'expression-v1-binary-seven',
+    oracleId: 'exact-expression-v1-result',
+    excludedProperties: ['type:excluded-host-type'],
+  },
+  {
     id: 'fmt',
     witnessId: 'kir-runtime-compose.fmt.v1',
     semanticEnvelopeId: 'formatted-value-seven',
@@ -153,6 +161,7 @@ export const COMPOSED_RUNNER_ORACLES: Readonly<Record<ComposedRunnerWitness['ora
       },
     ]),
     'exact-caught-result': success(text('boom')),
+    'exact-expression-v1-result': success(integer('7')),
     'exact-for-sum': success(integer('6')),
     'exact-formatted-text': success(text('value=7')),
     'exact-if-result': success(integer('7')),
@@ -247,6 +256,22 @@ export function buildComposedRunnerFixture(witness: ComposedRunnerWitness): Comp
           { type: 'let', props: { name: 'values', value: 'new Map()' } },
           { type: 'do', props: { value: 'Map.set(values, "answer", 8)' } },
           { type: 'return', props: { value: 'Map.get(values, "answer")' } },
+        ],
+        'number',
+      );
+    case 'expression-v1-binary-seven':
+      return fixture(
+        'expression-v1',
+        'expression-v1-binary-seven',
+        'binary-seven',
+        'exact-expression-v1-result',
+        [
+          { type: 'expression-v1', props: { expr: '1 + 6', name: 'answer' } },
+          { type: 'return', props: { value: 'answer' } },
+        ],
+        [
+          { type: 'expression-v1', props: { expr: '1 + 7', name: 'answer' } },
+          { type: 'return', props: { value: 'answer' } },
         ],
         'number',
       );

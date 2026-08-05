@@ -39,6 +39,32 @@ function rejectedNode(disposition) {
 }
 
 function expectedCanonicalValue(row) {
+  if (row.disposition === 'lowered-expression' && row.fixture === '1 + 6') {
+    const integer = (value) => ({
+      tag: 'record',
+      value: [
+        { key: 'fields', value: { tag: 'record', value: [{ key: 'value', value: { tag: 'int', value } }] } },
+        { key: 'kind', value: { tag: 'text', value: 'integer' } },
+      ],
+    });
+    return {
+      tag: 'record',
+      value: [
+        {
+          key: 'fields',
+          value: {
+            tag: 'record',
+            value: [
+              { key: 'left', value: integer('1') },
+              { key: 'op', value: { tag: 'text', value: '+' } },
+              { key: 'right', value: integer('6') },
+            ],
+          },
+        },
+        { key: 'kind', value: { tag: 'text', value: 'binary' } },
+      ],
+    };
+  }
   if (row.disposition === 'lowered-expression' && row.fixture === 'null') {
     return {
       tag: 'record',

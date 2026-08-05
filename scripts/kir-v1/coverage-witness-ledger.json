@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.coverage-witness-ledger.r1.5e.1",
-  "constitutionFormat": "kern.kir.structural.r1.5e.1",
+  "format": "kern.kir.coverage-witness-ledger.r1.5f.1",
+  "constitutionFormat": "kern.kir.structural.r1.5f.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
     "nodes": 302,
@@ -1515,8 +1515,8 @@
     },
     {
       "id": "expression-v1",
-      "disposition": "required-excluded-host-payload",
-      "witnessId": "kir-c4.node.expression-v1.required-excluded-host-payload.reject"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-c4.node.expression-v1.lowered-semantic.accept"
     }
   ],
   "properties": [
@@ -17270,11 +17270,11 @@
       "schemaKind": "rawExpr",
       "required": true,
       "values": null,
-      "disposition": "excluded-host-expression",
-      "reasonId": "opaque-host-expression-forbidden",
-      "fixture": "host()",
+      "disposition": "lowered-expression",
+      "reasonId": "portable-expression-required",
+      "fixture": "1 + 6",
       "witnessIds": [
-        "kir-c4.prop.expression-v1.expr.excluded-host-expression.populated.reject"
+        "kir-c4.prop.expression-v1.expr.lowered-expression.populated.accept"
       ]
     },
     {
@@ -17287,7 +17287,7 @@
       "reasonId": "portable-identifier",
       "fixture": "w_expression_v1_name",
       "witnessIds": [
-        "kir-c4.prop.expression-v1.name.included-value.populated.reject"
+        "kir-c4.prop.expression-v1.name.included-value.populated.accept"
       ]
     },
     {
@@ -17301,7 +17301,7 @@
       "fixture": "HostType",
       "witnessIds": [
         "kir-c4.prop.expression-v1.type.excluded-host-type.populated.reject",
-        "kir-c4.prop.expression-v1.type.excluded-host-type.omitted.reject"
+        "kir-c4.prop.expression-v1.type.excluded-host-type.omitted.accept"
       ]
     }
   ]

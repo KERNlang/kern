@@ -37,8 +37,8 @@ test('repository inventory is an explicit Alpha no-go proof', () => {
   assert.equal(result.coveredSourceNodeCount, 302);
   assert.equal(result.unresolvedSourceNodeCount, 0);
   assert.equal(result.runnerContractCount, 16);
-  assert.equal(result.witnessedRunnerContractCount, 12);
-  assert.equal(result.structurallyBlockedRunnerContractCount, 4);
+  assert.equal(result.witnessedRunnerContractCount, 13);
+  assert.equal(result.structurallyBlockedRunnerContractCount, 3);
   assert.equal(result.unclassifiedRunnerContractCount, 0);
 });
 
@@ -205,6 +205,61 @@ test('every runner contract has an exact composed witness or mechanically derive
   assert.throws(
     mutate((copy) => { copy.runnerCoverage[0].witnessedRunnerContractCount = 12; }),
     /runnerCoverage\[0\] must contain exactly/u,
+  );
+});
+
+test('expression-v1 admission leaves exactly the three constitution-derived blockers', () => {
+  assert.deepEqual(
+    policy.runnerCoverage.filter((row) => row.disposition === 'structural-blocker'),
+    [
+      {
+        id: 'branch',
+        disposition: 'structural-blocker',
+        blockerId: 'required-on:excluded-host-expression',
+        nextMilestone: 'P1-constitution-expansion',
+      },
+      {
+        id: 'each',
+        disposition: 'structural-blocker',
+        blockerId: 'required-in:excluded-host-expression',
+        nextMilestone: 'P1-constitution-expansion',
+      },
+      {
+        id: 'lambda',
+        disposition: 'structural-blocker',
+        blockerId: 'source-node-absent',
+        nextMilestone: 'P1-constitution-expansion',
+      },
+    ],
+  );
+  assert.deepEqual(
+    policy.runnerCoverage.find((row) => row.id === 'expression-v1'),
+    {
+      id: 'expression-v1',
+      witnessId: 'kir-runtime-compose.expression-v1.v1',
+      semanticEnvelopeId: 'binary-seven',
+      fixtureId: 'expression-v1-binary-seven',
+      oracleId: 'exact-expression-v1-result',
+      excludedProperties: ['type:excluded-host-type'],
+      disposition: 'internal-composed-witness',
+    },
+  );
+  assert.throws(
+    mutate((copy) => {
+      copy.runnerCoverage[copy.runnerCoverage.findIndex((row) => row.id === 'expression-v1')] = {
+        id: 'expression-v1',
+        disposition: 'structural-blocker',
+        blockerId: 'required-expr:excluded-host-expression',
+        nextMilestone: 'P1-constitution-expansion',
+      };
+    }),
+    /runnerCoverage\[5\] must contain exactly/u,
+  );
+  assert.throws(
+    mutate((copy) => {
+      copy.runnerCoverage.find((row) => row.id === 'expression-v1').excludedProperties = [];
+    }),
+    /runner coverage expression-v1 drifted/u,
   );
 });
 

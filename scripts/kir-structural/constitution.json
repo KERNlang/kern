@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.structural.r1.5e.1",
+  "format": "kern.kir.structural.r1.5f.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
     "sourceNodes": 302,
@@ -13032,8 +13032,8 @@
       "schemaKind": "rawExpr",
       "required": true,
       "values": null,
-      "disposition": "excluded-host-expression",
-      "reasonId": "opaque-host-expression-forbidden"
+      "disposition": "lowered-expression",
+      "reasonId": "portable-expression-required"
     },
     {
       "nodeKind": "expression-v1",

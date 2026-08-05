@@ -5,6 +5,7 @@ import test from 'node:test';
 import { NODE_SCHEMAS } from '../../packages/core/dist/schema.js';
 import { NODE_TYPES } from '../../packages/core/dist/spec.js';
 import {
+  buildPropertyPolicyOverrideMap,
   buildStructuralConstitution,
   renderStructuralRuntimeCatalog,
   validateStructuralConstitution,
@@ -96,6 +97,73 @@ test('only structured runtime-handler type locations are lowered', () => {
       disposition: 'excluded-host-type',
       reasonId: 'structured-handler-parameters-required',
     },
+  );
+});
+
+test('only expression-v1.expr overrides raw host-expression exclusion', () => {
+  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5f.1');
+  assert.deepEqual(
+    checkedIn.properties
+      .filter((row) => row.schemaKind === 'rawExpr' && row.disposition === 'lowered-expression')
+      .map((row) => `${row.nodeKind}.${row.propertyName}`),
+    ['expression-v1.expr'],
+  );
+  assert.deepEqual(
+    checkedIn.properties.find((row) => row.nodeKind === 'expression-v1' && row.propertyName === 'expr'),
+    {
+      nodeKind: 'expression-v1',
+      propertyName: 'expr',
+      schemaKind: 'rawExpr',
+      required: true,
+      values: null,
+      disposition: 'lowered-expression',
+      reasonId: 'portable-expression-required',
+    },
+  );
+  for (const [nodeKind, propertyName] of [['branch', 'on'], ['each', 'in']]) {
+    const row = checkedIn.properties.find(
+      (property) => property.nodeKind === nodeKind && property.propertyName === propertyName,
+    );
+    assert.equal(row.required, true);
+    assert.equal(row.disposition, 'excluded-host-expression');
+  }
+  const type = checkedIn.properties.find(
+    (row) => row.nodeKind === 'expression-v1' && row.propertyName === 'type',
+  );
+  assert.equal(type.required, false);
+  assert.equal(type.disposition, 'excluded-host-type');
+});
+
+test('expression-v1 override fails closed when its source schema drifts', () => {
+  const schemas = clone(NODE_SCHEMAS);
+  schemas['expression-v1'].props.expr.kind = 'identifier';
+  assert.throws(
+    () => buildStructuralConstitution(NODE_TYPES, schemas),
+    /property policy override schema drift/u,
+  );
+
+  const missingTarget = clone(NODE_SCHEMAS);
+  delete missingTarget['expression-v1'].props.expr;
+  assert.throws(
+    () => buildStructuralConstitution(NODE_TYPES, missingTarget),
+    /property policy override target drift/u,
+  );
+});
+
+test('property policy override rows reject invented and duplicate pairs', () => {
+  const row = {
+    key: 'expression-v1.expr',
+    schemaKind: 'rawExpr',
+    disposition: 'lowered-expression',
+    reasonId: 'portable-expression-required',
+  };
+  assert.throws(
+    () => buildPropertyPolicyOverrideMap([{ ...row, key: 'expression-v1.invented' }], NODE_TYPES, NODE_SCHEMAS),
+    /property policy override target drift/u,
+  );
+  assert.throws(
+    () => buildPropertyPolicyOverrideMap([row, { ...row }], NODE_TYPES, NODE_SCHEMAS),
+    /duplicate property policy override/u,
   );
 });
 

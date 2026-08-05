@@ -5,6 +5,11 @@ import {
   STRUCTURAL_KIR_NODE_CATALOG,
   STRUCTURAL_KIR_PROOF_LABEL,
 } from '../../packages/core/dist/kir-structural/catalog.generated.js';
+import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_DIGEST,
+  PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_REPLACEMENTS,
+} from './new-expression-structural-target.mjs';
 
 const CONSTITUTION_SOURCE = readFileSync(new URL('../kir-structural/constitution.json', import.meta.url));
 const CONSTITUTION_KEYS = ['counts', 'format', 'nodes', 'nonCatalogSchemas', 'proofLabel', 'properties', 'schemaVersion'];
@@ -149,4 +154,22 @@ export function validateRuntimeCatalogConstitution(
 export function loadValidatedRuntimeConstitutionSource() {
   validateRuntimeCatalogConstitution(JSON.parse(CONSTITUTION_SOURCE.toString('utf8')));
   return Buffer.from(CONSTITUTION_SOURCE);
+}
+
+export function resolveRuntimeConstitutionSource(source) {
+  if (source === undefined) return loadValidatedRuntimeConstitutionSource();
+  if (!(source instanceof Uint8Array)) fail();
+  const bytes = Buffer.from(source);
+  if (bytes.equals(loadValidatedRuntimeConstitutionSource())) return bytes;
+  if (bytes.equals(loadPreExpressionV1RuntimeConstitutionSource())) return bytes;
+  fail();
+}
+
+export function loadPreExpressionV1RuntimeConstitutionSource() {
+  return reconstructHistoricalSource({
+    currentSource: loadValidatedRuntimeConstitutionSource(),
+    expectedDigest: PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_DIGEST,
+    milestone: 'pre-expression-v1 structural constitution',
+    replacements: PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_REPLACEMENTS,
+  });
 }

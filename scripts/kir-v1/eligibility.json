@@ -337,7 +337,7 @@
     "path": "packages/core/tests/kern-kir-runner-composed-fixtures.ts",
     "constant": "COMPOSED_RUNNER_WITNESSES",
     "format": "kern.kir.runner-composed-witnesses.p1.1",
-    "canonicalSha256": "b293be7acc866a0f73f68ab42eb750265bfdcde50f49845c93ef1d5f5d468119"
+    "canonicalSha256": "6fdb5ffa90340c483b2e8bc1f4ad50b15a94a72dc81b20d9795cd4fef7c3bff8"
   },
   "candidateWitness": {
     "format": "kern.semantic-kir.probe.1",
@@ -356,8 +356,8 @@
   },
   "coverageWitnessLedger": {
     "path": "scripts/kir-v1/coverage-witness-ledger.json",
-    "format": "kern.kir.coverage-witness-ledger.r1.5e.1",
-    "canonicalSha256": "d358a25dd719df335587ce5759afedcc7cde7f662ece3d2c01c402f10ebd86f5"
+    "format": "kern.kir.coverage-witness-ledger.r1.5f.1",
+    "canonicalSha256": "4a9b85a55febbacdb311598d20d2d58d41251f046ed2b201119ea0084692dd9b"
   },
   "blockers": [
     {
@@ -1929,8 +1929,8 @@
     },
     {
       "id": "expression-v1",
-      "disposition": "required-excluded-host-payload",
-      "witnessId": "kir-c4.node.expression-v1.required-excluded-host-payload.reject"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-c4.node.expression-v1.lowered-semantic.accept"
     }
   ],
   "runnerCoverage": [
@@ -1977,9 +1977,14 @@
     },
     {
       "id": "expression-v1",
-      "disposition": "structural-blocker",
-      "blockerId": "required-expr:excluded-host-expression",
-      "nextMilestone": "P1-constitution-expansion"
+      "witnessId": "kir-runtime-compose.expression-v1.v1",
+      "semanticEnvelopeId": "binary-seven",
+      "fixtureId": "expression-v1-binary-seven",
+      "oracleId": "exact-expression-v1-result",
+      "excludedProperties": [
+        "type:excluded-host-type"
+      ],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "fmt",

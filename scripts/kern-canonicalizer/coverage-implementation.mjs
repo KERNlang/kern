@@ -6,7 +6,7 @@ import { CanonicalValueDecodeError } from '../../packages/core/dist/canonical-va
 import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-structural/catalog.generated.js';
 import { StructuralKirError } from '../../packages/core/dist/kir-structural/types.js';
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
-import { loadValidatedRuntimeConstitutionSource } from './coverage-catalog.mjs';
+import { resolveRuntimeConstitutionSource } from './coverage-catalog.mjs';
 import { freezeFunctionFacts, validateFunctionFacts } from './coverage-facts.mjs';
 import {
   requireAuthenticatedCoverageDependencies,
@@ -378,11 +378,13 @@ export function selectCanonicalizerTranche(policyInput, functions, canonicalizer
   return rankCanonicalizerFamilies(policy, functions, canonicalizerPolicy.profileLimits);
 }
 export function measureCanonicalizerCoverage(policyInput, canonicalizerPolicyInput, {
+  constitutionSource,
   sourceOverrides = new Map(),
 } = {}) {
   verifyAuthenticatedCoverageDependencies(AUTHENTICATED_DEPENDENCIES);
   const evidence = loadCanonicalizerCoverageEvidence();
   if (!(sourceOverrides instanceof Map)) fail('source overrides must be a Map');
+  const constitution = resolveRuntimeConstitutionSource(constitutionSource);
   const policy = policyInput === undefined
     ? loadCoveragePolicy()
     : validateCoveragePolicy(policyInput, { allowMissingCorpus: sourceOverrides.size > 0 });
@@ -456,7 +458,6 @@ export function measureCanonicalizerCoverage(policyInput, canonicalizerPolicyInp
     coverage: digest(JSON.stringify(policy)),
   });
   const selection = selectCanonicalizerTranche(policy, functions, canonicalizerPolicy);
-  const constitution = loadValidatedRuntimeConstitutionSource();
   const familyRegistry = coverageFamilyRegistrySource();
   const boundCanonicalizerPolicySource = canonicalizerPolicyInput === undefined
     ? canonicalizerPolicySource()

@@ -131,6 +131,7 @@ test('M4.148 rejects drift in every live or archived semantic dependency identit
   for (const key of [
     'canonicalizerDigest',
     'canonicalizerPolicyDigest',
+    'catalogDigest',
     'compiledCoreDigest',
     'corpusDigest',
     'coverageImplementationDigest',
@@ -204,6 +205,18 @@ test('M4.148 rejects drift in every live or archived semantic dependency identit
       archiveDrift,
     ),
     /coverage M4\.148 residual analysis rejection/u,
+  );
+
+  const archiveCatalogDrift = structuredClone(published);
+  archiveCatalogDrift.coverage.catalogDigest = '0'.repeat(64);
+  assert.throws(
+    () => assertM4148PublishedInput(
+      receipt,
+      prerequisite,
+      canonicalizerPolicy,
+      archiveCatalogDrift,
+    ),
+    /archived M4\.147 catalog digest must match its independent pin/u,
   );
 });
 
