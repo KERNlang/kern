@@ -25,6 +25,9 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SOURCE_RELATIVE_PATH = 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts';
 const SOURCE_PATH = resolve(REPO_ROOT, SOURCE_RELATIVE_PATH);
 const SOURCE = readFileSync(SOURCE_PATH, 'utf8');
+const BUILT_RELATIVE_PATH = 'packages/core/dist/ir/semantics/internal-effect-machine-class-graph.js';
+const BUILT_PATH = resolve(REPO_ROOT, BUILT_RELATIVE_PATH);
+const BUILT = readFileSync(BUILT_PATH, 'utf8');
 
 test('class body budget scan accepts an exact authority through a symlinked checkout', (context) => {
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'kern-runtime-authority-'));
@@ -101,41 +104,58 @@ test('safe-pattern token digest is invariant to checkout line endings', () => {
 });
 
 test('changing an authority pin rejects the unchanged approved helper', async (context) => {
-  const temporaryRoot = mkdtempSync(join(tmpdir(), 'kern-runtime-authority-'));
-  context.after(() => rmSync(temporaryRoot, { force: true, recursive: true }));
-  const scriptRoot = join(temporaryRoot, 'scripts/runtime-contract-v1');
-  const sourcePath = join(temporaryRoot, SOURCE_RELATIVE_PATH);
-  mkdirSync(scriptRoot, { recursive: true });
-  mkdirSync(dirname(sourcePath), { recursive: true });
   const safePatternModule = readFileSync(
     resolve(REPO_ROOT, 'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.mjs'),
     'utf8',
   );
-  const mutatedModule = safePatternModule.replace(
-    '313564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6',
-    '013564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6',
-  );
-  assert.notEqual(mutatedModule, safePatternModule);
-  writeFileSync(join(scriptRoot, 'runtime-dynamic-loader-safe-patterns.mjs'), mutatedModule);
-  copyFileSync(
-    resolve(REPO_ROOT, 'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-pattern-kernel.mjs'),
-    join(scriptRoot, 'runtime-dynamic-loader-safe-pattern-kernel.mjs'),
-  );
-  writeFileSync(sourcePath, SOURCE);
+  for (const authority of [
+    {
+      content: SOURCE,
+      digest: '313564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6',
+      relativePath: SOURCE_RELATIVE_PATH,
+    },
+    {
+      content: BUILT,
+      digest: '8cb2fdb53b0e0bb4559301759bb60dfa6dbdb0a54cbb26579ee80f362ebfe36c',
+      relativePath: BUILT_RELATIVE_PATH,
+    },
+  ]) {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), 'kern-runtime-authority-'));
+    context.after(() => rmSync(temporaryRoot, { force: true, recursive: true }));
+    const scriptRoot = join(temporaryRoot, 'scripts/runtime-contract-v1');
+    const authorityPath = join(temporaryRoot, authority.relativePath);
+    mkdirSync(scriptRoot, { recursive: true });
+    mkdirSync(dirname(authorityPath), { recursive: true });
+    const mutatedDigest = `${authority.digest[0] === '0' ? '1' : '0'}${authority.digest.slice(1)}`;
+    const mutatedModule = safePatternModule.replace(authority.digest, mutatedDigest);
+    assert.notEqual(mutatedModule, safePatternModule);
+    writeFileSync(join(scriptRoot, 'runtime-dynamic-loader-safe-patterns.mjs'), mutatedModule);
+    copyFileSync(
+      resolve(REPO_ROOT, 'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-pattern-kernel.mjs'),
+      join(scriptRoot, 'runtime-dynamic-loader-safe-pattern-kernel.mjs'),
+    );
+    writeFileSync(authorityPath, authority.content);
 
-  const safePatterns = await import(pathToFileURL(join(scriptRoot, 'runtime-dynamic-loader-safe-patterns.mjs')).href);
-  const sourceFile = ts.createSourceFile(sourcePath, SOURCE, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const statuses = [];
-  function visit(node) {
-    if (ts.isCallExpression(node)) {
-      statuses.push(safePatterns.classBodyBudgetScanStatus(ts, node, sourceFile, sourcePath));
+    const safePatterns = await import(pathToFileURL(join(scriptRoot, 'runtime-dynamic-loader-safe-patterns.mjs')).href);
+    const sourceFile = ts.createSourceFile(
+      authorityPath,
+      authority.content,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const statuses = [];
+    function visit(node) {
+      if (ts.isCallExpression(node)) {
+        statuses.push(safePatterns.classBodyBudgetScanStatus(ts, node, sourceFile, authorityPath));
+      }
+      ts.forEachChild(node, visit);
     }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
+    visit(sourceFile);
 
-  assert.ok(statuses.includes(safePatterns.SAFE_PATTERN_STATUS.authorityDrift));
-  assert.ok(!statuses.includes(safePatterns.SAFE_PATTERN_STATUS.approved));
+    assert.ok(statuses.includes(safePatterns.SAFE_PATTERN_STATUS.authorityDrift));
+    assert.ok(!statuses.includes(safePatterns.SAFE_PATTERN_STATUS.approved));
+  }
 });
 
 test('safe-pattern digest report is print-only, reproducible, and current', () => {

@@ -39,3 +39,9 @@ inspect the semantic diff and the report, then edit the corresponding labeled
 pin explicitly in source. Source and built pin changes must ship with the
 reviewed helper change; a regenerated digest is evidence, never semantic
 approval.
+
+Every regular file directly under `scripts/runtime-contract-v1/` is normative
+and receipt-bound. Keep generated output, scratch files, editor backups, and
+subdirectories outside this closed directory; there is intentionally no
+filename exclusion list. A new file requires an explicit reviewed update to
+the pinned Alpha receipt policy, while any non-regular entry fails validation.

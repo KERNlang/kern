@@ -131,6 +131,22 @@ goldens, declaration schema, proof inventory, executable enforcement, and
 operator authority named by the receipt remain the normative boundary.
 **GUARD**
 
+Follow-up receipt review proved that a hand-maintained directory manifest still
+omitted four executed validator tests, the core parity test, the shared timer
+observer, and the canonical receipt serializer. Synthesis tribunal
+`tribunal-1785931613321-fccuwp-runtime-receipt-derived-denomina` replaced that
+manifest with a closed flat-directory invariant: live regular files are derived
+from `scripts/runtime-contract-v1/`, pinned explicitly in policy, and compared
+exactly; non-files, empty inventories, and case-folded duplicates reject. Core
+tests outside the directory remain explicit existence-checked bindings, and the
+serializer joins the self-bound receipt authority. **DECIDED**
+
+The closed directory contains normative artifacts only and has no exclusion
+list. Generated or temporary output belongs under ignored roots such as
+`.kern/`. Out-of-directory imports remain explicit bindings; a complete import
+graph is intentionally deferred because it would conflate type-only, generated,
+and dynamic dependencies beyond this receipt correction. **GUARD**
+
 ## Frozen Boundary
 
 The exact v1 boundary is:

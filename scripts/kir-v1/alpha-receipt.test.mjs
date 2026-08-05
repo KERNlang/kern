@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   ALPHA_RECEIPT_AUTHORITY_BINDINGS,
+  discoverRuntimeContractDirectoryBindings,
   generateAlphaReceipt,
+  RUNTIME_CONTRACT_DIRECTORY_BINDINGS,
   RUNTIME_CONTRACT_RECEIPT_BINDINGS,
   validateAlphaReceiptBindings,
   validateAlphaReceiptPolicy,
@@ -23,7 +25,18 @@ const SAFE_PATTERN_RECEIPT_BINDINGS = Object.freeze([
 const RECEIPT_AUTHORITY_BINDINGS = Object.freeze([
   'scripts/kir-v1/alpha-receipt.mjs',
   'scripts/kir-v1/alpha-receipt.test.mjs',
+  'scripts/release/artifact-types.mjs',
 ]);
+const EXECUTED_RUNTIME_EXTERNAL_BINDINGS = Object.freeze([
+  'packages/core/tests/runtime-contract-v1-parity.test.ts',
+  'packages/core/tests/runtime-contract-v1-timer-observer.mjs',
+]);
+const LIVE_RUNTIME_DIRECTORY_BINDINGS = Object.freeze(
+  readdirSync('scripts/runtime-contract-v1', { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => `scripts/runtime-contract-v1/${entry.name}`)
+    .sort(),
+);
 
 function policy() {
   return {
@@ -97,6 +110,15 @@ test('runtime contract denominator tracks every normative artifact mechanically'
 
 test('receipt binds the literal safe-pattern and receipt-authority denominator', () => {
   const actual = JSON.parse(readFileSync('scripts/kir-v1/alpha-receipt-policy.json', 'utf8'));
+  assert.deepEqual(RUNTIME_CONTRACT_DIRECTORY_BINDINGS, LIVE_RUNTIME_DIRECTORY_BINDINGS);
+  for (const binding of LIVE_RUNTIME_DIRECTORY_BINDINGS) {
+    assert.equal(RUNTIME_CONTRACT_RECEIPT_BINDINGS.includes(binding), true, binding);
+    assert.equal(actual.bindings.includes(binding), true, binding);
+  }
+  for (const binding of EXECUTED_RUNTIME_EXTERNAL_BINDINGS) {
+    assert.equal(RUNTIME_CONTRACT_RECEIPT_BINDINGS.includes(binding), true, binding);
+    assert.equal(actual.bindings.includes(binding), true, binding);
+  }
   for (const binding of SAFE_PATTERN_RECEIPT_BINDINGS) {
     assert.equal(RUNTIME_CONTRACT_RECEIPT_BINDINGS.includes(binding), true, binding);
     assert.equal(actual.bindings.includes(binding), true, binding);
@@ -108,6 +130,21 @@ test('receipt binds the literal safe-pattern and receipt-authority denominator',
     mutated.bindings.splice(mutated.bindings.indexOf(binding), 1);
     assert.throws(() => validateAlphaReceiptPolicy(mutated), /receipt authority/u, binding);
   }
+});
+
+test('runtime contract directory discovery admits only a closed flat file inventory', (t) => {
+  const rootDir = path.join(os.tmpdir(), `kern-runtime-directory-${process.pid}-${Math.random().toString(16).slice(2)}`);
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  mkdirSync(rootDir, { recursive: true });
+  writeFileSync(path.join(rootDir, 'authority.json'), '{}');
+  assert.deepEqual(discoverRuntimeContractDirectoryBindings(rootDir), [
+    'scripts/runtime-contract-v1/authority.json',
+  ]);
+  mkdirSync(path.join(rootDir, 'generated'));
+  assert.throws(
+    () => discoverRuntimeContractDirectoryBindings(rootDir),
+    /must be a regular file: generated/u,
+  );
 });
 
 test('clean HEAD produces one canonical immutable receipt and regenerates byte-identically', (t) => {

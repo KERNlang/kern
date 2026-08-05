@@ -1,49 +1,68 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { stringifyCanonical } from '../release/artifact-types.mjs';
-import { RUNTIME_CONTRACT_PATHS } from '../runtime-contract-v1/validate-runtime-contract-v1.mjs';
 
 const POLICY_PATH = 'scripts/kir-v1/alpha-receipt-policy.json';
+const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const RUNTIME_CONTRACT_DIRECTORY = new URL('../runtime-contract-v1/', import.meta.url);
 const SAFE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const SAFE_PATH = /^(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/u;
 const SHA = /^[0-9a-f]{40}$/u;
 
-export const RUNTIME_CONTRACT_RECEIPT_BINDINGS = Object.freeze([
+export function discoverRuntimeContractDirectoryBindings(directory = RUNTIME_CONTRACT_DIRECTORY) {
+  const entries = readdirSync(directory, { withFileTypes: true });
+  if (entries.length === 0) throw new Error('runtime contract directory must be non-empty');
+  for (const entry of entries) {
+    if (!entry.isFile()) throw new Error(`runtime contract directory entry must be a regular file: ${entry.name}`);
+  }
+  const names = entries.map(({ name }) => name);
+  const foldedNames = names.map((name) => name.toLocaleLowerCase('en-US'));
+  if (new Set(foldedNames).size !== foldedNames.length) {
+    throw new Error('runtime contract directory contains case-folded duplicate names');
+  }
+  return Object.freeze(names.map((name) => `scripts/runtime-contract-v1/${name}`).sort());
+}
+
+export const RUNTIME_CONTRACT_DIRECTORY_BINDINGS = discoverRuntimeContractDirectoryBindings();
+
+const RUNTIME_CONTRACT_EXTERNAL_BINDINGS = Object.freeze([
   'package.json',
   'packages/core/src/runtime-handler.ts',
   'packages/core/tests/runtime-contract-v1-candidate.test.mjs',
   'packages/core/tests/runtime-contract-v1-effects.test.mjs',
+  'packages/core/tests/runtime-contract-v1-parity.test.ts',
+  'packages/core/tests/runtime-contract-v1-timer-observer.mjs',
   'scripts/check-runtime-contract-v1-candidate.mjs',
   'scripts/check-runtime-contract-v1.mjs',
   'scripts/kern-5-fitness-policy.json',
   'scripts/kern-5-fitness.test.mjs',
-  ...Object.values(RUNTIME_CONTRACT_PATHS),
-  'scripts/runtime-contract-v1/SAFE_PATTERN_AUTHORITY.md',
-  'scripts/runtime-contract-v1/authority.json',
-  'scripts/runtime-contract-v1/check-runtime-dynamic-loader-safe-patterns.mjs',
-  'scripts/runtime-contract-v1/graph.test.mjs',
-  'scripts/runtime-contract-v1/machine-owner-allowlist.json',
-  'scripts/runtime-contract-v1/runtime-dynamic-loader-boundary.mjs',
-  'scripts/runtime-contract-v1/runtime-dynamic-loader-flow.mjs',
-  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-pattern-kernel.mjs',
-  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.mjs',
-  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.test.mjs',
-  'scripts/runtime-contract-v1/runtime-machine-owner-allowlist.mjs',
-  'scripts/runtime-contract-v1/validate-runtime-contract-v1-authority.mjs',
-  'scripts/runtime-contract-v1/validate-runtime-contract-v1-proof-floor.mjs',
-  'scripts/runtime-contract-v1/validate-runtime-contract-v1.mjs',
   'scripts/runtime-envelope-import-closure.mjs',
   'scripts/runtime-handler-public-declaration.mjs',
+]);
+for (const binding of RUNTIME_CONTRACT_EXTERNAL_BINDINGS) {
+  let metadata;
+  try {
+    metadata = lstatSync(path.join(REPO_ROOT, binding));
+  } catch {
+    throw new Error(`runtime contract external binding is missing: ${binding}`);
+  }
+  if (!metadata.isFile()) throw new Error(`runtime contract external binding must be a regular file: ${binding}`);
+}
+
+export const RUNTIME_CONTRACT_RECEIPT_BINDINGS = Object.freeze([
+  ...RUNTIME_CONTRACT_DIRECTORY_BINDINGS,
+  ...RUNTIME_CONTRACT_EXTERNAL_BINDINGS,
 ].sort());
 
 export const ALPHA_RECEIPT_AUTHORITY_BINDINGS = Object.freeze([
   'scripts/kir-v1/alpha-receipt.mjs',
   'scripts/kir-v1/alpha-receipt.test.mjs',
+  'scripts/release/artifact-types.mjs',
 ]);
 
 function exactKeys(value, keys, label) {
