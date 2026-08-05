@@ -111,6 +111,11 @@ blob identity, expected digest, and actual digest, but changing a pin remains a
 manual reviewed source edit and never approves helper semantics automatically.
 **DECIDED**
 
+Fitness policy keeps the exact frozen `test:kern-runtime-contract-v1` command.
+Its existing `*.test.mjs` wildcard continuously executes the print-only report;
+the operator-facing invocation remains the documented direct `node` command,
+not a new root package-script authority. **GUARD**
+
 ## Frozen Boundary
 
 The exact v1 boundary is:
