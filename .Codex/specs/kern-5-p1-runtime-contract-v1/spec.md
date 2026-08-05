@@ -91,6 +91,26 @@ conditioned transcript, while the three-phase semantic ledger covers provider,
 publication, and state effects. Counts are frozen as witnesses; the normative
 invariant is balanced cleanup with zero residual control resources. **DECIDED**
 
+### Safe-pattern authority review delta
+
+Targeted review after dynamic-loader flow closure found that lexical `resolve()`
+path matching rejected legitimate symlinked and case-normalized checkouts and
+that the two helper token-tree pins lacked an auditable inspection workflow.
+Red-team tribunal
+`tribunal-1785929471749-569pbj-runtime-authority-operability` required symmetric
+filesystem canonicalization, labeled source/built authority records, explicit
+canonical-collision rejection, independent missing-artifact behavior, one
+shared digest kernel, and a print/check-only report with no update mode.
+**VERIFIED**
+
+The authority continues to admit exactly two declared filesystem identities;
+it does not authorize hardlinks, twins, directory containment, basenames, or
+identical contents at another path. Canonicalization failure and source/built
+canonical collisions fail closed. The report records TypeScript version, Git
+blob identity, expected digest, and actual digest, but changing a pin remains a
+manual reviewed source edit and never approves helper semantics automatically.
+**DECIDED**
+
 ## Frozen Boundary
 
 The exact v1 boundary is:

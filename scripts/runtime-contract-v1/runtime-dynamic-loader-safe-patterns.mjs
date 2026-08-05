@@ -1,23 +1,36 @@
-import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import {
+  approvedSafePatternHelper,
+  safePatternSyntaxDigest,
+} from './runtime-dynamic-loader-safe-pattern-kernel.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SOURCE_PATH = resolve(REPO_ROOT, 'packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts');
 const BUILT_PATH = resolve(REPO_ROOT, 'packages/core/dist/ir/semantics/internal-effect-machine-class-graph.js');
 
-export const APPROVED_CLASS_BODY_BUDGET_SCAN_PATHS = Object.freeze([SOURCE_PATH, BUILT_PATH]);
+export const RUNTIME_DYNAMIC_LOADER_SAFE_PATTERN_AUTHORITIES = Object.freeze([
+  Object.freeze({
+    label: 'source',
+    declaredPath: SOURCE_PATH,
+    expectedDigest: '313564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6',
+  }),
+  Object.freeze({
+    label: 'built',
+    declaredPath: BUILT_PATH,
+    expectedDigest: '8cb2fdb53b0e0bb4559301759bb60dfa6dbdb0a54cbb26579ee80f362ebfe36c',
+  }),
+]);
+export const APPROVED_CLASS_BODY_BUDGET_SCAN_PATHS = Object.freeze(
+  RUNTIME_DYNAMIC_LOADER_SAFE_PATTERN_AUTHORITIES.map(({ declaredPath }) => declaredPath),
+);
 export const SAFE_PATTERN_STATUS = Object.freeze({
   approved: 'approved',
   authorityDrift: 'authority-drift',
   notApplicable: 'not-applicable',
 });
-
-// Token-tree safety authorities for the source and emitted non-invoking body scan.
-const APPROVED_HELPER_DIGESTS = new Map([
-  [SOURCE_PATH, '313564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6'],
-  [BUILT_PATH, '8cb2fdb53b0e0bb4559301759bb60dfa6dbdb0a54cbb26579ee80f362ebfe36c'],
-]);
 
 function transparent(ts, node) {
   let current = node;
@@ -102,66 +115,39 @@ function isCandidateScan(ts, node) {
     isBudgetCallback(ts, node.arguments[0]);
 }
 
-function bindingIdentifiers(ts, name, out = []) {
-  if (ts.isIdentifier(name)) out.push(name);
-  else for (const element of name.elements ?? []) {
-    if (ts.isBindingElement(element)) bindingIdentifiers(ts, element.name, out);
+function canonicalPath(path) {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return null;
   }
-  return out;
 }
 
-function helperBindings(ts, sourceFile) {
-  const bindings = [];
-  function add(name) {
-    for (const identifier of bindingIdentifiers(ts, name)) {
-      if (identifier.text === 'classBodyRequiresIterationBudget') bindings.push(identifier);
-    }
-  }
-  function visit(node) {
-    if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) ||
-        ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.name) add(node.name);
-    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) add(node.name);
-    if (ts.isImportClause(node) && node.name) add(node.name);
-    if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportEqualsDeclaration(node)) add(node.name);
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-  return bindings;
-}
-
-function approvedHelper(ts, sourceFile) {
-  const helpers = sourceFile.statements.filter((statement) =>
-    ts.isFunctionDeclaration(statement) && statement.name?.text === 'classBodyRequiresIterationBudget');
-  if (helpers.length !== 1) return null;
-  const bindings = helperBindings(ts, sourceFile);
-  return bindings.length === 1 && bindings[0] === helpers[0].name ? helpers[0] : null;
-}
-
-function syntaxDigest(ts, root, sourceFile) {
-  function encode(node) {
-    const children = node.getChildren(sourceFile).filter((child) => !(ts.isJSDoc?.(child) ?? false));
-    if (children.length === 0) {
-      const text = node.getText(sourceFile);
-      return `L${node.kind}:${Buffer.byteLength(text)}:${text}`;
-    }
-    const payload = children.map((child) => encode(child)).map((child) => `${Buffer.byteLength(child)}:${child}`).join('');
-    return `N${node.kind}:${children.length}:${Buffer.byteLength(payload)}:${payload}`;
-  }
-  return createHash('sha256').update(encode(root)).digest('hex');
-}
-
-function exactAuthorityPath(sourcePath) {
-  if (typeof sourcePath !== 'string' || !isAbsolute(sourcePath)) return null;
+function authorityResolution(sourcePath) {
+  if (typeof sourcePath !== 'string' || !isAbsolute(sourcePath)) return { status: 'unauthorized' };
   const normalized = resolve(sourcePath);
-  return APPROVED_HELPER_DIGESTS.has(normalized) ? normalized : null;
+  const callerCanonicalPath = canonicalPath(normalized);
+  const records = RUNTIME_DYNAMIC_LOADER_SAFE_PATTERN_AUTHORITIES.map((authority) => ({
+    ...authority,
+    canonicalPath: canonicalPath(authority.declaredPath),
+  }));
+  if (!callerCanonicalPath) {
+    const declaredAuthority = records.find(({ declaredPath }) => declaredPath === normalized);
+    return { status: declaredAuthority ? 'drift' : 'unauthorized' };
+  }
+  const matches = records.filter(({ canonicalPath: authorityPath }) => authorityPath === callerCanonicalPath);
+  if (matches.length > 1) return { status: 'drift' };
+  return matches.length === 1 ? { status: 'matched', authority: matches[0] } : { status: 'unauthorized' };
 }
 
 export function classBodyBudgetScanStatus(ts, node, sourceFile, sourcePath) {
-  const authorityPath = exactAuthorityPath(sourcePath);
-  if (!authorityPath || !isCandidateScan(ts, node)) return SAFE_PATTERN_STATUS.notApplicable;
-  const helper = approvedHelper(ts, sourceFile);
+  if (!isCandidateScan(ts, node)) return SAFE_PATTERN_STATUS.notApplicable;
+  const resolution = authorityResolution(sourcePath);
+  if (resolution.status === 'unauthorized') return SAFE_PATTERN_STATUS.notApplicable;
+  if (resolution.status === 'drift') return SAFE_PATTERN_STATUS.authorityDrift;
+  const helper = approvedSafePatternHelper(ts, sourceFile);
   if (!helper) return SAFE_PATTERN_STATUS.authorityDrift;
-  return syntaxDigest(ts, helper, sourceFile) === APPROVED_HELPER_DIGESTS.get(authorityPath)
+  return safePatternSyntaxDigest(ts, helper, sourceFile) === resolution.authority.expectedDigest
     ? SAFE_PATTERN_STATUS.approved
     : SAFE_PATTERN_STATUS.authorityDrift;
 }
