@@ -134,10 +134,12 @@ export function assertInternalMachineClassGraph(env: SemanticEnv): InternalMachi
   return {
     classes: moduleGraph.root.classes,
     moduleGraph,
-    requiresIterationBudget: [...seen].some((cls) =>
-      [...(cls.constructor ? [cls.constructor] : []), ...cls.methods.values(), ...cls.getters.values()].some((member) =>
-        classBodyRequiresIterationBudget(member.body),
-      ),
+    requiresIterationBudget: [...seen].some(
+      (cls) =>
+        (cls.constructor ? classBodyRequiresIterationBudget(cls.constructor.body) : false) ||
+        [...cls.methods.values(), ...cls.getters.values()].some((member) =>
+          classBodyRequiresIterationBudget(member.body),
+        ),
     ),
   };
 }

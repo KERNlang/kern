@@ -162,12 +162,7 @@ function objectRecordCategory(entries, fallback) {
 
 export function memberFlowCategory(category, member) {
   const record = objectRecord(category);
-  if (!record) {
-    const container = CONTAINER_FLOW_PREFIX.exec(category ?? '');
-    if (!container) return null;
-    if (container[1] === 'array' && member !== null && !/^(0|[1-9]\d*)$/u.test(member)) return null;
-    return container[2];
-  }
+  if (!record) return containedFlowCategory(category);
   const entries = new Map(record.entries);
   return member === null
     ? joinFlowCategories(...entries.values(), record.fallback)
@@ -286,7 +281,8 @@ export function isForbiddenCallableCategory(category) {
     category === 'dynamic-constructor' ||
     category === 'dynamic-invocation' ||
     category === 'derived-dynamic' ||
-    category === 'flow-constructor';
+    category === 'flow-constructor' ||
+    (containedFlowCategory(category) !== null && isForbiddenCallableCategory(containedFlowCategory(category)));
 }
 
 function flowedCategory(category) {
@@ -330,25 +326,10 @@ export function callFlowCategory(ts, expression, categoryOf) {
   return null;
 }
 
-export function containerCallFlowCategory(ts, expression, categoryOf, computedMember) {
-  const callee = transparentFlowExpression(ts, expression.expression);
-  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return null;
-  const container = CONTAINER_FLOW_PREFIX.exec(categoryOf(callee.expression) ?? '');
-  if (container?.[1] !== 'array') return null;
-  const member = ts.isPropertyAccessExpression(callee) ? callee.name.text : computedMember(callee.argumentExpression);
-  const contained = container[2];
-  if (['some', 'every', 'forEach'].includes(member)) {
-    const callback = expression.arguments[0];
-    return callback &&
-      isForbiddenCallableCategory(flowedCategory(contained)) &&
-      flowIndices(categoryOf(callback), 'i').includes(0)
-      ? 'dynamic-invocation'
-      : null;
-  }
-  if (['at', 'find', 'findLast', 'pop', 'shift'].includes(member)) return contained;
-  if (member === 'values') return `array-flow:${contained}`;
-  if (member === 'entries') return `array-flow:array-flow:${contained}`;
-  return null;
+export function hasForbiddenSpreadArgument(ts, expression, categoryOf) {
+  return expression.arguments?.some((argument) =>
+    ts.isSpreadElement(argument) &&
+    isForbiddenCallableCategory(flowedCategory(spreadFlowCategory(ts, argument, categoryOf)))) ?? false;
 }
 
 export function aggregateFlowCategory(ts, expression, categoryOf, memberName = () => null) {

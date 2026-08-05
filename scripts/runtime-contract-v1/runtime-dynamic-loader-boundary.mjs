@@ -4,7 +4,7 @@ import ts from 'typescript';
 import {
   aggregateFlowCategory, assignmentFlowCategory,
   assignmentTargetRoot, bindAssignmentPattern, bindForOfStatement,
-  callFlowCategory, containerCallFlowCategory, createAliasMap,
+  callFlowCategory, createAliasMap, hasForbiddenSpreadArgument,
   functionFlowCategory,
   isFlowAssignment,
   isForbiddenCallableCategory,
@@ -174,8 +174,6 @@ function expressionCategory(node, aliases, stringAliases) {
     }
   }
   if (ts.isCallExpression(expression)) {
-    const containerFlow = containerCallFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases), (value) => staticString(value, stringAliases));
-    if (containerFlow) return containerFlow;
     const flow = callFlowCategory(ts, expression, (value) => expressionCategory(value, aliases, stringAliases));
     if (flow) return flow;
     const callee = transparentFlowExpression(ts, expression.expression);
@@ -406,7 +404,8 @@ function isInvokedAlias(node, stringAliases) {
 function isForbiddenInvocation(node, aliases, stringAliases) {
   const expression = ts.isTaggedTemplateExpression(node) ? node.tag : node.expression;
   const category = expressionCategory(expression, aliases, stringAliases);
-  return isForbiddenCallableCategory(category) ||
+  return (!ts.isTaggedTemplateExpression(node) && hasForbiddenSpreadArgument(ts, node, (value) => expressionCategory(value, aliases, stringAliases))) ||
+    isForbiddenCallableCategory(category) ||
     (ts.isCallExpression(node) && expressionCategory(node, aliases, stringAliases) === 'dynamic-invocation');
 }
 
