@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  ALPHA_RECEIPT_AUTHORITY_BINDINGS,
   generateAlphaReceipt,
   RUNTIME_CONTRACT_RECEIPT_BINDINGS,
   validateAlphaReceiptBindings,
@@ -12,10 +13,25 @@ import {
 } from './alpha-receipt.mjs';
 
 const sha = '0123456789abcdef0123456789abcdef01234567';
+const SAFE_PATTERN_RECEIPT_BINDINGS = Object.freeze([
+  'scripts/runtime-contract-v1/SAFE_PATTERN_AUTHORITY.md',
+  'scripts/runtime-contract-v1/check-runtime-dynamic-loader-safe-patterns.mjs',
+  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-pattern-kernel.mjs',
+  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.mjs',
+  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.test.mjs',
+]);
+const RECEIPT_AUTHORITY_BINDINGS = Object.freeze([
+  'scripts/kir-v1/alpha-receipt.mjs',
+  'scripts/kir-v1/alpha-receipt.test.mjs',
+]);
 
 function policy() {
   return {
-    bindings: [...RUNTIME_CONTRACT_RECEIPT_BINDINGS, 'scripts/kir-v1/alpha-receipt-policy.json'].sort(),
+    bindings: [
+      ...ALPHA_RECEIPT_AUTHORITY_BINDINGS,
+      ...RUNTIME_CONTRACT_RECEIPT_BINDINGS,
+      'scripts/kir-v1/alpha-receipt-policy.json',
+    ].sort(),
     exclusions: [{ id: 'public-release', reason: 'deferred-to-r4' }],
     format: 'kern.kir.alpha-receipt.r1.5d.2',
     maxCommandOutputBytes: 65_536,
@@ -37,7 +53,7 @@ function fixture() {
   const rootDir = path.join(os.tmpdir(), `kern-alpha-receipt-${process.pid}-${Math.random().toString(16).slice(2)}`);
   const policyPath = path.join(rootDir, 'scripts/kir-v1');
   mkdirSync(policyPath, { recursive: true });
-  for (const binding of RUNTIME_CONTRACT_RECEIPT_BINDINGS) {
+  for (const binding of policy().bindings) {
     const bindingPath = path.join(rootDir, binding);
     mkdirSync(path.dirname(bindingPath), { recursive: true });
     writeFileSync(bindingPath, `${binding}\n`);
@@ -76,6 +92,21 @@ test('runtime contract denominator tracks every normative artifact mechanically'
     const mutated = structuredClone(actual);
     mutated.bindings.splice(mutated.bindings.indexOf(missing), 1);
     assert.throws(() => validateAlphaReceiptPolicy(mutated), /complete runtime contract denominator/u, missing);
+  }
+});
+
+test('receipt binds the literal safe-pattern and receipt-authority denominator', () => {
+  const actual = JSON.parse(readFileSync('scripts/kir-v1/alpha-receipt-policy.json', 'utf8'));
+  for (const binding of SAFE_PATTERN_RECEIPT_BINDINGS) {
+    assert.equal(RUNTIME_CONTRACT_RECEIPT_BINDINGS.includes(binding), true, binding);
+    assert.equal(actual.bindings.includes(binding), true, binding);
+  }
+  assert.deepEqual(ALPHA_RECEIPT_AUTHORITY_BINDINGS, RECEIPT_AUTHORITY_BINDINGS);
+  for (const binding of RECEIPT_AUTHORITY_BINDINGS) {
+    assert.equal(actual.bindings.includes(binding), true, binding);
+    const mutated = structuredClone(actual);
+    mutated.bindings.splice(mutated.bindings.indexOf(binding), 1);
+    assert.throws(() => validateAlphaReceiptPolicy(mutated), /receipt authority/u, binding);
   }
 });
 

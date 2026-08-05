@@ -116,6 +116,21 @@ Its existing `*.test.mjs` wildcard continuously executes the print-only report;
 the operator-facing invocation remains the documented direct `node` command,
 not a new root package-script authority. **GUARD**
 
+Receipt review found that the safe-pattern authority files were executable but
+absent from the Alpha receipt denominator. Receipt-binding tribunal
+`tribunal-1785931003251-bl8ifw-runtime-safe-pattern-receipt-bin` required the
+implementation, digest kernel, print-only CLI, regression test, and normative
+operator authority document to be bound explicitly, plus self-binding for the
+Alpha receipt implementation and its test. The existing runtime-contract
+oracle remains sufficient because its frozen wildcard executes the safe-pattern
+test and CLI; no new root script or receipt oracle is introduced. **DECIDED**
+
+This claim-tagged specification is a design and recovery record, not the
+runtime receipt's semantic authority. The immutable constitution, lineage,
+goldens, declaration schema, proof inventory, executable enforcement, and
+operator authority named by the receipt remain the normative boundary.
+**GUARD**
+
 ## Frozen Boundary
 
 The exact v1 boundary is:

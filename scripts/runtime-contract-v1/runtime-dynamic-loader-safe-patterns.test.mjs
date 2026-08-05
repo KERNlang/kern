@@ -100,6 +100,44 @@ test('safe-pattern token digest is invariant to checkout line endings', () => {
   assert.equal(crlfDigest, lfDigest);
 });
 
+test('changing an authority pin rejects the unchanged approved helper', async (context) => {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'kern-runtime-authority-'));
+  context.after(() => rmSync(temporaryRoot, { force: true, recursive: true }));
+  const scriptRoot = join(temporaryRoot, 'scripts/runtime-contract-v1');
+  const sourcePath = join(temporaryRoot, SOURCE_RELATIVE_PATH);
+  mkdirSync(scriptRoot, { recursive: true });
+  mkdirSync(dirname(sourcePath), { recursive: true });
+  const safePatternModule = readFileSync(
+    resolve(REPO_ROOT, 'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.mjs'),
+    'utf8',
+  );
+  const mutatedModule = safePatternModule.replace(
+    '313564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6',
+    '013564f7395995386db660969746dfa038b97c80769d6f9765044da522348fe6',
+  );
+  assert.notEqual(mutatedModule, safePatternModule);
+  writeFileSync(join(scriptRoot, 'runtime-dynamic-loader-safe-patterns.mjs'), mutatedModule);
+  copyFileSync(
+    resolve(REPO_ROOT, 'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-pattern-kernel.mjs'),
+    join(scriptRoot, 'runtime-dynamic-loader-safe-pattern-kernel.mjs'),
+  );
+  writeFileSync(sourcePath, SOURCE);
+
+  const safePatterns = await import(pathToFileURL(join(scriptRoot, 'runtime-dynamic-loader-safe-patterns.mjs')).href);
+  const sourceFile = ts.createSourceFile(sourcePath, SOURCE, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const statuses = [];
+  function visit(node) {
+    if (ts.isCallExpression(node)) {
+      statuses.push(safePatterns.classBodyBudgetScanStatus(ts, node, sourceFile, sourcePath));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+
+  assert.ok(statuses.includes(safePatterns.SAFE_PATTERN_STATUS.authorityDrift));
+  assert.ok(!statuses.includes(safePatterns.SAFE_PATTERN_STATUS.approved));
+});
+
 test('safe-pattern digest report is print-only, reproducible, and current', () => {
   const result = spawnSync(
     process.execPath,

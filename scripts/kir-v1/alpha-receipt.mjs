@@ -23,11 +23,16 @@ export const RUNTIME_CONTRACT_RECEIPT_BINDINGS = Object.freeze([
   'scripts/kern-5-fitness-policy.json',
   'scripts/kern-5-fitness.test.mjs',
   ...Object.values(RUNTIME_CONTRACT_PATHS),
+  'scripts/runtime-contract-v1/SAFE_PATTERN_AUTHORITY.md',
   'scripts/runtime-contract-v1/authority.json',
+  'scripts/runtime-contract-v1/check-runtime-dynamic-loader-safe-patterns.mjs',
   'scripts/runtime-contract-v1/graph.test.mjs',
   'scripts/runtime-contract-v1/machine-owner-allowlist.json',
   'scripts/runtime-contract-v1/runtime-dynamic-loader-boundary.mjs',
   'scripts/runtime-contract-v1/runtime-dynamic-loader-flow.mjs',
+  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-pattern-kernel.mjs',
+  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.mjs',
+  'scripts/runtime-contract-v1/runtime-dynamic-loader-safe-patterns.test.mjs',
   'scripts/runtime-contract-v1/runtime-machine-owner-allowlist.mjs',
   'scripts/runtime-contract-v1/validate-runtime-contract-v1-authority.mjs',
   'scripts/runtime-contract-v1/validate-runtime-contract-v1-proof-floor.mjs',
@@ -35,6 +40,11 @@ export const RUNTIME_CONTRACT_RECEIPT_BINDINGS = Object.freeze([
   'scripts/runtime-envelope-import-closure.mjs',
   'scripts/runtime-handler-public-declaration.mjs',
 ].sort());
+
+export const ALPHA_RECEIPT_AUTHORITY_BINDINGS = Object.freeze([
+  'scripts/kir-v1/alpha-receipt.mjs',
+  'scripts/kir-v1/alpha-receipt.test.mjs',
+]);
 
 function exactKeys(value, keys, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -79,6 +89,12 @@ export function validateAlphaReceiptPolicy(policy) {
   );
   if (missingRuntimeBindings.length > 0) {
     throw new Error(`bindings must include the complete runtime contract denominator: ${missingRuntimeBindings.join(',')}`);
+  }
+  const missingReceiptAuthority = ALPHA_RECEIPT_AUTHORITY_BINDINGS.filter(
+    (binding) => !policy.bindings.includes(binding),
+  );
+  if (missingReceiptAuthority.length > 0) {
+    throw new Error(`bindings must include the receipt authority: ${missingReceiptAuthority.join(',')}`);
   }
   if (!Array.isArray(policy.oracles) || policy.oracles.length === 0) throw new Error('oracles must be non-empty');
   const oracleIds = new Set();
