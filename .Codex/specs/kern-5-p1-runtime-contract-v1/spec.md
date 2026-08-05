@@ -155,6 +155,14 @@ exact for both families, test paths resolve from module location rather than
 caller CWD, and unrelated files in the mixed core test directory remain out of
 scope by definition. **DECIDED**
 
+Receipt binding and oracle execution remain distinct claims. Prefix-derived
+core test files are conservatively byte-bound and require a reviewed policy
+update, but only the frozen `test:kern-runtime-contract-v1` command defines
+executed evidence. Tribunal
+`tribunal-1785932683073-lu5aa8-runtime-receipt-executed-core-fa` rejected a
+filename-based imitation of runner semantics as false execution proof; no such
+admission rule is introduced. **GUARD**
+
 ## Frozen Boundary
 
 The exact v1 boundary is:

@@ -32,7 +32,8 @@ export function discoverRuntimeContractDirectoryBindings(directory = RUNTIME_CON
 
 export const RUNTIME_CONTRACT_DIRECTORY_BINDINGS = discoverRuntimeContractDirectoryBindings();
 
-// packages/core/tests is mixed-purpose, so only this prefix is authoritative.
+// packages/core/tests is mixed-purpose, so only this prefix is receipt-bound.
+// Bindings attest artifact bytes; policy.oracles separately define execution.
 // Unlike the closed scripts directory, unrelated entries are out of scope.
 export function discoverRuntimeContractCoreTestBindings(directory = CORE_TEST_DIRECTORY) {
   const matches = readdirSync(directory, { withFileTypes: true })
