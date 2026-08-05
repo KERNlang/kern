@@ -49,7 +49,10 @@ function policy() {
     format: 'kern.kir.alpha-receipt.r1.5d.2',
     maxCommandOutputBytes: 65_536,
     oracleTimeoutMs: 5_000,
-    oracles: [{ argv: ['pnpm', 'test:kern-kir-runtime-binding'], id: 'internal-decoded-module-kir-binding' }],
+    oracles: [
+      { argv: ['pnpm', 'test:kern-kir-runtime-binding'], id: 'internal-decoded-module-kir-binding' },
+      { argv: ['pnpm', 'test:kern-kir-runner-composed-evidence'], id: 'kir-runner-composed-evidence' },
+    ],
     outputRoot: '.kern/alpha',
     status: {
       alphaAccepted: true,
@@ -165,6 +168,16 @@ test('receipt binds the complete decoded KIR runtime denominator', () => {
     'test:kern-kir-module-graph',
   ];
   assert.throws(() => validateAlphaReceiptPolicy(substitutedOracle), /exact KIR runtime binding oracle/u);
+  assert.deepEqual(
+    actual.oracles.find(({ id }) => id === 'kir-runner-composed-evidence'),
+    { id: 'kir-runner-composed-evidence', argv: ['pnpm', 'test:kern-kir-runner-composed-evidence'] },
+  );
+  const missingComposedOracle = structuredClone(actual);
+  missingComposedOracle.oracles.splice(
+    missingComposedOracle.oracles.findIndex(({ id }) => id === 'kir-runner-composed-evidence'),
+    1,
+  );
+  assert.throws(() => validateAlphaReceiptPolicy(missingComposedOracle), /exact composed KIR runner evidence oracle/u);
   const reorderedBindings = structuredClone(actual);
   [reorderedBindings.bindings[0], reorderedBindings.bindings[1]] = [
     reorderedBindings.bindings[1],
@@ -220,6 +233,11 @@ test('clean HEAD produces one canonical immutable receipt and regenerates byte-i
     {
       argv: ['pnpm', 'test:kern-kir-runtime-binding'],
       id: 'internal-decoded-module-kir-binding',
+      status: 'passed',
+    },
+    {
+      argv: ['pnpm', 'test:kern-kir-runner-composed-evidence'],
+      id: 'kir-runner-composed-evidence',
       status: 'passed',
     },
   ]);

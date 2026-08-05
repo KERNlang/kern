@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { validateKirV1Eligibility } from './validate-eligibility.mjs';
+import { validateRunnerComposedEvidence } from './validate-runner-composed-evidence.mjs';
 import { verifyFixtureWitness } from './verify-fixture-witness.mjs';
 import { hostileModules } from '../kir-seam-probe/fixtures.mjs';
 import { projectModules as projectModulesForTest } from '../kir-seam-probe/project.mjs';
@@ -35,8 +36,10 @@ test('repository inventory is an explicit Alpha no-go proof', () => {
   assert.equal(result.witnessedNodeCount, 7);
   assert.equal(result.coveredSourceNodeCount, 302);
   assert.equal(result.unresolvedSourceNodeCount, 0);
-  assert.equal(result.deferredRunnerContractCount, 16);
-  assert.equal(result.unresolvedRunnerContractCount, 0);
+  assert.equal(result.runnerContractCount, 16);
+  assert.equal(result.witnessedRunnerContractCount, 12);
+  assert.equal(result.structurallyBlockedRunnerContractCount, 4);
+  assert.equal(result.unclassifiedRunnerContractCount, 0);
 });
 
 const inventoryMutations = [
@@ -186,18 +189,129 @@ test('every source node has an explicit exact coverage disposition', () => {
   );
 });
 
-test('every runner contract remains an explicit KIR-to-runtime binding deferral', () => {
+test('every runner contract has an exact composed witness or mechanically derived structural blocker', () => {
   assert.throws(
-    mutate((copy) => { copy.runnerCoverage[0].disposition = 'candidate-witnessed'; }),
-    /must remain an explicit KIR-to-runtime binding deferral/u,
+    mutate((copy) => { copy.runnerCoverage[0].semanticEnvelopeId = 'invented'; }),
+    /runner coverage assign drifted/u,
   );
   assert.throws(
-    mutate((copy) => { copy.runnerCoverage[0].milestone = 'M2'; }),
-    /must remain an explicit KIR-to-runtime binding deferral/u,
+    mutate((copy) => { copy.runnerCoverage[1].blockerId = 'invented'; }),
+    /runner coverage branch drifted/u,
   );
   assert.throws(
     mutate((copy) => copy.runnerCoverage.reverse()),
-    /runner coverage ids drifted/u,
+    /runner coverage while drifted/u,
+  );
+  assert.throws(
+    mutate((copy) => { copy.runnerCoverage[0].witnessedRunnerContractCount = 12; }),
+    /runnerCoverage\[0\] must contain exactly/u,
+  );
+});
+
+test('runner witness catalog is AST-bound and digest-bound', () => {
+  assert.throws(
+    mutate((copy) => { copy.runnerWitnessCatalog.canonicalSha256 = '0'.repeat(64); }),
+    /runner witness catalog digest drifted/u,
+  );
+  assert.throws(
+    mutate((copy) => { copy.runnerWitnessCatalog.format = 'kern.kir.runner-composed-witnesses.p1.2'; }),
+    /runner witness format changed/u,
+  );
+  const sourcePath = policy.runnerWitnessCatalog.path;
+  const source = readFileSync(sourcePath, 'utf8').replace(
+    "semanticEnvelopeId: 'integer-seven'",
+    "semanticEnvelopeId: 'integer-eight'",
+  );
+  assert.throws(
+    () => validateKirV1Eligibility(structuredClone(policy), overlay(sourcePath, source)),
+    /runner witness catalog digest drifted/u,
+  );
+  const dynamic = readFileSync(sourcePath, 'utf8').replace(
+    'export const COMPOSED_RUNNER_WITNESSES = [',
+    'const PREFIX = [];\nexport const COMPOSED_RUNNER_WITNESSES = [...PREFIX,',
+  );
+  assert.throws(
+    () => validateKirV1Eligibility(structuredClone(policy), overlay(sourcePath, dynamic)),
+    /must remain a static object literal/u,
+  );
+});
+
+test('optional excluded properties stay fully disclosed', () => {
+  assert.throws(
+    mutate((copy) => { copy.runnerCoverage.find((row) => row.id === 'capability').excludedProperties = []; }),
+    /runner coverage capability drifted/u,
+  );
+  assert.throws(
+    mutate((copy) => { copy.runnerCoverage.find((row) => row.id === 'assign').excludedProperties = ['invented:excluded-host-type']; }),
+    /runner coverage assign drifted/u,
+  );
+});
+
+test('runner coverage object key order is not policy-significant', () => {
+  const copy = structuredClone(policy);
+  copy.runnerCoverage[0] = Object.fromEntries(Object.entries(copy.runnerCoverage[0]).reverse());
+  assert.doesNotThrow(() => validateKirV1Eligibility(copy, withRuntimeAuthority()));
+});
+
+test('constitution property order is not evidence-significant and duplicate exclusions reject', () => {
+  const constitutionPath = 'scripts/kir-structural/constitution.json';
+  const constitution = JSON.parse(readFileSync(constitutionPath, 'utf8'));
+  constitution.properties.reverse();
+  assert.doesNotThrow(() => validateRunnerComposedEvidence(
+    policy.runnerWitnessCatalog,
+    policy.runnerCoverage,
+    policy.runnerCatalog.contracts,
+    (sourcePath) => sourcePath === constitutionPath ? JSON.stringify(constitution) : readFileSync(sourcePath, 'utf8'),
+  ));
+
+  const witnessPath = policy.runnerWitnessCatalog.path;
+  const witnessSource = readFileSync(witnessPath, 'utf8').replace(
+    "excludedProperties: ['input:excluded-host-expression']",
+    "excludedProperties: ['input:excluded-host-expression', 'input:excluded-host-expression']",
+  );
+  assert.throws(
+    () => validateRunnerComposedEvidence(
+      policy.runnerWitnessCatalog,
+      policy.runnerCoverage,
+      policy.runnerCatalog.contracts,
+      (sourcePath) => sourcePath === witnessPath ? witnessSource : readFileSync(sourcePath, 'utf8'),
+    ),
+    /must not contain duplicates/u,
+  );
+});
+
+test('structural blockers are derived from the live constitution', () => {
+  const constitutionPath = 'scripts/kir-structural/constitution.json';
+  const constitution = JSON.parse(readFileSync(constitutionPath, 'utf8'));
+  constitution.nodes.push({
+    id: 'lambda',
+    schemaStatus: 'bound',
+    allowedChildren: null,
+    disposition: 'structural-candidate',
+    reasonId: 'schema-bound',
+  });
+  assert.throws(
+    () => validateRunnerComposedEvidence(
+      policy.runnerWitnessCatalog,
+      policy.runnerCoverage,
+      policy.runnerCatalog.contracts,
+      (sourcePath) => sourcePath === constitutionPath
+        ? JSON.stringify(constitution)
+        : readFileSync(sourcePath, 'utf8'),
+    ),
+    /runner lambda requires a composed witness/u,
+  );
+
+  const branch = JSON.parse(readFileSync(constitutionPath, 'utf8'));
+  branch.properties.find((property) => property.nodeKind === 'branch' && property.propertyName === 'on').required = false;
+  assert.throws(
+    () => validateRunnerComposedEvidence(
+      policy.runnerWitnessCatalog,
+      policy.runnerCoverage,
+      policy.runnerCatalog.contracts,
+      (sourcePath) => sourcePath === constitutionPath ? JSON.stringify(branch) : readFileSync(sourcePath, 'utf8'),
+    ),
+    /runner branch requires a composed witness/u,
   );
 });
 

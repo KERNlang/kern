@@ -88,21 +88,30 @@ export const KIR_RUNTIME_BINDING_RECEIPT_BINDINGS = Object.freeze([
   'docs/kern-5-support-matrix.md',
   'packages/core/src/kir-structural/runtime-inflate.ts',
   'packages/core/src/runtime-envelope/kir-handler.ts',
+  'packages/core/tests/kern-kir-runner-composed-evidence.test.ts',
+  'packages/core/tests/kern-kir-runner-composed-fixtures.ts',
   'packages/core/tests/kern-kir-runtime-binding.test.ts',
   'scripts/check-canonical-value.mjs',
   'scripts/check-kir-structural-codec.mjs',
   'scripts/check-kir-structural-codec.test.mjs',
+  'scripts/check-kir-v1-eligibility.mjs',
   'scripts/check-runtime-envelope.mjs',
   'scripts/kir-v1/eligibility.json',
+  'scripts/kir-v1/kir-runner-composed-evidence.test.mjs',
   'scripts/kir-v1/kir-runtime-binding.test.mjs',
   'scripts/kir-v1/validate-eligibility.mjs',
   'scripts/kir-v1/validate-eligibility.test.mjs',
+  'scripts/kir-v1/validate-runner-composed-evidence.mjs',
   'scripts/runtime-envelope-handler-import-closure.test.mjs',
 ]);
 
 const REQUIRED_KIR_RUNTIME_BINDING_ORACLE = Object.freeze({
   id: 'internal-decoded-module-kir-binding',
   argv: Object.freeze(['pnpm', 'test:kern-kir-runtime-binding']),
+});
+const REQUIRED_KIR_RUNNER_COMPOSED_ORACLE = Object.freeze({
+  id: 'kir-runner-composed-evidence',
+  argv: Object.freeze(['pnpm', 'test:kern-kir-runner-composed-evidence']),
 });
 
 function exactKeys(value, keys, label) {
@@ -198,6 +207,18 @@ export function validateAlphaReceiptPolicy(policy) {
     )
   ) {
     throw new Error('oracles must include the exact KIR runtime binding oracle');
+  }
+  const kirRunnerComposedOracle = policy.oracles.find(
+    ({ id }) => id === REQUIRED_KIR_RUNNER_COMPOSED_ORACLE.id,
+  );
+  if (
+    !kirRunnerComposedOracle ||
+    kirRunnerComposedOracle.argv.length !== REQUIRED_KIR_RUNNER_COMPOSED_ORACLE.argv.length ||
+    kirRunnerComposedOracle.argv.some(
+      (argument, index) => argument !== REQUIRED_KIR_RUNNER_COMPOSED_ORACLE.argv[index],
+    )
+  ) {
+    throw new Error('oracles must include the exact composed KIR runner evidence oracle');
   }
   if (!Array.isArray(policy.exclusions) || policy.exclusions.length === 0) throw new Error('exclusions must be non-empty');
   const exclusionIds = new Set();

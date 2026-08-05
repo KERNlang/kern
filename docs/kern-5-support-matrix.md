@@ -40,6 +40,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kir-structural-codec | Bounded structural KIR writer and reader | current | `pnpm test:kern-kir-structural-codec` |
 | kir-module-graph | Structural KIR module and symbol graph | current | `pnpm test:kern-kir-module-graph` |
 | internal-decoded-module-kir-binding | Decoded Module KIR to internal runtime handler binding | current | `pnpm test:kern-kir-runtime-binding` |
+| kir-runner-composed-evidence | Internal composed KIR runner witnesses and structural blockers | current | `pnpm test:kern-kir-runner-composed-evidence` |
 | kir-coverage-closure | Structural KIR coverage witness closure | current | `pnpm test:kern-kir-coverage-closure` |
 | kir-evidence | Diagnostic and UTF-8 location evidence | current | `pnpm test:kern-kir-evidence` |
 | kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | current | `pnpm test:kern-alpha-receipt` |
@@ -84,6 +85,7 @@ wall and must remain absent until promoted.
 | kir-structural-codec | Bounded structural KIR writer and reader | internal-oracle | `pnpm test:kern-kir-structural-codec` |
 | kir-module-graph | Structural KIR module and symbol graph | internal-oracle | `pnpm test:kern-kir-module-graph` |
 | internal-decoded-module-kir-binding | Decoded Module KIR to internal runtime handler binding | internal-oracle | `pnpm test:kern-kir-runtime-binding` |
+| kir-runner-composed-evidence | Internal composed KIR runner witness closure | internal-oracle | `pnpm test:kern-kir-runner-composed-evidence` |
 | kir-coverage-closure | Structural KIR coverage witness closure | internal-oracle | `pnpm test:kern-kir-coverage-closure` |
 | kir-evidence | Diagnostic and UTF-8 location evidence | internal-oracle | `pnpm test:kern-kir-evidence` |
 | kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | internal-oracle | `pnpm test:kern-alpha-receipt` |

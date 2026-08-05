@@ -14,6 +14,7 @@
     "test:kern-kir-structural-codec": "pnpm --filter @kernlang/core test --testPathPatterns=kir-structural && node --test ./scripts/check-kir-structural-codec.test.mjs && node ./scripts/check-kir-structural-codec.mjs",
     "test:kern-kir-module-graph": "pnpm --filter @kernlang/core test --testPathPatterns=kir-module-graph && node ./scripts/check-kir-module-graph.mjs",
     "test:kern-kir-runtime-binding": "pnpm --filter @kernlang/core test --testPathPatterns=kern-kir-runtime-binding && node --test scripts/kir-v1/kir-runtime-binding.test.mjs",
+    "test:kern-kir-runner-composed-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kern-kir-runner-composed-evidence && node --test scripts/kir-v1/kir-runner-composed-evidence.test.mjs",
     "test:kern-kir-coverage-closure": "pnpm --filter @kernlang/core build && node --test scripts/kir-v1/coverage-ledger.test.mjs && node ./scripts/check-kir-coverage-closure.mjs",
     "test:kern-kir-evidence": "pnpm --filter @kernlang/core test --testPathPatterns=kir-evidence && node ./scripts/check-kir-evidence.mjs",
     "test:kern-alpha-receipt": "node --test scripts/kir-v1/alpha-receipt.test.mjs",
@@ -141,6 +142,12 @@
       "label": "Decoded Module KIR to internal runtime handler binding",
       "status": "current",
       "argv": ["pnpm", "test:kern-kir-runtime-binding"]
+    },
+    {
+      "id": "kir-runner-composed-evidence",
+      "label": "Internal composed KIR runner witnesses and structural blockers",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-kir-runner-composed-evidence"]
     },
     {
       "id": "kir-coverage-closure",
@@ -335,6 +342,12 @@
       "label": "Decoded Module KIR to internal runtime handler binding",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-kir-runtime-binding"
+    },
+    {
+      "id": "kir-runner-composed-evidence",
+      "label": "Internal composed KIR runner witness closure",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-kir-runner-composed-evidence"
     },
     {
       "id": "kir-coverage-closure",

@@ -4,6 +4,7 @@ import ts from 'typescript';
 
 import { validateRuntimeContractV1Authority } from '../runtime-contract-v1/validate-runtime-contract-v1-authority.mjs';
 import { validateCoverageLedger } from './validate-coverage-ledger.mjs';
+import { validateRunnerComposedEvidence } from './validate-runner-composed-evidence.mjs';
 
 const EXPECTED_BLOCKERS = Object.freeze({
   'diagnostic-location-evidence': 'alpha-release',
@@ -44,7 +45,6 @@ const EXPECTED_CLAIMS = Object.freeze({
 const EXPECTED_DEFERRED = Object.freeze([
   ['public-versioned-kir-runtime-cutover', 'P1-composition'],
 ]);
-const EXPECTED_RUNNER_REASON = 'runtime-kir-binding-deferred';
 
 function fail(message) {
   throw new Error(`KIR v1 eligibility: ${message}`);
@@ -231,21 +231,6 @@ function validateSourceCoverage(rows, sourceIds, ledger) {
   sameOrdered(rows.map((row) => row.id), [...sourceIds], 'source coverage ids');
 }
 
-function validateRunnerCoverage(rows, runnerIds) {
-  if (!Array.isArray(rows) || rows.length === 0) fail('runnerCoverage must be a non-empty array');
-  rows.forEach((row, index) => {
-    exactKeys(row, ['id', 'disposition', 'milestone', 'reasonId'], `runnerCoverage[${index}]`);
-    if (
-      row.disposition !== 'deferred-kir-runtime-binding' ||
-      row.milestone !== 'P1-composition' ||
-      row.reasonId !== EXPECTED_RUNNER_REASON
-    ) {
-      fail(`runner coverage ${row.id} must remain an explicit KIR-to-runtime binding deferral`);
-    }
-  });
-  sameOrdered(rows.map((row) => row.id), [...runnerIds], 'runner coverage ids');
-}
-
 function validateBlockers(policy) {
   if (!Array.isArray(policy.blockers)) fail('blockers must be an array');
   const ids = new Set();
@@ -297,12 +282,13 @@ export function validateKirV1Eligibility(policy, options = {}) {
     policy,
     [
       'schemaVersion', 'stage', 'decision', 'proofLabel', 'sourceCatalog', 'runnerCatalog',
-      'candidateWitness', 'coverageWitnessLedger', 'blockers', 'identity', 'requiredLimitConfigKeys', 'skewPolicy',
+      'runnerWitnessCatalog', 'candidateWitness', 'coverageWitnessLedger', 'blockers', 'identity',
+      'requiredLimitConfigKeys', 'skewPolicy',
       'claims', 'deferredContracts', 'sourceCoverage', 'runnerCoverage',
     ],
     'policy',
   );
-  if (policy.schemaVersion !== 2) fail('schemaVersion must be 2');
+  if (policy.schemaVersion !== 3) fail('schemaVersion must be 3');
   if (policy.stage !== 'internal-alpha-candidate') fail('stage must remain internal-alpha-candidate');
   if (policy.decision !== 'no-go' || policy.proofLabel !== 'ALPHA-NO-GO') fail('R1.5a must remain ALPHA-NO-GO');
 
@@ -328,15 +314,18 @@ export function validateKirV1Eligibility(policy, options = {}) {
   validateDeferred(policy);
 
   validateSourceCoverage(policy.sourceCoverage, sourceIds, ledger);
-  validateRunnerCoverage(policy.runnerCoverage, runnerIds);
+  const runnerEvidence = validateRunnerComposedEvidence(
+    policy.runnerWitnessCatalog,
+    policy.runnerCoverage,
+    [...runnerIds],
+    readText,
+  );
   return {
     proofLabel: policy.proofLabel,
     sourceNodeCount: sourceIds.size,
     witnessedNodeCount: witnessedIds.size,
     coveredSourceNodeCount: sourceIds.size,
     unresolvedSourceNodeCount: 0,
-    runnerContractCount: runnerIds.size,
-    deferredRunnerContractCount: runnerIds.size,
-    unresolvedRunnerContractCount: 0,
+    ...runnerEvidence,
   };
 }

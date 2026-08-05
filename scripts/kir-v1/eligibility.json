@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "stage": "internal-alpha-candidate",
   "decision": "no-go",
   "proofLabel": "ALPHA-NO-GO",
@@ -332,6 +332,12 @@
       "try",
       "while"
     ]
+  },
+  "runnerWitnessCatalog": {
+    "path": "packages/core/tests/kern-kir-runner-composed-fixtures.ts",
+    "constant": "COMPOSED_RUNNER_WITNESSES",
+    "format": "kern.kir.runner-composed-witnesses.p1.1",
+    "canonicalSha256": "b293be7acc866a0f73f68ab42eb750265bfdcde50f49845c93ef1d5f5d468119"
   },
   "candidateWitness": {
     "format": "kern.semantic-kir.probe.1",
@@ -1930,99 +1936,142 @@
   "runnerCoverage": [
     {
       "id": "assign",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.assign.v1",
+      "semanticEnvelopeId": "integer-seven",
+      "fixtureId": "assign-rebind-seven",
+      "oracleId": "exact-assign-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "branch",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "disposition": "structural-blocker",
+      "blockerId": "required-on:excluded-host-expression",
+      "nextMilestone": "P1-constitution-expansion"
     },
     {
       "id": "capability",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.capability.v1",
+      "semanticEnvelopeId": "storage-get-secret",
+      "fixtureId": "capability-storage-get",
+      "oracleId": "exact-capability-event-and-result",
+      "excludedProperties": [
+        "input:excluded-host-expression"
+      ],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "do",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.do.v1",
+      "semanticEnvelopeId": "map-write-seven",
+      "fixtureId": "do-map-set",
+      "oracleId": "exact-map-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "each",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "disposition": "structural-blocker",
+      "blockerId": "required-in:excluded-host-expression",
+      "nextMilestone": "P1-constitution-expansion"
     },
     {
       "id": "expression-v1",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "disposition": "structural-blocker",
+      "blockerId": "required-expr:excluded-host-expression",
+      "nextMilestone": "P1-constitution-expansion"
     },
     {
       "id": "fmt",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.fmt.v1",
+      "semanticEnvelopeId": "formatted-value-seven",
+      "fixtureId": "fmt-bound-value",
+      "oracleId": "exact-formatted-text",
+      "excludedProperties": [
+        "type:excluded-host-type"
+      ],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "for",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.for.v1",
+      "semanticEnvelopeId": "end-exclusive-sum-six",
+      "fixtureId": "for-accumulate",
+      "oracleId": "exact-for-sum",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "if",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.if.v1",
+      "semanticEnvelopeId": "selected-seven",
+      "fixtureId": "if-true-return",
+      "oracleId": "exact-if-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "lambda",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "disposition": "structural-blocker",
+      "blockerId": "source-node-absent",
+      "nextMilestone": "P1-constitution-expansion"
     },
     {
       "id": "let",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.let.v1",
+      "semanticEnvelopeId": "bound-seven",
+      "fixtureId": "let-bind-seven",
+      "oracleId": "exact-let-result",
+      "excludedProperties": [
+        "expr:excluded-host-expression",
+        "type:excluded-host-type"
+      ],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "print",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.print.v1",
+      "semanticEnvelopeId": "stdout-ready",
+      "fixtureId": "print-ready",
+      "oracleId": "exact-stdout-and-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "return",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.return.v1",
+      "semanticEnvelopeId": "returned-eleven",
+      "fixtureId": "return-eleven",
+      "oracleId": "exact-return-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "throw",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.throw.v1",
+      "semanticEnvelopeId": "uncaught-boom",
+      "fixtureId": "throw-error",
+      "oracleId": "exact-uncaught-throw",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "try",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.try.v1",
+      "semanticEnvelopeId": "caught-boom",
+      "fixtureId": "try-catch-error",
+      "oracleId": "exact-caught-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "while",
-      "disposition": "deferred-kir-runtime-binding",
-      "milestone": "P1-composition",
-      "reasonId": "runtime-kir-binding-deferred"
+      "witnessId": "kir-runtime-compose.while.v1",
+      "semanticEnvelopeId": "counter-three",
+      "fixtureId": "while-increment",
+      "oracleId": "exact-while-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     }
   ]
 }
