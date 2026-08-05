@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { isApprovedClassBodyBudgetScan } from './runtime-dynamic-loader-safe-patterns.mjs';
 
 import {
   aggregateFlowCategory, assignmentFlowCategory,
@@ -16,8 +17,7 @@ import {
   transparentFlowExpression,
 } from './runtime-dynamic-loader-flow.mjs';
 
-const proofInventory = JSON.parse(readFileSync(
-  new URL('./proof-inventory.json', import.meta.url), 'utf8'));
+const proofInventory = JSON.parse(readFileSync(new URL('./proof-inventory.json', import.meta.url), 'utf8'));
 const forbiddenDynamicBindings = new Set(proofInventory.forbiddenDynamicBindings);
 const forbiddenDirectBindings = new Set(
   [...forbiddenDynamicBindings].filter(
@@ -401,7 +401,8 @@ function isInvokedAlias(node, stringAliases) {
   return false;
 }
 
-function isForbiddenInvocation(node, aliases, stringAliases) {
+function isForbiddenInvocation(node, aliases, stringAliases, sourceFile, sourcePath) {
+  if (isApprovedClassBodyBudgetScan(ts, node, sourceFile, sourcePath)) return false;
   const expression = ts.isTaggedTemplateExpression(node) ? node.tag : node.expression;
   const category = expressionCategory(expression, aliases, stringAliases);
   return (!ts.isTaggedTemplateExpression(node) && hasForbiddenSpreadArgument(ts, node, (value) => expressionCategory(value, aliases, stringAliases))) ||
@@ -451,7 +452,7 @@ export function runtimeModuleSpecifiers(source, sourcePath) {
       specifiers.push(argument.text);
     } else if (
       (ts.isCallExpression(node) || ts.isNewExpression(node) || ts.isTaggedTemplateExpression(node)) &&
-      isForbiddenInvocation(node, aliases, stringAliases)
+      isForbiddenInvocation(node, aliases, stringAliases, sourceFile, sourcePath)
     ) {
       fail(`dynamic constructor invocation ${JSON.stringify(node.getText(sourceFile))} in ${sourcePath}`);
     } else if (

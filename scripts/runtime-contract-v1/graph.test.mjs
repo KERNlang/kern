@@ -20,6 +20,22 @@ test('public source and built JavaScript dependency graphs are acyclic and machi
   assert.ok(assertPublicHandlerBuiltAbiClosure(resolve('packages/core/dist')).size > 0);
 });
 
+test('class body budget scan allowance is path, helper, and AST bound', () => {
+  const sourcePath = resolve('packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts');
+  const source = readFileSync(sourcePath, 'utf8');
+  assert.doesNotThrow(() => runtimeModuleSpecifiers(source, sourcePath));
+  const mutations = [
+    [source, '/tmp/internal-effect-machine-class-graph.ts'],
+    [source.replace("node.type === 'each'", "node.type === 'never'"), sourcePath],
+    [source.replace('classBodyRequiresIterationBudget(member.body),', 'Boolean(member.body),'), sourcePath],
+    [source.replace('...cls.methods.values(), ...cls.getters.values()', '...cls.getters.values(), ...cls.methods.values()'), sourcePath],
+    [source.replace('...cls.getters.values()].some', '...cls.getters.values(), ...cls.methods.values()].some'), sourcePath],
+  ];
+  for (const [mutant, path] of mutations) {
+    assert.throws(() => runtimeModuleSpecifiers(mutant, path), /dynamic constructor invocation/u);
+  }
+});
+
 test('built JavaScript dependency graph rejects a cycle', () => {
   const entry = '/repo/dist/runtime-handler.js';
   const dependency = '/repo/dist/runtime-envelope/handler-entry.js';
