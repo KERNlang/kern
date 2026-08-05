@@ -22,18 +22,44 @@ test('public source and built JavaScript dependency graphs are acyclic and machi
 
 test('class body budget scan allowance is path, helper, and AST bound', () => {
   const sourcePath = resolve('packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts');
+  const builtPath = resolve('packages/core/dist/ir/semantics/internal-effect-machine-class-graph.js');
   const source = readFileSync(sourcePath, 'utf8');
+  const built = readFileSync(builtPath, 'utf8');
   assert.doesNotThrow(() => runtimeModuleSpecifiers(source, sourcePath));
+  assert.doesNotThrow(() => runtimeModuleSpecifiers(built, builtPath));
+  assert.doesNotThrow(() => runtimeModuleSpecifiers(
+    source.replace('const pending = [...nodes];', 'const pending /* scan queue */ = [ ...nodes ];'), sourcePath));
+  assert.doesNotThrow(() => runtimeModuleSpecifiers(
+    source.replace('function classBodyRequiresIterationBudget', '/** Exact body scan. */\nfunction classBodyRequiresIterationBudget'),
+    sourcePath,
+  ));
   const mutations = [
-    [source, '/tmp/internal-effect-machine-class-graph.ts'],
-    [source.replace("node.type === 'each'", "node.type === 'never'"), sourcePath],
-    [source.replace('classBodyRequiresIterationBudget(member.body),', 'Boolean(member.body),'), sourcePath],
-    [source.replace('...cls.methods.values(), ...cls.getters.values()', '...cls.getters.values(), ...cls.methods.values()'), sourcePath],
-    [source.replace('...cls.getters.values()].some', '...cls.getters.values(), ...cls.methods.values()].some'), sourcePath],
+    { source, path: '/tmp/internal-effect-machine-class-graph.ts', error: /dynamic constructor invocation/u },
+    { source, path: resolve('vendor/packages/core/src/ir/semantics/internal-effect-machine-class-graph.ts'), error: /dynamic constructor invocation/u },
+    { source, path: builtPath, error: /class body budget scan authority drift/u },
+    { source: built, path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('if (!node) continue;', 'if (-node) continue;'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('const pending = [...nodes];', 'var pending = [...nodes];'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('pending.length > 0', 'pending.length >= 0'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace("node.type === 'each' ||", "node.type === 'each' &&"), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('function assertGetter', 'function shadow() { const classBodyRequiresIterationBudget = () => false; }\n\nfunction assertGetter'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('function assertGetter', 'function shadow() { function classBodyRequiresIterationBudget() { return false; } }\n\nfunction assertGetter'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('function assertGetter', 'function shadow(classBodyRequiresIterationBudget) { return classBodyRequiresIterationBudget; }\n\nfunction assertGetter'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('function assertGetter', 'function shadow({ classBodyRequiresIterationBudget }) { return classBodyRequiresIterationBudget; }\n\nfunction assertGetter'), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('import type', "import { helper as classBodyRequiresIterationBudget } from './shadow.js';\n\nimport type"), path: sourcePath, error: /class body budget scan authority drift/u },
+    { source: source.replace('classBodyRequiresIterationBudget(member.body),', 'Boolean(member.body),'), path: sourcePath, error: /dynamic constructor invocation/u },
+    { source: source.replace('...cls.methods.values(), ...cls.getters.values()', '...cls.getters.values(), ...cls.methods.values()'), path: sourcePath, error: /dynamic constructor invocation/u },
+    { source: source.replace('...cls.getters.values()].some', '...cls.getters.values(), ...cls.methods.values()].some'), path: sourcePath, error: /dynamic constructor invocation/u },
+    { source: source.replace('...(cls.constructor ? [cls.constructor] : [])', '...(globalThis.constructor ? [globalThis.constructor] : [])'), path: sourcePath, error: /dynamic (constructor invocation|loader access)/u },
+    { source: source.replace('...(cls.constructor ? [cls.constructor] : [])', '...(Math.max.constructor ? [Math.max.constructor] : [])'), path: sourcePath, error: /dynamic (constructor invocation|loader access)/u },
   ];
-  for (const [mutant, path] of mutations) {
-    assert.throws(() => runtimeModuleSpecifiers(mutant, path), /dynamic constructor invocation/u);
+  for (const mutation of mutations) {
+    assert.throws(() => runtimeModuleSpecifiers(mutation.source, mutation.path), mutation.error);
   }
+  assert.throws(
+    () => runtimeModuleSpecifiers(`${source}\nFunction("return process")()`, sourcePath),
+    /dynamic (constructor invocation|binding)/u,
+  );
 });
 
 test('built JavaScript dependency graph rejects a cycle', () => {

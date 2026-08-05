@@ -1,15 +1,13 @@
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
-import { isApprovedClassBodyBudgetScan } from './runtime-dynamic-loader-safe-patterns.mjs';
+import { classBodyBudgetScanStatus, SAFE_PATTERN_STATUS } from './runtime-dynamic-loader-safe-patterns.mjs';
 
 import {
   aggregateFlowCategory, assignmentFlowCategory,
   assignmentTargetRoot, bindAssignmentPattern, bindForOfStatement,
   callFlowCategory, createAliasMap, hasForbiddenSpreadArgument,
-  functionFlowCategory,
-  isFlowAssignment,
-  isForbiddenCallableCategory,
-  isFunctionCategory,
+  functionFlowCategory, isFlowAssignment,
+  isForbiddenCallableCategory, isFunctionCategory,
   joinFlowCategories,
   memberFlowCategory, objectEnumerationFlowCategory, objectFlowCategory,
   scopedAliasCategories,
@@ -402,7 +400,9 @@ function isInvokedAlias(node, stringAliases) {
 }
 
 function isForbiddenInvocation(node, aliases, stringAliases, sourceFile, sourcePath) {
-  if (isApprovedClassBodyBudgetScan(ts, node, sourceFile, sourcePath)) return false;
+  const safePattern = classBodyBudgetScanStatus(ts, node, sourceFile, sourcePath);
+  if (safePattern === SAFE_PATTERN_STATUS.approved) return false;
+  if (safePattern === SAFE_PATTERN_STATUS.authorityDrift) fail(`class body budget scan authority drift in ${sourcePath}`);
   const expression = ts.isTaggedTemplateExpression(node) ? node.tag : node.expression;
   const category = expressionCategory(expression, aliases, stringAliases);
   return (!ts.isTaggedTemplateExpression(node) && hasForbiddenSpreadArgument(ts, node, (value) => expressionCategory(value, aliases, stringAliases))) ||
