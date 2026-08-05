@@ -147,6 +147,14 @@ list. Generated or temporary output belongs under ignored roots such as
 graph is intentionally deferred because it would conflate type-only, generated,
 and dynamic dependencies beyond this receipt correction. **GUARD**
 
+Portability review then separated two namespace models. Tribunal
+`tribunal-1785932210304-5fy7e7-runtime-receipt-core-test-family` retained the
+fully closed scripts directory and introduced prefix-derived closure for the
+mixed `packages/core/tests/runtime-contract-v1-*` family. Policy equality is
+exact for both families, test paths resolve from module location rather than
+caller CWD, and unrelated files in the mixed core test directory remain out of
+scope by definition. **DECIDED**
+
 ## Frozen Boundary
 
 The exact v1 boundary is:

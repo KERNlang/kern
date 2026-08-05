@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
   ALPHA_RECEIPT_AUTHORITY_BINDINGS,
+  discoverRuntimeContractCoreTestBindings,
   discoverRuntimeContractDirectoryBindings,
   generateAlphaReceipt,
+  RUNTIME_CONTRACT_CORE_TEST_BINDINGS,
   RUNTIME_CONTRACT_DIRECTORY_BINDINGS,
   RUNTIME_CONTRACT_RECEIPT_BINDINGS,
   validateAlphaReceiptBindings,
@@ -15,6 +18,7 @@ import {
 } from './alpha-receipt.mjs';
 
 const sha = '0123456789abcdef0123456789abcdef01234567';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const SAFE_PATTERN_RECEIPT_BINDINGS = Object.freeze([
   'scripts/runtime-contract-v1/SAFE_PATTERN_AUTHORITY.md',
   'scripts/runtime-contract-v1/check-runtime-dynamic-loader-safe-patterns.mjs',
@@ -31,12 +35,6 @@ const EXECUTED_RUNTIME_EXTERNAL_BINDINGS = Object.freeze([
   'packages/core/tests/runtime-contract-v1-parity.test.ts',
   'packages/core/tests/runtime-contract-v1-timer-observer.mjs',
 ]);
-const LIVE_RUNTIME_DIRECTORY_BINDINGS = Object.freeze(
-  readdirSync('scripts/runtime-contract-v1', { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map((entry) => `scripts/runtime-contract-v1/${entry.name}`)
-    .sort(),
-);
 
 function policy() {
   return {
@@ -88,30 +86,39 @@ function runner({ dirtyBefore = false, dirtyAfter = false, failOracle = false } 
 }
 
 test('checked-in policy is closed, sorted, and self-bound', () => {
-  const actual = JSON.parse(readFileSync('scripts/kir-v1/alpha-receipt-policy.json', 'utf8'));
+  const actual = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/kir-v1/alpha-receipt-policy.json'), 'utf8'));
   assert.equal(validateAlphaReceiptPolicy(actual), actual);
   assert.equal(actual.bindings.includes('scripts/kir-v1/alpha-receipt-policy.json'), true);
-  const bindings = validateAlphaReceiptBindings(process.cwd(), actual);
+  const bindings = validateAlphaReceiptBindings(REPO_ROOT, actual);
   assert.equal(bindings.length, actual.bindings.length);
   assert.equal(bindings.every((binding) => /^[0-9a-f]{64}$/u.test(binding.sha256)), true);
 });
 
 test('runtime contract denominator tracks every normative artifact mechanically', () => {
-  const actual = JSON.parse(readFileSync('scripts/kir-v1/alpha-receipt-policy.json', 'utf8'));
+  const actual = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/kir-v1/alpha-receipt-policy.json'), 'utf8'));
   for (const binding of RUNTIME_CONTRACT_RECEIPT_BINDINGS) {
     assert.equal(actual.bindings.includes(binding), true, binding);
   }
   for (const missing of RUNTIME_CONTRACT_RECEIPT_BINDINGS) {
     const mutated = structuredClone(actual);
     mutated.bindings.splice(mutated.bindings.indexOf(missing), 1);
-    assert.throws(() => validateAlphaReceiptPolicy(mutated), /complete runtime contract denominator/u, missing);
+    assert.throws(
+      () => validateAlphaReceiptPolicy(mutated),
+      /complete runtime contract denominator|runtime contract directory|runtime contract core test family/u,
+      missing,
+    );
   }
 });
 
 test('receipt binds the literal safe-pattern and receipt-authority denominator', () => {
-  const actual = JSON.parse(readFileSync('scripts/kir-v1/alpha-receipt-policy.json', 'utf8'));
-  assert.deepEqual(RUNTIME_CONTRACT_DIRECTORY_BINDINGS, LIVE_RUNTIME_DIRECTORY_BINDINGS);
-  for (const binding of LIVE_RUNTIME_DIRECTORY_BINDINGS) {
+  const actual = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/kir-v1/alpha-receipt-policy.json'), 'utf8'));
+  const policyDirectoryBindings = actual.bindings.filter((binding) =>
+    binding.startsWith('scripts/runtime-contract-v1/'));
+  assert.deepEqual(policyDirectoryBindings, RUNTIME_CONTRACT_DIRECTORY_BINDINGS);
+  const policyCoreTestBindings = actual.bindings.filter((binding) =>
+    binding.startsWith('packages/core/tests/runtime-contract-v1-'));
+  assert.deepEqual(policyCoreTestBindings, RUNTIME_CONTRACT_CORE_TEST_BINDINGS);
+  for (const binding of RUNTIME_CONTRACT_DIRECTORY_BINDINGS) {
     assert.equal(RUNTIME_CONTRACT_RECEIPT_BINDINGS.includes(binding), true, binding);
     assert.equal(actual.bindings.includes(binding), true, binding);
   }
@@ -144,6 +151,22 @@ test('runtime contract directory discovery admits only a closed flat file invent
   assert.throws(
     () => discoverRuntimeContractDirectoryBindings(rootDir),
     /must be a regular file: generated/u,
+  );
+});
+
+test('core runtime contract test discovery closes only its prefix namespace', (t) => {
+  const rootDir = path.join(os.tmpdir(), `kern-runtime-tests-${process.pid}-${Math.random().toString(16).slice(2)}`);
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  mkdirSync(rootDir, { recursive: true });
+  writeFileSync(path.join(rootDir, 'runtime-contract-v1-example.test.mjs'), '');
+  writeFileSync(path.join(rootDir, 'unrelated.test.mjs'), '');
+  assert.deepEqual(discoverRuntimeContractCoreTestBindings(rootDir), [
+    'packages/core/tests/runtime-contract-v1-example.test.mjs',
+  ]);
+  mkdirSync(path.join(rootDir, 'runtime-contract-v1-generated'));
+  assert.throws(
+    () => discoverRuntimeContractCoreTestBindings(rootDir),
+    /must be a regular file: runtime-contract-v1-generated/u,
   );
 });
 

@@ -10,10 +10,12 @@ import { stringifyCanonical } from '../release/artifact-types.mjs';
 const POLICY_PATH = 'scripts/kir-v1/alpha-receipt-policy.json';
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const RUNTIME_CONTRACT_DIRECTORY = new URL('../runtime-contract-v1/', import.meta.url);
+const CORE_TEST_DIRECTORY = new URL('../../packages/core/tests/', import.meta.url);
 const SAFE_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
 const SAFE_PATH = /^(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/u;
 const SHA = /^[0-9a-f]{40}$/u;
 
+// scripts/runtime-contract-v1 is a closed authority: every direct entry is in scope.
 export function discoverRuntimeContractDirectoryBindings(directory = RUNTIME_CONTRACT_DIRECTORY) {
   const entries = readdirSync(directory, { withFileTypes: true });
   if (entries.length === 0) throw new Error('runtime contract directory must be non-empty');
@@ -21,7 +23,7 @@ export function discoverRuntimeContractDirectoryBindings(directory = RUNTIME_CON
     if (!entry.isFile()) throw new Error(`runtime contract directory entry must be a regular file: ${entry.name}`);
   }
   const names = entries.map(({ name }) => name);
-  const foldedNames = names.map((name) => name.toLocaleLowerCase('en-US'));
+  const foldedNames = names.map((name) => name.toLowerCase());
   if (new Set(foldedNames).size !== foldedNames.length) {
     throw new Error('runtime contract directory contains case-folded duplicate names');
   }
@@ -30,13 +32,28 @@ export function discoverRuntimeContractDirectoryBindings(directory = RUNTIME_CON
 
 export const RUNTIME_CONTRACT_DIRECTORY_BINDINGS = discoverRuntimeContractDirectoryBindings();
 
+// packages/core/tests is mixed-purpose, so only this prefix is authoritative.
+// Unlike the closed scripts directory, unrelated entries are out of scope.
+export function discoverRuntimeContractCoreTestBindings(directory = CORE_TEST_DIRECTORY) {
+  const matches = readdirSync(directory, { withFileTypes: true })
+    .filter(({ name }) => name.startsWith('runtime-contract-v1-'));
+  if (matches.length === 0) throw new Error('runtime contract core test family must be non-empty');
+  for (const entry of matches) {
+    if (!entry.isFile()) throw new Error(`runtime contract core test entry must be a regular file: ${entry.name}`);
+  }
+  const names = matches.map(({ name }) => name);
+  const foldedNames = names.map((name) => name.toLowerCase());
+  if (new Set(foldedNames).size !== foldedNames.length) {
+    throw new Error('runtime contract core tests contain case-folded duplicate names');
+  }
+  return Object.freeze(names.map((name) => `packages/core/tests/${name}`).sort());
+}
+
+export const RUNTIME_CONTRACT_CORE_TEST_BINDINGS = discoverRuntimeContractCoreTestBindings();
+
 const RUNTIME_CONTRACT_EXTERNAL_BINDINGS = Object.freeze([
   'package.json',
   'packages/core/src/runtime-handler.ts',
-  'packages/core/tests/runtime-contract-v1-candidate.test.mjs',
-  'packages/core/tests/runtime-contract-v1-effects.test.mjs',
-  'packages/core/tests/runtime-contract-v1-parity.test.ts',
-  'packages/core/tests/runtime-contract-v1-timer-observer.mjs',
   'scripts/check-runtime-contract-v1-candidate.mjs',
   'scripts/check-runtime-contract-v1.mjs',
   'scripts/kern-5-fitness-policy.json',
@@ -55,6 +72,7 @@ for (const binding of RUNTIME_CONTRACT_EXTERNAL_BINDINGS) {
 }
 
 export const RUNTIME_CONTRACT_RECEIPT_BINDINGS = Object.freeze([
+  ...RUNTIME_CONTRACT_CORE_TEST_BINDINGS,
   ...RUNTIME_CONTRACT_DIRECTORY_BINDINGS,
   ...RUNTIME_CONTRACT_EXTERNAL_BINDINGS,
 ].sort());
@@ -102,6 +120,16 @@ export function validateAlphaReceiptPolicy(policy) {
   policy.bindings.forEach((binding, index) => safePath(binding, `bindings[${index}]`));
   if (new Set(policy.bindings).size !== policy.bindings.length || [...policy.bindings].sort().some((item, index) => item !== policy.bindings[index])) {
     throw new Error('bindings must be unique and sorted');
+  }
+  const policyRuntimeDirectory = policy.bindings.filter((binding) =>
+    binding.startsWith('scripts/runtime-contract-v1/'));
+  if (JSON.stringify(policyRuntimeDirectory) !== JSON.stringify(RUNTIME_CONTRACT_DIRECTORY_BINDINGS)) {
+    throw new Error('bindings must exactly match the runtime contract directory');
+  }
+  const policyCoreTests = policy.bindings.filter((binding) =>
+    binding.startsWith('packages/core/tests/runtime-contract-v1-'));
+  if (JSON.stringify(policyCoreTests) !== JSON.stringify(RUNTIME_CONTRACT_CORE_TEST_BINDINGS)) {
+    throw new Error('bindings must exactly match the runtime contract core test family');
   }
   const missingRuntimeBindings = RUNTIME_CONTRACT_RECEIPT_BINDINGS.filter(
     (binding) => !policy.bindings.includes(binding),
