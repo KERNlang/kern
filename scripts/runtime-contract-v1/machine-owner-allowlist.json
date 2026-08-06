@@ -9,6 +9,7 @@
     "config.ts",
     "decimal/contract.ts",
     "decimal/probe-gates.ts",
+    "each-collection-reference.ts",
     "errors.ts",
     "generated/utils/assignment-operators.ts",
     "generated/utils/import-metadata.ts",

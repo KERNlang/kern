@@ -9,6 +9,7 @@ import type { PortableHandlerTypePosition } from '../portable-handler-type.js';
 import type { IRNode } from '../types.js';
 import { projectBranchPathValue, validateBranchPathValue } from './branch-path-value.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from './catalog.generated.js';
+import { projectEachCollectionReference, validateEachCollectionReference } from './each-collection-reference.js';
 import { projectExpressionText, validateExpressionValue } from './expression.js';
 import { projectHandlerType, validateHandlerType } from './handler-type.js';
 import {
@@ -173,6 +174,7 @@ function projectProperty(
   if (contract.disposition === 'lowered-import-path') return { tag: 'text', value: normalizeImportPath(value, path) };
   if (contract.disposition === 'lowered-expression') return projectExpressionText(expressionSource(value, path), path);
   if (contract.disposition === 'lowered-branch-path-value') return projectBranchPathValue(value, quoted, path);
+  if (contract.disposition === 'lowered-each-collection-reference') return projectEachCollectionReference(value, path);
   if (contract.disposition === 'lowered-type') {
     const position = handlerTypePosition(kind, name, parentKind);
     if (position === undefined) fail('excluded-host-payload', path, 'type is outside a structured handler signature');
@@ -341,6 +343,10 @@ function validateProperty(
   }
   if (contract.disposition === 'lowered-branch-path-value') {
     validateBranchPathValue(value, path);
+    return;
+  }
+  if (contract.disposition === 'lowered-each-collection-reference') {
+    validateEachCollectionReference(value, path);
     return;
   }
   if (contract.disposition === 'lowered-import-path') {

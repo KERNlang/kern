@@ -11,6 +11,10 @@ import {
   PRE_BRANCH_CONSTITUTION_SOURCE_REPLACEMENTS,
 } from './branch-path-structural-target.mjs';
 import {
+  PRE_EACH_CONSTITUTION_SOURCE_DIGEST,
+  PRE_EACH_CONSTITUTION_SOURCE_REPLACEMENTS,
+} from './each-collection-structural-target.mjs';
+import {
   PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_DIGEST,
   PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_REPLACEMENTS,
 } from './new-expression-structural-target.mjs';
@@ -165,14 +169,24 @@ export function resolveRuntimeConstitutionSource(source) {
   if (!(source instanceof Uint8Array)) fail();
   const bytes = Buffer.from(source);
   if (bytes.equals(loadValidatedRuntimeConstitutionSource())) return bytes;
+  if (bytes.equals(loadPreEachRuntimeConstitutionSource())) return bytes;
   if (bytes.equals(loadPreBranchRuntimeConstitutionSource())) return bytes;
   if (bytes.equals(loadPreExpressionV1RuntimeConstitutionSource())) return bytes;
   fail();
 }
 
-export function loadPreBranchRuntimeConstitutionSource() {
+export function loadPreEachRuntimeConstitutionSource() {
   return reconstructHistoricalSource({
     currentSource: loadValidatedRuntimeConstitutionSource(),
+    expectedDigest: PRE_EACH_CONSTITUTION_SOURCE_DIGEST,
+    milestone: 'pre-each structural constitution',
+    replacements: PRE_EACH_CONSTITUTION_SOURCE_REPLACEMENTS,
+  });
+}
+
+export function loadPreBranchRuntimeConstitutionSource() {
+  return reconstructHistoricalSource({
+    currentSource: loadPreEachRuntimeConstitutionSource(),
     expectedDigest: PRE_BRANCH_CONSTITUTION_SOURCE_DIGEST,
     milestone: 'pre-branch structural constitution',
     replacements: PRE_BRANCH_CONSTITUTION_SOURCE_REPLACEMENTS,

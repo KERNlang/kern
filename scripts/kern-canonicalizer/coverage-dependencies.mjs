@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
+import { POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './each-collection-structural-target.mjs';
 import {
   POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
   PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
@@ -14,11 +15,13 @@ const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
 const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY = Object.freeze({
-  count: 308,
-  digest: '6bdf2cb4af540eeddf4a24a852597c43364b313c80ddcfb6983cbd238ad33610',
+  count: 310,
+  digest: 'e8f07b673f0688148251eea40014cdce85bca7d8b45877c3cc1e984c78dd66a0',
 });
 const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
+  'each-collection-reference.js',
   'kir-structural/branch-path-value.js',
+  'kir-structural/each-collection-reference.js',
   'kir-structural/runtime-inflate.js',
   'runtime-envelope/kir-handler.js',
 ]);
@@ -121,13 +124,27 @@ function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
   const overrides = new Map();
+  const preEachSources = new Map();
+  for (const reconstruction of POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-each compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const historicalSource = reconstructHistoricalSource({
+      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-each compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    });
+    preEachSources.set(reconstruction.path, historicalSource);
+    overrides.set(reconstruction.path, historicalSource);
+  }
   const preBranchSources = new Map();
   for (const reconstruction of POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-branch compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     const historicalSource = reconstructHistoricalSource({
-      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preEachSources.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-branch compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,

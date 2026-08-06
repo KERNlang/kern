@@ -100,8 +100,14 @@ test('only structured runtime-handler type locations are lowered', () => {
   );
 });
 
-test('the closed branch and expression rows are the only property policy overrides', () => {
-  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5g.1');
+test('the closed branch, each, and expression rows are the only property policy overrides', () => {
+  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5h.1');
+  assert.deepEqual(
+    checkedIn.properties
+      .filter((row) => row.disposition === 'lowered-each-collection-reference')
+      .map((row) => `${row.nodeKind}.${row.propertyName}`),
+    ['each.in'],
+  );
   assert.deepEqual(
     checkedIn.properties
       .filter((row) => row.schemaKind === 'rawExpr' && row.disposition === 'lowered-expression')
@@ -116,7 +122,7 @@ test('the closed branch and expression rows are the only property policy overrid
   );
   const eachInput = checkedIn.properties.find((row) => row.nodeKind === 'each' && row.propertyName === 'in');
   assert.equal(eachInput.required, true);
-  assert.equal(eachInput.disposition, 'excluded-host-expression');
+  assert.equal(eachInput.disposition, 'lowered-each-collection-reference');
   const type = checkedIn.properties.find(
     (row) => row.nodeKind === 'expression-v1' && row.propertyName === 'type',
   );

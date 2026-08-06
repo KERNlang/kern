@@ -1,6 +1,6 @@
-import { parseExpression } from '../../parser-expression.js';
+import { classifyEachCollectionReference } from '../../each-collection-reference.js';
 import type { IRNode } from '../../types.js';
-import { isParenthesized, isValueIR } from '../../value-ir.js';
+import type { ValueIR } from '../../value-ir.js';
 import { evalRecordArrayFieldReferenceValue } from './portable-record-evaluator.js';
 import { isPortableScalar } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, recordArrayFieldsForBinding, type SemanticEnv } from './semantic-env.js';
@@ -152,26 +152,32 @@ function resolveEachCollection(inRaw: string, env: SemanticEnv): unknown {
     return collection;
   }
 
-  const expr = parseExpression(inRaw);
-  if (expr.kind === 'ident') {
-    throw new Error(`each: binding "${expr.name}" not found in env`);
+  const classification = classifyEachCollectionReference(inRaw);
+  if (classification.status === 'missing-binding') {
+    throw new Error(`each: binding "${classification.name}" not found in env`);
   }
-  if (
-    expr.kind === 'member' &&
-    !expr.optional &&
-    isValueIR(expr.object) &&
-    expr.object.kind === 'ident' &&
-    !isParenthesized(expr.object)
-  ) {
-    const fields = recordArrayFieldsForBinding(env, expr.object.name);
-    if (fields === undefined || !fields.has(expr.property)) {
-      throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" is not proven`);
+  if (classification.status === 'reference') {
+    const reference = classification.reference;
+    if (reference.form === 'binding') {
+      throw new Error(`each: binding "${reference.name}" not found in env`);
     }
-    const collection = evalRecordArrayFieldReferenceValue(expr, env);
+    const fields = recordArrayFieldsForBinding(env, reference.receiver);
+    if (fields === undefined || !fields.has(reference.property)) {
+      throw new Error(`each: nested record-array receiver "${reference.receiver}.${reference.property}" is not proven`);
+    }
+    const expression: ValueIR = {
+      kind: 'member',
+      object: { kind: 'ident', name: reference.receiver },
+      optional: false,
+      property: reference.property,
+    };
+    const collection = evalRecordArrayFieldReferenceValue(expression, env);
     if (collection === undefined) {
-      throw new Error(`each: nested record-array receiver "${expr.object.name}.${expr.property}" must be an array`);
+      throw new Error(
+        `each: nested record-array receiver "${reference.receiver}.${reference.property}" must be an array`,
+      );
     }
-    assertNestedIterationScalarElements(collection, `${expr.object.name}.${expr.property}`);
+    assertNestedIterationScalarElements(collection, `${reference.receiver}.${reference.property}`);
     return collection;
   }
 

@@ -9,6 +9,7 @@ import { STRUCTURAL_KIR_NODE_CATALOG } from '../../packages/core/dist/kir-struct
 import { parseDocumentWithDiagnostics } from '../../packages/core/dist/parser.js';
 import {
   loadPreBranchRuntimeConstitutionSource,
+  loadPreEachRuntimeConstitutionSource,
   loadPreExpressionV1RuntimeConstitutionSource,
   resolveRuntimeConstitutionSource,
   validateRuntimeCatalogConstitution,
@@ -324,10 +325,12 @@ test('the receipt binds the compiled core JavaScript used during measurement', (
   assert.equal(measureCanonicalizerCoverage().compiledCoreDigest, compiledCoreDigest());
 });
 
-test('current compiled core identity is sensitive to both post-M4.145 runtime modules', () => {
+test('current compiled core identity is sensitive to post-M4.145 runtime modules', () => {
   const current = compiledCoreDigest();
   const root = resolve(process.cwd(), 'packages/core/dist');
   for (const name of [
+    'each-collection-reference.js',
+    'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',
     'runtime-envelope/kir-handler.js',
   ]) {
@@ -345,7 +348,9 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
   const omitted = new Set(currentPaths.filter((path) => !historicalPaths.includes(path)));
   assert.deepEqual([...omitted].sort(), [
+    'each-collection-reference.js',
     'kir-structural/branch-path-value.js',
+    'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',
     'runtime-envelope/kir-handler.js',
   ]);
@@ -370,7 +375,13 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   );
 });
 
-test('historical structural constitution chains exact pre-branch and pre-expression bytes', () => {
+test('historical structural constitution chains exact pre-each, pre-branch, and pre-expression bytes', () => {
+  const preEach = loadPreEachRuntimeConstitutionSource();
+  assert.equal(
+    digest(preEach),
+    '7e1072291f97583b2fc27dcd033732a76db104e99ebf12b09d2c5907057e408c',
+  );
+  assert.equal(digest(resolveRuntimeConstitutionSource(preEach)), digest(preEach));
   const preBranch = loadPreBranchRuntimeConstitutionSource();
   assert.equal(
     digest(preBranch),

@@ -94,8 +94,8 @@ describe('branch path structural provenance', () => {
   test('round-trips branch selection inputs and restores only quoted path metadata', () => {
     const bytes = encodeStructuralKir(branchNode(), limits);
     const artifact = decodeStructuralKir(bytes, limits);
-    expect(artifact.format).toBe('kern.kir.structural.r1.5g.1-alpha');
-    expect(artifact.constitution).toBe('kern.kir.structural.r1.5g.1');
+    expect(artifact.format).toBe('kern.kir.structural.r1.5h.1-alpha');
+    expect(artifact.constitution).toBe('kern.kir.structural.r1.5h.1');
     expect(artifact.root.children[0]?.properties.find((entry) => entry.key === 'value')?.value).toEqual(unquotedPaid);
     expect(artifact.root.children[1]?.properties.find((entry) => entry.key === 'value')?.value).toEqual(quotedPaid);
     const inflated = inflateStructuralKirNode(artifact.root);
@@ -185,7 +185,7 @@ describe('branch path structural provenance', () => {
     const value = structuredClone(decodeCanonicalValue(encodeStructuralKir(branchNode(), limits), limits));
     const format = field(value, 'format');
     if (format.tag !== 'text') throw new Error('expected format');
-    format.value = 'kern.kir.structural.r1.5f.1-alpha';
+    format.value = 'kern.kir.structural.r1.5g.1-alpha';
     expectStructuralCode(() => decodeStructuralKir(encodeCanonicalValue(value, limits), limits), 'unsupported-version');
   });
 });

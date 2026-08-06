@@ -203,7 +203,7 @@ function validateCoverageLedgerBinding(policy, sourceIds, readText) {
   exactKeys(policy.coverageWitnessLedger, ['path', 'format', 'canonicalSha256'], 'coverageWitnessLedger');
   const binding = policy.coverageWitnessLedger;
   if (binding.path !== 'scripts/kir-v1/coverage-witness-ledger.json') fail('coverage ledger path changed');
-  if (binding.format !== 'kern.kir.coverage-witness-ledger.r1.5g.1') fail('coverage ledger format changed');
+  if (binding.format !== 'kern.kir.coverage-witness-ledger.r1.5h.1') fail('coverage ledger format changed');
   if (!/^[0-9a-f]{64}$/u.test(binding.canonicalSha256)) fail('coverage ledger SHA-256 is invalid');
   const ledgerText = readText(binding.path);
   const digest = createHash('sha256').update(ledgerText).digest('hex');

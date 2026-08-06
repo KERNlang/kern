@@ -25,6 +25,7 @@ function expectedDisposition(node, properties) {
       (property) =>
         property.disposition === 'lowered-expression' ||
         property.disposition === 'lowered-branch-path-value' ||
+        property.disposition === 'lowered-each-collection-reference' ||
         property.disposition === 'lowered-import-path' ||
         property.disposition === 'lowered-type',
     )
@@ -52,7 +53,7 @@ export function validateCoverageLedger(ledger, constitution) {
     ['schemaVersion', 'format', 'constitutionFormat', 'proofLabel', 'counts', 'nodes', 'properties'],
     'ledger',
   );
-  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5g.1') {
+  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5h.1') {
     fail('unsupported ledger version');
   }
   if (ledger.constitutionFormat !== constitution.format || ledger.proofLabel !== 'ALPHA-NO-GO') {

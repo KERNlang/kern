@@ -93,6 +93,15 @@ function expectedCanonicalValue(row) {
       ],
     };
   }
+  if (row.disposition === 'lowered-each-collection-reference') {
+    return {
+      tag: 'record',
+      value: [
+        { key: 'form', value: { tag: 'text', value: 'binding' } },
+        { key: 'source', value: { tag: 'text', value: row.fixture } },
+      ],
+    };
+  }
   if (row.disposition === 'lowered-type') {
     return {
       tag: 'record',

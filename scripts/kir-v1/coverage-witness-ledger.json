@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.coverage-witness-ledger.r1.5g.1",
-  "constitutionFormat": "kern.kir.structural.r1.5g.1",
+  "format": "kern.kir.coverage-witness-ledger.r1.5h.1",
+  "constitutionFormat": "kern.kir.structural.r1.5h.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
     "nodes": 302,
@@ -385,8 +385,8 @@
     },
     {
       "id": "each",
-      "disposition": "required-excluded-host-payload",
-      "witnessId": "kir-c4.node.each.required-excluded-host-payload.reject"
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-c4.node.each.lowered-semantic.accept"
     },
     {
       "id": "let",
@@ -4985,8 +4985,8 @@
       "reasonId": "portable-boolean",
       "fixture": false,
       "witnessIds": [
-        "kir-c4.prop.each.await.included-value.populated.reject",
-        "kir-c4.prop.each.await.included-value.omitted.reject"
+        "kir-c4.prop.each.await.included-value.populated.accept",
+        "kir-c4.prop.each.await.included-value.omitted.accept"
       ]
     },
     {
@@ -4999,8 +4999,8 @@
       "reasonId": "portable-boolean",
       "fixture": false,
       "witnessIds": [
-        "kir-c4.prop.each.entries.included-value.populated.reject",
-        "kir-c4.prop.each.entries.included-value.omitted.reject"
+        "kir-c4.prop.each.entries.included-value.populated.accept",
+        "kir-c4.prop.each.entries.included-value.omitted.accept"
       ]
     },
     {
@@ -5013,8 +5013,8 @@
       "reasonId": "portable-identifier",
       "fixture": "w_each_entryKey",
       "witnessIds": [
-        "kir-c4.prop.each.entryKey.included-value.populated.reject",
-        "kir-c4.prop.each.entryKey.included-value.omitted.reject"
+        "kir-c4.prop.each.entryKey.included-value.populated.accept",
+        "kir-c4.prop.each.entryKey.included-value.omitted.accept"
       ]
     },
     {
@@ -5027,8 +5027,8 @@
       "reasonId": "portable-identifier",
       "fixture": "w_each_entryValue",
       "witnessIds": [
-        "kir-c4.prop.each.entryValue.included-value.populated.reject",
-        "kir-c4.prop.each.entryValue.included-value.omitted.reject"
+        "kir-c4.prop.each.entryValue.included-value.populated.accept",
+        "kir-c4.prop.each.entryValue.included-value.omitted.accept"
       ]
     },
     {
@@ -5037,11 +5037,11 @@
       "schemaKind": "rawExpr",
       "required": true,
       "values": null,
-      "disposition": "excluded-host-expression",
-      "reasonId": "opaque-host-expression-forbidden",
-      "fixture": "host()",
+      "disposition": "lowered-each-collection-reference",
+      "reasonId": "portable-each-collection-reference-required",
+      "fixture": "items",
       "witnessIds": [
-        "kir-c4.prop.each.in.excluded-host-expression.populated.reject"
+        "kir-c4.prop.each.in.lowered-each-collection-reference.populated.accept"
       ]
     },
     {
@@ -5054,8 +5054,8 @@
       "reasonId": "portable-identifier",
       "fixture": "w_each_index",
       "witnessIds": [
-        "kir-c4.prop.each.index.included-value.populated.reject",
-        "kir-c4.prop.each.index.included-value.omitted.reject"
+        "kir-c4.prop.each.index.included-value.populated.accept",
+        "kir-c4.prop.each.index.included-value.omitted.accept"
       ]
     },
     {
@@ -5069,7 +5069,7 @@
       "fixture": "host()",
       "witnessIds": [
         "kir-c4.prop.each.key.excluded-host-expression.populated.reject",
-        "kir-c4.prop.each.key.excluded-host-expression.omitted.reject"
+        "kir-c4.prop.each.key.excluded-host-expression.omitted.accept"
       ]
     },
     {
@@ -5082,7 +5082,7 @@
       "reasonId": "portable-identifier",
       "fixture": "w_each_name",
       "witnessIds": [
-        "kir-c4.prop.each.name.included-value.populated.reject"
+        "kir-c4.prop.each.name.included-value.populated.accept"
       ]
     },
     {
@@ -5095,8 +5095,8 @@
       "reasonId": "portable-identifier",
       "fixture": "w_each_pairKey",
       "witnessIds": [
-        "kir-c4.prop.each.pairKey.included-value.populated.reject",
-        "kir-c4.prop.each.pairKey.included-value.omitted.reject"
+        "kir-c4.prop.each.pairKey.included-value.populated.accept",
+        "kir-c4.prop.each.pairKey.included-value.omitted.accept"
       ]
     },
     {
@@ -5109,8 +5109,8 @@
       "reasonId": "portable-identifier",
       "fixture": "w_each_pairValue",
       "witnessIds": [
-        "kir-c4.prop.each.pairValue.included-value.populated.reject",
-        "kir-c4.prop.each.pairValue.included-value.omitted.reject"
+        "kir-c4.prop.each.pairValue.included-value.populated.accept",
+        "kir-c4.prop.each.pairValue.included-value.omitted.accept"
       ]
     },
     {
@@ -5124,7 +5124,7 @@
       "fixture": "HostType",
       "witnessIds": [
         "kir-c4.prop.each.type.excluded-host-type.populated.reject",
-        "kir-c4.prop.each.type.excluded-host-type.omitted.reject"
+        "kir-c4.prop.each.type.excluded-host-type.omitted.accept"
       ]
     },
     {

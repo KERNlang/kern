@@ -3,6 +3,7 @@ import type { PortableHandlerTypePosition } from '../portable-handler-type.js';
 import type { IRNode } from '../types.js';
 import { inflateBranchPathValue } from './branch-path-value.js';
 import { STRUCTURAL_KIR_NODE_CATALOG } from './catalog.generated.js';
+import { inflateEachCollectionReference } from './each-collection-reference.js';
 import { validateHandlerType } from './handler-type.js';
 import { StructuralKirError, type StructuralKirNode } from './types.js';
 
@@ -168,6 +169,9 @@ function inflateProperty(
   const contract = STRUCTURAL_KIR_NODE_CATALOG.get(node.kind)?.properties[key];
   if (!contract) fail(path, `property ${key} is absent from the structural constitution`);
   if (contract.disposition === 'lowered-expression') return renderExpression(value, path);
+  if (contract.disposition === 'lowered-each-collection-reference') {
+    return inflateEachCollectionReference(value, path);
+  }
   if (contract.disposition === 'lowered-type') {
     return renderHandlerType(value, handlerTypePosition(node.kind, key, parentKind), path);
   }

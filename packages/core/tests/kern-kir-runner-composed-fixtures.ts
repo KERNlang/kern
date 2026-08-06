@@ -38,6 +38,14 @@ export const COMPOSED_RUNNER_WITNESSES = [
     excludedProperties: [],
   },
   {
+    id: 'each',
+    witnessId: 'kir-runtime-compose.each.v1',
+    semanticEnvelopeId: 'array-sum-seven',
+    fixtureId: 'each-array-sum-seven',
+    oracleId: 'exact-each-sum',
+    excludedProperties: ['key:excluded-host-expression', 'type:excluded-host-type'],
+  },
+  {
     id: 'expression-v1',
     witnessId: 'kir-runtime-compose.expression-v1.v1',
     semanticEnvelopeId: 'binary-seven',
@@ -121,19 +129,6 @@ export const COMPOSED_RUNNER_WITNESSES = [
 
 export type ComposedRunnerWitness = (typeof COMPOSED_RUNNER_WITNESSES)[number];
 
-export interface ComposedRunnerFixture {
-  readonly asyncHost: SemanticEnv;
-  readonly asyncOptions?: InternalRuntimeAsyncOptions;
-  readonly body: readonly IRNode[];
-  readonly controlBody: readonly IRNode[];
-  readonly fixtureId: string;
-  readonly oracleId: ComposedRunnerWitness['oracleId'];
-  readonly returns: 'number' | 'string';
-  readonly runnerId: ComposedRunnerWitness['id'];
-  readonly semanticEnvelopeId: ComposedRunnerWitness['semanticEnvelopeId'];
-  readonly syncHost: SemanticEnv;
-}
-
 function success(
   value: InternalRuntimeEnvelope['result'],
   events: InternalRuntimeEnvelope['events'] = [],
@@ -170,6 +165,7 @@ export const COMPOSED_RUNNER_ORACLES: Readonly<Record<ComposedRunnerWitness['ora
       },
     ]),
     'exact-caught-result': success(text('boom')),
+    'exact-each-sum': success(integer('7')),
     'exact-expression-v1-result': success(integer('7')),
     'exact-for-sum': success(integer('6')),
     'exact-formatted-text': success(text('value=7')),
@@ -197,7 +193,7 @@ function fixture(
   body: readonly IRNode[],
   controlBody: readonly IRNode[],
   returns: 'number' | 'string',
-): ComposedRunnerFixture {
+) {
   return {
     asyncHost: makeEnv(),
     body,
@@ -211,6 +207,9 @@ function fixture(
   };
 }
 
+export type ComposedRunnerFixture = ReturnType<typeof fixture> & {
+  readonly asyncOptions?: InternalRuntimeAsyncOptions;
+};
 export function buildComposedRunnerFixture(witness: ComposedRunnerWitness): ComposedRunnerFixture {
   switch (witness.fixtureId) {
     case 'assign-rebind-seven':
@@ -299,6 +298,27 @@ export function buildComposedRunnerFixture(witness: ComposedRunnerWitness): Comp
         ],
         'number',
       );
+    case 'each-array-sum-seven': {
+      const body = (items: string): readonly IRNode[] => [
+        { type: 'let', props: { name: 'items', value: items } },
+        { type: 'let', props: { name: 'total', value: '0' } },
+        {
+          type: 'each',
+          props: { in: 'items', name: 'item' },
+          children: [{ type: 'assign', props: { op: '+=', target: 'total', value: 'item' } }],
+        },
+        { type: 'return', props: { value: 'total' } },
+      ];
+      return fixture(
+        'each',
+        'each-array-sum-seven',
+        'array-sum-seven',
+        'exact-each-sum',
+        body('[3,4]'),
+        body('[3,5]'),
+        'number',
+      );
+    }
     case 'expression-v1-binary-seven':
       return fixture(
         'expression-v1',

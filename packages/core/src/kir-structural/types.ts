@@ -1,7 +1,7 @@
 import type { CanonicalRecordEntry, CanonicalValue } from '../canonical-value/types.js';
 import type { PortableHandlerTypeKind } from '../portable-handler-type.js';
 
-export const STRUCTURAL_KIR_ARTIFACT_FORMAT = 'kern.kir.structural.r1.5g.1-alpha' as const;
+export const STRUCTURAL_KIR_ARTIFACT_FORMAT = 'kern.kir.structural.r1.5h.1-alpha' as const;
 export const STRUCTURAL_KIR_TYPE_CATALOG_FORMAT = 'kern.type-admission.r1.5e.1-handler' as const;
 
 export type StructuralPropertyDisposition =
@@ -9,6 +9,7 @@ export type StructuralPropertyDisposition =
   | 'lowered-import-path'
   | 'lowered-expression'
   | 'lowered-branch-path-value'
+  | 'lowered-each-collection-reference'
   | 'lowered-type'
   | 'excluded-host-expression'
   | 'excluded-host-type'

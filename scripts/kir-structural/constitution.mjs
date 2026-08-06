@@ -1,4 +1,4 @@
-export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5g.1';
+export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5h.1';
 
 const PROPERTY_POLICIES = Object.freeze({
   identifier: ['included-value', 'portable-identifier'],
@@ -18,6 +18,12 @@ const PROPERTY_POLICY_OVERRIDE_ROWS = Object.freeze([
     schemaKind: 'rawExpr',
     disposition: 'lowered-expression',
     reasonId: 'portable-expression-required',
+  }),
+  Object.freeze({
+    key: 'each.in',
+    schemaKind: 'rawExpr',
+    disposition: 'lowered-each-collection-reference',
+    reasonId: 'portable-each-collection-reference-required',
   }),
   Object.freeze({
     key: 'expression-v1.expr',
