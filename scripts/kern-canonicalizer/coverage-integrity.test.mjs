@@ -331,6 +331,8 @@ test('current compiled core identity is sensitive to post-M4.145 runtime modules
   const root = resolve(process.cwd(), 'packages/core/dist');
   for (const name of [
     'each-collection-reference.js',
+    'kir-v1/canonical.js',
+    'kir-v1/types.js',
     'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',
     'runtime-envelope/kir-handler.js',
@@ -353,6 +355,8 @@ test('historical compiled core identities authenticate exact M4.145 membership',
     'kir-structural/branch-path-value.js',
     'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',
+    'kir-v1/canonical.js',
+    'kir-v1/types.js',
     'runtime-envelope/kir-handler.js',
   ]);
   assert.equal(

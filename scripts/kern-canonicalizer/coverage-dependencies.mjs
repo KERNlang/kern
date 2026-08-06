@@ -16,11 +16,13 @@ const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
 const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY = Object.freeze({
-  count: 310,
-  digest: 'e8f07b673f0688148251eea40014cdce85bca7d8b45877c3cc1e984c78dd66a0',
+  count: 312,
+  digest: 'ac49474233ca636c7010e7fe9e794b63116b03b74dd5f047c36819f3860da34c',
 });
 const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'each-collection-reference.js',
+  'kir-v1/canonical.js',
+  'kir-v1/types.js',
   'kir-structural/branch-path-value.js',
   'kir-structural/each-collection-reference.js',
   'kir-structural/runtime-inflate.js',
