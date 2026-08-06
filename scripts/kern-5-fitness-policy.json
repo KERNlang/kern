@@ -29,7 +29,8 @@
     "test:source-runner-convergence": "pnpm --filter @kernlang/core test --testPathPatterns='runner-capability-(class-frame|plan)|source-runner-engine|runtime-envelope-effect-machine-(do|each|expression-v1|helper|lambda|non-root|module-ownership|class-)' && node --test ./scripts/source-runner*-convergence.test.mjs && node ./scripts/check-source-runner-convergence.mjs",
     "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-canonicalizer/composition.mjs && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.composed.kern --with-semantics --quiet && node --test scripts/kern-canonicalizer/*.test.mjs && node scripts/check-kern-canonicalizer.mjs && node scripts/check-kern-canonicalizer-cli.mjs && node scripts/check-kern-canonicalizer-coverage.mjs",
     "test:kern-frontend-tokenizer": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-tokenizer/*.test.mjs && node scripts/check-kern-frontend-tokenizer.mjs",
-    "test:kern-frontend-stitch-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-stitcher/*.test.mjs && node scripts/check-kern-frontend-stitcher.mjs"
+    "test:kern-frontend-stitch-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-stitcher/*.test.mjs && node scripts/check-kern-frontend-stitcher.mjs",
+    "test:kern-frontend-indentation-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-indentation/*.test.mjs && node scripts/check-kern-frontend-indentation.mjs"
   },
   "gates": [
     {
@@ -229,6 +230,12 @@
       "label": "KERN-authored bounded frontend framing and stitch shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-stitch-shadow"]
+    },
+    {
+      "id": "kern-frontend-indentation-shadow",
+      "label": "KERN-authored bounded frontend indentation observation shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-indentation-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -501,6 +508,12 @@
       "label": "Bounded KERN-authored physical framing and multiline stitch shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-stitch-shadow"
+    },
+    {
+      "id": "kern-frontend-indentation-shadow",
+      "label": "Bounded KERN-authored indentation observation shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-indentation-shadow"
     },
     {
       "id": "kern-formatter",

@@ -54,6 +54,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-kir-canonicalizer | KERN-authored bounded KIR canonicalizer profile | current | `pnpm test:kern-canonicalizer` |
 | kern-frontend-tokenizer-shadow | KERN-authored bounded frontend tokenizer shadow | current | `pnpm test:kern-frontend-tokenizer` |
 | kern-frontend-stitch-shadow | KERN-authored bounded frontend framing and stitch shadow | current | `pnpm test:kern-frontend-stitch-shadow` |
+| kern-frontend-indentation-shadow | KERN-authored bounded frontend indentation observation shadow | current | `pnpm test:kern-frontend-indentation-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -111,6 +112,7 @@ wall and must remain absent until promoted.
 | kern-kir-canonicalizer-profile | Bounded KERN-authored KIR canonicalizer profile | internal-oracle | `pnpm test:kern-canonicalizer` |
 | kern-frontend-tokenizer-shadow | Bounded KERN-authored line-tokenizer shadow | internal-oracle | `pnpm test:kern-frontend-tokenizer` |
 | kern-frontend-stitch-shadow | Bounded KERN-authored physical framing and multiline stitch shadow | internal-oracle | `pnpm test:kern-frontend-stitch-shadow` |
+| kern-frontend-indentation-shadow | Bounded KERN-authored indentation observation shadow | internal-oracle | `pnpm test:kern-frontend-indentation-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -156,6 +158,17 @@ indentation meaning, raw bodies, parsing, KIR emission, and frontend cutover
 remain unclaimed. Source-hashed corpus selection, aggregate limits, envelope
 validation, and mutation tests make this a bounded
 `kern-frontend-stitch-shadow: internal-oracle`; `kern-frontend` remains
+`not-shipped`.
+
+M4.155 composes that KERN-authored stitch envelope inside KERN and emits one
+exact indentation observation for each complete ordinary group. It binds the
+group and first physical record, maximal ASCII space/tab prefix, exact content
+witness, source-derived UTF-8/code-unit boundary, and `initial`/`same`/`deeper`/
+`shallower` relation. Blank, comment, raw-opener, continuation, boundary, and
+EOF-unclosed records do not invent observations. The tape deliberately claims
+no tree, node admission, tab validity, `INDENT_JUMP`, trivia attachment, AST,
+KIR, or cutover, so this is only
+`kern-frontend-indentation-shadow: internal-oracle`; `kern-frontend` remains
 `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

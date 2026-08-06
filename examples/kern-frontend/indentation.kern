@@ -1,0 +1,95 @@
+fn name=indentationfailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.indentation-shadow.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    return value="out"
+
+fn name=indentationadmit returns=boolean
+  param name=tag type=string
+  param name=termination type=string
+  handler lang="kern"
+    return value="tag == \"group\" && termination == \"complete\""
+
+fn name=observeindentation returns="string[]" export=true
+  param name=source type=string
+  param name=rawProfile type=string
+  param name=maxCodePoints type=number
+  param name=maxPhysicalRecords type=number
+  param name=maxPhysicalRecordCodePoints type=number
+  param name=maxGroups type=number
+  param name=maxGroupRecords type=number
+  param name=maxStitchDepth type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxEnvelopeRecords type=number
+  param name=maxRawOpeners type=number
+  param name=maxObservations type=number
+  handler lang="kern"
+    if cond="maxObservations <= 0"
+      let name=invalidLimits value="indentationfailure(\"INVALID_LIMITS\", \"\")"
+      return value="invalidLimits"
+    let name=base value="stitchdocument(source, rawProfile, maxCodePoints, maxPhysicalRecords, maxPhysicalRecordCodePoints, maxGroups, maxGroupRecords, maxStitchDepth, maxTokens, maxDiagnostics, maxEnvelopeRecords, maxRawOpeners)"
+    if cond="base.length >= 2 && base[1] == \"failure\""
+      let name=baseFailure value="indentationfailure(base[2], base[3])"
+      return value="baseFailure"
+
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.indentation-shadow.1\")"
+    let name=observationIndex value="0"
+    let name=previousIndentLength value="-1"
+    for name=offset from=1 to="base.length" step=8
+      let name=tag value="base[offset]"
+      let name=termination value="base[offset + 4]"
+      if cond="!indentationadmit(tag, termination)"
+        continue
+      if cond="observationIndex >= maxObservations"
+        let name=observationFailure value="indentationfailure(\"OBSERVATION_LIMIT\", \"\")"
+        return value="observationFailure"
+      let name=groupIndex value="base[offset + 1]"
+      let name=firstIndexText value="base[offset + 2]"
+      let name=indent value="\"\""
+      let name=content value="\"\""
+      for name=physicalOffset from=1 to="base.length" step=8
+        if cond="base[physicalOffset] != \"physical\""
+          break
+        if cond="base[physicalOffset + 1] == firstIndexText"
+          assign target=indent value="base[physicalOffset + 3]"
+          assign target=content value="base[physicalOffset + 2]"
+          break
+      let name=indentLength value="Text.length(indent)"
+      let name=relation value="\"initial\""
+      if cond="previousIndentLength >= 0"
+        assign target=relation value="\"same\""
+        if cond="indentLength > previousIndentLength"
+          assign target=relation value="\"deeper\""
+        if cond="indentLength < previousIndentLength"
+          assign target=relation value="\"shallower\""
+      do value="out.push(\"observation\")"
+      do value="out.push(String(observationIndex))"
+      do value="out.push(groupIndex)"
+      do value="out.push(firstIndexText)"
+      do value="out.push(indent)"
+      do value="out.push(relation)"
+      do value="out.push(content)"
+      do value="out.push(\"\")"
+      assign target=previousIndentLength value="indentLength"
+      assign target=observationIndex value="observationIndex + 1"
+    do value="out.push(\"seal\")"
+    do value="out.push(source)"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    return value="out"

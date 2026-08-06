@@ -1,0 +1,16 @@
+export const INDENTATION_FIXTURES = [
+  { id: 'empty', source: '' },
+  { id: 'root', source: 'screen' },
+  { id: 'spaces-transitions', source: 'screen\n  text\n  button\n card' },
+  { id: 'tabs-and-mixed', source: '\tscreen\n\t  text\n\tbutton' },
+  { id: 'multibyte-after-indent', source: '  text value="Grüezi 😀"' },
+  { id: 'ecmascript-non-indent-whitespace-is-content', source: '\u000btext\n\u000cbutton' },
+  { id: 'blank-does-not-reset', source: 'screen\n\n  text' },
+  { id: 'comment-does-not-reset', source: 'screen\n# note\n  text\n  // note\nbutton' },
+  { id: 'raw-opener-does-not-observe', source: 'screen\nhandler <<<\n  text' },
+  { id: 'complete-multiline-one-observation', source: '  text value="one\n        two"' },
+  { id: 'complete-expression-one-observation', source: '    button disabled={{\n ready\n}}' },
+  { id: 'comment-boundary-excluded', source: '  text value="open\n# boundary\n    button' },
+  { id: 'raw-boundary-excluded', source: '  text value="open\nhandler <<<\n    button' },
+  { id: 'eof-unclosed-excluded', source: '  text value="open\n    still open' },
+];

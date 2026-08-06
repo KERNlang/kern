@@ -59,6 +59,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-kir-canonicalizer',
       'kern-frontend-tokenizer-shadow',
       'kern-frontend-stitch-shadow',
+      'kern-frontend-indentation-shadow',
     ],
   );
 });

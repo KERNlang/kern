@@ -2,10 +2,10 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`c2fb2492ff07cf0aa230374dba86978c1303cdd1`
+`e96dd8dfc5868b5a9ca80a0063d077ff763205fc`
 **Current public version:** `4.5.0`
-**Last completed slice:** Phase 1 internal KIR v1 profile freeze
-**Current slice:** M4.154 bounded frontend multiline stitch shadow; implementation, full fitness wall, and independent review complete; commit/push pending
+**Last completed slice:** M4.154 bounded frontend multiline stitch shadow
+**Current slice:** M4.155 bounded frontend indentation observation shadow; implementation, full fitness wall, independent review, and review-driven regression fix complete; commit and publish pending
 **Confidence:** 0.99
 
 ## Short Start Prompt

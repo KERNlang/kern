@@ -3373,6 +3373,32 @@ trusted-publishing/provenance configuration is inspected.
     `kern-frontend-stitch-shadow: internal-oracle` is added; the public
     `kern-frontend` gate remains planned and not shipped.
 
+  - [x] M4.155 bounded frontend indentation observation shadow: composes the
+    M4.154 `stitchdocument` result through an ordinary KERN function call and
+    emits one observation for each complete ordinary stitch group. Each record
+    binds the group, first physical record, exact ASCII space/tab prefix,
+    first-record content witness, and relation to the prior admitted group;
+    the host derives exact UTF-8 and code-unit boundaries from those witnesses.
+    Blank, comment, raw-opener, continuation, boundary, and EOF-unclosed records
+    do not invent transitions. Exact limits plus Unicode-trim, per-physical-
+    record, semantic-trim, identity, order, relation, seal, and delegation
+    mutations are release-blocking. Tree construction, `INDENT_JUMP`, trivia
+    attachment, AST/KIR, and frontend cutover remain explicitly deferred. Only
+    `kern-frontend-indentation-shadow: internal-oracle` is added; the public
+    `kern-frontend` gate remains planned and not shipped. The dedicated gate
+    passes 11 adversarial test blocks and 17 differential parity documents;
+    the retained tokenizer and stitch-shadow gates pass 307 parity plus 6
+    fail-closed plus 8 boundary cases, and 24 parity plus 2 rejection cases.
+    The complete Node 22.22 `pnpm fitness:kern-5` wall passes on the integrated
+    tree, including all workspace and infrastructure suites, 434/434
+    cross-target conformance fixtures, and the full canonicalizer wall.
+    Exact-roster role-lens Agon review completed 3/3 and found one verified
+    document-offset blocker: both differential paths reported code-unit offsets
+    relative to the record. A RED-first astral-prefix regression now binds the
+    document-relative offset, the validator and oracle derive record starts
+    independently, and all focused, policy, lint, repository, contract, and
+    diff-hygiene gates pass after the fix with no unresolved verified blocker.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric
