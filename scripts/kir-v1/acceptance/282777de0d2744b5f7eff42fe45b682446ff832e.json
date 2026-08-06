@@ -1,0 +1,199 @@
+{
+  "acceptedCommitSha": "282777de0d2744b5f7eff42fe45b682446ff832e",
+  "bindings": [
+    {
+      "path": "packages/core/src/canonical-value/canonical.ts",
+      "sha256": "9865023989a27a5584c7ea4eb8398ce570eff379b4f5aeea93bcda2e175db591"
+    },
+    {
+      "path": "packages/core/src/canonical-value/types.ts",
+      "sha256": "6fd050d763a464b7d6179adeacbbab3d0de8eff0473e45e5bfb2c66d480e25ee"
+    },
+    {
+      "path": "packages/core/src/canonical-value/utf8.ts",
+      "sha256": "834424e0af88802bf400f14e2f7c685bc1b5c1ecbd0648313b2782bb3ca1e123"
+    },
+    {
+      "path": "packages/core/src/canonical-value/validate.ts",
+      "sha256": "d2acdf3e45a7fe972c183868f4f1cee9fa8b93761ae68fbfc60436082d22c1f1"
+    },
+    {
+      "path": "packages/core/src/kir-evidence/canonical.ts",
+      "sha256": "cc79d2e3a7e23442dea69c2c471bb61cef35e289d788fd6d14f747a571854be9"
+    },
+    {
+      "path": "packages/core/src/kir-evidence/types.ts",
+      "sha256": "326412dd391f527651e97252ac3c04722850da6cf298c007f71171b45ba65a43"
+    },
+    {
+      "path": "packages/core/src/kir-structural/branch-path-value.ts",
+      "sha256": "00a434cdba09bb6e06c867f1eebd8a413bb2851586fec589b64ade8ddf5d14c8"
+    },
+    {
+      "path": "packages/core/src/kir-structural/canonical.ts",
+      "sha256": "04ec8bde39fcd2313bd0de9e1092f38436fa8b8ea4b9b68401183863cd85a1ab"
+    },
+    {
+      "path": "packages/core/src/kir-structural/catalog.generated.ts",
+      "sha256": "413e5c061dc1c33a6cdd75691eee3f8d075b4dddcca5e2bd768713141752bf09"
+    },
+    {
+      "path": "packages/core/src/kir-structural/each-collection-reference.ts",
+      "sha256": "9324d25a5f8aebb1ecf293e1b1f764c7752e555e058ac1c5ab452990d3cee186"
+    },
+    {
+      "path": "packages/core/src/kir-structural/expression.ts",
+      "sha256": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957"
+    },
+    {
+      "path": "packages/core/src/kir-structural/handler-type.ts",
+      "sha256": "3014ff06f9ba089de98f72b9a68775b7494319163707d831aa2f36e24ef75ca0"
+    },
+    {
+      "path": "packages/core/src/kir-structural/module-canonical.ts",
+      "sha256": "2e8ec8543b6ea9961fef0c097012e4aa10b143145fcef9a07b4447b08c8e058f"
+    },
+    {
+      "path": "packages/core/src/kir-structural/module-graph.ts",
+      "sha256": "efb8f81ce4eeee5b9e6d840a9cffc8851878be9698bfb7cb19152b10b0570639"
+    },
+    {
+      "path": "packages/core/src/kir-structural/module-path.ts",
+      "sha256": "3cc5012cb5000496f7995fe31e53891880d2201b95e9cec1c000c45dbbae4e44"
+    },
+    {
+      "path": "packages/core/src/kir-structural/module-types.ts",
+      "sha256": "72b0b8831f701ee54e3f938bf3c3c91161cd72e6f2e3136bb9e6cadce88b459d"
+    },
+    {
+      "path": "packages/core/src/kir-structural/node.ts",
+      "sha256": "1708ec874244c99391baf3bfc1247444cf656774cfe6ee3c354189ee40b2f514"
+    },
+    {
+      "path": "packages/core/src/kir-structural/runtime-inflate.ts",
+      "sha256": "adc66f2adb94ee66b03064b11784f15ae23936af12e6c6a9b78ed4ed8902ac21"
+    },
+    {
+      "path": "packages/core/src/kir-structural/types.ts",
+      "sha256": "b148f164618148bd58d76f2232b0d8748e20b905588e52d997d1d48729d7394b"
+    },
+    {
+      "path": "packages/core/src/kir-v1/canonical.ts",
+      "sha256": "654d440ea6495267086e843f4b0d53fd6d2cb0ffd0292e7b658a9ab79d5d33f6"
+    },
+    {
+      "path": "packages/core/src/kir-v1/types.ts",
+      "sha256": "76098b1013b48b4bd64e7636ddefba5712524247684dc788499d9e7a68eab561"
+    },
+    {
+      "path": "packages/core/tests/kir-v1.test.ts",
+      "sha256": "b2b985d19076f6feeb98be47c84240a53fa5819de528fd43f3d220a4e544adfd"
+    },
+    {
+      "path": "scripts/check-kir-v1-acceptance.mjs",
+      "sha256": "5b612b9c6019ec6e95541a6504d52eac4bc6e14caf04f62c49b211843a1de679"
+    },
+    {
+      "path": "scripts/check-kir-v1-profile.mjs",
+      "sha256": "1e8a750dcfc58f9e2c76251e42d9138ed8e5a2bd9cb50e5da405d1d4cccadc7a"
+    },
+    {
+      "path": "scripts/kir-structural/constitution.json",
+      "sha256": "d62b8b0ce021240f0eb432bff0303107d157578dea6314012c143a911272d271"
+    },
+    {
+      "path": "scripts/kir-v1/acceptance-manifest.mjs",
+      "sha256": "c00af8dd3a1b0b043fa8a0ee2532070f25623f52e0c354e3c1761a4532e119dc"
+    },
+    {
+      "path": "scripts/kir-v1/acceptance-manifest.test.mjs",
+      "sha256": "c71ddf06b230af5109d6087ebf122c4c5ffe7f45236c051f9013b2a5a0a5fabb"
+    },
+    {
+      "path": "scripts/kir-v1/acceptance-policy.json",
+      "sha256": "15cb9dce063650c2744953dbfee0fcb6b784bd346ed5133f7222bb1a975e652f"
+    },
+    {
+      "path": "scripts/kir-v1/eligibility.json",
+      "sha256": "9bf8fa6104d9f4c9b1c2ff3cd829211817387ba2ea3e444401b09509e28c2c43"
+    },
+    {
+      "path": "scripts/kir-v1/validate-eligibility.mjs",
+      "sha256": "18a05327775e070ff2389d91c59797c4da414f0f809ae1509dacbbdd12a6f83d"
+    }
+  ],
+  "exclusions": [
+    {
+      "id": "public-reader-export",
+      "reason": "deferred-to-r4"
+    },
+    {
+      "id": "runtime-cutover",
+      "reason": "deferred-to-r3"
+    },
+    {
+      "id": "semantic-self-hosting",
+      "reason": "deferred-to-r2"
+    }
+  ],
+  "format": "kern.kir.v1-alpha-acceptance.1",
+  "oracles": [
+    {
+      "argv": [
+        "pnpm",
+        "test:kern-ir-profile"
+      ],
+      "id": "kir-v1-profile",
+      "status": "passed"
+    },
+    {
+      "argv": [
+        "pnpm",
+        "test:kern-ir-eligibility"
+      ],
+      "id": "kir-v1-eligibility",
+      "status": "passed"
+    },
+    {
+      "argv": [
+        "pnpm",
+        "test:kern-kir-runtime-binding"
+      ],
+      "id": "kir-runtime-binding",
+      "status": "passed"
+    },
+    {
+      "argv": [
+        "pnpm",
+        "test:kern-kir-runner-composed-evidence"
+      ],
+      "id": "kir-runner-composed",
+      "status": "passed"
+    },
+    {
+      "argv": [
+        "pnpm",
+        "test:kern-kir-coverage-closure"
+      ],
+      "id": "kir-coverage-closure",
+      "status": "passed"
+    },
+    {
+      "argv": [
+        "pnpm",
+        "test:kern-runtime-contract-v1"
+      ],
+      "id": "runtime-contract-v1",
+      "status": "passed"
+    }
+  ],
+  "policySha256": "15cb9dce063650c2744953dbfee0fcb6b784bd346ed5133f7222bb1a975e652f",
+  "status": {
+    "alphaAccepted": true,
+    "kirV1Frozen": true,
+    "publicReaderExport": false,
+    "runtimeCutover": false,
+    "runtimeHandlerAbi": true,
+    "semanticSelfHosting": false
+  }
+}
