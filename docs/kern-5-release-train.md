@@ -3486,6 +3486,30 @@ trusted-publishing/provenance configuration is inspected.
     the integrated tree. Exact-roster role-lens review
     `review-1786021158256-15e4dn-kern-5-m4-158-whitespace-trim` completed 3/3
     with zero verified, needs-check, speculative, or nit findings. No
+    unresolved material review finding remains; published as
+    `6ec58e143d9d0aab38864fafca21e6a3a6ad8eaa`.
+
+  - [x] M4.159 bounded retained-code token-stream shadow: composes the exact
+    M4.158 retained boundary with the unchanged M4.153 tokenizer and exposes
+    every ordered token and tokenizer diagnostic before node admission.
+    Fixed-width records bind token kind/value, scalar and UTF-8 byte starts,
+    diagnostic spans, trim offsets, marker payload, original source, counts,
+    and terminal delta tapes. Empty/comment-only retained inputs fail
+    atomically, while discarded Unicode suffixes and payloads remain outside
+    tokenization. Astral byte coordinates, evolved-name normalization,
+    multiple diagnostics, complete inherited bounds, source seals,
+    second-token corruption, and named mutations are release-blocking.
+    Trivia attachment, first-node admission, AST/KIR, public APIs, and parser
+    cutover remain deferred. The slice adds only
+    `kern-frontend-retained-token-stream-shadow: internal-oracle`;
+    `kern-frontend` remains planned and not shipped. Focused verification
+    passes 10/10 adversarial tests and 12 differential plus 5 empty-boundary
+    cases. The promoted standalone regression wall passes 85/85 M4.153-M4.159
+    tests plus all seven differential checkers. The complete Node 22.22
+    `pnpm fitness:kern-5` wall passes on the integrated tree, including both
+    737/737 canonicalizer proof runs. Exact-roster role-lens review
+    `review-1786026715420-f8bo4v-kern-5-m4-159-retained-token-str` completed
+    3/3 with zero verified, needs-check, speculative, or nit findings. No
     unresolved material review finding remains; publication is pending.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,

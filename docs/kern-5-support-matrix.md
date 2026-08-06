@@ -58,6 +58,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-lexical-shadow | KERN-authored bounded frontend conditional lexical-checkpoint shadow | current | `pnpm test:kern-frontend-lexical-shadow` |
 | kern-frontend-comment-boundary-shadow | KERN-authored bounded frontend inline-comment boundary shadow | current | `pnpm test:kern-frontend-comment-boundary-shadow` |
 | kern-frontend-whitespace-trim-shadow | KERN-authored bounded pre-tokenization whitespace-trim shadow | current | `pnpm test:kern-frontend-whitespace-trim-shadow` |
+| kern-frontend-retained-token-stream-shadow | KERN-authored bounded retained-code token-stream shadow | current | `pnpm test:kern-frontend-retained-token-stream-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -119,6 +120,7 @@ wall and must remain absent until promoted.
 | kern-frontend-lexical-shadow | Bounded KERN-authored conditional lexical-checkpoint shadow | internal-oracle | `pnpm test:kern-frontend-lexical-shadow` |
 | kern-frontend-comment-boundary-shadow | Bounded KERN-authored inline-comment boundary shadow | internal-oracle | `pnpm test:kern-frontend-comment-boundary-shadow` |
 | kern-frontend-whitespace-trim-shadow | Bounded KERN-authored pre-tokenization whitespace-trim shadow | internal-oracle | `pnpm test:kern-frontend-whitespace-trim-shadow` |
+| kern-frontend-retained-token-stream-shadow | Bounded KERN-authored retained-code token-stream shadow | internal-oracle | `pnpm test:kern-frontend-retained-token-stream-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -213,6 +215,20 @@ legacy M4.156/M4.157 parity, and named mutations are release-blocking. Comment
 attachment, node admission, AST/KIR, diagnostics changes, public APIs, and
 frontend cutover remain absent, so this adds only
 `kern-frontend-whitespace-trim-shadow: internal-oracle`; `kern-frontend`
+remains `not-shipped`.
+
+M4.159 composes the authenticated M4.158 retained-code boundary with the
+unchanged M4.153 tokenizer and emits the complete ordered token and diagnostic
+stream consumed before bootstrap node admission. Fixed-width records bind each
+token kind/value to exact scalar and UTF-8 byte starts, bind diagnostic spans
+independently, preserve the original source and trim partition, and seal both
+ordered delta tapes. Empty retained code fails atomically; discarded Unicode
+suffixes and comment payloads remain outside tokenization. Independent oracle
+parity, astral byte coordinates, normalized token values, multi-diagnostic
+starts, complete bounds, source seals, second-token corruption, and named
+mutations are release-blocking. Trivia attachment, node admission, AST/KIR,
+public APIs, and frontend cutover remain absent, so this adds only
+`kern-frontend-retained-token-stream-shadow: internal-oracle`; `kern-frontend`
 remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

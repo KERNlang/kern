@@ -2,10 +2,10 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`98f37b4b057e0cf044878e602065f3157b419f57`
+`6ec58e143d9d0aab38864fafca21e6a3a6ad8eaa`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.157 bounded inline-comment boundary shadow
-**Current slice:** M4.158 bounded pre-tokenization whitespace-trim shadow;
+**Last completed slice:** M4.158 bounded pre-tokenization whitespace-trim shadow
+**Current slice:** M4.159 bounded retained-code token-stream shadow;
 implementation, focused verification, and the complete Node 22.22 fitness wall
 pass; exact-roster role-lens review passed 3/3 with zero findings and
 publication is pending
