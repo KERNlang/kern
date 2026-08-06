@@ -77,8 +77,8 @@ describe('internal structural KIR writer and bounded reader', () => {
     expect(encodeStructuralKir(reordered, limits)).toEqual(bytes);
     const artifact = decodeStructuralKir(bytes, limits);
     expect(encodeCanonicalValue(decodeCanonicalValue(bytes, limits), limits)).toEqual(bytes);
-    expect(artifact.format).toBe('kern.kir.structural.r1.5h.1-alpha');
-    expect(artifact.constitution).toBe('kern.kir.structural.r1.5h.1');
+    expect(artifact.format).toBe('kern.kir.structural.r1.5i.1-alpha');
+    expect(artifact.constitution).toBe('kern.kir.structural.r1.5i.1');
     expect(artifact.proofLabel).toBe('ALPHA-NO-GO');
     expect(artifact.typeCatalog.admittedKinds).toEqual(['boolean', 'integer', 'list', 'text', 'void']);
     expect(artifact.root.properties.map((entry) => entry.key)).toEqual(['export', 'name']);

@@ -195,6 +195,24 @@ function nodeContract(kind: string, path: string): StructuralNodeContract {
   return contract;
 }
 
+function assertNodeParent(
+  contract: StructuralNodeContract,
+  kind: string,
+  parentKind: string | undefined,
+  path: string,
+): void {
+  const allowed = contract.runnerSyntheticAllowedParents;
+  if (allowed !== undefined && (parentKind === undefined || !allowed.includes(parentKind))) {
+    fail('invalid-child', path, `${kind} is not allowed below ${parentKind ?? 'the structural root'}`);
+  }
+}
+
+function childAllowed(contract: StructuralNodeContract, parentKind: string, childKind: string): boolean {
+  const childContract = STRUCTURAL_KIR_NODE_CATALOG.get(childKind);
+  if (childContract?.runnerSyntheticAllowedParents?.includes(parentKind)) return true;
+  return contract.allowedChildren === null || contract.allowedChildren.includes(childKind);
+}
+
 function assertRequired(
   properties: Readonly<Record<string, unknown>>,
   contract: StructuralNodeContract,
@@ -245,6 +263,7 @@ function projectNode(
     if (!NODE_FIELDS.includes(key)) fail('invalid-artifact', `${path}.${key}`, 'unknown IR node field');
   const kind = text(node.type, `${path}.type`);
   const contract = nodeContract(kind, `${path}.type`);
+  assertNodeParent(contract, kind, parentKind, `${path}.type`);
   const rawProperties =
     node.props === undefined ? (Object.create(null) as UnknownRecord) : object(node.props, `${path}.props`);
   const quotedProperties = new Set<string>();
@@ -283,13 +302,11 @@ function projectNode(
   const children = rawChildren.map((child, index) =>
     projectNode(child, `${path}.children[${index}]`, depth + 1, state, kind),
   );
-  if (contract.allowedChildren !== null) {
-    children.forEach((child, index) => {
-      if (!contract.allowedChildren?.includes(child.kind)) {
-        fail('invalid-child', `${path}.children[${index}]`, `${child.kind} is not allowed below ${kind}`);
-      }
-    });
-  }
+  children.forEach((child, index) => {
+    if (!childAllowed(contract, kind, child.kind)) {
+      fail('invalid-child', `${path}.children[${index}]`, `${child.kind} is not allowed below ${kind}`);
+    }
+  });
   return { kind, properties, children };
 }
 
@@ -379,6 +396,7 @@ export function validateStructuralNode(value: CanonicalValue, path = '$.root', p
   const node = canonicalRecord(value, ['children', 'kind', 'properties'], path);
   const kind = canonicalText(canonicalField(node, 'kind'), `${path}.kind`);
   const contract = nodeContract(kind, `${path}.kind`);
+  assertNodeParent(contract, kind, parentKind, `${path}.kind`);
   const propertyValue = canonicalField(node, 'properties');
   if (propertyValue.tag !== 'record') fail('invalid-artifact', `${path}.properties`, 'expected property record');
   const present = Object.fromEntries(propertyValue.value.map((entry) => [entry.key, true]));
@@ -394,10 +412,9 @@ export function validateStructuralNode(value: CanonicalValue, path = '$.root', p
   const children = childValue.value.map((child, index) =>
     validateStructuralNode(child, `${path}.children[${index}]`, kind),
   );
-  if (contract.allowedChildren !== null)
-    children.forEach((child, index) => {
-      if (!contract.allowedChildren?.includes(child.kind))
-        fail('invalid-child', `${path}.children[${index}]`, `${child.kind} is not allowed below ${kind}`);
-    });
+  children.forEach((child, index) => {
+    if (!childAllowed(contract, kind, child.kind))
+      fail('invalid-child', `${path}.children[${index}]`, `${child.kind} is not allowed below ${kind}`);
+  });
   return { kind, properties: propertyValue.value, children };
 }

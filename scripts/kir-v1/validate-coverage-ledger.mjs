@@ -50,29 +50,57 @@ function validateFixture(row, path) {
 export function validateCoverageLedger(ledger, constitution) {
   exact(
     ledger,
-    ['schemaVersion', 'format', 'constitutionFormat', 'proofLabel', 'counts', 'nodes', 'properties'],
+    [
+      'schemaVersion', 'format', 'constitutionFormat', 'proofLabel', 'counts', 'nodes', 'properties',
+      'runnerSyntheticNodes', 'runnerSyntheticProperties',
+    ],
     'ledger',
   );
-  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5h.1') {
+  if (ledger.schemaVersion !== 1 || ledger.format !== 'kern.kir.coverage-witness-ledger.r1.5i.1') {
     fail('unsupported ledger version');
   }
   if (ledger.constitutionFormat !== constitution.format || ledger.proofLabel !== 'ALPHA-NO-GO') {
     fail('constitution or proof label drifted');
   }
-  exact(ledger.counts, ['nodes', 'properties'], 'ledger.counts');
-  if (ledger.counts.nodes !== 302 || ledger.counts.properties !== 1149) fail('exact counts drifted');
-  if (ledger.nodes.length !== constitution.nodes.length || ledger.properties.length !== constitution.properties.length) {
+  exact(
+    ledger.counts,
+    ['sourceNodes', 'sourceProperties', 'runnerSyntheticNodes', 'runnerSyntheticProperties'],
+    'ledger.counts',
+  );
+  if (
+    ledger.counts.sourceNodes !== 302 ||
+    ledger.counts.sourceProperties !== 1149 ||
+    ledger.counts.runnerSyntheticNodes !== 1 ||
+    ledger.counts.runnerSyntheticProperties !== 1
+  ) fail('exact counts drifted');
+  if (
+    !Array.isArray(ledger.nodes) ||
+    !Array.isArray(ledger.properties) ||
+    !Array.isArray(ledger.runnerSyntheticNodes) ||
+    !Array.isArray(ledger.runnerSyntheticProperties) ||
+    ledger.nodes.length !== constitution.nodes.length ||
+    ledger.properties.length !== constitution.properties.length ||
+    ledger.runnerSyntheticNodes.length !== constitution.runnerSyntheticNodes.length ||
+    ledger.runnerSyntheticProperties.length !== constitution.runnerSyntheticProperties.length
+  ) {
     fail('ledger arrays do not match constitution counts');
   }
 
-  const propertiesByNode = new Map(constitution.nodes.map((node) => [node.id, []]));
-  for (const property of constitution.properties) propertiesByNode.get(property.nodeKind)?.push(property);
+  const constitutionNodes = [...constitution.nodes, ...constitution.runnerSyntheticNodes];
+  const constitutionProperties = [...constitution.properties, ...constitution.runnerSyntheticProperties];
+  const ledgerNodes = [...ledger.nodes, ...ledger.runnerSyntheticNodes];
+  const ledgerProperties = [...ledger.properties, ...ledger.runnerSyntheticProperties];
+  const propertiesByNode = new Map(constitutionNodes.map((node) => [node.id, []]));
+  for (const property of constitutionProperties) propertiesByNode.get(property.nodeKind)?.push(property);
   const witnessIds = new Set();
   const nodeById = new Map();
-  ledger.nodes.forEach((row, index) => {
+  ledgerNodes.forEach((row, index) => {
     exact(row, ['id', 'disposition', 'witnessId'], `ledger.nodes[${index}]`);
-    const source = constitution.nodes[index];
-    if (!source || row.id !== source.id) fail(`node row ${index} is not source ordered`);
+    const source = constitutionNodes[index];
+    if (!source || row.id !== source.id) {
+      const authority = index < constitution.nodes.length ? 'source' : 'runner-synthetic';
+      fail(`node row ${index} is not ${authority} ordered`);
+    }
     if (!NODE_DISPOSITIONS.has(row.disposition)) fail(`node ${row.id} has invalid disposition`);
     if (row.disposition !== expectedDisposition(source, propertiesByNode.get(row.id) ?? [])) {
       fail(`node ${row.id} disposition mismatches constitution`);
@@ -82,7 +110,7 @@ export function validateCoverageLedger(ledger, constitution) {
     nodeById.set(row.id, row);
   });
 
-  ledger.properties.forEach((row, index) => {
+  ledgerProperties.forEach((row, index) => {
     exact(
       row,
       [
@@ -98,7 +126,7 @@ export function validateCoverageLedger(ledger, constitution) {
       ],
       `ledger.properties[${index}]`,
     );
-    const source = constitution.properties[index];
+    const source = constitutionProperties[index];
     for (const key of ['nodeKind', 'propertyName', 'schemaKind', 'required', 'values', 'disposition', 'reasonId']) {
       if (JSON.stringify(row[key]) !== JSON.stringify(source?.[key])) fail(`property row ${index} ${key} drifted`);
     }
@@ -113,7 +141,7 @@ export function validateCoverageLedger(ledger, constitution) {
       witnessIds.add(id);
     }
   });
-  const ledgerPropertiesByNode = new Map(ledger.nodes.map((node) => [node.id, []]));
-  for (const property of ledger.properties) ledgerPropertiesByNode.get(property.nodeKind)?.push(property);
+  const ledgerPropertiesByNode = new Map(ledgerNodes.map((node) => [node.id, []]));
+  for (const property of ledgerProperties) ledgerPropertiesByNode.get(property.nodeKind)?.push(property);
   return { nodeById, propertiesByNode: ledgerPropertiesByNode, witnessIds };
 }

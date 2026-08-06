@@ -143,12 +143,21 @@ function exclusionId(property) {
 }
 
 function expectedCoverage(runnerIds, witnesses, constitution) {
-  if (!Array.isArray(constitution.nodes) || !Array.isArray(constitution.properties)) {
+  if (
+    !Array.isArray(constitution.nodes) ||
+    !Array.isArray(constitution.properties) ||
+    !Array.isArray(constitution.runnerSyntheticNodes) ||
+    !Array.isArray(constitution.runnerSyntheticProperties)
+  ) {
     fail('structural constitution must expose nodes and properties');
   }
-  const nodeIds = new Set(constitution.nodes.map((node) => node.id));
+  const nodes = [...constitution.nodes, ...constitution.runnerSyntheticNodes];
+  const properties = [...constitution.properties, ...constitution.runnerSyntheticProperties];
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  if (nodeIds.size !== nodes.length) fail('structural constitution node authorities overlap');
   const propertiesByNode = new Map();
-  for (const property of constitution.properties) {
+  for (const property of properties) {
+    if (!nodeIds.has(property.nodeKind)) fail(`property ${property.nodeKind}.${property.propertyName} has no node authority`);
     const properties = propertiesByNode.get(property.nodeKind) ?? [];
     properties.push(property);
     propertiesByNode.set(property.nodeKind, properties);
@@ -158,7 +167,7 @@ function expectedCoverage(runnerIds, witnesses, constitution) {
   const rows = runnerIds.map((id) => {
     if (!nodeIds.has(id)) {
       if (witnessById.has(id)) fail(`blocked runner ${id} must not have a composed witness`);
-      return { id, disposition: 'structural-blocker', blockerId: 'source-node-absent', nextMilestone: 'P1-constitution-expansion' };
+      return { id, disposition: 'structural-blocker', blockerId: 'structural-node-absent', nextMilestone: 'P1-constitution-expansion' };
     }
     const properties = propertiesByNode.get(id) ?? [];
     const requiredExclusions = properties.filter(

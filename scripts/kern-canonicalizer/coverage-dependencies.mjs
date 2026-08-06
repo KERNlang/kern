@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
 import { POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './each-collection-structural-target.mjs';
+import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
 import {
   POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
   PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
@@ -124,13 +125,27 @@ function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
   const overrides = new Map();
+  const preLambdaSources = new Map();
+  for (const reconstruction of POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-lambda compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const historicalSource = reconstructHistoricalSource({
+      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-lambda compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    });
+    preLambdaSources.set(reconstruction.path, historicalSource);
+    overrides.set(reconstruction.path, historicalSource);
+  }
   const preEachSources = new Map();
   for (const reconstruction of POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-each compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     const historicalSource = reconstructHistoricalSource({
-      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preLambdaSources.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-each compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,

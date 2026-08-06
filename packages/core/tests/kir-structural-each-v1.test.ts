@@ -64,11 +64,11 @@ const recordItems: CanonicalValue = {
 };
 
 describe('each collection-reference structural admission', () => {
-  test('round-trips the exact binding record through the h artifact format', () => {
+  test('round-trips the exact binding record through the i artifact format', () => {
     const bytes = encodeStructuralKir(eachNode(), limits);
     const artifact = decodeStructuralKir(bytes, limits);
-    expect(artifact.format).toBe('kern.kir.structural.r1.5h.1-alpha');
-    expect(artifact.constitution).toBe('kern.kir.structural.r1.5h.1');
+    expect(artifact.format).toBe('kern.kir.structural.r1.5i.1-alpha');
+    expect(artifact.constitution).toBe('kern.kir.structural.r1.5i.1');
     expect(artifact.root.properties.find((entry) => entry.key === 'in')?.value).toEqual(bindingItems);
     expect(inflateStructuralKirNode(artifact.root)).toEqual(eachNode());
     expect(encodeStructuralKir(inflateStructuralKirNode(artifact.root), limits)).toEqual(bytes);
@@ -153,7 +153,7 @@ describe('each collection-reference structural admission', () => {
     const value = structuredClone(decodeCanonicalValue(encodeStructuralKir(eachNode(), limits), limits));
     const format = field(value, 'format');
     if (format.tag !== 'text') throw new Error('expected format');
-    format.value = 'kern.kir.structural.r1.5g.1-alpha';
+    format.value = 'kern.kir.structural.r1.5h.1-alpha';
     expectStructuralCode(() => decodeStructuralKir(encodeCanonicalValue(value, limits), limits), 'unsupported-version');
   });
 });

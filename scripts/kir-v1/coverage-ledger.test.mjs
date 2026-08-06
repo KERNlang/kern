@@ -42,6 +42,37 @@ test('disposition and property contract mutations fail closed', () => {
   );
 });
 
+test('runner-synthetic ledger rows cannot disappear, reorder, or impersonate source rows', () => {
+  assert.throws(
+    () => validateCoverageLedger(mutate((copy) => copy.runnerSyntheticNodes.pop()), constitution),
+    /counts/u,
+  );
+  assert.throws(
+    () =>
+      validateCoverageLedger(
+        mutate((copy) => { copy.runnerSyntheticNodes[0].id = copy.nodes[0].id; }),
+        constitution,
+      ),
+    /runner-synthetic ordered/u,
+  );
+  assert.throws(
+    () =>
+      validateCoverageLedger(
+        mutate((copy) => { copy.runnerSyntheticProperties[0].nodeKind = copy.nodes[0].id; }),
+        constitution,
+      ),
+    /nodeKind drifted/u,
+  );
+  assert.throws(
+    () =>
+      validateCoverageLedger(
+        mutate((copy) => { copy.runnerSyntheticProperties[0].witnessIds = []; }),
+        constitution,
+      ),
+    /witness count drifted/u,
+  );
+});
+
 test('branch path provenance witness count follows property optionality', () => {
   const requiredConstitution = structuredClone(constitution);
   const requiredLedger = structuredClone(ledger);

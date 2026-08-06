@@ -1,4 +1,4 @@
-export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5h.1';
+export const STRUCTURAL_KIR_FORMAT = 'kern.kir.structural.r1.5i.1';
 
 const PROPERTY_POLICIES = Object.freeze({
   identifier: ['included-value', 'portable-identifier'],
@@ -36,6 +36,25 @@ const PROPERTY_POLICY_OVERRIDE_ROWS = Object.freeze([
     schemaKind: 'string',
     disposition: 'lowered-branch-path-value',
     reasonId: 'portable-branch-path-value',
+  }),
+]);
+
+export const RUNNER_SYNTHETIC_NODE_SCHEMAS = Object.freeze({
+  lambda: Object.freeze({
+    allowedChildren: Object.freeze([]),
+    allowedParents: Object.freeze(['handler']),
+    props: Object.freeze({
+      expr: Object.freeze({ required: true, kind: 'rawExpr' }),
+    }),
+  }),
+});
+
+export const RUNNER_SYNTHETIC_PROPERTY_POLICY_OVERRIDE_ROWS = Object.freeze([
+  Object.freeze({
+    key: 'lambda.expr',
+    schemaKind: 'rawExpr',
+    disposition: 'lowered-expression',
+    reasonId: 'portable-expression-required',
   }),
 ]);
 
@@ -94,6 +113,33 @@ function propertyRow(nodeKind, propertyName, schema, overrides) {
   };
 }
 
+export function buildRunnerSyntheticConstitution(
+  sourceNodeTypes,
+  nodeSchemas = RUNNER_SYNTHETIC_NODE_SCHEMAS,
+  overrideRows = RUNNER_SYNTHETIC_PROPERTY_POLICY_OVERRIDE_ROWS,
+) {
+  const sourceCatalog = new Set(sourceNodeTypes);
+  const nodeTypes = Object.keys(nodeSchemas);
+  if (nodeTypes.some((nodeKind) => sourceCatalog.has(nodeKind))) {
+    throw new Error('runner-synthetic node overlaps the source catalog');
+  }
+  const overrides = buildPropertyPolicyOverrideMap(overrideRows, nodeTypes, nodeSchemas);
+  const nodes = nodeTypes.map((id) => ({
+    id,
+    schemaStatus: 'bound',
+    allowedChildren: [...nodeSchemas[id].allowedChildren],
+    allowedParents: [...nodeSchemas[id].allowedParents],
+    disposition: 'structural-candidate',
+    reasonId: 'runner-contract-only',
+  }));
+  const properties = nodeTypes.flatMap((nodeKind) =>
+    Object.entries(nodeSchemas[nodeKind].props)
+      .sort(([left], [right]) => compareCodePoints(left, right))
+      .map(([propertyName, propertySchema]) => propertyRow(nodeKind, propertyName, propertySchema, overrides)),
+  );
+  return { nodes, properties };
+}
+
 export function buildStructuralConstitution(nodeTypes, nodeSchemas) {
   const catalog = new Set(nodeTypes);
   const overrides = buildPropertyPolicyOverrideMap(PROPERTY_POLICY_OVERRIDE_ROWS, nodeTypes, nodeSchemas);
@@ -141,6 +187,9 @@ export function buildStructuralConstitution(nodeTypes, nodeSchemas) {
           })),
       };
     });
+  const runnerSynthetic = buildRunnerSyntheticConstitution(nodeTypes);
+  const runnerSyntheticNodes = runnerSynthetic.nodes;
+  const runnerSyntheticProperties = runnerSynthetic.properties;
   return {
     schemaVersion: 1,
     format: STRUCTURAL_KIR_FORMAT,
@@ -151,10 +200,14 @@ export function buildStructuralConstitution(nodeTypes, nodeSchemas) {
       missingSchemas: nodes.filter((node) => node.schemaStatus === 'missing').length,
       properties: properties.length,
       nonCatalogSchemas: nonCatalogSchemas.length,
+      runnerSyntheticNodes: runnerSyntheticNodes.length,
+      runnerSyntheticProperties: runnerSyntheticProperties.length,
     },
     nodes,
     properties,
     nonCatalogSchemas,
+    runnerSyntheticNodes,
+    runnerSyntheticProperties,
   };
 }
 
@@ -168,7 +221,7 @@ export function validateStructuralConstitution(actual, nodeTypes, nodeSchemas) {
 
 export function renderStructuralRuntimeCatalog(constitution) {
   const propertiesByNode = new Map();
-  for (const property of constitution.properties) {
+  for (const property of [...constitution.properties, ...constitution.runnerSyntheticProperties]) {
     const properties = propertiesByNode.get(property.nodeKind) ?? {};
     properties[property.propertyName] = {
       schemaKind: property.schemaKind,
@@ -179,9 +232,10 @@ export function renderStructuralRuntimeCatalog(constitution) {
     };
     propertiesByNode.set(property.nodeKind, properties);
   }
-  const catalog = constitution.nodes.map((node) => [node.id, {
+  const catalog = [...constitution.nodes, ...constitution.runnerSyntheticNodes].map((node) => [node.id, {
       schemaStatus: node.schemaStatus,
       allowedChildren: node.allowedChildren,
+      ...(node.allowedParents === undefined ? {} : { runnerSyntheticAllowedParents: node.allowedParents }),
       disposition: node.disposition,
       reasonId: node.reasonId,
       properties: propertiesByNode.get(node.id) ?? {},

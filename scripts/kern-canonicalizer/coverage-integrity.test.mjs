@@ -11,6 +11,7 @@ import {
   loadPreBranchRuntimeConstitutionSource,
   loadPreEachRuntimeConstitutionSource,
   loadPreExpressionV1RuntimeConstitutionSource,
+  loadPreLambdaRuntimeConstitutionSource,
   resolveRuntimeConstitutionSource,
   validateRuntimeCatalogConstitution,
 } from './coverage-catalog.mjs';
@@ -375,7 +376,13 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   );
 });
 
-test('historical structural constitution chains exact pre-each, pre-branch, and pre-expression bytes', () => {
+test('historical structural constitution chains exact pre-lambda, pre-each, pre-branch, and pre-expression bytes', () => {
+  const preLambda = loadPreLambdaRuntimeConstitutionSource();
+  assert.equal(
+    digest(preLambda),
+    'f9bef5fa63a370d084ff324cf1257b05d30170a5bf86cfa03393ec341b5d47ae',
+  );
+  assert.equal(digest(resolveRuntimeConstitutionSource(preLambda)), digest(preLambda));
   const preEach = loadPreEachRuntimeConstitutionSource();
   assert.equal(
     digest(preEach),

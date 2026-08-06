@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
-  "format": "kern.kir.coverage-witness-ledger.r1.5h.1",
-  "constitutionFormat": "kern.kir.structural.r1.5h.1",
+  "format": "kern.kir.coverage-witness-ledger.r1.5i.1",
+  "constitutionFormat": "kern.kir.structural.r1.5i.1",
   "proofLabel": "ALPHA-NO-GO",
   "counts": {
-    "nodes": 302,
-    "properties": 1149
+    "sourceNodes": 302,
+    "sourceProperties": 1149,
+    "runnerSyntheticNodes": 1,
+    "runnerSyntheticProperties": 1
   },
   "nodes": [
     {
@@ -17303,6 +17305,28 @@
       "witnessIds": [
         "kir-c4.prop.expression-v1.type.excluded-host-type.populated.reject",
         "kir-c4.prop.expression-v1.type.excluded-host-type.omitted.accept"
+      ]
+    }
+  ],
+  "runnerSyntheticNodes": [
+    {
+      "id": "lambda",
+      "disposition": "lowered-semantic",
+      "witnessId": "kir-c4.runner-synthetic.lambda.lowered-semantic.accept"
+    }
+  ],
+  "runnerSyntheticProperties": [
+    {
+      "nodeKind": "lambda",
+      "propertyName": "expr",
+      "schemaKind": "rawExpr",
+      "required": true,
+      "values": null,
+      "disposition": "lowered-expression",
+      "reasonId": "portable-expression-required",
+      "fixture": "List.map([1,2,3], x => x * 2)",
+      "witnessIds": [
+        "kir-c4.runner-synthetic.lambda.expr.lowered-expression.populated.accept"
       ]
     }
   ]

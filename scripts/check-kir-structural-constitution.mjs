@@ -8,5 +8,5 @@ import { validateStructuralConstitution } from './kir-structural/constitution.mj
 const constitution = JSON.parse(readFileSync('scripts/kir-structural/constitution.json', 'utf8'));
 const counts = validateStructuralConstitution(constitution, NODE_TYPES, NODE_SCHEMAS);
 process.stdout.write(
-  `Structural KIR constitution: PASS (ALPHA-NO-GO; ${counts.boundNodes}/${counts.sourceNodes} schema-bound nodes; ${counts.properties} property dispositions; ${counts.missingSchemas} explicit missing-schema exclusions; ${counts.nonCatalogSchemas} non-catalog schemas).\n`,
+  `Structural KIR constitution: PASS (ALPHA-NO-GO; ${counts.boundNodes}/${counts.sourceNodes} schema-bound source nodes; ${counts.properties} source property dispositions; ${counts.runnerSyntheticNodes}/1 runner-synthetic nodes; ${counts.runnerSyntheticProperties}/1 runner-synthetic properties; ${counts.missingSchemas} explicit missing-schema exclusions; ${counts.nonCatalogSchemas} non-catalog schemas).\n`,
 );

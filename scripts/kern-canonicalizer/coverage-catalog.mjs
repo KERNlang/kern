@@ -15,14 +15,27 @@ import {
   PRE_EACH_CONSTITUTION_SOURCE_REPLACEMENTS,
 } from './each-collection-structural-target.mjs';
 import {
+  PRE_LAMBDA_CONSTITUTION_SOURCE_DIGEST,
+  PRE_LAMBDA_CONSTITUTION_SOURCE_REPLACEMENTS,
+} from './lambda-runner-structural-target.mjs';
+import {
   PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_DIGEST,
   PRE_EXPRESSION_V1_CONSTITUTION_SOURCE_REPLACEMENTS,
 } from './new-expression-structural-target.mjs';
 
 const CONSTITUTION_SOURCE = readFileSync(new URL('../kir-structural/constitution.json', import.meta.url));
-const CONSTITUTION_KEYS = ['counts', 'format', 'nodes', 'nonCatalogSchemas', 'proofLabel', 'properties', 'schemaVersion'];
-const COUNT_KEYS = ['boundNodes', 'missingSchemas', 'nonCatalogSchemas', 'properties', 'sourceNodes'];
+const CONSTITUTION_KEYS = [
+  'counts', 'format', 'nodes', 'nonCatalogSchemas', 'proofLabel', 'properties',
+  'runnerSyntheticNodes', 'runnerSyntheticProperties', 'schemaVersion',
+];
+const COUNT_KEYS = [
+  'boundNodes', 'missingSchemas', 'nonCatalogSchemas', 'properties',
+  'runnerSyntheticNodes', 'runnerSyntheticProperties', 'sourceNodes',
+];
 const NODE_KEYS = ['allowedChildren', 'disposition', 'id', 'reasonId', 'schemaStatus'];
+const RUNNER_SYNTHETIC_NODE_KEYS = [
+  'allowedChildren', 'allowedParents', 'disposition', 'id', 'reasonId', 'schemaStatus',
+];
 const PROPERTY_KEYS = ['disposition', 'nodeKind', 'propertyName', 'reasonId', 'required', 'schemaKind', 'values'];
 const NON_CATALOG_KEYS = ['allowedChildren', 'id', 'properties', 'reasonId'];
 const NON_CATALOG_PROPERTY_KEYS = ['propertyName', 'required', 'schemaKind', 'values'];
@@ -76,7 +89,9 @@ function validateConstitutionShape(constitution) {
   if (
     !Array.isArray(constitution.nodes) ||
     !Array.isArray(constitution.properties) ||
-    !Array.isArray(constitution.nonCatalogSchemas)
+    !Array.isArray(constitution.nonCatalogSchemas) ||
+    !Array.isArray(constitution.runnerSyntheticNodes) ||
+    !Array.isArray(constitution.runnerSyntheticProperties)
   ) fail();
   const nodeIds = new Set();
   for (const node of constitution.nodes) {
@@ -95,6 +110,31 @@ function validateConstitutionShape(constitution) {
     text(property.nodeKind);
     const id = `${property.nodeKind}\u0000${property.propertyName}`;
     if (!nodeIds.has(property.nodeKind) || propertyIds.has(id)) fail();
+    propertyIds.add(id);
+  }
+  const runnerSyntheticNodeIds = new Set();
+  for (const node of constitution.runnerSyntheticNodes) {
+    exactRecord(node, RUNNER_SYNTHETIC_NODE_KEYS);
+    text(node.id);
+    text(node.schemaStatus);
+    text(node.disposition);
+    text(node.reasonId);
+    optionalTextArray(node.allowedChildren);
+    optionalTextArray(node.allowedParents);
+    if (
+      nodeIds.has(node.id) ||
+      node.schemaStatus !== 'bound' ||
+      node.disposition !== 'structural-candidate' ||
+      node.reasonId !== 'runner-contract-only'
+    ) fail();
+    nodeIds.add(node.id);
+    runnerSyntheticNodeIds.add(node.id);
+  }
+  for (const property of constitution.runnerSyntheticProperties) {
+    validatePropertyRow(property);
+    text(property.nodeKind);
+    const id = `${property.nodeKind}\u0000${property.propertyName}`;
+    if (!runnerSyntheticNodeIds.has(property.nodeKind) || propertyIds.has(id)) fail();
     propertyIds.add(id);
   }
   const nonCatalogIds = new Set();
@@ -117,7 +157,9 @@ function validateConstitutionShape(constitution) {
     constitution.counts.boundNodes !== constitution.nodes.filter(({ schemaStatus }) => schemaStatus === 'bound').length ||
     constitution.counts.missingSchemas !== constitution.nodes.filter(({ schemaStatus }) => schemaStatus === 'missing').length ||
     constitution.counts.properties !== constitution.properties.length ||
-    constitution.counts.nonCatalogSchemas !== constitution.nonCatalogSchemas.length
+    constitution.counts.nonCatalogSchemas !== constitution.nonCatalogSchemas.length ||
+    constitution.counts.runnerSyntheticNodes !== constitution.runnerSyntheticNodes.length ||
+    constitution.counts.runnerSyntheticProperties !== constitution.runnerSyntheticProperties.length
   ) fail();
   return constitution;
 }
@@ -125,7 +167,7 @@ function validateConstitutionShape(constitution) {
 function expectedCatalog(constitution) {
   validateConstitutionShape(constitution);
   const propertiesByNode = new Map();
-  for (const property of constitution.properties) {
+  for (const property of [...constitution.properties, ...constitution.runnerSyntheticProperties]) {
     const properties = propertiesByNode.get(property.nodeKind) ?? {};
     properties[property.propertyName] = {
       schemaKind: property.schemaKind,
@@ -136,9 +178,10 @@ function expectedCatalog(constitution) {
     };
     propertiesByNode.set(property.nodeKind, properties);
   }
-  return constitution.nodes.map((node) => [node.id, {
+  return [...constitution.nodes, ...constitution.runnerSyntheticNodes].map((node) => [node.id, {
     schemaStatus: node.schemaStatus,
     allowedChildren: node.allowedChildren,
+    ...(node.allowedParents === undefined ? {} : { runnerSyntheticAllowedParents: node.allowedParents }),
     disposition: node.disposition,
     reasonId: node.reasonId,
     properties: propertiesByNode.get(node.id) ?? {},
@@ -169,15 +212,25 @@ export function resolveRuntimeConstitutionSource(source) {
   if (!(source instanceof Uint8Array)) fail();
   const bytes = Buffer.from(source);
   if (bytes.equals(loadValidatedRuntimeConstitutionSource())) return bytes;
+  if (bytes.equals(loadPreLambdaRuntimeConstitutionSource())) return bytes;
   if (bytes.equals(loadPreEachRuntimeConstitutionSource())) return bytes;
   if (bytes.equals(loadPreBranchRuntimeConstitutionSource())) return bytes;
   if (bytes.equals(loadPreExpressionV1RuntimeConstitutionSource())) return bytes;
   fail();
 }
 
-export function loadPreEachRuntimeConstitutionSource() {
+export function loadPreLambdaRuntimeConstitutionSource() {
   return reconstructHistoricalSource({
     currentSource: loadValidatedRuntimeConstitutionSource(),
+    expectedDigest: PRE_LAMBDA_CONSTITUTION_SOURCE_DIGEST,
+    milestone: 'pre-lambda structural constitution',
+    replacements: PRE_LAMBDA_CONSTITUTION_SOURCE_REPLACEMENTS,
+  });
+}
+
+export function loadPreEachRuntimeConstitutionSource() {
+  return reconstructHistoricalSource({
+    currentSource: loadPreLambdaRuntimeConstitutionSource(),
     expectedDigest: PRE_EACH_CONSTITUTION_SOURCE_DIGEST,
     milestone: 'pre-each structural constitution',
     replacements: PRE_EACH_CONSTITUTION_SOURCE_REPLACEMENTS,

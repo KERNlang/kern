@@ -6,7 +6,10 @@ import { NODE_SCHEMAS } from '../../packages/core/dist/schema.js';
 import { NODE_TYPES } from '../../packages/core/dist/spec.js';
 import {
   buildPropertyPolicyOverrideMap,
+  buildRunnerSyntheticConstitution,
   buildStructuralConstitution,
+  RUNNER_SYNTHETIC_NODE_SCHEMAS,
+  RUNNER_SYNTHETIC_PROPERTY_POLICY_OVERRIDE_ROWS,
   renderStructuralRuntimeCatalog,
   validateStructuralConstitution,
 } from './constitution.mjs';
@@ -25,7 +28,35 @@ test('checked-in constitution binds the complete live source and property catalo
     missingSchemas: 2,
     properties: 1149,
     nonCatalogSchemas: 7,
+    runnerSyntheticNodes: 1,
+    runnerSyntheticProperties: 1,
   });
+});
+
+test('runner-synthetic lambda stays separate from the source catalog', () => {
+  assert.equal(checkedIn.nodes.some((node) => node.id === 'lambda'), false);
+  assert.equal(checkedIn.properties.some((property) => property.nodeKind === 'lambda'), false);
+  assert.deepEqual(checkedIn.runnerSyntheticNodes, [
+    {
+      id: 'lambda',
+      schemaStatus: 'bound',
+      allowedChildren: [],
+      allowedParents: ['handler'],
+      disposition: 'structural-candidate',
+      reasonId: 'runner-contract-only',
+    },
+  ]);
+  assert.deepEqual(checkedIn.runnerSyntheticProperties, [
+    {
+      nodeKind: 'lambda',
+      propertyName: 'expr',
+      schemaKind: 'rawExpr',
+      required: true,
+      values: null,
+      disposition: 'lowered-expression',
+      reasonId: 'portable-expression-required',
+    },
+  ]);
 });
 
 test('generated browser-safe runtime catalog is byte-bound to the constitution', () => {
@@ -100,8 +131,8 @@ test('only structured runtime-handler type locations are lowered', () => {
   );
 });
 
-test('the closed branch, each, and expression rows are the only property policy overrides', () => {
-  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5h.1');
+test('source overrides and runner-synthetic overrides remain disjoint', () => {
+  assert.equal(checkedIn.format, 'kern.kir.structural.r1.5i.1');
   assert.deepEqual(
     checkedIn.properties
       .filter((row) => row.disposition === 'lowered-each-collection-reference')
@@ -128,6 +159,10 @@ test('the closed branch, each, and expression rows are the only property policy 
   );
   assert.equal(type.required, false);
   assert.equal(type.disposition, 'excluded-host-type');
+  assert.deepEqual(
+    checkedIn.runnerSyntheticProperties.map((row) => `${row.nodeKind}.${row.propertyName}:${row.disposition}`),
+    ['lambda.expr:lowered-expression'],
+  );
 });
 
 test('property policy overrides fail closed when a source schema drifts', () => {
@@ -160,6 +195,40 @@ test('property policy override rows reject invented and duplicate pairs', () => 
   assert.throws(
     () => buildPropertyPolicyOverrideMap([row, { ...row }], NODE_TYPES, NODE_SCHEMAS),
     /duplicate property policy override/u,
+  );
+});
+
+test('runner-synthetic authority rejects overlap, invented overrides, duplicates, and schema drift', () => {
+  assert.throws(
+    () => buildRunnerSyntheticConstitution([...NODE_TYPES, 'lambda']),
+    /overlaps the source catalog/u,
+  );
+  assert.throws(
+    () =>
+      buildRunnerSyntheticConstitution(
+        NODE_TYPES,
+        RUNNER_SYNTHETIC_NODE_SCHEMAS,
+        [{ ...RUNNER_SYNTHETIC_PROPERTY_POLICY_OVERRIDE_ROWS[0], key: 'lambda.invented' }],
+      ),
+    /property policy override target drift/u,
+  );
+  assert.throws(
+    () =>
+      buildRunnerSyntheticConstitution(
+        NODE_TYPES,
+        RUNNER_SYNTHETIC_NODE_SCHEMAS,
+        [
+          RUNNER_SYNTHETIC_PROPERTY_POLICY_OVERRIDE_ROWS[0],
+          RUNNER_SYNTHETIC_PROPERTY_POLICY_OVERRIDE_ROWS[0],
+        ],
+      ),
+    /duplicate property policy override/u,
+  );
+  const schemas = clone(RUNNER_SYNTHETIC_NODE_SCHEMAS);
+  schemas.lambda.props.expr.kind = 'identifier';
+  assert.throws(
+    () => buildRunnerSyntheticConstitution(NODE_TYPES, schemas),
+    /property policy override schema drift/u,
   );
 });
 

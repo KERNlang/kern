@@ -5,6 +5,7 @@ import ts from 'typescript';
 
 const evidencePath = 'packages/core/tests/kern-kir-runner-composed-evidence.test.ts';
 const fixturePath = 'packages/core/tests/kern-kir-runner-composed-fixtures.ts';
+const specialFixturePath = 'packages/core/tests/kern-kir-runner-composed-special-fixtures.ts';
 const runtimeImportPolicy = Object.freeze({
   [evidencePath]: [
     '../src/kir-structural/module-canonical.js:encodeModuleKir:encodeModuleKir',
@@ -18,6 +19,11 @@ const runtimeImportPolicy = Object.freeze({
   [fixturePath]: [
     '../src/ir/semantics/index.js:makeEnv:makeEnv',
     '../src/runtime-envelope/types.js:INTERNAL_RUNTIME_ENVELOPE_FORMAT:INTERNAL_RUNTIME_ENVELOPE_FORMAT',
+    './kern-kir-runner-composed-special-fixtures.js:buildBranchQuotedPathFixture:buildBranchQuotedPathFixture',
+    './kern-kir-runner-composed-special-fixtures.js:buildCapabilityStorageGetFixture:buildCapabilityStorageGetFixture',
+  ],
+  [specialFixturePath]: [
+    '../src/ir/semantics/index.js:makeEnv:makeEnv',
   ],
 });
 const protectedBindings = new Set([
@@ -173,6 +179,7 @@ export function assertComposedEvidenceBoundary(readText = (path) => readFileSync
   const sourceFiles = new Map([
     [evidencePath, parse(readText(evidencePath), evidencePath)],
     [fixturePath, parse(readText(fixturePath), fixturePath)],
+    [specialFixturePath, parse(readText(specialFixturePath), specialFixturePath)],
   ]);
   for (const [path, sourceFile] of sourceFiles) {
     assert.deepEqual(runtimeImports(sourceFile), [...runtimeImportPolicy[path]].sort(), `${path} runtime imports drifted`);
@@ -198,23 +205,25 @@ test('composed runner evidence closes runtime imports and binds encoder, handler
 });
 
 test('composed runner evidence rejects every alternate runtime-value import path', () => {
-  const evidence = readFileSync(evidencePath, 'utf8');
-  for (const bypass of [
-    '../src/parser.js',
-    '../src/runner.js',
-    '../src/runtime-handler.js',
-    '../src/runtime-envelope/execute.js',
-    '../src/runtime-envelope/handler-entry.js',
-    '../src/runtime-envelope/internal-engine.js',
-    '../src/runtime-envelope/internal-legacy-engine.js',
-    '../src/runtime-envelope/source-handler.js',
-  ]) {
-    assert.throws(
-      () => assertComposedEvidenceBoundary(
-        (path) => path === evidencePath ? `${evidence}\nimport '${bypass}';\n` : readFileSync(path, 'utf8'),
-      ),
-      /runtime imports drifted/u,
-    );
+  for (const targetPath of [evidencePath, fixturePath, specialFixturePath]) {
+    const target = readFileSync(targetPath, 'utf8');
+    for (const bypass of [
+      '../src/parser.js',
+      '../src/runner.js',
+      '../src/runtime-handler.js',
+      '../src/runtime-envelope/execute.js',
+      '../src/runtime-envelope/handler-entry.js',
+      '../src/runtime-envelope/internal-engine.js',
+      '../src/runtime-envelope/internal-legacy-engine.js',
+      '../src/runtime-envelope/source-handler.js',
+    ]) {
+      assert.throws(
+        () => assertComposedEvidenceBoundary(
+          (path) => path === targetPath ? `${target}\nimport '${bypass}';\n` : readFileSync(path, 'utf8'),
+        ),
+        /runtime imports drifted/u,
+      );
+    }
   }
 });
 

@@ -337,7 +337,7 @@
     "path": "packages/core/tests/kern-kir-runner-composed-fixtures.ts",
     "constant": "COMPOSED_RUNNER_WITNESSES",
     "format": "kern.kir.runner-composed-witnesses.p1.1",
-    "canonicalSha256": "967e35e11e218099f76877adcc434ec31615a84861617a694ecb76bdb105293c"
+    "canonicalSha256": "25e63bf657ddfe0a2d1993cad08c060b53b62b5ccf09bf7362e81af46af343eb"
   },
   "candidateWitness": {
     "format": "kern.semantic-kir.probe.1",
@@ -356,8 +356,8 @@
   },
   "coverageWitnessLedger": {
     "path": "scripts/kir-v1/coverage-witness-ledger.json",
-    "format": "kern.kir.coverage-witness-ledger.r1.5h.1",
-    "canonicalSha256": "278dbebe4de37d945f69bcaa29b553b8c1a582f766f84bdde0cb9022751468da"
+    "format": "kern.kir.coverage-witness-ledger.r1.5i.1",
+    "canonicalSha256": "45bc4ae85317e06e9dbd7a3123688726cc1c4caf339541b2d88a07ccc94d686b"
   },
   "blockers": [
     {
@@ -2026,9 +2026,12 @@
     },
     {
       "id": "lambda",
-      "disposition": "structural-blocker",
-      "blockerId": "source-node-absent",
-      "nextMilestone": "P1-constitution-expansion"
+      "witnessId": "kir-runtime-compose.lambda.v1",
+      "semanticEnvelopeId": "lambda-stdout-and-seven",
+      "fixtureId": "lambda-list-map-stdout",
+      "oracleId": "exact-lambda-stdout-and-result",
+      "excludedProperties": [],
+      "disposition": "internal-composed-witness"
     },
     {
       "id": "let",

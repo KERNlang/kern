@@ -37,8 +37,8 @@ test('repository inventory is an explicit Alpha no-go proof', () => {
   assert.equal(result.coveredSourceNodeCount, 302);
   assert.equal(result.unresolvedSourceNodeCount, 0);
   assert.equal(result.runnerContractCount, 16);
-  assert.equal(result.witnessedRunnerContractCount, 15);
-  assert.equal(result.structurallyBlockedRunnerContractCount, 1);
+  assert.equal(result.witnessedRunnerContractCount, 16);
+  assert.equal(result.structurallyBlockedRunnerContractCount, 0);
   assert.equal(result.unclassifiedRunnerContractCount, 0);
 });
 
@@ -208,17 +208,22 @@ test('every runner contract has an exact composed witness or mechanically derive
   );
 });
 
-test('each admission leaves exactly the one constitution-derived blocker', () => {
+test('lambda synthetic admission closes the runner denominator without changing source coverage', () => {
   assert.deepEqual(
     policy.runnerCoverage.filter((row) => row.disposition === 'structural-blocker'),
-    [
-      {
-        id: 'lambda',
-        disposition: 'structural-blocker',
-        blockerId: 'source-node-absent',
-        nextMilestone: 'P1-constitution-expansion',
-      },
-    ],
+    [],
+  );
+  assert.deepEqual(
+    policy.runnerCoverage.find((row) => row.id === 'lambda'),
+    {
+      id: 'lambda',
+      witnessId: 'kir-runtime-compose.lambda.v1',
+      semanticEnvelopeId: 'lambda-stdout-and-seven',
+      fixtureId: 'lambda-list-map-stdout',
+      oracleId: 'exact-lambda-stdout-and-result',
+      excludedProperties: [],
+      disposition: 'internal-composed-witness',
+    },
   );
   assert.deepEqual(
     policy.runnerCoverage.find((row) => row.id === 'each'),
@@ -338,7 +343,22 @@ test('constitution property order is not evidence-significant and duplicate excl
 test('structural blockers are derived from the live constitution', () => {
   const constitutionPath = 'scripts/kir-structural/constitution.json';
   const constitution = JSON.parse(readFileSync(constitutionPath, 'utf8'));
-  constitution.nodes.push({
+  constitution.runnerSyntheticNodes = [];
+  constitution.runnerSyntheticProperties = [];
+  assert.throws(
+    () => validateRunnerComposedEvidence(
+      policy.runnerWitnessCatalog,
+      policy.runnerCoverage,
+      policy.runnerCatalog.contracts,
+      (sourcePath) => sourcePath === constitutionPath
+        ? JSON.stringify(constitution)
+        : readFileSync(sourcePath, 'utf8'),
+    ),
+    /blocked runner lambda must not have a composed witness/u,
+  );
+
+  const overlap = JSON.parse(readFileSync(constitutionPath, 'utf8'));
+  overlap.nodes.push({
     id: 'lambda',
     schemaStatus: 'bound',
     allowedChildren: null,
@@ -350,11 +370,9 @@ test('structural blockers are derived from the live constitution', () => {
       policy.runnerWitnessCatalog,
       policy.runnerCoverage,
       policy.runnerCatalog.contracts,
-      (sourcePath) => sourcePath === constitutionPath
-        ? JSON.stringify(constitution)
-        : readFileSync(sourcePath, 'utf8'),
+      (sourcePath) => sourcePath === constitutionPath ? JSON.stringify(overlap) : readFileSync(sourcePath, 'utf8'),
     ),
-    /runner lambda requires a composed witness/u,
+    /node authorities overlap/u,
   );
 
   const each = JSON.parse(readFileSync(constitutionPath, 'utf8'));

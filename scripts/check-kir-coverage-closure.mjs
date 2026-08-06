@@ -38,6 +38,42 @@ function rejectedNode(disposition) {
   return disposition === 'required-excluded-host-payload' || disposition === 'explicit-missing-schema';
 }
 
+function record(fields) {
+  return { tag: 'record', value: Object.entries(fields).map(([key, value]) => ({ key, value })) };
+}
+
+function expression(kind, fields) {
+  return record({ fields: record(fields), kind: { tag: 'text', value: kind } });
+}
+
+function integerExpression(value) {
+  return expression('integer', { value: { tag: 'int', value } });
+}
+
+function expectedLambdaMapExpression() {
+  const identifier = (name) => expression('identifier', { name: { tag: 'text', value: name } });
+  const list = expression('list', {
+    items: { tag: 'list', value: ['1', '2', '3'].map(integerExpression) },
+  });
+  const lambda = expression('lambda', {
+    body: expression('binary', {
+      left: identifier('x'),
+      op: { tag: 'text', value: '*' },
+      right: integerExpression('2'),
+    }),
+    params: { tag: 'list', value: [{ tag: 'text', value: 'x' }] },
+  });
+  return expression('call', {
+    args: { tag: 'list', value: [list, lambda] },
+    callee: expression('member', {
+      object: identifier('List'),
+      optional: { tag: 'bool', value: false },
+      property: { tag: 'text', value: 'map' },
+    }),
+    optional: { tag: 'bool', value: false },
+  });
+}
+
 function expectedCanonicalValue(row) {
   if (row.disposition === 'lowered-expression' && row.fixture === 'paid') {
     return {
@@ -82,6 +118,9 @@ function expectedCanonicalValue(row) {
         { key: 'kind', value: { tag: 'text', value: 'null' } },
       ],
     };
+  }
+  if (row.disposition === 'lowered-expression' && row.nodeKind === 'lambda') {
+    return expectedLambdaMapExpression();
   }
   if (row.disposition === 'lowered-import-path') return { tag: 'text', value: row.fixture };
   if (row.disposition === 'lowered-branch-path-value') {
@@ -136,6 +175,20 @@ function roundTrip(node, witnessId) {
 }
 
 function propertyWitness(row, properties) {
+  if (row.nodeKind === 'lambda') {
+    return {
+      node: {
+        type: 'handler',
+        props: { lang: 'kern' },
+        children: [{ type: 'lambda', props: properties }],
+      },
+      target(root) {
+        const lambda = root.children[0];
+        if (!lambda || lambda.kind !== 'lambda') throw new Error(`${row.witnessIds?.[0] ?? row.witnessId}: lambda context changed`);
+        return lambda;
+      },
+    };
+  }
   if (row.nodeKind === 'param' && row.propertyName === 'type') {
     return {
       node: {
@@ -155,11 +208,19 @@ function propertyWitness(row, properties) {
 
 export function runCoverageClosure() {
   validateCoverageLedger(ledger, constitution);
-  const propertiesByNode = groupProperties(ledger.properties);
+  const nodes = [...ledger.nodes, ...ledger.runnerSyntheticNodes];
+  const properties = [...ledger.properties, ...ledger.runnerSyntheticProperties];
+  const propertiesByNode = groupProperties(properties);
   let executed = 0;
-  for (const nodeRow of ledger.nodes) {
+  for (const nodeRow of nodes) {
     const properties = propertiesByNode.get(nodeRow.id) ?? [];
-    const input = { type: nodeRow.id, props: requiredProps(properties) };
+    const input = nodeRow.id === 'lambda'
+      ? {
+          type: 'handler',
+          props: { lang: 'kern' },
+          children: [{ type: 'lambda', props: requiredProps(properties) }],
+        }
+      : { type: nodeRow.id, props: requiredProps(properties) };
     if (nodeRow.disposition === 'explicit-missing-schema') {
       expectCode(() => encodeStructuralKir(input, limits), 'unknown-node-kind', nodeRow.witnessId);
     } else if (nodeRow.disposition === 'required-excluded-host-payload') {
@@ -170,8 +231,8 @@ export function runCoverageClosure() {
     executed += 1;
   }
 
-  for (const row of ledger.properties) {
-    const node = ledger.nodes.find((item) => item.id === row.nodeKind);
+  for (const row of properties) {
+    const node = nodes.find((item) => item.id === row.nodeKind);
     if (!node) throw new Error(`missing node ${row.nodeKind}`);
     const properties = propertiesByNode.get(row.nodeKind) ?? [];
     const base = requiredProps(properties);
@@ -225,7 +286,7 @@ export function runCoverageClosure() {
     }
   }
   process.stdout.write(
-    `KIR coverage closure: PASS (${ledger.nodes.length}/302 nodes; ${ledger.properties.length}/1149 properties; ${executed} executable witnesses; ALPHA-NO-GO).\n`,
+    `KIR coverage closure: PASS (${ledger.nodes.length}/302 source nodes; ${ledger.properties.length}/1149 source properties; ${ledger.runnerSyntheticNodes.length}/1 runner-synthetic nodes; ${ledger.runnerSyntheticProperties.length}/1 runner-synthetic properties; ${executed} executable witnesses; ALPHA-NO-GO).\n`,
   );
 }
 

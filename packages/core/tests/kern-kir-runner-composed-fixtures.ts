@@ -1,8 +1,11 @@
 import { makeEnv } from '../src/ir/semantics/index.js';
-import type { SemanticEnv } from '../src/ir/semantics/semantic-env.js';
 import type { InternalRuntimeAsyncOptions } from '../src/runtime-envelope/internal-engine.js';
 import { INTERNAL_RUNTIME_ENVELOPE_FORMAT, type InternalRuntimeEnvelope } from '../src/runtime-envelope/types.js';
 import type { IRNode } from '../src/types.js';
+import {
+  buildBranchQuotedPathFixture,
+  buildCapabilityStorageGetFixture,
+} from './kern-kir-runner-composed-special-fixtures.js';
 
 export const COMPOSED_RUNNER_WITNESSES = [
   {
@@ -75,6 +78,14 @@ export const COMPOSED_RUNNER_WITNESSES = [
     semanticEnvelopeId: 'selected-seven',
     fixtureId: 'if-true-return',
     oracleId: 'exact-if-result',
+    excludedProperties: [],
+  },
+  {
+    id: 'lambda',
+    witnessId: 'kir-runtime-compose.lambda.v1',
+    semanticEnvelopeId: 'lambda-stdout-and-seven',
+    fixtureId: 'lambda-list-map-stdout',
+    oracleId: 'exact-lambda-stdout-and-result',
     excludedProperties: [],
   },
   {
@@ -171,6 +182,7 @@ export const COMPOSED_RUNNER_ORACLES: Readonly<Record<ComposedRunnerWitness['ora
     'exact-formatted-text': success(text('value=7')),
     'exact-if-result': success(integer('7')),
     'exact-let-result': success(integer('7')),
+    'exact-lambda-stdout-and-result': success(integer('7'), [{ op: 'stdout', text: '2,4,6' }]),
     'exact-map-result': success(integer('7')),
     'exact-return-result': success(integer('11')),
     'exact-stdout-and-result': success(text('done'), [{ op: 'stdout', text: 'ready' }]),
@@ -230,56 +242,10 @@ export function buildComposedRunnerFixture(witness: ComposedRunnerWitness): Comp
         ],
         'number',
       );
-    case 'branch-quoted-path-seven': {
-      const body = (on: string): IRNode[] => [
-        { type: 'let', props: { name: 'paid', value: '"binding-value"' } },
-        {
-          type: 'branch',
-          props: { name: 'route', on },
-          children: [
-            { type: 'path', props: { value: 'paid' }, children: [{ type: 'return', props: { value: '1' } }] },
-            {
-              type: 'path',
-              props: { value: 'paid' },
-              __quotedProps: ['value'],
-              children: [{ type: 'return', props: { value: '7' } }],
-            },
-            { type: 'path', props: { default: true }, children: [{ type: 'return', props: { value: '9' } }] },
-          ],
-        },
-      ];
-      const host = (): SemanticEnv => makeEnv();
-      return {
-        asyncHost: host(),
-        body: body('"paid"'),
-        controlBody: body('"missing"'),
-        fixtureId: 'branch-quoted-path-seven',
-        oracleId: 'exact-branch-result',
-        returns: 'number',
-        runnerId: 'branch',
-        semanticEnvelopeId: 'quoted-path-seven',
-        syncHost: host(),
-      };
-    }
-    case 'capability-storage-get': {
-      return {
-        asyncHost: makeEnv({ capabilities: { storage: { get: () => 'secret' } } }),
-        body: [
-          { type: 'capability', props: { name: 'answer', namespace: 'storage', operation: 'get' } },
-          { type: 'return', props: { value: 'answer' } },
-        ],
-        controlBody: [
-          { type: 'capability', props: { name: 'answer', namespace: 'storage', operation: 'get' } },
-          { type: 'return', props: { value: '"changed"' } },
-        ],
-        fixtureId: 'capability-storage-get',
-        oracleId: 'exact-capability-event-and-result',
-        returns: 'string',
-        runnerId: 'capability',
-        semanticEnvelopeId: 'storage-get-secret',
-        syncHost: makeEnv({ capabilities: { storage: { get: () => 'secret' } } }),
-      };
-    }
+    case 'branch-quoted-path-seven':
+      return buildBranchQuotedPathFixture();
+    case 'capability-storage-get':
+      return buildCapabilityStorageGetFixture();
     case 'do-map-set':
       return fixture(
         'do',
@@ -411,6 +377,21 @@ export function buildComposedRunnerFixture(witness: ComposedRunnerWitness): Comp
         ],
         'number',
       );
+    case 'lambda-list-map-stdout': {
+      const body = (multiplier: string): readonly IRNode[] => [
+        { type: 'lambda', props: { expr: `List.map([1,2,3], x => x * ${multiplier})` } },
+        { type: 'return', props: { value: '7' } },
+      ];
+      return fixture(
+        'lambda',
+        'lambda-list-map-stdout',
+        'lambda-stdout-and-seven',
+        'exact-lambda-stdout-and-result',
+        body('2'),
+        body('3'),
+        'number',
+      );
+    }
     case 'print-ready':
       return fixture(
         'print',

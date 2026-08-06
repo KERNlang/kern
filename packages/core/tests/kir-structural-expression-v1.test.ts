@@ -78,8 +78,8 @@ describe('expression-v1 structural constitution admission', () => {
   test('round-trips an exact binary expression and inflates it without precedence drift', () => {
     const bytes = encodeStructuralKir(expressionNode(), limits);
     const artifact = decodeStructuralKir(bytes, limits);
-    expect(artifact.format).toBe('kern.kir.structural.r1.5h.1-alpha');
-    expect(artifact.constitution).toBe('kern.kir.structural.r1.5h.1');
+    expect(artifact.format).toBe('kern.kir.structural.r1.5i.1-alpha');
+    expect(artifact.constitution).toBe('kern.kir.structural.r1.5i.1');
     expect(artifact.root.properties.find((entry) => entry.key === 'expr')?.value).toEqual(exactBinary);
     expect(inflateStructuralKirNode(artifact.root)).toEqual({
       type: 'expression-v1',
@@ -162,7 +162,7 @@ describe('expression-v1 structural constitution admission', () => {
     const value = structuredClone(decodeCanonicalValue(encodeStructuralKir(expressionNode(), limits), limits));
     const format = field(value, 'format');
     if (format.tag !== 'text') throw new Error('expected format');
-    format.value = 'kern.kir.structural.r1.5g.1-alpha';
+    format.value = 'kern.kir.structural.r1.5h.1-alpha';
     expectStructuralCode(() => decodeStructuralKir(encodeCanonicalValue(value, limits), limits), 'unsupported-version');
   });
 });
