@@ -58,8 +58,8 @@ test('runtime-envelope checker requires the frozen runtime contract v1 evidence'
   assert.match(checker, /frozen default-off internal oracle with anchored v1 evidence/u);
   assert.match(checker, /eligibility\.claims\?\.runtimeAbiFrozen !== true/u);
   assert.doesNotMatch(checker, /eligibility\.claims\?\.runtimeAbiFrozen !== false/u);
-  assert.match(checker, /id: 'public-versioned-kir-runtime-cutover', milestone: 'P1-composition'/u);
-  assert.doesNotMatch(checker, /id: 'internal-decoded-module-kir-binding', milestone: 'P1-composition'/u);
+  assert.match(checker, /id: 'public-versioned-kir-runtime-cutover', milestone: 'R3-runtime-cutover'/u);
+  assert.doesNotMatch(checker, /id: 'internal-decoded-module-kir-binding', milestone: 'R3-runtime-cutover'/u);
   for (const staleId of ['trace-abi', 'handler-abi', 'capability-abi']) {
     assert.doesNotMatch(checker, new RegExp(`'${staleId}'`, 'u'));
   }

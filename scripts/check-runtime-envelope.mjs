@@ -357,7 +357,7 @@ if (eligibility.claims?.runtimeAbiFrozen !== true) {
 }
 if (
   JSON.stringify(eligibility.deferredContracts) !==
-  JSON.stringify([{ id: 'public-versioned-kir-runtime-cutover', milestone: 'P1-composition' }])
+  JSON.stringify([{ id: 'public-versioned-kir-runtime-cutover', milestone: 'R3-runtime-cutover' }])
 ) {
   fail('only the public versioned KIR-to-runtime cutover may remain deferred after the runtime contract freeze');
 }
