@@ -2,15 +2,12 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`64f6aa5980f01067d739d3a7968a32b8418bda1d`
+`44b1800293e6d7e302a19d4d9dfa988a7de00681`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.159 bounded retained-code token-stream shadow
-**Current slice:** M4.160 bounded node-type-token admission shadow;
-implementation and focused verification pass; exact-roster role-lens review
-completed with all blockers fixed and targeted confirmation clean; the final
-integrated Node 22.22 fitness wall passes, including both 737/737 canonicalizer
-runs and the complete eight-stage frontend regression wall; publication is
-pending
+**Last completed slice:** M4.161 immutable built-in node-type attestation shadow
+**Current slice:** M4.161 implementation, exact-roster review, targeted security
+confirmation, and the complete KERN 5 fitness wall are complete; signed
+publication is pending
 **Confidence:** 0.99
 
 ## Short Start Prompt

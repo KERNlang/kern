@@ -1,0 +1,6 @@
+{
+  "catalogFormat": "kern.frontend.builtin-node-types.1",
+  "format": "kern.frontend.builtin-node-type-attestation-shadow.1",
+  "maxCatalogEntries": 512,
+  "sourceProfile": "single-builtin-node-type-attestation-v1"
+}

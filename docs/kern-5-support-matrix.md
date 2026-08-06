@@ -60,6 +60,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-whitespace-trim-shadow | KERN-authored bounded pre-tokenization whitespace-trim shadow | current | `pnpm test:kern-frontend-whitespace-trim-shadow` |
 | kern-frontend-retained-token-stream-shadow | KERN-authored bounded retained-code token-stream shadow | current | `pnpm test:kern-frontend-retained-token-stream-shadow` |
 | kern-frontend-node-type-token-admission-shadow | KERN-authored bounded node-type-token admission shadow | current | `pnpm test:kern-frontend-node-type-token-admission-shadow` |
+| kern-frontend-builtin-node-type-attestation-shadow | KERN-authored immutable built-in node-type attestation shadow | current | `pnpm test:kern-frontend-builtin-node-type-attestation-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -123,6 +124,7 @@ wall and must remain absent until promoted.
 | kern-frontend-whitespace-trim-shadow | Bounded KERN-authored pre-tokenization whitespace-trim shadow | internal-oracle | `pnpm test:kern-frontend-whitespace-trim-shadow` |
 | kern-frontend-retained-token-stream-shadow | Bounded KERN-authored retained-code token-stream shadow | internal-oracle | `pnpm test:kern-frontend-retained-token-stream-shadow` |
 | kern-frontend-node-type-token-admission-shadow | Bounded KERN-authored node-type-token admission shadow | internal-oracle | `pnpm test:kern-frontend-node-type-token-admission-shadow` |
+| kern-frontend-builtin-node-type-attestation-shadow | Immutable KERN-authored built-in node-type attestation shadow | internal-oracle | `pnpm test:kern-frontend-builtin-node-type-attestation-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -248,6 +250,23 @@ Known-node classification, props,
 successful parsed nodes, indentation/document coordinates, `export fn`, public
 APIs, and frontend cutover remain absent, so this adds only
 `kern-frontend-node-type-token-admission-shadow: internal-oracle`;
+`kern-frontend` remains `not-shipped`.
+
+M4.161 composes and completely authenticates the M4.160 admission envelope,
+then attests exact membership in the immutable ordered `NODE_TYPES` catalog.
+Positive membership returns `builtin` with its canonical zero-based index;
+absence returns the deliberately nonterminal state `unresolved`. A generated
+native-KERN catalog and checked-in canonical catalog data are mechanically
+bound to the statically analyzable top-level const literal, while the
+independent oracle reads only the checked-in data. Dynamic evolved types,
+multiline parser hints, and template registrations remain mutable runtime state
+and cannot change this attestation. `unresolved` therefore does not mean
+unknown, rejected, or warning-worthy. Complete inherited authentication,
+catalog drift, exact indices, registry non-claim asymmetry, bounded full-catalog
+evaluation, and named mutations are release-blocking. Unknown-node warning
+ownership, mutable registry snapshots, props, successful parsed nodes, AST/KIR,
+public APIs, and frontend cutover remain absent, so this adds only
+`kern-frontend-builtin-node-type-attestation-shadow: internal-oracle`;
 `kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

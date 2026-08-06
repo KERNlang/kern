@@ -3540,7 +3540,25 @@ trusted-publishing/provenance configuration is inspected.
     bounded linear execution; targeted security confirmation
     `review-1786035359231-ze2uma-kern-5-m4-160-bounded-linear-aut` completed
     1/1 with zero findings. The final full-wall refresh passes with the complete
-    M4.153-M4.160 regression wall; publication is pending.
+    M4.153-M4.160 regression wall; published as
+    `44b1800293e6d7e302a19d4d9dfa988a7de00681`.
+
+  - [x] M4.161 immutable built-in node-type attestation shadow: composes the
+    complete M4.160 envelope and emits only positive built-in membership with
+    the exact ordered catalog index or the nonterminal state `unresolved`.
+    The live top-level `NODE_TYPES` literal, checked-in catalog data, and
+    generated native-KERN member must agree byte-for-byte and in exact order.
+    Mutable evolved, multiline, and template registries remain explicitly
+    deferred; `unresolved` is not an unknown-node decision. Tribunal
+    `tribunal-1786039376013-x4emdp` selected this narrower contract over a
+    stale runtime-registry snapshot. The implementation binds all 302 catalog
+    entries, authenticates the complete inherited M4.160 envelope in native
+    KERN, and passes the full KERN 5 wall with 12/12 direct tests plus 14
+    differential cases. Exact-roster role review
+    `review-1786044982667-pfebpp` found one inherited-authentication blocker;
+    the corrected full-field verification was independently confirmed clean by
+    `review-1786046092156-732laa-m4161-auth-fix-confirmation`. Signed
+    publication is pending.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

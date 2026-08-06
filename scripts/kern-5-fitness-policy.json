@@ -35,7 +35,8 @@
     "test:kern-frontend-comment-boundary-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-comment-boundary/*.test.mjs && node scripts/check-kern-frontend-comment-boundaries.mjs",
     "test:kern-frontend-whitespace-trim-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-whitespace-trim/*.test.mjs && node scripts/check-kern-frontend-whitespace-trim.mjs",
     "test:kern-frontend-retained-token-stream-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-retained-token-stream/*.test.mjs && node scripts/check-kern-frontend-retained-token-stream-regressions.mjs",
-    "test:kern-frontend-node-type-token-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-node-type-token-admission/*.test.mjs && node scripts/check-kern-frontend-node-type-token-admission-regressions.mjs"
+    "test:kern-frontend-node-type-token-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-node-type-token-admission/*.test.mjs && node scripts/check-kern-frontend-node-type-token-admission-regressions.mjs",
+    "test:kern-frontend-builtin-node-type-attestation-shadow": "pnpm --filter @kernlang/core build && pnpm check:kern-frontend-builtin-node-catalog && node --test scripts/kern-frontend-builtin-node-type-attestation/*.test.mjs && node scripts/check-kern-frontend-builtin-node-type-attestation-regressions.mjs"
   },
   "gates": [
     {
@@ -271,6 +272,12 @@
       "label": "KERN-authored bounded node-type-token admission shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-node-type-token-admission-shadow"]
+    },
+    {
+      "id": "kern-frontend-builtin-node-type-attestation-shadow",
+      "label": "KERN-authored immutable built-in node-type attestation shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-builtin-node-type-attestation-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -579,6 +586,12 @@
       "label": "Bounded KERN-authored node-type-token admission shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-node-type-token-admission-shadow"
+    },
+    {
+      "id": "kern-frontend-builtin-node-type-attestation-shadow",
+      "label": "Immutable KERN-authored built-in node-type attestation shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-builtin-node-type-attestation-shadow"
     },
     {
       "id": "kern-formatter",
