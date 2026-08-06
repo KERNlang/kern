@@ -8,6 +8,7 @@ import { moduleSpecifiers } from './check-canonical-value.mjs';
 const sourceRoot = 'packages/core/src';
 const ownRoot = path.join(sourceRoot, 'kir-structural');
 const evidenceConsumerRoot = path.join(sourceRoot, 'kir-evidence');
+const kirV1ConsumerRoot = path.join(sourceRoot, 'kir-v1');
 const runtimeConsumer = path.join(sourceRoot, 'runtime-envelope', 'kir-handler.ts');
 const graphEntry = path.join(ownRoot, 'canonical.ts');
 
@@ -37,7 +38,11 @@ export function structuralKirReferences(source, sourcePath) {
 
 export function isAllowedStructuralKirConsumer(sourcePath) {
   const normalized = path.normalize(sourcePath);
-  return normalized.startsWith(`${evidenceConsumerRoot}${path.sep}`) || normalized === runtimeConsumer;
+  return (
+    normalized.startsWith(`${evidenceConsumerRoot}${path.sep}`) ||
+    normalized.startsWith(`${kirV1ConsumerRoot}${path.sep}`) ||
+    normalized === runtimeConsumer
+  );
 }
 
 export function runStructuralKirCodecCheck(options = {}) {
@@ -86,12 +91,12 @@ export function runStructuralKirCodecCheck(options = {}) {
     throw new Error('structural KIR codec must not be publicly exported');
   }
   const rootPackage = JSON.parse(readFileSync('package.json', 'utf8'));
-  if (Object.hasOwn(rootPackage.scripts, 'test:kern-ir')) {
-    throw new Error('structural KIR codec cannot promote the KIR v1 gate');
+  if (!Object.hasOwn(rootPackage.scripts, 'test:kern-ir')) {
+    throw new Error('structural KIR codec must feed the promoted KIR v1 gate');
   }
 
   process.stdout.write(
-    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence plus one exact decoded-runtime consumer; handler type catalog; ALPHA-NO-GO).\n`,
+    `Structural KIR codec: PASS (INTERNAL; ${visited.size} browser-safe modules; evidence, KIR v1, and one exact decoded-runtime consumer; handler type catalog).\n`,
   );
 }
 

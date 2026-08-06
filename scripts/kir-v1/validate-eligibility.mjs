@@ -6,10 +6,7 @@ import { validateRuntimeContractV1Authority } from '../runtime-contract-v1/valid
 import { validateCoverageLedger } from './validate-coverage-ledger.mjs';
 import { validateRunnerComposedEvidence } from './validate-runner-composed-evidence.mjs';
 
-const EXPECTED_BLOCKERS = Object.freeze({
-  'diagnostic-location-evidence': 'alpha-release',
-  'clean-sha-alpha-manifest': 'alpha-release',
-});
+const EXPECTED_BLOCKERS = Object.freeze({});
 const EXPECTED_IDENTITY = Object.freeze({
   semanticIncludes: ['module-graph', 'imports', 'exports', 'node-kinds', 'semantic-properties', 'child-order'],
   semanticExcludes: ['comments', 'trivia', 'diagnostics', 'source-locations'],
@@ -36,14 +33,14 @@ const EXPECTED_SKEW = Object.freeze({
   fallback: 'forbidden',
 });
 const EXPECTED_CLAIMS = Object.freeze({
-  kirV1Frozen: false,
-  alphaAccepted: false,
+  kirV1Frozen: true,
+  alphaAccepted: true,
   runtimeAbiFrozen: true,
   publicExport: false,
   semanticCutover: false,
 });
 const EXPECTED_DEFERRED = Object.freeze([
-  ['public-versioned-kir-runtime-cutover', 'P1-composition'],
+  ['public-versioned-kir-runtime-cutover', 'R3-runtime-cutover'],
 ]);
 
 function fail(message) {
@@ -260,7 +257,7 @@ function validateDecisions(policy, validateRuntimeAuthority) {
   }
   exactKeys(policy.claims, Object.keys(EXPECTED_CLAIMS), 'claims');
   for (const [claim, expected] of Object.entries(EXPECTED_CLAIMS)) {
-    if (policy.claims[claim] !== expected) fail(`${claim} must remain ${expected} in Phase 1.1`);
+    if (policy.claims[claim] !== expected) fail(`${claim} must remain ${expected} in the internal KIR v1 freeze`);
   }
   const runtimeEvidence = validateRuntimeAuthority();
   if (runtimeEvidence?.runtimeAbiFrozen !== true) fail('runtimeAbiFrozen requires anchored runtime contract evidence');
@@ -288,9 +285,11 @@ export function validateKirV1Eligibility(policy, options = {}) {
     ],
     'policy',
   );
-  if (policy.schemaVersion !== 3) fail('schemaVersion must be 3');
-  if (policy.stage !== 'internal-alpha-candidate') fail('stage must remain internal-alpha-candidate');
-  if (policy.decision !== 'no-go' || policy.proofLabel !== 'ALPHA-NO-GO') fail('R1.5a must remain ALPHA-NO-GO');
+  if (policy.schemaVersion !== 4) fail('schemaVersion must be 4');
+  if (policy.stage !== 'internal-v1-accepted') fail('stage must remain internal-v1-accepted');
+  if (policy.decision !== 'go-internal' || policy.proofLabel !== 'KIR-V1-INTERNAL') {
+    fail('KIR v1 must remain an internal accepted freeze');
+  }
 
   const sourceIds = validateCatalog(
     policy.sourceCatalog,

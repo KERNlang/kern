@@ -403,11 +403,15 @@ test('malformed runtime module graph source fails closed', () => {
   );
 });
 
-for (const claim of ['runtimeCutover', 'kirV1Frozen', 'publicReaderExport', 'semanticSelfHosting']) {
+for (const claim of ['runtimeCutover', 'publicReaderExport', 'semanticSelfHosting']) {
   test(`cannot claim ${claim}`, () => {
     assert.throws(mutate((copy) => { copy.claims[claim] = true; }), new RegExp(claim, 'u'));
   });
 }
+
+test('cannot retract the independently frozen internal KIR v1 claim', () => {
+  assert.throws(mutate((copy) => { copy.claims.kirV1Frozen = false; }), /kirV1Frozen/u);
+});
 
 test('proof cannot hide bootstrap dependency', () => {
   assert.throws(mutate((copy) => { copy.proofLabel = 'SEMANTICALLY-INDEPENDENT'; }), /BOOTSTRAP-DEPENDENT/u);

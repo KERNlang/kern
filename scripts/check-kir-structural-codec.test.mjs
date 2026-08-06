@@ -24,6 +24,7 @@ test('containment check follows module edges rather than matching comments or st
 });
 
 test('only the exact decoded-runtime binder is a sanctioned runtime consumer', () => {
+  assert.equal(isAllowedStructuralKirConsumer('packages/core/src/kir-v1/canonical.ts'), true);
   assert.equal(
     isAllowedStructuralKirConsumer('packages/core/src/runtime-envelope/kir-handler.ts'),
     true,

@@ -7,7 +7,7 @@ import { astWitnessMatches } from './ast-witness.mjs';
 const ID = /^[a-z][a-z0-9-]{0,63}$/u;
 const EXPECTED_CLAIMS = Object.freeze({
   runtimeCutover: false,
-  kirV1Frozen: false,
+  kirV1Frozen: true,
   publicReaderExport: false,
   semanticSelfHosting: false,
 });

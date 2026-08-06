@@ -172,12 +172,12 @@ trusted-publishing/provenance configuration is inspected.
   source-bound current TypeScript authority witness plus an acyclic,
   oracle-free planned path over the internal reader candidate. This is not
   executable handler-semantic ownership or runtime cutover.
-- [ ] R1.5 eligible KIR/value/diagnostic contract freeze and Alpha manifest.
+- [x] R1.5 eligible KIR/value/diagnostic contract freeze and Alpha manifest.
   Runtime implementation landed through M3; Phase 1.1 separately freezes its
   public default-off contract before final KIR composition.
   - [x] R1.5a source/runner eligibility inventory and identity constitution.
   - [x] R1.5b bounded strict UTF-8 canonical/value reader.
-  - [ ] R1.5c coverage-closed module/node writer-reader parity.
+  - [x] R1.5c coverage-closed module/node writer-reader parity.
     - [x] R1.5c.1 schema and property constitution: exact source-bound census
       covers all 302 node kinds and 1,149 property contracts; full fitness wall
       and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
@@ -189,11 +189,12 @@ trusted-publishing/provenance configuration is inspected.
       explicit `class | fn` symbols, dependency-ordered transitive re-exports,
       pure POSIX resolution, full fitness wall, and final 3/3 Agon review passed
       on 2026-07-12 (`ALPHA-NO-GO`).
-    - [x] R1.5c.4 executable coverage closure: all 302 node kinds and 1,149
-      properties have 2,286 executable include/exclude witnesses; 16 runtime
-      contracts remain explicitly deferred to M3. Full fitness wall and final
-      3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
-  - [ ] R1.5d diagnostic/location evidence contract and Alpha manifest.
+    - [x] R1.5c.4 executable coverage closure: all 302 node kinds, 1,149
+      properties, and the runner-synthetic lambda contract have 2,289
+      executable include/exclude witnesses; all 16 runtime contracts have
+      internal composed witnesses. The historical Alpha proof remains bound
+      as a constituent of the internal v1 envelope.
+  - [x] R1.5d diagnostic/location evidence contract and Alpha manifest.
     - [x] R1.5d.1 separately versioned diagnostic and UTF-8 byte-location
       evidence, bound to exact source and structural KIR bytes. Full fitness
       wall and final 3/3 Agon review passed on 2026-07-12 (`ALPHA-NO-GO`).
@@ -214,8 +215,15 @@ trusted-publishing/provenance configuration is inspected.
     declaration boundary, normalized event and diagnostic domains, phased
     rejection behavior, and acyclic source/built module closures are recovered
     from an exact introduction commit. `pnpm test:kern-runtime-contract-v1`
-    is current; KIR v1, `pnpm test:kern-ir`, public KIR export, semantic
-    cutover, and Phase 1 completion remain explicitly false.
+    is current; public KIR export, semantic cutover, and Phase 1 completion
+    remain explicitly false.
+  - [x] R1.5f internal canonical KIR v1 acceptance: strict
+    `kern.kir.v1` canonical-value envelope over the unchanged Alpha module and
+    evidence constituents, exact order/multiplicity/digest rejection, no root
+    barrel or package export, promoted `pnpm test:kern-ir`, and an append-only
+    SHA-named acceptance manifest introduced by the direct child of its clean
+    accepted implementation commit. Public reader export, runtime cutover,
+    semantic self-hosting, and KERN 5 completion remain false.
 - [ ] R2 M3 runtime and handler ownership.
   - [x] M3.1 internal transactional runtime envelope: default-off sync/async
     normalization with closed portable values, structural diagnostics, failure
@@ -3579,9 +3587,9 @@ pnpm check:runner-browser-budget:required
 pnpm test:kern-ir-probe               # CURRENT experimental seam oracle
 pnpm test:kern-ir-reader-candidate    # CURRENT internal reader candidate
 pnpm test:kern-semantic-ownership     # CURRENT bootstrap-dependent ownership proof
-pnpm test:kern-ir-eligibility         # CURRENT Alpha no-go coverage/identity inventory
+pnpm test:kern-ir-eligibility         # CURRENT internal KIR v1 coverage/identity acceptance
 pnpm test:kern-canonical-value        # CURRENT bounded internal value reader
-pnpm test:kern-ir                      # TARGET
+pnpm test:kern-ir                      # CURRENT internal canonical KIR v1 and acceptance lineage
 pnpm test:runtime-abi                  # CURRENT public facade containment
 pnpm test:kern-runtime-contract-v1     # CURRENT anchored runtime v1 freeze
 pnpm test:kern-frontend                # TARGET

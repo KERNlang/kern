@@ -3,7 +3,7 @@
   "proofLabel": "BOOTSTRAP-DEPENDENT",
   "claims": {
     "runtimeCutover": false,
-    "kirV1Frozen": false,
+    "kirV1Frozen": true,
     "publicReaderExport": false,
     "semanticSelfHosting": false
   },

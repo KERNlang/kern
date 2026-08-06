@@ -51,6 +51,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kir-alpha-receipt',
       'internal-runtime-envelope',
       'diff-hygiene',
+      'kir-v1',
       'runtime-handler-abi',
       'runtime-contract-v1',
       'core-runtime-internalization',
@@ -66,8 +67,8 @@ test('matrix mutations fail with the affected gate or ownership id', () => {
     {
       name: 'changed gate status',
       text: matrixText.replace(
-        '| kir-v1 | Versioned canonical KIR | planned |',
         '| kir-v1 | Versioned canonical KIR | current |',
+        '| kir-v1 | Versioned canonical KIR | planned |',
       ),
       error: /kir-v1/i,
     },
@@ -150,14 +151,14 @@ test('policy rejects unknown status, duplicate id, unsafe argv, and missing evid
   }
 });
 
-test('current scripts must exist and planned scripts cannot appear early', () => {
+test('current scripts must exist and match their promoted policy', () => {
   const missingCurrent = structuredClone(packageJson);
   delete missingCurrent.scripts.lint;
   assert.throws(() => validate({ packageJson: missingCurrent }), /current gate lint.*root script lint/i);
 
-  const prematurePlanned = structuredClone(packageJson);
-  prematurePlanned.scripts['test:kern-ir'] = 'node fake-kir-proof.mjs';
-  assert.throws(() => validate({ packageJson: prematurePlanned }), /planned gate kir-v1.*promote/i);
+  const missingKirV1 = structuredClone(packageJson);
+  delete missingKirV1.scripts['test:kern-ir'];
+  assert.throws(() => validate({ packageJson: missingKirV1 }), /script test:kern-ir.*fitness policy/i);
 });
 
 test('entrypoint scripts must exactly match policy', () => {

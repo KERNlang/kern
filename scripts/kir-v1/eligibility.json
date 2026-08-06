@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 3,
-  "stage": "internal-alpha-candidate",
-  "decision": "no-go",
-  "proofLabel": "ALPHA-NO-GO",
+  "schemaVersion": 4,
+  "stage": "internal-v1-accepted",
+  "decision": "go-internal",
+  "proofLabel": "KIR-V1-INTERNAL",
   "sourceCatalog": {
     "path": "packages/core/src/spec.ts",
     "constant": "NODE_TYPES",
@@ -359,18 +359,7 @@
     "format": "kern.kir.coverage-witness-ledger.r1.5i.1",
     "canonicalSha256": "45bc4ae85317e06e9dbd7a3123688726cc1c4caf339541b2d88a07ccc94d686b"
   },
-  "blockers": [
-    {
-      "id": "diagnostic-location-evidence",
-      "appliesTo": "alpha-release",
-      "detail": "R1.5d diagnostic identifiers and portable source locations are not yet evidenced."
-    },
-    {
-      "id": "clean-sha-alpha-manifest",
-      "appliesTo": "alpha-release",
-      "detail": "No clean-SHA Alpha acceptance manifest has been produced."
-    }
-  ],
+  "blockers": [],
   "identity": {
     "semanticIncludes": [
       "module-graph",
@@ -409,8 +398,8 @@
     "fallback": "forbidden"
   },
   "claims": {
-    "kirV1Frozen": false,
-    "alphaAccepted": false,
+    "kirV1Frozen": true,
+    "alphaAccepted": true,
     "runtimeAbiFrozen": true,
     "publicExport": false,
     "semanticCutover": false
@@ -418,7 +407,7 @@
   "deferredContracts": [
     {
       "id": "public-versioned-kir-runtime-cutover",
-      "milestone": "P1-composition"
+      "milestone": "R3-runtime-cutover"
     }
   ],
   "sourceCoverage": [

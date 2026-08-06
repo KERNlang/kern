@@ -23,6 +23,7 @@ const limits = {
 };
 const sourceRoot = 'packages/core/src';
 const ownRoot = path.join(sourceRoot, 'kir-evidence');
+const kirV1ConsumerRoot = path.join(sourceRoot, 'kir-v1');
 const source = '# π\nfn name=main export=true\n  handler lang=ts\n    let name=result value=null\n';
 
 function sourceFiles(directory) {
@@ -74,6 +75,7 @@ export function runKirEvidenceCheck() {
         specifier.split('/').includes('kir-evidence'),
       )
     ) {
+      if (sourcePath.startsWith(`${kirV1ConsumerRoot}${path.sep}`)) continue;
       throw new Error(`KIR evidence must remain unconsumed internal release evidence: ${sourcePath}`);
     }
   }
@@ -101,9 +103,7 @@ export function runKirEvidenceCheck() {
     }
   }
   const rootPackage = JSON.parse(readFileSync('package.json', 'utf8'));
-  for (const forbidden of ['test:kern-ir']) {
-    if (Object.hasOwn(rootPackage.scripts, forbidden)) throw new Error(`KIR evidence cannot promote ${forbidden}`);
-  }
+  if (!Object.hasOwn(rootPackage.scripts, 'test:kern-ir')) throw new Error('KIR evidence must feed test:kern-ir');
 
   const semanticBytes = encodeModuleKir(
     [
@@ -174,7 +174,7 @@ export function runKirEvidenceCheck() {
     throw new Error('KIR evidence acceptance witness is incomplete');
   }
   process.stdout.write(
-    `KIR evidence: PASS (INTERNAL; ${artifact.spans.length} UTF-8 spans; ${artifact.diagnostics.length} diagnostic; ALPHA-NO-GO).\n`,
+    `KIR evidence: PASS (INTERNAL historical constituent; ${artifact.spans.length} UTF-8 spans; ${artifact.diagnostics.length} diagnostic; ALPHA-NO-GO retained).\n`,
   );
 }
 

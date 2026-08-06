@@ -1,0 +1,59 @@
+{
+  "format": "kern.kir.v1-alpha-acceptance.1",
+  "outputRoot": "scripts/kir-v1/acceptance",
+  "oracleTimeoutMs": 120000,
+  "maxCommandOutputBytes": 1048576,
+  "bindings": [
+    "packages/core/src/canonical-value/canonical.ts",
+    "packages/core/src/canonical-value/types.ts",
+    "packages/core/src/canonical-value/utf8.ts",
+    "packages/core/src/canonical-value/validate.ts",
+    "packages/core/src/kir-evidence/canonical.ts",
+    "packages/core/src/kir-evidence/types.ts",
+    "packages/core/src/kir-structural/branch-path-value.ts",
+    "packages/core/src/kir-structural/canonical.ts",
+    "packages/core/src/kir-structural/catalog.generated.ts",
+    "packages/core/src/kir-structural/each-collection-reference.ts",
+    "packages/core/src/kir-structural/expression.ts",
+    "packages/core/src/kir-structural/handler-type.ts",
+    "packages/core/src/kir-structural/module-canonical.ts",
+    "packages/core/src/kir-structural/module-graph.ts",
+    "packages/core/src/kir-structural/module-path.ts",
+    "packages/core/src/kir-structural/module-types.ts",
+    "packages/core/src/kir-structural/node.ts",
+    "packages/core/src/kir-structural/runtime-inflate.ts",
+    "packages/core/src/kir-structural/types.ts",
+    "packages/core/src/kir-v1/canonical.ts",
+    "packages/core/src/kir-v1/types.ts",
+    "packages/core/tests/kir-v1.test.ts",
+    "scripts/check-kir-v1-acceptance.mjs",
+    "scripts/check-kir-v1-profile.mjs",
+    "scripts/kir-structural/constitution.json",
+    "scripts/kir-v1/acceptance-manifest.mjs",
+    "scripts/kir-v1/acceptance-manifest.test.mjs",
+    "scripts/kir-v1/acceptance-policy.json",
+    "scripts/kir-v1/eligibility.json",
+    "scripts/kir-v1/validate-eligibility.mjs"
+  ],
+  "oracles": [
+    { "id": "kir-v1-profile", "argv": ["pnpm", "test:kern-ir-profile"] },
+    { "id": "kir-v1-eligibility", "argv": ["pnpm", "test:kern-ir-eligibility"] },
+    { "id": "kir-runtime-binding", "argv": ["pnpm", "test:kern-kir-runtime-binding"] },
+    { "id": "kir-runner-composed", "argv": ["pnpm", "test:kern-kir-runner-composed-evidence"] },
+    { "id": "kir-coverage-closure", "argv": ["pnpm", "test:kern-kir-coverage-closure"] },
+    { "id": "runtime-contract-v1", "argv": ["pnpm", "test:kern-runtime-contract-v1"] }
+  ],
+  "exclusions": [
+    { "id": "public-reader-export", "reason": "deferred-to-r4" },
+    { "id": "runtime-cutover", "reason": "deferred-to-r3" },
+    { "id": "semantic-self-hosting", "reason": "deferred-to-r2" }
+  ],
+  "status": {
+    "alphaAccepted": true,
+    "kirV1Frozen": true,
+    "publicReaderExport": false,
+    "runtimeCutover": false,
+    "runtimeHandlerAbi": true,
+    "semanticSelfHosting": false
+  }
+}

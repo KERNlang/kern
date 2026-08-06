@@ -26,5 +26,5 @@ const builtClosure = assertPublicHandlerBuiltAbiClosure(
 process.stdout.write(
   `runtime contract v1: PASS (anchor ${evidence.introductionCommit}; ${floor.behaviorCount} literal goldens; ` +
     `${declarationEvidence.symbols.length} public symbols; ${sourceClosure.size} source modules; ` +
-    `${builtClosure.size} built modules; frozen=true; KIR-v1=false)\n`,
+    `${builtClosure.size} built modules; frozen=true; contract-local-KIR-v1-claim=false)\n`,
 );

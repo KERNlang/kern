@@ -9,6 +9,7 @@ const ownRoot = path.join(sourceRoot, 'canonical-value');
 const allowedConsumerRoots = [
   path.join(sourceRoot, 'kir-structural'),
   path.join(sourceRoot, 'kir-evidence'),
+  path.join(sourceRoot, 'kir-v1'),
 ];
 const graphEntry = path.join(ownRoot, 'canonical.ts');
 
@@ -93,12 +94,12 @@ export function runCanonicalValueCheck() {
     throw new Error('canonical value reader must not be publicly exported');
   }
   const rootPackage = JSON.parse(readFileSync('package.json', 'utf8'));
-  if (Object.hasOwn(rootPackage.scripts, 'test:kern-ir')) {
-    throw new Error('canonical value reader cannot promote the KIR v1 gate');
+  if (!Object.hasOwn(rootPackage.scripts, 'test:kern-ir')) {
+    throw new Error('canonical value reader must feed the promoted KIR v1 gate');
   }
 
   process.stdout.write(
-    'Canonical value reader: PASS (INTERNAL; direct consumers closed to structural and evidence codecs; sanctioned transitive runtime use only via structural Module KIR; ALPHA-NO-GO; no KIR v1, public export, direct runtime consumer, or probe replacement).\n',
+    'Canonical value reader: PASS (INTERNAL; direct consumers closed to structural, evidence, and KIR v1 codecs; no public export, direct runtime consumer, or probe replacement).\n',
   );
 }
 

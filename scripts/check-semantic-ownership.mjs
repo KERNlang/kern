@@ -7,5 +7,5 @@ const policy = JSON.parse(readFileSync('scripts/semantic-ownership/policy.json',
 validateSemanticOwnership(policy);
 
 process.stdout.write(
-  'Semantic ownership proof: PASS (BOOTSTRAP-DEPENDENT; no runtime cutover, KIR v1 freeze, public reader export, or semantic self-hosting).\n',
+  'Semantic ownership proof: PASS (BOOTSTRAP-DEPENDENT; internal KIR v1 frozen; no runtime cutover, public reader export, or semantic self-hosting).\n',
 );

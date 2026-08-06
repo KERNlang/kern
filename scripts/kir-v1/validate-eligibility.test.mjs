@@ -29,9 +29,9 @@ function overlay(path, source) {
   });
 }
 
-test('repository inventory is an explicit Alpha no-go proof', () => {
+test('repository inventory is an explicit internal KIR v1 acceptance proof', () => {
   const result = validateKirV1Eligibility(structuredClone(policy), withRuntimeAuthority());
-  assert.equal(result.proofLabel, 'ALPHA-NO-GO');
+  assert.equal(result.proofLabel, 'KIR-V1-INTERNAL');
   assert.equal(result.sourceNodeCount, policy.sourceCatalog.nodes.length);
   assert.equal(result.witnessedNodeCount, 7);
   assert.equal(result.coveredSourceNodeCount, 302);
@@ -388,15 +388,11 @@ test('structural blockers are derived from the live constitution', () => {
   );
 });
 
-test('blocker identity and scope cannot be weakened', () => {
-  assert.throws(mutate((copy) => copy.blockers.pop()), /blocker ids drifted/u);
+test('closed internal-freeze blockers cannot regress', () => {
+  assert.deepEqual(policy.blockers, []);
   assert.throws(
-    mutate((copy) => { copy.blockers[0].appliesTo = 'optional'; }),
-    /diagnostic-location-evidence changed scope/u,
-  );
-  assert.throws(
-    mutate((copy) => { copy.blockers[0].detail = ''; }),
-    /blockers\[0\]\.detail must be non-empty/u,
+    mutate((copy) => copy.blockers.push({ id: 'invented', appliesTo: 'alpha-release', detail: 'regression' })),
+    /blocker invented changed scope|blocker ids drifted/u,
   );
 });
 
@@ -458,22 +454,22 @@ test('unknown input and fallback policy remain fail closed', () => {
   }
 });
 
-test('Phase 1.1 claims only the independently frozen runtime ABI', () => {
-  for (const claim of ['kirV1Frozen', 'alphaAccepted', 'publicExport', 'semanticCutover']) {
+test('internal KIR v1 claims stay exact without public or runtime promotion', () => {
+  for (const claim of ['kirV1Frozen', 'alphaAccepted', 'runtimeAbiFrozen']) {
+    assert.throws(
+      mutate((copy) => { copy.claims[claim] = false; }),
+      new RegExp(`${claim} must remain true`),
+      claim,
+    );
+  }
+  for (const claim of ['publicExport', 'semanticCutover']) {
     assert.throws(
       mutate((copy) => { copy.claims[claim] = true; }),
       new RegExp(`${claim} must remain false`),
       claim,
     );
   }
-  assert.throws(
-    mutate((copy) => { copy.claims.runtimeAbiFrozen = false; }),
-    /runtimeAbiFrozen must remain true/u,
-  );
-  assert.throws(
-    mutate((copy) => { copy.decision = 'go'; }),
-    /must remain ALPHA-NO-GO/u,
-  );
+  assert.throws(mutate((copy) => { copy.decision = 'go-public'; }), /internal accepted freeze/u);
   assert.throws(
     () => validateKirV1Eligibility(structuredClone(policy), {
       validateRuntimeAuthority: () => ({ runtimeAbiFrozen: false }),

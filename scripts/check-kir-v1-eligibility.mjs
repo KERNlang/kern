@@ -9,10 +9,10 @@ const result = validateKirV1Eligibility(policy);
 verifyFixtureWitness(policy);
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-if (Object.hasOwn(packageJson.scripts, 'test:kern-ir')) {
-  throw new Error('KIR v1 eligibility: test:kern-ir must remain absent until the KIR v1 freeze');
+if (!Object.hasOwn(packageJson.scripts, 'test:kern-ir')) {
+  throw new Error('KIR v1 eligibility: promoted test:kern-ir script is required');
 }
 
 process.stdout.write(
-  `KIR v1 eligibility: PASS (${result.proofLabel}; runtime ABI frozen; ${result.coveredSourceNodeCount}/${result.sourceNodeCount} source nodes ledger-covered; ${result.witnessedRunnerContractCount} runner contracts internally witnessed; ${result.structurallyBlockedRunnerContractCount} structurally blocked; ${result.unclassifiedRunnerContractCount} unclassified).\n`,
+  `KIR v1 eligibility: PASS (${result.proofLabel}; KIR v1 and runtime ABI frozen; ${result.coveredSourceNodeCount}/${result.sourceNodeCount} source nodes ledger-covered; ${result.witnessedRunnerContractCount} runner contracts internally witnessed; ${result.structurallyBlockedRunnerContractCount} structurally blocked; ${result.unclassifiedRunnerContractCount} unclassified).\n`,
 );

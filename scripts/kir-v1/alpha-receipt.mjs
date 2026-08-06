@@ -91,6 +91,8 @@ export const KIR_RUNTIME_BINDING_RECEIPT_BINDINGS = Object.freeze([
   'packages/core/src/kir-structural/branch-path-value.ts',
   'packages/core/src/kir-structural/each-collection-reference.ts',
   'packages/core/src/kir-structural/runtime-inflate.ts',
+  'packages/core/src/kir-v1/canonical.ts',
+  'packages/core/src/kir-v1/types.ts',
   'packages/core/src/runtime-envelope/kir-handler.ts',
   'packages/core/tests/each-collection-reference.test.ts',
   'packages/core/tests/kern-kir-runner-composed-evidence.test.ts',
@@ -102,8 +104,11 @@ export const KIR_RUNTIME_BINDING_RECEIPT_BINDINGS = Object.freeze([
   'packages/core/tests/kir-structural-expression-v1.test.ts',
   'packages/core/tests/kir-structural-runner-lambda-v1.test.ts',
   'packages/core/tests/kir-structural.test.ts',
+  'packages/core/tests/kir-v1.test.ts',
   'scripts/check-canonical-value.mjs',
   'scripts/check-kir-coverage-closure.mjs',
+  'scripts/check-kir-v1-acceptance.mjs',
+  'scripts/check-kir-v1-profile.mjs',
   'scripts/check-kir-structural-codec.mjs',
   'scripts/check-kir-structural-codec.test.mjs',
   'scripts/check-kir-v1-eligibility.mjs',
@@ -126,6 +131,9 @@ export const KIR_RUNTIME_BINDING_RECEIPT_BINDINGS = Object.freeze([
   'scripts/kir-structural/constitution.mjs',
   'scripts/kir-structural/constitution.test.mjs',
   'scripts/kir-v1/coverage-ledger.test.mjs',
+  'scripts/kir-v1/acceptance-manifest.mjs',
+  'scripts/kir-v1/acceptance-manifest.test.mjs',
+  'scripts/kir-v1/acceptance-policy.json',
   'scripts/kir-v1/eligibility.json',
   'scripts/kir-v1/kir-runner-composed-evidence.test.mjs',
   'scripts/kir-v1/kir-runtime-binding.test.mjs',
@@ -134,6 +142,9 @@ export const KIR_RUNTIME_BINDING_RECEIPT_BINDINGS = Object.freeze([
   'scripts/kir-v1/validate-eligibility.test.mjs',
   'scripts/kir-v1/validate-runner-composed-evidence.mjs',
   'scripts/runtime-envelope-handler-import-closure.test.mjs',
+  'scripts/semantic-ownership/policy.json',
+  'scripts/semantic-ownership/validate.mjs',
+  'scripts/semantic-ownership/validate.test.mjs',
 ]);
 
 const REQUIRED_KIR_RUNTIME_BINDING_ORACLE = Object.freeze({
@@ -268,12 +279,13 @@ export function validateAlphaReceiptPolicy(policy) {
   );
   if (
     policy.status.alphaAccepted !== true ||
+    policy.status.kirV1Frozen !== true ||
     policy.status.runtimeHandlerAbi !== true ||
     Object.entries(policy.status).some(
-      ([key, value]) => !['alphaAccepted', 'runtimeHandlerAbi'].includes(key) && value !== false,
+      ([key, value]) => !['alphaAccepted', 'kirV1Frozen', 'runtimeHandlerAbi'].includes(key) && value !== false,
     )
   ) {
-    throw new Error('only alphaAccepted and runtimeHandlerAbi may be true');
+    throw new Error('only internal Alpha acceptance, KIR v1, and runtime ABI may be true');
   }
   return policy;
 }
@@ -379,6 +391,15 @@ export function generateAlphaReceipt({
     return { argv: oracle.argv, id: oracle.id, status: 'passed' };
   });
   assertClean(rootDir, runCommand, policy, 'after oracle execution');
+  const headAfterOracles = commandText(
+    runCommand(['git', 'rev-parse', 'HEAD'], {
+      rootDir,
+      maxOutputBytes: policy.maxCommandOutputBytes,
+      timeoutMs: policy.oracleTimeoutMs,
+    }),
+    'git rev-parse HEAD after oracle execution',
+  );
+  if (headAfterOracles !== head) throw new Error('HEAD changed during oracle execution');
   const receipt = {
     bindings,
     commitSha: head,

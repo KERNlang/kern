@@ -46,7 +46,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kir-alpha-receipt | Clean-HEAD immutable Alpha receipt | current | `pnpm test:kern-alpha-receipt` |
 | internal-runtime-envelope | Internal runtime envelope, handler entry, source link, capability seam, scheduler control, and private effect machine | current | `pnpm test:kern-runtime-envelope` |
 | diff-hygiene | Git diff hygiene | current | `git diff --check` |
-| kir-v1 | Versioned canonical KIR | planned | `pnpm test:kern-ir` |
+| kir-v1 | Versioned canonical KIR | current | `pnpm test:kern-ir` |
 | runtime-handler-abi | Default-off public typed runtime handler ABI | current | `pnpm test:runtime-abi` |
 | runtime-contract-v1 | Frozen runtime handler, capability, event, diagnostic, limit, and rejection contract v1 | current | `pnpm test:kern-runtime-contract-v1` |
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | current | `pnpm test:core-runtime-internalization` |
@@ -103,7 +103,7 @@ wall and must remain absent until promoted.
 | internal-runtime-effect-machine-architecture | Private effect-machine architecture boundary | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine-try | Private effect-machine try, catch, and finally frames | internal-oracle | `pnpm test:kern-runtime-envelope` |
 | internal-runtime-effect-machine-evaluator-boundary | Legacy-free stable machine and scalar-evaluator import boundary | internal-oracle | `pnpm test:kern-runtime-envelope` |
-| versioned-kir-v1 | Versioned canonical KIR v1 | not-shipped | R1 planned |
+| versioned-kir-v1 | Versioned canonical KIR v1 | internal-oracle | `pnpm test:kern-ir` |
 | typed-runtime-handler-abi | Frozen default-off public typed runtime handler ABI | internal-oracle | `pnpm test:kern-runtime-contract-v1` |
 | core-runtime-internalization | CoreRuntime public-ABI quarantine and internalization | internal-oracle | `pnpm test:core-runtime-internalization` |
 | source-runner-convergence | Sync/async source-runner convergence and pre-execution selector | internal-oracle | `pnpm test:source-runner-convergence` |
@@ -121,6 +121,11 @@ wall and must remain absent until promoted.
 means KERN-authored logic participates in a release-blocking differential
 harness but is not yet the production API or semantic authority. `not-shipped`
 means the ownership boundary cannot support a KERN 5 release claim.
+
+The internal `kern.kir.v1` envelope composes the historical Alpha semantic and
+evidence payloads behind a strict canonical decoder and immutable acceptance
+lineage. It is deliberately absent from package exports and is not the runtime
+semantic authority.
 
 M4.152 adds an opt-in `kern canonicalize` distribution preview backed by the
 authenticated KERN canonicalizer. It remains `internal-oracle`: the command

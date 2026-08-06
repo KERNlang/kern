@@ -56,7 +56,7 @@ function policy() {
     outputRoot: '.kern/alpha',
     status: {
       alphaAccepted: true,
-      kirV1Frozen: false,
+      kirV1Frozen: true,
       publicReaderExport: false,
       runtimeCutover: false,
       runtimeHandlerAbi: true,
@@ -78,14 +78,19 @@ function fixture() {
   return rootDir;
 }
 
-function runner({ dirtyBefore = false, dirtyAfter = false, failOracle = false } = {}) {
+function runner({ dirtyBefore = false, dirtyAfter = false, failOracle = false, headChanges = false } = {}) {
   let statusCalls = 0;
+  let headCalls = 0;
   return (argv) => {
     if (argv[0] === 'git' && argv[1] === 'status') {
       statusCalls += 1;
       return { status: 0, stdout: statusCalls === 1 ? (dirtyBefore ? ' M file\n' : '') : dirtyAfter ? ' M file\n' : '' };
     }
-    if (argv[0] === 'git' && argv[1] === 'rev-parse') return { status: 0, stdout: `${sha}\n` };
+    if (argv[0] === 'git' && argv[1] === 'rev-parse') {
+      headCalls += 1;
+      const value = headChanges && headCalls > 1 ? '89abcdef0123456789abcdef0123456789abcdef' : sha;
+      return { status: 0, stdout: `${value}\n` };
+    }
     return { status: failOracle ? 1 : 0, stdout: 'oracle output is deliberately excluded\n' };
   };
 }
@@ -227,7 +232,7 @@ test('clean HEAD produces one canonical immutable receipt and regenerates byte-i
   assert.deepEqual(readFileSync(second.outputPath), firstBytes);
   assert.equal(first.receipt.commitSha, sha);
   assert.equal(first.receipt.status.alphaAccepted, true);
-  assert.equal(first.receipt.status.kirV1Frozen, false);
+  assert.equal(first.receipt.status.kirV1Frozen, true);
   assert.equal(first.receipt.status.runtimeHandlerAbi, true);
   assert.deepEqual(first.receipt.oracles, [
     {
@@ -253,6 +258,15 @@ test('dirty trees and failed oracles fail before a receipt escapes', (t) => {
       /clean|oracle/u,
     );
   }
+});
+
+test('HEAD movement during oracle execution fails before a receipt escapes', (t) => {
+  const rootDir = fixture();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  assert.throws(
+    () => generateAlphaReceipt({ rootDir, policy: policy(), runCommand: runner({ headChanges: true }) }),
+    /HEAD changed/u,
+  );
 });
 
 test('existing non-identical receipt and symlinked binding fail closed', (t) => {
