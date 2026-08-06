@@ -55,6 +55,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-tokenizer-shadow | KERN-authored bounded frontend tokenizer shadow | current | `pnpm test:kern-frontend-tokenizer` |
 | kern-frontend-stitch-shadow | KERN-authored bounded frontend framing and stitch shadow | current | `pnpm test:kern-frontend-stitch-shadow` |
 | kern-frontend-indentation-shadow | KERN-authored bounded frontend indentation observation shadow | current | `pnpm test:kern-frontend-indentation-shadow` |
+| kern-frontend-lexical-shadow | KERN-authored bounded frontend conditional lexical-checkpoint shadow | current | `pnpm test:kern-frontend-lexical-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -113,6 +114,7 @@ wall and must remain absent until promoted.
 | kern-frontend-tokenizer-shadow | Bounded KERN-authored line-tokenizer shadow | internal-oracle | `pnpm test:kern-frontend-tokenizer` |
 | kern-frontend-stitch-shadow | Bounded KERN-authored physical framing and multiline stitch shadow | internal-oracle | `pnpm test:kern-frontend-stitch-shadow` |
 | kern-frontend-indentation-shadow | Bounded KERN-authored indentation observation shadow | internal-oracle | `pnpm test:kern-frontend-indentation-shadow` |
+| kern-frontend-lexical-shadow | Bounded KERN-authored conditional lexical-checkpoint shadow | internal-oracle | `pnpm test:kern-frontend-lexical-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -169,6 +171,18 @@ EOF-unclosed records do not invent observations. The tape deliberately claims
 no tree, node admission, tab validity, `INDENT_JUMP`, trivia attachment, AST,
 KIR, or cutover, so this is only
 `kern-frontend-indentation-shadow: internal-oracle`; `kern-frontend` remains
+`not-shipped`.
+
+M4.156 composes the same stitch envelope inside KERN and emits a bounded
+conditional lexical checkpoint for every physical record in each complete
+ordinary group. Each checkpoint binds record identity and exact content to
+terminal quote, escape, expression-depth, and style-depth state. Scanning stops
+at the first neutral inline `#` or `//` marker after ASCII space/tab,
+so hostile comment payload cannot alter the checkpoint. Inserted LF escape
+consumption and Unicode-scalar marker offsets are explicit. This does not split
+comments, trim code, attach trivia, admit nodes, emit AST/KIR, or cut over the
+frontend; it adds only
+`kern-frontend-lexical-shadow: internal-oracle`, while `kern-frontend` remains
 `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

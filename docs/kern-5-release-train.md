@@ -3399,6 +3399,39 @@ trusted-publishing/provenance configuration is inspected.
     independently, and all focused, policy, lint, repository, contract, and
     diff-hygiene gates pass after the fix with no unresolved verified blocker.
 
+  - [x] M4.156 bounded conditional lexical-checkpoint shadow: composes the
+    M4.154 `stitchdocument` result through an ordinary KERN function call and
+    emits one checkpoint for every physical record in a complete ordinary
+    group. Each fixed-width record binds checkpoint, group, ordinal, and
+    physical identity plus exact content, quote, pending escape, expression
+    depth, style depth, stop reason, and record-relative Unicode-scalar marker
+    offset. Quote state has precedence over expression and style state; neutral
+    inline `#` and `//` markers are eligible only after ASCII space/tab, and
+    stop state advancement before hostile payload; full-line comment records
+    remain inherited stitch boundaries. Inserted LF
+    semantics consume a pending quote escape before the next record. Strict
+    envelope validation, aggregate limits, source containment, named mutations,
+    boundary cases, and an independent host oracle are release-blocking. The
+    dedicated gate passes 14 adversarial test blocks and 23 parity documents.
+    The complete Node 22.22 `pnpm fitness:kern-5` wall passes on the integrated
+    tree, including the full workspace and infrastructure suites, 434/434
+    cross-target conformance fixtures, both complete 737-test canonicalizer
+    proof runs, and the promoted lexical gate in both aggregate positions.
+    Comment splitting, code trimming, trivia attachment, node admission,
+    cross-group single/style continuation, AST/KIR, and frontend cutover remain
+    explicitly deferred. Only
+    `kern-frontend-lexical-shadow: internal-oracle` is added; the public
+    `kern-frontend` gate remains planned and not shipped. Exact-roster
+    role-lens review
+    `review-1786004727651-qibguq-kern-5-m4-156-lexical-shadow` completed 3/3.
+    Its two verified blockers are fixed: failure envelopes are source-bound to
+    the canonical stitch result plus independent lexical oracle, and the
+    unreachable column-zero inline-marker claim was removed. Seven additional
+    source mutations and public bootstrap parser behavior witnesses close the
+    remaining review evidence gaps. All post-review focused gates and the final
+    complete Node 22.22 `pnpm fitness:kern-5` wall pass on the fixed integrated
+    tree; no unresolved material review finding remains.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

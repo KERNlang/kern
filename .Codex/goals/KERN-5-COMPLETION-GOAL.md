@@ -2,10 +2,12 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`e96dd8dfc5868b5a9ca80a0063d077ff763205fc`
+`5b87178e926898ff9f242f5f872d3fa61e843d12`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.154 bounded frontend multiline stitch shadow
-**Current slice:** M4.155 bounded frontend indentation observation shadow; implementation, full fitness wall, independent review, and review-driven regression fix complete; commit and publish pending
+**Last completed slice:** M4.155 bounded frontend indentation observation shadow
+**Current slice:** M4.156 bounded conditional lexical-checkpoint shadow;
+implementation, exact-roster review fixes, and final post-review fitness wall
+complete; publication pending
 **Confidence:** 0.99
 
 ## Short Start Prompt

@@ -30,7 +30,8 @@
     "test:kern-canonicalizer": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-canonicalizer/composition.mjs && node packages/cli/dist/cli.js check examples/kern-canonicalizer/canonicalizer.composed.kern --with-semantics --quiet && node --test scripts/kern-canonicalizer/*.test.mjs && node scripts/check-kern-canonicalizer.mjs && node scripts/check-kern-canonicalizer-cli.mjs && node scripts/check-kern-canonicalizer-coverage.mjs",
     "test:kern-frontend-tokenizer": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-tokenizer/*.test.mjs && node scripts/check-kern-frontend-tokenizer.mjs",
     "test:kern-frontend-stitch-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-stitcher/*.test.mjs && node scripts/check-kern-frontend-stitcher.mjs",
-    "test:kern-frontend-indentation-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-indentation/*.test.mjs && node scripts/check-kern-frontend-indentation.mjs"
+    "test:kern-frontend-indentation-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-indentation/*.test.mjs && node scripts/check-kern-frontend-indentation.mjs",
+    "test:kern-frontend-lexical-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-lexical/*.test.mjs && node scripts/check-kern-frontend-lexical.mjs"
   },
   "gates": [
     {
@@ -236,6 +237,12 @@
       "label": "KERN-authored bounded frontend indentation observation shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-indentation-shadow"]
+    },
+    {
+      "id": "kern-frontend-lexical-shadow",
+      "label": "KERN-authored bounded frontend conditional lexical-checkpoint shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-lexical-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -514,6 +521,12 @@
       "label": "Bounded KERN-authored indentation observation shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-indentation-shadow"
+    },
+    {
+      "id": "kern-frontend-lexical-shadow",
+      "label": "Bounded KERN-authored conditional lexical-checkpoint shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-lexical-shadow"
     },
     {
       "id": "kern-formatter",

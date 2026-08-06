@@ -1,0 +1,5 @@
+{
+  "format": "kern.frontend.lexical-checkpoint-shadow.1",
+  "maxCheckpoints": 256,
+  "maxLexicalDepth": 64
+}
