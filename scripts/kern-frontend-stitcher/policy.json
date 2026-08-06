@@ -1,0 +1,44 @@
+{
+  "format": "kern.frontend.stitch-shadow.1",
+  "corpus": [
+    {
+      "maxLines": 32,
+      "path": "examples/capstone-checker-subset/checker-while.kern",
+      "sha256": "1382f193941dd1767815d7f1b0eb6482898bd7bb36fcdb6159057fc1e2c28c1d"
+    },
+    {
+      "maxLines": 32,
+      "path": "examples/kern-canonicalizer/canonicalizer-expression-helpers.kern",
+      "sha256": "d1128d68913bae87f68ca031d49c440ee2b1f9f5c833efcb60119b484822ef9d"
+    },
+    {
+      "maxLines": 32,
+      "path": "examples/selfhost-validator/validator.kern",
+      "sha256": "e233d3113792c19c147be3ccabead970d7cbe02062d7fb762a87ccffac246958"
+    }
+  ],
+  "rawOpenerTypes": ["body", "cleanup", "doc", "handler", "logic", "render"],
+  "profileLimits": {
+    "maxSourceBytes": 16384,
+    "maxCodePoints": 8192,
+    "maxPhysicalRecords": 256,
+    "maxPhysicalRecordBytes": 4096,
+    "maxPhysicalRecordCodePoints": 2048,
+    "maxGroups": 256,
+    "maxGroupRecords": 64,
+    "maxStitchDepth": 32,
+    "maxTokens": 4096,
+    "maxDiagnostics": 128,
+    "maxEnvelopeRecords": 32768,
+    "maxOutputJsonBytes": 2097152,
+    "maxRawOpeners": 64
+  },
+  "runtimeLimits": {
+    "maxBytes": 4194304,
+    "maxCollectionLength": 262144,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 8,
+    "maxStringBytes": 131072
+  }
+}

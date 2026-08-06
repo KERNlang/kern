@@ -53,6 +53,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | source-runner-convergence | Source runner convergence, call-site isolation, and blocker non-growth | current | `pnpm test:source-runner-convergence` |
 | kern-kir-canonicalizer | KERN-authored bounded KIR canonicalizer profile | current | `pnpm test:kern-canonicalizer` |
 | kern-frontend-tokenizer-shadow | KERN-authored bounded frontend tokenizer shadow | current | `pnpm test:kern-frontend-tokenizer` |
+| kern-frontend-stitch-shadow | KERN-authored bounded frontend framing and stitch shadow | current | `pnpm test:kern-frontend-stitch-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -109,6 +110,7 @@ wall and must remain absent until promoted.
 | source-runner-convergence | Sync/async source-runner convergence and pre-execution selector | internal-oracle | `pnpm test:source-runner-convergence` |
 | kern-kir-canonicalizer-profile | Bounded KERN-authored KIR canonicalizer profile | internal-oracle | `pnpm test:kern-canonicalizer` |
 | kern-frontend-tokenizer-shadow | Bounded KERN-authored line-tokenizer shadow | internal-oracle | `pnpm test:kern-frontend-tokenizer` |
+| kern-frontend-stitch-shadow | Bounded KERN-authored physical framing and multiline stitch shadow | internal-oracle | `pnpm test:kern-frontend-stitch-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -143,6 +145,18 @@ Standalone non-ASCII unknown tokens and malformed UTF-16 fail closed. This is
 an `internal-oracle` slice;
 multi-line parsing, token-stream parsing, KIR production, and production
 frontend cutover remain absent, so `kern-frontend` stays `not-shipped`.
+
+M4.154 extends that internal oracle with LF-only physical-record framing and a
+KERN-owned decision for multiline double-quoted properties and nested
+`{{ ... }}` expressions. The emitted tape preserves exact indentation, LF
+extent, contiguous group membership, boundary termination, open state, and
+document-relative UTF-8 token and diagnostic positions. File-comment and
+closed-profile raw-opener classes are observational boundaries only: trivia,
+indentation meaning, raw bodies, parsing, KIR emission, and frontend cutover
+remain unclaimed. Source-hashed corpus selection, aggregate limits, envelope
+validation, and mutation tests make this a bounded
+`kern-frontend-stitch-shadow: internal-oracle`; `kern-frontend` remains
+`not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

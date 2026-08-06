@@ -1,0 +1,174 @@
+fn name=stitchfailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.stitch-shadow.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    return value="out"
+
+fn name=stitchindent returns=string
+  param name=line type=string
+  handler lang="kern"
+    let name=i value="0"
+    let name=n value="Text.length(line)"
+    while cond="i < n && (Text.charAt(line, i) == \" \" || Text.charAt(line, i) == \"\\t\")"
+      assign target=i value="i + 1"
+    return value="Text.slice(line, 0, i)"
+
+fn name=stitchrawopener returns=boolean
+  param name=line type=string
+  param name=rawProfile type=string
+  handler lang="kern"
+    let name=n value="Text.length(line)"
+    let name=start value="0"
+    while cond="start < n && trimspace(Text.charAt(line, start))"
+      assign target=start value="start + 1"
+    let name=end value="start"
+    while cond="end < n && !trimspace(Text.charAt(line, end))"
+      assign target=end value="end + 1"
+    if cond="end == start || end >= n"
+      return value="false"
+    let name=word value="Text.slice(line, start, end)"
+    if cond="Text.indexOf(rawProfile, \"|\" + word + \"|\") < 0"
+      return value="false"
+    let name=i value="end + 1"
+    let name=inQuote value="false"
+    let name=quote value="\"\""
+    let name=depth value="0"
+    while cond="i < n"
+      let name=ch value="Text.charAt(line, i)"
+      let name=next value="\"\""
+      if cond="i + 1 < n"
+        assign target=next value="Text.charAt(line, i + 1)"
+      if cond="inQuote"
+        if cond="ch == \"\\\\\""
+          assign target=i value="i + 2"
+          continue
+        if cond="ch == quote"
+          assign target=inQuote value="false"
+          assign target=quote value="\"\""
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\""
+        assign target=inQuote value="true"
+        assign target=quote value="ch"
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"{\" && next == \"{\""
+        assign target=depth value="depth + 1"
+        assign target=i value="i + 2"
+        continue
+      if cond="ch == \"}\" && next == \"}\" && depth > 0"
+        assign target=depth value="depth - 1"
+        assign target=i value="i + 2"
+        continue
+      if cond="depth == 0 && i + 2 < n && Text.slice(line, i, i + 3) == \"<<<\""
+        return value="true"
+      assign target=i value="i + 1"
+    return value="false"
+
+fn name=stitchclass returns=string
+  param name=line type=string
+  param name=rawProfile type=string
+  handler lang="kern"
+    let name=start value="0"
+    let name=n value="Text.length(line)"
+    while cond="start < n && trimspace(Text.charAt(line, start))"
+      assign target=start value="start + 1"
+    let name=trimmed value="Text.slice(line, start, n)"
+    if cond="Text.length(trimmed) == 0"
+      return value="\"blank\""
+    if cond="Text.charAt(trimmed, 0) == \"#\""
+      return value="\"file-comment-candidate\""
+    if cond="Text.length(trimmed) >= 2 && Text.slice(trimmed, 0, 2) == \"//\""
+      return value="\"file-comment-candidate\""
+    if cond="stitchrawopener(line, rawProfile)"
+      return value="\"raw-opener-candidate\""
+    return value="\"ordinary\""
+
+fn name=stitchscan returns=number
+  param name=line type=string
+  param name=priorState type=number
+  handler lang="kern"
+    let name=inQuote value="priorState < 0"
+    let name=exprDepth value="priorState"
+    if cond="exprDepth < 0"
+      assign target=exprDepth value="0"
+    let name=styleDepth value="0"
+    let name=styleInQuote value="false"
+    let name=i value="0"
+    let name=n value="Text.length(line)"
+    while cond="i < n"
+      let name=ch value="Text.charAt(line, i)"
+      let name=next value="\"\""
+      let name=prev value="\"\""
+      if cond="i + 1 < n"
+        assign target=next value="Text.charAt(line, i + 1)"
+      if cond="i > 0"
+        assign target=prev value="Text.charAt(line, i - 1)"
+      if cond="inQuote"
+        if cond="ch == \"\\\\\""
+          assign target=i value="i + 2"
+          continue
+        if cond="ch == \"\\\"\""
+          assign target=inQuote value="false"
+        assign target=i value="i + 1"
+        continue
+      if cond="exprDepth > 0"
+        if cond="ch == \"{\" && next == \"{\""
+          assign target=exprDepth value="exprDepth + 1"
+          assign target=i value="i + 2"
+          continue
+        if cond="ch == \"}\" && next == \"}\""
+          assign target=exprDepth value="exprDepth - 1"
+          assign target=i value="i + 2"
+          continue
+        assign target=i value="i + 1"
+        continue
+      if cond="styleDepth > 0"
+        if cond="ch == \"\\\\\" && styleInQuote"
+          assign target=i value="i + 2"
+          continue
+        if cond="ch == \"\\\"\""
+          assign target=styleInQuote value="!styleInQuote"
+          assign target=i value="i + 1"
+          continue
+        if cond="!styleInQuote"
+          if cond="ch == \"{\""
+            assign target=styleDepth value="styleDepth + 1"
+          else
+            if cond="ch == \"}\""
+              assign target=styleDepth value="styleDepth - 1"
+        assign target=i value="i + 1"
+        continue
+      let name=precededByWs value="i == 0 || prev == \" \" || prev == \"\\t\""
+      if cond="precededByWs && ch == \"#\""
+        break
+      if cond="precededByWs && ch == \"/\" && next == \"/\""
+        break
+      if cond="ch == \"{\" && next == \"{\""
+        assign target=exprDepth value="exprDepth + 1"
+        assign target=i value="i + 2"
+        continue
+      if cond="ch == \"{\""
+        assign target=styleDepth value="1"
+        assign target=styleInQuote value="false"
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"\\\"\""
+        assign target=inQuote value="true"
+      assign target=i value="i + 1"
+    let name=quoteState value="0"
+    if cond="inQuote"
+      assign target=quoteState value="1"
+    if cond="quoteState == 1"
+      return value="-1"
+    return value="exprDepth"

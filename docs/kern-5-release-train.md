@@ -3359,6 +3359,20 @@ trusted-publishing/provenance configuration is inspected.
     `kern-frontend-tokenizer-shadow: internal-oracle` is promoted; the full
     frontend, compiler, fixed point, and interpreter remain open.
 
+  - [x] M4.154 bounded frontend multiline stitch shadow: adds handwritten KERN
+    LF document framing and continuation decisions for unclosed double-quoted
+    properties and nested `{{ ... }}` expressions. Exact physical records,
+    indentation bytes, LF extents, contiguous group indexes, structural stop
+    reasons, remaining open state, and composed line-tokenizer results are
+    validated against an independent bootstrap oracle and normalized to
+    document-relative UTF-8 positions. File-comment and policy-owned raw-opener
+    candidates stop runaway groups without claiming comment, trivia, raw-body,
+    or indentation semantics. Source-hashed bounded corpus inputs, exact limit
+    edges, and constant/delegation/tape/order/newline/membership/boundary/stale/
+    aggregate-limit mutations are release-blocking. Only
+    `kern-frontend-stitch-shadow: internal-oracle` is added; the public
+    `kern-frontend` gate remains planned and not shipped.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

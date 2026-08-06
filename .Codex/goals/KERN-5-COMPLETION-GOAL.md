@@ -2,10 +2,11 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`108b60e7db5a7b4b4b54ef88651fbdd6ed813fe6`
+`c2fb2492ff07cf0aa230374dba86978c1303cdd1`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.153 KERN-authored frontend tokenizer shadow
-**Confidence:** 0.98
+**Last completed slice:** Phase 1 internal KIR v1 profile freeze
+**Current slice:** M4.154 bounded frontend multiline stitch shadow; implementation, full fitness wall, and independent review complete; commit/push pending
+**Confidence:** 0.99
 
 ## Short Start Prompt
 
@@ -111,10 +112,10 @@ authorized. Do not open a pull request unless direct push is rejected. Never
 use `gh`.
 
 For each Agon invocation, use the full current usable roster. The roster
-resolved on 2026-08-04 is:
+resolved on 2026-08-05 is:
 
 ```text
--e claude,codex,agy,kimi-for-coding-k3,minimax-coding-plan-minimax-m3,zai-coding-plan-glm-5.2
+-e claude,codex,agy
 ```
 
 Resolve roster drift before later reviews and use all usable non-excluded
