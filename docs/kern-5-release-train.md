@@ -3462,6 +3462,32 @@ trusted-publishing/provenance configuration is inspected.
     `pnpm fitness:kern-5` wall pass on the corrected tree; no unresolved
     material review finding remains.
 
+  - [x] M4.158 bounded pre-tokenization whitespace-trim shadow: extracts the
+    M4.156 raw-content state machine into one shared native-KERN scanner and
+    uses it for a single admitted parser content record before tokenization.
+    Eligible inline-comment records carry scalar `codeEndOffset` and
+    `triviaEndOffset` fields over authenticated content; an explicit
+    ECMAScript WhiteSpace/LineTerminator predicate removes only the suffix
+    before the inherited ASCII-space/tab-qualified marker, while record-end
+    content remains untrimmed. The unchanged KERN tokenizer sees retained code
+    only, matching bootstrap parser order without general Unicode-tokenizer
+    widening. Full-table predicate cases, every reachable table scalar in
+    integrated `#` and `//` records, U+0085/U+180E negatives, astral offsets,
+    well-formed Unicode payload isolation, source seals, old-profile M4.157
+    parity, shared-scanner M4.156 regression gates, and named mutations are
+    release-blocking. Comment/trivia attachment, node admission, AST/KIR,
+    diagnostics changes, public API, and parser cutover remain deferred. The
+    slice adds only `kern-frontend-whitespace-trim-shadow: internal-oracle`;
+    `kern-frontend` remains planned and not shipped. Focused verification
+    passes 12/12 adversarial tests, 57 differential cases, and 27 direct
+    predicate cases. The refactored M4.156 gate remains green at 14/14 tests
+    plus 23 parity cases, and M4.157 remains green at 12/12 tests plus 36
+    parity cases. The complete Node 22.22 `pnpm fitness:kern-5` wall passes on
+    the integrated tree. Exact-roster role-lens review
+    `review-1786021158256-15e4dn-kern-5-m4-158-whitespace-trim` completed 3/3
+    with zero verified, needs-check, speculative, or nit findings. No
+    unresolved material review finding remains; publication is pending.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

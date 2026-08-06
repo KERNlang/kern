@@ -57,6 +57,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-indentation-shadow | KERN-authored bounded frontend indentation observation shadow | current | `pnpm test:kern-frontend-indentation-shadow` |
 | kern-frontend-lexical-shadow | KERN-authored bounded frontend conditional lexical-checkpoint shadow | current | `pnpm test:kern-frontend-lexical-shadow` |
 | kern-frontend-comment-boundary-shadow | KERN-authored bounded frontend inline-comment boundary shadow | current | `pnpm test:kern-frontend-comment-boundary-shadow` |
+| kern-frontend-whitespace-trim-shadow | KERN-authored bounded pre-tokenization whitespace-trim shadow | current | `pnpm test:kern-frontend-whitespace-trim-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -117,6 +118,7 @@ wall and must remain absent until promoted.
 | kern-frontend-indentation-shadow | Bounded KERN-authored indentation observation shadow | internal-oracle | `pnpm test:kern-frontend-indentation-shadow` |
 | kern-frontend-lexical-shadow | Bounded KERN-authored conditional lexical-checkpoint shadow | internal-oracle | `pnpm test:kern-frontend-lexical-shadow` |
 | kern-frontend-comment-boundary-shadow | Bounded KERN-authored inline-comment boundary shadow | internal-oracle | `pnpm test:kern-frontend-comment-boundary-shadow` |
+| kern-frontend-whitespace-trim-shadow | Bounded KERN-authored pre-tokenization whitespace-trim shadow | internal-oracle | `pnpm test:kern-frontend-whitespace-trim-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -196,6 +198,21 @@ mutations, and inherited atomic failures are release-blocking. Code trimming,
 normative whitespace ownership, trivia attachment, node admission, AST/KIR,
 and frontend cutover remain explicitly absent, so this adds only
 `kern-frontend-comment-boundary-shadow: internal-oracle`; `kern-frontend`
+remains `not-shipped`.
+
+M4.158 extracts M4.156's line-local lexical scanner into one shared native-KERN
+helper and adds a bounded pre-tokenization whitespace-trim profile. The new
+handler scans one admitted parser content record, computes scalar code/trivia
+end offsets with an explicit ECMAScript WhiteSpace/LineTerminator table, and
+tokenizes only retained code. This mirrors bootstrap ordering without widening
+the general tokenizer: non-table unknowns in retained code still fail, while
+well-formed payload and removable suffix scalars remain outside tokenization.
+Record-end content is deliberately untrimmed. Fixed-width records, exact
+source seals, full-table predicate evidence, integrated reachable-table cases,
+legacy M4.156/M4.157 parity, and named mutations are release-blocking. Comment
+attachment, node admission, AST/KIR, diagnostics changes, public APIs, and
+frontend cutover remain absent, so this adds only
+`kern-frontend-whitespace-trim-shadow: internal-oracle`; `kern-frontend`
 remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

@@ -26,10 +26,20 @@ function mutate(source, from, to) {
   return mutated;
 }
 
+function mutateFunction(source, functionName, from, to) {
+  const start = source.indexOf(`fn name=${functionName}`);
+  assert.notEqual(start, -1, `${functionName} scope missing`);
+  const next = source.indexOf('\nfn name=', start + 1);
+  const end = next === -1 ? source.length : next;
+  return source.slice(0, start) + mutate(source.slice(start, end), from, to) + source.slice(end);
+}
+
 function mutateLexical(source, from, to) {
-  const start = source.indexOf('fn name=observelexical');
-  assert.notEqual(start, -1, 'observelexical scope missing');
-  return source.slice(0, start) + mutate(source.slice(start), from, to);
+  return mutateFunction(source, 'observelexical', from, to);
+}
+
+function mutateScanner(source, from, to) {
+  return mutateFunction(source, 'scanlexicalcontent', from, to);
 }
 
 function textEnvelope(fields) {
@@ -216,17 +226,17 @@ test('boundary and EOF-unclosed groups emit no checkpoints', () => {
 
 test('named source mutations cannot masquerade as checkpoint parity', () => {
   const source = loadLexicalSource();
-  const markerBlind = mutateLexical(
+  const markerBlind = mutateScanner(
     source,
     String.raw`if cond="precededByWs && (ch == \"#\" || (ch == \"/\" && next == \"/\"))"`,
     'if cond="false"',
   );
   assert.throws(() => executeFrontendLexical('text # payload with "', undefined, markerBlind), /state drift/u);
 
-  const collapsedQuote = mutateLexical(
+  const collapsedQuote = mutateScanner(
     source,
-    String.raw`assign target=quote value="\"single\""`,
-    String.raw`assign target=quote value="\"double\""`,
+    'assign target=quote value="1"',
+    'assign target=quote value="2"',
   );
   assert.throws(() => executeFrontendLexical("text value='open", undefined, collapsedQuote), /state drift/u);
 
@@ -234,11 +244,11 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
     source,
     'let name=content value="base[physicalOffset + 2]"',
     String.raw`let name=content value="base[physicalOffset + 2]"` + '\n' +
-      String.raw`        assign target=quote value="\"none\""`,
+      '        assign target=quoteCode value="0"',
   );
   assert.throws(() => executeFrontendLexical('text value="one\ntwo"', undefined, resetAtBoundary), /state drift/u);
 
-  const disabledDepth = mutateLexical(
+  const disabledDepth = mutateScanner(
     source,
     'if cond="expressionDepth > maxLexicalDepth"',
     'if cond="false"',
@@ -248,14 +258,14 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
     /oracle failure|rejection/u,
   );
 
-  const shiftedScalarOffset = mutateLexical(
+  const shiftedScalarOffset = mutateScanner(
     source,
-    'assign target=markerOffset value="String(i)"',
-    'assign target=markerOffset value="String(i + 1)"',
+    'assign target=markerOffset value="i"',
+    'assign target=markerOffset value="i + 1"',
   );
   assert.throws(() => executeFrontendLexical('text value="😀" # note', undefined, shiftedScalarOffset), /state drift/u);
 
-  const brokenEscapeParity = mutateLexical(
+  const brokenEscapeParity = mutateScanner(
     source,
     String.raw`assign target=i value="i + 2"`,
     String.raw`assign target=i value="i + 3"`,
@@ -264,8 +274,8 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
 
   const skippedLfConsumption = mutateLexical(
     source,
-    String.raw`let name=escapePending value="0"`,
-    String.raw`let name=escapePending value="0"` + '\n' +
+    'let name=escapePending value="scan[2]"',
+    'let name=escapePending value="scan[2]"' + '\n' +
       String.raw`        if cond="ordinal > 0"` + '\n' +
       String.raw`          assign target=escapePending value="1"`,
   );
@@ -274,17 +284,17 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
     /state drift/u,
   );
 
-  const quotePrecedenceLost = mutateLexical(
+  const quotePrecedenceLost = mutateScanner(
     source,
-    String.raw`if cond="quote != \"none\""`,
-    String.raw`if cond="quote != \"none\" && expressionDepth == 0"`,
+    'if cond="quote != 0"',
+    'if cond="quote != 0 && expressionDepth == 0"',
   );
   assert.throws(
     () => executeFrontendLexical('text value={{ "#" }} # end', undefined, quotePrecedenceLost),
     /state drift/u,
   );
 
-  const firstBraceClosesExpression = mutateLexical(
+  const firstBraceClosesExpression = mutateScanner(
     source,
     String.raw`if cond="ch == \"}\" && next == \"}\" && expressionDepth > 0"`,
     String.raw`if cond="ch == \"}\" && expressionDepth > 0"`,
@@ -294,7 +304,7 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
     /state drift/u,
   );
 
-  const expressionMarkerEnabled = mutateLexical(
+  const expressionMarkerEnabled = mutateScanner(
     source,
     String.raw`if cond="expressionDepth > 0"`,
     String.raw`if cond="false"`,
@@ -304,7 +314,7 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
     /state drift/u,
   );
 
-  const unicodeWhitespaceEnabled = mutateLexical(
+  const unicodeWhitespaceEnabled = mutateScanner(
     source,
     String.raw`prev == \" \" || prev == \"\\t\"`,
     String.raw`prev == \" \" || prev == \"\\t\" || prev == \"\\u000b\"`,
@@ -319,7 +329,10 @@ test('named source mutations cannot masquerade as checkpoint parity', () => {
     String.raw`assign target=checkpointIndex value="checkpointIndex + 1"`,
     String.raw`assign target=checkpointIndex value="checkpointIndex + n"`,
   );
-  assert.throws(() => executeFrontendLexical('screen\ntext', undefined, scalarSizedCheckpointStep), /state drift/u);
+  assert.throws(
+    () => executeFrontendLexical('screen\ntext', undefined, scalarSizedCheckpointStep),
+    /state drift|runtime rejection/u,
+  );
 });
 
 test('oracle and KERN remain equal across the authored conditional-state corpus', () => {

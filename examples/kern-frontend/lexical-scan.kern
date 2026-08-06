@@ -1,0 +1,90 @@
+fn name=scanlexicalcontent returns="number[]" export=false
+  param name=content type=string
+  param name=initialQuote type=number
+  param name=initialExpressionDepth type=number
+  param name=initialStyleDepth type=number
+  param name=maxLexicalDepth type=number
+  handler lang="kern"
+    if cond="maxLexicalDepth <= 0 || initialQuote < 0 || initialQuote > 2 || initialExpressionDepth < 0 || initialStyleDepth < 0"
+      return value="[1, 0, 0, 0, 0, 0, -1]"
+    let name=quote value="initialQuote"
+    let name=expressionDepth value="initialExpressionDepth"
+    let name=styleDepth value="initialStyleDepth"
+    let name=escapePending value="0"
+    let name=stop value="0"
+    let name=markerOffset value="-1"
+    let name=i value="0"
+    let name=n value="Text.length(content)"
+    while cond="i < n"
+      let name=ch value="Text.charAt(content, i)"
+      let name=next value="\"\""
+      let name=prev value="\"\""
+      if cond="i + 1 < n"
+        assign target=next value="Text.charAt(content, i + 1)"
+      if cond="i > 0"
+        assign target=prev value="Text.charAt(content, i - 1)"
+
+      if cond="quote != 0"
+        if cond="ch == \"\\\\\""
+          if cond="i + 1 < n"
+            assign target=i value="i + 2"
+          else
+            assign target=escapePending value="1"
+            assign target=i value="i + 1"
+          continue
+        if cond="(quote == 2 && ch == \"\\\"\") || (quote == 1 && ch == \"'\")"
+          assign target=quote value="0"
+        assign target=i value="i + 1"
+        continue
+
+      if cond="ch == \"\\\"\" || ch == \"'\""
+        assign target=quote value="1"
+        if cond="ch == \"\\\"\""
+          assign target=quote value="2"
+        assign target=i value="i + 1"
+        continue
+
+      if cond="ch == \"{\" && next == \"{\""
+        assign target=expressionDepth value="expressionDepth + 1"
+        if cond="expressionDepth > maxLexicalDepth"
+          return value="[2, 0, 0, 0, 0, 0, -1]"
+        assign target=i value="i + 2"
+        continue
+      if cond="ch == \"}\" && next == \"}\" && expressionDepth > 0"
+        assign target=expressionDepth value="expressionDepth - 1"
+        assign target=i value="i + 2"
+        continue
+      if cond="expressionDepth > 0"
+        assign target=i value="i + 1"
+        continue
+
+      if cond="ch == \"{\""
+        assign target=styleDepth value="styleDepth + 1"
+        if cond="styleDepth > maxLexicalDepth"
+          return value="[2, 0, 0, 0, 0, 0, -1]"
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"}\" && styleDepth > 0"
+        assign target=styleDepth value="styleDepth - 1"
+        assign target=i value="i + 1"
+        continue
+      if cond="styleDepth > 0"
+        assign target=i value="i + 1"
+        continue
+
+      let name=precededByWs value="prev == \" \" || prev == \"\\t\""
+      if cond="precededByWs && (ch == \"#\" || (ch == \"/\" && next == \"/\"))"
+        assign target=stop value="1"
+        assign target=markerOffset value="i"
+        break
+      assign target=i value="i + 1"
+
+    let name=out value="[]"
+    do value="out.push(0)"
+    do value="out.push(quote)"
+    do value="out.push(escapePending)"
+    do value="out.push(expressionDepth)"
+    do value="out.push(styleDepth)"
+    do value="out.push(stop)"
+    do value="out.push(markerOffset)"
+    return value="out"

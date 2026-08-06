@@ -32,7 +32,8 @@
     "test:kern-frontend-stitch-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-stitcher/*.test.mjs && node scripts/check-kern-frontend-stitcher.mjs",
     "test:kern-frontend-indentation-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-indentation/*.test.mjs && node scripts/check-kern-frontend-indentation.mjs",
     "test:kern-frontend-lexical-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-lexical/*.test.mjs && node scripts/check-kern-frontend-lexical.mjs",
-    "test:kern-frontend-comment-boundary-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-comment-boundary/*.test.mjs && node scripts/check-kern-frontend-comment-boundaries.mjs"
+    "test:kern-frontend-comment-boundary-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-comment-boundary/*.test.mjs && node scripts/check-kern-frontend-comment-boundaries.mjs",
+    "test:kern-frontend-whitespace-trim-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-whitespace-trim/*.test.mjs && node scripts/check-kern-frontend-whitespace-trim.mjs"
   },
   "gates": [
     {
@@ -250,6 +251,12 @@
       "label": "KERN-authored bounded frontend inline-comment boundary shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-comment-boundary-shadow"]
+    },
+    {
+      "id": "kern-frontend-whitespace-trim-shadow",
+      "label": "KERN-authored bounded pre-tokenization whitespace-trim shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-whitespace-trim-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -540,6 +547,12 @@
       "label": "Bounded KERN-authored inline-comment boundary shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-comment-boundary-shadow"
+    },
+    {
+      "id": "kern-frontend-whitespace-trim-shadow",
+      "label": "Bounded KERN-authored pre-tokenization whitespace-trim shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-whitespace-trim-shadow"
     },
     {
       "id": "kern-formatter",

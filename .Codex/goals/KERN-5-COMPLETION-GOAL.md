@@ -2,12 +2,13 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`d323fc722f4aa76825cbeb294398eed5fe5561e7`
+`98f37b4b057e0cf044878e602065f3157b419f57`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.156 bounded conditional lexical-checkpoint shadow
-**Current slice:** M4.157 bounded inline-comment boundary shadow; implementation,
-exact-roster review remediation, and final complete fitness wall passed,
-publication pending
+**Last completed slice:** M4.157 bounded inline-comment boundary shadow
+**Current slice:** M4.158 bounded pre-tokenization whitespace-trim shadow;
+implementation, focused verification, and the complete Node 22.22 fitness wall
+pass; exact-roster role-lens review passed 3/3 with zero findings and
+publication is pending
 **Confidence:** 0.99
 
 ## Short Start Prompt

@@ -11,6 +11,7 @@ import { LEXICAL_FIXTURES } from './kern-frontend-lexical/fixtures.mjs';
 import { normalizeLexicalOracle } from './kern-frontend-lexical/oracle.mjs';
 import { loadFrontendLexicalPolicy } from './kern-frontend-lexical/policy.mjs';
 
+const LEXICAL_SCAN_SOURCE_URL = new URL('../examples/kern-frontend/lexical-scan.kern', import.meta.url);
 const LEXICAL_SOURCE_URL = new URL('../examples/kern-frontend/lexical-checkpoints.kern', import.meta.url);
 const QUOTES = new Set(['double', 'none', 'single']);
 const STOPS = new Set(['eligible-marker', 'record-end']);
@@ -53,7 +54,13 @@ export function validateNativeLexicalSource(source) {
 }
 
 export function loadLexicalSource() {
-  return validateNativeLexicalSource(`${loadStitcherSource()}\n\n${readRegularSource(LEXICAL_SOURCE_URL)}`);
+  return validateNativeLexicalSource(
+    `${loadStitcherSource()}\n\n${loadLexicalScanSource()}\n\n${readRegularSource(LEXICAL_SOURCE_URL)}`,
+  );
+}
+
+export function loadLexicalScanSource() {
+  return readRegularSource(LEXICAL_SCAN_SOURCE_URL);
 }
 
 function wellFormedUtf16(value) {
