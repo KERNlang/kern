@@ -59,6 +59,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-comment-boundary-shadow | KERN-authored bounded frontend inline-comment boundary shadow | current | `pnpm test:kern-frontend-comment-boundary-shadow` |
 | kern-frontend-whitespace-trim-shadow | KERN-authored bounded pre-tokenization whitespace-trim shadow | current | `pnpm test:kern-frontend-whitespace-trim-shadow` |
 | kern-frontend-retained-token-stream-shadow | KERN-authored bounded retained-code token-stream shadow | current | `pnpm test:kern-frontend-retained-token-stream-shadow` |
+| kern-frontend-node-type-token-admission-shadow | KERN-authored bounded node-type-token admission shadow | current | `pnpm test:kern-frontend-node-type-token-admission-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -121,6 +122,7 @@ wall and must remain absent until promoted.
 | kern-frontend-comment-boundary-shadow | Bounded KERN-authored inline-comment boundary shadow | internal-oracle | `pnpm test:kern-frontend-comment-boundary-shadow` |
 | kern-frontend-whitespace-trim-shadow | Bounded KERN-authored pre-tokenization whitespace-trim shadow | internal-oracle | `pnpm test:kern-frontend-whitespace-trim-shadow` |
 | kern-frontend-retained-token-stream-shadow | Bounded KERN-authored retained-code token-stream shadow | internal-oracle | `pnpm test:kern-frontend-retained-token-stream-shadow` |
+| kern-frontend-node-type-token-admission-shadow | Bounded KERN-authored node-type-token admission shadow | internal-oracle | `pnpm test:kern-frontend-node-type-token-admission-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -230,6 +232,23 @@ mutations are release-blocking. Trivia attachment, node admission, AST/KIR,
 public APIs, and frontend cutover remain absent, so this adds only
 `kern-frontend-retained-token-stream-shadow: internal-oracle`; `kern-frontend`
 remains `not-shipped`.
+
+M4.160 composes the complete authenticated M4.159 retained token stream and
+shadows bootstrap `TokenStream.tryIdent()` at cursor zero. An identifier token
+advances exactly once and exposes its normalized value; every other token kind
+drops without skipping whitespace or consulting mutable known-node registries.
+Dropped streams preserve the exact content-relative `DROPPED_LINE` diagnostic
+and `__error` recovery value over retained code, while comment payload and
+removed trivia remain authenticated but excluded. Independent oracle parity,
+evolved-name normalization, leading-whitespace rejection, every non-identifier
+token kind, UTF-16/scalar/byte coordinates, the configured 512-token and
+64-diagnostic authentication bounds, phase seals, and named mutations are
+release-blocking. The broader M4.159 producer limits remain unchanged.
+Known-node classification, props,
+successful parsed nodes, indentation/document coordinates, `export fn`, public
+APIs, and frontend cutover remain absent, so this adds only
+`kern-frontend-node-type-token-admission-shadow: internal-oracle`;
+`kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

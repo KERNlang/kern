@@ -1,0 +1,6 @@
+{
+  "format": "kern.frontend.node-type-token-admission-shadow.1",
+  "maxDiagnostics": 64,
+  "maxTokens": 512,
+  "sourceProfile": "single-retained-node-type-token-admission-v1"
+}

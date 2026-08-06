@@ -2,13 +2,15 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`6ec58e143d9d0aab38864fafca21e6a3a6ad8eaa`
+`64f6aa5980f01067d739d3a7968a32b8418bda1d`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.158 bounded pre-tokenization whitespace-trim shadow
-**Current slice:** M4.159 bounded retained-code token-stream shadow;
-implementation, focused verification, and the complete Node 22.22 fitness wall
-pass; exact-roster role-lens review passed 3/3 with zero findings and
-publication is pending
+**Last completed slice:** M4.159 bounded retained-code token-stream shadow
+**Current slice:** M4.160 bounded node-type-token admission shadow;
+implementation and focused verification pass; exact-roster role-lens review
+completed with all blockers fixed and targeted confirmation clean; the final
+integrated Node 22.22 fitness wall passes, including both 737/737 canonicalizer
+runs and the complete eight-stage frontend regression wall; publication is
+pending
 **Confidence:** 0.99
 
 ## Short Start Prompt

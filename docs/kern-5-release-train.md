@@ -3510,7 +3510,37 @@ trusted-publishing/provenance configuration is inspected.
     737/737 canonicalizer proof runs. Exact-roster role-lens review
     `review-1786026715420-f8bo4v-kern-5-m4-159-retained-token-str` completed
     3/3 with zero verified, needs-check, speculative, or nit findings. No
-    unresolved material review finding remains; publication is pending.
+    unresolved material review finding remains; published as
+    `64f6aa5980f01067d739d3a7968a32b8418bda1d`.
+
+  - [x] M4.160 bounded node-type-token admission shadow: composes the complete
+    authenticated M4.159 retained token stream and mirrors bootstrap
+    `TokenStream.tryIdent()` at cursor zero. Identifier token zero advances the
+    cursor exactly once and exposes its normalized value; every other kind
+    drops at cursor zero without whitespace skipping or known-node registry
+    classification. Dropped streams preserve the exact content-relative
+    `DROPPED_LINE` diagnostic and `__error` recovery projection over retained
+    code. Exact fixed-width stream-auth records bind every M4.159 field, and
+    the configured 512-token/64-diagnostic ceiling fails excess work in the
+    producer while leaving M4.159's broader profile unchanged. Known-node
+    classification, properties, successful parsed nodes,
+    indentation/document coordinates, `export fn`, public APIs, and frontend
+    cutover remain deferred. The slice adds only
+    `kern-frontend-node-type-token-admission-shadow: internal-oracle`;
+    `kern-frontend` remains planned and not shipped. Focused verification
+    passes 11/11 adversarial tests and 18 differential plus 4 inherited-failure
+    cases. The promoted standalone regression wall passes the complete
+    M4.153-M4.160 frontend sequence and all eight differential checkers. The
+    complete Node 22.22 `pnpm fitness:kern-5` wall passes on the final
+    integrated tree, including both 737/737 canonicalizer proof runs. Exact-
+    roster role-lens review
+    `review-1786032162232-4jwk5u-kern-5-m4-160-node-type-token-ad` completed
+    3/3 and found one inherited-envelope authentication blocker. Review-driven
+    fixes closed full-field authentication, failure-envelope validation, and
+    bounded linear execution; targeted security confirmation
+    `review-1786035359231-ze2uma-kern-5-m4-160-bounded-linear-aut` completed
+    1/1 with zero findings. The final full-wall refresh passes with the complete
+    M4.153-M4.160 regression wall; publication is pending.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
