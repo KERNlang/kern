@@ -3432,6 +3432,36 @@ trusted-publishing/provenance configuration is inspected.
     complete Node 22.22 `pnpm fitness:kern-5` wall pass on the fixed integrated
     tree; no unresolved material review finding remains.
 
+  - [x] M4.157 bounded inline-comment boundary shadow: composes the M4.156
+    `observelexical` result inside KERN and emits one fixed-width partition for
+    every authenticated checkpoint. Eligible `#` and `//` markers are consumed
+    at their Unicode-scalar offsets; exact raw payload follows without lexical
+    rescanning, while record-end checkpoints carry no marker data. Source-bound
+    seals, an independent host boundary oracle, inherited atomic failures,
+    strict envelope validation, aggregate limits, hostile payloads, bootstrap
+    behavior witnesses, and nine named source mutations are release-blocking.
+    The dedicated gate passes 12 adversarial test blocks and 36 differential
+    parity cases. The complete Node 22.22 `pnpm fitness:kern-5` wall passes on
+    the integrated tree, including 434/434 cross-target fixtures, 233 native
+    tests at 100% coverage, both complete 737/737 canonicalizer proof runs, and
+    the promoted M4.157 gate in both aggregate positions. The inherited
+    tokenizer profile still rejects astral payload scalars as
+    `UNSUPPORTED_UNKNOWN`; M4.157 preserves that failure and does not widen
+    source admission. Code trimming, normative whitespace ownership,
+    trivia attachment, node admission, AST/KIR, and frontend cutover remain
+    deferred. Only
+    `kern-frontend-comment-boundary-shadow: internal-oracle` is added; the
+    public `kern-frontend` gate remains planned and not shipped. Exact-roster
+    role review
+    (`review-1786012784721-9vw5uz-kern-5-m4-157-comment-boundary`) completed
+    3/3. Two independent lenses identified the same collection-containment
+    off-by-one: the leading format scalar was omitted from the maximum success
+    envelope budget. The policy now budgets
+    `1 + (maxPartitions + 1) * 16`, with exact 32-rejection and 33-acceptance
+    regression witnesses. The dedicated gate and final complete Node 22.22
+    `pnpm fitness:kern-5` wall pass on the corrected tree; no unresolved
+    material review finding remains.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

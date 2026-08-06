@@ -1,0 +1,15 @@
+export const COMMENT_BOUNDARY_FIXTURES = [
+  { id: 'hash-empty-payload', source: 'text value=ok #' },
+  { id: 'slashes-empty-payload', source: 'text value=ok //' },
+  { id: 'hash-space-payload', source: 'text value=ok # payload' },
+  { id: 'slashes-tab-payload', source: 'text value=ok //\tpayload' },
+  { id: 'astral-before-hash', source: 'text value="😀" # note' },
+  { id: 'astral-before-slashes', source: 'text value="😀" // note' },
+  { id: 'astral-payload-inherited-failure', source: 'text value=ok # note 🧭' },
+  { id: 'hostile-hash-payload', source: 'text value=ok # " {{ }} // # \\' },
+  { id: 'hostile-slashes-payload', source: "text value=ok // ' {{ }} # // \\" },
+  { id: 'ineligible-compact-hash', source: 'text value=x#y' },
+  { id: 'ineligible-url-slashes', source: 'text value=http://example.test' },
+  { id: 'no-marker-trailing-space', source: 'text value=ok  ' },
+  { id: 'full-line-boundaries', source: '# hash boundary\n// slash boundary\nscreen' },
+];

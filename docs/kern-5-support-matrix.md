@@ -56,6 +56,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-stitch-shadow | KERN-authored bounded frontend framing and stitch shadow | current | `pnpm test:kern-frontend-stitch-shadow` |
 | kern-frontend-indentation-shadow | KERN-authored bounded frontend indentation observation shadow | current | `pnpm test:kern-frontend-indentation-shadow` |
 | kern-frontend-lexical-shadow | KERN-authored bounded frontend conditional lexical-checkpoint shadow | current | `pnpm test:kern-frontend-lexical-shadow` |
+| kern-frontend-comment-boundary-shadow | KERN-authored bounded frontend inline-comment boundary shadow | current | `pnpm test:kern-frontend-comment-boundary-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -115,6 +116,7 @@ wall and must remain absent until promoted.
 | kern-frontend-stitch-shadow | Bounded KERN-authored physical framing and multiline stitch shadow | internal-oracle | `pnpm test:kern-frontend-stitch-shadow` |
 | kern-frontend-indentation-shadow | Bounded KERN-authored indentation observation shadow | internal-oracle | `pnpm test:kern-frontend-indentation-shadow` |
 | kern-frontend-lexical-shadow | Bounded KERN-authored conditional lexical-checkpoint shadow | internal-oracle | `pnpm test:kern-frontend-lexical-shadow` |
+| kern-frontend-comment-boundary-shadow | Bounded KERN-authored inline-comment boundary shadow | internal-oracle | `pnpm test:kern-frontend-comment-boundary-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -184,6 +186,17 @@ comments, trim code, attach trivia, admit nodes, emit AST/KIR, or cut over the
 frontend; it adds only
 `kern-frontend-lexical-shadow: internal-oracle`, while `kern-frontend` remains
 `not-shipped`.
+
+M4.157 composes the authenticated lexical-checkpoint envelope inside KERN and
+maps every checkpoint to an exact marker/payload partition. It classifies `#`
+and `//`, preserves record identity and terminal lexical state, and copies the
+raw payload through Unicode-scalar slicing without rescanning it. Fixed-width
+records, source seals, an independent boundary oracle, hostile payloads, named
+mutations, and inherited atomic failures are release-blocking. Code trimming,
+normative whitespace ownership, trivia attachment, node admission, AST/KIR,
+and frontend cutover remain explicitly absent, so this adds only
+`kern-frontend-comment-boundary-shadow: internal-oracle`; `kern-frontend`
+remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

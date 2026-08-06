@@ -1,0 +1,99 @@
+fn name=commentboundaryfailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.inline-comment-boundary-shadow.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    for name=padding from=0 to=13
+      do value="out.push(\"\")"
+    return value="out"
+
+fn name=observecommentboundaries returns="string[]" export=true
+  param name=source type=string
+  param name=rawProfile type=string
+  param name=maxCodePoints type=number
+  param name=maxPhysicalRecords type=number
+  param name=maxPhysicalRecordCodePoints type=number
+  param name=maxGroups type=number
+  param name=maxGroupRecords type=number
+  param name=maxStitchDepth type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxEnvelopeRecords type=number
+  param name=maxRawOpeners type=number
+  param name=maxCheckpoints type=number
+  param name=maxLexicalDepth type=number
+  param name=maxPartitions type=number
+  handler lang="kern"
+    if cond="maxPartitions <= 0"
+      let name=invalidLimits value="commentboundaryfailure(\"INVALID_LIMITS\", \"\")"
+      return value="invalidLimits"
+    let name=base value="observelexical(source, rawProfile, maxCodePoints, maxPhysicalRecords, maxPhysicalRecordCodePoints, maxGroups, maxGroupRecords, maxStitchDepth, maxTokens, maxDiagnostics, maxEnvelopeRecords, maxRawOpeners, maxCheckpoints, maxLexicalDepth)"
+    if cond="base.length >= 2 && base[1] == \"failure\""
+      let name=baseFailure value="commentboundaryfailure(base[2], base[3])"
+      return value="baseFailure"
+
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.inline-comment-boundary-shadow.1\")"
+    let name=partitionIndex value="0"
+    for name=offset from=1 to="base.length" step=12
+      if cond="base[offset] == \"seal\""
+        break
+      if cond="partitionIndex >= maxPartitions"
+        let name=partitionFailure value="commentboundaryfailure(\"PARTITION_LIMIT\", \"\")"
+        return value="partitionFailure"
+
+      let name=content value="base[offset + 5]"
+      let name=stop value="base[offset + 10]"
+      let name=markerOffsetText value="base[offset + 11]"
+      let name=markerKind value="\"none\""
+      let name=markerText value="\"\""
+      let name=rawPayload value="\"\""
+      if cond="stop == \"eligible-marker\""
+        let name=markerOffset value="0"
+        let name=n value="Text.length(content)"
+        while cond="markerOffset < n && String(markerOffset) != markerOffsetText"
+          assign target=markerOffset value="markerOffset + 1"
+        if cond="markerOffset >= n"
+          let name=offsetFailure value="commentboundaryfailure(\"PARTITION_INVALID\", \"\")"
+          return value="offsetFailure"
+        let name=first value="Text.charAt(content, markerOffset)"
+        let name=payloadStart value="markerOffset + 1"
+        if cond="first == \"#\""
+          assign target=markerKind value="\"hash\""
+          assign target=markerText value="\"#\""
+        else
+          if cond="first != \"/\" || markerOffset + 1 >= n || Text.charAt(content, markerOffset + 1) != \"/\""
+            let name=markerFailure value="commentboundaryfailure(\"PARTITION_INVALID\", \"\")"
+            return value="markerFailure"
+          assign target=markerKind value="\"slash-slash\""
+          assign target=markerText value="\"//\""
+          assign target=payloadStart value="markerOffset + 2"
+        assign target=rawPayload value="Text.slice(content, payloadStart, n)"
+
+      do value="out.push(\"partition\")"
+      do value="out.push(String(partitionIndex))"
+      do value="out.push(base[offset + 1])"
+      do value="out.push(base[offset + 2])"
+      do value="out.push(base[offset + 3])"
+      do value="out.push(base[offset + 4])"
+      do value="out.push(content)"
+      do value="out.push(base[offset + 6])"
+      do value="out.push(base[offset + 7])"
+      do value="out.push(base[offset + 8])"
+      do value="out.push(base[offset + 9])"
+      do value="out.push(stop)"
+      do value="out.push(markerOffsetText)"
+      do value="out.push(markerKind)"
+      do value="out.push(markerText)"
+      do value="out.push(rawPayload)"
+      assign target=partitionIndex value="partitionIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(source)"
+    for name=sealPadding from=0 to=14
+      do value="out.push(\"\")"
+    return value="out"

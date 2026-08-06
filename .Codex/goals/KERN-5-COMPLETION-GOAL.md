@@ -2,12 +2,12 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`5b87178e926898ff9f242f5f872d3fa61e843d12`
+`d323fc722f4aa76825cbeb294398eed5fe5561e7`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.155 bounded frontend indentation observation shadow
-**Current slice:** M4.156 bounded conditional lexical-checkpoint shadow;
-implementation, exact-roster review fixes, and final post-review fitness wall
-complete; publication pending
+**Last completed slice:** M4.156 bounded conditional lexical-checkpoint shadow
+**Current slice:** M4.157 bounded inline-comment boundary shadow; implementation,
+exact-roster review remediation, and final complete fitness wall passed,
+publication pending
 **Confidence:** 0.99
 
 ## Short Start Prompt
