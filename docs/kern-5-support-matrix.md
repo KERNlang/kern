@@ -61,6 +61,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-retained-token-stream-shadow | KERN-authored bounded retained-code token-stream shadow | current | `pnpm test:kern-frontend-retained-token-stream-shadow` |
 | kern-frontend-node-type-token-admission-shadow | KERN-authored bounded node-type-token admission shadow | current | `pnpm test:kern-frontend-node-type-token-admission-shadow` |
 | kern-frontend-builtin-node-type-attestation-shadow | KERN-authored immutable built-in node-type attestation shadow | current | `pnpm test:kern-frontend-builtin-node-type-attestation-shadow` |
+| kern-frontend-mutable-node-type-registry-snapshot-shadow | KERN-authored mutable node-type registry snapshot shadow | current | `pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -125,6 +126,7 @@ wall and must remain absent until promoted.
 | kern-frontend-retained-token-stream-shadow | Bounded KERN-authored retained-code token-stream shadow | internal-oracle | `pnpm test:kern-frontend-retained-token-stream-shadow` |
 | kern-frontend-node-type-token-admission-shadow | Bounded KERN-authored node-type-token admission shadow | internal-oracle | `pnpm test:kern-frontend-node-type-token-admission-shadow` |
 | kern-frontend-builtin-node-type-attestation-shadow | Immutable KERN-authored built-in node-type attestation shadow | internal-oracle | `pnpm test:kern-frontend-builtin-node-type-attestation-shadow` |
+| kern-frontend-mutable-node-type-registry-snapshot-shadow | Mutable KERN-authored node-type registry snapshot shadow | internal-oracle | `pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -267,6 +269,22 @@ evaluation, and named mutations are release-blocking. Unknown-node warning
 ownership, mutable registry snapshots, props, successful parsed nodes, AST/KIR,
 public APIs, and frontend cutover remain absent, so this adds only
 `kern-frontend-builtin-node-type-attestation-shadow: internal-oracle`;
+`kern-frontend` remains `not-shipped`.
+
+M4.162 fuses mutable-registry capture with one synchronous bootstrap parse and
+binds the evidence to a process-local runtime identity plus a monotonically
+increasing parse-call epoch. Canonical evolved, effective multiline, and
+template-name membership lists are independently attested in native KERN after
+composing M4.161. Direct legacy Set/Map writes remain compatible; restored
+membership still receives a new parse epoch, duplicate membership is
+idempotent, all six default multiline owners are mandatory, and altered
+collection prototypes, iterators, proxy traps, stale evidence, and configured
+count/name overflows fail closed. Snapshot evidence is privately bound to the
+exact source and runtime and is consumable once. The three mutable flags and
+inherited built-in verdict remain separate, so the slice neither emits nor owns
+`UNKNOWN_NODE_TYPE`. Parser-hint definitions, template bodies, final knownness,
+AST/KIR, public APIs, and frontend cutover remain absent, so this adds only
+`kern-frontend-mutable-node-type-registry-snapshot-shadow: internal-oracle`;
 `kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

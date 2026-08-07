@@ -3558,7 +3558,30 @@ trusted-publishing/provenance configuration is inspected.
     `review-1786044982667-pfebpp` found one inherited-authentication blocker;
     the corrected full-field verification was independently confirmed clean by
     `review-1786046092156-732laa-m4161-auth-fix-confirmation`. Signed
-    publication is pending.
+    publication completed as
+    `860ca13b8fe71a1f9d25e9ab24d94ce945eaadf7`.
+
+  - [x] M4.162 mutable node-type registry snapshot shadow: tribunal
+    `tribunal-1786051078314-7v4qyz` selected a fused synchronous capture+parse
+    seam over mutation-history counters or public collection encapsulation.
+    The internal evidence binds canonical evolved, effective multiline, and
+    template-name membership to one process-local runtime identity and
+    monotonic parse-call epoch while preserving direct legacy Set/Map writes.
+    Native KERN composes M4.161 and reports the three mutable predicates
+    independently; `UNKNOWN_NODE_TYPE` ownership and the final four-predicate
+    combination remain deferred. The implementation rejects proxies, altered
+    collection/iterator intrinsics, stale or cross-source evidence, forged
+    inherited fields, unsafe identities, and configured count/name overflow;
+    all six default multiline owners are authenticated in one bounded scan.
+    The complete Node 22 KERN 5 wall passes, including 737/737 canonicalizer
+    tests, 13/13 core snapshot tests, 12/12 native tests, and 8 differential
+    cases. High-risk exact-roster role review
+    `review-1786059566771-8wgz7s-m4162-mutable-registry-snapshot` identified
+    and drove the replay, reentrancy, inherited-authentication, and bounds
+    fixes; targeted security confirmation
+    `review-1786067792632-9vo4o8-m4162-security-fix-confirmation` completed
+    1/1 with zero findings. Signed publication is pending as the final action
+    of this slice.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

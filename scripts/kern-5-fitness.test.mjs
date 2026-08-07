@@ -66,6 +66,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-frontend-retained-token-stream-shadow',
       'kern-frontend-node-type-token-admission-shadow',
       'kern-frontend-builtin-node-type-attestation-shadow',
+      'kern-frontend-mutable-node-type-registry-snapshot-shadow',
     ],
   );
 });

@@ -1,0 +1,8 @@
+{
+  "format": "kern.frontend.mutable-node-type-registry-snapshot-shadow.1",
+  "maxNameBytes": 256,
+  "maxNameCodePoints": 128,
+  "maxRegistryEntries": 64,
+  "snapshotFormat": "kern.frontend.mutable-node-type-registry-snapshot.1",
+  "sourceProfile": "single-mutable-node-type-registry-snapshot-v1"
+}

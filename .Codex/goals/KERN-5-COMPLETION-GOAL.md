@@ -2,12 +2,13 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`44b1800293e6d7e302a19d4d9dfa988a7de00681`
+`860ca13b8fe71a1f9d25e9ab24d94ce945eaadf7`
 **Current public version:** `4.5.0`
 **Last completed slice:** M4.161 immutable built-in node-type attestation shadow
-**Current slice:** M4.161 implementation, exact-roster review, targeted security
-confirmation, and the complete KERN 5 fitness wall are complete; signed
-publication is pending
+**Current slice:** M4.162 instance- and parse-epoch-bound mutable node-type
+registry snapshot shadow; implementation, complete Node 22 fitness wall,
+high-risk exact-roster review, and targeted security confirmation are clean;
+signed publication is pending
 **Confidence:** 0.99
 
 ## Short Start Prompt
@@ -117,7 +118,7 @@ For each Agon invocation, use the full current usable roster. The roster
 resolved on 2026-08-05 is:
 
 ```text
--e claude,codex,agy
+-e claude,codex,agy,kimi-for-coding-k3,minimax-coding-plan-minimax-m3,zai-coding-plan-glm-5.2
 ```
 
 Resolve roster drift before later reviews and use all usable non-excluded

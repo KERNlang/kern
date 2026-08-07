@@ -36,7 +36,8 @@
     "test:kern-frontend-whitespace-trim-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-whitespace-trim/*.test.mjs && node scripts/check-kern-frontend-whitespace-trim.mjs",
     "test:kern-frontend-retained-token-stream-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-retained-token-stream/*.test.mjs && node scripts/check-kern-frontend-retained-token-stream-regressions.mjs",
     "test:kern-frontend-node-type-token-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-node-type-token-admission/*.test.mjs && node scripts/check-kern-frontend-node-type-token-admission-regressions.mjs",
-    "test:kern-frontend-builtin-node-type-attestation-shadow": "pnpm --filter @kernlang/core build && pnpm check:kern-frontend-builtin-node-catalog && node --test scripts/kern-frontend-builtin-node-type-attestation/*.test.mjs && node scripts/check-kern-frontend-builtin-node-type-attestation-regressions.mjs"
+    "test:kern-frontend-builtin-node-type-attestation-shadow": "pnpm --filter @kernlang/core build && pnpm check:kern-frontend-builtin-node-catalog && node --test scripts/kern-frontend-builtin-node-type-attestation/*.test.mjs && node scripts/check-kern-frontend-builtin-node-type-attestation-regressions.mjs",
+    "test:kern-frontend-mutable-node-type-registry-snapshot-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-mutable-node-type-registry-snapshot/*.test.mjs && node scripts/check-kern-frontend-mutable-node-type-registry-snapshot-regressions.mjs"
   },
   "gates": [
     {
@@ -278,6 +279,12 @@
       "label": "KERN-authored immutable built-in node-type attestation shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-builtin-node-type-attestation-shadow"]
+    },
+    {
+      "id": "kern-frontend-mutable-node-type-registry-snapshot-shadow",
+      "label": "KERN-authored mutable node-type registry snapshot shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-mutable-node-type-registry-snapshot-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -592,6 +599,12 @@
       "label": "Immutable KERN-authored built-in node-type attestation shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-builtin-node-type-attestation-shadow"
+    },
+    {
+      "id": "kern-frontend-mutable-node-type-registry-snapshot-shadow",
+      "label": "Mutable KERN-authored node-type registry snapshot shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow"
     },
     {
       "id": "kern-formatter",

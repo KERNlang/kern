@@ -1,0 +1,189 @@
+fn name=mutableregistryfailure returns="string[]"
+  param name=code type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.mutable-node-type-registry-snapshot-shadow.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    for name=padding from=0 to=14
+      do value="out.push(\"\")"
+    return value="out"
+
+fn name=validregistrylist returns=boolean
+  param name=values type="string[]"
+  param name=maxEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=requireDefaults type=boolean
+  handler lang="kern"
+    if cond="values.length > maxEntries"
+      return value="false"
+    let name=defaultCount value="0"
+    for name=index from=0 to="values.length"
+      if cond="values[index] == \"\" || Text.length(values[index]) > maxNameCodePoints || utf8bytes(values[index]) > maxNameBytes"
+        return value="false"
+      if cond="index > 0 && values[index - 1] >= values[index]"
+        return value="false"
+      if cond="values[index] == \"body\""
+        assign target=defaultCount value="defaultCount + 1"
+      if cond="values[index] == \"cleanup\""
+        assign target=defaultCount value="defaultCount + 1"
+      if cond="values[index] == \"doc\""
+        assign target=defaultCount value="defaultCount + 1"
+      if cond="values[index] == \"handler\""
+        assign target=defaultCount value="defaultCount + 1"
+      if cond="values[index] == \"logic\""
+        assign target=defaultCount value="defaultCount + 1"
+      if cond="values[index] == \"render\""
+        assign target=defaultCount value="defaultCount + 1"
+    if cond="requireDefaults && defaultCount != 6"
+      return value="false"
+    return value="true"
+
+fn name=validattestationfailurecode returns=boolean
+  param name=code type=string
+  handler lang="kern"
+    return value="code == \"ADMISSION_INVALID\" || code == \"ATTESTATION_INVALID\" || code == \"CODE_POINTS_LIMIT\" || code == \"DIAGNOSTIC_LIMIT\" || code == \"EMPTY_RETAINED_CODE\" || code == \"INVALID_LIMITS\" || code == \"LEXICAL_DEPTH_LIMIT\" || code == \"RECORD_LIMIT\" || code == \"STREAM_INVALID\" || code == \"TOKEN_LIMIT\" || code == \"TRIM_INVALID\" || code == \"UNSUPPORTED_UNKNOWN\""
+
+fn name=registrycontains returns=boolean
+  param name=values type="string[]"
+  param name=candidate type=string
+  handler lang="kern"
+    for name=index from=0 to="values.length"
+      if cond="values[index] == candidate"
+        return value="true"
+    return value="false"
+
+fn name=observemutablenodetyperegistrysnapshot returns="string[]" export=true
+  param name=content type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  handler lang="kern"
+    let name=validEvolvedTypes value="validregistrylist(evolvedTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, false)"
+    let name=validMultilineTypes value="validregistrylist(multilineTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, true)"
+    let name=validTemplateTypes value="validregistrylist(templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, false)"
+    if cond="runtimeInstance <= 0 || parseEpoch <= 0 || runtimeInstance > 9007199254740991 || parseEpoch > 9007199254740991 || !validEvolvedTypes || !validMultilineTypes || !validTemplateTypes"
+      let name=inputFailure value="mutableregistryfailure(\"REGISTRY_INVALID\")"
+      return value="inputFailure"
+
+    let name=inherited value="observebuiltinnodetypeattestation(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries)"
+    if cond="inherited.length >= 2 && inherited[1] == \"failure\""
+      if cond="inherited.length != 17 || inherited[0] != \"kern.frontend.builtin-node-type-attestation-shadow.1\" || !validattestationfailurecode(inherited[2]) || inherited[3] != \"\""
+        let name=inheritedFailure value="mutableregistryfailure(\"REGISTRY_INVALID\")"
+        return value="inheritedFailure"
+      for name=inheritedPadding from=4 to=17
+        if cond="inherited[inheritedPadding] != \"\""
+          let name=inheritedPaddingFailure value="mutableregistryfailure(\"REGISTRY_INVALID\")"
+          return value="inheritedPaddingFailure"
+      let name=propagatedFailure value="mutableregistryfailure(inherited[2])"
+      return value="propagatedFailure"
+    if cond="inherited.length < 49 || inherited[0] != \"kern.frontend.builtin-node-type-attestation-shadow.1\" || (inherited.length - 1) % 16 != 0 || inherited[1] != \"decision\" || inherited[8] != content || inherited[16] != \"\""
+      let name=envelopeFailure value="mutableregistryfailure(\"REGISTRY_INVALID\")"
+      return value="envelopeFailure"
+
+    let name=status value="inherited[2]"
+    let name=admittedType value="inherited[3]"
+    let name=inheritedAttestation value="inherited[4]"
+    let name=inheritedIndex value="inherited[5]"
+    let name=mutableVerdict value="\"none\""
+    let name=evolved value="false"
+    let name=multiline value="false"
+    let name=template value="false"
+    if cond="status == \"admitted\""
+      assign target=evolved value="registrycontains(evolvedTypes, admittedType)"
+      assign target=multiline value="registrycontains(multilineTypes, admittedType)"
+      assign target=template value="registrycontains(templateTypes, admittedType)"
+      assign target=mutableVerdict value="\"unresolved\""
+      if cond="evolved || multiline || template"
+        assign target=mutableVerdict value="\"registered\""
+
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.mutable-node-type-registry-snapshot-shadow.1\")"
+    do value="out.push(\"decision\")"
+    do value="out.push(status)"
+    do value="out.push(admittedType)"
+    do value="out.push(inheritedAttestation)"
+    do value="out.push(inheritedIndex)"
+    do value="out.push(mutableVerdict)"
+    do value="out.push(String(evolved))"
+    do value="out.push(String(multiline))"
+    do value="out.push(String(template))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(evolvedTypes.length))"
+    do value="out.push(String(multilineTypes.length))"
+    do value="out.push(String(templateTypes.length))"
+    do value="out.push(String(inherited.length))"
+    do value="out.push(\"\")"
+
+    let name=authIndex value="0"
+    for name=authStart from=0 to="inherited.length" step=12
+      let name=authCount value="inherited.length - authStart"
+      if cond="authCount > 12"
+        assign target=authCount value="12"
+      do value="out.push(\"attestation-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(authStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=12
+        if cond="authField < authCount"
+          do value="out.push(inherited[authStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    let name=registryIndex value="0"
+    for name=evolvedIndex from=0 to="evolvedTypes.length"
+      do value="out.push(\"registry\")"
+      do value="out.push(\"evolved\")"
+      do value="out.push(String(evolvedIndex))"
+      do value="out.push(evolvedTypes[evolvedIndex])"
+      for name=evolvedPadding from=0 to=12
+        do value="out.push(\"\")"
+      assign target=registryIndex value="registryIndex + 1"
+    for name=multilineIndex from=0 to="multilineTypes.length"
+      do value="out.push(\"registry\")"
+      do value="out.push(\"multiline\")"
+      do value="out.push(String(multilineIndex))"
+      do value="out.push(multilineTypes[multilineIndex])"
+      for name=multilinePadding from=0 to=12
+        do value="out.push(\"\")"
+      assign target=registryIndex value="registryIndex + 1"
+    for name=templateIndex from=0 to="templateTypes.length"
+      do value="out.push(\"registry\")"
+      do value="out.push(\"template\")"
+      do value="out.push(String(templateIndex))"
+      do value="out.push(templateTypes[templateIndex])"
+      for name=templatePadding from=0 to=12
+        do value="out.push(\"\")"
+      assign target=registryIndex value="registryIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(status)"
+    do value="out.push(mutableVerdict)"
+    do value="out.push(String(evolved))"
+    do value="out.push(String(multiline))"
+    do value="out.push(String(template))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(evolvedTypes.length))"
+    do value="out.push(String(multilineTypes.length))"
+    do value="out.push(String(templateTypes.length))"
+    do value="out.push(admittedType)"
+    do value="out.push(content)"
+    do value="out.push(inherited[0])"
+    do value="out.push(String(inherited.length))"
+    do value="out.push(\"\")"
+    return value="out"
