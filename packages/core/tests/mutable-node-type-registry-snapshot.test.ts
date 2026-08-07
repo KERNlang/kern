@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   parseWithGenericPropertyAdmissionSafety,
+  parseWithGenericPropertyLoopSafety,
   parseWithMutableNodeTypeRegistrySnapshot,
 } from '../src/mutable-node-type-registry-snapshot.js';
 import { KernRuntime } from '../src/runtime-state.js';
@@ -239,9 +240,65 @@ describe('mutable node-type registry snapshot', () => {
     expect(() =>
       parseWithGenericPropertyAdmissionSafety('screen title="__proto__=ignored"', runtime, SNAPSHOT_LIMITS),
     ).not.toThrow();
+    const inheritedNameInBareValue = parseWithGenericPropertyAdmissionSafety(
+      'screen safe=__proto__=value',
+      runtime,
+      SNAPSHOT_LIMITS,
+    );
+    expect(inheritedNameInBareValue.parseResult.root.props?.safe).toBe('__proto__=value');
+    expect(() =>
+      parseWithGenericPropertyAdmissionSafety('screen name=Home // __proto__=ignored', runtime, SNAPSHOT_LIMITS),
+    ).not.toThrow();
 
     expect(() =>
       parseWithMutableNodeTypeRegistrySnapshot('screen __proto__=legacy-bootstrap-debt', runtime, SNAPSHOT_LIMITS),
+    ).not.toThrow();
+  });
+
+  it('rejects every inherited M4.165 loop key before epoch capture without widening prior entries', () => {
+    const runtime = new KernRuntime();
+    const baseline = parseWithGenericPropertyLoopSafety('screen name=Home', runtime, SNAPSHOT_LIMITS);
+    expect(baseline.snapshot.parseEpoch).toBe(1);
+
+    for (const source of ['screen constructor=one', 'screen safe=one toString=two', 'screen safe=one __proto__=two']) {
+      expect(() => parseWithGenericPropertyLoopSafety(source, runtime, SNAPSHOT_LIMITS)).toThrow(
+        /(?:inherited|reserved) generic property key/,
+      );
+    }
+    const afterRejections = parseWithGenericPropertyLoopSafety('screen name=After', runtime, SNAPSHOT_LIMITS);
+    expect(afterRejections.snapshot.parseEpoch).toBe(2);
+
+    expect(() =>
+      parseWithGenericPropertyLoopSafety(
+        'screen title="// constructor=quoted" # toString=comment',
+        runtime,
+        SNAPSHOT_LIMITS,
+      ),
+    ).not.toThrow();
+    const inheritedNameInBareValue = parseWithGenericPropertyLoopSafety(
+      'screen safe=toString=value',
+      runtime,
+      SNAPSHOT_LIMITS,
+    );
+    expect(inheritedNameInBareValue.parseResult.root.props?.safe).toBe('toString=value');
+
+    Object.defineProperty(Object.prototype, 'm4165PollutedKey', {
+      configurable: true,
+      value: 'polluted',
+    });
+    try {
+      expect(() =>
+        parseWithGenericPropertyLoopSafety('screen m4165PollutedKey=value', runtime, SNAPSHOT_LIMITS),
+      ).toThrow(/inherited generic property key m4165PollutedKey/);
+    } finally {
+      delete (Object.prototype as Record<string, unknown>).m4165PollutedKey;
+    }
+
+    const legacy = parseWithGenericPropertyAdmissionSafety('screen constructor=legacy', runtime, SNAPSHOT_LIMITS);
+    expect(legacy.parseResult.root.props?.constructor).toBe('legacy');
+    expect(legacy.parseResult.diagnostics.map(({ code }) => code)).toContain('DUPLICATE_PROP');
+    expect(() =>
+      parseWithMutableNodeTypeRegistrySnapshot('screen constructor=legacy', runtime, SNAPSHOT_LIMITS),
     ).not.toThrow();
   });
 });

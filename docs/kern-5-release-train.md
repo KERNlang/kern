@@ -3609,7 +3609,7 @@ trusted-publishing/provenance configuration is inspected.
     complete M4.153-M4.163 frontend gates pass. Signed publication completed
     as `dc58c911591288d46949914a7957a76aca3b7157`.
 
-  - [ ] M4.164 generic property-admission shadow: source-grounded selection
+  - [x] M4.164 generic property-admission shadow: source-grounded selection
     chose one complete immediate `parseProp` unit over duplicate/map state or
     full successful-node construction. Nero
     `nero-1786078071432-4gvs9n-m4164-property-admission-challen` challenged
@@ -3639,7 +3639,38 @@ trusted-publishing/provenance configuration is inspected.
     fixtures, and both cumulative M4.153-M4.164 receipts. Duplicate last-write
     behavior, repeated generic parsing, styles/themes, hints/handlers, full
     nodes, and the direct-bootstrap accumulator repair remain deferred. Signed
-    publication remains pending.
+    publication completed as
+    `0037431d334bee2ae7c35a063b3f54556c985af1`.
+
+  - [ ] M4.165 generic property-loop shadow: native KERN composes M4.164 once,
+    re-observes M4.159 once, and owns a bounded handler/hint-free repeated
+    generic-property sequence through EOF or an inline comment. The native
+    phase machine emits every write, first-write property order, last-write
+    values, duplicate warnings with exact coordinates, expression shape, and
+    quote-add generations that determine final `Set` order. Live bootstrap
+    probes fixed the property/quote ordering contract and exposed inherited
+    ordinary-object names as false first-write duplicates. The dedicated
+    M4.165 fused entry therefore rejects all such keys before epoch capture,
+    while M4.164 property semantics and M4.162 remain unchanged; M4.164's
+    shared safety scan now follows actual `//` tokenization and bare-value
+    consumption. Nero
+    `nero-1786098129221-m6hl7x` challenged comment boundaries, separated
+    inherited keys, exception behavior, and prototype races; source
+    verification rejected the incorrect premises but added token-aware `//`
+    coverage, separated-key cases, unchanged-epoch proof, prototype-pollution
+    coverage, and an explicit synchronous no-callback invariant. The focused
+    8/8 suite, 18 differential fixtures, named mutants, and cumulative
+    M4.153-M4.165 frontend receipt pass. The complete Node 22.22
+    `pnpm fitness:kern-5` wall passes on the integrated tree, including both
+    737/737 canonicalizer proof runs. Automatic high-risk role-lens review
+    `review-1786108411700-oej70o-m4165-generic-property-loop` completed all six
+    selected seats with zero consensus-verified findings. Source-verified
+    review gaps in reachable-key scanning, dropped terminal cursor, UTF-16
+    duplicate columns, status evidence, and checker guards are repaired and
+    covered. Targeted correctness confirmation
+    `review-1786110384636-73lp4n-m4165-review-fix-confirmation` completed 1/1
+    with zero material findings. Signed publication and next-slice selection
+    remain pending.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

@@ -64,6 +64,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-mutable-node-type-registry-snapshot-shadow | KERN-authored mutable node-type registry snapshot shadow | current | `pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow` |
 | kern-frontend-known-node-warning-shadow | KERN-authored known-node warning shadow | current | `pnpm test:kern-frontend-known-node-warning-shadow` |
 | kern-frontend-generic-property-admission-shadow | KERN-authored generic property-admission shadow | current | `pnpm test:kern-frontend-generic-property-admission-shadow` |
+| kern-frontend-generic-property-loop-shadow | KERN-authored generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-loop-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -131,6 +132,7 @@ wall and must remain absent until promoted.
 | kern-frontend-mutable-node-type-registry-snapshot-shadow | Mutable KERN-authored node-type registry snapshot shadow | internal-oracle | `pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow` |
 | kern-frontend-known-node-warning-shadow | KERN-authored known-node warning shadow | internal-oracle | `pnpm test:kern-frontend-known-node-warning-shadow` |
 | kern-frontend-generic-property-admission-shadow | KERN-authored generic property-admission shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-admission-shadow` |
+| kern-frontend-generic-property-loop-shadow | KERN-authored generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-loop-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -324,6 +326,23 @@ re-attestation epoch. Duplicate last-write behavior, repeated properties,
 styles/themes, parser hints, keyword handlers, successful parsed nodes,
 AST/KIR, public APIs, and frontend cutover remain absent, so this adds only
 `kern-frontend-generic-property-admission-shadow: internal-oracle`;
+`kern-frontend` remains `not-shipped`.
+
+M4.165 composes and completely authenticates M4.164 exactly once and
+re-observes the retained token stream through M4.159 exactly once. Over a
+handler/hint-free LF-free line ending at EOF or an inline comment, native KERN
+owns the repeated generic-property loop: every write, first-write property
+order, last-write values, exact `DUPLICATE_PROP` coordinates, expression
+shape, and quoted-metadata order. Quote order is authenticated through each
+final property's monotonic quote-add generation, avoiding a host collection
+primitive in native source. A dedicated pre-parse entry rejects every
+identifier/adjacent-equals key inherited by an ordinary empty object before
+snapshot capture. M4.164 property semantics and M4.162 remain unchanged; the
+shared M4.164 safety scan now recognizes actual `//` tokens and consumes bare
+values before classifying later key candidates. Styles/themes,
+unexpected tokens, hints, keyword handlers, successful parsed nodes, AST/KIR,
+public APIs, and frontend cutover remain absent, so this adds only
+`kern-frontend-generic-property-loop-shadow: internal-oracle`;
 `kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

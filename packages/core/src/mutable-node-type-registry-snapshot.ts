@@ -33,6 +33,7 @@ const ARRAY_ITERATOR_NEXT = ARRAY_ITERATOR_PROTOTYPE.next as () => IteratorResul
 const STRING_CHAR_CODE_AT = String.prototype.charCodeAt;
 const RUNTIME_PROTOTYPE = KernRuntime.prototype;
 const RUNTIME_IS_TEMPLATE_NODE = KernRuntime.prototype.isTemplateNode;
+const EMPTY_PARSER_PROPS = Object.freeze({});
 
 if (!SET_SIZE || !MAP_SIZE)
   throw new TypeError('mutable node-type registry snapshot: collection size getters are missing');
@@ -335,6 +336,7 @@ function isInlineCommentStart(source: string, tokens: ReturnType<typeof tokenize
   const precededByWhitespace = token.pos === 0 || source[token.pos - 1] === ' ' || source[token.pos - 1] === '\t';
   if (!precededByWhitespace) return false;
   if (token.kind === 'unknown' && token.value === '#') return true;
+  if (token.kind === 'slash' && token.value === '//') return true;
   const next = tokens[index + 1];
   return (
     token.kind === 'unknown' &&
@@ -345,6 +347,40 @@ function isInlineCommentStart(source: string, tokens: ReturnType<typeof tokenize
   );
 }
 
+function visitReachableGenericPropertyKeys(
+  source: string,
+  tokens: ReturnType<typeof tokenizeLine>,
+  typeIndex: number,
+  visit: (key: string) => void,
+): void {
+  let index = typeIndex + 1;
+  while (index < tokens.length) {
+    while (tokens[index]?.kind === 'whitespace') index += 1;
+    if (index >= tokens.length || isInlineCommentStart(source, tokens, index)) return;
+    const key = tokens[index];
+    if (key.kind !== 'identifier' || tokens[index + 1]?.kind !== 'equals') {
+      index += 1;
+      continue;
+    }
+    visit(key.value);
+    index += 2;
+    if (index >= tokens.length || isInlineCommentStart(source, tokens, index)) continue;
+    const value = tokens[index];
+    if (value.kind === 'whitespace') continue;
+    if (value.kind === 'quoted' || value.kind === 'expr') {
+      index += 1;
+      continue;
+    }
+    while (
+      index < tokens.length &&
+      !['whitespace', 'style', 'themeRef'].includes(tokens[index].kind) &&
+      !isInlineCommentStart(source, tokens, index)
+    ) {
+      index += 1;
+    }
+  }
+}
+
 function assertGenericPropertyAdmissionSourceSafety(source: string): void {
   if (source.includes('\r') || source.includes('\n')) {
     fail('generic property admission safety requires one LF-free source line');
@@ -352,13 +388,11 @@ function assertGenericPropertyAdmissionSourceSafety(source: string): void {
   const tokens = tokenizeLine(source);
   const typeIndex = tokens.findIndex((token) => token.kind !== 'whitespace');
   if (typeIndex < 0 || tokens[typeIndex].kind !== 'identifier') return;
-  for (let index = typeIndex + 1; index < tokens.length; index += 1) {
-    if (isInlineCommentStart(source, tokens, index)) return;
-    const token = tokens[index];
-    if (token.kind === 'identifier' && token.value === '__proto__' && tokens[index + 1]?.kind === 'equals') {
+  visitReachableGenericPropertyKeys(source, tokens, typeIndex, (key) => {
+    if (key === '__proto__') {
       fail('reserved generic property key __proto__ is outside the safe source profile');
     }
-  }
+  });
 }
 
 /**
@@ -373,6 +407,33 @@ export function parseWithGenericPropertyAdmissionSafety(
   options?: ParseOptions,
 ): MutableNodeTypeRegistryParseEvidence {
   assertGenericPropertyAdmissionSourceSafety(source);
+  return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
+}
+
+function assertGenericPropertyLoopSourceSafety(source: string): void {
+  assertGenericPropertyAdmissionSourceSafety(source);
+  const tokens = tokenizeLine(source);
+  const typeIndex = tokens.findIndex((token) => token.kind !== 'whitespace');
+  if (typeIndex < 0 || tokens[typeIndex].kind !== 'identifier') return;
+  visitReachableGenericPropertyKeys(source, tokens, typeIndex, (key) => {
+    if (key in EMPTY_PARSER_PROPS) {
+      fail(`inherited generic property key ${key} is outside the safe loop source profile`);
+    }
+  });
+}
+
+/**
+ * Reject every property spelling affected by the frozen bootstrap parser's
+ * ordinary-object accumulator before capturing M4.162 evidence. This entry is
+ * intentionally limited to the single-line M4.165 generic-property loop.
+ */
+export function parseWithGenericPropertyLoopSafety(
+  source: string,
+  runtime: KernRuntime,
+  limits: MutableNodeTypeRegistrySnapshotLimits,
+  options?: ParseOptions,
+): MutableNodeTypeRegistryParseEvidence {
+  assertGenericPropertyLoopSourceSafety(source);
   return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
 }
 
