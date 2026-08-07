@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   parseWithGenericPropertyAdmissionSafety,
   parseWithGenericPropertyLoopSafety,
+  parseWithGenericPropertyThemeRefsSafety,
   parseWithMutableNodeTypeRegistrySnapshot,
 } from '../src/mutable-node-type-registry-snapshot.js';
 import { KernRuntime } from '../src/runtime-state.js';
@@ -300,5 +301,20 @@ describe('mutable node-type registry snapshot', () => {
     expect(() =>
       parseWithMutableNodeTypeRegistrySnapshot('screen constructor=legacy', runtime, SNAPSHOT_LIMITS),
     ).not.toThrow();
+  });
+
+  it('preserves M4.165 key safety for the M4.166 theme-enabled loop entry', () => {
+    const runtime = new KernRuntime();
+    const safe = parseWithGenericPropertyThemeRefsSafety('screen a=one $base b=two', runtime, SNAPSHOT_LIMITS);
+    expect(safe.snapshot.parseEpoch).toBe(1);
+    expect(safe.parseResult.root.props).toEqual({ a: 'one', b: 'two', themeRefs: ['base'] });
+    for (const source of ['screen constructor=one $base', 'screen a=one toString=two $base']) {
+      expect(() => parseWithGenericPropertyThemeRefsSafety(source, runtime, SNAPSHOT_LIMITS)).toThrow(
+        /inherited generic property key/,
+      );
+    }
+    expect(parseWithGenericPropertyLoopSafety('screen safe=legacy', runtime, SNAPSHOT_LIMITS).snapshot.parseEpoch).toBe(
+      2,
+    );
   });
 });

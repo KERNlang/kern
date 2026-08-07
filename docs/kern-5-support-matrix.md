@@ -65,6 +65,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-known-node-warning-shadow | KERN-authored known-node warning shadow | current | `pnpm test:kern-frontend-known-node-warning-shadow` |
 | kern-frontend-generic-property-admission-shadow | KERN-authored generic property-admission shadow | current | `pnpm test:kern-frontend-generic-property-admission-shadow` |
 | kern-frontend-generic-property-loop-shadow | KERN-authored generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-loop-shadow` |
+| kern-frontend-generic-property-theme-refs-shadow | KERN-authored theme-enabled generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-theme-refs-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -133,6 +134,7 @@ wall and must remain absent until promoted.
 | kern-frontend-known-node-warning-shadow | KERN-authored known-node warning shadow | internal-oracle | `pnpm test:kern-frontend-known-node-warning-shadow` |
 | kern-frontend-generic-property-admission-shadow | KERN-authored generic property-admission shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-admission-shadow` |
 | kern-frontend-generic-property-loop-shadow | KERN-authored generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-loop-shadow` |
+| kern-frontend-generic-property-theme-refs-shadow | KERN-authored theme-enabled generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-theme-refs-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -344,6 +346,15 @@ unexpected tokens, hints, keyword handlers, successful parsed nodes, AST/KIR,
 public APIs, and frontend cutover remain absent, so this adds only
 `kern-frontend-generic-property-loop-shadow: internal-oracle`;
 `kern-frontend` remains `not-shipped`.
+
+M4.166 extends that bounded shadow through theme-reference boundaries. Native
+KERN replays the admitted property loop from authenticated retained tokens,
+preserves ordered duplicate `$name` occurrences, resumes properties after each
+theme, and fails closed before style or unexpected-token semantics. The fused
+bootstrap comparison and separate property/theme limits prove only
+`kern-frontend-generic-property-theme-refs-shadow: internal-oracle`; style
+parsing, theme resolution, successful node construction, public APIs, and the
+canonical frontend remain absent, so `kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

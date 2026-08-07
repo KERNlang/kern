@@ -70,6 +70,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-frontend-known-node-warning-shadow',
       'kern-frontend-generic-property-admission-shadow',
       'kern-frontend-generic-property-loop-shadow',
+      'kern-frontend-generic-property-theme-refs-shadow',
     ],
   );
 });

@@ -40,7 +40,8 @@
     "test:kern-frontend-mutable-node-type-registry-snapshot-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-mutable-node-type-registry-snapshot/*.test.mjs && node scripts/check-kern-frontend-mutable-node-type-registry-snapshot-regressions.mjs",
     "test:kern-frontend-known-node-warning-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-known-node-warning/*.test.mjs && node scripts/check-kern-frontend-known-node-warning-regressions.mjs",
     "test:kern-frontend-generic-property-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-admission/*.test.mjs && node scripts/check-kern-frontend-generic-property-admission-regressions.mjs",
-    "test:kern-frontend-generic-property-loop-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-loop/*.test.mjs && node scripts/check-kern-frontend-generic-property-loop-regressions.mjs"
+    "test:kern-frontend-generic-property-loop-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-loop/*.test.mjs && node scripts/check-kern-frontend-generic-property-loop-regressions.mjs",
+    "test:kern-frontend-generic-property-theme-refs-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-theme-refs/*.test.mjs && node scripts/check-kern-frontend-generic-property-theme-refs-regressions.mjs"
   },
   "gates": [
     {
@@ -306,6 +307,12 @@
       "label": "KERN-authored generic property-loop shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-generic-property-loop-shadow"]
+    },
+    {
+      "id": "kern-frontend-generic-property-theme-refs-shadow",
+      "label": "KERN-authored theme-enabled generic property-loop shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-generic-property-theme-refs-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -644,6 +651,12 @@
       "label": "KERN-authored generic property-loop shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-generic-property-loop-shadow"
+    },
+    {
+      "id": "kern-frontend-generic-property-theme-refs-shadow",
+      "label": "KERN-authored theme-enabled generic property-loop shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-generic-property-theme-refs-shadow"
     },
     {
       "id": "kern-formatter",

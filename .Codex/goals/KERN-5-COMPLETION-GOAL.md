@@ -2,17 +2,18 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`0037431d334bee2ae7c35a063b3f54556c985af1`
+`f96933a3e63a7f452094b33273771ad764bcc154`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.164 generic property-admission shadow
-**Current slice:** M4.165 generic property-loop shadow; claim-tagged spec,
-Nero challenge, RED-at-base proof, native successor, independent oracle,
-dedicated inherited-key safety entry, 8/8 focused tests, 18 differential
-fixtures, and the cumulative M4.153-M4.165 frontend receipt are complete;
-the complete Node 22 fitness wall also passes; automatic high-risk role-lens
-review completed and its verified guard, dropped-cursor, and UTF-16 gaps are
-repaired; targeted correctness confirmation passed 1/1 with zero material
-findings; signed publication remains
+**Last completed slice:** M4.165 generic property-loop shadow, published as
+`f96933a3e63a7f452094b33273771ad764bcc154`
+**Current slice:** M4.166 theme-enabled generic property-loop shadow;
+claim-tagged spec, RED-at-base proof, three-seat adversarial tribunal, native
+successor, independent oracle, separate property/theme bounds, 23 differential
+fixtures, transition/envelope mutations, first-failure precedence guard, fused safety entry, cumulative
+M4.153-M4.166 receipt, and the complete Node 22 fitness wall are complete;
+automatic high-risk role-lens review and targeted correctness confirmation are
+complete with all verified issues repaired; signed publication and remote
+verification remain
 **Confidence:** 0.99
 
 ## Short Start Prompt

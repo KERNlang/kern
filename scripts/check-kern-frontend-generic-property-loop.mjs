@@ -180,7 +180,7 @@ function parseDiagnostic(record, index) {
   };
 }
 
-export function parseGenericPropertyLoopEnvelope(content, snapshot, value, policy) {
+function parseGenericPropertyLoopEnvelopeStructure(content, snapshot, value, policy) {
   const fields = textFields(value);
   if (
     fields[0] !== policy.genericPropertyLoopFormat || fields.length < 1 + 4 * RECORD_WIDTH ||
@@ -252,7 +252,6 @@ export function parseGenericPropertyLoopEnvelope(content, snapshot, value, polic
   cursor = streamAuth.cursor;
   const inherited = parseGenericPropertyAdmissionEnvelope(content, snapshot, textList(admissionAuth.authenticated), policy);
   const stream = parseRetainedTokenStreamEnvelope(content, textList(streamAuth.authenticated), policy);
-  const expected = normalizeGenericPropertyLoopOracle(content, snapshot, policy);
   const seal = fields.slice(cursor, cursor + RECORD_WIDTH);
   if (cursor !== fields.length - RECORD_WIDTH) fail('record rejection', 'loop seal must be terminal');
 
@@ -263,9 +262,7 @@ export function parseGenericPropertyLoopEnvelope(content, snapshot, value, polic
       seal.slice(8).some(Boolean) || (inherited.status !== 'failure' && stream.status !== 'failure' &&
       !['LOOP_INVALID', 'LOOP_PROFILE', 'LOOP_LIMIT'].includes(header[1]))
     ) fail('record rejection', 'invalid loop failure seal');
-    const actualFailure = failure(header[1], header[2]);
-    assert.deepEqual(actualFailure, expected);
-    return actualFailure;
+    return failure(header[1], header[2]);
   }
 
   if (inherited.status === 'failure' || stream.status === 'failure') fail('record rejection', 'decision contradicts inherited failure');
@@ -281,7 +278,18 @@ export function parseGenericPropertyLoopEnvelope(content, snapshot, value, polic
     seal[12] !== content || seal[13] !== header[12] || seal[14] !== header[13] ||
     seal[15] !== header[14] || seal[16] !== header[15] || seal.slice(17).some(Boolean)
   ) fail('record rejection', 'loop terminal seal drift');
-  assert.deepEqual(actual, expected);
+  return actual;
+}
+
+export function parseGenericPropertyLoopEnvelope(content, snapshot, value, policy) {
+  const actual = parseGenericPropertyLoopEnvelopeStructure(content, snapshot, value, policy);
+  assert.deepEqual(actual, normalizeGenericPropertyLoopOracle(content, snapshot, policy));
+  return actual;
+}
+
+export function parseGenericPropertyLoopExpectedProfileEnvelope(content, snapshot, value, policy) {
+  const actual = parseGenericPropertyLoopEnvelopeStructure(content, snapshot, value, policy);
+  assert.deepEqual(actual, failure('LOOP_PROFILE'));
   return actual;
 }
 

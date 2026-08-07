@@ -3642,7 +3642,7 @@ trusted-publishing/provenance configuration is inspected.
     publication completed as
     `0037431d334bee2ae7c35a063b3f54556c985af1`.
 
-  - [ ] M4.165 generic property-loop shadow: native KERN composes M4.164 once,
+  - [x] M4.165 generic property-loop shadow: native KERN composes M4.164 once,
     re-observes M4.159 once, and owns a bounded handler/hint-free repeated
     generic-property sequence through EOF or an inline comment. The native
     phase machine emits every write, first-write property order, last-write
@@ -3669,8 +3669,24 @@ trusted-publishing/provenance configuration is inspected.
     duplicate columns, status evidence, and checker guards are repaired and
     covered. Targeted correctness confirmation
     `review-1786110384636-73lp4n-m4165-review-fix-confirmation` completed 1/1
-    with zero material findings. Signed publication and next-slice selection
-    remain pending.
+    with zero material findings. Signed publication completed as
+    `f96933a3e63a7f452094b33273771ad764bcc154`.
+
+  - [ ] M4.166 theme-enabled generic property-loop shadow: source-grounded
+    selection and adversarial tribunal
+    `tribunal-1786111287658-ia6mn7` rejected bundling the nested style grammar
+    and corrected the ownership claim from a theme append adapter to a full
+    property-loop replay across theme boundaries. Native KERN composes M4.165
+    once, independently authenticates the retained stream, accepts
+    `LOOP_PROFILE` only when replay reaches the first reachable `themeRef`,
+    preserves ordered duplicate references, and fails closed at style or
+    unexpected tokens. Separate property/theme bounds, 23 differential
+    fixtures, transition/envelope mutations, first-failure precedence, fused safety, the cumulative
+    M4.153-M4.166 receipt, and the complete Node 22 fitness wall pass. Automatic
+    high-risk role-lens review completed 6/6; its needs-check items produced the
+    named structural-parser split and a red-first first-failure precedence fix.
+    Final targeted correctness review `review-1786122588051-8ixoz2` passed 1/1
+    with zero findings. Signed publication remains required before closure.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
