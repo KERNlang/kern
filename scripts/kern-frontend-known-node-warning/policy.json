@@ -1,0 +1,6 @@
+{
+  "diagnosticCode": "UNKNOWN_NODE_TYPE",
+  "diagnosticSeverity": "warning",
+  "format": "kern.frontend.known-node-warning-shadow.1",
+  "sourceProfile": "single-retained-known-node-warning-v1"
+}

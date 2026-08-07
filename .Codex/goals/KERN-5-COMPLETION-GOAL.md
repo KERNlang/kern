@@ -2,13 +2,13 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`860ca13b8fe71a1f9d25e9ab24d94ce945eaadf7`
+`230f17683513087e1f9ddcac92d01e93ba0f2029`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.161 immutable built-in node-type attestation shadow
-**Current slice:** M4.162 instance- and parse-epoch-bound mutable node-type
-registry snapshot shadow; implementation, complete Node 22 fitness wall,
-high-risk exact-roster review, and targeted security confirmation are clean;
-signed publication is pending
+**Last completed slice:** M4.162 mutable node-type registry snapshot shadow
+**Current slice:** M4.163 known-node warning shadow; tribunal, claim-tagged
+spec, RED-at-base proof, native successor, 17-state differential matrix, and
+focused adversarial gates are complete; the aggregate wall passed, all verified
+review blockers are fixed, and only signed publication remains
 **Confidence:** 0.99
 
 ## Short Start Prompt

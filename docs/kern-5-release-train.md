@@ -3580,8 +3580,34 @@ trusted-publishing/provenance configuration is inspected.
     and drove the replay, reentrancy, inherited-authentication, and bounds
     fixes; targeted security confirmation
     `review-1786067792632-9vo4o8-m4162-security-fix-confirmation` completed
-    1/1 with zero findings. Signed publication is pending as the final action
-    of this slice.
+    1/1 with zero findings. Signed publication completed as
+    `230f17683513087e1f9ddcac92d01e93ba0f2029`.
+
+  - [ ] M4.163 known-node warning shadow: exact-roster tribunal
+    `tribunal-1786068544177-633ls4-m4163-known-node-warning` selected a new
+    native-KERN successor that owns tri-state warning recognition plus fixed
+    code, severity, and UTF-16 coordinates without retrofitting M4.162 or
+    changing production parser authority. The successor composes M4.162 once,
+    forwards its complete bounded envelope for validation by the existing
+    host authenticator, and evaluates the exact built-in/evolved/multiline/
+    template OR predicate. The independent corpus covers all 16 admitted
+    membership combinations plus dropped; exact warning cardinality, inherited
+    failures, replay/stale evidence, hostile envelopes, named mutations, and
+    maximum registry evidence pass the focused gate. The complete Node 22 KERN
+    5 wall passes, including both 737/737 canonicalizer runs and the cumulative
+    M4.153-M4.163 frontend receipt. Automatic high-risk role-lens review
+    `review-1786075484759-1ygf5g-m4163-known-node-warning` completed 6/6 and
+    identified duplicate-member containment plus adversarial-coverage blockers.
+    RED-first fixes now require exactly one successor, authenticate warning
+    count and inherited admission, pin the exact UTF-16 helper, cover all seven
+    reachable inherited failure families, and kill the expanded envelope and
+    source mutation matrix. Targeted correctness reviews
+    `review-1786076500434-3scr37-m4163-review-fix-confirmation` and
+    `review-1786077071056-ynssuj-m4163-admission-fix-confirmation` completed
+    1/1 each; the first exposed the admission-field gap that is now fixed, and
+    the final review reported no verified finding. The repaired direct 9/9 and
+    complete M4.153-M4.163 frontend gates pass. Signed publication remains
+    pending.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
