@@ -2,18 +2,20 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`f96933a3e63a7f452094b33273771ad764bcc154`
+`06cd1d83a6f0cc3f1048d2700b56674c79ea8224`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.165 generic property-loop shadow, published as
-`f96933a3e63a7f452094b33273771ad764bcc154`
-**Current slice:** M4.166 theme-enabled generic property-loop shadow;
-claim-tagged spec, RED-at-base proof, three-seat adversarial tribunal, native
-successor, independent oracle, separate property/theme bounds, 23 differential
-fixtures, transition/envelope mutations, first-failure precedence guard, fused safety entry, cumulative
-M4.153-M4.166 receipt, and the complete Node 22 fitness wall are complete;
-automatic high-risk role-lens review and targeted correctness confirmation are
-complete with all verified issues repaired; signed publication and remote
-verification remain
+**Last completed slice:** M4.166 theme-enabled generic property-loop shadow,
+published as `06cd1d83a6f0cc3f1048d2700b56674c79ea8224`
+**Current slice:** M4.167 style-and-theme generic property-loop shadow;
+claim-tagged spec, RED-at-base proof, full-roster brainstorm, three-seat
+adversarial tribunal, native integrated replay, independent oracle, bounded
+policy, 32 differential fixtures, and fused safety entry are implemented.
+Exact-limit, corruption, displaced-fact, mutation, and one-shot evidence
+hardening pass; the focused/cumulative gates and complete Node 22 fitness wall
+exit cleanly. Automatic high-risk review completed 6/6; its three verified
+containment/bound blockers are fixed, the affected gates pass, and targeted
+correctness review passes 1/1 with zero findings. Signed publication and remote
+verification remain.
 **Confidence:** 0.99
 
 ## Short Start Prompt

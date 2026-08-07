@@ -3672,7 +3672,7 @@ trusted-publishing/provenance configuration is inspected.
     with zero material findings. Signed publication completed as
     `f96933a3e63a7f452094b33273771ad764bcc154`.
 
-  - [ ] M4.166 theme-enabled generic property-loop shadow: source-grounded
+  - [x] M4.166 theme-enabled generic property-loop shadow: source-grounded
     selection and adversarial tribunal
     `tribunal-1786111287658-ia6mn7` rejected bundling the nested style grammar
     and corrected the ownership claim from a theme append adapter to a full
@@ -3686,7 +3686,28 @@ trusted-publishing/provenance configuration is inspected.
     high-risk role-lens review completed 6/6; its needs-check items produced the
     named structural-parser split and a red-first first-failure precedence fix.
     Final targeted correctness review `review-1786122588051-8ixoz2` passed 1/1
-    with zero findings. Signed publication remains required before closure.
+    with zero findings. Signed publication completed as
+    `06cd1d83a6f0cc3f1048d2700b56674c79ea8224`.
+
+  - [ ] M4.167 style-and-theme generic property-loop shadow: source-grounded
+    probes established exact UTF-16 splitting, quote/escape/parenthesis state,
+    interpretation precedence, visible unsafe-key behavior, and integer-key
+    ordering. Full-roster brainstorm `brainstorm-1786123443764-sl0qpg` required
+    cursor binding and bounded evidence; tribunal
+    `tribunal-1786123562512-pyq4ww` rejected an occurrence-only style owner and
+    selected integrated property/theme/style replay. Native KERN, an independent
+    oracle, bounded policy, 32 differential fixtures, and fused safety are
+    implemented. Exact-at-limit/first-over checks cover all eight style limits;
+    displaced identical facts, outer-envelope corruption, semantic mutations,
+    inherited-key safety, and one-shot evidence binding are covered. The focused
+    and cumulative frontend gates, touched-core checks, canonicalizer matrix,
+    and complete Node 22 `pnpm fitness:kern-5` wall pass. Automatic high-risk
+    role-lens review `review-1786136262856-9i123s` completed all six usable
+    seats and found three verified bound/containment blockers. All three are
+    fixed with source-surface and runtime regressions; the focused/cumulative
+    gate passes afterward. Targeted correctness review
+    `review-1786137584529-ycnwnc-m4-167-blocker-fixes` passed 1/1 with zero
+    findings. Signed publication remains required.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

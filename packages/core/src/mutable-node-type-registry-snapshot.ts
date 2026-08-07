@@ -451,6 +451,20 @@ export function parseWithGenericPropertyThemeRefsSafety(
   return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
 }
 
+/**
+ * Preserve the M4.165 inherited-key guard while capturing fused bootstrap
+ * evidence for the M4.167 style-and-theme-enabled generic-property profile.
+ */
+export function parseWithGenericPropertyStyleThemeSafety(
+  source: string,
+  runtime: KernRuntime,
+  limits: MutableNodeTypeRegistrySnapshotLimits,
+  options?: ParseOptions,
+): MutableNodeTypeRegistryParseEvidence {
+  assertGenericPropertyLoopSourceSafety(source);
+  return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
+}
+
 /** Consume exactly one fused parse result; structural copies and replay fail closed. */
 export function consumeMutableNodeTypeRegistryParseEvidence(
   evidence: MutableNodeTypeRegistryParseEvidence,

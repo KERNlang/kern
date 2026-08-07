@@ -1,0 +1,17 @@
+{
+  "format": "kern.frontend.generic-property-style-theme-shadow.1",
+  "maxEnvelopeBytes": 4194304,
+  "maxProperties": 8,
+  "maxStyleBlockBytes": 700,
+  "maxStyleBlockCodePoints": 256,
+  "maxStyleBlockUtf16Units": 384,
+  "maxStylePairs": 56,
+  "maxStyleParenDepth": 16,
+  "maxStyleSegments": 64,
+  "maxStyleTokens": 8,
+  "maxStyleWrites": 48,
+  "maxThemeRefs": 8,
+  "replayFormat": "kern.frontend.generic-property-style-theme-replay.1",
+  "sourceProfile": "handler-free-style-theme-generic-property-loop-v1",
+  "styleFormat": "kern.frontend.style-block-evidence.1"
+}

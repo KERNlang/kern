@@ -1,0 +1,278 @@
+fn name=stylethemeouterfailure returns="string[]"
+  param name=code type=string
+  param name=content type=string
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=outerFormat type=string
+  param name=maxEnvelopeFields type=number
+  param name=maxEnvelopeBytes type=number
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(outerFormat)"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(\"\")"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=padding from=0 to=15
+      do value="out.push(\"\")"
+    do value="out.push(\"failure-seal\")"
+    do value="out.push(code)"
+    do value="out.push(\"\")"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=sealPadding from=0 to=14
+      do value="out.push(\"\")"
+    if cond="out.length > maxEnvelopeFields"
+      return value="[]"
+    let name=envelopeBytes value="0"
+    for name=envelopeField from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[envelopeField])"
+    if cond="envelopeBytes > maxEnvelopeBytes"
+      return value="[]"
+    return value="out"
+
+fn name=observegenericpropertystyletheme returns="string[]" export=true
+  param name=content type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=maxMutableFields type=number
+  param name=mutableFormat type=string
+  param name=warningCode type=string
+  param name=warningSeverity type=string
+  param name=maxWarningFields type=number
+  param name=warningFormat type=string
+  param name=streamFormat type=string
+  param name=maxProperties type=number
+  param name=admissionFormat type=string
+  param name=loopFormat type=string
+  param name=maxThemes type=number
+  param name=themeFormat type=string
+  param name=maxStyles type=number
+  param name=maxBlockCodePoints type=number
+  param name=maxBlockUtf16Units type=number
+  param name=maxBlockBytes type=number
+  param name=maxSegments type=number
+  param name=maxPairs type=number
+  param name=maxStyleWrites type=number
+  param name=maxParenDepth type=number
+  param name=maxReplayFields type=number
+  param name=maxEnvelopeFields type=number
+  param name=maxEnvelopeBytes type=number
+  param name=styleFormat type=string
+  param name=replayFormat type=string
+  param name=outerFormat type=string
+  handler lang="kern"
+    let name=inherited value="observegenericpropertythemerefs(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity, maxWarningFields, warningFormat, streamFormat, maxProperties, admissionFormat, loopFormat, maxThemes, themeFormat)"
+    let name=stream value="observeretainedtokenstream(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    let name=failureCode value="\"\""
+    let name=failureDetail value="\"\""
+    let name=state value="\"loop\""
+    let name=knownState value="\"dropped\""
+    let name=admittedType value="\"\""
+    let name=predecessorState value="\"success\""
+
+    if cond="maxStyles <= 0 || maxBlockCodePoints <= 0 || maxBlockUtf16Units <= 0 || maxBlockBytes <= 0 || maxSegments <= 0 || maxPairs <= 0 || maxStyleWrites <= 0 || maxParenDepth <= 0 || maxReplayFields <= 0 || maxEnvelopeFields <= 0 || maxEnvelopeBytes <= 0"
+      assign target=failureCode value="\"STYLE_INVALID_LIMITS\""
+    if cond="failureCode == \"\""
+      if cond="inherited.length < 21 || inherited[0] != themeFormat || (inherited.length - 1) % 20 != 0"
+        assign target=failureCode value="\"STYLE_INVALID\""
+      else
+        if cond="inherited[1] == \"failure\""
+          if cond="inherited[4] != String(runtimeInstance) || inherited[5] != String(parseEpoch)"
+            assign target=failureCode value="\"STYLE_INVALID\""
+          else
+            if cond="inherited[2] == \"THEME_PROFILE\""
+              if cond="inherited.length < 81 || inherited[21] != \"loop-auth\" || inherited[25] != loopFormat || inherited[26] != \"failure\" || inherited[27] != \"LOOP_PROFILE\" || inherited[41] != \"loop-auth\" || inherited[50] != \"admission-auth\" || inherited[54] != admissionFormat || inherited[55] != \"decision\""
+                assign target=failureCode value="\"STYLE_INVALID\""
+              else
+                assign target=predecessorState value="\"expected-profile\""
+                assign target=knownState value="inherited[57]"
+                assign target=admittedType value="inherited[58]"
+            else
+              assign target=failureCode value="inherited[2]"
+              assign target=failureDetail value="inherited[3]"
+        else
+          if cond="inherited[1] != \"decision\" || inherited[10] != String(runtimeInstance) || inherited[11] != String(parseEpoch)"
+            assign target=failureCode value="\"STYLE_INVALID\""
+          else
+            assign target=state value="inherited[2]"
+            assign target=knownState value="inherited[3]"
+            assign target=admittedType value="inherited[4]"
+            if cond="state == \"dropped\""
+              assign target=predecessorState value="\"dropped\""
+
+    if cond="stream.length < 11 || stream[0] != streamFormat || (stream.length - 1) % 10 != 0"
+      if cond="failureCode == \"\""
+        assign target=failureCode value="\"STYLE_INVALID\""
+    else
+      if cond="stream[1] == \"failure\" && failureCode == \"\""
+        assign target=failureCode value="stream[2]"
+        assign target=failureDetail value="stream[3]"
+
+    let name=replay value="replaygenericpropertystyletheme(content, stream, state, knownState, admittedType, predecessorState, runtimeInstance, parseEpoch, maxProperties, maxThemes, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxEnvelopeBytes, streamFormat, styleFormat, replayFormat)"
+    if cond="replay.length < 49 || replay[0] != replayFormat || (replay.length - 1) % 24 != 0"
+      if cond="failureCode == \"\""
+        assign target=failureCode value="\"STYLE_INVALID\""
+    else
+      if cond="replay[1] == \"failure\" && failureCode == \"\""
+        assign target=failureCode value="replay[2]"
+        assign target=failureDetail value="replay[3]"
+      else
+        if cond="replay[1] == \"decision\" && failureCode == \"\""
+          if cond="replay[17] != String(runtimeInstance) || replay[18] != String(parseEpoch) || replay[20] != predecessorState || replay[21] != styleFormat"
+            assign target=failureCode value="\"STYLE_INVALID\""
+          else
+            if cond="predecessorState == \"expected-profile\" && replay[8] == \"0\" && replay[2] != \"dropped\""
+              assign target=failureCode value="\"STYLE_INVALID\""
+
+    let name=out value="[]"
+    do value="out.push(outerFormat)"
+    if cond="failureCode != \"\""
+      do value="out.push(\"failure\")"
+      do value="out.push(failureCode)"
+      do value="out.push(failureDetail)"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      do value="out.push(String(inherited.length))"
+      do value="out.push(String(stream.length))"
+      do value="out.push(String(replay.length))"
+      do value="out.push(themeFormat)"
+      do value="out.push(streamFormat)"
+      do value="out.push(replayFormat)"
+      for name=failurePadding from=0 to=9
+        do value="out.push(\"\")"
+    else
+      do value="out.push(\"decision\")"
+      do value="out.push(replay[2])"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      do value="out.push(String(inherited.length))"
+      do value="out.push(String(stream.length))"
+      do value="out.push(String(replay.length))"
+      do value="out.push(themeFormat)"
+      do value="out.push(streamFormat)"
+      do value="out.push(replayFormat)"
+      do value="out.push(replay[8])"
+      do value="out.push(replay[19])"
+      do value="out.push(String(maxEnvelopeFields))"
+      do value="out.push(String(maxEnvelopeBytes))"
+      do value="out.push(styleFormat)"
+      for name=headerPadding from=0 to=5
+        do value="out.push(\"\")"
+
+    let name=authIndex value="0"
+    for name=themeAuthStart from=0 to="inherited.length" step=16
+      let name=authCount value="inherited.length - themeAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"theme-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(themeAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=field from=0 to=16
+        if cond="field < authCount"
+          do value="out.push(inherited[themeAuthStart + field])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value="0"
+    for name=streamAuthStart from=0 to="stream.length" step=16
+      let name=authCount value="stream.length - streamAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"stream-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(streamAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=field from=0 to=16
+        if cond="field < authCount"
+          do value="out.push(stream[streamAuthStart + field])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value="0"
+    for name=replayAuthStart from=0 to="replay.length" step=16
+      let name=authCount value="replay.length - replayAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"replay-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(replayAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=field from=0 to=16
+        if cond="field < authCount"
+          do value="out.push(replay[replayAuthStart + field])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    if cond="failureCode != \"\""
+      do value="out.push(\"failure-seal\")"
+      do value="out.push(failureCode)"
+      do value="out.push(failureDetail)"
+      do value="out.push(content)"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      do value="out.push(String(inherited.length))"
+      do value="out.push(String(stream.length))"
+      do value="out.push(String(replay.length))"
+      do value="out.push(themeFormat)"
+      do value="out.push(streamFormat)"
+      do value="out.push(replayFormat)"
+      for name=failureSealPadding from=0 to=8
+        do value="out.push(\"\")"
+      if cond="out.length > maxEnvelopeFields"
+        let name=failureFieldLimit value="stylethemeouterfailure(\"STYLE_ENVELOPE_FIELDS_LIMIT\", content, runtimeInstance, parseEpoch, outerFormat, maxEnvelopeFields, maxEnvelopeBytes)"
+        return value="failureFieldLimit"
+      let name=failureEnvelopeBytes value="0"
+      for name=failureField from=0 to="out.length"
+        assign target=failureEnvelopeBytes value="failureEnvelopeBytes + utf8bytes(out[failureField])"
+      if cond="failureEnvelopeBytes > maxEnvelopeBytes"
+        let name=failureByteLimit value="stylethemeouterfailure(\"STYLE_ENVELOPE_BYTES_LIMIT\", content, runtimeInstance, parseEpoch, outerFormat, maxEnvelopeFields, maxEnvelopeBytes)"
+        return value="failureByteLimit"
+      return value="out"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(replay[2])"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(inherited.length))"
+    do value="out.push(String(stream.length))"
+    do value="out.push(String(replay.length))"
+    do value="out.push(content)"
+    do value="out.push(themeFormat)"
+    do value="out.push(streamFormat)"
+    do value="out.push(replayFormat)"
+    do value="out.push(replay[8])"
+    do value="out.push(replay[19])"
+    do value="out.push(String(maxEnvelopeFields))"
+    do value="out.push(String(maxEnvelopeBytes))"
+    do value="out.push(styleFormat)"
+    for name=sealPadding from=0 to=4
+      do value="out.push(\"\")"
+    if cond="out.length > maxEnvelopeFields"
+      let name=fieldLimitFailure value="stylethemeouterfailure(\"STYLE_ENVELOPE_FIELDS_LIMIT\", content, runtimeInstance, parseEpoch, outerFormat, maxEnvelopeFields, maxEnvelopeBytes)"
+      return value="fieldLimitFailure"
+    let name=envelopeBytes value="0"
+    for name=field from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[field])"
+    if cond="envelopeBytes > maxEnvelopeBytes"
+      let name=byteLimitFailure value="stylethemeouterfailure(\"STYLE_ENVELOPE_BYTES_LIMIT\", content, runtimeInstance, parseEpoch, outerFormat, maxEnvelopeFields, maxEnvelopeBytes)"
+      return value="byteLimitFailure"
+    return value="out"
