@@ -1,0 +1,269 @@
+fn name=observegenericpropertyadmission returns="string[]" export=true
+  param name=content type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=maxMutableFields type=number
+  param name=mutableFormat type=string
+  param name=warningCode type=string
+  param name=warningSeverity type=string
+  param name=maxWarningFields type=number
+  param name=warningFormat type=string
+  param name=streamFormat type=string
+  handler lang="kern"
+    let name=inherited value="observeknownnodewarning(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity)"
+    let name=stream value="observeretainedtokenstream(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    let name=failureCode value="\"\""
+    let name=failureDetail value="\"\""
+    let name=state value="\"dropped\""
+    let name=knownState value="\"dropped\""
+    let name=admittedType value="\"\""
+    let name=key value="\"\""
+    let name=valueKind value="\"none\""
+    let name=propertyValue value="\"\""
+    let name=quoted value="\"none\""
+    let name=cursorBefore value="0"
+    let name=propertyIndexText value="\"none\""
+    let name=equalsIndexText value="\"none\""
+    let name=valueIndexText value="\"none\""
+    let name=cursorAfter value="0"
+    let name=consumedValueTokenCount value="0"
+
+    if cond="inherited.length < 21 || inherited.length > maxWarningFields || (inherited.length - 1) % 16 != 0 || inherited[0] != warningFormat"
+      assign target=failureCode value="\"PROPERTY_INVALID\""
+    else
+      if cond="inherited[1] == \"failure\""
+        assign target=failureCode value="inherited[2]"
+        assign target=failureDetail value="inherited[3]"
+      else
+        if cond="inherited[1] != \"decision\" || (inherited[2] != \"dropped\" && inherited[2] != \"known\" && inherited[2] != \"unknown\") || inherited[11] != String(runtimeInstance) || inherited[12] != String(parseEpoch)"
+          assign target=failureCode value="\"PROPERTY_INVALID\""
+        else
+          assign target=knownState value="inherited[2]"
+          assign target=admittedType value="inherited[4]"
+
+    let name=tokenCount value="0"
+    let name=firstTokenKind value="\"\""
+    let name=firstTokenValue value="\"\""
+    let name=propertyPhase value="\"after-type\""
+    let name=pendingKey value="\"\""
+    let name=pendingPropertyIndex value="0"
+    let name=streamValid value="true"
+    let name=streamSealed value="false"
+    let name=streamPhase value="\"token\""
+    let name=streamDiagnostics value="0"
+    if cond="stream.length < 11 || stream[0] != streamFormat || (stream.length - 1) % 10 != 0"
+      assign target=streamValid value="false"
+    else
+      if cond="stream[1] == \"failure\""
+        if cond="failureCode == \"\""
+          assign target=failureCode value="stream[2]"
+          assign target=failureDetail value="stream[3]"
+      else
+        if cond="stream.length < 31 || stream[1] != \"stream\" || stream[2] != \"0\" || stream[3] != content"
+          assign target=streamValid value="false"
+        else
+          for name=recordStart from=11 to="stream.length" step=10
+            let name=recordTag value="stream[recordStart]"
+            if cond="recordTag == \"token\""
+              if cond="streamPhase != \"token\" || stream[recordStart + 1] != String(tokenCount) || stream[recordStart + 7] != \"\" || stream[recordStart + 8] != \"\" || stream[recordStart + 9] != \"\""
+                assign target=streamValid value="false"
+              let name=tokenKind value="stream[recordStart + 2]"
+              let name=tokenValue value="stream[recordStart + 3]"
+              let name=tokenIndex value="tokenCount"
+              if cond="tokenIndex == 0"
+                assign target=firstTokenKind value="tokenKind"
+                assign target=firstTokenValue value="tokenValue"
+              else
+                if cond="knownState != \"dropped\" && failureCode == \"\""
+                  if cond="propertyPhase == \"after-type\" && tokenKind == \"whitespace\""
+                    assign target=propertyPhase value="\"candidate\""
+                    assign target=cursorAfter value="tokenIndex + 1"
+                  else
+                    if cond="propertyPhase == \"after-type\" || propertyPhase == \"candidate\""
+                      assign target=cursorAfter value="tokenIndex"
+                      if cond="tokenKind == \"identifier\""
+                        assign target=pendingKey value="tokenValue"
+                        assign target=pendingPropertyIndex value="tokenIndex"
+                        assign target=propertyPhase value="\"equals\""
+                      else
+                        assign target=state value="\"none\""
+                        assign target=propertyPhase value="\"done\""
+                    else
+                      if cond="propertyPhase == \"equals\""
+                        if cond="tokenKind == \"equals\""
+                          assign target=state value="\"property\""
+                          assign target=key value="pendingKey"
+                          assign target=propertyIndexText value="String(pendingPropertyIndex)"
+                          assign target=equalsIndexText value="String(tokenIndex)"
+                          assign target=cursorAfter value="tokenIndex + 1"
+                          assign target=propertyPhase value="\"value\""
+                        else
+                          assign target=state value="\"none\""
+                          assign target=cursorAfter value="pendingPropertyIndex"
+                          assign target=propertyPhase value="\"done\""
+                      else
+                        if cond="propertyPhase == \"value\""
+                          assign target=valueIndexText value="String(tokenIndex)"
+                          if cond="tokenKind == \"whitespace\""
+                            assign target=valueKind value="\"empty\""
+                            assign target=quoted value="\"false\""
+                            assign target=propertyPhase value="\"done\""
+                          else
+                            if cond="tokenKind == \"quoted\" || tokenKind == \"expr\""
+                              assign target=valueKind value="tokenKind"
+                              assign target=propertyValue value="tokenValue"
+                              assign target=quoted value="String(tokenKind == \"quoted\")"
+                              assign target=cursorAfter value="tokenIndex + 1"
+                              assign target=consumedValueTokenCount value="1"
+                              assign target=propertyPhase value="\"done\""
+                            else
+                              assign target=valueKind value="\"bare\""
+                              assign target=quoted value="\"false\""
+                              if cond="tokenKind == \"style\" || tokenKind == \"themeRef\""
+                                assign target=propertyPhase value="\"done\""
+                              else
+                                assign target=propertyValue value="tokenValue"
+                                assign target=cursorAfter value="tokenIndex + 1"
+                                assign target=consumedValueTokenCount value="1"
+                                assign target=propertyPhase value="\"bare\""
+                        else
+                          if cond="propertyPhase == \"bare\""
+                            if cond="tokenKind == \"whitespace\" || tokenKind == \"style\" || tokenKind == \"themeRef\""
+                              assign target=propertyPhase value="\"done\""
+                            else
+                              assign target=propertyValue value="propertyValue + tokenValue"
+                              assign target=cursorAfter value="tokenIndex + 1"
+                              assign target=consumedValueTokenCount value="consumedValueTokenCount + 1"
+              assign target=tokenCount value="tokenCount + 1"
+            else
+              if cond="recordTag == \"diagnostic\""
+                assign target=streamPhase value="\"diagnostic\""
+                if cond="stream[recordStart + 1] != String(streamDiagnostics) || stream[recordStart + 9] != \"\""
+                  assign target=streamValid value="false"
+                assign target=streamDiagnostics value="streamDiagnostics + 1"
+              else
+                if cond="recordTag == \"seal\""
+                  if cond="recordStart != stream.length - 10 || streamSealed || stream[recordStart + 1] != String(tokenCount) || stream[recordStart + 2] != String(streamDiagnostics) || stream[recordStart + 7] != content"
+                    assign target=streamValid value="false"
+                  assign target=streamSealed value="true"
+                  assign target=streamPhase value="\"seal\""
+                else
+                  assign target=streamValid value="false"
+    if cond="!streamValid || (!streamSealed && stream[1] != \"failure\")"
+      assign target=failureCode value="\"PROPERTY_INVALID\""
+
+    if cond="failureCode == \"\" && knownState == \"dropped\""
+      if cond="admittedType != \"\""
+        assign target=failureCode value="\"PROPERTY_INVALID\""
+    else
+      if cond="failureCode == \"\""
+        if cond="admittedType == \"\" || tokenCount == 0 || firstTokenKind != \"identifier\" || firstTokenValue != admittedType"
+          assign target=failureCode value="\"PROPERTY_INVALID\""
+        else
+          assign target=cursorBefore value="1"
+          if cond="propertyPhase == \"after-type\""
+            assign target=cursorAfter value="1"
+          if cond="propertyPhase == \"after-type\" || propertyPhase == \"candidate\" || propertyPhase == \"equals\""
+            assign target=state value="\"none\""
+          if cond="propertyPhase == \"value\""
+            assign target=valueKind value="\"empty\""
+            assign target=quoted value="\"false\""
+
+    let name=out value="[]"
+    do value="out.push(\"kern.frontend.generic-property-admission-shadow.1\")"
+    if cond="failureCode != \"\""
+      do value="out.push(\"failure\")"
+      do value="out.push(failureCode)"
+      do value="out.push(failureDetail)"
+      do value="out.push(String(inherited.length))"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      do value="out.push(warningFormat)"
+      do value="out.push(streamFormat)"
+      for name=failurePadding from=0 to=12
+        do value="out.push(\"\")"
+    else
+      do value="out.push(\"decision\")"
+      do value="out.push(state)"
+      do value="out.push(knownState)"
+      do value="out.push(admittedType)"
+      do value="out.push(key)"
+      do value="out.push(valueKind)"
+      do value="out.push(propertyValue)"
+      do value="out.push(quoted)"
+      do value="out.push(String(cursorBefore))"
+      do value="out.push(propertyIndexText)"
+      do value="out.push(equalsIndexText)"
+      do value="out.push(valueIndexText)"
+      do value="out.push(String(cursorAfter))"
+      do value="out.push(String(consumedValueTokenCount))"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      do value="out.push(warningFormat)"
+      do value="out.push(String(inherited.length))"
+      do value="out.push(streamFormat)"
+      do value="out.push(\"\")"
+
+    let name=authIndex value="0"
+    for name=authStart from=0 to="inherited.length" step=16
+      let name=authCount value="inherited.length - authStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"warning-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(authStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(inherited[authStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    if cond="failureCode != \"\""
+      do value="out.push(\"failure-seal\")"
+      do value="out.push(failureCode)"
+      do value="out.push(failureDetail)"
+      do value="out.push(content)"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      do value="out.push(warningFormat)"
+      do value="out.push(String(inherited.length))"
+      do value="out.push(streamFormat)"
+      for name=failureSealPadding from=0 to=11
+        do value="out.push(\"\")"
+      return value="out"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(state)"
+    do value="out.push(knownState)"
+    do value="out.push(admittedType)"
+    do value="out.push(key)"
+    do value="out.push(valueKind)"
+    do value="out.push(propertyValue)"
+    do value="out.push(quoted)"
+    do value="out.push(String(cursorBefore))"
+    do value="out.push(propertyIndexText)"
+    do value="out.push(equalsIndexText)"
+    do value="out.push(valueIndexText)"
+    do value="out.push(String(cursorAfter))"
+    do value="out.push(String(consumedValueTokenCount))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(content)"
+    do value="out.push(warningFormat)"
+    do value="out.push(String(inherited.length))"
+    do value="out.push(streamFormat)"
+    return value="out"

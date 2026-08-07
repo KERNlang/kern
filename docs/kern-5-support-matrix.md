@@ -63,6 +63,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-builtin-node-type-attestation-shadow | KERN-authored immutable built-in node-type attestation shadow | current | `pnpm test:kern-frontend-builtin-node-type-attestation-shadow` |
 | kern-frontend-mutable-node-type-registry-snapshot-shadow | KERN-authored mutable node-type registry snapshot shadow | current | `pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow` |
 | kern-frontend-known-node-warning-shadow | KERN-authored known-node warning shadow | current | `pnpm test:kern-frontend-known-node-warning-shadow` |
+| kern-frontend-generic-property-admission-shadow | KERN-authored generic property-admission shadow | current | `pnpm test:kern-frontend-generic-property-admission-shadow` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -129,6 +130,7 @@ wall and must remain absent until promoted.
 | kern-frontend-builtin-node-type-attestation-shadow | Immutable KERN-authored built-in node-type attestation shadow | internal-oracle | `pnpm test:kern-frontend-builtin-node-type-attestation-shadow` |
 | kern-frontend-mutable-node-type-registry-snapshot-shadow | Mutable KERN-authored node-type registry snapshot shadow | internal-oracle | `pnpm test:kern-frontend-mutable-node-type-registry-snapshot-shadow` |
 | kern-frontend-known-node-warning-shadow | KERN-authored known-node warning shadow | internal-oracle | `pnpm test:kern-frontend-known-node-warning-shadow` |
+| kern-frontend-generic-property-admission-shadow | KERN-authored generic property-admission shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-admission-shadow` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -305,6 +307,24 @@ physical indentation, multi-line spans, props, successful parsed nodes,
 AST/KIR, public APIs, and frontend cutover remain absent, so this adds only
 `kern-frontend-known-node-warning-shadow: internal-oracle`; `kern-frontend`
 remains `not-shipped`.
+
+M4.164 composes and completely authenticates M4.163 exactly once, then
+re-observes the same retained token stream through the already published
+M4.159 native observer. It owns one immediate generic property-admission unit:
+leading token whitespace, adjacent identifier/equals recognition, exact
+empty/quoted/expression/bare value projection, quoted-origin metadata, and
+token-cursor handoff. Its dedicated pre-parse entry rejects adjacent
+`__proto__=` before snapshot capture or bootstrap parser entry; quoted text and
+inline comments containing those bytes remain admitted. The independent oracle
+and bootstrap parse agree over that handler/hint-free single-line safe profile,
+including inherited tokenizer diagnostics and known/unknown node states.
+Direct bootstrap callers still inherit the frozen parser's unsafe property
+accumulator and remain explicit debt for a separate compiled-core
+re-attestation epoch. Duplicate last-write behavior, repeated properties,
+styles/themes, parser hints, keyword handlers, successful parsed nodes,
+AST/KIR, public APIs, and frontend cutover remain absent, so this adds only
+`kern-frontend-generic-property-admission-shadow: internal-oracle`;
+`kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

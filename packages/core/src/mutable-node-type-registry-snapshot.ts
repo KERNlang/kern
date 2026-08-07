@@ -2,7 +2,7 @@
 
 import { types as nodeTypes } from 'node:util';
 
-import { parseWithDiagnostics } from './parser.js';
+import { parseWithDiagnostics, tokenizeLine } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
 import { KernRuntime, type ParserHintsConfig } from './runtime-state.js';
 import type { ParseResult } from './types.js';
@@ -328,6 +328,52 @@ export function parseWithMutableNodeTypeRegistrySnapshot(
   const evidence = Object.freeze({ parseResult, snapshot });
   parseEvidenceBindings.set(evidence, { runtime, source });
   return evidence;
+}
+
+function isInlineCommentStart(source: string, tokens: ReturnType<typeof tokenizeLine>, index: number): boolean {
+  const token = tokens[index];
+  const precededByWhitespace = token.pos === 0 || source[token.pos - 1] === ' ' || source[token.pos - 1] === '\t';
+  if (!precededByWhitespace) return false;
+  if (token.kind === 'unknown' && token.value === '#') return true;
+  const next = tokens[index + 1];
+  return (
+    token.kind === 'unknown' &&
+    token.value === '/' &&
+    next?.kind === 'unknown' &&
+    next.value === '/' &&
+    next.pos === token.pos + 1
+  );
+}
+
+function assertGenericPropertyAdmissionSourceSafety(source: string): void {
+  if (source.includes('\r') || source.includes('\n')) {
+    fail('generic property admission safety requires one LF-free source line');
+  }
+  const tokens = tokenizeLine(source);
+  const typeIndex = tokens.findIndex((token) => token.kind !== 'whitespace');
+  if (typeIndex < 0 || tokens[typeIndex].kind !== 'identifier') return;
+  for (let index = typeIndex + 1; index < tokens.length; index += 1) {
+    if (isInlineCommentStart(source, tokens, index)) return;
+    const token = tokens[index];
+    if (token.kind === 'identifier' && token.value === '__proto__' && tokens[index + 1]?.kind === 'equals') {
+      fail('reserved generic property key __proto__ is outside the safe source profile');
+    }
+  }
+}
+
+/**
+ * Reject the frozen bootstrap parser's unsafe `__proto__=` spelling before
+ * capturing M4.162 evidence. This entry is intentionally limited to the
+ * single-line M4.164 generic-property admission source profile.
+ */
+export function parseWithGenericPropertyAdmissionSafety(
+  source: string,
+  runtime: KernRuntime,
+  limits: MutableNodeTypeRegistrySnapshotLimits,
+  options?: ParseOptions,
+): MutableNodeTypeRegistryParseEvidence {
+  assertGenericPropertyAdmissionSourceSafety(source);
+  return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
 }
 
 /** Consume exactly one fused parse result; structural copies and replay fail closed. */

@@ -3583,7 +3583,7 @@ trusted-publishing/provenance configuration is inspected.
     1/1 with zero findings. Signed publication completed as
     `230f17683513087e1f9ddcac92d01e93ba0f2029`.
 
-  - [ ] M4.163 known-node warning shadow: exact-roster tribunal
+  - [x] M4.163 known-node warning shadow: exact-roster tribunal
     `tribunal-1786068544177-633ls4-m4163-known-node-warning` selected a new
     native-KERN successor that owns tri-state warning recognition plus fixed
     code, severity, and UTF-16 coordinates without retrofitting M4.162 or
@@ -3606,8 +3606,40 @@ trusted-publishing/provenance configuration is inspected.
     `review-1786077071056-ynssuj-m4163-admission-fix-confirmation` completed
     1/1 each; the first exposed the admission-field gap that is now fixed, and
     the final review reported no verified finding. The repaired direct 9/9 and
-    complete M4.153-M4.163 frontend gates pass. Signed publication remains
-    pending.
+    complete M4.153-M4.163 frontend gates pass. Signed publication completed
+    as `dc58c911591288d46949914a7957a76aca3b7157`.
+
+  - [ ] M4.164 generic property-admission shadow: source-grounded selection
+    chose one complete immediate `parseProp` unit over duplicate/map state or
+    full successful-node construction. Nero
+    `nero-1786078071432-4gvs9n-m4164-property-admission-challen` challenged
+    token boundaries, cursor handoff, and malformed-expression diagnostics;
+    verification fixed `{...}`/`$name` boundaries, confirmed whitespace
+    handoff, and promoted inherited tokenizer diagnostics into the contract.
+    Native KERN composes M4.163 once, re-observes M4.159 once, and emits exact
+    empty/quoted/expression/bare values, quoted-origin metadata, and token
+    cursor evidence. The independent 21-fixture corpus, strict outer/inherited
+    authentication, replay/stale rejection, and named mutations pass focused
+    tests. Automatic high-risk role-lens review
+    `review-1786085480265-hzq69s-m4164-generic-property-admission` completed
+    6/6 and found that bootstrap `__proto__=` assignment violates complete
+    parity. A RED parser regression and null-prototype repair passed focused
+    tests, but the full wall correctly rejected the edit because
+    `parser-core.js` is immutable M4.106-M4.151 evidence. Exact-roster
+    brainstorm
+    `brainstorm-1786088054796-bduyh3-m4164-frozen-parser-security-sco`
+    completed 6/6, rejected historical receipt rewriting and post-hoc
+    sanitization, and selected pre-parse fail-closed rejection plus explicit
+    direct-bootstrap debt. The dedicated post-M4.145 fused entry now rejects
+    adjacent `__proto__=` before snapshot capture or parser entry while quoted
+    text and inline comments remain safe; targeted security confirmation
+    `review-1786097103850-a3dn9x-m4164-security-fix-confirmation` completed
+    1/1 with zero findings. The complete Node 22 KERN 5 wall passes, including
+    both 737/737 canonicalizer runs, direct 8/8 M4.164 tests, 21 differential
+    fixtures, and both cumulative M4.153-M4.164 receipts. Duplicate last-write
+    behavior, repeated generic parsing, styles/themes, hints/handlers, full
+    nodes, and the direct-bootstrap accumulator repair remain deferred. Signed
+    publication remains pending.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

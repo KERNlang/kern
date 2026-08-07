@@ -38,7 +38,8 @@
     "test:kern-frontend-node-type-token-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-node-type-token-admission/*.test.mjs && node scripts/check-kern-frontend-node-type-token-admission-regressions.mjs",
     "test:kern-frontend-builtin-node-type-attestation-shadow": "pnpm --filter @kernlang/core build && pnpm check:kern-frontend-builtin-node-catalog && node --test scripts/kern-frontend-builtin-node-type-attestation/*.test.mjs && node scripts/check-kern-frontend-builtin-node-type-attestation-regressions.mjs",
     "test:kern-frontend-mutable-node-type-registry-snapshot-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-mutable-node-type-registry-snapshot/*.test.mjs && node scripts/check-kern-frontend-mutable-node-type-registry-snapshot-regressions.mjs",
-    "test:kern-frontend-known-node-warning-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-known-node-warning/*.test.mjs && node scripts/check-kern-frontend-known-node-warning-regressions.mjs"
+    "test:kern-frontend-known-node-warning-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-known-node-warning/*.test.mjs && node scripts/check-kern-frontend-known-node-warning-regressions.mjs",
+    "test:kern-frontend-generic-property-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-admission/*.test.mjs && node scripts/check-kern-frontend-generic-property-admission-regressions.mjs"
   },
   "gates": [
     {
@@ -292,6 +293,12 @@
       "label": "KERN-authored known-node warning shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-known-node-warning-shadow"]
+    },
+    {
+      "id": "kern-frontend-generic-property-admission-shadow",
+      "label": "KERN-authored generic property-admission shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-generic-property-admission-shadow"]
     },
     {
       "id": "kern-frontend",
@@ -618,6 +625,12 @@
       "label": "KERN-authored known-node warning shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-known-node-warning-shadow"
+    },
+    {
+      "id": "kern-frontend-generic-property-admission-shadow",
+      "label": "KERN-authored generic property-admission shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-generic-property-admission-shadow"
     },
     {
       "id": "kern-formatter",

@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 
-import { parseWithMutableNodeTypeRegistrySnapshot } from '../src/mutable-node-type-registry-snapshot.js';
+import {
+  parseWithGenericPropertyAdmissionSafety,
+  parseWithMutableNodeTypeRegistrySnapshot,
+} from '../src/mutable-node-type-registry-snapshot.js';
 import { KernRuntime } from '../src/runtime-state.js';
 
 const SNAPSHOT_LIMITS = Object.freeze({
@@ -216,5 +219,29 @@ describe('mutable node-type registry snapshot', () => {
     ]) {
       expect(parseInternal.indexOf(callback)).toBeGreaterThan(parseLines);
     }
+  });
+
+  it('rejects unsafe M4.164 property keys before parser entry without widening M4.162', () => {
+    const runtime = new KernRuntime();
+    for (const source of ['screen __proto__=bare', 'screen __proto__={{ ({ polluted: true }) }}']) {
+      expect(() => parseWithGenericPropertyAdmissionSafety(source, runtime, SNAPSHOT_LIMITS)).toThrow(
+        /reserved generic property key __proto__/,
+      );
+    }
+
+    const safe = parseWithGenericPropertyAdmissionSafety(
+      'screen name=Home # __proto__=ignored',
+      runtime,
+      SNAPSHOT_LIMITS,
+    );
+    expect(safe.snapshot.parseEpoch).toBe(1);
+    expect(safe.parseResult.root.props?.name).toBe('Home');
+    expect(() =>
+      parseWithGenericPropertyAdmissionSafety('screen title="__proto__=ignored"', runtime, SNAPSHOT_LIMITS),
+    ).not.toThrow();
+
+    expect(() =>
+      parseWithMutableNodeTypeRegistrySnapshot('screen __proto__=legacy-bootstrap-debt', runtime, SNAPSHOT_LIMITS),
+    ).not.toThrow();
   });
 });

@@ -2,13 +2,14 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`230f17683513087e1f9ddcac92d01e93ba0f2029`
+`dc58c911591288d46949914a7957a76aca3b7157`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.162 mutable node-type registry snapshot shadow
-**Current slice:** M4.163 known-node warning shadow; tribunal, claim-tagged
-spec, RED-at-base proof, native successor, 17-state differential matrix, and
-focused adversarial gates are complete; the aggregate wall passed, all verified
-review blockers are fixed, and only signed publication remains
+**Last completed slice:** M4.163 known-node warning shadow
+**Current slice:** M4.164 generic property-admission shadow; claim-tagged spec,
+adversarial plan challenge, RED-at-base proof, native successor, independent
+oracle, focused adversarial tests, cumulative/full gates, automatic high-risk
+review, review-blocker repair, and targeted security confirmation are complete;
+signed publication remains
 **Confidence:** 0.99
 
 ## Short Start Prompt
