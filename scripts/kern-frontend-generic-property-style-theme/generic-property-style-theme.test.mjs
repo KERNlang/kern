@@ -76,7 +76,7 @@ function assertMutantKilled(id, functionName, from, to, occurrence = null) {
 
 test('all style/theme fixtures match the independent oracle and bootstrap parser', () => {
   const source = loadGenericPropertyStyleThemeSource();
-  assert.equal(GENERIC_PROPERTY_STYLE_THEME_FIXTURES.length, 32);
+  assert.equal(GENERIC_PROPERTY_STYLE_THEME_FIXTURES.length, 33);
   const results = new Map(GENERIC_PROPERTY_STYLE_THEME_FIXTURES.map((current) => (
     [current.id, evaluateGenericPropertyStyleThemeFixture(current, policy, source)]
   )));
@@ -274,6 +274,7 @@ test('mutations cannot skip, split, reorder, hide, or displace style semantics',
   assertMutantKilled('unsafe-visible-state', 'observestyleblockvalue', 'interpretation[2] != \\"__proto__\\"', 'interpretation[2] != \\"never\\"');
   assertMutantKilled('multiple-styles', 'replaygenericpropertystyletheme', 'assign target=styleCount value="styleCount + 1"', 'assign target=styleCount value="styleCount"');
   assertMutantKilled('properties-around-style', 'replaygenericpropertystyletheme', 'assign target=cursor value="tokenIndex + 1"', 'assign target=cursor value="tokenIndex"', 3);
+  assertMutantKilled('terminal-whitespace', 'replaygenericpropertystyletheme', 'assign target=cursor value="realTokenCount"', 'assign target=cursor value="realTokenCount - 1"');
   assertMutantKilled('themes-around-style', 'replaygenericpropertystyletheme', 'assign target=themeCount value="themeCount + 1"', 'assign target=themeCount value="themeCount"');
   assertMutantKilled('integer-key-order', 'stylearrayindex', 'value > 4294967294', 'value > 4294967295');
 });

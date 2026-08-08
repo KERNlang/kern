@@ -2,20 +2,18 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`06cd1d83a6f0cc3f1048d2700b56674c79ea8224`
+`47e25ae3a28ce646e5175eed5dc46edfae7dc419`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.166 theme-enabled generic property-loop shadow,
-published as `06cd1d83a6f0cc3f1048d2700b56674c79ea8224`
-**Current slice:** M4.167 style-and-theme generic property-loop shadow;
-claim-tagged spec, RED-at-base proof, full-roster brainstorm, three-seat
-adversarial tribunal, native integrated replay, independent oracle, bounded
-policy, 32 differential fixtures, and fused safety entry are implemented.
-Exact-limit, corruption, displaced-fact, mutation, and one-shot evidence
-hardening pass; the focused/cumulative gates and complete Node 22 fitness wall
-exit cleanly. Automatic high-risk review completed 6/6; its three verified
-containment/bound blockers are fixed, the affected gates pass, and targeted
-correctness review passes 1/1 with zero findings. Signed publication and remote
-verification remain.
+**Last completed slice:** M4.167 style-and-theme generic property-loop shadow,
+published as `47e25ae3a28ce646e5175eed5dc46edfae7dc419`
+**Current slice:** M4.168 unexpected-token diagnostic loop shadow; claim-tagged
+spec, RED-at-base proof, full-roster brainstorm, native predecessor recovery,
+index-preserving diagnostic projection, integrated semantic replay, bounded
+policy, 15 differential fixtures, exact warning-order parity, corruption and
+compact-failure tests, fused safety, focused gate, and cumulative M4.153-M4.168
+receipt are implemented and passing. The complete Node 22 fitness wall and
+automatic post-implementation review pass; signed commit, publication, and
+remote verification remain.
 **Confidence:** 0.99
 
 ## Short Start Prompt

@@ -1,0 +1,8 @@
+{
+  "format": "kern.frontend.generic-property-style-theme-diagnostics-shadow.1",
+  "maxEnvelopeBytes": 4194304,
+  "maxUnexpectedDiagnostics": 64,
+  "projectionFormat": "kern.frontend.generic-property-style-theme-diagnostic-projection.1",
+  "recoveryFormat": "kern.frontend.generic-property-style-theme-diagnostic-recovery.1",
+  "sourceProfile": "handler-free-style-theme-generic-property-loop-diagnostics-v1"
+}

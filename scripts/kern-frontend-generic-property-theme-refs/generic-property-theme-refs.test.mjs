@@ -74,7 +74,7 @@ function assertMutantKilled(id, from, to, occurrence = null) {
 
 test('all theme-enabled loop fixtures match the independent oracle and bootstrap', () => {
   const source = loadGenericPropertyThemeRefsSource();
-  assert.equal(GENERIC_PROPERTY_THEME_REFS_FIXTURES.length, 23);
+  assert.equal(GENERIC_PROPERTY_THEME_REFS_FIXTURES.length, 24);
   const results = new Map(GENERIC_PROPERTY_THEME_REFS_FIXTURES.map((current) => (
     [current.id, evaluateGenericPropertyThemeRefsFixture(current, policy, source)]
   )));
@@ -178,6 +178,7 @@ test('mutations cannot skip, absorb, deduplicate, reorder, or widen theme transi
   assertMutantKilled('style-bare-deferred', 'assign target=failureCode value="\\"THEME_PROFILE\\""', 'assign target=failureCode value="\\"\\""', 3);
   assertMutantKilled('property-limit-before-style', 'assign target=failureCode value="\\"THEME_LIMIT\\""', 'assign target=failureCode value="\\"\\""', 0);
   assertMutantKilled('theme-limit-before-style', 'assign target=failureCode value="\\"THEME_LIMIT\\""', 'assign target=failureCode value="\\"\\""', 1);
+  assertMutantKilled('terminal-whitespace', 'assign target=terminalCursor value="realTokenCount"', 'assign target=terminalCursor value="realTokenCount - 1"');
 });
 
 test('the fused entry preserves inherited-key safety and one-shot evidence binding', () => {

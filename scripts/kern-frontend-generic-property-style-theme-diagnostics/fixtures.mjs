@@ -1,0 +1,17 @@
+export const GENERIC_PROPERTY_STYLE_THEME_DIAGNOSTIC_FIXTURES = Object.freeze([
+  { id: 'no-warning', source: 'screen a=1 {bg:red} $base b=2' },
+  { id: 'single-identifier', source: 'screen stray a=1' },
+  { id: 'adjacent-equals-identifier', source: 'screen = stray {x:1} $base b=2' },
+  { id: 'repeated-identifiers', source: 'screen a=1 stray stray2 b=2' },
+  { id: 'number', source: 'screen 42 a=1' },
+  { id: 'quoted-value-width', source: 'screen "q" a=1' },
+  { id: 'expression-value-width', source: 'screen {{x}} a=1' },
+  { id: 'ascii-punctuation', source: 'screen @ , ; a=1' },
+  { id: 'mixed-continuation', source: 'screen nope a=1 $base {bg:red} again b=2' },
+  { id: 'duplicate-interleave', source: 'screen a=1 stray a=2 again a=3' },
+  { id: 'style-like-values', source: 'screen a="stray {x:1}" b={{ stray $base }}' },
+  { id: 'adjacent-property-head', source: 'screen stray=ok b=2' },
+  { id: 'whitespace-before-equals', source: 'screen stray = ok b=2' },
+  { id: 'terminal-single', source: 'screen a=1 stray' },
+  { id: 'terminal-adjacent', source: 'screen a=1 stray stray2' },
+]);

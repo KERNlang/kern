@@ -113,13 +113,14 @@ fn name=observegenericpropertyloop returns="string[]" export=true
     let name=writeCount value="0"
     let name=duplicateCount value="0"
     let name=cursor value="0"
+    let name=realTokenCount value="0"
 
     if cond="failureCode == \"\" && state != \"dropped\""
       assign target=cursor value="1"
       if cond="tokenKinds.length == 0 || tokenKinds[0] != \"identifier\" || tokenValues[0] != admittedType"
         assign target=failureCode value="\"LOOP_INVALID\""
       else
-        let name=realTokenCount value="tokenKinds.length"
+        assign target=realTokenCount value="tokenKinds.length"
         do value="tokenKinds.push(\"whitespace\")"
         do value="tokenValues.push(\"\")"
         do value="tokenStarts.push(tokenStart)"
@@ -273,6 +274,8 @@ fn name=observegenericpropertyloop returns="string[]" export=true
               assign target=consumedCount value="0"
 
     assign target=terminalCursor value="cursor"
+    if cond="failureCode == \"\" && state != \"dropped\""
+      assign target=terminalCursor value="realTokenCount"
     if cond="failureCode == \"\" && state != \"dropped\""
       if cond="writeCount == 0 && inherited[2] != \"none\""
         assign target=failureCode value="\"LOOP_INVALID\""

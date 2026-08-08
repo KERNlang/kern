@@ -465,6 +465,20 @@ export function parseWithGenericPropertyStyleThemeSafety(
   return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
 }
 
+/** Preserve the inherited-key guard for the M4.168 diagnostic projection profile. */
+export function parseWithGenericPropertyStyleThemeDiagnosticsSafety(
+  source: string,
+  runtime: KernRuntime,
+  limits: MutableNodeTypeRegistrySnapshotLimits,
+  options?: ParseOptions,
+): MutableNodeTypeRegistryParseEvidence {
+  assertGenericPropertyLoopSourceSafety(source);
+  if (source.includes('(')) {
+    fail('parenthesized minified source is outside the diagnostic projection profile');
+  }
+  return parseWithMutableNodeTypeRegistrySnapshot(source, runtime, limits, options);
+}
+
 /** Consume exactly one fused parse result; structural copies and replay fail closed. */
 export function consumeMutableNodeTypeRegistryParseEvidence(
   evidence: MutableNodeTypeRegistryParseEvidence,

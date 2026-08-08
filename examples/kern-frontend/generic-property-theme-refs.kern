@@ -121,6 +121,7 @@ fn name=observegenericpropertythemerefs returns="string[]" export=true
     let name=transitionCount value="0"
     let name=firstFailureCursorText value="\"none\""
     let name=cursor value="0"
+    let name=realTokenCount value="0"
 
     if cond="failureCode == \"\" && state != \"dropped\""
       assign target=cursor value="1"
@@ -128,7 +129,7 @@ fn name=observegenericpropertythemerefs returns="string[]" export=true
         assign target=failureCode value="\"THEME_INVALID\""
       else
         assign target=admittedType value="tokenValues[0]"
-        let name=realTokenCount value="tokenKinds.length"
+        assign target=realTokenCount value="tokenKinds.length"
         do value="tokenKinds.push(\"whitespace\")"
         do value="tokenValues.push(\"\")"
         do value="tokenStarts.push(tokenStart)"
@@ -303,6 +304,8 @@ fn name=observegenericpropertythemerefs returns="string[]" export=true
               assign target=cursorBefore value="cursor"
 
     assign target=terminalCursor value="cursor"
+    if cond="failureCode == \"\" && state != \"dropped\""
+      assign target=terminalCursor value="realTokenCount"
     if cond="failureCode == \"\" && state != \"dropped\""
       if cond="themeCount == 0 && predecessorState != \"success\""
         assign target=failureCode value="\"THEME_INVALID\""

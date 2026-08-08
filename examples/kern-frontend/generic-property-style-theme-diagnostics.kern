@@ -1,0 +1,294 @@
+fn name=stylethemediagnosticsfailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  param name=content type=string
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=diagnosticsFormat type=string
+  param name=maxDiagnosticsFields type=number
+  param name=maxDiagnosticsBytes type=number
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(diagnosticsFormat)"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=padding from=0 to=15
+      do value="out.push(\"\")"
+    do value="out.push(\"failure-seal\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=sealPadding from=0 to=14
+      do value="out.push(\"\")"
+    if cond="out.length > maxDiagnosticsFields"
+      return value="[]"
+    let name=envelopeBytes value="0"
+    for name=envelopeField from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[envelopeField])"
+    if cond="envelopeBytes > maxDiagnosticsBytes"
+      return value="[]"
+    return value="out"
+
+fn name=observegenericpropertystylethemediagnostics returns="string[]" export=true
+  param name=content type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=maxMutableFields type=number
+  param name=mutableFormat type=string
+  param name=warningCode type=string
+  param name=warningSeverity type=string
+  param name=maxWarningFields type=number
+  param name=warningFormat type=string
+  param name=streamFormat type=string
+  param name=maxProperties type=number
+  param name=admissionFormat type=string
+  param name=loopFormat type=string
+  param name=maxThemes type=number
+  param name=themeFormat type=string
+  param name=maxStyles type=number
+  param name=maxBlockCodePoints type=number
+  param name=maxBlockUtf16Units type=number
+  param name=maxBlockBytes type=number
+  param name=maxSegments type=number
+  param name=maxPairs type=number
+  param name=maxStyleWrites type=number
+  param name=maxParenDepth type=number
+  param name=maxReplayFields type=number
+  param name=maxEnvelopeFields type=number
+  param name=maxEnvelopeBytes type=number
+  param name=styleFormat type=string
+  param name=replayFormat type=string
+  param name=predecessorFormat type=string
+  param name=maxUnexpectedDiagnostics type=number
+  param name=maxProjectionFields type=number
+  param name=maxRecoveryFields type=number
+  param name=maxDiagnosticsFields type=number
+  param name=maxDiagnosticsBytes type=number
+  param name=projectionFormat type=string
+  param name=recoveryFormat type=string
+  param name=diagnosticsFormat type=string
+  handler lang="kern"
+    if cond="maxUnexpectedDiagnostics <= 0 || maxProjectionFields <= 0 || maxRecoveryFields <= 0 || maxDiagnosticsFields <= 0 || maxDiagnosticsBytes <= 0"
+      let name=invalidLimits value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID_LIMITS\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="invalidLimits"
+
+    let name=predecessor value="observegenericpropertystyletheme(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity, maxWarningFields, warningFormat, streamFormat, maxProperties, admissionFormat, loopFormat, maxThemes, themeFormat, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxEnvelopeFields, maxEnvelopeBytes, styleFormat, replayFormat, predecessorFormat)"
+    let name=recovery value="recovergenericpropertystylethemediagnosticpredecessor(content, predecessor, runtimeInstance, parseEpoch, maxEnvelopeFields, maxRecoveryFields, maxDiagnosticsBytes, predecessorFormat, themeFormat, streamFormat, replayFormat, recoveryFormat)"
+    if cond="recovery.length < 41 || recovery[0] != recoveryFormat || (recovery.length - 1) % 20 != 0"
+      let name=invalidRecovery value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="invalidRecovery"
+    if cond="recovery[1] == \"failure\""
+      let name=recoveryFailure value="stylethemediagnosticsfailure(recovery[2], recovery[3], content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="recoveryFailure"
+    if cond="recovery[1] != \"decision\" || recovery[8] != String(runtimeInstance) || recovery[9] != String(parseEpoch)"
+      let name=recoveryDrift value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="recoveryDrift"
+
+    let name=stream value="[]"
+    let name=streamFieldCount value="styleuint(recovery[7])"
+    let name=streamAuthIndex value="0"
+    let name=recoverySealed value="false"
+    for name=recoveryCursor from=21 to="recovery.length" step=20
+      if cond="recovery[recoveryCursor] == \"seal\""
+        if cond="recovery[recoveryCursor + 1] != recovery[2] || recovery[recoveryCursor + 2] != recovery[3] || recovery[recoveryCursor + 3] != recovery[4] || recovery[recoveryCursor + 4] != recovery[5] || recovery[recoveryCursor + 5] != recovery[6] || recovery[recoveryCursor + 6] != String(streamFieldCount) || recovery[recoveryCursor + 7] != content"
+          let name=recoverySealFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+          return value="recoverySealFailure"
+        assign target=recoverySealed value="true"
+        continue
+      let name=recoveryAuthCount value="styleuint(recovery[recoveryCursor + 3])"
+      if cond="recovery[recoveryCursor] != \"stream-auth\" || recovery[recoveryCursor + 1] != String(streamAuthIndex) || recovery[recoveryCursor + 2] != String(stream.length) || recoveryAuthCount <= 0 || recoveryAuthCount > 16 || recoveryAuthCount > streamFieldCount - stream.length"
+        let name=recoveryAuthFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+        return value="recoveryAuthFailure"
+      for name=recoveryAuthField from=0 to=16
+        if cond="recoveryAuthField < recoveryAuthCount"
+          do value="stream.push(recovery[recoveryCursor + 4 + recoveryAuthField])"
+        else
+          if cond="recovery[recoveryCursor + 4 + recoveryAuthField] != \"\""
+            let name=recoveryPaddingFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+            return value="recoveryPaddingFailure"
+      assign target=streamAuthIndex value="streamAuthIndex + 1"
+    if cond="!recoverySealed || stream.length != streamFieldCount || stream[0] != streamFormat"
+      let name=streamFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="streamFailure"
+
+    let name=projection value="projectgenericpropertystylethemediagnostics(content, stream, runtimeInstance, parseEpoch, maxUnexpectedDiagnostics, maxProjectionFields, maxDiagnosticsBytes, streamFormat, projectionFormat)"
+    if cond="projection.length < 41 || projection[0] != projectionFormat || (projection.length - 1) % 20 != 0"
+      let name=invalidProjection value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="invalidProjection"
+    if cond="projection[1] == \"failure\""
+      let name=projectionFailure value="stylethemediagnosticsfailure(projection[2], projection[3], content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="projectionFailure"
+
+    let name=unexpectedCount value="styleuint(projection[2])"
+    let name=derivedFieldCount value="styleuint(projection[4])"
+    let name=derivedStream value="[]"
+    let name=projectionDiagnosticIndex value="0"
+    let name=projectionAuthIndex value="0"
+    let name=projectionSealed value="false"
+    for name=projectionCursor from=21 to="projection.length" step=20
+      if cond="projection[projectionCursor] == \"unexpected-token\""
+        if cond="projection[projectionCursor + 1] != String(projectionDiagnosticIndex) || projectionDiagnosticIndex >= unexpectedCount"
+          let name=projectionDiagnosticFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+          return value="projectionDiagnosticFailure"
+        assign target=projectionDiagnosticIndex value="projectionDiagnosticIndex + 1"
+      else
+        if cond="projection[projectionCursor] == \"derived-auth\""
+          let name=projectionAuthCount value="styleuint(projection[projectionCursor + 3])"
+          if cond="projection[projectionCursor + 1] != String(projectionAuthIndex) || projection[projectionCursor + 2] != String(derivedStream.length) || projectionAuthCount <= 0 || projectionAuthCount > 16 || projectionAuthCount > derivedFieldCount - derivedStream.length"
+            let name=projectionAuthFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+            return value="projectionAuthFailure"
+          for name=projectionAuthField from=0 to=16
+            if cond="projectionAuthField < projectionAuthCount"
+              do value="derivedStream.push(projection[projectionCursor + 4 + projectionAuthField])"
+            else
+              if cond="projection[projectionCursor + 4 + projectionAuthField] != \"\""
+                let name=projectionPaddingFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+                return value="projectionPaddingFailure"
+          assign target=projectionAuthIndex value="projectionAuthIndex + 1"
+        else
+          if cond="projection[projectionCursor] == \"seal\""
+            if cond="projection[projectionCursor + 1] != String(unexpectedCount) || projection[projectionCursor + 3] != String(derivedFieldCount) || projection[projectionCursor + 4] != content"
+              let name=projectionSealFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+              return value="projectionSealFailure"
+            assign target=projectionSealed value="true"
+          else
+            let name=projectionRecordFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+            return value="projectionRecordFailure"
+    if cond="projectionDiagnosticIndex != unexpectedCount || !projectionSealed || derivedStream.length != derivedFieldCount || derivedStream[0] != streamFormat"
+      let name=derivedFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="derivedFailure"
+
+    let name=predecessorState value="\"success\""
+    if cond="recovery[4] == \"dropped\""
+      assign target=predecessorState value="\"dropped\""
+    else
+      if cond="projection[12] != \"0\""
+        assign target=predecessorState value="\"expected-profile\""
+    let name=replay value="replaygenericpropertystyletheme(content, derivedStream, recovery[4], recovery[5], recovery[6], predecessorState, runtimeInstance, parseEpoch, maxProperties, maxThemes, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxDiagnosticsBytes, streamFormat, styleFormat, replayFormat)"
+    if cond="replay.length < 49 || replay[0] != replayFormat || (replay.length - 1) % 24 != 0 || replay[1] != \"decision\" || replay[17] != String(runtimeInstance) || replay[18] != String(parseEpoch) || replay[20] != predecessorState || replay[21] != styleFormat"
+      let name=replayFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="replayFailure"
+    if cond="recovery[2] == \"failure\""
+      if cond="recovery[3] != \"STYLE_PROFILE\" || unexpectedCount == 0"
+        let name=predecessorFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+        return value="predecessorFailure"
+    else
+      if cond="unexpectedCount != 0"
+        let name=predecessorDecisionFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_INVALID\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+        return value="predecessorDecisionFailure"
+
+    let name=out value="[]"
+    do value="out.push(diagnosticsFormat)"
+    do value="out.push(\"decision\")"
+    do value="out.push(replay[2])"
+    do value="out.push(String(unexpectedCount))"
+    do value="out.push(String(predecessor.length))"
+    do value="out.push(String(projection.length))"
+    do value="out.push(String(replay.length))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(predecessorFormat)"
+    do value="out.push(projectionFormat)"
+    do value="out.push(replayFormat)"
+    do value="out.push(String(maxDiagnosticsFields))"
+    do value="out.push(String(maxDiagnosticsBytes))"
+    do value="out.push(recovery[2])"
+    do value="out.push(recovery[3])"
+    do value="out.push(styleFormat)"
+    for name=headerPadding from=0 to=4
+      do value="out.push(\"\")"
+
+    let name=authIndex value="0"
+    for name=predecessorAuthStart from=0 to="predecessor.length" step=16
+      let name=authCount value="predecessor.length - predecessorAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"predecessor-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(predecessorAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(predecessor[predecessorAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value="0"
+    for name=projectionAuthStart from=0 to="projection.length" step=16
+      let name=authCount value="projection.length - projectionAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"projection-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(projectionAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(projection[projectionAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value="0"
+    for name=replayAuthStart from=0 to="replay.length" step=16
+      let name=authCount value="replay.length - replayAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"replay-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(replayAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(replay[replayAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(replay[2])"
+    do value="out.push(String(unexpectedCount))"
+    do value="out.push(String(predecessor.length))"
+    do value="out.push(String(projection.length))"
+    do value="out.push(String(replay.length))"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(predecessorFormat)"
+    do value="out.push(projectionFormat)"
+    do value="out.push(replayFormat)"
+    do value="out.push(String(maxDiagnosticsFields))"
+    do value="out.push(String(maxDiagnosticsBytes))"
+    do value="out.push(recovery[2])"
+    do value="out.push(recovery[3])"
+    do value="out.push(styleFormat)"
+    for name=sealPadding from=0 to=3
+      do value="out.push(\"\")"
+    if cond="out.length > maxDiagnosticsFields"
+      let name=fieldFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_FIELDS_LIMIT\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="fieldFailure"
+    let name=envelopeBytes value="0"
+    for name=envelopeField from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[envelopeField])"
+    if cond="envelopeBytes > maxDiagnosticsBytes"
+      let name=byteFailure value="stylethemediagnosticsfailure(\"STYLE_DIAGNOSTICS_BYTES_LIMIT\", \"\", content, runtimeInstance, parseEpoch, diagnosticsFormat, maxDiagnosticsFields, maxDiagnosticsBytes)"
+      return value="byteFailure"
+    return value="out"
