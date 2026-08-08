@@ -63,6 +63,83 @@ describe('mutable node-type registry snapshot', () => {
     expect(a.snapshot.evolvedTypes).toEqual(b.snapshot.evolvedTypes);
   });
 
+  it('binds contradictory parser-hint payloads into otherwise equal snapshots', () => {
+    const left = new KernRuntime();
+    const right = new KernRuntime();
+    left.registerEvolvedType('widget');
+    right.registerEvolvedType('widget');
+    left.registerParserHints('widget', { positionalArgs: ['first'], bareWord: 'name' });
+    right.registerParserHints('widget', { positionalArgs: ['left', 'right'] });
+
+    const a = parseWithSnapshot('widget "x" bob p=1', left);
+    const b = parseWithSnapshot('widget "x" bob p=1', right);
+
+    expect((a.snapshot as unknown as { parserHints?: unknown }).parserHints).toEqual([
+      { bareWord: 'name', positionalArgs: ['first'], type: 'widget' },
+    ]);
+    expect((b.snapshot as unknown as { parserHints?: unknown }).parserHints).toEqual([
+      { positionalArgs: ['left', 'right'], type: 'widget' },
+    ]);
+    expect((a.snapshot as unknown as { parserHints?: unknown }).parserHints).not.toEqual(
+      (b.snapshot as unknown as { parserHints?: unknown }).parserHints,
+    );
+  });
+
+  it('deep-copies and freezes parser hints while preserving an empty runtime entry', () => {
+    const runtime = new KernRuntime();
+    const positionalArgs = ['first'];
+    const hints = { bareWord: 'name', positionalArgs };
+    runtime.registerParserHints('widget', hints);
+    runtime.registerParserHints('class', {});
+
+    const { snapshot } = parseWithSnapshot('widget value', runtime);
+    positionalArgs[0] = 'mutated';
+    hints.bareWord = 'changed';
+
+    expect(snapshot.parserHints).toEqual([
+      { positionalArgs: [], type: 'class' },
+      { bareWord: 'name', positionalArgs: ['first'], type: 'widget' },
+    ]);
+    expect(Object.isFrozen(snapshot.parserHints)).toBe(true);
+    expect(snapshot.parserHints.every((entry) => Object.isFrozen(entry))).toBe(true);
+    expect(snapshot.parserHints.every((entry) => Object.isFrozen(entry.positionalArgs))).toBe(true);
+  });
+
+  it('rejects accessor, malformed, and oversized parser-hint definitions without invoking getters', () => {
+    const accessorRuntime = new KernRuntime();
+    let trapped = false;
+    const positionalArgs: string[] = [];
+    Object.defineProperty(positionalArgs, '0', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        trapped = true;
+        return 'first';
+      },
+    });
+    positionalArgs.length = 1;
+    accessorRuntime.parserHints.set('widget', { positionalArgs });
+    expect(() => parseWithSnapshot('widget value', accessorRuntime)).toThrow(/data properties/);
+    expect(trapped).toBe(false);
+
+    const malformedRuntime = new KernRuntime();
+    malformedRuntime.parserHints.set('widget', { bareWord: '\ud800' });
+    expect(() => parseWithSnapshot('widget value', malformedRuntime)).toThrow(/well-formed UTF-16/);
+
+    const oversizedRuntime = new KernRuntime();
+    oversizedRuntime.parserHints.set('widget', {
+      positionalArgs: Array.from({ length: SNAPSHOT_LIMITS.maxRegistryEntries + 1 }, (_, index) => `p${index}`),
+    });
+    expect(() => parseWithSnapshot('widget value', oversizedRuntime)).toThrow(/argument limit/);
+
+    const aggregateRuntime = new KernRuntime();
+    aggregateRuntime.parserHints.set('left', {
+      positionalArgs: Array.from({ length: SNAPSHOT_LIMITS.maxRegistryEntries }, (_, index) => `p${index}`),
+    });
+    aggregateRuntime.parserHints.set('right', { positionalArgs: ['overflow'] });
+    expect(() => parseWithSnapshot('left value', aggregateRuntime)).toThrow(/aggregate argument limit/);
+  });
+
   it('captures direct legacy writes and all category overlaps exactly', () => {
     const runtime = new KernRuntime();
     runtime.dynamicNodeTypes.add('shared');

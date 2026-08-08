@@ -4,7 +4,8 @@ import { types as nodeTypes } from 'node:util';
 
 import { parseWithDiagnostics, tokenizeLine } from './parser.js';
 import type { ParseOptions } from './parser-core.js';
-import { KernRuntime, type ParserHintsConfig } from './runtime-state.js';
+import { captureParserHintSnapshot, type ParserHintSnapshotEntry } from './parser-hint-snapshot.js';
+import { KernRuntime } from './runtime-state.js';
 import type { ParseResult } from './types.js';
 
 // Stable parser safety invariants mirrored from KernRuntime's built-in multiline set.
@@ -49,6 +50,7 @@ export interface MutableNodeTypeRegistrySnapshotEvidence {
   readonly parseEpoch: number;
   readonly evolvedTypes: readonly string[];
   readonly multilineTypes: readonly string[];
+  readonly parserHints: readonly ParserHintSnapshotEntry[];
   readonly templateTypes: readonly string[];
 }
 
@@ -159,57 +161,6 @@ function assertNativeMap(value: unknown, label: string): asserts value is Map<st
     fail(`${label} must be a non-proxied native Map with unmodified membership and iterator methods`);
 }
 
-function assertPlainParserHints(value: unknown, label: string): asserts value is ParserHintsConfig {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    nodeTypes.isProxy(value) ||
-    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
-  )
-    fail(`${label} must be non-proxied plain data`);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  const keys = Reflect.ownKeys(descriptors);
-  const allowed = new Set<PropertyKey>(['bareWord', 'multilineBlock', 'positionalArgs']);
-  if (
-    keys.some((key) => {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return !allowed.has(key) || !descriptor || !('value' in descriptor);
-    })
-  ) {
-    fail(`${label} must contain only data properties for parser hints`);
-  }
-  for (const key of ['bareWord', 'multilineBlock'] as const) {
-    const field = descriptors[key]?.value;
-    if (field !== undefined && typeof field !== 'string') fail(`${label}.${key} must be a string`);
-  }
-  const positionalArgs = descriptors.positionalArgs?.value;
-  if (positionalArgs === undefined) return;
-  if (
-    !Array.isArray(positionalArgs) ||
-    nodeTypes.isProxy(positionalArgs) ||
-    Object.getPrototypeOf(positionalArgs) !== Array.prototype
-  )
-    fail(`${label}.positionalArgs must be a non-proxied native array`);
-  for (let index = 0; index < positionalArgs.length; index += 1) {
-    if (typeof positionalArgs[index] !== 'string') fail(`${label}.positionalArgs entries must be strings`);
-  }
-}
-
-function assertNativeParserHints(value: unknown): asserts value is Map<string, ParserHintsConfig> {
-  assertNativeMap(value, 'parserHints');
-  const iterator = MAP_ENTRIES.call(value);
-  let index = 0;
-  while (true) {
-    const step = MAP_ITERATOR_NEXT.call(iterator);
-    if (step.done) break;
-    const entry = step.value as [unknown, unknown];
-    if (!Array.isArray(entry) || typeof entry[0] !== 'string') fail(`parserHints entry ${index} has an invalid key`);
-    assertPlainParserHints(entry[1], `parserHints entry ${index}`);
-    index += 1;
-  }
-  if (index !== MAP_SIZE!.call(value)) fail('parserHints size changed during capture');
-}
-
 function validateName(value: unknown, label: string, limits: MutableNodeTypeRegistrySnapshotLimits): string {
   if (typeof value !== 'string' || value.length === 0) fail(`${label} names must be non-empty strings`);
   let bytes = 0;
@@ -295,7 +246,7 @@ function captureSnapshot(
   assertNativeSet(dynamicNodeTypes, 'dynamicNodeTypes');
   assertNativeSet(multilineBlockTypes, 'multilineBlockTypes');
   assertNativeMap(templateRegistry, 'templateRegistry');
-  assertNativeParserHints(parserHints);
+  const parserHintSnapshot = captureParserHintSnapshot(parserHints, limits);
 
   const evolvedTypes = canonicalSetNames(dynamicNodeTypes, 'evolved type', limits);
   const multilineTypes = canonicalSetNames(multilineBlockTypes, 'multiline type', limits);
@@ -310,6 +261,7 @@ function captureSnapshot(
     parseEpoch: identity.epoch,
     evolvedTypes,
     multilineTypes,
+    parserHints: parserHintSnapshot,
     templateTypes,
   });
 }
