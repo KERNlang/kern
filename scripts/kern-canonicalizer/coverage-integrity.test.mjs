@@ -336,6 +336,7 @@ test('current compiled core identity is sensitive to post-M4.145 runtime modules
     'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',
     'mutable-node-type-registry-snapshot.js',
+    'parser-hint-snapshot.js',
     'runtime-envelope/kir-handler.js',
   ]) {
     const bytes = readFileSync(resolve(root, name));
@@ -359,6 +360,7 @@ test('historical compiled core identities authenticate exact M4.145 membership',
     'kir-v1/canonical.js',
     'kir-v1/types.js',
     'mutable-node-type-registry-snapshot.js',
+    'parser-hint-snapshot.js',
     'runtime-envelope/kir-handler.js',
   ]);
   assert.equal(

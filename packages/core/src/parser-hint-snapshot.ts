@@ -54,11 +54,7 @@ function validateName(value: unknown, label: string, limits: ParserHintSnapshotL
   return value;
 }
 
-function positionalNames(
-  value: unknown,
-  label: string,
-  limits: ParserHintSnapshotLimits,
-): readonly string[] {
+function positionalNames(value: unknown, label: string, limits: ParserHintSnapshotLimits): readonly string[] {
   if (!Array.isArray(value) || nodeTypes.isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) {
     fail(`${label} must be a non-proxied native array`);
   }
@@ -66,9 +62,11 @@ function positionalNames(
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const keys = Reflect.ownKeys(descriptors);
   if (
-    keys.length !== value.length + 1 || keys.at(-1) !== 'length' ||
+    keys.length !== value.length + 1 ||
+    keys.at(-1) !== 'length' ||
     keys.slice(0, -1).some((key, index) => key !== String(index))
-  ) fail(`${label} must contain only dense indexed data properties`);
+  )
+    fail(`${label} must contain only dense indexed data properties`);
   const names: string[] = [];
   for (let index = 0; index < value.length; index += 1) {
     const descriptor = descriptors[String(index)];
@@ -86,9 +84,12 @@ function canonicalEntry(
 ): ParserHintSnapshotEntry {
   const canonicalType = validateName(type, `parserHints entry ${index} type`, limits);
   if (
-    value === null || typeof value !== 'object' || nodeTypes.isProxy(value) ||
+    value === null ||
+    typeof value !== 'object' ||
+    nodeTypes.isProxy(value) ||
     ![Object.prototype, null].includes(Object.getPrototypeOf(value))
-  ) fail(`parserHints entry ${index} must be non-proxied plain data`);
+  )
+    fail(`parserHints entry ${index} must be non-proxied plain data`);
   const descriptors = Object.getOwnPropertyDescriptors(value);
   const keys = Reflect.ownKeys(descriptors);
   const allowed = new Set<PropertyKey>(['bareWord', 'multilineBlock', 'positionalArgs']);
@@ -97,15 +98,17 @@ function canonicalEntry(
   }
   const bareWordValue = descriptors.bareWord?.value;
   const multilineValue = descriptors.multilineBlock?.value;
-  const bareWord = bareWordValue === undefined
-    ? undefined
-    : validateName(bareWordValue, `parserHints entry ${index}.bareWord`, limits);
+  const bareWord =
+    bareWordValue === undefined
+      ? undefined
+      : validateName(bareWordValue, `parserHints entry ${index}.bareWord`, limits);
   if (multilineValue !== undefined) {
     validateName(multilineValue, `parserHints entry ${index}.multilineBlock`, limits);
   }
-  const positionalArgs = descriptors.positionalArgs === undefined
-    ? Object.freeze([]) as readonly string[]
-    : positionalNames(descriptors.positionalArgs.value, `parserHints entry ${index}.positionalArgs`, limits);
+  const positionalArgs =
+    descriptors.positionalArgs === undefined
+      ? (Object.freeze([]) as readonly string[])
+      : positionalNames(descriptors.positionalArgs.value, `parserHints entry ${index}.positionalArgs`, limits);
   return Object.freeze({
     ...(bareWord === undefined ? {} : { bareWord }),
     positionalArgs,
@@ -118,15 +121,23 @@ export function captureParserHintSnapshot(
   limits: ParserHintSnapshotLimits,
 ): readonly ParserHintSnapshotEntry[] {
   if (
-    value === null || typeof value !== 'object' || nodeTypes.isProxy(value) ||
-    Object.getPrototypeOf(value) !== MAP_PROTOTYPE || Map.prototype.get !== MAP_GET ||
-    Map.prototype.keys !== MAP_KEYS || Map.prototype.entries !== MAP_ENTRIES ||
+    value === null ||
+    typeof value !== 'object' ||
+    nodeTypes.isProxy(value) ||
+    Object.getPrototypeOf(value) !== MAP_PROTOTYPE ||
+    Map.prototype.get !== MAP_GET ||
+    Map.prototype.keys !== MAP_KEYS ||
+    Map.prototype.entries !== MAP_ENTRIES ||
     Map.prototype[Symbol.iterator] !== MAP_ITERATOR ||
     Object.getOwnPropertyDescriptor(Map.prototype, 'size')?.get !== MAP_SIZE ||
     Object.getPrototypeOf(MAP_KEYS.call(value)) !== MAP_ITERATOR_PROTOTYPE ||
-    MAP_ITERATOR_PROTOTYPE.next !== MAP_ITERATOR_NEXT || Object.hasOwn(value, 'get') ||
-    Object.hasOwn(value, 'keys') || Object.hasOwn(value, 'entries') || Object.hasOwn(value, Symbol.iterator)
-  ) fail('parserHints must be a non-proxied native Map with unmodified methods');
+    MAP_ITERATOR_PROTOTYPE.next !== MAP_ITERATOR_NEXT ||
+    Object.hasOwn(value, 'get') ||
+    Object.hasOwn(value, 'keys') ||
+    Object.hasOwn(value, 'entries') ||
+    Object.hasOwn(value, Symbol.iterator)
+  )
+    fail('parserHints must be a non-proxied native Map with unmodified methods');
   const size = MAP_SIZE!.call(value) as number;
   if (size > limits.maxRegistryEntries) fail('parserHints exceeds the entry limit');
   const iterator = MAP_ENTRIES.call(value);

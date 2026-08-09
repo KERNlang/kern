@@ -68,6 +68,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-generic-property-theme-refs-shadow | KERN-authored theme-enabled generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-theme-refs-shadow` |
 | kern-frontend-generic-property-style-theme | KERN-authored style-and-theme generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-style-theme` |
 | kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | current | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
+| kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | current | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -139,6 +140,7 @@ wall and must remain absent until promoted.
 | kern-frontend-generic-property-theme-refs-shadow | KERN-authored theme-enabled generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-theme-refs-shadow` |
 | kern-frontend-generic-property-style-theme | KERN-authored style-and-theme generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme` |
 | kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
+| kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | internal-oracle | `pnpm test:kern-frontend-evolved-hints` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -381,6 +383,19 @@ Parenthesized source is explicitly excluded because bootstrap minification
 changes its token stream before this fused proof boundary. Multiline input,
 handlers, hints, node construction, public APIs, and canonical frontend cutover
 remain absent, so `kern-frontend` remains `not-shipped`.
+
+M4.169 extends the same authenticated single-line profile through evolved
+parser hints. The fused registry snapshot now carries deeply frozen runtime
+hint evidence. Native KERN gives an explicit runtime entry precedence even
+when empty, falls back to the built-in `class name` hint only when that entry
+is absent, consumes positional arguments across arbitrary retained token
+kinds, applies the adjacent-equals guard to at most one bare identifier, and
+masks exactly consumed UTF-16 spans before composing M4.168 once. Twelve
+differential fixtures, bidirectional payload swaps, one-shot evidence,
+mutation killers, and bounded failure/containment checks prove only
+`kern-frontend-evolved-hints: internal-oracle`. Keyword handlers, multiline
+input, successful node construction, AST/KIR, public APIs, and canonical
+frontend cutover remain absent, so `kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

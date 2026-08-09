@@ -43,7 +43,8 @@
     "test:kern-frontend-generic-property-loop-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-loop/*.test.mjs && node scripts/check-kern-frontend-generic-property-loop-regressions.mjs",
     "test:kern-frontend-generic-property-theme-refs-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-theme-refs/*.test.mjs && node scripts/check-kern-frontend-generic-property-theme-refs-regressions.mjs",
     "test:kern-frontend-generic-property-style-theme": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-regressions.mjs",
-    "test:kern-frontend-generic-property-style-theme-diagnostics": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme-diagnostics/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-diagnostics-regressions.mjs"
+    "test:kern-frontend-generic-property-style-theme-diagnostics": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme-diagnostics/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-diagnostics-regressions.mjs",
+    "test:kern-frontend-evolved-hints": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-evolved-hints/*.test.mjs && node scripts/check-kern-frontend-evolved-hints-regressions.mjs"
   },
   "gates": [
     {
@@ -327,6 +328,12 @@
       "label": "KERN-authored generic property style/theme diagnostic shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-generic-property-style-theme-diagnostics"]
+    },
+    {
+      "id": "kern-frontend-evolved-hints",
+      "label": "KERN-authored evolved parser-hint shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-evolved-hints"]
     },
     {
       "id": "kern-frontend",
@@ -683,6 +690,12 @@
       "label": "KERN-authored generic property style/theme diagnostic shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-generic-property-style-theme-diagnostics"
+    },
+    {
+      "id": "kern-frontend-evolved-hints",
+      "label": "KERN-authored evolved parser-hint shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-evolved-hints"
     },
     {
       "id": "kern-formatter",

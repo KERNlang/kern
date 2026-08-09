@@ -2,22 +2,21 @@
 
 **Status:** ACTIVE GOAL DEFINITION
 **Verified baseline:** `origin/main` at
-`47e25ae3a28ce646e5175eed5dc46edfae7dc419`
+`8acd510f1968053d04148fe626c911f688872b81`
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.167 style-and-theme generic property-loop shadow,
-published as `47e25ae3a28ce646e5175eed5dc46edfae7dc419`
-**Current slice:** M4.168 unexpected-token diagnostic loop shadow; claim-tagged
-spec, RED-at-base proof, full-roster brainstorm, native predecessor recovery,
-index-preserving diagnostic projection, integrated semantic replay, bounded
-policy, 15 differential fixtures, exact warning-order parity, corruption and
-compact-failure tests, fused safety, focused gate, and cumulative M4.153-M4.168
-receipt are implemented and passing. The complete Node 22 fitness wall and
-initial post-implementation review passed, while the final 6/6 pre-publication
-review found three authentication blockers in terminal-seal and compact-failure
-validation. RED-first fixes passed the complete fitness rerun. Targeted security
-review then found one additional full failure-seal detail-binding gap; its exact
-RED exploit now passes the focused and cumulative M4.168 gates, and clean
-targeted confirmation completed 1/1. Only the signed corrective commit,
+**Last completed slice:** M4.168 unexpected-token diagnostic loop shadow,
+published on `origin/main` through corrective commit
+`8acd510f1968053d04148fe626c911f688872b81`.
+**Current slice:** M4.169 evolved parser-hint shadow; the claim-tagged spec,
+full-roster tribunal, RED-at-base parser-hint snapshot prerequisite, native
+runtime-entry/built-in precedence, arbitrary positional and guarded bare-word
+consumption, UTF-16-width-preserving composition into M4.168, 12 differential
+fixtures, bidirectional payload-swap rejection, replay safety, semantic
+mutation killers, and bounded envelopes are implemented. Focused tests pass;
+the promoted 12-case cumulative receipt and uninterrupted complete Node 22
+fitness wall pass. Automatic high-risk role review completed 6/6; its verified
+compact-failure authentication blocker is fixed RED-first, and targeted
+security confirmation passed 1/1 with zero findings. Signed commit,
 publication, and remote verification remain.
 **Confidence:** 0.99
 
