@@ -77,6 +77,7 @@
     "test:kern-frontend-generic-property-loop-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-loop/*.test.mjs && node scripts/check-kern-frontend-generic-property-loop-regressions.mjs",
     "test:kern-frontend-generic-property-theme-refs-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-theme-refs/*.test.mjs && node scripts/check-kern-frontend-generic-property-theme-refs-regressions.mjs",
     "test:kern-frontend-generic-property-style-theme": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-regressions.mjs",
+    "test:kern-frontend-generic-property-style-theme-diagnostics": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme-diagnostics/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-diagnostics-regressions.mjs",
     "write:kern-canonicalizer-composition": "node ./scripts/kern-canonicalizer/composition.mjs --write",
     "write:kern-canonicalizer-coverage": "pnpm --filter @kernlang/core build && node ./scripts/check-kern-canonicalizer-coverage.mjs --write",
     "build:kern-alpha-receipt": "node ./scripts/kir-v1/alpha-receipt.mjs",

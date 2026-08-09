@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   parseWithGenericPropertyAdmissionSafety,
   parseWithGenericPropertyLoopSafety,
+  parseWithGenericPropertyStyleThemeDiagnosticsSafety,
   parseWithGenericPropertyStyleThemeSafety,
   parseWithGenericPropertyThemeRefsSafety,
   parseWithMutableNodeTypeRegistrySnapshot,
@@ -340,6 +341,33 @@ describe('mutable node-type registry snapshot', () => {
     }
     expect(
       parseWithGenericPropertyThemeRefsSafety('screen safe=legacy', runtime, SNAPSHOT_LIMITS).snapshot.parseEpoch,
+    ).toBe(2);
+  });
+
+  it('preserves M4.165 key safety for the M4.168 unexpected-token diagnostic entry', () => {
+    const runtime = new KernRuntime();
+    const safe = parseWithGenericPropertyStyleThemeDiagnosticsSafety(
+      'screen stray a=one {bg:red} $base',
+      runtime,
+      SNAPSHOT_LIMITS,
+    );
+    expect(safe.snapshot.parseEpoch).toBe(1);
+    expect(safe.parseResult.diagnostics.map(({ code }) => code)).toContain('UNEXPECTED_TOKEN');
+    expect(() =>
+      parseWithGenericPropertyStyleThemeDiagnosticsSafety(
+        'screen stray constructor=one {bg:red}',
+        runtime,
+        SNAPSHOT_LIMITS,
+      ),
+    ).toThrow(/inherited generic property key/);
+    expect(() => parseWithGenericPropertyStyleThemeDiagnosticsSafety('screen ()', runtime, SNAPSHOT_LIMITS)).toThrow(
+      /parenthesized minified source/,
+    );
+    expect(() =>
+      parseWithGenericPropertyStyleThemeDiagnosticsSafety('screen title="("', new KernRuntime(), SNAPSHOT_LIMITS),
+    ).toThrow(/parenthesized minified source/);
+    expect(
+      parseWithGenericPropertyStyleThemeSafety('screen safe=legacy', runtime, SNAPSHOT_LIMITS).snapshot.parseEpoch,
     ).toBe(2);
   });
 });

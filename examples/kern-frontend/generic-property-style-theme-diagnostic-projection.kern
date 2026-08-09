@@ -1,0 +1,247 @@
+fn name=stylethemediagnosticprojectionfailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  param name=content type=string
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=projectionFormat type=string
+  param name=maxProjectionFields type=number
+  param name=maxEnvelopeBytes type=number
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(projectionFormat)"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=padding from=0 to=15
+      do value="out.push(\"\")"
+    do value="out.push(\"failure-seal\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=sealPadding from=0 to=14
+      do value="out.push(\"\")"
+    if cond="out.length > maxProjectionFields"
+      return value="[]"
+    let name=envelopeBytes value="0"
+    for name=envelopeField from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[envelopeField])"
+    if cond="envelopeBytes > maxEnvelopeBytes"
+      return value="[]"
+    return value="out"
+
+fn name=projectgenericpropertystylethemediagnostics returns="string[]"
+  param name=content type=string
+  param name=stream type="string[]"
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=maxUnexpectedDiagnostics type=number
+  param name=maxProjectionFields type=number
+  param name=maxEnvelopeBytes type=number
+  param name=streamFormat type=string
+  param name=projectionFormat type=string
+  handler lang="kern"
+    if cond="maxUnexpectedDiagnostics <= 0 || maxProjectionFields <= 0 || maxEnvelopeBytes <= 0"
+      let name=invalidLimits value="stylethemediagnosticprojectionfailure(\"STYLE_DIAGNOSTIC_INVALID_LIMITS\", \"\", content, runtimeInstance, parseEpoch, projectionFormat, maxProjectionFields, maxEnvelopeBytes)"
+      return value="invalidLimits"
+
+    let name=tokenKinds value="[]"
+    let name=tokenValues value="[]"
+    let name=tokenStarts value="[]"
+    let name=streamValid value="true"
+    let name=streamSealed value="false"
+    let name=streamPhase value="\"token\""
+    let name=streamDiagnosticCount value="0"
+    let name=tokenStart value="0"
+    if cond="stream.length < 11 || stream[0] != streamFormat || (stream.length - 1) % 10 != 0 || stream[1] == \"failure\""
+      assign target=streamValid value="false"
+    else
+      if cond="stream[1] != \"stream\" || stream[2] != \"0\" || stream[3] != content"
+        assign target=streamValid value="false"
+      else
+        for name=recordStart from=11 to="stream.length" step=10
+          let name=recordTag value="stream[recordStart]"
+          if cond="recordTag == \"token\""
+            if cond="streamPhase != \"token\" || stream[recordStart + 1] != String(tokenKinds.length) || stream[recordStart + 9] != \"\""
+              assign target=streamValid value="false"
+            do value="tokenKinds.push(stream[recordStart + 2])"
+            do value="tokenValues.push(stream[recordStart + 3])"
+            assign target=tokenStart value="tokenStart + utf16units(stream[recordStart + 4])"
+            do value="tokenStarts.push(tokenStart)"
+          else
+            if cond="recordTag == \"diagnostic\""
+              assign target=streamPhase value="\"diagnostic\""
+              if cond="stream[recordStart + 1] != String(streamDiagnosticCount) || stream[recordStart + 9] != \"\""
+                assign target=streamValid value="false"
+              assign target=streamDiagnosticCount value="streamDiagnosticCount + 1"
+            else
+              if cond="recordTag == \"seal\""
+                if cond="recordStart != stream.length - 10 || streamSealed || stream[recordStart + 1] != String(tokenKinds.length) || stream[recordStart + 2] != String(streamDiagnosticCount) || stream[recordStart + 7] != content"
+                  assign target=streamValid value="false"
+                assign target=streamSealed value="true"
+                assign target=streamPhase value="\"seal\""
+              else
+                assign target=streamValid value="false"
+    if cond="!streamValid || !streamSealed || tokenKinds.length == 0 || tokenKinds[0] != \"identifier\""
+      let name=invalidStream value="stylethemediagnosticprojectionfailure(\"STYLE_DIAGNOSTIC_INVALID\", \"\", content, runtimeInstance, parseEpoch, projectionFormat, maxProjectionFields, maxEnvelopeBytes)"
+      return value="invalidStream"
+
+    let name=unexpectedTokenIndexes value="[]"
+    let name=unexpectedTokenKinds value="[]"
+    let name=unexpectedTokenValues value="[]"
+    let name=unexpectedTokenStarts value="[]"
+    let name=phase value="\"handoff\""
+    let name=equalsIndex value="-1"
+    let name=reachableStyleCount value="0"
+    let name=failureCode value="\"\""
+    for name=tokenIndex from=1 to="tokenKinds.length"
+      let name=tokenKind value="tokenKinds[tokenIndex]"
+      if cond="failureCode != \"\""
+        assign target=tokenKind value="\"whitespace\""
+      else
+        if cond="tokenIndex == equalsIndex"
+          assign target=equalsIndex value="-1"
+        else
+          if cond="phase == \"handoff\""
+            if cond="tokenKind == \"whitespace\" || tokenKind == \"style\" || tokenKind == \"themeRef\""
+              assign target=phase value="\"handoff\""
+              if cond="tokenKind == \"style\""
+                assign target=reachableStyleCount value="reachableStyleCount + 1"
+            else
+              if cond="tokenKind == \"identifier\" && tokenIndex + 1 < tokenKinds.length && tokenKinds[tokenIndex + 1] == \"equals\""
+                assign target=equalsIndex value="tokenIndex + 1"
+                assign target=phase value="\"value\""
+              else
+                if cond="unexpectedTokenIndexes.length >= maxUnexpectedDiagnostics"
+                  assign target=failureCode value="\"STYLE_DIAGNOSTIC_LIMIT\""
+                else
+                  do value="unexpectedTokenIndexes.push(tokenIndex)"
+                  do value="unexpectedTokenKinds.push(tokenKind)"
+                  do value="unexpectedTokenValues.push(tokenValues[tokenIndex])"
+                  do value="unexpectedTokenStarts.push(tokenStarts[tokenIndex])"
+          else
+            if cond="phase == \"value\""
+              if cond="tokenKind == \"whitespace\""
+                assign target=phase value="\"handoff\""
+              else
+                if cond="tokenKind == \"style\" || tokenKind == \"themeRef\""
+                  assign target=phase value="\"handoff\""
+                  if cond="tokenKind == \"style\""
+                    assign target=reachableStyleCount value="reachableStyleCount + 1"
+                else
+                  if cond="tokenKind == \"quoted\" || tokenKind == \"expr\""
+                    assign target=phase value="\"handoff\""
+                  else
+                    assign target=phase value="\"bare\""
+            else
+              if cond="phase == \"bare\" && (tokenKind == \"whitespace\" || tokenKind == \"style\" || tokenKind == \"themeRef\")"
+                assign target=phase value="\"handoff\""
+                if cond="tokenKind == \"style\""
+                  assign target=reachableStyleCount value="reachableStyleCount + 1"
+
+    if cond="failureCode != \"\""
+      let name=limitFailure value="stylethemediagnosticprojectionfailure(failureCode, \"\", content, runtimeInstance, parseEpoch, projectionFormat, maxProjectionFields, maxEnvelopeBytes)"
+      return value="limitFailure"
+
+    let name=derivedStream value="[]"
+    do value="derivedStream.push(stream[0])"
+    let name=streamTokenIndex value="0"
+    for name=recordStart from=1 to="stream.length" step=10
+      let name=recordTag value="stream[recordStart]"
+      let name=replaceKind value="false"
+      if cond="recordTag == \"token\""
+        for name=unexpectedIndex from=0 to="unexpectedTokenIndexes.length"
+          if cond="unexpectedTokenIndexes[unexpectedIndex] == streamTokenIndex"
+            assign target=replaceKind value="true"
+      for name=recordField from=0 to=10
+        if cond="recordTag == \"token\" && recordField == 2 && replaceKind"
+          do value="derivedStream.push(\"whitespace\")"
+        else
+          do value="derivedStream.push(stream[recordStart + recordField])"
+      if cond="recordTag == \"token\""
+        assign target=streamTokenIndex value="streamTokenIndex + 1"
+
+    let name=out value="[]"
+    do value="out.push(projectionFormat)"
+    do value="out.push(\"decision\")"
+    do value="out.push(String(unexpectedTokenIndexes.length))"
+    do value="out.push(String(stream.length))"
+    do value="out.push(String(derivedStream.length))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(maxUnexpectedDiagnostics))"
+    do value="out.push(String(maxProjectionFields))"
+    do value="out.push(String(maxEnvelopeBytes))"
+    do value="out.push(streamFormat)"
+    do value="out.push(projectionFormat)"
+    do value="out.push(String(reachableStyleCount))"
+    for name=headerPadding from=0 to=8
+      do value="out.push(\"\")"
+
+    for name=diagnosticIndex from=0 to="unexpectedTokenIndexes.length"
+      let name=value value="unexpectedTokenValues[diagnosticIndex]"
+      let name=start value="unexpectedTokenStarts[diagnosticIndex]"
+      let name=col value="1 + start"
+      let name=endCol value="col + utf16units(value)"
+      let name=message value="\"Unexpected token \\\"\" + value + \"\\\" at line 1:\" + String(col)"
+      do value="out.push(\"unexpected-token\")"
+      do value="out.push(String(diagnosticIndex))"
+      do value="out.push(String(unexpectedTokenIndexes[diagnosticIndex]))"
+      do value="out.push(unexpectedTokenKinds[diagnosticIndex])"
+      do value="out.push(value)"
+      do value="out.push(String(start))"
+      do value="out.push(String(col))"
+      do value="out.push(String(endCol))"
+      do value="out.push(\"UNEXPECTED_TOKEN\")"
+      do value="out.push(\"warning\")"
+      do value="out.push(message)"
+      do value="out.push(\"Remove the stray token or quote it so the parser can treat it as a value.\")"
+      do value="out.push(\"parser\")"
+      for name=diagnosticPadding from=0 to=7
+        do value="out.push(\"\")"
+
+    let name=authIndex value="0"
+    for name=authStart from=0 to="derivedStream.length" step=16
+      let name=authCount value="derivedStream.length - authStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"derived-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(authStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(derivedStream[authStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(String(unexpectedTokenIndexes.length))"
+    do value="out.push(String(stream.length))"
+    do value="out.push(String(derivedStream.length))"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(maxUnexpectedDiagnostics))"
+    do value="out.push(String(maxProjectionFields))"
+    do value="out.push(String(maxEnvelopeBytes))"
+    do value="out.push(streamFormat)"
+    do value="out.push(projectionFormat)"
+    do value="out.push(String(reachableStyleCount))"
+    for name=sealPadding from=0 to=7
+      do value="out.push(\"\")"
+    if cond="out.length > maxProjectionFields"
+      let name=fieldFailure value="stylethemediagnosticprojectionfailure(\"STYLE_DIAGNOSTIC_FIELDS_LIMIT\", \"\", content, runtimeInstance, parseEpoch, projectionFormat, maxProjectionFields, maxEnvelopeBytes)"
+      return value="fieldFailure"
+    let name=envelopeBytes value="0"
+    for name=envelopeField from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[envelopeField])"
+    if cond="envelopeBytes > maxEnvelopeBytes"
+      let name=byteFailure value="stylethemediagnosticprojectionfailure(\"STYLE_DIAGNOSTIC_BYTES_LIMIT\", \"\", content, runtimeInstance, parseEpoch, projectionFormat, maxProjectionFields, maxEnvelopeBytes)"
+      return value="byteFailure"
+    return value="out"

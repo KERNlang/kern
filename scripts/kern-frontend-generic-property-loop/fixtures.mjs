@@ -17,4 +17,5 @@ export const GENERIC_PROPERTY_LOOP_FIXTURES = Object.freeze([
   { id: 'dropped-node', source: '123 name=Home' },
   { id: 'inherited-name-in-bare-value', source: 'screen safe=toString=value' },
   { id: 'astral-before-duplicate', source: 'screen a="😀" b=one a=two' },
+  { id: 'terminal-whitespace', source: 'screen a=one   ' },
 ]);

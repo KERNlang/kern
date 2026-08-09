@@ -3689,14 +3689,14 @@ trusted-publishing/provenance configuration is inspected.
     with zero findings. Signed publication completed as
     `06cd1d83a6f0cc3f1048d2700b56674c79ea8224`.
 
-  - [ ] M4.167 style-and-theme generic property-loop shadow: source-grounded
+  - [x] M4.167 style-and-theme generic property-loop shadow: source-grounded
     probes established exact UTF-16 splitting, quote/escape/parenthesis state,
     interpretation precedence, visible unsafe-key behavior, and integer-key
     ordering. Full-roster brainstorm `brainstorm-1786123443764-sl0qpg` required
     cursor binding and bounded evidence; tribunal
     `tribunal-1786123562512-pyq4ww` rejected an occurrence-only style owner and
     selected integrated property/theme/style replay. Native KERN, an independent
-    oracle, bounded policy, 32 differential fixtures, and fused safety are
+    oracle, bounded policy, 33 differential fixtures, and fused safety are
     implemented. Exact-at-limit/first-over checks cover all eight style limits;
     displaced identical facts, outer-envelope corruption, semantic mutations,
     inherited-key safety, and one-shot evidence binding are covered. The focused
@@ -3707,7 +3707,31 @@ trusted-publishing/provenance configuration is inspected.
     fixed with source-surface and runtime regressions; the focused/cumulative
     gate passes afterward. Targeted correctness review
     `review-1786137584529-ycnwnc-m4-167-blocker-fixes` passed 1/1 with zero
-    findings. Signed publication remains required.
+    findings. Signed publication completed as
+    `47e25ae3a28ce646e5175eed5dc46edfae7dc419`.
+
+  - [x] M4.168 unexpected-token diagnostic loop shadow: source-grounded probes
+    established exact one-token consumption, UTF-16 columns, warning metadata,
+    and post-warning property/theme/style continuation. Full-roster brainstorm
+    `brainstorm-1786138302242-kaiirt-m4-168-unexpected-token-architec` selected
+    an index-preserving derived-stream proof; source verification rejected its
+    invented resynchronization, severity, category, and hashing suggestions.
+    Native KERN authenticates the complete M4.167 predecessor, recovers its
+    retained stream, records every exact `UNEXPECTED_TOKEN`, changes only the
+    recorded kind fields to whitespace, and reuses the published semantic
+    replay. A bounded integrated envelope preserves warning order with
+    `DUPLICATE_PROP`. Fifteen differential fixtures, corruption/containment,
+    compact failure, exact diagnostic limit, fused safety, and the cumulative
+    M4.153-M4.168 receipt pass. Automatic high-risk role review
+    `review-1786153109403-sy29o0-m4-168-unexpected-token-diagnost` completed
+    4/6 seats and found two verified blockers: terminal whitespace was omitted
+    from successful M4.165-M4.167 cursors, and parenthesized bootstrap-minified
+    source could be rebound to the original input. RED-first fixtures fixed all
+    three cursor owners; the M4.168 fused wrapper now excludes parenthesized
+    source. The complete Node 22 `pnpm lint && pnpm fitness:kern-5` wall passes.
+    Targeted independent review
+    `review-1786164424792-k10u0d-m4-168-blocker-fixes` passed 1/1 with zero
+    findings. Signed commit and publication remain required.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

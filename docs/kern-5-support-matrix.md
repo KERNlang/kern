@@ -67,6 +67,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-generic-property-loop-shadow | KERN-authored generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-loop-shadow` |
 | kern-frontend-generic-property-theme-refs-shadow | KERN-authored theme-enabled generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-theme-refs-shadow` |
 | kern-frontend-generic-property-style-theme | KERN-authored style-and-theme generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-style-theme` |
+| kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | current | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -137,6 +138,7 @@ wall and must remain absent until promoted.
 | kern-frontend-generic-property-loop-shadow | KERN-authored generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-loop-shadow` |
 | kern-frontend-generic-property-theme-refs-shadow | KERN-authored theme-enabled generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-theme-refs-shadow` |
 | kern-frontend-generic-property-style-theme | KERN-authored style-and-theme generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme` |
+| kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -366,6 +368,19 @@ comparison, independent oracle, mutation suite, and cumulative receipt prove
 only `kern-frontend-generic-property-style-theme: internal-oracle`; handlers,
 hints, successful node construction, public APIs, and canonical frontend
 cutover remain absent, so `kern-frontend` remains `not-shipped`.
+
+M4.168 extends that replay through the bootstrap parser's recoverable
+`UNEXPECTED_TOKEN` path. Native KERN authenticates the complete M4.167
+predecessor, reconstructs its retained stream, records exact warning fields,
+projects only proven stray token kinds to whitespace, and replays later
+property/theme/style semantics. The integrated envelope preserves source-order
+interleaving with `DUPLICATE_PROP`; bounded failure, corruption, containment,
+and fused bootstrap parity prove only
+`kern-frontend-generic-property-style-theme-diagnostics: internal-oracle`.
+Parenthesized source is explicitly excluded because bootstrap minification
+changes its token stream before this fused proof boundary. Multiline input,
+handlers, hints, node construction, public APIs, and canonical frontend cutover
+remain absent, so `kern-frontend` remains `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

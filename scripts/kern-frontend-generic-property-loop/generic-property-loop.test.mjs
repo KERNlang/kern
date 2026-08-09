@@ -64,7 +64,7 @@ function assertMutantKilled(id, from, to) {
 
 test('all property-loop fixtures match the independent oracle and bootstrap', () => {
   const source = loadGenericPropertyLoopSource();
-  assert.equal(GENERIC_PROPERTY_LOOP_FIXTURES.length, 18);
+  assert.equal(GENERIC_PROPERTY_LOOP_FIXTURES.length, 19);
   const results = new Map(GENERIC_PROPERTY_LOOP_FIXTURES.map((current) => (
     [current.id, evaluateGenericPropertyLoopFixture(current, policy, source)]
   )));
@@ -209,4 +209,5 @@ test('named loop, last-write, duplicate, and quote-order mutations are killed', 
     String.raw`assign target=valueKind value="\"bare\""`,
   );
   assertMutantKilled('three-duplicate-coordinates', 'assign target=diagnosticColText value="String(1 + propertyStart)"', 'assign target=diagnosticColText value="String(propertyStart)"');
+  assertMutantKilled('terminal-whitespace', 'assign target=terminalCursor value="realTokenCount"', 'assign target=terminalCursor value="realTokenCount - 1"');
 });

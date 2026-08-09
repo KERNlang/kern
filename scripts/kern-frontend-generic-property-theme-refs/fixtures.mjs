@@ -22,4 +22,5 @@ export const GENERIC_PROPERTY_THEME_REFS_FIXTURES = Object.freeze([
   { id: 'missing-equals-before-theme-deferred', source: 'screen bare $base' },
   { id: 'property-limit-before-style', source: 'screen a0=0 a1=1 a2=2 a3=3 a4=4 a5=5 a6=6 a7=7 a8=8 {bg:red}' },
   { id: 'theme-limit-before-style', source: 'screen $t0 $t1 $t2 $t3 $t4 $t5 $t6 $t7 $t8 {bg:red}' },
+  { id: 'terminal-whitespace', source: 'screen a=one   ' },
 ]);

@@ -42,7 +42,8 @@
     "test:kern-frontend-generic-property-admission-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-admission/*.test.mjs && node scripts/check-kern-frontend-generic-property-admission-regressions.mjs",
     "test:kern-frontend-generic-property-loop-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-loop/*.test.mjs && node scripts/check-kern-frontend-generic-property-loop-regressions.mjs",
     "test:kern-frontend-generic-property-theme-refs-shadow": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-theme-refs/*.test.mjs && node scripts/check-kern-frontend-generic-property-theme-refs-regressions.mjs",
-    "test:kern-frontend-generic-property-style-theme": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-regressions.mjs"
+    "test:kern-frontend-generic-property-style-theme": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-regressions.mjs",
+    "test:kern-frontend-generic-property-style-theme-diagnostics": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-generic-property-style-theme-diagnostics/*.test.mjs && node scripts/check-kern-frontend-generic-property-style-theme-diagnostics-regressions.mjs"
   },
   "gates": [
     {
@@ -320,6 +321,12 @@
       "label": "KERN-authored style-and-theme generic property-loop shadow",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-generic-property-style-theme"]
+    },
+    {
+      "id": "kern-frontend-generic-property-style-theme-diagnostics",
+      "label": "KERN-authored generic property style/theme diagnostic shadow",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-generic-property-style-theme-diagnostics"]
     },
     {
       "id": "kern-frontend",
@@ -670,6 +677,12 @@
       "label": "KERN-authored style-and-theme generic property-loop shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-generic-property-style-theme"
+    },
+    {
+      "id": "kern-frontend-generic-property-style-theme-diagnostics",
+      "label": "KERN-authored generic property style/theme diagnostic shadow",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-generic-property-style-theme-diagnostics"
     },
     {
       "id": "kern-formatter",
