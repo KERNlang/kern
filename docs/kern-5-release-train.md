@@ -3731,7 +3731,25 @@ trusted-publishing/provenance configuration is inspected.
     source. The complete Node 22 `pnpm lint && pnpm fitness:kern-5` wall passes.
     Targeted independent review
     `review-1786164424792-k10u0d-m4-168-blocker-fixes` passed 1/1 with zero
-    findings. Signed commit and publication remain required.
+    findings. Final pre-publication high-risk role review
+    `review-1786270789606-p0c7ia-kern5-m4-168-final` completed 6/6 and confirmed
+    three authentication blockers: a moved predecessor seal could precede later
+    auth records, native compact failures were not bound to the current
+    runtime/epoch or exact outer-limit code set, and the three independent JS
+    compact verifiers repeated that omission. RED-first exploit tests now pass;
+    native recovery requires a unique terminal seal and all compact paths use
+    current identity plus a closed immutable failure-code contract. The
+    corrected complete Node 22 `pnpm fitness:kern-5` wall passes, including both
+    737/737 canonicalizer runs and the 15-case M4.168 cumulative receipt.
+    Targeted security review
+    `review-1786280410487-q7odsw-kern5-m4-168-auth-fixes` completed 1/1 and
+    confirmed one additional full failure-seal detail-binding gap while four
+    format/success-seal claims were disproven against the actual verifiers. Its
+    exact RED exploit now fails closed after the one-field binding fix; the
+    focused gate passes 7/7 plus the cumulative 15-case receipt. Final targeted
+    confirmation `review-1786281097456-vhd84u-kern5-m4-168-auth-fixes-final`
+    completed 1/1 with zero findings. Signed corrective commit and publication
+    remain required.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

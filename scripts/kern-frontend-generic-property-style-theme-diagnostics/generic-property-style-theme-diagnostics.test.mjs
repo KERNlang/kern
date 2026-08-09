@@ -18,6 +18,8 @@ import {
   validateFrontendGenericPropertyStyleThemeDiagnosticsPolicy,
 } from './policy.mjs';
 import { parseGenericPropertyStyleThemeDiagnosticsEnvelope } from './envelope.mjs';
+import { parseGenericPropertyStyleThemeDiagnosticProjection } from './projection.mjs';
+import { parseGenericPropertyStyleThemeDiagnosticRecovery } from './recovery.mjs';
 
 const policy = loadFrontendGenericPropertyStyleThemeDiagnosticsPolicy();
 const source = loadGenericPropertyStyleThemeDiagnosticsSource();
@@ -75,6 +77,15 @@ function authenticatedMember(fields, tag, fieldCount) {
   }
   assert.equal(member.length, fieldCount);
   return member;
+}
+
+function compactFailure(format, code, content, snapshot) {
+  return [
+    format, 'failure', code, '', String(snapshot.runtimeInstance), String(snapshot.parseEpoch),
+    ...Array(15).fill(''),
+    'failure-seal', code, '', content, String(snapshot.runtimeInstance), String(snapshot.parseEpoch),
+    ...Array(14).fill(''),
+  ];
 }
 
 test('native projection matches independent unexpected-token classification', () => {
@@ -172,6 +183,90 @@ test('authentication, containment, and compact failures fail closed', () => {
   assert.equal(diagnosticLimit.length, 41);
   assert.equal(diagnosticLimit[2], 'STYLE_DIAGNOSTIC_LIMIT');
   assert.equal(diagnosticLimit[21], 'failure-seal');
+});
+
+test('predecessor recovery rejects nonterminal seals and unbound compact failures', () => {
+  const content = 'screen stray a=1';
+  const evidence = captureGenericPropertyStyleThemeDiagnosticsEvidence(content, policy, source);
+  const predecessor = authenticatedMember(evidence.fields, 'predecessor-auth', Number(evidence.fields[4]));
+  const movedSeal = [
+    ...predecessor.slice(0, 21),
+    ...predecessor.slice(-20),
+    ...predecessor.slice(21, -20),
+  ];
+  const reordered = executeGenericPropertyStyleThemeDiagnosticRecoveryFields(
+    content, evidence.snapshot, policy, source, movedSeal,
+  );
+  assert.equal(reordered[1], 'failure');
+  assert.equal(reordered[2], 'STYLE_DIAGNOSTIC_INVALID');
+
+  const unboundFailureDetail = [...predecessor];
+  unboundFailureDetail[unboundFailureDetail.length - 18] = 'forged-seal-detail';
+  const forgedDetail = executeGenericPropertyStyleThemeDiagnosticRecoveryFields(
+    content, evidence.snapshot, policy, source, unboundFailureDetail,
+  );
+  assert.equal(forgedDetail[1], 'failure');
+  assert.equal(forgedDetail[2], 'STYLE_DIAGNOSTIC_INVALID');
+
+  const staleCompact = compactFailure(
+    policy.genericPropertyStyleThemeFormat,
+    'STYLE_ENVELOPE_FIELDS_LIMIT',
+    content,
+    { runtimeInstance: evidence.snapshot.runtimeInstance + 1, parseEpoch: evidence.snapshot.parseEpoch + 1 },
+  );
+  const stale = executeGenericPropertyStyleThemeDiagnosticRecoveryFields(
+    content, evidence.snapshot, policy, source, staleCompact,
+  );
+  assert.equal(stale[1], 'failure');
+  assert.equal(stale[2], 'STYLE_DIAGNOSTIC_INVALID');
+
+  const forgedCompact = compactFailure(
+    policy.genericPropertyStyleThemeFormat, 'FORGED_CODE', content, evidence.snapshot,
+  );
+  const forged = executeGenericPropertyStyleThemeDiagnosticRecoveryFields(
+    content, evidence.snapshot, policy, source, forgedCompact,
+  );
+  assert.equal(forged[1], 'failure');
+  assert.equal(forged[2], 'STYLE_DIAGNOSTIC_INVALID');
+});
+
+test('independent compact-failure verifiers bind identity and failure contracts', () => {
+  const content = 'screen stray a=1';
+  const evidence = captureGenericPropertyStyleThemeDiagnosticsEvidence(content, policy, source);
+  const parsers = [
+    {
+      format: policy.genericPropertyStyleThemeDiagnosticProjectionFormat,
+      parse: (fields) => parseGenericPropertyStyleThemeDiagnosticProjection(
+        content, evidence.snapshot, fields, policy, evidence.streamFields, evidence.stream,
+      ),
+      validCode: 'STYLE_DIAGNOSTIC_LIMIT',
+    },
+    {
+      format: policy.genericPropertyStyleThemeDiagnosticRecoveryFormat,
+      parse: (fields) => parseGenericPropertyStyleThemeDiagnosticRecovery(
+        content, evidence.snapshot, fields, policy, [], evidence.streamFields,
+      ),
+      validCode: 'STYLE_DIAGNOSTIC_INVALID',
+    },
+    {
+      format: policy.genericPropertyStyleThemeDiagnosticsFormat,
+      parse: (fields) => parseGenericPropertyStyleThemeDiagnosticsEnvelope(
+        content, evidence.snapshot, fields, policy, evidence.streamFields, evidence.stream,
+      ),
+      validCode: 'STYLE_DIAGNOSTICS_INVALID',
+    },
+  ];
+  for (const entry of parsers) {
+    const stale = compactFailure(entry.format, entry.validCode, content, {
+      runtimeInstance: evidence.snapshot.runtimeInstance + 1,
+      parseEpoch: evidence.snapshot.parseEpoch + 1,
+    });
+    assert.throws(() => entry.parse(stale), /identity|runtime|epoch/);
+    assert.throws(
+      () => entry.parse(compactFailure(entry.format, 'FORGED_CODE', content, evidence.snapshot)),
+      /failure code|contract/,
+    );
+  }
 });
 
 test('diagnostic policy is exact, bounded, and independently budgeted', () => {

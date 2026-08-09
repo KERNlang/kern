@@ -1,6 +1,6 @@
 # KERN Frontend Unexpected-Token Diagnostic Loop Shadow v1
 
-**Status:** IMPLEMENTED; REVIEWED; PUBLICATION PENDING
+**Status:** VERIFIED; PUBLICATION PENDING
 **Milestone:** M4.168
 **Date:** 2026-08-05
 **Confidence:** 0.99
@@ -278,6 +278,8 @@ production parser or public diagnostic contract changes.
 | Bootstrap astral unexpected-token probes should become M4.168 fixtures | M4.153 deliberately fails standalone non-ASCII unknown tokens as `UNSUPPORTED_UNKNOWN`, so no retained stream reaches M4.168 | Keep exact bootstrap evidence documented but restrict fixtures to the inherited admitted token profile |
 | A successful predecessor replay could reuse the last semantic cursor as the terminal cursor | Terminal ASCII whitespace is retained after the last semantic token, so the semantic cursor can stop before the authenticated token count | M4.165-M4.167 now derive the terminal cursor from authenticated `realTokenCount` only after a successful non-dropped replay; three RED-first fixtures and mutations lock the correction |
 | M4.168 could authenticate the original source after bootstrap minification | Bootstrap rewrites parenthesized empty groups before tokenization, so `screen ()` produces tokens for transformed source | The M4.168 fused wrapper rejects all parenthesized source; core parser behavior and the historical canonicalizer digest remain unchanged |
+| A matching predecessor seal could terminate recovery wherever it appeared, and compact failures could self-authenticate identity and code | A moved seal was accepted before later auth records; compact native and JS paths compared copied fields only, so stale epochs and `FORGED_CODE` were rebound to the current parse | Recovery now requires one terminal seal, compact native predecessors bind the current runtime/epoch and two exact outer-limit codes, and all three independent compact verifiers share a closed immutable failure-code contract; RED-first exploit tests cover every path |
+| A full predecessor failure seal could omit binding its detail field | Native recovery compared the failure code and every later seal field but skipped seal offset 2, so a forged seal detail could still return a decision | The verifier now binds the seal detail to header detail; the exact RED exploit fails closed and the focused/cumulative gate plus targeted security confirmation pass |
 
 ## Challenge and Plan Delta
 
@@ -315,3 +317,26 @@ fitness:kern-5` wall passed, including the 15-fixture M4.168 cumulative receipt.
 Targeted independent review
 `review-1786164424792-k10u0d-m4-168-blocker-fixes` passed 1/1 with zero
 findings. No dependency remains unresolved. Confidence increased to 0.99.
+
+[T5] Final pre-publication automatic high-risk role review
+`review-1786270789606-p0c7ia-kern5-m4-168-final` completed all 6 usable seats.
+Source verification rejected its claimed missing `recoveryFormat` parameter
+(declared at owner line 85) and its quoted-parenthesis concern (the explicit
+X1b profile excludes every `(`). It confirmed three authentication blockers:
+nonterminal predecessor seals, native compact failures unbound to current
+runtime/epoch and code, and independent compact verifiers with the same missing
+bindings. RED-first exploit tests failed on all three paths, the minimal native
+and shared-verifier fixes make them pass. The corrected complete Node 22
+`pnpm fitness:kern-5` wall passed, including both 737/737 canonicalizer runs and
+the 15-case M4.168 cumulative receipt.
+
+[T6] Targeted security review
+`review-1786280410487-q7odsw-kern5-m4-168-auth-fixes` completed 1/1. Source
+verification rejected four needs-check claims because all three JS entry points
+already bind `fields[0]` to their policy format and the success seal already
+binds content/runtime/epoch. It confirmed one full failure-seal detail-binding
+gap. The exact RED exploit returned `decision`; the one-field native binding
+fix makes it fail closed. The complete focused gate then passed 7/7 plus the
+15-case cumulative receipt. Final targeted security confirmation
+`review-1786281097456-vhd84u-kern5-m4-168-auth-fixes-final` completed 1/1 with
+zero findings. No dependency remains unresolved. Confidence is 0.99.

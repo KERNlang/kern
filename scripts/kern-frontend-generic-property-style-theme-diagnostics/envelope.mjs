@@ -1,5 +1,6 @@
 import { parseGenericPropertyStyleThemeEnvelope } from '../check-kern-frontend-generic-property-style-theme.mjs';
 import { parseGenericPropertyStyleThemeReplay } from '../kern-frontend-generic-property-style-theme/envelope.mjs';
+import { DIAGNOSTICS_FAILURE_CODES, parseBoundCompactFailure } from './failure-contract.mjs';
 import { parseGenericPropertyStyleThemeDiagnosticProjection } from './projection.mjs';
 
 const RECORD_WIDTH = 20;
@@ -38,18 +39,10 @@ function collectAuth(fields, cursor, fieldCount, tag) {
   return { authenticated, cursor };
 }
 
-function parseFailure(content, fields, policy) {
-  if (fields.length !== 41 || fields[1] !== 'failure' || fields[21] !== 'failure-seal') {
-    fail('invalid bounded failure envelope');
-  }
-  if (
-    fields[2] !== fields[22] || fields[3] !== fields[23] || fields[24] !== content ||
-    fields[4] !== fields[25] || fields[5] !== fields[26] || fields.slice(6, 21).some(Boolean) ||
-    fields.slice(27).some(Boolean)
-  ) fail('failure seal drift');
+function parseFailure(content, snapshot, fields, policy) {
   return {
-    code: fields[2], detail: fields[3], format: policy.genericPropertyStyleThemeDiagnosticsFormat,
-    status: 'failure',
+    ...parseBoundCompactFailure(content, snapshot, fields, DIAGNOSTICS_FAILURE_CODES, fail),
+    format: policy.genericPropertyStyleThemeDiagnosticsFormat,
   };
 }
 
@@ -100,7 +93,7 @@ export function parseGenericPropertyStyleThemeDiagnosticsEnvelope(
     fields.length > policy.maxGenericPropertyStyleThemeDiagnosticsEnvelopeFields ||
     Buffer.byteLength(fields.join(''), 'utf8') > policy.maxGenericPropertyStyleThemeDiagnosticsEnvelopeBytes
   ) fail('invalid diagnostics envelope');
-  if (fields[1] === 'failure') return parseFailure(content, fields, policy);
+  if (fields[1] === 'failure') return parseFailure(content, snapshot, fields, policy);
 
   const header = fields.slice(1, 21);
   const predecessorFieldCount = uint(header[3], 'predecessor field count');

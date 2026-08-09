@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 
+import {
+  DIAGNOSTIC_PROJECTION_FAILURE_CODES,
+  parseBoundCompactFailure,
+} from './failure-contract.mjs';
+
 const RECORD_WIDTH = 20;
 
 function fail(detail) {
@@ -84,16 +89,11 @@ function tokenKindFieldIndexes(streamFields) {
   return indexes;
 }
 
-function parseFailure(content, fields, policy) {
-  if (fields.length !== 41 || fields[1] !== 'failure' || fields[21] !== 'failure-seal') {
-    fail('invalid bounded failure envelope');
-  }
-  if (
-    fields[2] !== fields[22] || fields[3] !== fields[23] || fields[24] !== content ||
-    fields[4] !== fields[25] || fields[5] !== fields[26] || fields.slice(6, 21).some(Boolean) ||
-    fields.slice(27).some(Boolean)
-  ) fail('failure seal drift');
-  return { code: fields[2], detail: fields[3], format: policy.genericPropertyStyleThemeDiagnosticProjectionFormat, status: 'failure' };
+function parseFailure(content, snapshot, fields, policy) {
+  return {
+    ...parseBoundCompactFailure(content, snapshot, fields, DIAGNOSTIC_PROJECTION_FAILURE_CODES, fail),
+    format: policy.genericPropertyStyleThemeDiagnosticProjectionFormat,
+  };
 }
 
 export function parseGenericPropertyStyleThemeDiagnosticProjection(
@@ -110,7 +110,7 @@ export function parseGenericPropertyStyleThemeDiagnosticProjection(
     fields.length > policy.maxGenericPropertyStyleThemeDiagnosticProjectionFields ||
     Buffer.byteLength(fields.join(''), 'utf8') > policy.maxGenericPropertyStyleThemeDiagnosticsEnvelopeBytes
   ) fail('invalid projection envelope');
-  if (fields[1] === 'failure') return parseFailure(content, fields, policy);
+  if (fields[1] === 'failure') return parseFailure(content, snapshot, fields, policy);
   const header = fields.slice(1, 21);
   if (header[0] !== 'decision') fail('invalid decision tag');
   const unexpectedCount = uint(header[1], 'unexpected count');

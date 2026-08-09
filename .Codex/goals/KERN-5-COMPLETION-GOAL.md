@@ -12,8 +12,13 @@ index-preserving diagnostic projection, integrated semantic replay, bounded
 policy, 15 differential fixtures, exact warning-order parity, corruption and
 compact-failure tests, fused safety, focused gate, and cumulative M4.153-M4.168
 receipt are implemented and passing. The complete Node 22 fitness wall and
-automatic post-implementation review pass; signed commit, publication, and
-remote verification remain.
+initial post-implementation review passed, while the final 6/6 pre-publication
+review found three authentication blockers in terminal-seal and compact-failure
+validation. RED-first fixes passed the complete fitness rerun. Targeted security
+review then found one additional full failure-seal detail-binding gap; its exact
+RED exploit now passes the focused and cumulative M4.168 gates, and clean
+targeted confirmation completed 1/1. Only the signed corrective commit,
+publication, and remote verification remain.
 **Confidence:** 0.99
 
 ## Short Start Prompt

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 
 import { parseGenericPropertyStyleThemeEnvelope } from '../check-kern-frontend-generic-property-style-theme.mjs';
+import {
+  DIAGNOSTIC_RECOVERY_FAILURE_CODES,
+  parseBoundCompactFailure,
+} from './failure-contract.mjs';
 
 const RECORD_WIDTH = 20;
 
@@ -39,17 +43,9 @@ function collectAuth(fields, cursor, fieldCount, tag) {
   return { authenticated, cursor };
 }
 
-function parseFailure(content, fields, policy) {
-  if (fields.length !== 41 || fields[1] !== 'failure' || fields[21] !== 'failure-seal') {
-    fail('invalid bounded failure envelope');
-  }
-  if (
-    fields[2] !== fields[22] || fields[3] !== fields[23] || fields[24] !== content ||
-    fields[4] !== fields[25] || fields[5] !== fields[26] || fields.slice(6, 21).some(Boolean) ||
-    fields.slice(27).some(Boolean)
-  ) fail('failure seal drift');
+function parseFailure(content, snapshot, fields, policy) {
   return {
-    code: fields[2], detail: fields[3],
+    ...parseBoundCompactFailure(content, snapshot, fields, DIAGNOSTIC_RECOVERY_FAILURE_CODES, fail),
     format: policy.genericPropertyStyleThemeDiagnosticRecoveryFormat, status: 'failure',
   };
 }
@@ -91,7 +87,7 @@ export function parseGenericPropertyStyleThemeDiagnosticRecovery(
     fields.length > policy.maxGenericPropertyStyleThemeDiagnosticRecoveryFields ||
     Buffer.byteLength(fields.join(''), 'utf8') > policy.maxGenericPropertyStyleThemeDiagnosticsEnvelopeBytes
   ) fail('invalid recovery envelope');
-  if (fields[1] === 'failure') return parseFailure(content, fields, policy);
+  if (fields[1] === 'failure') return parseFailure(content, snapshot, fields, policy);
 
   parseGenericPropertyStyleThemeEnvelope(content, snapshot, textList(predecessorFields), policy);
   const header = fields.slice(1, 21);
