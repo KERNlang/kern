@@ -3748,8 +3748,31 @@ trusted-publishing/provenance configuration is inspected.
     exact RED exploit now fails closed after the one-field binding fix; the
     focused gate passes 7/7 plus the cumulative 15-case receipt. Final targeted
     confirmation `review-1786281097456-vhd84u-kern5-m4-168-auth-fixes-final`
-    completed 1/1 with zero findings. Signed corrective commit and publication
-    remain required.
+    completed 1/1 with zero findings. Corrective commit
+    `8acd510f1968053d04148fe626c911f688872b81` was published to `origin/main`
+    and remotely verified.
+
+  - [ ] M4.169 evolved parser-hint shadow: full-roster tribunal
+    `tribunal-1786164934810-zid95j-m4-169-next-frontend-seam` selected the
+    complete authenticated hint phase and rejected both a resolution-only
+    adapter and premature keyword-handler ownership. A RED-at-base prerequisite
+    binds deeply frozen parser hints into the mutable registry snapshot. Native
+    KERN owns runtime-entry precedence including empty entries, the built-in
+    `class name` fallback, arbitrary positional token consumption, the
+    adjacent-equals bare-word guard, last-write wins, and UTF-16-preserving
+    masking before one M4.168 composition. Twelve differential fixtures,
+    bidirectional payload swaps, one-shot evidence, five semantic mutants,
+    compact failures, and source containment pass. The cumulative receipt passes
+    with `evolvedHints:12`, as does the uninterrupted complete Node 22
+    `pnpm fitness:kern-5` wall. Automatic high-risk role-lens review
+    `review-1786292799625-nfwf5z-kern5-m4-169-final` completed 6/6 and verified
+    one blocker: the compact-failure parser accepted arbitrary runtime/epoch,
+    code, and detail contracts. RED-first exploits now reject all three;
+    the focused 7/7 gate and cumulative receipt pass afterward. The reported
+    spaced-equals divergence was disproven against the actual immediate-token
+    bootstrap guard and is now parity-locked. Targeted security confirmation
+    `review-1786294312814-m162h6-kern5-m4-169-compact-failure-fix` completed 1/1
+    with zero findings. Signed commit and publication remain required.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

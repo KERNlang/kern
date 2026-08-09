@@ -16,8 +16,8 @@ const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
 const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY = Object.freeze({
-  count: 313,
-  digest: 'b949674675af5a2bce33d1bca52b03f25dc60d51393dd2a9eebb7554a07ef3ce',
+  count: 314,
+  digest: '0c00e26bc2201f037b1cae907bee6af7e952ae17e396ed4c0ea9250b5f68d27f',
 });
 const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'each-collection-reference.js',
@@ -27,6 +27,7 @@ const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'kir-structural/each-collection-reference.js',
   'kir-structural/runtime-inflate.js',
   'mutable-node-type-registry-snapshot.js',
+  'parser-hint-snapshot.js',
   'runtime-envelope/kir-handler.js',
 ]);
 

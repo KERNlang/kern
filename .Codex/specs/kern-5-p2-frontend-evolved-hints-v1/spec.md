@@ -1,8 +1,8 @@
 # KERN 5 Phase-2 Authenticated Evolved Hints
 
-**Status:** READY TO BUILD
+**Status:** VERIFIED — PUBLICATION PENDING
 **Date:** 2026-08-08
-**Confidence:** 0.92
+**Confidence:** 0.99
 
 ## Executive Summary
 
@@ -27,8 +27,9 @@ frontend promotion remain explicit later seams.
   and therefore suppresses that fallback under nullish selection.
 - **VERIFIED:** `consumeAnyValue()` skips whitespace and consumes exactly one
   token of any non-whitespace kind; it does not stop at a key/value head
-  (`packages/core/src/parser-token-stream.ts:79-85`). `isKeyValue()` instead
-  looks ahead across whitespace for identifier-plus-equals
+  (`packages/core/src/parser-token-stream.ts:79-85`). After its caller skips
+  leading whitespace, `isKeyValue()` requires an identifier immediately
+  followed by equals; whitespace between them makes the guard false
   (`packages/core/src/parser-token-stream.ts:48-54`).
 - **VERIFIED:** The current fused snapshot validates `parserHints` as a native
   map of plain bounded-shape data but emits only `evolvedTypes`,
@@ -111,36 +112,52 @@ construction would falsely depend on unowned keyword handlers.
 
 ## Acceptance Criteria
 
-- [ ] **Evidence RED:** on the M4.168 base, contradictory runtimes with identical
+- [x] **Evidence RED:** on the M4.168 base, contradictory runtimes with identical
   membership cannot produce distinguishable authenticated hint payloads; the
   new focused test fails semantically for that reason before implementation.
-- [ ] Snapshot evidence records every effective runtime map entry, including an
+- [x] Snapshot evidence records every effective runtime map entry, including an
   empty `class` entry, with canonical type ordering and original positional
   ordering; entries and nested arrays are copied and frozen.
-- [ ] Invalid, proxied, accessor-bearing, oversized, duplicate, malformed UTF-16,
+- [x] Invalid, proxied, accessor-bearing, oversized, duplicate, malformed UTF-16,
   or mid-capture-mutated hint data fails before parsing.
-- [ ] Runtime hint entries win over the built-in fallback, including `{}`;
+- [x] Runtime hint entries win over the built-in fallback, including `{}`;
   absent `class` uses `bareWord=name`; absent non-`class` uses no hint.
-- [ ] Positional arguments consume exactly one arbitrary non-whitespace token in
+- [x] Positional arguments consume exactly one arbitrary non-whitespace token in
   configured order, do not write when input ends, and preserve overwrite order.
-- [ ] Bare-word consumption occurs after positionals, calls the whitespace and
+- [x] Bare-word consumption occurs after positionals, calls the whitespace and
   key/value guards, consumes at most one identifier, and preserves the exit
   cursor.
-- [ ] M4.169 composes hint writes and cursor effects with M4.168 properties,
+- [x] M4.169 composes hint writes and cursor effects with M4.168 properties,
   styles, theme refs, duplicate diagnostics, and unexpected-token diagnostics;
   parity is compared to the fused bootstrap parse without deriving expected
   semantics from `parseResult`.
-- [ ] Payload swaps, structural copies, cross-runtime use, stale epochs, replay,
+- [x] Payload swaps, structural copies, cross-runtime use, stale epochs, replay,
   double consumption, nested-reference mutation, cursor reset, precedence
   inversion, sorted/reversed positionals, identifier-only positionals,
   bare-word-before-positionals, removed guards, and double bare-word mutants die.
-- [ ] Every new handwritten source file is below 500 lines and contains no
+- [x] Every new handwritten source file is below 500 lines and contains no
   parser, TokenStream, tokenizer, adapter, dynamic-loader, crypto, or host-oracle
   delegation.
-- [ ] Focused tests, touched core tests, cumulative M4.153-M4.169 receipt,
+- [x] Focused tests, touched core tests, cumulative M4.153-M4.169 receipt,
   `git diff --check`, lint, and the complete Node 22 KERN 5 fitness wall pass.
-- [ ] Automatic high-risk role-lens Agon review with primary `codex` completes
+- [x] Automatic high-risk role-lens Agon review with primary `codex` completes
   using the live usable non-excluded roster; all verified blockers are fixed.
+
+## Verification Receipt
+
+- The focused evolved-hints gate passes 7/7 direct tests and the 12-case
+  cumulative differential receipt.
+- `git diff --check` and the repository lint gate pass; every new handwritten
+  source file remains below 500 lines.
+- The uninterrupted Node 22 `pnpm fitness:kern-5` wall exits 0 and ends with
+  `KERN 5 current fitness wall passed.`
+- Automatic high-risk role-lens review
+  `review-1786292799625-nfwf5z-kern5-m4-169-final` completed 6/6. Its verified
+  compact-failure authentication blocker is fixed RED-first; the affected
+  direct 7/7 gate and cumulative `evolvedHints:12` receipt pass afterward.
+- Targeted security confirmation
+  `review-1786294312814-m162h6-kern5-m4-169-compact-failure-fix` completed 1/1
+  with zero findings. Signed publication and remote SHA verification remain.
 
 ## Out of Scope
 
@@ -169,3 +186,5 @@ that requires `parserHints`.
 |---|---|---|
 | The new evidence could be added directly to the snapshot wrapper. | The wrapper is already 498 lines. | Extract canonicalization into a new focused core module. |
 | A separate mutation-triggered runtime epoch protocol might be needed. | Capture and parse are synchronous and already bound to one private instance/epoch evidence object. | Preserve the current protocol; test payload swap, deep-copy, stale, replay, and cross-runtime attacks instead. |
+| The host compact-failure parser could rely on duplicated seal fields alone. | Full-roster review proved that arbitrary identities, codes, and details were accepted. | Bind failures to the current snapshot, the exact seven-code native contract, and the native empty-detail invariant. |
+| `isKeyValue()` skips whitespace between an identifier and equals. | Its caller skips leading whitespace, then the method requires the identifier's immediate successor to be equals. | Correct the spec wording and preserve spaced-equals bootstrap/KERN parity in the focused test. |

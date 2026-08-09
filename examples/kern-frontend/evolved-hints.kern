@@ -1,0 +1,321 @@
+fn name=observeevolvedhints returns="string[]" export=true
+  param name=content type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=maxMutableFields type=number
+  param name=mutableFormat type=string
+  param name=warningCode type=string
+  param name=warningSeverity type=string
+  param name=maxWarningFields type=number
+  param name=warningFormat type=string
+  param name=streamFormat type=string
+  param name=maxProperties type=number
+  param name=admissionFormat type=string
+  param name=loopFormat type=string
+  param name=maxThemes type=number
+  param name=themeFormat type=string
+  param name=maxStyles type=number
+  param name=maxBlockCodePoints type=number
+  param name=maxBlockUtf16Units type=number
+  param name=maxBlockBytes type=number
+  param name=maxSegments type=number
+  param name=maxPairs type=number
+  param name=maxStyleWrites type=number
+  param name=maxParenDepth type=number
+  param name=maxReplayFields type=number
+  param name=maxEnvelopeFields type=number
+  param name=maxEnvelopeBytes type=number
+  param name=styleFormat type=string
+  param name=replayFormat type=string
+  param name=predecessorFormat type=string
+  param name=maxUnexpectedDiagnostics type=number
+  param name=maxProjectionFields type=number
+  param name=maxRecoveryFields type=number
+  param name=maxDiagnosticsFields type=number
+  param name=maxDiagnosticsBytes type=number
+  param name=projectionFormat type=string
+  param name=recoveryFormat type=string
+  param name=diagnosticsFormat type=string
+  param name=hintTypes type="string[]"
+  param name=hintBareWords type="string[]"
+  param name=hintPositionalOwners type="string[]"
+  param name=hintPositionalNames type="string[]"
+  param name=maxHintWrites type=number
+  param name=maxHintFields type=number
+  param name=maxHintBytes type=number
+  param name=hintsFormat type=string
+  param name=hintsSourceProfile type=string
+  handler lang="kern"
+    if cond="maxHintWrites <= 0 || maxHintFields <= 0 || maxHintBytes <= 0 || hintTypes.length != hintBareWords.length || hintTypes.length > maxRegistryEntries || hintPositionalOwners.length != hintPositionalNames.length || hintPositionalNames.length > maxRegistryEntries"
+      let name=invalidLimits value="evolvedhintfailure(\"EVOLVED_HINT_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="invalidLimits"
+
+    let name=selectedIndex value="-1"
+    let name=selectedPositionalCount value="0"
+    for name=hintIndex from=0 to="hintTypes.length"
+      let name=hintType value="hintTypes[hintIndex]"
+      let name=hintBare value="hintBareWords[hintIndex]"
+      if cond="!validevolvedhintname(hintType, maxNameCodePoints, maxNameBytes) || (hintBare != \"\" && !validevolvedhintname(hintBare, maxNameCodePoints, maxNameBytes)) || (hintIndex > 0 && hintTypes[hintIndex - 1] >= hintType)"
+        let name=invalidHint value="evolvedhintfailure(\"EVOLVED_HINT_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+        return value="invalidHint"
+    for name=hintArgIndex from=0 to="hintPositionalNames.length"
+      let name=hintArgOwner value="hintPositionalOwners[hintArgIndex]"
+      let name=hintArgName value="hintPositionalNames[hintArgIndex]"
+      let name=ownerFound value="false"
+      for name=ownerIndex from=0 to="hintTypes.length"
+        if cond="hintTypes[ownerIndex] == hintArgOwner"
+          assign target=ownerFound value="true"
+      if cond="!ownerFound || !validevolvedhintname(hintArgName, maxNameCodePoints, maxNameBytes) || (hintArgIndex > 0 && hintPositionalOwners[hintArgIndex - 1] > hintArgOwner)"
+        let name=invalidHintArg value="evolvedhintfailure(\"EVOLVED_HINT_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+        return value="invalidHintArg"
+
+    let name=stream value="observeretainedtokenstream(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    if cond="stream.length < 31 || stream[0] != streamFormat || stream[1] != \"stream\" || (stream.length - 1) % 10 != 0 || stream[3] != content"
+      let name=streamFailure value="evolvedhintfailure(\"EVOLVED_HINT_STREAM_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="streamFailure"
+
+    let name=tokenKinds value="[]"
+    let name=tokenValues value="[]"
+    let name=tokenStarts value="[]"
+    let name=tokenEnds value="[]"
+    for name=recordStart from=11 to="stream.length" step=10
+      if cond="stream[recordStart] != \"token\""
+        break
+      let name=tokenEnd value="parseboundeduinttext(stream[10], maxCodePoints)"
+      if cond="recordStart + 10 < stream.length && stream[recordStart + 10] == \"token\""
+        assign target=tokenEnd value="parseboundeduinttext(stream[recordStart + 15], maxCodePoints)"
+      do value="tokenKinds.push(stream[recordStart + 2])"
+      do value="tokenValues.push(stream[recordStart + 3])"
+      do value="tokenStarts.push(parseboundeduinttext(stream[recordStart + 5], maxCodePoints))"
+      do value="tokenEnds.push(tokenEnd)"
+    if cond="tokenKinds.length == 0"
+      let name=typeFailure value="evolvedhintfailure(\"EVOLVED_HINT_TYPE_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="typeFailure"
+
+    let name=admittedType value="\"\""
+    let name=hintSource value="\"none\""
+    let name=selectedBareWord value="\"\""
+    let name=phase value="\"type\""
+    let name=positionalCursor value="0"
+    let name=exitTokenCursor value="0"
+    let name=writeNames value="[]"
+    let name=writeValues value="[]"
+    let name=writeTokenIndexes value="[]"
+    let name=writeTokenKinds value="[]"
+    let name=consumedStarts value="[]"
+    let name=consumedEnds value="[]"
+    for name=tokenIndex from=0 to="tokenKinds.length"
+      let name=tokenKind value="tokenKinds[tokenIndex]"
+      if cond="phase == \"type\""
+        if cond="tokenKind != \"whitespace\""
+          if cond="tokenKind != \"identifier\""
+            let name=typeFailure value="evolvedhintfailure(\"EVOLVED_HINT_TYPE_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+            return value="typeFailure"
+          assign target=admittedType value="tokenValues[tokenIndex]"
+          assign target=exitTokenCursor value="tokenIndex + 1"
+          for name=selectionIndex from=0 to="hintTypes.length"
+            if cond="hintTypes[selectionIndex] == admittedType"
+              assign target=selectedIndex value="selectionIndex"
+              assign target=hintSource value="\"runtime\""
+              assign target=selectedBareWord value="hintBareWords[selectionIndex]"
+          for name=selectedArgIndex from=0 to="hintPositionalOwners.length"
+            if cond="selectedIndex >= 0 && hintPositionalOwners[selectedArgIndex] == admittedType"
+              assign target=selectedPositionalCount value="selectedPositionalCount + 1"
+          if cond="selectedIndex < 0"
+            if cond="admittedType == \"class\""
+              assign target=hintSource value="\"builtin\""
+              assign target=selectedBareWord value="\"name\""
+          if cond="selectedPositionalCount > 0"
+            assign target=phase value="\"positional\""
+          else
+            if cond="selectedBareWord != \"\""
+              assign target=phase value="\"bare\""
+            else
+              assign target=phase value="\"done\""
+        continue
+      if cond="phase == \"positional\""
+        if cond="tokenKind == \"whitespace\""
+          assign target=exitTokenCursor value="tokenIndex + 1"
+          continue
+        let name=positionalName value="\"\""
+        let name=selectedOrdinal value="0"
+        for name=argLookupIndex from=0 to="hintPositionalOwners.length"
+          if cond="hintPositionalOwners[argLookupIndex] == admittedType"
+            if cond="selectedOrdinal == positionalCursor"
+              assign target=positionalName value="hintPositionalNames[argLookupIndex]"
+            assign target=selectedOrdinal value="selectedOrdinal + 1"
+        do value="writeNames.push(positionalName)"
+        do value="writeValues.push(tokenValues[tokenIndex])"
+        do value="writeTokenIndexes.push(String(tokenIndex))"
+        do value="writeTokenKinds.push(tokenKind)"
+        do value="consumedStarts.push(tokenStarts[tokenIndex])"
+        do value="consumedEnds.push(tokenEnds[tokenIndex])"
+        assign target=positionalCursor value="positionalCursor + 1"
+        assign target=exitTokenCursor value="tokenIndex + 1"
+        if cond="positionalCursor >= selectedPositionalCount"
+          if cond="selectedBareWord != \"\""
+            assign target=phase value="\"bare\""
+          else
+            assign target=phase value="\"done\""
+        continue
+      if cond="phase == \"bare\""
+        if cond="tokenKind == \"whitespace\""
+          assign target=exitTokenCursor value="tokenIndex + 1"
+          continue
+        let name=keyValue value="tokenKind == \"identifier\" && tokenIndex + 1 < tokenKinds.length && tokenKinds[tokenIndex + 1] == \"equals\""
+        if cond="!keyValue && tokenKind == \"identifier\""
+          do value="writeNames.push(selectedBareWord)"
+          do value="writeValues.push(tokenValues[tokenIndex])"
+          do value="writeTokenIndexes.push(String(tokenIndex))"
+          do value="writeTokenKinds.push(tokenKind)"
+          do value="consumedStarts.push(tokenStarts[tokenIndex])"
+          do value="consumedEnds.push(tokenEnds[tokenIndex])"
+          assign target=exitTokenCursor value="tokenIndex + 1"
+        assign target=phase value="\"done\""
+    if cond="admittedType == \"\""
+      let name=missingTypeFailure value="evolvedhintfailure(\"EVOLVED_HINT_TYPE_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="missingTypeFailure"
+    let name=tokenCursor value="11 + exitTokenCursor * 10"
+
+    if cond="writeNames.length > maxHintWrites"
+      let name=writeLimit value="evolvedhintfailure(\"EVOLVED_HINT_WRITE_LIMIT\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="writeLimit"
+    let name=maskedContent value="maskevolvedhinttokens(content, consumedStarts, consumedEnds)"
+    let name=maskedStream value="observeretainedtokenstream(maskedContent, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    if cond="maskedStream.length < 31 || maskedStream[0] != streamFormat || maskedStream[1] != \"stream\" || (maskedStream.length - 1) % 10 != 0 || maskedStream[3] != maskedContent"
+      let name=maskedStreamFailure value="evolvedhintfailure(\"EVOLVED_HINT_STREAM_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="maskedStreamFailure"
+
+    let name=predecessor value="observegenericpropertystylethemediagnostics(maskedContent, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity, maxWarningFields, warningFormat, streamFormat, maxProperties, admissionFormat, loopFormat, maxThemes, themeFormat, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxEnvelopeFields, maxEnvelopeBytes, styleFormat, replayFormat, predecessorFormat, maxUnexpectedDiagnostics, maxProjectionFields, maxRecoveryFields, maxDiagnosticsFields, maxDiagnosticsBytes, projectionFormat, recoveryFormat, diagnosticsFormat)"
+    if cond="predecessor.length < 41 || predecessor[0] != diagnosticsFormat || predecessor[1] != \"decision\" || (predecessor.length - 1) % 20 != 0 || predecessor[7] != String(runtimeInstance) || predecessor[8] != String(parseEpoch)"
+      let name=predecessorFailure value="evolvedhintfailure(\"EVOLVED_HINT_PREDECESSOR_INVALID\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="predecessorFailure"
+
+    let name=out value="[]"
+    do value="out.push(hintsFormat)"
+    do value="out.push(\"decision\")"
+    do value="out.push(maskedContent)"
+    do value="out.push(admittedType)"
+    do value="out.push(hintSource)"
+    do value="out.push(selectedBareWord)"
+    do value="out.push(String(selectedPositionalCount))"
+    do value="out.push(String(writeNames.length))"
+    do value="out.push(String(tokenCursor))"
+    do value="out.push(String(predecessor.length))"
+    do value="out.push(String(stream.length))"
+    do value="out.push(String(maskedStream.length))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(maxHintWrites))"
+    do value="out.push(String(maxHintFields))"
+    do value="out.push(String(maxHintBytes))"
+    do value="out.push(diagnosticsFormat)"
+    do value="out.push(streamFormat)"
+    do value="out.push(hintsSourceProfile)"
+    do value="out.push(\"\")"
+
+    for name=writeIndex from=0 to="writeNames.length"
+      do value="out.push(\"hint-write\")"
+      do value="out.push(String(writeIndex))"
+      do value="out.push(writeNames[writeIndex])"
+      do value="out.push(writeValues[writeIndex])"
+      do value="out.push(writeTokenIndexes[writeIndex])"
+      do value="out.push(writeTokenKinds[writeIndex])"
+      do value="out.push(String(consumedStarts[writeIndex]))"
+      do value="out.push(String(consumedEnds[writeIndex]))"
+      do value="out.push(hintSource)"
+      do value="out.push(String(runtimeInstance))"
+      do value="out.push(String(parseEpoch))"
+      for name=writePadding from=0 to=9
+        do value="out.push(\"\")"
+
+    let name=authIndex value="0"
+    for name=predecessorStart from=0 to="predecessor.length" step=16
+      let name=authCount value="predecessor.length - predecessorStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"predecessor-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(predecessorStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(predecessor[predecessorStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value="0"
+    for name=streamStart from=0 to="stream.length" step=16
+      let name=authCount value="stream.length - streamStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"stream-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(streamStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(stream[streamStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value="0"
+    for name=maskedStreamStart from=0 to="maskedStream.length" step=16
+      let name=authCount value="maskedStream.length - maskedStreamStart"
+      if cond="authCount > 16"
+        assign target=authCount value="16"
+      do value="out.push(\"masked-stream-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(maskedStreamStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(maskedStream[maskedStreamStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(maskedContent)"
+    do value="out.push(admittedType)"
+    do value="out.push(hintSource)"
+    do value="out.push(selectedBareWord)"
+    do value="out.push(String(selectedPositionalCount))"
+    do value="out.push(String(writeNames.length))"
+    do value="out.push(String(tokenCursor))"
+    do value="out.push(String(predecessor.length))"
+    do value="out.push(String(stream.length))"
+    do value="out.push(String(maskedStream.length))"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(maxHintWrites))"
+    do value="out.push(String(maxHintFields))"
+    do value="out.push(String(maxHintBytes))"
+    do value="out.push(diagnosticsFormat)"
+    do value="out.push(streamFormat)"
+    do value="out.push(hintsSourceProfile)"
+    if cond="out.length > maxHintFields"
+      let name=fieldFailure value="evolvedhintfailure(\"EVOLVED_HINT_FIELDS_LIMIT\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="fieldFailure"
+    let name=envelopeBytes value="0"
+    for name=envelopeField from=0 to="out.length"
+      assign target=envelopeBytes value="envelopeBytes + utf8bytes(out[envelopeField])"
+    if cond="envelopeBytes > maxHintBytes"
+      let name=byteFailure value="evolvedhintfailure(\"EVOLVED_HINT_BYTES_LIMIT\", \"\", content, runtimeInstance, parseEpoch, hintsFormat, maxHintFields, maxHintBytes)"
+      return value="byteFailure"
+    return value="out"
