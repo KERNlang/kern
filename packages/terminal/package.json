@@ -46,9 +46,9 @@
     }
   },
   "devDependencies": {
-    "@types/react": "19.2.17",
+    "@types/react": "19.2.18",
     "@inkjs/ui": "2.0.0",
     "ink": "7.1.1",
-    "react": "19.2.7"
+    "react": "19.2.8"
   }
 }
