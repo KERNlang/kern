@@ -1,0 +1,164 @@
+fn name=keywordhandlerfailure returns="string[]"
+  param name=code type=string
+  param name=content type=string
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=format type=string
+  param name=maxFields type=number
+  param name=maxBytes type=number
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(format)"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(\"\")"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=padding from=0 to=15
+      do value="out.push(\"\")"
+    do value="out.push(\"failure-seal\")"
+    do value="out.push(code)"
+    do value="out.push(\"\")"
+    do value="out.push(content)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=sealPadding from=0 to=14
+      do value="out.push(\"\")"
+    if cond="out.length > maxFields"
+      return value="[]"
+    let name=bytes value=0
+    for name=fieldIndex from=0 to="out.length"
+      assign target=bytes value="bytes + utf8bytes(out[fieldIndex])"
+    if cond="bytes > maxBytes"
+      return value="[]"
+    return value=out
+
+fn name=maskkeywordhandlerstream returns=string
+  param name=content type=string
+  param name=base type=string
+  param name=stream type="string[]"
+  param name=initialCursor type=number
+  param name=finalCursor type=number
+  param name=maxCodePoints type=number
+  param name=streamFormat type=string
+  handler lang="kern"
+    if cond="finalCursor <= initialCursor"
+      return value=base
+    if cond="stream.length < 31 || stream[0] != streamFormat || stream[1] != \"stream\" || stream[3] != content || (stream.length - 1) % 10 != 0"
+      return value="\"\""
+    let name=maskStart value=-1
+    let name=maskEnd value=-1
+    let name=tokenIndex value=0
+    for name=recordStart from=11 to="stream.length" step=10
+      if cond="stream[recordStart] != \"token\""
+        break
+      let name=tokenStartText value="stream[recordStart + 5]"
+      let name=tokenStart value="parseboundeduinttext(tokenStartText, maxCodePoints)"
+      let name=tokenEndText value="stream[10]"
+      if cond="recordStart + 10 < stream.length && stream[recordStart + 10] == \"token\""
+        assign target=tokenEndText value="stream[recordStart + 15]"
+      let name=tokenEnd value="parseboundeduinttext(tokenEndText, maxCodePoints)"
+      if cond="tokenIndex == initialCursor"
+        assign target=maskStart value=tokenStart
+      if cond="tokenIndex >= initialCursor && tokenIndex < finalCursor"
+        assign target=maskEnd value=tokenEnd
+      assign target=tokenIndex value="tokenIndex + 1"
+    if cond="maskStart < 0 || maskEnd < maskStart || finalCursor > tokenIndex"
+      return value="\"\""
+    let name=prefix value="Text.slice(base, 0, maskStart)"
+    let name=maskedSlice value="Text.slice(base, maskStart, maskEnd)"
+    let name=spaces value="evolvedhintspaces(maskedSlice)"
+    let name=suffix value="Text.slice(base, maskEnd, Text.length(base))"
+    return value="prefix + spaces + suffix"
+
+fn name=keywordhandlerseedduplicates returns="string[]"
+  param name=hints type="string[]"
+  param name=local type="string[]"
+  param name=stream type="string[]"
+  param name=exported type=boolean
+  param name=maxDuplicates type=number
+  param name=maxCodePoints type=number
+  param name=hintsFormat type=string
+  param name=localFormat type=string
+  param name=streamFormat type=string
+  handler lang="kern"
+    let name=out value="[]"
+    if cond="hints.length < 41 || hints[0] != hintsFormat || hints[1] != \"decision\" || local.length < 24 || local[0] != localFormat || local[1] != \"decision\" || stream.length < 31 || stream[0] != streamFormat || stream[1] != \"stream\""
+      do value="out.push(\"invalid\")"
+      return value=out
+    let name=seedNames value="[]"
+    if cond=exported
+      do value="seedNames.push(\"export\")"
+    let name=hintWriteCount value="parseboundeduinttext(hints[7], maxDuplicates)"
+    let name=hintWriteIndex value=0
+    for name=hintCursor from=21 to="hints.length" step=20
+      if cond="hints[hintCursor] != \"hint-write\""
+        break
+      if cond="hintWriteIndex >= hintWriteCount || hints[hintCursor + 1] != String(hintWriteIndex)"
+        return value="[\"invalid\"]"
+      do value="seedNames.push(hints[hintCursor + 2])"
+      assign target=hintWriteIndex value="hintWriteIndex + 1"
+    if cond="hintWriteIndex != hintWriteCount"
+      return value="[\"invalid\"]"
+    let name=localWriteCount value="parseboundeduinttext(local[5], maxDuplicates)"
+    let name=localWriteIndex value=0
+    for name=localCursor from=12 to="local.length" step=8
+      if cond="local[localCursor] != \"write\""
+        break
+      if cond="local[localCursor] != \"write\" || local[localCursor + 1] != String(localWriteIndex)"
+        return value="[\"invalid\"]"
+      do value="seedNames.push(local[localCursor + 2])"
+      assign target=localWriteIndex value="localWriteIndex + 1"
+    if cond="localWriteIndex != localWriteCount"
+      return value="[\"invalid\"]"
+
+    let name=kinds value="[]"
+    let name=values value="[]"
+    let name=starts value="[]"
+    for name=recordStart from=11 to="stream.length" step=10
+      if cond="stream[recordStart] != \"token\""
+        break
+      do value="kinds.push(stream[recordStart + 2])"
+      do value="values.push(stream[recordStart + 3])"
+      let name=startText value="stream[recordStart + 5]"
+      do value="starts.push(parseboundeduinttext(startText, maxCodePoints))"
+    let name=genericSeen value="[]"
+    let name=phase value="\"handoff\""
+    let name=equalsIndex value=-1
+    for name=tokenIndex from=1 to="kinds.length"
+      let name=kind value="kinds[tokenIndex]"
+      if cond="tokenIndex == equalsIndex"
+        assign target=equalsIndex value=-1
+        continue
+      if cond="phase == \"handoff\""
+        if cond="kind == \"whitespace\" || kind == \"style\" || kind == \"themeRef\""
+          continue
+        if cond="kind == \"identifier\" && tokenIndex + 1 < kinds.length && kinds[tokenIndex + 1] == \"equals\""
+          let name=key value="values[tokenIndex]"
+          let name=seeded value=false
+          for name=seedIndex from=0 to="seedNames.length"
+            if cond="seedNames[seedIndex] == key"
+              assign target=seeded value=true
+          let name=alreadyGeneric value=false
+          for name=seenIndex from=0 to="genericSeen.length"
+            if cond="genericSeen[seenIndex] == key"
+              assign target=alreadyGeneric value=true
+          if cond="seeded && !alreadyGeneric"
+            if cond="out.length >= maxDuplicates * 3"
+              return value="[\"limit\"]"
+            do value="out.push(key)"
+            do value="out.push(String(tokenIndex))"
+            do value="out.push(String(starts[tokenIndex]))"
+          do value="genericSeen.push(key)"
+          assign target=equalsIndex value="tokenIndex + 1"
+          assign target=phase value="\"value\""
+        continue
+      if cond="phase == \"value\""
+        if cond="kind == \"whitespace\" || kind == \"style\" || kind == \"themeRef\" || kind == \"quoted\" || kind == \"expr\""
+          assign target=phase value="\"handoff\""
+        else
+          assign target=phase value="\"bare\""
+        continue
+      if cond="phase == \"bare\" && (kind == \"whitespace\" || kind == \"style\" || kind == \"themeRef\")"
+        assign target=phase value="\"handoff\""
+    return value=out

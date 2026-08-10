@@ -1,0 +1,404 @@
+fn name=structuredtrim returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=start value=0
+    let name=end value="Text.length(value)"
+    while cond="start < end && (Text.charAt(value, start) == \" \" || Text.charAt(value, start) == \"\\t\" || Text.charAt(value, start) == \"\\n\" || Text.charAt(value, start) == \"\\r\")"
+      assign target=start value="start + 1"
+    while cond="end > start && (Text.charAt(value, end - 1) == \" \" || Text.charAt(value, end - 1) == \"\\t\" || Text.charAt(value, end - 1) == \"\\n\" || Text.charAt(value, end - 1) == \"\\r\")"
+      assign target=end value="end - 1"
+    return value="Text.slice(value, start, end)"
+
+fn name=structuredspace returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    return value="value == \" \" || value == \"\\t\" || value == \"\\n\" || value == \"\\r\""
+
+fn name=structurednamestart returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    return value="(value >= \"A\" && value <= \"Z\") || (value >= \"a\" && value <= \"z\") || value == \"_\" || value == \"$\""
+
+fn name=structurednamechar returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    return value="structurednamestart(value) || (value >= \"0\" && value <= \"9\")"
+
+fn name=structuredvalidname returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    let name=n value="Text.length(value)"
+    if cond="n == 0 || !structurednamestart(Text.charAt(value, 0))"
+      return value=false
+    for name=index from=1 to=n
+      if cond="!structurednamechar(Text.charAt(value, index))"
+        return value=false
+    return value=true
+
+fn name=structuredplainstart returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    return value="(value >= \"A\" && value <= \"Z\") || (value >= \"a\" && value <= \"z\") || value == \"_\""
+
+fn name=structuredplainchar returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    return value="structuredplainstart(value) || (value >= \"0\" && value <= \"9\")"
+
+fn name=structuredvalidplain returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    let name=n value="Text.length(value)"
+    if cond="n == 0 || !structuredplainstart(Text.charAt(value, 0))"
+      return value=false
+    for name=index from=1 to=n
+      if cond="!structuredplainchar(Text.charAt(value, index))"
+        return value=false
+    return value=true
+
+fn name=structuredsimpletype returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    let name=base value=value
+    let name=n value="Text.length(base)"
+    if cond="n >= 2 && Text.slice(base, n - 2, n) == \"[]\""
+      assign target=base value="Text.slice(base, 0, n - 2)"
+    return value="structuredvalidplain(base)"
+
+fn name=structuredunquote returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=trimmed value="structuredtrim(value)"
+    let name=n value="Text.length(trimmed)"
+    if cond="n >= 2 && ((Text.charAt(trimmed, 0) == \"\\\"\" && Text.charAt(trimmed, n - 1) == \"\\\"\") || (Text.charAt(trimmed, 0) == \"'\" && Text.charAt(trimmed, n - 1) == \"'\") || (Text.charAt(trimmed, 0) == \"`\" && Text.charAt(trimmed, n - 1) == \"`\"))"
+      return value="structuredtrim(Text.slice(trimmed, 1, n - 1))"
+    return value=trimmed
+
+fn name=structuredquotedmodule returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=trimmed value="structuredtrim(value)"
+    let name=n value="Text.length(trimmed)"
+    if cond="n < 2"
+      return value="\"\""
+    let name=quote value="Text.charAt(trimmed, 0)"
+    if cond="(quote != \"\\\"\" && quote != \"'\") || Text.charAt(trimmed, n - 1) != quote"
+      return value="\"\""
+    return value="Text.slice(trimmed, 1, n - 1)"
+
+fn name=structuredfindmatching returns=number
+  param name=value type=string
+  param name=start type=number
+  param name=open type=string
+  param name=close type=string
+  handler lang="kern"
+    let name=depth value=0
+    let name=quote value="\"\""
+    let name=escaped value=false
+    let name=n value="Text.length(value)"
+    for name=index from=start to=n
+      let name=ch value="Text.charAt(value, index)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\" || ch == \"`\""
+        assign target=quote value=ch
+        continue
+      if cond="ch == open"
+        assign target=depth value="depth + 1"
+        continue
+      if cond="ch == close && !(close == \">\" && index > 0 && Text.charAt(value, index - 1) == \"=\")"
+        assign target=depth value="depth - 1"
+        if cond="depth == 0"
+          return value=index
+    return value=-1
+
+fn name=structuredsplit returns="string[]"
+  param name=value type=string
+  param name=delimiter type=string
+  handler lang="kern"
+    let name=out value="[]"
+    let name=start value=0
+    let name=paren value=0
+    let name=bracket value=0
+    let name=brace value=0
+    let name=angle value=0
+    let name=quote value="\"\""
+    let name=escaped value=false
+    let name=n value="Text.length(value)"
+    for name=index from=0 to=n
+      let name=ch value="Text.charAt(value, index)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\" || ch == \"`\""
+        assign target=quote value=ch
+        continue
+      if cond="ch == \"(\""
+        assign target=paren value="paren + 1"
+      if cond="ch == \")\""
+        assign target=paren value="paren - 1"
+      if cond="ch == \"[\""
+        assign target=bracket value="bracket + 1"
+      if cond="ch == \"]\""
+        assign target=bracket value="bracket - 1"
+      if cond="ch == \"{\""
+        assign target=brace value="brace + 1"
+      if cond="ch == \"}\""
+        assign target=brace value="brace - 1"
+      if cond="ch == \"<\""
+        assign target=angle value="angle + 1"
+      if cond="ch == \">\" && index > 0 && Text.charAt(value, index - 1) != \"=\" && angle > 0"
+        assign target=angle value="angle - 1"
+      if cond="ch == delimiter && paren == 0 && bracket == 0 && brace == 0 && angle == 0"
+        do value="out.push(structuredtrim(Text.slice(value, start, index)))"
+        assign target=start value="index + 1"
+    let name=tail value="structuredtrim(Text.slice(value, start, n))"
+    if cond="tail != \"\""
+      do value="out.push(tail)"
+    return value=out
+
+fn name=structuredsplitwhitespace returns="string[]"
+  param name=value type=string
+  handler lang="kern"
+    let name=out value="[]"
+    let name=start value=-1
+    let name=paren value=0
+    let name=bracket value=0
+    let name=brace value=0
+    let name=angle value=0
+    let name=quote value="\"\""
+    let name=escaped value=false
+    let name=n value="Text.length(value)"
+    for name=index from=0 to=n
+      let name=ch value="Text.charAt(value, index)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\" || ch == \"`\""
+        if cond="start < 0"
+          assign target=start value=index
+        assign target=quote value=ch
+        continue
+      if cond="ch == \"(\""
+        assign target=paren value="paren + 1"
+      if cond="ch == \")\""
+        assign target=paren value="paren - 1"
+      if cond="ch == \"[\""
+        assign target=bracket value="bracket + 1"
+      if cond="ch == \"]\""
+        assign target=bracket value="bracket - 1"
+      if cond="ch == \"{\""
+        assign target=brace value="brace + 1"
+      if cond="ch == \"}\""
+        assign target=brace value="brace - 1"
+      if cond="ch == \"<\""
+        assign target=angle value="angle + 1"
+      if cond="ch == \">\" && index > 0 && Text.charAt(value, index - 1) != \"=\" && angle > 0"
+        assign target=angle value="angle - 1"
+      if cond="structuredspace(ch) && paren == 0 && bracket == 0 && brace == 0 && angle == 0"
+        if cond="start >= 0"
+          do value="out.push(structuredtrim(Text.slice(value, start, index)))"
+          assign target=start value=-1
+        continue
+      if cond="start < 0"
+        assign target=start value=index
+    if cond="start >= 0"
+      do value="out.push(structuredtrim(Text.slice(value, start, n)))"
+    return value=out
+
+fn name=structuredfindassignment returns=number
+  param name=value type=string
+  handler lang="kern"
+    let name=paren value=0
+    let name=bracket value=0
+    let name=brace value=0
+    let name=angle value=0
+    let name=quote value="\"\""
+    let name=escaped value=false
+    let name=n value="Text.length(value)"
+    for name=index from=0 to=n
+      let name=ch value="Text.charAt(value, index)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\" || ch == \"`\""
+        assign target=quote value=ch
+        continue
+      if cond="ch == \"(\""
+        assign target=paren value="paren + 1"
+      if cond="ch == \")\""
+        assign target=paren value="paren - 1"
+      if cond="ch == \"[\""
+        assign target=bracket value="bracket + 1"
+      if cond="ch == \"]\""
+        assign target=bracket value="bracket - 1"
+      if cond="ch == \"{\""
+        assign target=brace value="brace + 1"
+      if cond="ch == \"}\""
+        assign target=brace value="brace - 1"
+      if cond="ch == \"<\""
+        assign target=angle value="angle + 1"
+      if cond="ch == \">\" && index > 0 && Text.charAt(value, index - 1) != \"=\" && angle > 0"
+        assign target=angle value="angle - 1"
+      let name=previous value="\"\""
+      if cond="index > 0"
+        assign target=previous value="Text.charAt(value, index - 1)"
+      let name=next value="Text.charAt(value, index + 1)"
+      if cond="ch == \"=\" && paren == 0 && bracket == 0 && brace == 0 && angle == 0 && previous != \"=\" && previous != \"!\" && previous != \"<\" && previous != \">\" && next != \"=\" && next != \">\""
+        return value=index
+    return value=-1
+
+fn name=structuredcompactfirst returns=string
+  param name=value type=string
+  param name=needle type=string
+  handler lang="kern"
+    let name=index value="Text.indexOf(value, needle)"
+    if cond="index < 0"
+      return value=value
+    let name=left value=index
+    while cond="left > 0 && structuredspace(Text.charAt(value, left - 1))"
+      assign target=left value="left - 1"
+    let name=right value="index + 1"
+    let name=n value="Text.length(value)"
+    while cond="right < n && structuredspace(Text.charAt(value, right))"
+      assign target=right value="right + 1"
+    return value="Text.slice(value, 0, left) + needle + Text.slice(value, right, n)"
+
+fn name=structuredcompactparams returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=parts value="structuredsplit(value, \",\")"
+    let name=out value="\"\""
+    for name=index from=0 to="parts.length"
+      let name=part value="structuredcompactfirst(parts[index], \":\")"
+      assign target=part value="structuredcompactfirst(part, \"=\")"
+      if cond="out != \"\""
+        assign target=out value="out + \",\""
+      assign target=out value="out + part"
+    return value=out
+
+fn name=structuredtrailingpropstart returns=boolean
+  param name=value type=string
+  param name=start type=number
+  handler lang="kern"
+    let name=cursor value=start
+    let name=n value="Text.length(value)"
+    while cond="cursor < n && structuredspace(Text.charAt(value, cursor))"
+      assign target=cursor value="cursor + 1"
+    if cond="cursor >= n || !structurednamestart(Text.charAt(value, cursor))"
+      return value=false
+    assign target=cursor value="cursor + 1"
+    while cond="cursor < n && (structurednamechar(Text.charAt(value, cursor)) || Text.charAt(value, cursor) == \"-\")"
+      assign target=cursor value="cursor + 1"
+    return value="cursor < n && Text.charAt(value, cursor) == \"=\""
+
+fn name=structuredsplitreturns returns="string[]"
+  param name=value type=string
+  handler lang="kern"
+    let name=out value="[]"
+    let name=paren value=0
+    let name=bracket value=0
+    let name=brace value=0
+    let name=angle value=0
+    let name=quote value="\"\""
+    let name=escaped value=false
+    let name=n value="Text.length(value)"
+    for name=index from=0 to=n
+      let name=ch value="Text.charAt(value, index)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\" || ch == \"`\""
+        assign target=quote value=ch
+        continue
+      if cond="ch == \"(\""
+        assign target=paren value="paren + 1"
+      if cond="ch == \")\""
+        assign target=paren value="paren - 1"
+      if cond="ch == \"[\""
+        assign target=bracket value="bracket + 1"
+      if cond="ch == \"]\""
+        assign target=bracket value="bracket - 1"
+      if cond="ch == \"{\""
+        assign target=brace value="brace + 1"
+      if cond="ch == \"}\""
+        assign target=brace value="brace - 1"
+      if cond="ch == \"<\""
+        assign target=angle value="angle + 1"
+      if cond="ch == \">\" && index > 0 && Text.charAt(value, index - 1) != \"=\" && angle > 0"
+        assign target=angle value="angle - 1"
+      if cond="structuredspace(ch) && paren == 0 && bracket == 0 && brace == 0 && angle == 0 && structuredtrailingpropstart(value, index)"
+        do value="out.push(structuredtrim(Text.slice(value, 0, index)))"
+        do value="out.push(structuredtrim(Text.slice(value, index, n)))"
+        return value=out
+    do value="out.push(structuredtrim(value))"
+    do value="out.push(\"\")"
+    return value=out
+
+fn name=structuredbareprops returns="string[]"
+  param name=value type=string
+  handler lang="kern"
+    let name=out value="[]"
+    let name=parts value="structuredsplitwhitespace(value)"
+    for name=index from=0 to="parts.length"
+      let name=part value="parts[index]"
+      let name=equals value="Text.indexOf(part, \"=\")"
+      if cond="equals <= 0"
+        continue
+      let name=key value="Text.slice(part, 0, equals)"
+      if cond="key == \"__proto__\""
+        continue
+      let name=raw value="Text.slice(part, equals + 1, Text.length(part))"
+      let name=kind value="\"text\""
+      let name=decoded value=raw
+      if cond="raw == \"true\" || raw == \"false\""
+        assign target=kind value="\"boolean\""
+      else
+        let name=n value="Text.length(raw)"
+        if cond="n >= 2 && ((Text.charAt(raw, 0) == \"\\\"\" && Text.charAt(raw, n - 1) == \"\\\"\") || (Text.charAt(raw, 0) == \"'\" && Text.charAt(raw, n - 1) == \"'\"))"
+          assign target=decoded value="Text.slice(raw, 1, n - 1)"
+      do value="out.push(key)"
+      do value="out.push(kind)"
+      do value="out.push(decoded)"
+    return value=out
+
+fn name=structuredencodefield returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="String(Text.length(value)) + \":\" + value"

@@ -1,0 +1,11 @@
+{
+  "format": "kern.frontend.keyword-handler-shadow.1",
+  "handlerCatalog": [
+    "fn", "let", "return", "throw", "do", "if", "while", "doc", "theme", "import", "island", "route",
+    "params", "auth", "validate", "error", "derive", "guard", "effect", "strategy", "trigger", "respond",
+    "expect", "rule", "message", "middleware"
+  ],
+  "maxEnvelopeBytes": 4194304,
+  "maxEnvelopeFields": 65536,
+  "sourceProfile": "parser-normalized-logical-line-v1"
+}
