@@ -3752,7 +3752,7 @@ trusted-publishing/provenance configuration is inspected.
     `8acd510f1968053d04148fe626c911f688872b81` was published to `origin/main`
     and remotely verified.
 
-  - [ ] M4.169 evolved parser-hint shadow: full-roster tribunal
+  - [x] M4.169 evolved parser-hint shadow: full-roster tribunal
     `tribunal-1786164934810-zid95j-m4-169-next-frontend-seam` selected the
     complete authenticated hint phase and rejected both a resolution-only
     adapter and premature keyword-handler ownership. A RED-at-base prerequisite
@@ -3772,7 +3772,33 @@ trusted-publishing/provenance configuration is inspected.
     spaced-equals divergence was disproven against the actual immediate-token
     bootstrap guard and is now parity-locked. Targeted security confirmation
     `review-1786294312814-m162h6-kern5-m4-169-compact-failure-fix` completed 1/1
-    with zero findings. Signed commit and publication remain required.
+    with zero findings. Signed publication completed as
+    `5841f4e11a77177a7178d13377ddb94af25d84a3`.
+
+  - [ ] M4.170 keyword-handler shadow: exact-roster tribunal selected the
+    complete closed 26-handler phase between M4.169 hints and the M4.168
+    residual generic continuation. Native KERN owns handler-local cursor and
+    property deltas, authenticates both predecessor and masked continuation,
+    preserves UTF-16 width, and projects ordered export/hint/handler collision
+    evidence with fused bootstrap parity. The independent oracle covers all 26
+    positive contracts plus fallback, nested, numeric, Unicode, multiline
+    logical-line, tamper, replay, bounds, and source-containment evidence. The
+    uninterrupted complete Node 22 `pnpm fitness:kern-5` wall passed before
+    review. Full-roster role-lens review `review-1786383501027-2tv6sz`
+    dispatched all six usable engines and produced five structured verdicts
+    plus one raw review. It verified two blockers: authenticated framing did not
+    independently bind local write payloads, and the top-level checker returned
+    fused bootstrap evidence without enforcing parity. RED-first boolean,
+    handler-mask, and seeded-duplicate mutations now fail closed through an
+    independent composition oracle and a domain-explicit bootstrap receipt. A
+    verified legacy-import fallback gap is also fixed with exact write, span,
+    cursor, and continuation evidence. The promoted gate passes core build,
+    19/19 direct tests, and the cumulative receipt with `keywordHandlers:52`
+    and tokenizer parity 307; `pnpm test:kern-5-fitness` passes 9/9. Targeted
+    reviewer `agy` timed out fail-closed; replacement confirmation
+    `review-1786388968449-pew8po-post-fix-security-legacy-retry` completed 1/1
+    with no blocking or verified findings. Signed commit and publication remain
+    required before this checkbox closes.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

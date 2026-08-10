@@ -69,6 +69,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-generic-property-style-theme | KERN-authored style-and-theme generic property-loop shadow | current | `pnpm test:kern-frontend-generic-property-style-theme` |
 | kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | current | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | current | `pnpm test:kern-frontend-evolved-hints` |
+| kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -141,6 +142,7 @@ wall and must remain absent until promoted.
 | kern-frontend-generic-property-style-theme | KERN-authored style-and-theme generic property-loop shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme` |
 | kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | internal-oracle | `pnpm test:kern-frontend-evolved-hints` |
+| kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | internal-oracle | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -396,6 +398,17 @@ mutation killers, and bounded failure/containment checks prove only
 `kern-frontend-evolved-hints: internal-oracle`. Keyword handlers, multiline
 input, successful node construction, AST/KIR, public APIs, and canonical
 frontend cutover remain absent, so `kern-frontend` remains `not-shipped`.
+
+M4.170 extends that authenticated single-line profile through all 26 closed
+keyword-handler contracts. Native KERN owns handler-local cursor and write
+decisions, preserves hint→handler→generic phase order, masks handler spans at
+UTF-16 width, authenticates the residual token stream and generic continuation,
+and projects ordered seed-collision diagnostics with bootstrap parity. Positive,
+fallback, nested, numeric, Unicode, replay, tamper, bounds, and containment
+evidence proves only `kern-frontend-keyword-handlers: internal-oracle`.
+Multiline parseLines ownership, successful node construction, AST/KIR, public
+APIs, and canonical frontend cutover remain absent, so `kern-frontend` remains
+`not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

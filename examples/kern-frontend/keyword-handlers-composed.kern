@@ -1,0 +1,266 @@
+fn name=observekeywordhandlerscomposed returns="string[]" export=true
+  param name=content type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=maxMutableFields type=number
+  param name=mutableFormat type=string
+  param name=warningCode type=string
+  param name=warningSeverity type=string
+  param name=maxWarningFields type=number
+  param name=warningFormat type=string
+  param name=streamFormat type=string
+  param name=maxProperties type=number
+  param name=admissionFormat type=string
+  param name=loopFormat type=string
+  param name=maxThemes type=number
+  param name=themeFormat type=string
+  param name=maxStyles type=number
+  param name=maxBlockCodePoints type=number
+  param name=maxBlockUtf16Units type=number
+  param name=maxBlockBytes type=number
+  param name=maxSegments type=number
+  param name=maxPairs type=number
+  param name=maxStyleWrites type=number
+  param name=maxParenDepth type=number
+  param name=maxReplayFields type=number
+  param name=maxEnvelopeFields type=number
+  param name=maxEnvelopeBytes type=number
+  param name=styleFormat type=string
+  param name=replayFormat type=string
+  param name=predecessorFormat type=string
+  param name=maxUnexpectedDiagnostics type=number
+  param name=maxProjectionFields type=number
+  param name=maxRecoveryFields type=number
+  param name=maxDiagnosticsFields type=number
+  param name=maxDiagnosticsBytes type=number
+  param name=projectionFormat type=string
+  param name=recoveryFormat type=string
+  param name=diagnosticsFormat type=string
+  param name=hintTypes type="string[]"
+  param name=hintBareWords type="string[]"
+  param name=hintPositionalOwners type="string[]"
+  param name=hintPositionalNames type="string[]"
+  param name=maxHintWrites type=number
+  param name=maxHintFields type=number
+  param name=maxHintBytes type=number
+  param name=hintsFormat type=string
+  param name=hintsSourceProfile type=string
+  param name=handlerFormat type=string
+  param name=maxHandlerWrites type=number
+  param name=maxHandlerFields type=number
+  param name=maxHandlerBytes type=number
+  param name=handlerSourceProfile type=string
+  param name=exported type=boolean
+  handler lang="kern"
+    if cond="maxHandlerWrites <= 0 || maxHandlerFields <= 0 || maxHandlerBytes <= 0"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_INVALID_LIMITS\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+
+    let name=hints value="observeevolvedhints(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity, maxWarningFields, warningFormat, streamFormat, maxProperties, admissionFormat, loopFormat, maxThemes, themeFormat, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxEnvelopeFields, maxEnvelopeBytes, styleFormat, replayFormat, predecessorFormat, maxUnexpectedDiagnostics, maxProjectionFields, maxRecoveryFields, maxDiagnosticsFields, maxDiagnosticsBytes, projectionFormat, recoveryFormat, diagnosticsFormat, hintTypes, hintBareWords, hintPositionalOwners, hintPositionalNames, maxHintWrites, maxHintFields, maxHintBytes, hintsFormat, hintsSourceProfile)"
+    if cond="hints.length < 41"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_HINTS_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=hintsValid value=true
+    if cond="hints[0] != hintsFormat || hints[1] != \"decision\" || (hints.length - 1) % 20 != 0 || hints[12] != String(runtimeInstance) || hints[13] != String(parseEpoch)"
+      assign target=hintsValid value=false
+    let name=hintsSealed value=false
+    for name=hintsRecordCursor from=21 to="hints.length" step=20
+      if cond="hints[hintsRecordCursor] == \"seal\" && hintsRecordCursor + 20 == hints.length && hints[hintsRecordCursor + 11] == content"
+        assign target=hintsSealed value=true
+    if cond="!hintsSealed"
+      assign target=hintsValid value=false
+    if cond="!hintsValid"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_HINTS_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=fieldCursorText value="hints[8]"
+    let name=fieldCursor value="parseboundeduinttext(fieldCursorText, maxHintFields)"
+    if cond="fieldCursor < 11 || (fieldCursor - 11) % 10 != 0"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_HINTS_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=tokenCursor value=0
+    for name=fieldStep from=11 to=fieldCursor step=10
+      assign target=tokenCursor value="tokenCursor + 1"
+    let name=admittedType value="hints[3]"
+    let name=local value="observekeywordhandlers(content, admittedType, tokenCursor, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, handlerFormat, streamFormat, maxHandlerWrites, maxHandlerFields, maxHandlerBytes)"
+    let name=localSealed value=false
+    for name=localRecordCursor from=12 to="local.length" step=8
+      if cond="local[localRecordCursor] == \"seal\" && localRecordCursor + 12 == local.length"
+        assign target=localSealed value=true
+    if cond="local.length < 24 || local[0] != handlerFormat || local[1] != \"decision\" || local[2] != admittedType || local[6] != content || !localSealed"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_LOCAL_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=initialCursorText value="local[3]"
+    let name=finalCursorText value="local[4]"
+    let name=initialCursor value="parseboundeduinttext(initialCursorText, maxTokens)"
+    let name=finalCursor value="parseboundeduinttext(finalCursorText, maxTokens)"
+
+    let name=stream value="observeretainedtokenstream(content, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    if cond="stream.length < 31 || stream[0] != streamFormat || stream[1] != \"stream\" || stream[3] != content || (stream.length - 1) % 10 != 0"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_STREAM_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=hintMaskedContent value="hints[2]"
+    let name=maskedContent value="maskkeywordhandlerstream(content, hintMaskedContent, stream, initialCursor, finalCursor, maxCodePoints, streamFormat)"
+    if cond="maskedContent == \"\" || utf16units(maskedContent) != utf16units(content)"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_MASK_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=maskedStream value="observeretainedtokenstream(maskedContent, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    if cond="maskedStream.length < 31 || maskedStream[0] != streamFormat || maskedStream[1] != \"stream\" || maskedStream[3] != maskedContent || (maskedStream.length - 1) % 10 != 0"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_STREAM_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+
+    let name=continuation value="observegenericpropertystylethemediagnostics(maskedContent, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity, maxWarningFields, warningFormat, streamFormat, maxProperties, admissionFormat, loopFormat, maxThemes, themeFormat, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxEnvelopeFields, maxEnvelopeBytes, styleFormat, replayFormat, predecessorFormat, maxUnexpectedDiagnostics, maxProjectionFields, maxRecoveryFields, maxDiagnosticsFields, maxDiagnosticsBytes, projectionFormat, recoveryFormat, diagnosticsFormat)"
+    let name=continuationSealed value=false
+    for name=continuationRecordCursor from=21 to="continuation.length" step=20
+      if cond="continuation[continuationRecordCursor] == \"seal\" && continuationRecordCursor + 20 == continuation.length"
+        assign target=continuationSealed value=true
+    if cond="continuation.length < 41 || continuation[0] != diagnosticsFormat || continuation[1] != \"decision\" || (continuation.length - 1) % 20 != 0 || continuation[7] != String(runtimeInstance) || continuation[8] != String(parseEpoch) || !continuationSealed"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_CONTINUATION_INVALID\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=duplicates value="keywordhandlerseedduplicates(hints, local, maskedStream, exported, maxHandlerWrites, maxCodePoints, hintsFormat, handlerFormat, streamFormat)"
+    if cond="duplicates.length > 0 && (duplicates[0] == \"invalid\" || duplicates[0] == \"limit\")"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_DUPLICATE_LIMIT\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=duplicateCount value=0
+    for name=duplicateCursor from=0 to="duplicates.length" step=3
+      assign target=duplicateCount value="duplicateCount + 1"
+
+    let name=out value="[]"
+    do value="out.push(handlerFormat)"
+    do value="out.push(\"decision\")"
+    do value="out.push(content)"
+    do value="out.push(hintMaskedContent)"
+    do value="out.push(maskedContent)"
+    do value="out.push(admittedType)"
+    do value="out.push(String(initialCursor))"
+    do value="out.push(String(finalCursor))"
+    do value="out.push(local[5])"
+    do value="out.push(String(hints.length))"
+    do value="out.push(String(local.length))"
+    do value="out.push(String(maskedStream.length))"
+    do value="out.push(String(continuation.length))"
+    do value="out.push(String(duplicateCount))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(maxHandlerFields))"
+    do value="out.push(String(maxHandlerBytes))"
+    do value="out.push(hintsFormat)"
+    do value="out.push(diagnosticsFormat)"
+    do value="out.push(handlerSourceProfile)"
+
+    let name=duplicateIndex value=0
+    for name=duplicateStart from=0 to="duplicates.length" step=3
+      do value="out.push(\"seed-duplicate\")"
+      do value="out.push(String(duplicateIndex))"
+      do value="out.push(duplicates[duplicateStart])"
+      do value="out.push(duplicates[duplicateStart + 1])"
+      do value="out.push(duplicates[duplicateStart + 2])"
+      for name=duplicatePadding from=0 to=15
+        do value="out.push(\"\")"
+      assign target=duplicateIndex value="duplicateIndex + 1"
+
+    let name=authIndex value=0
+    for name=hintsAuthStart from=0 to="hints.length" step=16
+      let name=authCount value="hints.length - hintsAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value=16
+      do value="out.push(\"hints-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(hintsAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(hints[hintsAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value=0
+    for name=localAuthStart from=0 to="local.length" step=16
+      let name=authCount value="local.length - localAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value=16
+      do value="out.push(\"local-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(localAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(local[localAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value=0
+    for name=maskedStreamAuthStart from=0 to="maskedStream.length" step=16
+      let name=authCount value="maskedStream.length - maskedStreamAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value=16
+      do value="out.push(\"masked-stream-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(maskedStreamAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(maskedStream[maskedStreamAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    assign target=authIndex value=0
+    for name=continuationAuthStart from=0 to="continuation.length" step=16
+      let name=authCount value="continuation.length - continuationAuthStart"
+      if cond="authCount > 16"
+        assign target=authCount value=16
+      do value="out.push(\"continuation-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(continuationAuthStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(continuation[continuationAuthStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(content)"
+    do value="out.push(hintMaskedContent)"
+    do value="out.push(maskedContent)"
+    do value="out.push(admittedType)"
+    do value="out.push(String(initialCursor))"
+    do value="out.push(String(finalCursor))"
+    do value="out.push(local[5])"
+    do value="out.push(String(hints.length))"
+    do value="out.push(String(local.length))"
+    do value="out.push(String(maskedStream.length))"
+    do value="out.push(String(continuation.length))"
+    do value="out.push(String(duplicateCount))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(maxHandlerFields))"
+    do value="out.push(String(maxHandlerBytes))"
+    do value="out.push(hintsFormat)"
+    do value="out.push(diagnosticsFormat)"
+    do value="out.push(handlerSourceProfile)"
+    if cond="out.length > maxHandlerFields"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_FIELDS_LIMIT\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    let name=bytes value=0
+    for name=fieldIndex from=0 to="out.length"
+      assign target=bytes value="bytes + utf8bytes(out[fieldIndex])"
+    if cond="bytes > maxHandlerBytes"
+      let name=failure value="keywordhandlerfailure(\"KEYWORD_HANDLER_BYTES_LIMIT\", content, runtimeInstance, parseEpoch, handlerFormat, maxHandlerFields, maxHandlerBytes)"
+      return value=failure
+    return value=out
