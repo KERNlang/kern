@@ -1,17 +1,19 @@
 # KERN 5 Ownership Support Matrix
 
 **Release status:** R1 internal Alpha constitution; KERN 5.0 is not complete.
-**Current product baseline:** KERN 4.5.0, audited from `main` at `477063a1`.
+**Current product baseline:** KERN 4.5.0; KERN 5 contract audited from `main` at
+`bc168288`.
 **Release meaning:** KERN 5 parses, checks, compiles, and executes its canonical
 handler language through KERN-authored semantic tooling over versioned KIR.
 Host code provides explicit capabilities and transport only. A clean bootstrap
 must prove a deterministic Stage 1 equals Stage 2 fixed point.
 
 This document is the human-readable mirror of
-`scripts/kern-5-fitness-policy.json`. `pnpm check:kern-5-contract` requires the
-two marked tables below to match that policy exactly. A current gate is runnable
-now; a planned gate is deliberately absent until its implementation slice
-promotes the policy and matrix atomically.
+`scripts/kern-5-fitness-policy.json`. The eight terminal rows are additionally
+bound to `scripts/kern-5-remaining-gates-v1.json` for completion categories and
+accepted evidence. `pnpm check:kern-5-contract` requires exact agreement. A
+current gate is runnable now; a planned gate is deliberately absent until its
+implementation slice promotes the policy, ledger, and matrix atomically.
 
 The fail-closed rule applies throughout: unsupported runtime shapes reject
 before partial output, result, diagnostic, or implicit host effect escapes.
@@ -71,10 +73,13 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | current | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
+| kern-checker | Production KERN checker | planned | `pnpm test:kern-checker` |
+| kern-formatter | Trivia-preserving KERN formatter | planned | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
 | kern-interpreter-shadow | KERN interpreter shadow | planned | `pnpm test:kern-interpreter-shadow` |
+| kern-canonical-cutover | Canonical consumer cutover | planned | `pnpm test:kern-canonical-cutover` |
 | packed-release | Packed release proof | planned | `pnpm test:packed-release` |
 <!-- KERN5_GATE_MATRIX_END -->
 
@@ -94,6 +99,7 @@ wall and must remain absent until promoted.
 | kern-module-validator | KERN module validator | internal-oracle | `pnpm test:selfhost-validator` |
 | kern-checker-v1 | KERN checker subset v1 | shipped-4.5 | `git show v4.5.0:examples/capstone-checker-subset/checker.kern` |
 | checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |
+| kern-checker | Production KERN checker | not-shipped | `scripts/kern-5-remaining-gates-v1.json` |
 | kir-seam-selection | Typed semantic KIR seam selection | internal-oracle | `pnpm test:kern-ir-probe` |
 | kir-reader-candidate | Internal semantic KIR reader candidate | internal-oracle | `pnpm test:kern-ir-reader-candidate` |
 | semantic-ownership-proof | Non-circular semantic ownership substrate | internal-oracle | `pnpm test:kern-semantic-ownership` |
@@ -150,6 +156,7 @@ wall and must remain absent until promoted.
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
 | selfhost-fixed-point | Clean Stage 1 equals Stage 2 | not-shipped | R2 planned |
 | kern-interpreter | KERN semantic interpreter | not-shipped | R2 and R3 planned |
+| kern-canonical-cutover | Canonical consumer cutover from TypeScript semantics | not-shipped | `scripts/kern-5-remaining-gates-v1.json` |
 | packed-release-proof | Exact packed release proof | not-shipped | R4 planned |
 <!-- KERN5_OWNERSHIP_MATRIX_END -->
 

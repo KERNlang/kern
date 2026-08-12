@@ -350,6 +350,18 @@
       "argv": ["pnpm", "test:kern-frontend-successful-line-composition"]
     },
     {
+      "id": "kern-checker",
+      "label": "Production KERN checker",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-checker"]
+    },
+    {
+      "id": "kern-formatter",
+      "label": "Trivia-preserving KERN formatter",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-formatter"]
+    },
+    {
       "id": "kern-frontend",
       "label": "KERN-authored frontend",
       "status": "planned",
@@ -372,6 +384,12 @@
       "label": "KERN interpreter shadow",
       "status": "planned",
       "argv": ["pnpm", "test:kern-interpreter-shadow"]
+    },
+    {
+      "id": "kern-canonical-cutover",
+      "label": "Canonical consumer cutover",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-canonical-cutover"]
     },
     {
       "id": "packed-release",
@@ -416,6 +434,12 @@
       "label": "Checker v2 and production shadow",
       "status": "internal-oracle",
       "evidence": "pnpm test:capstone-checker-subset"
+    },
+    {
+      "id": "kern-checker",
+      "label": "Production KERN checker",
+      "status": "not-shipped",
+      "evidence": "scripts/kern-5-remaining-gates-v1.json"
     },
     {
       "id": "kir-seam-selection",
@@ -752,6 +776,12 @@
       "label": "KERN semantic interpreter",
       "status": "not-shipped",
       "evidence": "R2 and R3 planned"
+    },
+    {
+      "id": "kern-canonical-cutover",
+      "label": "Canonical consumer cutover from TypeScript semantics",
+      "status": "not-shipped",
+      "evidence": "scripts/kern-5-remaining-gates-v1.json"
     },
     {
       "id": "packed-release-proof",

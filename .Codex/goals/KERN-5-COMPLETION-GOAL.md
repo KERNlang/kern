@@ -1,6 +1,6 @@
 # KERN 5.0 Completion Goal
 
-**Status:** READY AFTER M4.171 MERGES
+**Status:** PHASE 0 COMPLETE; PHASE 1 READY
 
 **Goal confidence:** 0.96
 
@@ -27,24 +27,21 @@ or silently fall back to TypeScript semantics; and the exact accepted packed RC
 passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
-passes. After M4.171, that wall contains 50 promoted gates and excludes five
-declared planned gates. Three other terminal requirements—production checker,
-full formatter, and canonical cutover—still need explicit planned gates.
+passes. After Phase 0 reconciliation, that wall still contains 50 promoted
+gates and excludes all eight terminal planned gates.
 
 ## Post-M4.171 Baseline
 
-Do not guess the merge SHA. Before the next slice:
+M4.171 was published directly to `main`; no merge commit exists. The
+implementation commit is `50407d08ac97eeb4bfe9ee007f1072841b058991`, and the
+post-publication completion-contract baseline is
+`bc1682880671b4dcac036ad74be8c4db4987810b`. Fresh fetch and `ls-remote`
+verification resolved both `origin/main` and the remote ref to that baseline
+before the isolated Phase 0 worktree was created.
 
-1. Finish M4.171 publication and merge under the active repository rules.
-2. Run `git fetch origin`.
-3. Resolve and record the actual M4.171 merge commit on `origin/main`.
-4. Create a new feature branch and isolated worktree from that exact SHA.
-5. Re-audit the policy, support matrix, release workflows, package exports, and
-   current runner/parser/compiler call paths for merge skew.
+Reconciled Phase 0 state:
 
-Expected state immediately after merge:
-
-- 55 declared KERN 5 gates: 50 current, 5 planned.
+- 58 declared KERN 5 gates: 50 current, 8 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - KIR v1, checker v2, runtime ownership slices, canonicalizer, and frontend
   slices remain `internal-oracle`, not canonical product authority.
@@ -52,26 +49,29 @@ Expected state immediately after merge:
 - Formatter, complete frontend, compiler, fixed point, interpreter, canonical
   cutover, exact packed proof, and public `5.0.0` remain open.
 
-Promoted-gate coverage is 90.9%. The source-grounded release-completion estimate
-is only 45-55% because the remaining gates are the high-weight ownership and
-cutover phases. This estimate is directional, not a repository metric.
+Promoted-gate row coverage is `50 / 58 = 86.2%`. The denominator fell because
+Phase 0 made three omitted terminal requirements visible; no implementation was
+lost. The source-grounded release-completion estimate remains only 45-55%
+because the remaining gates are the high-weight ownership and cutover phases.
+This estimate is directional, not a repository metric.
 
 ## Target Gate Ledger
 
-Phase 0 must make all eight rows explicit in the fitness policy, policy tests,
-support matrix, and release train. New rows begin as `planned`, and their root
-package scripts must remain absent until the implementation slice promotes each
-row to `current` with its complete binary oracle.
+All eight rows are explicit in the fitness policy, versioned remaining-gate
+ledger, policy tests, support matrix, and release train. They remain `planned`,
+and their root package scripts remain absent until an implementation slice
+promotes each row to `current` with its complete binary oracle. The
+machine-readable authority is `scripts/kern-5-remaining-gates-v1.json`.
 
 | Gate | Starting state after M4.171 |
 | --- | --- |
-| `pnpm test:kern-checker` | add as planned |
-| `pnpm test:kern-formatter` | add as planned |
+| `pnpm test:kern-checker` | planned |
+| `pnpm test:kern-formatter` | planned |
 | `pnpm test:kern-frontend` | planned |
 | `pnpm test:kern-compiler` | planned |
 | `pnpm test:selfhost-fixed-point` | planned |
 | `pnpm test:kern-interpreter-shadow` | planned |
-| `pnpm test:kern-canonical-cutover` | add as planned |
+| `pnpm test:kern-canonical-cutover` | planned |
 | `pnpm test:packed-release` | planned |
 
 `pnpm test:kern-ir` remains current. KIR v1 becomes shipped/canonical only

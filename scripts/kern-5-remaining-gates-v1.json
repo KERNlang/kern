@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "originMain": "bc1682880671b4dcac036ad74be8c4db4987810b",
+    "m4171Implementation": "50407d08ac97eeb4bfe9ee007f1072841b058991"
+  },
+  "contractCategories": [
+    "source",
+    "diagnostics",
+    "trivia",
+    "kir",
+    "handlers",
+    "capabilities",
+    "traces",
+    "determinism",
+    "limits",
+    "rejection-behavior"
+  ],
+  "terminalGates": [
+    {
+      "id": "kern-checker",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-checker"],
+      "categories": ["source", "diagnostics", "kir", "determinism", "limits", "rejection-behavior"],
+      "evidence": [".Codex/specs/kern-5-post-m4-171-completion/spec.md"]
+    },
+    {
+      "id": "kern-formatter",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-formatter"],
+      "categories": ["source", "diagnostics", "trivia", "determinism", "limits", "rejection-behavior"],
+      "evidence": [".Codex/specs/kern-5-post-m4-171-completion/spec.md"]
+    },
+    {
+      "id": "kern-frontend",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-frontend"],
+      "categories": ["source", "diagnostics", "trivia", "kir", "determinism", "limits", "rejection-behavior"],
+      "evidence": [
+        ".Codex/specs/kern-5-post-m4-171-completion/spec.md",
+        "docs/kern-5-support-matrix.md"
+      ]
+    },
+    {
+      "id": "kern-compiler",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-compiler"],
+      "categories": ["kir", "handlers", "capabilities", "determinism", "limits", "rejection-behavior"],
+      "evidence": [".Codex/specs/kern-5-post-m4-171-completion/spec.md"]
+    },
+    {
+      "id": "selfhost-fixed-point",
+      "status": "planned",
+      "argv": ["pnpm", "test:selfhost-fixed-point"],
+      "categories": ["source", "kir", "determinism", "limits", "rejection-behavior"],
+      "evidence": [
+        ".Codex/goals/KERN-5-COMPLETION-GOAL.md",
+        ".Codex/specs/kern-5-post-m4-171-completion/spec.md"
+      ]
+    },
+    {
+      "id": "kern-interpreter-shadow",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-interpreter-shadow"],
+      "categories": [
+        "diagnostics",
+        "kir",
+        "handlers",
+        "capabilities",
+        "traces",
+        "determinism",
+        "limits",
+        "rejection-behavior"
+      ],
+      "evidence": [".Codex/specs/kern-5-post-m4-171-completion/spec.md"]
+    },
+    {
+      "id": "kern-canonical-cutover",
+      "status": "planned",
+      "argv": ["pnpm", "test:kern-canonical-cutover"],
+      "categories": ["handlers", "capabilities", "traces", "determinism", "limits", "rejection-behavior"],
+      "evidence": [
+        ".Codex/goals/KERN-5-COMPLETION-GOAL.md",
+        ".Codex/specs/kern-5-post-m4-171-completion/spec.md"
+      ]
+    },
+    {
+      "id": "packed-release",
+      "status": "planned",
+      "argv": ["pnpm", "test:packed-release"],
+      "categories": [
+        "source",
+        "diagnostics",
+        "trivia",
+        "kir",
+        "handlers",
+        "capabilities",
+        "traces",
+        "determinism",
+        "limits",
+        "rejection-behavior"
+      ],
+      "evidence": [
+        ".Codex/specs/kern-5-post-m4-171-completion/spec.md",
+        "docs/kern-5-release-train.md"
+      ]
+    }
+  ]
+}

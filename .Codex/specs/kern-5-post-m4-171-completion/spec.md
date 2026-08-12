@@ -1,11 +1,11 @@
 # KERN 5 Post-M4.171 Completion Contract
 
-**Status:** READY TO EXECUTE AFTER M4.171 MERGES
+**Status:** PHASE 0 COMPLETE; PHASE 1 READY
 
-**Date:** 2026-08-11
+**Date:** 2026-08-13
 
-**Baseline contract:** the actual merge commit containing M4.171, resolved from
-freshly fetched `origin/main` before the next slice starts
+**Baseline contract:** direct-main M4.171 implementation `50407d08`; verified
+post-publication `origin/main` baseline `bc1682880671b4dcac036ad74be8c4db4987810b`
 
 **Current public version:** `4.5.0`
 
@@ -14,7 +14,8 @@ freshly fetched `origin/main` before the next slice starts
 ## Decision
 
 KERN 5 remains a source-language ownership release, not a count of accumulated
-shadow gates. After M4.171 merges, continue through one serial critical path:
+shadow gates. After M4.171 publication, continue through one serial critical
+path:
 
 1. reconcile the completion contract and enumerate every terminal gate;
 2. finish KERN-owned frontend, formatter, and production checker behavior;
@@ -29,14 +30,14 @@ contract produced by the earlier one. A big-bang cutover would make failures
 non-local, while parallel compiler/interpreter ownership would build against a
 moving frontend and KIR boundary.
 
-## Current State After the M4.171 Merge
+## Current State After M4.171 Publication and Phase 0 Reconciliation
 
 ### Repository-measured state
 
-- **[VERIFIED]** The KERN 5 policy declares 55 gates: 50 `current` and 5
-  `planned`. The five planned gates are `kern-frontend`, `kern-compiler`,
-  `selfhost-fixed-point`, `kern-interpreter-shadow`, and `packed-release`.
-  Evidence: `scripts/kern-5-fitness-policy.json`.
+- **[VERIFIED]** The KERN 5 policy declares 58 gates: 50 `current` and 8
+  `planned`. The terminal roster and its frozen classification vocabulary are
+  bound in `scripts/kern-5-remaining-gates-v1.json`; policy and ledger agree on
+  ID, order, status, and argv.
 - **[VERIFIED]** `pnpm fitness:kern-5` executes promoted/current gates and does
   not execute planned gates. A green wall therefore proves the current
   substrate, not KERN 5 completion. Evidence:
@@ -61,16 +62,15 @@ moving frontend and KIR boundary.
 
 ### Progress interpretation
 
-- **[VERIFIED]** Promoted-gate coverage after M4.171 is `50 / 55 = 90.9%`.
-- **[INFERRED]** Release completion is approximately **45-55%**, not 90.9%.
+- **[VERIFIED]** Promoted-gate row coverage after reconciliation is
+  `50 / 58 = 86.2%`.
+- **[INFERRED]** Release completion is approximately **45-55%**, not 86.2%.
   The range is deliberately heuristic: the repository has a large, well-gated
   ownership substrate, but the remaining phases are the high-weight canonical
   product path—complete frontend, compiler, fixed point, interpreter, consumer
   cutover, packed proof, and public release.
-- **[VERIFIED]** Three completion requirements are not represented by their own
-  planned policy gates: production checker, full formatter, and canonical
-  cutover. Counting only the five declared planned gates understates the open
-  work.
+- **[VERIFIED]** Production checker, full formatter, and canonical cutover are
+  now represented as planned terminal gates without placeholder root scripts.
 
 ## What Already Works
 
@@ -92,13 +92,13 @@ slice promotes both atomically.
 
 | Gate | Current declaration | Promotion meaning |
 | --- | --- | --- |
-| `pnpm test:kern-checker` | **[PROPOSED]** add as planned | KERN checker owns the admitted v5 source/KIR contract and matches diagnostics with no tolerated drift |
-| `pnpm test:kern-formatter` | **[PROPOSED]** add as planned | KERN formatter preserves required trivia/source evidence and is idempotent and deterministic |
+| `pnpm test:kern-checker` | **[VERIFIED]** planned | KERN checker owns the admitted v5 source/KIR contract and matches diagnostics with no tolerated drift |
+| `pnpm test:kern-formatter` | **[VERIFIED]** planned | KERN formatter preserves required trivia/source evidence and is idempotent and deterministic |
 | `pnpm test:kern-frontend` | **[VERIFIED]** planned | Complete admitted source produces byte-identical canonical KIR and diagnostics against the bootstrap oracle |
 | `pnpm test:kern-compiler` | **[VERIFIED]** planned | KERN-owned compiler covers the v5 target matrix and can compile its own toolchain sources |
 | `pnpm test:selfhost-fixed-point` | **[VERIFIED]** planned | Clean Stage 1 and Stage 2 packed outputs are byte-identical under enumerated normalization, twice |
 | `pnpm test:kern-interpreter-shadow` | **[VERIFIED]** planned | KERN interpreter has zero semantic/effect/diagnostic drift across the supported v5 contract |
-| `pnpm test:kern-canonical-cutover` | **[PROPOSED]** add as planned | Normal CLI/core/browser and required downstream paths cannot reach TypeScript semantics or silently fall back; forced-TS remains explicit |
+| `pnpm test:kern-canonical-cutover` | **[VERIFIED]** planned | Normal CLI/core/browser and required downstream paths cannot reach TypeScript semantics or silently fall back; forced-TS remains explicit |
 | `pnpm test:packed-release` | **[VERIFIED]** planned | Exact tarballs pass install, export, runtime, downstream, fixed-point, integrity, and recovery proof from fresh roots |
 
 `pnpm test:kern-ir` stays current. Its ownership row becomes shipped/canonical
@@ -111,7 +111,8 @@ approved.
 
 ### Phase 0 — Reconcile the truth sources
 
-- Resolve the actual M4.171 merge SHA from freshly fetched `origin/main`.
+- Record direct-main implementation `50407d08` and the verified
+  post-publication baseline `bc168288` without inventing a merge commit.
 - Correct stale release-train baselines, missing-document references, and old
   release-machinery claims against current workflows.
 - Add the checker, formatter, and canonical-cutover planned gates and tests that
@@ -119,6 +120,10 @@ approved.
 - Define the admitted v5 language/diagnostic/trivia contract and close any
   contradiction between “versioned KIR current” and “KIR not shipped”.
 - Produce one machine-readable remaining-gate ledger.
+
+Phase 0 distinguishes two horizons: all eight root scripts must be absent while
+their rows are planned; final KERN 5 completion requires real scripts, current
+status, and green binary oracles.
 
 ### Phase 1 — Complete source ownership
 
@@ -212,7 +217,7 @@ publication require the authority specified by the active engineering doctrine.
 
 ## Corrections Log
 
-- **[CORRECTED]** `50/55` measures promoted gate rows, not 90.9% release
+- **[CORRECTED]** `50/58` measures promoted gate rows, not 86.2% release
   completion.
 - **[CORRECTED]** The five declared planned gates omit checker, formatter, and
   canonical-cutover completion gates.
@@ -220,3 +225,5 @@ publication require the authority specified by the active engineering doctrine.
   of the machinery now exists and should not be rebuilt from stale prose.
 - **[CORRECTED]** KIR v1 is a current internal oracle but not yet the canonical
   product authority; “versioned” and “shipped/canonical” are separate claims.
+- **[CORRECTED]** M4.171 was published directly to `main` as `50407d08` plus
+  completion-contract commit `bc168288`; there is no merge commit.

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -7,15 +8,29 @@ import {
   runKern5Fitness,
   validateKern5FitnessContract,
   validateKern5FitnessPolicy,
+  validateKern5RemainingGates,
 } from './kern-5-fitness.mjs';
 
 const policy = JSON.parse(readFileSync('scripts/kern-5-fitness-policy.json', 'utf8'));
+const remainingGates = JSON.parse(readFileSync('scripts/kern-5-remaining-gates-v1.json', 'utf8'));
 const matrixText = readFileSync('docs/kern-5-support-matrix.md', 'utf8');
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+const remainingGatesPath = 'scripts/kern-5-remaining-gates-v1.json';
+const terminalGateIds = [
+  'kern-checker',
+  'kern-formatter',
+  'kern-frontend',
+  'kern-compiler',
+  'selfhost-fixed-point',
+  'kern-interpreter-shadow',
+  'kern-canonical-cutover',
+  'packed-release',
+];
 
 function validate(overrides = {}) {
   return validateKern5FitnessContract({
     policy: overrides.policy ?? structuredClone(policy),
+    remainingGates: overrides.remainingGates ?? structuredClone(remainingGates),
     matrixText: overrides.matrixText ?? matrixText,
     packageJson: overrides.packageJson ?? structuredClone(packageJson),
   });
@@ -31,6 +46,159 @@ function currentFrontendScripts(gates = policy.gates) {
     )
     .map((gate) => gate.argv[1]);
 }
+
+test('Phase 0 declares the complete terminal gate suffix and versioned ledger', () => {
+  assert.ok(existsSync(remainingGatesPath), `${remainingGatesPath} must exist`);
+  assert.deepEqual(
+    policy.gates.slice(-terminalGateIds.length).map((gate) => gate.id),
+    terminalGateIds,
+  );
+  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 50);
+  assert.equal(policy.gates.filter((gate) => gate.status === 'planned').length, 8);
+  assert.deepEqual(
+    remainingGates.terminalGates.map((gate) => gate.id),
+    terminalGateIds,
+  );
+});
+
+test('remaining-gate ledger rejects category, roster, baseline, and evidence drift', () => {
+  const cases = [
+    {
+      name: 'category order',
+      mutate(copy) {
+        [copy.contractCategories[0], copy.contractCategories[1]] = [
+          copy.contractCategories[1],
+          copy.contractCategories[0],
+        ];
+      },
+      error: /contract categories must be exactly/i,
+    },
+    {
+      name: 'unknown row category',
+      mutate(copy) {
+        copy.terminalGates[0].categories[0] = 'ast';
+      },
+      error: /kern-checker.*unknown contract category.*ast/i,
+    },
+    {
+      name: 'duplicate row category',
+      mutate(copy) {
+        copy.terminalGates[0].categories.splice(1, 0, copy.terminalGates[0].categories[0]);
+      },
+      error: /kern-checker.*unique.*global order/i,
+    },
+    {
+      name: 'missing global category coverage',
+      mutate(copy) {
+        for (const gate of copy.terminalGates) {
+          gate.categories = gate.categories.filter((category) => category !== 'traces');
+        }
+      },
+      error: /cover every contract category/i,
+    },
+    {
+      name: 'terminal order',
+      mutate(copy) {
+        [copy.terminalGates[0], copy.terminalGates[1]] = [copy.terminalGates[1], copy.terminalGates[0]];
+      },
+      error: /terminal gates must be exactly/i,
+    },
+    {
+      name: 'baseline drift',
+      mutate(copy) {
+        copy.baseline.originMain = copy.baseline.m4171Implementation;
+      },
+      error: /originMain must be bc168288/i,
+    },
+    {
+      name: 'unapproved evidence',
+      mutate(copy) {
+        copy.terminalGates[0].evidence = ['tmp/local-claim.md'];
+      },
+      error: /kern-checker.*unapproved completion evidence/i,
+    },
+    {
+      name: 'duplicate evidence',
+      mutate(copy) {
+        copy.terminalGates[0].evidence.push(copy.terminalGates[0].evidence[0]);
+      },
+      error: /kern-checker.*duplicate completion evidence/i,
+    },
+  ];
+  for (const fixture of cases) {
+    const copy = structuredClone(remainingGates);
+    fixture.mutate(copy);
+    assert.throws(() => validateKern5RemainingGates(copy), fixture.error, fixture.name);
+  }
+});
+
+test('remaining-gate evidence resolves to tracked accepted contract artifacts', () => {
+  const evidence = [...new Set(remainingGates.terminalGates.flatMap((gate) => gate.evidence))];
+  for (const evidencePath of evidence) {
+    assert.ok(existsSync(evidencePath), `${evidencePath} must exist`);
+    execFileSync('git', ['ls-files', '--error-unmatch', evidencePath], { stdio: 'ignore' });
+  }
+});
+
+test('default contract loading is independent from the caller working directory', () => {
+  const originalCwd = process.cwd();
+  try {
+    process.chdir('scripts');
+    assert.equal(loadKern5FitnessContract().currentGates.length, 50);
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test('policy and ledger bind terminal id, order, status, and argv', () => {
+  const cases = [
+    {
+      name: 'status drift',
+      ledger: true,
+      mutate(copy) {
+        copy.terminalGates.at(-1).status = 'current';
+      },
+      error: /completion ledger disagree.*packed-release/i,
+    },
+    {
+      name: 'argv drift',
+      ledger: true,
+      mutate(copy) {
+        copy.terminalGates.at(-1).argv = ['pnpm', 'test:kern-frontend'];
+      },
+      error: /completion ledger disagree.*packed-release/i,
+    },
+    {
+      name: 'order drift',
+      mutate(copy) {
+        const start = copy.gates.length - terminalGateIds.length;
+        [copy.gates[start], copy.gates[start + 1]] = [copy.gates[start + 1], copy.gates[start]];
+      },
+      error: /completion ledger disagree.*kern-checker/i,
+    },
+  ];
+  for (const fixture of cases) {
+    const copy = structuredClone(fixture.ledger ? remainingGates : policy);
+    fixture.mutate(copy);
+    const overrides = fixture.ledger ? { remainingGates: copy } : { policy: copy };
+    assert.throws(() => validate(overrides), fixture.error, fixture.name);
+  }
+});
+
+test('planned terminal gates have no root scripts and stay outside current execution', () => {
+  const contract = validate();
+  assert.equal(contract.currentGates.length, 50);
+  assert.deepEqual(
+    contract.currentGates.filter((gate) => terminalGateIds.includes(gate.id)),
+    [],
+  );
+  for (const gate of remainingGates.terminalGates) {
+    assert.equal(packageJson.scripts[gate.argv[1]], undefined, `${gate.argv[1]} must remain absent`);
+    const premature = structuredClone(packageJson);
+    premature.scripts[gate.argv[1]] = 'node placeholder.mjs';
+    assert.throws(() => validate({ packageJson: premature }), new RegExp(`planned gate ${gate.id}`, 'i'));
+  }
+});
 
 test('current KERN 5 policy, matrix, and root scripts form one exact contract', () => {
   const contract = loadKern5FitnessContract();

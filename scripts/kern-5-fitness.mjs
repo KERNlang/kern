@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const POLICY_PATH = 'scripts/kern-5-fitness-policy.json';
+const REMAINING_GATES_PATH = 'scripts/kern-5-remaining-gates-v1.json';
 const MATRIX_PATH = 'docs/kern-5-support-matrix.md';
 const PACKAGE_PATH = 'package.json';
 const GATE_START = '<!-- KERN5_GATE_MATRIX_START -->';
@@ -16,6 +17,37 @@ const SCRIPT_RE = /^[a-z][a-z0-9:-]{0,127}$/;
 const CONTROL_RE = /[\u0000-\u001f\u007f]/u;
 const GATE_STATUSES = new Set(['current', 'planned']);
 const OWNERSHIP_STATUSES = new Set(['shipped-4.5', 'internal-oracle', 'not-shipped']);
+const M4171_IMPLEMENTATION_SHA = '50407d08ac97eeb4bfe9ee007f1072841b058991';
+const PHASE0_BASELINE_SHA = 'bc1682880671b4dcac036ad74be8c4db4987810b';
+const CONTRACT_CATEGORIES = [
+  'source',
+  'diagnostics',
+  'trivia',
+  'kir',
+  'handlers',
+  'capabilities',
+  'traces',
+  'determinism',
+  'limits',
+  'rejection-behavior',
+];
+const TERMINAL_GATE_IDS = [
+  'kern-checker',
+  'kern-formatter',
+  'kern-frontend',
+  'kern-compiler',
+  'selfhost-fixed-point',
+  'kern-interpreter-shadow',
+  'kern-canonical-cutover',
+  'packed-release',
+];
+const APPROVED_COMPLETION_EVIDENCE = new Set([
+  '.Codex/goals/KERN-5-COMPLETION-GOAL.md',
+  '.Codex/specs/kern-5-post-m4-171-completion/spec.md',
+  'docs/kern-5-release-train.md',
+  'docs/kern-5-support-matrix.md',
+]);
+const DEFAULT_ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function assertRecord(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -59,6 +91,93 @@ function validateArgv(argv, label) {
   if (!isPnpm && !isDiffCheck) {
     throw new Error(`${label}.argv must be pnpm <safe-script> or git diff --check`);
   }
+}
+
+function arraysEqual(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+export function validateKern5RemainingGates(remainingGates) {
+  assertRecord(remainingGates, 'KERN 5 remaining-gate ledger');
+  assertExactKeys(
+    remainingGates,
+    ['schemaVersion', 'baseline', 'contractCategories', 'terminalGates'],
+    'KERN 5 remaining-gate ledger',
+  );
+  if (remainingGates.schemaVersion !== 1) {
+    throw new Error('KERN 5 remaining-gate ledger schemaVersion must be 1');
+  }
+
+  assertRecord(remainingGates.baseline, 'KERN 5 remaining-gate baseline');
+  assertExactKeys(remainingGates.baseline, ['originMain', 'm4171Implementation'], 'KERN 5 remaining-gate baseline');
+  if (remainingGates.baseline.originMain !== PHASE0_BASELINE_SHA) {
+    throw new Error(`KERN 5 remaining-gate originMain must be ${PHASE0_BASELINE_SHA}`);
+  }
+  if (remainingGates.baseline.m4171Implementation !== M4171_IMPLEMENTATION_SHA) {
+    throw new Error(`KERN 5 remaining-gate m4171Implementation must be ${M4171_IMPLEMENTATION_SHA}`);
+  }
+
+  if (!Array.isArray(remainingGates.contractCategories)) {
+    throw new Error('KERN 5 remaining-gate contractCategories must be an array');
+  }
+  if (!arraysEqual(remainingGates.contractCategories, CONTRACT_CATEGORIES)) {
+    throw new Error(`KERN 5 contract categories must be exactly: ${CONTRACT_CATEGORIES.join(', ')}`);
+  }
+
+  if (!Array.isArray(remainingGates.terminalGates)) {
+    throw new Error('KERN 5 remaining-gate terminalGates must be an array');
+  }
+  if (
+    !arraysEqual(
+      remainingGates.terminalGates.map((gate) => gate?.id),
+      TERMINAL_GATE_IDS,
+    )
+  ) {
+    throw new Error(`KERN 5 terminal gates must be exactly: ${TERMINAL_GATE_IDS.join(', ')}`);
+  }
+
+  const coveredCategories = new Set();
+  for (const [index, gate] of remainingGates.terminalGates.entries()) {
+    const label = `terminalGate[${index}]`;
+    assertRecord(gate, label);
+    assertExactKeys(gate, ['id', 'status', 'argv', 'categories', 'evidence'], label);
+    assertId(gate.id, `${label}.id`);
+    if (!GATE_STATUSES.has(gate.status)) {
+      throw new Error(`Unsupported terminal gate status for ${gate.id}: ${gate.status}`);
+    }
+    validateArgv(gate.argv, label);
+
+    if (!Array.isArray(gate.categories) || gate.categories.length === 0) {
+      throw new Error(`${label}.categories must be a non-empty array`);
+    }
+    let previousCategoryIndex = -1;
+    for (const category of gate.categories) {
+      const categoryIndex = CONTRACT_CATEGORIES.indexOf(category);
+      if (categoryIndex < 0) throw new Error(`${gate.id} has unknown contract category: ${category}`);
+      if (categoryIndex <= previousCategoryIndex) {
+        throw new Error(`${gate.id} contract categories must be unique and in global order`);
+      }
+      previousCategoryIndex = categoryIndex;
+      coveredCategories.add(category);
+    }
+
+    if (!Array.isArray(gate.evidence) || gate.evidence.length === 0) {
+      throw new Error(`${label}.evidence must be a non-empty array`);
+    }
+    const seenEvidence = new Set();
+    for (const evidence of gate.evidence) {
+      assertText(evidence, `${label}.evidence`, 256);
+      if (!APPROVED_COMPLETION_EVIDENCE.has(evidence)) {
+        throw new Error(`${gate.id} has unapproved completion evidence: ${evidence}`);
+      }
+      if (seenEvidence.has(evidence)) throw new Error(`${gate.id} has duplicate completion evidence: ${evidence}`);
+      seenEvidence.add(evidence);
+    }
+  }
+  if (!arraysEqual([...coveredCategories].sort(), [...CONTRACT_CATEGORIES].sort())) {
+    throw new Error('KERN 5 terminal gates must cover every contract category');
+  }
+  return remainingGates;
 }
 
 export function validateKern5FitnessPolicy(policy) {
@@ -163,8 +282,9 @@ function assertRowsEqual(actualRows, expectedRows, label) {
   }
 }
 
-export function validateKern5FitnessContract({ policy, matrixText, packageJson }) {
+export function validateKern5FitnessContract({ policy, remainingGates, matrixText, packageJson }) {
   validateKern5FitnessPolicy(policy);
+  validateKern5RemainingGates(remainingGates);
   assertRecord(packageJson, 'root package.json');
   assertRecord(packageJson.scripts, 'root package.json scripts');
 
@@ -186,6 +306,19 @@ export function validateKern5FitnessContract({ policy, matrixText, packageJson }
     }
   }
 
+  const terminalPolicyGates = policy.gates.slice(-TERMINAL_GATE_IDS.length);
+  for (const [index, ledgerGate] of remainingGates.terminalGates.entries()) {
+    const policyGate = terminalPolicyGates[index];
+    if (
+      !policyGate ||
+      policyGate.id !== ledgerGate.id ||
+      policyGate.status !== ledgerGate.status ||
+      !arraysEqual(policyGate.argv, ledgerGate.argv)
+    ) {
+      throw new Error(`KERN 5 policy and completion ledger disagree on terminal gate ${ledgerGate.id}`);
+    }
+  }
+
   const gateRows = parseMarkdownTable(
     extractMarkedTable(matrixText, GATE_START, GATE_END, 'gate'),
     '| ID | Gate | Status | Command |',
@@ -201,14 +334,27 @@ export function validateKern5FitnessContract({ policy, matrixText, packageJson }
   );
   const expectedOwnershipRows = policy.ownership.map((row) => [row.id, row.label, row.status, row.evidence]);
   assertRowsEqual(ownershipRows, expectedOwnershipRows, 'KERN 5 ownership');
-  return { currentGates: policy.gates.filter((gate) => gate.status === 'current') };
+  return {
+    currentGates: policy.gates.filter((gate) => gate.status === 'current'),
+    terminalGates: remainingGates.terminalGates,
+  };
 }
 
-export function loadKern5FitnessContract(rootDir = process.cwd()) {
-  const policy = JSON.parse(readFileSync(path.join(rootDir, POLICY_PATH), 'utf8'));
-  const matrixText = readFileSync(path.join(rootDir, MATRIX_PATH), 'utf8');
-  const packageJson = JSON.parse(readFileSync(path.join(rootDir, PACKAGE_PATH), 'utf8'));
-  return validateKern5FitnessContract({ policy, matrixText, packageJson });
+export function loadKern5FitnessContract(rootDir = DEFAULT_ROOT_DIR) {
+  const resolvedRoot = path.resolve(rootDir);
+  const policy = JSON.parse(readFileSync(path.join(resolvedRoot, POLICY_PATH), 'utf8'));
+  const remainingGates = JSON.parse(readFileSync(path.join(resolvedRoot, REMAINING_GATES_PATH), 'utf8'));
+  const matrixText = readFileSync(path.join(resolvedRoot, MATRIX_PATH), 'utf8');
+  const packageJson = JSON.parse(readFileSync(path.join(resolvedRoot, PACKAGE_PATH), 'utf8'));
+  const contract = validateKern5FitnessContract({ policy, remainingGates, matrixText, packageJson });
+  for (const evidence of new Set(remainingGates.terminalGates.flatMap((gate) => gate.evidence))) {
+    const evidencePath = path.resolve(resolvedRoot, evidence);
+    if (!evidencePath.startsWith(`${resolvedRoot}${path.sep}`)) {
+      throw new Error(`KERN 5 completion evidence escapes the repository root: ${evidence}`);
+    }
+    readFileSync(evidencePath);
+  }
+  return contract;
 }
 
 export function runKern5Fitness({ currentGates, rootDir = process.cwd(), spawn = spawnSync }) {

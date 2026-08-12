@@ -3802,7 +3802,7 @@ trusted-publishing/provenance configuration is inspected.
     rebased byte-identically onto `origin/main` as
     `306712165d6153eede7212d3b84aaff8242d8148`.
 
-  - [ ] M4.171 successful-line composition shadow: exact-roster tribunal
+  - [x] M4.171 successful-line composition shadow: exact-roster tribunal
     `tribunal-1786404220444-c85nut-m4-171-next-frontend-seam` selected a bounded
     complete `ParsedLine` composition boundary and rejected premature
     multiline or tree ownership. RED-at-base proved M4.170 lacked `indent`,
@@ -3861,8 +3861,34 @@ trusted-publishing/provenance configuration is inspected.
     policy-order hole in the fitness drift guard; a RED future-promotion case
     now covers both. Targeted correctness confirmation
     `review-1786556263203-n02nna-m4171-final-review-fixes` completed 1/1 with
-    zero findings. Signed publication and remote-main verification remain
-    required.
+    zero findings. The Agon-authored implementation commit `50407d08` and
+    post-M4.171 completion-contract commit `bc168288` were pushed together in
+    one explicitly authorized direct-main update from `30671216`. Fresh
+    `git ls-remote` and fetch checks both verified `origin/main` at full SHA
+    `bc1682880671b4dcac036ad74be8c4db4987810b`. This was a direct publication,
+    not a merge commit; Phase 0 records that history without revision.
+
+  - [x] KERN 5 Phase 0 completion-contract reconciliation: tribunal
+    `tribunal-1786575544153-9w7nhh-kern5-phase0-contract-ledger` completed 3/3
+    and selected two machine-enforced authorities: the existing fitness policy
+    for execution and `scripts/kern-5-remaining-gates-v1.json` for terminal
+    completion. The ledger pins M4.171 implementation `50407d08` and baseline
+    `bc168288`, defines ten ordered contract-classification identifiers, and
+    enumerates exactly eight terminal gates. Checker, formatter, and canonical
+    cutover are now explicit planned rows; all eight planned root scripts remain
+    absent. Policy, ledger, and matrix are bound on terminal ID, order, status,
+    and argv, with tracked evidence and mutation coverage. RED-first review
+    hardening also makes default contract loading independent from the caller's
+    working directory and root-contains every approved evidence read. The final
+    local receipt is 17/17 fitness-contract tests, `check:kern-5-contract`,
+    Biome over 1,356 files, and diff hygiene. Automatic medium-risk review
+    `review-1786576326194-gstji9-kern5-phase0-contract-ledger` completed 2/2
+    with no material findings; only current-roster `agy` counts toward the
+    required panel because the router selected stale-roster `minimax` as the
+    other seat. Current-roster Claude correctness confirmation
+    `review-1786576550183-3radrk-kern5-phase0-claude-confirmation` completed
+    1/1 with zero findings. Phase 1 may now implement checker, formatter, and
+    full frontend ownership against the frozen classification ledger.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
