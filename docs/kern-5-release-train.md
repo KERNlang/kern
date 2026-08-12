@@ -3775,7 +3775,7 @@ trusted-publishing/provenance configuration is inspected.
     with zero findings. Signed publication completed as
     `5841f4e11a77177a7178d13377ddb94af25d84a3`.
 
-  - [ ] M4.170 keyword-handler shadow: exact-roster tribunal selected the
+  - [x] M4.170 keyword-handler shadow: exact-roster tribunal selected the
     complete closed 26-handler phase between M4.169 hints and the M4.168
     residual generic continuation. Native KERN owns handler-local cursor and
     property deltas, authenticates both predecessor and masked continuation,
@@ -3797,8 +3797,72 @@ trusted-publishing/provenance configuration is inspected.
     and tokenizer parity 307; `pnpm test:kern-5-fitness` passes 9/9. Targeted
     reviewer `agy` timed out fail-closed; replacement confirmation
     `review-1786388968449-pew8po-post-fix-security-legacy-retry` completed 1/1
-    with no blocking or verified findings. Signed commit and publication remain
-    required before this checkbox closes.
+    with no blocking or verified findings. Signed commit `077a9203` was pushed
+    as PR #553, all required GitHub checks passed, and the reviewed tree was
+    rebased byte-identically onto `origin/main` as
+    `306712165d6153eede7212d3b84aaff8242d8148`.
+
+  - [ ] M4.171 successful-line composition shadow: exact-roster tribunal
+    `tribunal-1786404220444-c85nut-m4-171-next-frontend-seam` selected a bounded
+    complete `ParsedLine` composition boundary and rejected premature
+    multiline or tree ownership. RED-at-base proved M4.170 lacked `indent`,
+    `rawLength`, and `loc`. Native KERN now binds one space-indented logical
+    input, inline-comment trim, optional `export fn`, UTF-16 structural fields,
+    current runtime/epoch, and one complete M4.170 child envelope. Four
+    hand-audited fixtures cover hint/handler/generic composition, styles,
+    pseudo-styles, ordered themes, astral coordinates, quoted-property
+    presence, export shifting, unknown-node warnings, tokenizer errors,
+    duplicate warnings, and unexpected-token warnings; a fifth fixture binds
+    tokenizer and unexpected-token coordinates after the export shift. The
+    initial focused tests, cumulative receipt, and complete `fitness:kern-5`
+    wall exited 0. Independent role-lens review
+    `review-1786421569022-x3zas4-m4-171-successful-line-compositi` completed
+    6/6. Its verified policy-bound, raw-input, executable-failure,
+    export-diagnostic, whitespace-profile, and predecessor-replay gaps are
+    fixed. O3 now closes all 343 M4.153-M4.170 references as 254 admitted, 44
+    source-profile exclusions, 12 boundary exclusions, and 33 exact
+    ref-to-failure-code predecessor exclusions across 273 unique executions.
+    Post-fix security review then reproduced an inherited `constructor`
+    pseudo-style mutating the host `Object` constructor during bootstrap
+    capture. The parser now ignores that inherited pseudo-selector before any
+    nested write, matching M4.167's existing invisible-state contract; core and
+    M4.171 containment regressions prove no host mutation. The final focused
+    suite passes 15/15 with 254 admitted predecessor references across 273
+    unique executions, the cumulative receipt records
+    `successfulLineComposition:5`, and the complete Node 22.22
+    `pnpm fitness:kern-5` wall passes on the integrated tree. Automatic
+    high-risk role-lens review `review-1786454810296-wj3b26` completed five
+    seats; the current-roster `agy` timeout completed 1/1 on targeted retry
+    `review-1786458206123-7q590i-m4-171-post-fix-agy-retry`. The one
+    source-verified first-class metadata blocker is fixed with a RED-then-GREEN
+    custom-node projection regression. A later full-tree review found that the
+    M4.171 `ParsedLine` projection also discarded legal generic properties named
+    `styles`, `pseudoStyles`, and `themeRefs`; the checker now reconstructs the
+    authenticated generic property ledger before keeping structural style/theme
+    fields separate. A RED-then-GREEN collision regression, the complete
+    focused/cumulative M4.171 command, monorepo build, lint, and fitness-contract
+    tests pass after the fix; targeted independent review
+    `review-1786464505028-4qexp6-m4171-reserved-props-fix` completed 1/1 with no
+    findings. Publication tribunal
+    `tribunal-1786535402074-wwwnmd-m4171-publication-decision` completed 3/3 and
+    required one fresh final-tree wall before publication. That authoritative
+    Node 22.22.0 wall began on 2026-08-12 and exited 0 on 2026-08-13 with
+    `KERN 5 current fitness wall passed.`, including both 738/738 canonicalizer
+    passes, 434/434 cross-target conformance, 109/109 class conformance, 233/233
+    native KERN tests, the 16/16 focused M4.171 proof, and the cumulative
+    `successfulLineComposition:5` receipt. Before that wall, final automatic
+    high-risk role-lens review
+    `review-1786552371762-ao1swg-m4171-publication-final` completed all 6/6
+    usable reviewers and reproduced one blocker: export-seed `DUPLICATE_PROP`
+    coordinates were shifted twice. A RED regression captured bootstrap
+    columns 13-19 versus reconstructed 20-26; the authenticated seed-duplicate
+    path now applies only the physical indentation shift and passes at 13-19.
+    The same review exposed a future `test:kern-frontend` classification and
+    policy-order hole in the fitness drift guard; a RED future-promotion case
+    now covers both. Targeted correctness confirmation
+    `review-1786556263203-n02nna-m4171-final-review-fixes` completed 1/1 with
+    zero findings. Signed publication and remote-main verification remain
+    required.
 
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.

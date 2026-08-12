@@ -70,6 +70,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | current | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | current | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
+| kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -143,6 +144,7 @@ wall and must remain absent until promoted.
 | kern-frontend-generic-property-style-theme-diagnostics | KERN-authored generic property style/theme diagnostic shadow | internal-oracle | `pnpm test:kern-frontend-generic-property-style-theme-diagnostics` |
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | internal-oracle | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | internal-oracle | `pnpm test:kern-frontend-keyword-handlers` |
+| kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | internal-oracle | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -408,6 +410,19 @@ fallback, nested, numeric, Unicode, replay, tamper, bounds, and containment
 evidence proves only `kern-frontend-keyword-handlers: internal-oracle`.
 Multiline parseLines ownership, successful node construction, AST/KIR, public
 APIs, and canonical frontend cutover remain absent, so `kern-frontend` remains
+`not-shipped`.
+
+M4.171 composes one admitted LF/CR-free, space-indented logical line into a
+complete authenticated `ParsedLine`-shaped record. Native KERN binds the raw
+line, inline-comment trim, optional `export fn` prefix, indentation, UTF-16 raw
+length, exact location, and one complete current-runtime M4.170 envelope. The
+strict consumer preserves quoted-property presence, separates styles,
+pseudo-styles, and ordered themes from properties, and reconstructs the full
+tokenizer, known-node, duplicate-property, and unexpected-token diagnostic
+tape before fused bootstrap comparison. This proves only
+`kern-frontend-successful-line-composition: internal-oracle`; cross-line
+`parseLines`, decorators, multiline blocks, node/tree construction, KIR
+emission, and public cutover remain absent, so `kern-frontend` remains
 `not-shipped`.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an

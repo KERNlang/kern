@@ -21,6 +21,17 @@ function validate(overrides = {}) {
   });
 }
 
+function currentFrontendScripts(gates = policy.gates) {
+  return gates
+    .filter(
+      (gate) =>
+        gate.status === 'current' &&
+        gate.argv[0] === 'pnpm' &&
+        (gate.id === 'kern-frontend' || gate.id.startsWith('kern-frontend-')),
+    )
+    .map((gate) => gate.argv[1]);
+}
+
 test('current KERN 5 policy, matrix, and root scripts form one exact contract', () => {
   const contract = loadKern5FitnessContract();
   assert.deepEqual(
@@ -75,8 +86,28 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-frontend-generic-property-style-theme-diagnostics',
       'kern-frontend-evolved-hints',
       'kern-frontend-keyword-handlers',
+      'kern-frontend-successful-line-composition',
     ],
   );
+});
+
+test('test:infra executes every current frontend fitness gate', () => {
+  const frontendScripts = currentFrontendScripts();
+  const infraSegments = packageJson.scripts['test:infra'].split(' && ').map((segment) => segment.trim());
+  let previousIndex = -1;
+
+  for (const script of frontendScripts) {
+    const index = infraSegments.indexOf(`pnpm ${script}`);
+    assert.ok(index >= 0, `test:infra must execute ${script}`);
+    assert.ok(index > previousIndex, `test:infra must execute ${script} in policy order`);
+    previousIndex = index;
+  }
+});
+
+test('frontend fitness classification includes the terminal frontend gate', () => {
+  const future = structuredClone(policy.gates);
+  future.find((gate) => gate.id === 'kern-frontend').status = 'current';
+  assert.ok(currentFrontendScripts(future).includes('test:kern-frontend'));
 });
 
 test('matrix mutations fail with the affected gate or ownership id', () => {

@@ -11,6 +11,9 @@ import {
   POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
   PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
 } from './new-expression-structural-target.mjs';
+import {
+  POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS,
+} from './parser-style-containment-target.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
@@ -129,13 +132,28 @@ function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
   const overrides = new Map();
+  const preM4171Sources = new Map();
+  for (const reconstruction of POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-M4.171 compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const historicalSource = reconstructHistoricalSource({
+      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-M4.171 compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    });
+    preM4171Sources.set(reconstruction.path, historicalSource);
+    overrides.set(reconstruction.path, historicalSource);
+  }
   const preLambdaSources = new Map();
   for (const reconstruction of POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-lambda compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     const historicalSource = reconstructHistoricalSource({
-      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preM4171Sources.get(reconstruction.path) ??
+        readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-lambda compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,

@@ -1,0 +1,225 @@
+fn name=successfullinefailure returns="string[]"
+  param name=code type=string
+  param name=raw type=string
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=successfulFormat type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(successfulFormat)"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(\"\")"
+    do value="out.push(raw)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=padding from=7 to=21
+      do value="out.push(\"\")"
+    do value="out.push(\"failure-seal\")"
+    do value="out.push(code)"
+    do value="out.push(\"\")"
+    do value="out.push(raw)"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    for name=sealPadding from=6 to=20
+      do value="out.push(\"\")"
+    return value="out"
+
+fn name=successfulwordchar returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="(ch >= \"A\" && ch <= \"Z\") || (ch >= \"a\" && ch <= \"z\") || (ch >= \"0\" && ch <= \"9\") || ch == \"_\""
+
+fn name=observesuccessfullinecomposition returns="string[]" export=true
+  param name=raw type=string
+  param name=maxCodePoints type=number
+  param name=maxTokens type=number
+  param name=maxDiagnostics type=number
+  param name=maxStreamRecords type=number
+  param name=maxLexicalDepth type=number
+  param name=maxCatalogEntries type=number
+  param name=runtimeInstance type=number
+  param name=parseEpoch type=number
+  param name=evolvedTypes type="string[]"
+  param name=multilineTypes type="string[]"
+  param name=templateTypes type="string[]"
+  param name=maxRegistryEntries type=number
+  param name=maxNameCodePoints type=number
+  param name=maxNameBytes type=number
+  param name=maxMutableFields type=number
+  param name=mutableFormat type=string
+  param name=warningCode type=string
+  param name=warningSeverity type=string
+  param name=maxWarningFields type=number
+  param name=warningFormat type=string
+  param name=streamFormat type=string
+  param name=maxProperties type=number
+  param name=admissionFormat type=string
+  param name=loopFormat type=string
+  param name=maxThemes type=number
+  param name=themeFormat type=string
+  param name=maxStyles type=number
+  param name=maxBlockCodePoints type=number
+  param name=maxBlockUtf16Units type=number
+  param name=maxBlockBytes type=number
+  param name=maxSegments type=number
+  param name=maxPairs type=number
+  param name=maxStyleWrites type=number
+  param name=maxParenDepth type=number
+  param name=maxReplayFields type=number
+  param name=maxEnvelopeFields type=number
+  param name=maxEnvelopeBytes type=number
+  param name=styleFormat type=string
+  param name=replayFormat type=string
+  param name=predecessorFormat type=string
+  param name=maxUnexpectedDiagnostics type=number
+  param name=maxProjectionFields type=number
+  param name=maxRecoveryFields type=number
+  param name=maxDiagnosticsFields type=number
+  param name=maxDiagnosticsBytes type=number
+  param name=projectionFormat type=string
+  param name=recoveryFormat type=string
+  param name=diagnosticsFormat type=string
+  param name=hintTypes type="string[]"
+  param name=hintBareWords type="string[]"
+  param name=hintPositionalOwners type="string[]"
+  param name=hintPositionalNames type="string[]"
+  param name=maxHintWrites type=number
+  param name=maxHintFields type=number
+  param name=maxHintBytes type=number
+  param name=hintsFormat type=string
+  param name=hintsSourceProfile type=string
+  param name=handlerFormat type=string
+  param name=maxHandlerWrites type=number
+  param name=maxHandlerFields type=number
+  param name=maxHandlerBytes type=number
+  param name=handlerSourceProfile type=string
+  param name=successfulFormat type=string
+  param name=maxSuccessfulFields type=number
+  param name=maxSuccessfulBytes type=number
+  param name=successfulSourceProfile type=string
+  handler lang="kern"
+    let name=rawScalars value="Text.length(raw)"
+    let name=indentScalar value=0
+    let name=indentUtf16 value=0
+    let name=invalidSource value=false
+    while cond="indentScalar < rawScalars && Text.charAt(raw, indentScalar) == \" \""
+      assign target=indentScalar value="indentScalar + 1"
+      assign target=indentUtf16 value="indentUtf16 + 1"
+    let name=leadingChar value="Text.charAt(raw, indentScalar)"
+    if cond="indentScalar < rawScalars && (leadingChar == \"\\u0009\" || leadingChar == \"\\u000b\" || leadingChar == \"\\u000c\" || leadingChar == \"\\u00a0\" || leadingChar == \"\\u1680\" || leadingChar == \"\\u2000\" || leadingChar == \"\\u2001\" || leadingChar == \"\\u2002\" || leadingChar == \"\\u2003\" || leadingChar == \"\\u2004\" || leadingChar == \"\\u2005\" || leadingChar == \"\\u2006\" || leadingChar == \"\\u2007\" || leadingChar == \"\\u2008\" || leadingChar == \"\\u2009\" || leadingChar == \"\\u200a\" || leadingChar == \"\\u2028\" || leadingChar == \"\\u2029\" || leadingChar == \"\\u202f\" || leadingChar == \"\\u205f\" || leadingChar == \"\\u3000\" || leadingChar == \"\\ufeff\")"
+      assign target=invalidSource value=true
+    for name=sourceIndex from=0 to=rawScalars
+      let name=sourceChar value="Text.charAt(raw, sourceIndex)"
+      if cond="sourceChar == \"\\u000a\" || sourceChar == \"\\u000d\" || sourceChar == \"\\u2028\" || sourceChar == \"\\u2029\""
+        assign target=invalidSource value=true
+    if cond="invalidSource || indentScalar >= rawScalars"
+      let name=failure value="successfullinefailure(\"SUCCESSFUL_LINE_SOURCE_PROFILE\", raw, runtimeInstance, parseEpoch, successfulFormat)"
+      return value=failure
+
+    let name=lineBody value="Text.slice(raw, indentScalar, rawScalars)"
+    let name=trim value="observewhitespacetrim(lineBody, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth)"
+    if cond="trim.length != 37 || trim[0] != \"kern.frontend.whitespace-trim-shadow.1\" || trim[1] != \"trim\" || trim[7] != lineBody || trim[19] != \"seal\" || trim[20] != lineBody"
+      let name=failure value="successfullinefailure(\"SUCCESSFUL_LINE_TRIM_INVALID\", raw, runtimeInstance, parseEpoch, successfulFormat)"
+      return value=failure
+    let name=codeEnd value="parseboundeduinttext(trim[17], Text.length(lineBody))"
+    if cond="codeEnd <= 0"
+      let name=failure value="successfullinefailure(\"SUCCESSFUL_LINE_TRIM_INVALID\", raw, runtimeInstance, parseEpoch, successfulFormat)"
+      return value=failure
+    let name=retained value="Text.slice(lineBody, 0, codeEnd)"
+    let name=semantic value="retained"
+    let name=exported value=false
+    let name=exportCursor value=6
+    if cond="Text.length(retained) > 8 && Text.slice(retained, 0, 6) == \"export\" && frontendtrimspace(Text.charAt(retained, 6))"
+      while cond="exportCursor < Text.length(retained) && frontendtrimspace(Text.charAt(retained, exportCursor))"
+        assign target=exportCursor value="exportCursor + 1"
+      if cond="exportCursor + 2 <= Text.length(retained) && Text.slice(retained, exportCursor, exportCursor + 2) == \"fn\""
+        let name=afterFn value="Text.charAt(retained, exportCursor + 2)"
+        if cond="afterFn == \"\" || !successfulwordchar(afterFn)"
+          assign target=semantic value="Text.slice(retained, exportCursor, Text.length(retained))"
+          assign target=exported value=true
+
+    let name=child value="observekeywordhandlerscomposed(semantic, maxCodePoints, maxTokens, maxDiagnostics, maxStreamRecords, maxLexicalDepth, maxCatalogEntries, runtimeInstance, parseEpoch, evolvedTypes, multilineTypes, templateTypes, maxRegistryEntries, maxNameCodePoints, maxNameBytes, maxMutableFields, mutableFormat, warningCode, warningSeverity, maxWarningFields, warningFormat, streamFormat, maxProperties, admissionFormat, loopFormat, maxThemes, themeFormat, maxStyles, maxBlockCodePoints, maxBlockUtf16Units, maxBlockBytes, maxSegments, maxPairs, maxStyleWrites, maxParenDepth, maxReplayFields, maxEnvelopeFields, maxEnvelopeBytes, styleFormat, replayFormat, predecessorFormat, maxUnexpectedDiagnostics, maxProjectionFields, maxRecoveryFields, maxDiagnosticsFields, maxDiagnosticsBytes, projectionFormat, recoveryFormat, diagnosticsFormat, hintTypes, hintBareWords, hintPositionalOwners, hintPositionalNames, maxHintWrites, maxHintFields, maxHintBytes, hintsFormat, hintsSourceProfile, handlerFormat, maxHandlerWrites, maxHandlerFields, maxHandlerBytes, handlerSourceProfile, exported)"
+    # M4.170 format 1 has a 21-field header, 20-field records, and runtime/epoch at 14/15.
+    let name=childSealed value=false
+    for name=childRecordCursor from=21 to="child.length" step=20
+      if cond="child[childRecordCursor] == \"seal\" && childRecordCursor + 20 == child.length"
+        assign target=childSealed value=true
+    if cond="child.length < 41 || child[0] != handlerFormat || child[1] != \"decision\" || child[2] != semantic || child[14] != String(runtimeInstance) || child[15] != String(parseEpoch) || !childSealed"
+      let name=failure value="successfullinefailure(\"SUCCESSFUL_LINE_CHILD_INVALID\", raw, runtimeInstance, parseEpoch, successfulFormat)"
+      return value=failure
+
+    let name=rawLength value="utf16units(retained)"
+    let name=col value="indentUtf16 + 1"
+    let name=parseCol value="col + rawLength - utf16units(semantic)"
+    let name=endCol value="col + rawLength"
+    let name=exportedText value="\"false\""
+    if cond="exported"
+      assign target=exportedText value="\"true\""
+    let name=out value="[]"
+    do value="out.push(successfulFormat)"
+    do value="out.push(\"decision\")"
+    do value="out.push(raw)"
+    do value="out.push(lineBody)"
+    do value="out.push(retained)"
+    do value="out.push(semantic)"
+    do value="out.push(exportedText)"
+    do value="out.push(String(indentUtf16))"
+    do value="out.push(String(rawLength))"
+    do value="out.push(String(col))"
+    do value="out.push(String(parseCol))"
+    do value="out.push(String(endCol))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(child.length))"
+    do value="out.push(String(maxSuccessfulFields))"
+    do value="out.push(String(maxSuccessfulBytes))"
+    do value="out.push(handlerFormat)"
+    do value="out.push(handlerSourceProfile)"
+    do value="out.push(trim[0])"
+    do value="out.push(successfulSourceProfile)"
+
+    let name=authIndex value=0
+    for name=authStart from=0 to="child.length" step=16
+      let name=authCount value="child.length - authStart"
+      if cond="authCount > 16"
+        assign target=authCount value=16
+      do value="out.push(\"child-auth\")"
+      do value="out.push(String(authIndex))"
+      do value="out.push(String(authStart))"
+      do value="out.push(String(authCount))"
+      for name=authField from=0 to=16
+        if cond="authField < authCount"
+          do value="out.push(child[authStart + authField])"
+        else
+          do value="out.push(\"\")"
+      assign target=authIndex value="authIndex + 1"
+
+    do value="out.push(\"seal\")"
+    do value="out.push(raw)"
+    do value="out.push(lineBody)"
+    do value="out.push(retained)"
+    do value="out.push(semantic)"
+    do value="out.push(exportedText)"
+    do value="out.push(String(indentUtf16))"
+    do value="out.push(String(rawLength))"
+    do value="out.push(String(col))"
+    do value="out.push(String(parseCol))"
+    do value="out.push(String(endCol))"
+    do value="out.push(String(runtimeInstance))"
+    do value="out.push(String(parseEpoch))"
+    do value="out.push(String(child.length))"
+    do value="out.push(String(maxSuccessfulFields))"
+    do value="out.push(String(maxSuccessfulBytes))"
+    do value="out.push(handlerFormat)"
+    do value="out.push(handlerSourceProfile)"
+    do value="out.push(trim[0])"
+    do value="out.push(successfulSourceProfile)"
+
+    let name=bytes value=0
+    for name=fieldIndex from=0 to="out.length"
+      assign target=bytes value="bytes + utf8bytes(out[fieldIndex])"
+    if cond="out.length > maxSuccessfulFields || bytes > maxSuccessfulBytes"
+      let name=failure value="successfullinefailure(\"SUCCESSFUL_LINE_ENVELOPE_LIMIT\", raw, runtimeInstance, parseEpoch, successfulFormat)"
+      return value=failure
+    return value="out"

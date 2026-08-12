@@ -1,0 +1,6 @@
+{
+  "format": "kern.frontend.successful-line-composition-shadow.1",
+  "maxEnvelopeBytes": 4194304,
+  "maxEnvelopeFields": 65536,
+  "sourceProfile": "single-space-indented-successful-logical-line-v1"
+}

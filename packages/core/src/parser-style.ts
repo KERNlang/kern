@@ -42,7 +42,8 @@ export function parseStyleBlock(
     const pseudoMatch = pair.match(/^:([a-z]+):([A-Za-z0-9_-]+):(.+)$/);
     if (pseudoMatch) {
       const [, pseudo, key, value] = pseudoMatch;
-      if (!pseudoStyles[pseudo]) pseudoStyles[pseudo] = {};
+      if (pseudo === 'constructor') continue;
+      if (!Object.hasOwn(pseudoStyles, pseudo)) pseudoStyles[pseudo] = {};
       pseudoStyles[pseudo][key] = value.trim();
       continue;
     }

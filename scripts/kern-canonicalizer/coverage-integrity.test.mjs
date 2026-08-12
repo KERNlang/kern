@@ -30,6 +30,10 @@ import {
 import { canonicalProfileRowsForFunction } from './coverage-profile.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerPolicy } from './policy.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS,
+} from './parser-style-containment-target.mjs';
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -381,6 +385,31 @@ test('historical compiled core identities authenticate exact M4.145 membership',
       overrides: new Map([[sibling, Buffer.concat([siblingBytes, Buffer.from('\n')])]]),
     }),
     digestM4145CompiledCoreJavaScript(),
+  );
+});
+
+test('historical parser-style bytes reconstruct only from the exact M4.171 containment successor', () => {
+  const [reconstruction] = POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS;
+  assert.equal(POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS.length, 1);
+  assert.equal(reconstruction.path, 'parser-style.js');
+  const currentSource = readFileSync(resolve(process.cwd(), 'packages/core/dist', reconstruction.path));
+  const historicalSource = reconstructHistoricalSource({
+    currentSource,
+    expectedDigest: reconstruction.expectedDigest,
+    milestone: 'test pre-M4.171 compiled parser-style.js',
+    replacements: reconstruction.replacements,
+  });
+  assert.equal(digest(historicalSource), '9e923eb6b9018aa7fb681c5f958c2f0efd574ca10352802c5745eae1b212429b');
+  assert.match(currentSource.toString('utf8'), /pseudo === 'constructor'/u);
+  assert.doesNotMatch(historicalSource.toString('utf8'), /pseudo === 'constructor'|Object\.hasOwn/u);
+  assert.throws(
+    () => reconstructHistoricalSource({
+      currentSource: Buffer.concat([currentSource, Buffer.from('\n')]),
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: 'test drifted pre-M4.171 compiled parser-style.js',
+      replacements: reconstruction.replacements,
+    }),
+    /reconstructed bytes must match the archived digest/u,
   );
 });
 
