@@ -1,305 +1,242 @@
 # KERN 5.0 Completion Goal
 
-**Status:** ACTIVE GOAL DEFINITION
-**Verified baseline:** `origin/main` at
-`8acd510f1968053d04148fe626c911f688872b81`
+**Status:** READY AFTER M4.171 MERGES
+
+**Goal confidence:** 0.96
+
 **Current public version:** `4.5.0`
-**Last completed slice:** M4.168 unexpected-token diagnostic loop shadow,
-published on `origin/main` through corrective commit
-`8acd510f1968053d04148fe626c911f688872b81`.
-**Current slice:** M4.169 evolved parser-hint shadow; the claim-tagged spec,
-full-roster tribunal, RED-at-base parser-hint snapshot prerequisite, native
-runtime-entry/built-in precedence, arbitrary positional and guarded bare-word
-consumption, UTF-16-width-preserving composition into M4.168, 12 differential
-fixtures, bidirectional payload-swap rejection, replay safety, semantic
-mutation killers, and bounded envelopes are implemented. Focused tests pass;
-the promoted 12-case cumulative receipt and uninterrupted complete Node 22
-fitness wall pass. Automatic high-risk role review completed 6/6; its verified
-compact-failure authentication blocker is fixed RED-first, and targeted
-security confirmation passed 1/1 with zero findings. Signed commit,
-publication, and remote verification remain.
-**Confidence:** 0.99
+**Authoritative spec:**
+`.Codex/specs/kern-5-post-m4-171-completion/spec.md`
 
-## Short Start Prompt
+## Start Prompt
 
-Use this short prompt to start a new Codex session:
+> Read `.Codex/goals/KERN-5-COMPLETION-GOAL.md` and its authoritative spec in
+> full. Create or resume the KERN 5 completion goal and execute the first
+> unfinished phase from a fresh worktree based on current `origin/main`. Treat
+> every ownership claim as untrusted until its binary oracle passes. Continue
+> through independently reviewed slices; stop only for a genuine product
+> decision, unavailable required reviewer/credential, or an irreversible
+> operation that lacks explicit authority.
 
-> Read `.Codex/goals/KERN-5-COMPLETION-GOAL.md` completely and treat it as the
-> authoritative goal contract. Create or activate the KERN 5 completion goal,
-> then begin executing it immediately from current `origin/main`. Preserve the
-> existing stale/dirty checkout and work only in fresh isolated worktrees. Do
-> not merely summarize the file and stop. Continue automatically from one
-> verified slice to the next until every binary Definition of Done item is
-> satisfied. Pause only for a genuine external blocker or immediately before
-> an irreversible public registry/tag operation that lacks explicit authority.
+## Objective
 
-## Primary Objective
+Ship KERN `5.0.0` only when KERN owns the canonical parse, check, format,
+compile, and execute path over versioned KIR; host code supplies capabilities
+and transport only; clean Stage 1 equals Stage 2; normal execution cannot reach
+or silently fall back to TypeScript semantics; and the exact accepted packed RC
+passes the required product and recovery walls.
 
-Take KERN from the current internal-oracle/self-hosting state to a genuine KERN
-5.0 implementation and release proof.
+The goal is not complete merely because the current `pnpm fitness:kern-5` wall
+passes. After M4.171, that wall contains 50 promoted gates and excludes five
+declared planned gates. Three other terminal requirements—production checker,
+full formatter, and canonical cutover—still need explicit planned gates.
 
-KERN 5 means:
+## Post-M4.171 Baseline
 
-- KERN owns its canonical source frontend.
-- KERN owns source/KIR compilation.
-- KERN owns canonical handler execution through its own semantic
-  interpreter/runtime.
-- Host code supplies explicit capabilities and transport only.
-- Stage 1 equals Stage 2 deterministically from clean packed inputs.
-- Normal canonical execution reaches no TypeScript semantic engine and has no
-  silent fallback.
-- A forced TypeScript oracle remains available and trace-compatible.
-- Exact packed artifacts pass clean installation, CLI, runtime, browser,
-  Express, FastAPI, application, bootstrap, and integrity checks.
-- The support matrix contains no false or future-tense KERN 5 claim.
-- The final release uses the exact accepted RC source, with only enumerated
-  version-stamp differences.
+Do not guess the merge SHA. Before the next slice:
 
-Do not call the goal achieved because the currently promoted
-`pnpm fitness:kern-5` wall passes. That command executes only promoted gates
-and deliberately excludes unfinished planned gates.
+1. Finish M4.171 publication and merge under the active repository rules.
+2. Run `git fetch origin`.
+3. Resolve and record the actual M4.171 merge commit on `origin/main`.
+4. Create a new feature branch and isolated worktree from that exact SHA.
+5. Re-audit the policy, support matrix, release workflows, package exports, and
+   current runner/parser/compiler call paths for merge skew.
 
-## Starting-State Safety
+Expected state immediately after merge:
 
-The primary local checkout was 41 commits behind `origin/main` on 2026-08-04
-and contained three unrelated untracked canonicalizer files. Do not modify,
-delete, stage, clean, or absorb them.
+- 55 declared KERN 5 gates: 50 current, 5 planned.
+- M4.171 proves one authenticated successful logical-line shadow only.
+- KIR v1, checker v2, runtime ownership slices, canonicalizer, and frontend
+  slices remain `internal-oracle`, not canonical product authority.
+- TypeScript parser/compiler/ReferenceRunner paths remain production surfaces.
+- Formatter, complete frontend, compiler, fixed point, interpreter, canonical
+  cutover, exact packed proof, and public `5.0.0` remain open.
 
-Start in an isolated worktree from current remote main:
+Promoted-gate coverage is 90.9%. The source-grounded release-completion estimate
+is only 45-55% because the remaining gates are the high-weight ownership and
+cutover phases. This estimate is directional, not a repository metric.
 
-1. Run `git fetch origin`.
-2. Create a fresh worktree and feature branch from `origin/main`.
-3. Confirm `HEAD == origin/main` before editing.
-4. Audit the actual current release train, support matrix, fitness policy,
-   package graph, and latest completed slice before planning new work.
+## Target Gate Ledger
 
-After every landed slice, never reuse its branch. Begin the next slice with:
+Phase 0 must make all eight rows explicit in the fitness policy, policy tests,
+support matrix, and release train. New rows begin as `planned`, and their root
+package scripts must remain absent until the implementation slice promotes each
+row to `current` with its complete binary oracle.
 
-```sh
-git fetch origin
-git checkout -b feat/<new-slice> origin/main
-```
+| Gate | Starting state after M4.171 |
+| --- | --- |
+| `pnpm test:kern-checker` | add as planned |
+| `pnpm test:kern-formatter` | add as planned |
+| `pnpm test:kern-frontend` | planned |
+| `pnpm test:kern-compiler` | planned |
+| `pnpm test:selfhost-fixed-point` | planned |
+| `pnpm test:kern-interpreter-shadow` | planned |
+| `pnpm test:kern-canonical-cutover` | add as planned |
+| `pnpm test:packed-release` | planned |
 
-When using worktrees, create the equivalent fresh worktree from `origin/main`.
+`pnpm test:kern-ir` remains current. KIR v1 becomes shipped/canonical only
+when the final call chain actually consumes it. Keep KIR private by default;
+public export is a separate consumer-contract decision, not a KERN 5 blocker.
 
-## Operating Mode
+## Execution Phases
 
-Continue automatically from slice to slice. Do not wait for human approval
-between ordinary implementation slices. Stop only for:
+### Phase 0 — Reconcile the completion contract
 
-- a genuine missing product decision;
-- missing external authority or credentials;
-- an irreversible public registry/tag operation requiring final confirmation;
-- a technical blocker that remains after root-cause investigation and safe
-  alternatives are exhausted.
+- Replace stale baselines and release-machinery claims with current evidence.
+- Repair missing-document references and conflicting KIR status language.
+- Add the three omitted planned gates and tests that require their root scripts
+  to remain absent until promotion.
+- Freeze the admitted v5 source, diagnostics, trivia, KIR, handler, capability,
+  trace, determinism, limit, and rejection contracts.
+- Produce one machine-readable remaining-gate ledger.
 
-Do not provide calendar estimates. Report actual evidence, measured durations,
-current gates, and remaining gates.
+**Exit:** all truth sources agree and every KERN 5 terminal requirement is
+machine-enumerated without promoting unfinished work.
 
-Every non-trivial slice must:
+### Phase 1 — Finish frontend, checker, and formatter ownership
 
-1. Verify the current contract from source.
-2. Write a claim-tagged spec under `.Codex/specs/<slice>/spec.md`.
-3. Define binary acceptance criteria.
-4. Derive discriminating oracle fixtures directly from those criteria.
-5. Prove RED-at-base for the intended missing behavior.
-6. Red-team the oracle against plausible wrong implementations.
-7. Implement the smallest complete ownership boundary.
-8. Keep handwritten source files below 500 lines.
-9. Put limits, budgets, model names, thresholds, and policy values in
-   configuration.
-10. Run touched-package tests and the complete currently promoted KERN 5 wall.
-11. Run full-roster `agon review`.
-12. Fix every source-verified blocker and rerun affected gates.
-13. Commit with the mandatory Agon KERN identity and footer.
-14. Run `git fetch origin && git rebase origin/main` immediately before push.
-15. Push the completed slice once with
-    `git push --no-verify origin HEAD:main` and verify the remote SHA.
-16. If the rebase changed the base, rerun the affected focused gates before
-    pushing.
-17. Start the next slice from the new `origin/main`.
+- Extend M4.171 through cross-line parsing, decorators, multiline blocks,
+  nodes/trees, declarations, modules/imports, malformed-input diagnostics,
+  stable source evidence, and source-to-KIR emission.
+- Finish production checker v2 over the frozen source/KIR contract.
+- Finish deterministic, idempotent, trivia-preserving formatting.
+- Require zero-drift valid and malformed corpora plus mutations that kill
+  delegation, constants, reordering, partial coverage, and stale artifacts.
 
-Direct pushes for these completed, locally verified slices are explicitly
-authorized. Do not open a pull request unless direct push is rejected. Never
-use `gh`.
+**Exit:** `test:kern-frontend`, `test:kern-checker`, and
+`test:kern-formatter` are current and green.
 
-For each Agon invocation, use the full current usable roster. The roster
-resolved on 2026-08-05 is:
+### Phase 2 — Finish compiler ownership
 
-```text
--e claude,codex,agy,kimi-for-coding-k3,minimax-coding-plan-minimax-m3,zai-coding-plan-glm-5.2
-```
+- Implement KERN-owned KIR-to-target compilation for the v5 support matrix.
+- Compile the KERN frontend, compiler, and runtime sources themselves.
+- Preserve required Node, browser, Python, Express, FastAPI, and maintained-app
+  behavior.
+- Prove the gate cannot be satisfied by host delegation or cached output.
 
-Resolve roster drift before later reviews and use all usable non-excluded
-engines. Never include `qwen` or `ollama`.
+**Exit:** `test:kern-compiler` is current and green.
 
-## Mandatory Delivery Sequence
+### Phase 3 — Prove the fixed point
 
-### Phase 1 — Freeze the Alpha contracts
+- Build Stage 1 from Stage 0 and Stage 2 from Stage 1 in separate clean roots
+  using immutable packed inputs.
+- Require Stage 1 and Stage 2 byte identity after only enumerated normalization.
+- Repeat twice and bind source, tools, manifests, outputs, and tarball hashes.
+- Prove workspace links, stale `dist`, untracked files, or prior receipts cannot
+  satisfy the gate.
 
-- Turn the existing KIR constitution, reader, codec, module graph, coverage
-  closure, evidence, and receipt into a genuinely versioned canonical KIR v1.
-- Prove the canonical runtime call chain is non-circular.
-- Freeze KIR, handler ABI, capability ABI, diagnostics, UTF-8 locations,
-  traces, determinism, limits, and rejection behavior.
-- Implement and promote `pnpm test:kern-ir`.
-- Do not promote `versioned-kir-v1` from `not-shipped` until the binary oracle
-  proves the complete contract.
+**Exit:** `test:selfhost-fixed-point` is current and green.
 
-### Phase 2 — Complete the KERN frontend
+### Phase 4 — Finish interpreter ownership
 
-M4.153 already owns bounded line tokenization as an internal oracle. Continue
-with independently reviewable slices for:
+- Make the KERN interpreter consume the frozen KIR and handler/capability ABIs.
+- Cover every admitted v5 construct across sync and immediately resolved async
+  execution.
+- Require zero drift in values, events/stdout, diagnostics, completion,
+  cancellation, effects, and capability requests.
+- Reject unsupported shapes before partial output or effects.
 
-- multiline source handling;
-- comments, trivia, indentation, and source preservation;
-- token-stream parsing;
-- declarations, properties, expressions, handlers, modules, and imports;
-- malformed-input diagnostics;
-- stable UTF-8 evidence;
-- complete source-to-KIR emission;
-- bootstrap-versus-KERN KIR and diagnostic parity;
-- mutation tests that kill delegated, constant, partial, or reordered
-  implementations.
+**Exit:** `test:kern-interpreter-shadow` is current and green.
 
-Promote `pnpm test:kern-frontend` only when KERN and bootstrap frontends produce
-byte-identical canonical KIR and diagnostics over the complete admitted valid
-and malformed corpus, with no tolerated drift list.
+### Phase 5 — Perform canonical cutover
 
-### Phase 3 — Complete the KERN compiler
+- Migrate internal packages, CLI Node, browser, and required downstream
+  consumers in staged slices.
+- Keep TypeScript as an explicit forced oracle and emergency selector only.
+- Add import/call/fallback traps proving normal canonical execution cannot reach
+  TypeScript parser, compiler, or ReferenceRunner semantics.
+- Unsupported canonical inputs must fail loudly before effects; they must never
+  silently retry through TypeScript.
 
-- Implement KERN-owned KIR-to-target compilation.
-- Preserve TypeScript, Python, Express, FastAPI, and browser behavior required
-  by the v5 matrix.
-- Byte-match the bootstrap compiler on a discriminating corpus.
-- Compile KERN's own frontend, compiler, and runtime sources.
-- Kill constant-output, delegated-host, stale-artifact, and partial-coverage
-  mutations.
-- Promote `pnpm test:kern-compiler` only when compiler ownership is real rather
-  than adapter ownership.
+**Exit:** `test:kern-canonical-cutover` is current and green in canonical and
+forced-TypeScript CI lanes.
 
-### Phase 4 — Prove the self-hosting fixed point
+### Phase 6 — Prove the exact packed RC
 
-From separate clean roots and immutable packed inputs:
+- Build and pack once, test those exact files, and record immutable integrity.
+- Prove clean installation, exports/binaries, CLI check/format/compile/run,
+  canonical and forced-TS modes, browser budgets, Python, Express, FastAPI,
+  maintained app, fixed point, downstream canary, and recovery.
+- Run two complete KERN 5 fitness walls from separate clean roots.
+- Record source SHA, toolchain versions, contract hashes, stage hashes, tarball
+  integrities, and every gate result in the RC manifest.
 
-- Stage 0 builds Stage 1.
-- Stage 1 builds Stage 2.
-- Stage 1 and Stage 2 artifacts are byte-identical after only explicitly
-  allowed normalization.
-- Repeat the proof twice.
-- Match behavior, diagnostics, manifests, hashes, and package integrities.
-- Prove no stale `dist`, workspace link, previous-stage evidence, or untracked
-  file can satisfy the gate.
-- Promote `pnpm test:selfhost-fixed-point`.
+**Exit:** `test:packed-release` is current and green, and independent terminal
+review has no unresolved verified blocker.
 
-### Phase 5 — Complete the KERN semantic interpreter
+### Phase 7 — Publish public KERN 5.0
 
-- Make the KERN-authored interpreter consume the frozen KIR and
-  handler/capability ABIs.
-- Cover every supported v5 construct.
-- Converge sync and immediately resolved async execution through one semantic
-  engine.
-- Require zero divergence in typed results, stdout/events, diagnostics,
-  completion, cancellation, effects, and capability requests.
-- Ensure unsupported shapes fail before partial output or effects.
-- Run native, TypeScript, Python, Express, FastAPI, browser, and whole-app
-  matrices.
-- Kill parser/compiler/interpreter mutations.
-- Promote `pnpm test:kern-interpreter-shadow`.
-
-### Phase 6 — Perform the canonical cutover
-
-Only after frontend, compiler, fixed point, and interpreter shadow are
-complete:
-
-- Freeze all public contracts and package boundaries.
-- Make the KERN engine canonical for internal packages, then CLI Node, then
-  browser.
-- Keep the TypeScript oracle behind an explicit configuration selector.
-- Run canonical and forced-TS lanes in CI.
-- Prove canonical execution never reaches the TypeScript ReferenceRunner or
-  compiler.
-- Prove unsupported canonical input fails loudly and never silently falls
-  back.
-- Remove scheduled 4.x compatibility exports only when the release train
-  allows it.
-- Revalidate the browser graph, budgets, and downstream behavior.
-
-### Phase 7 — Prove the packed RC
-
-Implement and promote `pnpm test:packed-release`.
-
-The exact packed RC must pass:
-
-- clean exact-version installation;
-- package exports and binaries;
-- CLI check, canonicalize, compile, and run;
-- canonical and forced-TS runtime modes;
-- browser execution and budgets;
-- reference application;
-- Express and FastAPI applications;
-- fixed-point bootstrap;
-- artifact and dependency integrity;
-- one clean downstream KERN-product canary;
-- two complete `pnpm fitness:kern-5` runs from separate fresh roots;
-- terminal full-roster Agon review with no verified blocker.
-
-Produce an immutable RC manifest containing source SHA, toolchain versions,
-contract hashes, fixed-point hashes, tarball integrities, and every gate result.
-
-### Phase 8 — Release public KERN 5.0
-
-Public publication is the only step that may pause for explicit confirmation
-if authority has not already been granted.
-
-- Final source must equal the accepted RC source.
-- Inject `5.0.0` only through the configured release policy.
-- Rebuild cleanly and compare against the RC manifest.
-- Pack once and verify every tarball.
-- Stage and verify exact internal dependencies and registry integrity.
-- Promote packages dependency-first and `kern-lang@latest` last.
-- Install from `latest` in a clean consumer and rerun representative smoke
-  tests.
-- Record tag, source SHA, workflow, provenance, package integrities, and
-  post-publication evidence.
+- Pause immediately before public registry/tag work unless explicit authority
+  is already present.
+- Inject `5.0.0` only through release policy from the accepted RC source.
+- Rebuild and prove all non-version output matches the RC manifest.
+- Publish dependency-first and promote `kern-lang@latest` last.
+- Verify exact registry versions, dependencies, integrities, tags, provenance,
+  and a clean consumer install/run.
 - Never reuse a failed published version.
+
+**Exit:** final source equals accepted RC source and post-publication evidence
+is durable and complete.
+
+## Slice Protocol
+
+For each non-trivial slice:
+
+1. Fetch and branch from current `origin/main`; never reuse a merged branch.
+2. Ground the claim in current source and write/update a claim-tagged spec.
+3. State a 3-5 bullet plan, confidence, dependencies, and binary acceptance.
+4. Prove the missing behavior RED at the baseline, then implement the smallest
+   complete ownership boundary.
+5. Keep handwritten source below 500 lines and policy configurable.
+6. Run focused tests first. Run the complete promoted KERN 5 wall at meaningful
+   promotion/cutover points and before a slice is declared ready.
+7. Run the local gate, then independent Agon review using automatic risk routing
+   and the verified primary implementer identity. Resolve the live usable roster
+   from configuration; never hardcode it.
+8. Verify every finding against current source, fix genuine blockers, and rerun
+   affected gates.
+9. Create granular KERN-signed commits. Push the complete feature branch once
+   only when authorized; never use `gh`, never push to `main` without explicit
+   confirmation, and hand over the PR URL emitted by native `git push`.
+10. Record the landed SHA, ownership gained, exact gate counts, review result,
+    remaining ledger, and next slice.
 
 ## Binary Definition of Done
 
-Mark this goal complete only when every item is true:
-
-- [ ] Versioned KIR v1 is shipped.
-- [ ] The KERN frontend is canonical and zero-drift.
-- [ ] The KERN compiler is canonical and compiles its own sources.
+- [ ] All eight target gates are present, current, and green.
+- [ ] KERN owns canonical parse, check, format, compile, and execution behavior.
+- [ ] KIR v1 is the actual canonical product contract.
 - [ ] Stage 1 equals Stage 2 twice from clean packed inputs.
-- [ ] The KERN interpreter is zero-drift and canonical.
-- [ ] Normal execution contains no TypeScript semantic call or silent fallback.
-- [ ] Forced TypeScript oracle mode still works.
-- [ ] Native, TypeScript, Python, browser, Express, FastAPI, and application
-      walls pass.
-- [ ] Exact RC tarballs pass packed installation and bootstrap.
-- [ ] `pnpm fitness:kern-5` contains and passes every target gate.
-- [ ] Full-roster Agon review has no unresolved verified blocker.
-- [ ] Documentation and support matrices match proved ownership exactly.
-- [ ] Final version is `5.0.0` and final source SHA equals accepted RC source.
-- [ ] If public publication is authorized, registry/tag/`latest` and
-      clean-consumer verification pass.
+- [ ] Normal execution has no TypeScript semantic call or silent fallback.
+- [ ] Explicit forced-TypeScript oracle mode remains green.
+- [ ] Required native, Node, browser, Python, Express, FastAPI, and application
+      conformance walls pass.
+- [ ] Exact RC tarballs pass clean installation, bootstrap, integrity,
+      downstream, and recovery proof.
+- [ ] The complete `pnpm fitness:kern-5` wall includes every terminal gate and
+      passes from fresh roots.
+- [ ] Independent terminal review has no unresolved verified blocker.
+- [ ] Policy, support matrix, release train, package docs, and public claims
+      match proved ownership exactly.
+- [ ] Final version is `5.0.0`; final source equals accepted RC source.
+- [ ] Registry/tag/`latest` and clean-consumer verification pass if publication
+      is authorized.
 
-## Fable Rule
+## Stop Conditions
 
-Do not move unfinished KERN 5 requirements into “Fable” or rename them to make
-5.0 appear complete. Fable begins only after the KERN 5 definition above is
-satisfied.
+Pause only for:
 
-## Reporting
+- a missing product decision that changes the public contract;
+- unavailable required reviewer identity, credential, or external system;
+- an irreversible merge, public registry, or tag operation lacking authority;
+- a root-cause blocker that remains after safe in-scope investigation.
 
-After each slice, report concisely:
+Do not stop because an individual slice is difficult, a broad suite is quiet,
+or the current promoted wall is green. Do not move unfinished KERN 5 ownership
+into Fable or rename it to make this checklist pass.
 
-- landed SHA;
-- ownership boundary gained;
-- gates and exact counts;
-- Agon findings and fixes;
-- remaining KERN 5 gates;
-- next slice already started from fresh `origin/main`.
+## Completion Report
 
-Do not stop after reporting. Continue the goal.
+When every Definition of Done item is evidenced, report the accepted RC SHA,
+final source/tag SHA, package integrities, fixed-point hashes, all gate results,
+review receipt, publication receipt, and any explicitly approved residual risk.

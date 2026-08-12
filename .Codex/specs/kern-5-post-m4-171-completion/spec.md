@@ -1,0 +1,222 @@
+# KERN 5 Post-M4.171 Completion Contract
+
+**Status:** READY TO EXECUTE AFTER M4.171 MERGES
+
+**Date:** 2026-08-11
+
+**Baseline contract:** the actual merge commit containing M4.171, resolved from
+freshly fetched `origin/main` before the next slice starts
+
+**Current public version:** `4.5.0`
+
+**Confidence:** 0.96
+
+## Decision
+
+KERN 5 remains a source-language ownership release, not a count of accumulated
+shadow gates. After M4.171 merges, continue through one serial critical path:
+
+1. reconcile the completion contract and enumerate every terminal gate;
+2. finish KERN-owned frontend, formatter, and production checker behavior;
+3. finish KERN-owned compilation and prove the clean Stage 1/Stage 2 fixed point;
+4. finish the KERN interpreter and cut canonical consumers off TypeScript
+   semantics while retaining an explicit forced-TypeScript oracle;
+5. prove exact packed artifacts, then publish `5.0.0` from the accepted RC
+   source only after explicit publication authority.
+
+This is the only credible ordering because each later phase consumes the
+contract produced by the earlier one. A big-bang cutover would make failures
+non-local, while parallel compiler/interpreter ownership would build against a
+moving frontend and KIR boundary.
+
+## Current State After the M4.171 Merge
+
+### Repository-measured state
+
+- **[VERIFIED]** The KERN 5 policy declares 55 gates: 50 `current` and 5
+  `planned`. The five planned gates are `kern-frontend`, `kern-compiler`,
+  `selfhost-fixed-point`, `kern-interpreter-shadow`, and `packed-release`.
+  Evidence: `scripts/kern-5-fitness-policy.json`.
+- **[VERIFIED]** `pnpm fitness:kern-5` executes promoted/current gates and does
+  not execute planned gates. A green wall therefore proves the current
+  substrate, not KERN 5 completion. Evidence:
+  `scripts/kern-5-fitness-policy.json` and its policy tests.
+- **[VERIFIED]** M4.171 owns one admitted successful logical line through a
+  complete authenticated `ParsedLine`-shaped shadow record. Cross-line
+  `parseLines`, decorators, multiline blocks, node/tree construction, KIR
+  emission, and public cutover remain absent. Evidence:
+  `docs/kern-5-support-matrix.md`.
+- **[VERIFIED]** KIR v1 and the frontend slices are `internal-oracle`, which
+  means they participate in release-blocking differential evidence but are not
+  the production semantic authority. Evidence:
+  `docs/kern-5-support-matrix.md`.
+- **[VERIFIED]** The production runner still imports the TypeScript
+  `referenceRunSequence` and TypeScript parser, and `kern run` documents that it
+  executes through the reference runner. Evidence:
+  `packages/core/src/runner.ts` and `packages/cli/src/commands/run.ts`.
+- **[VERIFIED]** The ownership matrix still marks the formatter, complete
+  frontend, compiler, fixed point, interpreter, and packed-release proof as
+  `not-shipped`. It also excludes a production checker v2 and full/canonical
+  KIR-to-runtime cutover. Evidence: `docs/kern-5-support-matrix.md`.
+
+### Progress interpretation
+
+- **[VERIFIED]** Promoted-gate coverage after M4.171 is `50 / 55 = 90.9%`.
+- **[INFERRED]** Release completion is approximately **45-55%**, not 90.9%.
+  The range is deliberately heuristic: the repository has a large, well-gated
+  ownership substrate, but the remaining phases are the high-weight canonical
+  product path—complete frontend, compiler, fixed point, interpreter, consumer
+  cutover, packed proof, and public release.
+- **[VERIFIED]** Three completion requirements are not represented by their own
+  planned policy gates: production checker, full formatter, and canonical
+  cutover. Counting only the five declared planned gates understates the open
+  work.
+
+## What Already Works
+
+| Area | Proven state after M4.171 | KERN 5 status |
+| --- | --- | --- |
+| Runtime/capability substrate | Typed handler ABI, capability seam, scheduler controls, effect-machine slices, source-runner convergence | Strong internal substrate; not the fully canonical KERN interpreter |
+| KIR | Strict versioned `kern.kir.v1` envelope, structural codec/module graph, evidence, coverage closure, runtime binding | Current internal contract; deliberately not a public export or runtime authority |
+| Frontend | Tokenizer through successful single-line composition, with differential and mutation evidence | Substantial shadow ownership; no cross-line/tree/KIR/public frontend |
+| Checker | Checker v1 shipped in 4.5; checker v2 production shadow is an internal oracle | Production checker v2 is open |
+| Formatter | Bounded canonicalizer profile and opt-in preview | Full trivia-preserving formatter is open |
+| Release machinery | Policy, packing, durability, recovery, promotion, and registry verification infrastructure exists | Exact KERN 5 packed-release/bootstrap proof is open |
+
+## Required Terminal Gate Contract
+
+Phase 0 must make the policy, policy tests, support matrix, release train, and
+goal agree on this complete target set. A proposed gate remains `planned`, and
+its root package script remains absent, until its binary oracle exists and the
+slice promotes both atomically.
+
+| Gate | Current declaration | Promotion meaning |
+| --- | --- | --- |
+| `pnpm test:kern-checker` | **[PROPOSED]** add as planned | KERN checker owns the admitted v5 source/KIR contract and matches diagnostics with no tolerated drift |
+| `pnpm test:kern-formatter` | **[PROPOSED]** add as planned | KERN formatter preserves required trivia/source evidence and is idempotent and deterministic |
+| `pnpm test:kern-frontend` | **[VERIFIED]** planned | Complete admitted source produces byte-identical canonical KIR and diagnostics against the bootstrap oracle |
+| `pnpm test:kern-compiler` | **[VERIFIED]** planned | KERN-owned compiler covers the v5 target matrix and can compile its own toolchain sources |
+| `pnpm test:selfhost-fixed-point` | **[VERIFIED]** planned | Clean Stage 1 and Stage 2 packed outputs are byte-identical under enumerated normalization, twice |
+| `pnpm test:kern-interpreter-shadow` | **[VERIFIED]** planned | KERN interpreter has zero semantic/effect/diagnostic drift across the supported v5 contract |
+| `pnpm test:kern-canonical-cutover` | **[PROPOSED]** add as planned | Normal CLI/core/browser and required downstream paths cannot reach TypeScript semantics or silently fall back; forced-TS remains explicit |
+| `pnpm test:packed-release` | **[VERIFIED]** planned | Exact tarballs pass install, export, runtime, downstream, fixed-point, integrity, and recovery proof from fresh roots |
+
+`pnpm test:kern-ir` stays current. Its ownership row becomes shipped/canonical
+only when the frontend/compiler/interpreter/cutover evidence proves that KIR v1
+is the actual product contract. KIR remains private to the package graph by
+default; a new public KIR API is out of scope unless a verified consumer need is
+approved.
+
+## Delivery Contract
+
+### Phase 0 — Reconcile the truth sources
+
+- Resolve the actual M4.171 merge SHA from freshly fetched `origin/main`.
+- Correct stale release-train baselines, missing-document references, and old
+  release-machinery claims against current workflows.
+- Add the checker, formatter, and canonical-cutover planned gates and tests that
+  prevent their omission or premature root-script exposure.
+- Define the admitted v5 language/diagnostic/trivia contract and close any
+  contradiction between “versioned KIR current” and “KIR not shipped”.
+- Produce one machine-readable remaining-gate ledger.
+
+### Phase 1 — Complete source ownership
+
+- Extend successful-line composition to cross-line parsing, decorators,
+  multiline blocks, declarations, nodes/trees, modules/imports, malformed input,
+  stable locations, and source-to-KIR emission.
+- Finish the trivia-preserving formatter and production checker over the same
+  frozen contract.
+- Promote the checker, formatter, and frontend gates only on zero-drift valid
+  and malformed corpora plus adversarial mutation evidence.
+
+### Phase 2 — Complete compiler ownership
+
+- Implement KERN-owned KIR-to-target compilation for the required v5 matrix.
+- Compile the KERN frontend/compiler/runtime sources themselves.
+- Reject delegated-host, constant-output, stale-artifact, and partial-coverage
+  implementations before promoting `test:kern-compiler`.
+
+### Phase 3 — Prove self-hosting
+
+- From separate clean roots and immutable packed inputs, build Stage 1 from
+  Stage 0 and Stage 2 from Stage 1.
+- Repeat twice and require byte identity after only enumerated normalization.
+- Bind source, toolchain, manifest, output, and tarball hashes into the receipt.
+
+### Phase 4 — Complete semantic ownership
+
+- Make the KERN interpreter consume the frozen KIR and handler/capability ABIs.
+- Require zero drift in typed values, events/stdout, diagnostics, completion,
+  cancellation, effects, and capability requests.
+- Fail unsupported shapes before partial output or effects.
+
+### Phase 5 — Cut over canonical consumers
+
+- Migrate internal packages, CLI Node, browser, and required downstream
+  consumers in staged slices.
+- Keep the TypeScript oracle behind explicit configuration only.
+- Prove normal execution cannot import, call, or fall back to TypeScript
+  parser/compiler/ReferenceRunner semantics.
+
+### Phase 6 — Prove the exact packed RC
+
+- Pack once, test the exact files, and bind their integrities to an immutable RC
+  manifest.
+- Exercise clean installation, exports/binaries, CLI, core, browser, Python,
+  Express, FastAPI, reference app, fixed point, downstream canary, registry
+  staging/recovery, and two fresh-root KERN 5 fitness walls.
+
+### Phase 7 — Publish KERN 5.0
+
+- Require explicit authority immediately before irreversible public
+  registry/tag operations.
+- Inject `5.0.0` through release policy, rebuild from the accepted RC source,
+  and prove all non-version outputs match the RC manifest.
+- Publish dependency-first, move `kern-lang@latest` last, and verify a clean
+  consumer from the registry.
+
+## Acceptance Criteria
+
+- [ ] All eight target terminal gates exist in policy and package scripts and
+      are `current` and green.
+- [ ] KERN owns canonical parse, check, format, compile, and execute behavior
+      over one versioned KIR contract.
+- [ ] Stage 1 equals Stage 2 twice from clean packed inputs.
+- [ ] Normal canonical execution cannot reach TypeScript semantics or silently
+      fall back; forced-TypeScript oracle mode remains tested.
+- [ ] Native, Node, browser, Python, Express, FastAPI, and maintained-app
+      conformance walls pass where the v5 matrix requires them.
+- [ ] Exact RC tarballs pass fresh install, integrity, downstream, and recovery
+      proof.
+- [ ] Support matrix, release train, policy, package scripts, and public docs
+      contain no future-tense or contradicted ownership claim.
+- [ ] Final `5.0.0` source is the accepted RC source and post-publication clean
+      consumer verification passes.
+
+## Out of Scope
+
+- WASM as a release blocker.
+- All-target self-hosting, a package manager, an LSP, or `vscode-kern` release.
+- A public KIR package/API without an approved consumer contract.
+- Broad new language semantics outside the frozen v5 admitted contract.
+- Weakening the KERN 5 meaning by renaming unfinished ownership work as Fable.
+
+## Open Questions and Authority Boundaries
+
+There is no blocking architecture choice if KIR remains a private canonical
+contract. Public KIR exposure requires a separate consumer-driven decision.
+Ordinary implementation, local commits, and feature-branch pushes may proceed
+under repository rules; pushing to `main`, merging, and public registry/tag
+publication require the authority specified by the active engineering doctrine.
+
+## Corrections Log
+
+- **[CORRECTED]** `50/55` measures promoted gate rows, not 90.9% release
+  completion.
+- **[CORRECTED]** The five declared planned gates omit checker, formatter, and
+  canonical-cutover completion gates.
+- **[CORRECTED]** Historical R0 release-machinery gaps must be re-audited; much
+  of the machinery now exists and should not be rebuilt from stale prose.
+- **[CORRECTED]** KIR v1 is a current internal oracle but not yet the canonical
+  product authority; “versioned” and “shipped/canonical” are separate claims.
