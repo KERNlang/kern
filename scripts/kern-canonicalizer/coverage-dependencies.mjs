@@ -14,14 +14,16 @@ import {
 import {
   POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS,
 } from './parser-style-containment-target.mjs';
+import {
+  POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS,
+  TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION,
+} from './text-splice-historical-transition.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
-const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY = Object.freeze({
-  count: 314,
-  digest: '0c00e26bc2201f037b1cae907bee6af7e952ae17e396ed4c0ea9250b5f68d27f',
-});
+const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY =
+  TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.currentInventory;
 const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'each-collection-reference.js',
   'kir-v1/canonical.js',
@@ -32,6 +34,7 @@ const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'mutable-node-type-registry-snapshot.js',
   'parser-hint-snapshot.js',
   'runtime-envelope/kir-handler.js',
+  ...TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
 ]);
 
 let authenticatedDependencies;
@@ -61,6 +64,10 @@ function hashPathInventory(paths) {
   const hash = createHash('sha256');
   for (const name of [...paths].sort()) hash.update(`${name.length}:${name}`);
   return hash.digest('hex');
+}
+
+function hashBytes(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function assertCanonicalRelativeJavaScriptPaths(paths, label) {
@@ -132,6 +139,21 @@ function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
   const overrides = new Map();
+  for (const reconstruction of POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-text-splice compiled core path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const currentSource = readFileSync(resolve(canonicalRoot, reconstruction.path));
+    if (hashBytes(currentSource) !== reconstruction.currentDigest) {
+      fail(`post-text-splice compiled core source drifted: ${reconstruction.path}`);
+    }
+    overrides.set(reconstruction.path, reconstructHistoricalSource({
+      currentSource,
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-text-splice compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    }));
+  }
   const preM4171Sources = new Map();
   for (const reconstruction of POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {

@@ -13,6 +13,46 @@ import {
   runtimeJavaScriptImportClosure,
   runtimeModuleSpecifiers,
 } from '../runtime-envelope-import-closure.mjs';
+import {
+  assertExactRuntimeMachineOwners,
+  runtimeMachineOwnerPaths,
+} from './runtime-machine-owner-allowlist.mjs';
+
+const TEXT_SPLICE_OWNERS = [
+  'ir/semantics/internal-effect-machine-deferred-binding',
+  'ir/semantics/internal-effect-machine-text-splice',
+];
+
+test('Text.splice additions are exact source and built runtime machine owners', () => {
+  for (const [root, extension, closure] of [
+    [resolve('packages/core/src'), '.ts', assertPublicHandlerAbiClosure],
+    [resolve('packages/core/dist'), '.js', assertPublicHandlerBuiltAbiClosure],
+  ]) {
+    const expected = runtimeMachineOwnerPaths(root, extension);
+    const visited = closure(root);
+    const spliceOwners = TEXT_SPLICE_OWNERS.map((owner) => resolve(root, `${owner}${extension}`));
+    for (const spliceOwner of spliceOwners) {
+      assert.ok(expected.has(spliceOwner), `${extension} allowlist omits ${spliceOwner}`);
+      assert.ok(visited.has(spliceOwner), `${extension} closure omits ${spliceOwner}`);
+    }
+
+    const unapproved = new Set(visited);
+    unapproved.add(resolve(root, `unapproved-owner${extension}`));
+    assert.throws(
+      () => assertExactRuntimeMachineOwners(root, unapproved, extension),
+      /unapproved machine owner/u,
+    );
+
+    for (const spliceOwner of spliceOwners) {
+      const unreachable = new Set(visited);
+      unreachable.delete(spliceOwner);
+      assert.throws(
+        () => assertExactRuntimeMachineOwners(root, unreachable, extension),
+        /approved machine owner is unreachable/u,
+      );
+    }
+  }
+});
 
 test('public source and built JavaScript dependency graphs are acyclic and machine-only', () => {
   const coreSource = resolve('packages/core/src');

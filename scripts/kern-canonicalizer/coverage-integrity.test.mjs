@@ -358,6 +358,8 @@ test('historical compiled core identities authenticate exact M4.145 membership',
   const omitted = new Set(currentPaths.filter((path) => !historicalPaths.includes(path)));
   assert.deepEqual([...omitted].sort(), [
     'each-collection-reference.js',
+    'ir/semantics/internal-effect-machine-deferred-binding.js',
+    'ir/semantics/internal-effect-machine-text-splice.js',
     'kir-structural/branch-path-value.js',
     'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',
