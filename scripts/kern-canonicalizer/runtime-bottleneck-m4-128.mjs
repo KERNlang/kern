@@ -25,6 +25,9 @@ import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
   PRE_M4131_RUNTIME_MEASUREMENT_REPLACEMENTS,
 } from './validate-parameter-migration-target.mjs';
+import {
+  POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
+} from './runtime-text-cache-historical-transition.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.5';
 const RECEIPT_DIGEST =
@@ -170,7 +173,20 @@ function exactInputs() {
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
     if (name === 'runtimePolicySha256') continue;
     let source = readFileSync(url);
-    if (name === 'measurementSha256') {
+    if (name === 'effectMachineSha256') {
+      const reconstruction = POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS.find(
+        (candidate) => candidate.sourceKey === name,
+      );
+      if (reconstruction === undefined || digest(source) !== reconstruction.currentDigest) {
+        fail('post-runtime-text-cache effect machine source must remain exact');
+      }
+      source = reconstructHistoricalSource({
+        currentSource: source,
+        expectedDigest: reconstruction.expectedDigest,
+        milestone: 'pre-runtime-text-cache M4.128 effect machine',
+        replacements: reconstruction.replacements,
+      });
+    } else if (name === 'measurementSha256') {
       source = reconstructHistoricalSource({
         currentSource: source,
         expectedDigest: SOURCE_DIGESTS[name],

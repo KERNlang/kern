@@ -15,6 +15,11 @@ import {
   POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS,
 } from './parser-style-containment-target.mjs';
 import {
+  POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS,
+  RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION,
+  RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES,
+} from './runtime-text-cache-historical-transition.mjs';
+import {
   POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS,
   TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION,
 } from './text-splice-historical-transition.mjs';
@@ -23,7 +28,7 @@ const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
 const IMPLEMENTATION_ROOT = resolve(ROOT, 'scripts/kern-canonicalizer');
 const M4145_SUCCESSOR_COMPILED_CORE_INVENTORY =
-  TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.currentInventory;
+  RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.currentInventory;
 const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'each-collection-reference.js',
   'kir-v1/canonical.js',
@@ -35,6 +40,7 @@ const POST_M4145_COMPILED_CORE_PATHS = Object.freeze([
   'parser-hint-snapshot.js',
   'runtime-envelope/kir-handler.js',
   ...TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
+  ...RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
 ]);
 
 let authenticatedDependencies;
@@ -120,6 +126,32 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
   ) {
     fail('M4.145 historical membership requires the authenticated successor inventory');
   }
+  const runtimeTextCacheSuccessors = new Set(
+    RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
+  );
+  if (
+    RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths.some(
+      (path) => !paths.includes(path),
+    )
+  ) {
+    fail('runtime text cache successor paths must exist in the authenticated inventory');
+  }
+  const preRuntimeTextCachePaths = paths.filter((path) => !runtimeTextCacheSuccessors.has(path));
+  const runtimeTextCachePredecessor =
+    RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.predecessorInventory;
+  if (
+    preRuntimeTextCachePaths.length !== runtimeTextCachePredecessor.count ||
+    hashPathInventory(preRuntimeTextCachePaths) !== runtimeTextCachePredecessor.digest
+  ) {
+    fail('runtime text cache predecessor inventory must reproduce the Text.splice successor');
+  }
+  const textSpliceSuccessor = TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.currentInventory;
+  if (
+    preRuntimeTextCachePaths.length !== textSpliceSuccessor.count ||
+    hashPathInventory(preRuntimeTextCachePaths) !== textSpliceSuccessor.digest
+  ) {
+    fail('runtime text cache predecessor must authenticate the frozen Text.splice inventory');
+  }
   assertCanonicalRelativeJavaScriptPaths(
     POST_M4145_COMPILED_CORE_PATHS,
     'post-M4.145 compiled core paths',
@@ -139,6 +171,29 @@ function m4145CompiledCoreJavaScriptPaths() {
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
   const overrides = new Map();
+  for (const identity of RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES) {
+    if (!historicalPaths.includes(identity.path)) {
+      fail(`runtime text cache type-only path is absent from M4.145: ${identity.path}`);
+    }
+    if (hashBytes(readFileSync(resolve(canonicalRoot, identity.path))) !== identity.digest) {
+      fail(`runtime text cache type-only compiled source drifted: ${identity.path}`);
+    }
+  }
+  for (const reconstruction of POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-runtime-text-cache compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const currentSource = readFileSync(resolve(canonicalRoot, reconstruction.path));
+    if (hashBytes(currentSource) !== reconstruction.currentDigest) {
+      fail(`post-runtime-text-cache compiled source drifted: ${reconstruction.path}`);
+    }
+    overrides.set(reconstruction.path, reconstructHistoricalSource({
+      currentSource,
+      expectedDigest: reconstruction.expectedDigest,
+      milestone: `pre-runtime-text-cache compiled ${reconstruction.path}`,
+      replacements: reconstruction.replacements,
+    }));
+  }
   for (const reconstruction of POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-text-splice compiled core path is absent from M4.145: ${reconstruction.path}`);

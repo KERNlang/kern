@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 import { KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
+import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
+} from './runtime-text-cache-historical-transition.mjs';
 import { writeCoverageSummary } from './coverage-summary-writer.mjs';
 import { loadCanonicalizerRuntimeBottleneckM496 } from './runtime-bottleneck-m4-96.mjs';
 
@@ -63,6 +67,12 @@ const SOURCE_URLS = {
     import.meta.url,
   ),
 };
+const SOURCE_RECONSTRUCTIONS = new Map(
+  POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS.map((reconstruction) => [
+    reconstruction.sourceKey,
+    reconstruction,
+  ]),
+);
 
 function fail(message) {
   throw new TypeError(`coverage M4.97 runtime-cost rejection: ${message}`);
@@ -144,7 +154,23 @@ function exactInputs() {
     fail('M4.96 bottleneck handoff must remain exact');
   }
   for (const [name, expected] of Object.entries(SOURCE_DIGESTS)) {
-    if (digest(readFileSync(SOURCE_URLS[name])) !== expected) {
+    const currentSource = readFileSync(SOURCE_URLS[name]);
+    const reconstruction = SOURCE_RECONSTRUCTIONS.get(name);
+    const source = reconstruction === undefined
+      ? currentSource
+      : reconstructHistoricalSource({
+          currentSource,
+          expectedDigest: reconstruction.expectedDigest,
+          milestone: `pre-runtime-text-cache M4.97 ${name}`,
+          replacements: reconstruction.replacements,
+        });
+    if (
+      reconstruction !== undefined &&
+      digest(currentSource) !== reconstruction.currentDigest
+    ) {
+      fail(`${name} post-runtime-text-cache source identity must remain exact`);
+    }
+    if (digest(source) !== expected) {
       fail(`${name} source identity must remain exact`);
     }
   }

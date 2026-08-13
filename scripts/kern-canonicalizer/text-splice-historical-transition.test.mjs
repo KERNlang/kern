@@ -11,6 +11,9 @@ import {
 } from './coverage-dependencies.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
+  RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION,
+} from './runtime-text-cache-historical-transition.mjs';
+import {
   POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS,
   TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION,
 } from './text-splice-historical-transition.mjs';
@@ -32,6 +35,13 @@ function compiledCorePaths() {
   }
   visit(root);
   return files.map((path) => relative(root, path).split(sep).join('/')).sort();
+}
+
+function textSpliceSuccessorPaths() {
+  const runtimeTextCachePaths = new Set(
+    RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
+  );
+  return compiledCorePaths().filter((path) => !runtimeTextCachePaths.has(path));
 }
 
 function digest(bytes) {
@@ -58,7 +68,7 @@ function compiledCoreDigest(overrides = new Map()) {
 test('text splice successor transition binds an exact bidirectional inventory delta', () => {
   assert.equal(TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.commit, '2c030fef');
   assert.deepEqual(TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.addedPaths, TEXT_SPLICE_SUCCESSOR_PATHS);
-  const currentPaths = compiledCorePaths();
+  const currentPaths = textSpliceSuccessorPaths();
   const current = TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION.currentInventory;
   assert.equal(currentPaths.length, current.count);
   assert.equal(pathInventoryDigest(currentPaths), current.digest);
@@ -132,7 +142,8 @@ test('current compiled identity is sensitive to both text splice successor modul
 
 test('text splice transition preserves exact M4.145 and pre-M4.135 compiled identities', () => {
   const currentPaths = compiledCorePaths();
-  assert.equal(currentPaths.length, 316);
+  assert.equal(currentPaths.length, 317);
+  assert.equal(textSpliceSuccessorPaths().length, 316);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
   const omitted = currentPaths.filter((path) => !historicalPaths.includes(path));
   for (const path of TEXT_SPLICE_SUCCESSOR_PATHS) assert.ok(omitted.includes(path), path);

@@ -1,6 +1,6 @@
 # KERN 5 F1 Runtime Text Cache Prerequisite
 
-**Status:** IMPLEMENTED — HISTORY CLOSURE REQUIRED
+**Status:** IMPLEMENTED — FULL WALL PENDING
 
 **Date:** 2026-08-13
 
@@ -13,7 +13,9 @@
 - `tribunal-1786631874182-yl58i3` (`claude,codex,agy`, 3/3) caught validation
   before lookup and required an opaque lookup-first store.
 - `tribunal-1786633247008-cdxl9t` (`claude,codex,agy`, 3/3) required a new
-  chained 317-to-316 historical transition before the Text.splice transition.
+  chained 317-to-316 historical transition before the Text.splice transition;
+  clean builds then refined five changed TypeScript owners to four changed
+  retained JavaScript owners plus one byte-identical type-only owner.
 
 **Confidence:** 0.82 before challenge; 0.92 after the tribunal and source trace.
 
@@ -43,7 +45,7 @@
 - **[RTC-D6 DECIDED]** This slice closes the reference-runner prerequisite for
   F1. Equivalent isolated scaling proof for generated TypeScript and Python is
   an explicit F7 promotion dependency, not a claim made here.
-- **[RTC-D7 DECIDED]** The new compiled cache owner and all five changed
+- **[RTC-D7 DECIDED]** The new compiled cache owner and all four changed
   retained compiled owners require a dedicated successor-history epoch. It is
   applied before the frozen Text.splice transition; neither the Text.splice
   transition nor any published M4.145 or pre-M4.135 digest may change.
@@ -123,7 +125,8 @@
 - **[RTC-V3 VERIFIED]** ASCII, astral, CRLF, and mixed 1K/4K/16K scalar walks
   scale near linearly; focused runtime envelope, public ABI, source-runner, and
   runtime-contract-v1 gates pass.
-- **[RTC-V4 VERIFIED]** The full canonicalizer wall fails 95 tests from one
-  intended fail-closed cause: the unclassified 317th compiled owner.
-- **[RTC-V5 PENDING]** Exact successor-history reconstruction, full KERN 5
-  fitness, independent Agon review, signed commits, and authorized publication.
+- **[RTC-V4 VERIFIED]** The exact 317-to-316 successor-history reconstruction
+  closes the fail-closed inventory break while preserving all frozen digests;
+  the complete canonicalizer gate passes 750/750.
+- **[RTC-V5 PENDING]** Full KERN 5 fitness, independent Agon review, signed
+  history commit, and authorized publication.
