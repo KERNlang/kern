@@ -1,0 +1,178 @@
+fn name=epidentstart returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    return value="(c >= \"A\" && c <= \"Z\") || (c >= \"a\" && c <= \"z\") || c == \"_\" || c == \"$\""
+
+fn name=epidentchar returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    return value="epidentstart(c) || (c >= \"0\" && c <= \"9\")"
+
+fn name=epdigit returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    return value="c >= \"0\" && c <= \"9\""
+
+fn name=epspace returns=boolean
+  param name=c type=string
+  handler lang="kern"
+    return value="c == \" \" || c == \"\\t\" || c == \"\\n\" || c == \"\\r\""
+
+fn name=eppayload returns=string
+  param name=tag type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="tag + String(Text.length(value)) + \":\" + value"
+
+fn name=eptext returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="eppayload(\"T\", value)"
+
+fn name=epint returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="eppayload(\"I\", value)"
+
+fn name=epdecimal returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="eppayload(\"D\", value)"
+
+fn name=epbool returns=string
+  param name=value type=boolean
+  handler lang="kern"
+    if cond="value"
+      return value="\"B1\""
+    return value="\"B0\""
+
+fn name=epkey returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="eppayload(\"K\", value)"
+
+fn name=eplist returns=string
+  param name=count type=number
+  param name=items type=string
+  handler lang="kern"
+    return value="\"L\" + String(count) + \"[\" + items + \"]\""
+
+fn name=eprecord returns=string
+  param name=count type=number
+  param name=entries type=string
+  handler lang="kern"
+    return value="\"R\" + String(count) + \"{\" + entries + \"}\""
+
+fn name=epexpr returns=string
+  param name=kind type=string
+  param name=fieldCount type=number
+  param name=fields type=string
+  handler lang="kern"
+    return value="eprecord(2, epkey(\"fields\") + eprecord(fieldCount, fields) + epkey(\"kind\") + eptext(kind))"
+
+fn name=epexpr0 returns=string
+  param name=kind type=string
+  handler lang="kern"
+    return value="epexpr(kind, 0, \"\")"
+
+fn name=epexpr1 returns=string
+  param name=kind type=string
+  param name=key type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="epexpr(kind, 1, epkey(key) + value)"
+
+fn name=epbinary returns=string
+  param name=left type=string
+  param name=op type=string
+  param name=right type=string
+  handler lang="kern"
+    let name=fields value="epkey(\"left\") + left"
+    assign target=fields value="fields + epkey(\"op\") + eptext(op)"
+    assign target=fields value="fields + epkey(\"right\") + right"
+    return value="epexpr(\"binary\", 3, fields)"
+
+fn name=epunary returns=string
+  param name=op type=string
+  param name=argument type=string
+  handler lang="kern"
+    return value="epexpr(\"unary\", 2, epkey(\"argument\") + argument + epkey(\"op\") + eptext(op))"
+
+fn name=epmember returns=string
+  param name=object type=string
+  param name=property type=string
+  handler lang="kern"
+    let name=fields value="epkey(\"object\") + object"
+    assign target=fields value="fields + epkey(\"optional\") + epbool(false)"
+    assign target=fields value="fields + epkey(\"property\") + eptext(property)"
+    return value="epexpr(\"member\", 3, fields)"
+
+fn name=epindex returns=string
+  param name=object type=string
+  param name=index type=string
+  handler lang="kern"
+    let name=fields value="epkey(\"index\") + index"
+    assign target=fields value="fields + epkey(\"object\") + object"
+    assign target=fields value="fields + epkey(\"optional\") + epbool(false)"
+    return value="epexpr(\"index\", 3, fields)"
+
+fn name=epcall returns=string
+  param name=callee type=string
+  param name=argCount type=number
+  param name=args type=string
+  handler lang="kern"
+    let name=fields value="epkey(\"args\") + eplist(argCount, args)"
+    assign target=fields value="fields + epkey(\"callee\") + callee"
+    assign target=fields value="fields + epkey(\"optional\") + epbool(false)"
+    return value="epexpr(\"call\", 3, fields)"
+
+fn name=epconditional returns=string
+  param name=test type=string
+  param name=consequent type=string
+  param name=alternate type=string
+  handler lang="kern"
+    let name=fields value="epkey(\"alternate\") + alternate"
+    assign target=fields value="fields + epkey(\"consequent\") + consequent"
+    assign target=fields value="fields + epkey(\"test\") + test"
+    return value="epexpr(\"conditional\", 3, fields)"
+
+fn name=epreplace returns="string[]"
+  param name=items type="string[]"
+  param name=start type=number
+  param name=end type=number
+  param name=kind type=string
+  param name=raw type=string
+  param name=encoded type=string
+  handler lang="kern"
+    let name=out value="[]"
+    for name=i from=0 to=start
+      do value="out.push(items[i])"
+    do value="out.push(kind)"
+    do value="out.push(raw)"
+    do value="out.push(encoded)"
+    for name=i from=end to="items.length"
+      do value="out.push(items[i])"
+    return value="out"
+
+fn name=epprecedence returns=number
+  param name=op type=string
+  handler lang="kern"
+    if cond="op == \"*\" || op == \"/\" || op == \"%\""
+      return value="7"
+    if cond="op == \"+\" || op == \"-\""
+      return value="6"
+    if cond="op == \"<\" || op == \"<=\" || op == \">\" || op == \">=\""
+      return value="5"
+    if cond="op == \"==\" || op == \"!=\" || op == \"===\" || op == \"!==\""
+      return value="4"
+    if cond="op == \"&&\""
+      return value="3"
+    if cond="op == \"||\" || op == \"??\""
+      return value="2"
+    return value="0"
+
+fn name=epfailure returns="string[]"
+  param name=code type=string
+  param name=source type=string
+  handler lang="kern"
+    return value="[\"kern.frontend.expression-probe.1\", \"failure\", code, \"seal\", source]"

@@ -1,0 +1,26 @@
+fn name=materializereplacement returns=string
+  param name=prefix type=string
+  param name=operator type=string
+  param name=suffix type=string
+  handler lang="kern"
+    return value="String(Text.length(prefix)) + \":\" + prefix + operator + String(Text.length(suffix)) + \":\" + suffix"
+
+fn name=proberewritematerialization returns="string[]" export=true
+  param name=source type=string
+  handler lang="kern"
+    let name=cursor value="0"
+    let name=split value="-1"
+    let name=prefix value="\"\""
+    let name=suffix value="\"\""
+    while cond="cursor < Text.length(source)"
+      let name=ch value="Text.charAt(source, cursor)"
+      if cond="ch == \"*\""
+        assign target=split value="cursor"
+        assign target=prefix value="Text.slice(source, 0, cursor)"
+        assign target=suffix value="Text.slice(source, cursor + 1, Text.length(source))"
+        break
+      assign target=cursor value="cursor + 1"
+    if cond="split < 0"
+      return value="[\"kern.frontend.runtime-rewrite-gate0.1\", \"failure\", \"NO_SPLIT\", \"seal\", source]"
+    let name=replacement value="materializereplacement(prefix, \"*\", suffix)"
+    return value="[\"kern.frontend.runtime-rewrite-gate0.1\", \"ok\", replacement, \"seal\", source]"

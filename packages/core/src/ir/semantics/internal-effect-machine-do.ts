@@ -7,6 +7,11 @@ import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from 
 import { resolveParsedMapSet } from './portable-map.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
 import {
+  parseInternalMachineTextSplice,
+  type ParsedInternalMachineTextSplice,
+  runInternalMachineTextSplice,
+} from './internal-effect-machine-text-splice.js';
+import {
   assignBinding,
   assignOwnedExactScalarMapBinding,
   assignPushBuiltFreshArrayBinding,
@@ -20,6 +25,7 @@ import { emptyTrace, type Trace } from './trace.js';
 
 export type ParsedInternalMachineDo =
   | { readonly kind: 'noop' }
+  | ParsedInternalMachineTextSplice
   | { readonly element: ValueIR; readonly kind: 'push'; readonly targetName: string }
   | {
       readonly key: ValueIR;
@@ -79,7 +85,11 @@ export function parseInternalMachineDo(node: IRNode, env?: SemanticEnv): ParsedI
     assertPortableMachineScalarShape(mapSet.value, env);
     return { ...mapSet, kind: 'map-set' };
   }
-  throw new Error('do: only "<array>.push(<element>)" and "Map.set(<map>, <key>, <value>)" are supported');
+  const textSplice = parseInternalMachineTextSplice(parsed);
+  if (textSplice) return textSplice;
+  throw new Error(
+    'do: only "<array>.push(<element>)", "Map.set(<map>, <key>, <value>)", and exact Text.splice bindings are supported',
+  );
 }
 
 export function internalMachineDoTargetName(node: IRNode, env?: SemanticEnv): string | undefined {
@@ -90,6 +100,9 @@ export function internalMachineDoTargetName(node: IRNode, env?: SemanticEnv): st
 export function assertInternalMachineDoNamespaceAvailable(parsed: ParsedInternalMachineDo, env: SemanticEnv): void {
   if (parsed.kind === 'map-set' && hasBinding(env, 'Map')) {
     throw new Error('portable machine: namespace "Map" is shadowed');
+  }
+  if (parsed.kind === 'text-splice' && hasBinding(env, 'Text')) {
+    throw new Error('portable machine: namespace "Text" is shadowed');
   }
 }
 
@@ -134,6 +147,7 @@ export function runInternalMachineDo(node: IRNode, env: SemanticEnv): Trace {
     }
     return emptyTrace();
   }
+  if (parsed.kind === 'text-splice') return runInternalMachineTextSplice(parsed, env);
   const resolved = resolveParsedMapSet(parsed.targetName, parsed.key, parsed.value, env, evalPortableValue, true);
   assignOwnedExactScalarMapBinding(env, resolved.targetName, resolved.newMap);
   return emptyTrace();

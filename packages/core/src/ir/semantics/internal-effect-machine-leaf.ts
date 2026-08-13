@@ -31,7 +31,9 @@ import {
 } from './internal-effect-machine-expression-v1.js';
 import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
 import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
+import { defineDeferredInternalMachineBinding } from './internal-effect-machine-deferred-binding.js';
 import { internalMachineRecordArrayFields } from './internal-effect-machine-leaf-record.js';
+import { assertInternalMachineTextSplicePreflight } from './internal-effect-machine-text-splice.js';
 import {
   assertInternalMachinePrintShape,
   assertInternalMachineReturnShape,
@@ -128,7 +130,12 @@ export function assertInternalEffectMachineLeafPreflight(
       const present = name === 'this' ? env.runnerThis !== undefined : hasBinding(env, name);
       if (!deferredBindings.has(name) && !present) throw new Error(`binding "${name}" not found`);
     }
-    assertDeferredMachineLeafKnownValues(node, env, deferredBindings);
+    const parsedDo = node.type === 'do' ? parseInternalMachineDo(node, env) : undefined;
+    if (parsedDo?.kind === 'text-splice') {
+      assertInternalMachineTextSplicePreflight(parsedDo, env, deferredBindings);
+    } else {
+      assertDeferredMachineLeafKnownValues(node, env, deferredBindings);
+    }
     // Deferred producers reserve declarations; loop-frame bindings arrive at runtime.
     deferLeafOutput(node, env, deferredBindings);
     return;
@@ -234,7 +241,9 @@ function assertDeferredCaughtUses(node: ValueIR, env: SemanticEnv, deferredBindi
 function deferLeafOutput(node: IRNode, env: SemanticEnv, deferredBindings: Set<string>): void {
   const name = leafOutputName(node, env);
   if (typeof name !== 'string') return;
-  if (node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1') defineBinding(env, name, null);
+  if (node.type === 'let' || node.type === 'fmt' || node.type === 'expression-v1') {
+    defineDeferredInternalMachineBinding(node, env, name);
+  }
   deferredBindings.add(name);
 }
 
@@ -257,9 +266,14 @@ function leafExpressionBindings(node: IRNode, env?: SemanticEnv): Set<string> {
     if (parsed.kind === 'noop') return out;
     out.add(parsed.targetName);
     if (parsed.kind === 'push') addInternalMachineExpressionBindings(out, parsed.element);
-    else {
+    else if (parsed.kind === 'map-set') {
       addInternalMachineExpressionBindings(out, parsed.key);
       addInternalMachineExpressionBindings(out, parsed.value);
+    } else {
+      out.add(parsed.startName);
+      out.add(parsed.endName);
+      out.add(parsed.replacementName);
+      out.add(parsed.maxOutputCodePointsName);
     }
     return out;
   }
@@ -314,7 +328,8 @@ function runAssign(node: IRNode, env: SemanticEnv): Trace {
   if (typeof current !== 'number' && typeof current !== 'string' && typeof current !== 'boolean') {
     throw new Error('assign: target must contain a number, string, or boolean');
   }
-  const right = evalPortableValue(parseRequiredExpression(node, 'value'), env);
+  const parsedRight = parseRequiredExpression(node, 'value');
+  const right = evalPortableValue(parsedRight, env);
   const op = node.props?.op === '+=' ? '+=' : '=';
   let value: PortableScalar;
   if (op === '=') {
