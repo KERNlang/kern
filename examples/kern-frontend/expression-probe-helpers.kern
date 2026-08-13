@@ -136,24 +136,6 @@ fn name=epconditional returns=string
     assign target=fields value="fields + epkey(\"test\") + test"
     return value="epexpr(\"conditional\", 3, fields)"
 
-fn name=epreplace returns="string[]"
-  param name=items type="string[]"
-  param name=start type=number
-  param name=end type=number
-  param name=kind type=string
-  param name=raw type=string
-  param name=encoded type=string
-  handler lang="kern"
-    let name=out value="[]"
-    for name=i from=0 to=start
-      do value="out.push(items[i])"
-    do value="out.push(kind)"
-    do value="out.push(raw)"
-    do value="out.push(encoded)"
-    for name=i from=end to="items.length"
-      do value="out.push(items[i])"
-    return value="out"
-
 fn name=epprecedence returns=number
   param name=op type=string
   handler lang="kern"
