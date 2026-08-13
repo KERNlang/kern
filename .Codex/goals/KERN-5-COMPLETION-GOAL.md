@@ -27,8 +27,9 @@ or silently fall back to TypeScript semantics; and the exact accepted packed RC
 passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
-passes. After the production-checker promotion, that wall contains 51 promoted
-gates and excludes the seven remaining planned terminal gates.
+passes. After the production-checker and formatter promotions, that wall
+contains 52 promoted gates and excludes the six remaining planned terminal
+gates.
 
 ## Post-M4.171 Baseline
 
@@ -39,35 +40,37 @@ post-publication completion-contract baseline is
 verification resolved both `origin/main` and the remote ref to that baseline
 before the isolated Phase 0 worktree was created.
 
-Reconciled state after the Phase 1 checker slice:
+Reconciled state after the Phase 1 checker and formatter slices:
 
-- 58 declared KERN 5 gates: 51 current, 7 planned.
+- 58 declared KERN 5 gates: 52 current, 6 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - The production structural checker is `internal-product`; KIR v1, runtime
   ownership slices, canonicalizer, and frontend slices remain
   `internal-oracle`, not canonical product authority.
 - TypeScript parser/compiler/ReferenceRunner paths remain production surfaces.
-- Formatter, complete frontend, compiler, fixed point, interpreter, canonical
-  cutover, exact packed proof, and public `5.0.0` remain open.
+- The lossless formatter is `internal-product`; complete frontend, compiler,
+  fixed point, interpreter, canonical cutover, exact packed proof, and public
+  `5.0.0` remain open.
 
-Promoted-gate row coverage is `51 / 58 = 87.9%`. The denominator fell because
+Promoted-gate row coverage is `52 / 58 = 89.7%`. The denominator fell because
 Phase 0 made three omitted terminal requirements visible; no implementation was
-lost. The source-grounded release-completion estimate is approximately 48-58%
+lost. The source-grounded release-completion estimate is approximately 52-62%
 because the remaining gates are the high-weight ownership and cutover phases.
 This estimate is directional, not a repository metric.
 
 ## Target Gate Ledger
 
 All eight rows are explicit in the fitness policy, versioned remaining-gate
-ledger, policy tests, support matrix, and release train. They remain `planned`,
-and their root package scripts remain absent until an implementation slice
-promotes each row to `current` with its complete binary oracle. The
-machine-readable authority is `scripts/kern-5-remaining-gates-v1.json`.
+ledger, policy tests, support matrix, and release train. Checker and formatter
+are current; the other six remain `planned`, and their root package scripts
+remain absent until an implementation slice promotes each with its complete
+binary oracle. The machine-readable authority is
+`scripts/kern-5-remaining-gates-v1.json`.
 
-| Gate | Starting state after M4.171 |
+| Gate | Current state after Phase 1 formatter |
 | --- | --- |
 | `pnpm test:kern-checker` | current |
-| `pnpm test:kern-formatter` | planned |
+| `pnpm test:kern-formatter` | current |
 | `pnpm test:kern-frontend` | planned |
 | `pnpm test:kern-compiler` | planned |
 | `pnpm test:selfhost-fixed-point` | planned |

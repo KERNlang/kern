@@ -44,6 +44,7 @@ const TERMINAL_GATE_IDS = [
 const APPROVED_COMPLETION_EVIDENCE = new Set([
   '.Codex/goals/KERN-5-COMPLETION-GOAL.md',
   '.Codex/specs/kern-5-phase1-production-checker/spec.md',
+  '.Codex/specs/kern-5-phase1-lossless-formatter/spec.md',
   '.Codex/specs/kern-5-post-m4-171-completion/spec.md',
   'docs/kern-5-release-train.md',
   'docs/kern-5-support-matrix.md',

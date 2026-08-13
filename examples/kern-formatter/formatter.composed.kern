@@ -1,0 +1,502 @@
+fn name=formatterhoriz returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch == \" \" || ch == \"\\t\""
+
+fn name=formatterleadingwidth returns=number
+  param name=content type=string
+  handler lang="kern"
+    let name=i value=0
+    while cond="i < Text.length(content) && formatterhoriz(Text.charAt(content, i))"
+      assign target=i value="i + 1"
+    return value=i
+
+fn name=formattertrimtrailing returns=string
+  param name=content type=string
+  handler lang="kern"
+    let name=end value="Text.length(content)"
+    while cond="end > 0 && formatterhoriz(Text.charAt(content, end - 1))"
+      assign target=end value="end - 1"
+    return value="Text.slice(content, 0, end)"
+
+fn name=formatterstarts returns=boolean
+  param name=source type=string
+  param name=start type=number
+  param name=needle type=string
+  handler lang="kern"
+    if cond="start < 0 || start + Text.length(needle) > Text.length(source)"
+      return value=false
+    return value="Text.slice(source, start, start + Text.length(needle)) == needle"
+
+fn name=formatterscanline returns="string[]"
+  param name=content type=string
+  param name=initialQuote type=string
+  param name=initialExpressionDepth type=number
+  param name=initialStyleDepth type=number
+  param name=maxLexicalDepth type=number
+  handler lang="kern"
+    let name=n value="Text.length(content)"
+    let name=i value=0
+    let name=quote value=initialQuote
+    let name=escaped value=false
+    let name=expressionDepth value=initialExpressionDepth
+    let name=styleDepth value=initialStyleDepth
+    let name=commentOffset value=-1
+    let name=rawOffset value=-1
+    let name=rawInline value=false
+    let name=lexicalLimit value=false
+    while cond="i < n"
+      let name=ch value="Text.charAt(content, i)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\""
+        assign target=quote value=ch
+        assign target=i value="i + 1"
+        continue
+      if cond="formatterstarts(content, i, \"{{\")"
+        assign target=expressionDepth value="expressionDepth + 1"
+        if cond="expressionDepth > maxLexicalDepth"
+          assign target=lexicalLimit value=true
+          break
+        assign target=i value="i + 2"
+        continue
+      if cond="formatterstarts(content, i, \"}}\") && expressionDepth > 0"
+        assign target=expressionDepth value="expressionDepth - 1"
+        assign target=i value="i + 2"
+        continue
+      if cond="expressionDepth > 0"
+        assign target=i value="i + 1"
+        continue
+      if cond="styleDepth > 0"
+        if cond="ch == \"{\""
+          assign target=styleDepth value="styleDepth + 1"
+          if cond="styleDepth > maxLexicalDepth"
+            assign target=lexicalLimit value=true
+            break
+        else
+          if cond="ch == \"}\""
+            assign target=styleDepth value="styleDepth - 1"
+        assign target=i value="i + 1"
+        continue
+      if cond="formatterstarts(content, i, \"<<<\")"
+        assign target=rawOffset value=i
+        let name=after value="i + 3"
+        while cond="after + 2 < n"
+          if cond="formatterstarts(content, after, \">>>\")"
+            assign target=rawInline value=true
+            break
+          assign target=after value="after + 1"
+        break
+      if cond="ch == \"{\""
+        assign target=styleDepth value=1
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"#\" && (i == 0 || formatterhoriz(Text.charAt(content, i - 1)))"
+        assign target=commentOffset value=i
+        break
+      if cond="formatterstarts(content, i, \"//\") && (i == 0 || formatterhoriz(Text.charAt(content, i - 1)))"
+        assign target=commentOffset value=i
+        break
+      assign target=i value="i + 1"
+    let name=out value="[]"
+    do value="out.push(String(commentOffset))"
+    do value="out.push(String(rawOffset))"
+    do value="out.push(String(rawInline))"
+    do value="out.push(quote)"
+    if cond=lexicalLimit
+      do value="out.push(\"-1\")"
+    else
+      do value="out.push(String(expressionDepth))"
+    do value="out.push(String(styleDepth))"
+    return value=out
+
+fn name=formattertapefailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.formatter.source-tape.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    return value=out
+
+fn name=formatterpairchunks returns="string[]"
+  param name=chunks type="string[]"
+  handler lang="kern"
+    let name=next value="[]"
+    for name=index from=0 to="chunks.length" step=2
+      let name=left value="chunks[index]"
+      if cond="index + 1 < chunks.length"
+        let name=right value="chunks[index + 1]"
+        let name=combined value="left + right"
+        do value="next.push(combined)"
+      else
+        do value="next.push(left)"
+    return value=next
+
+fn name=formatterconcatchunks returns=string
+  param name=chunks type="string[]"
+  handler lang="kern"
+    if cond="chunks.length == 0"
+      return value="\"\""
+    if cond="chunks.length > 32769"
+      return value="\"\""
+    let name=level1 value="formatterpairchunks(chunks)"
+    let name=level2 value="formatterpairchunks(level1)"
+    let name=level3 value="formatterpairchunks(level2)"
+    let name=level4 value="formatterpairchunks(level3)"
+    let name=level5 value="formatterpairchunks(level4)"
+    let name=level6 value="formatterpairchunks(level5)"
+    let name=level7 value="formatterpairchunks(level6)"
+    let name=level8 value="formatterpairchunks(level7)"
+    let name=level9 value="formatterpairchunks(level8)"
+    let name=level10 value="formatterpairchunks(level9)"
+    let name=level11 value="formatterpairchunks(level10)"
+    let name=level12 value="formatterpairchunks(level11)"
+    let name=level13 value="formatterpairchunks(level12)"
+    let name=level14 value="formatterpairchunks(level13)"
+    let name=level15 value="formatterpairchunks(level14)"
+    let name=level16 value="formatterpairchunks(level15)"
+    if cond="level16.length != 1"
+      return value="\"\""
+    return value="level16[0]"
+
+fn name=formattersourcetape returns="string[]" export=true
+  param name=source type=string
+  param name=physical type="string[]"
+  param name=maxCodePoints type=number
+  param name=maxRecords type=number
+  param name=maxRecordCodePoints type=number
+  param name=maxLexicalDepth type=number
+  handler lang="kern"
+    if cond="maxCodePoints <= 0 || maxRecords <= 0 || maxRecordCodePoints <= 0 || maxLexicalDepth <= 0"
+      let name=invalidLimitsFailure value="formattertapefailure(\"INVALID_LIMITS\", \"\")"
+      return value=invalidLimitsFailure
+    if cond="Text.length(source) > maxCodePoints"
+      let name=codePointsFailure value="formattertapefailure(\"CODE_POINTS_LIMIT\", \"\")"
+      return value=codePointsFailure
+    if cond="physical.length < 3 || physical[0] != \"kern.formatter.physical-records.1\""
+      let name=physicalHeaderFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"header\")"
+      return value=physicalHeaderFailure
+    let name=records value="[]"
+    let name=extents value="[]"
+    let name=style value="\"none\""
+    let name=finalTerminator value="\"none\""
+    let name=record value=0
+    let name=raw value=false
+    let name=quoteState value="\"\""
+    let name=expressionDepth value=0
+    let name=styleDepth value=0
+    let name=sealSeen value=false
+    for name=offset from=1 to="physical.length" step=4
+      if cond="physical[offset] == \"seal\""
+        if cond="offset + 2 != physical.length || physical[offset + 1] != String(record)"
+          let name=physicalSealFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"seal\")"
+          return value=physicalSealFailure
+        assign target=sealSeen value=true
+        break
+      if cond="offset + 3 >= physical.length || physical[offset] != \"record\" || physical[offset + 1] != String(record)"
+        let name=physicalRecordFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=physicalRecordFailure
+      if cond="record >= maxRecords"
+        let name=recordLimitFailure value="formattertapefailure(\"RECORD_LIMIT\", \"\")"
+        return value=recordLimitFailure
+      let name=content value="physical[offset + 2]"
+      let name=terminator value="physical[offset + 3]"
+      if cond="Text.length(content) > maxRecordCodePoints"
+        let name=recordCodePointsFailure value="formattertapefailure(\"RECORD_CODE_POINTS_LIMIT\", String(record))"
+        return value=recordCodePointsFailure
+      if cond="Text.indexOf(content, \"\\n\") >= 0 || Text.indexOf(content, \"\\r\") >= 0"
+        let name=embeddedTerminatorFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=embeddedTerminatorFailure
+      if cond="terminator != \"lf\" && terminator != \"crlf\" && terminator != \"none\""
+        let name=terminatorFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=terminatorFailure
+      if cond="terminator == \"none\" && (content == \"\" || physical[offset + 4] != \"seal\")"
+        let name=noneTerminatorFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=noneTerminatorFailure
+      let name=extent value=content
+      if cond="terminator == \"lf\""
+        assign target=extent value="content + \"\\n\""
+      if cond="terminator == \"crlf\""
+        assign target=extent value="content + \"\\r\\n\""
+      if cond="terminator != \"none\""
+        if cond="style == \"none\""
+          assign target=style value=terminator
+        else
+          if cond="style != terminator"
+            let name=mixedTerminatorFailure value="formattertapefailure(\"MIXED_TERMINATORS\", String(record))"
+            return value=mixedTerminatorFailure
+      assign target=finalTerminator value=terminator
+      let name=recordClass value="\"code\""
+      let name=commentOffset value="\"-1\""
+      let name=leadingWidth value="formatterleadingwidth(content)"
+      if cond="content == \"\" || leadingWidth == Text.length(content)"
+        assign target=recordClass value="\"blank\""
+      else
+        if cond=raw
+          assign target=recordClass value="\"raw-body\""
+          if cond="formatterstarts(content, leadingWidth, \">>>\")"
+            assign target=recordClass value="\"raw-closer\""
+            assign target=raw value=false
+        else
+          let name=beganOpaque value="quoteState != \"\" || expressionDepth > 0 || styleDepth > 0"
+          let name=scan value="formatterscanline(content, quoteState, expressionDepth, styleDepth, maxLexicalDepth)"
+          assign target=commentOffset value="scan[0]"
+          let name=rawOffset value="scan[1]"
+          assign target=quoteState value="scan[3]"
+          if cond="scan[4] == \"-1\""
+            let name=lexicalDepthFailure value="formattertapefailure(\"LEXICAL_DEPTH_LIMIT\", String(record))"
+            return value=lexicalDepthFailure
+          let name=nextExpressionDepth value=0
+          while cond="String(nextExpressionDepth) != scan[4] && nextExpressionDepth <= maxLexicalDepth"
+            assign target=nextExpressionDepth value="nextExpressionDepth + 1"
+          if cond="String(nextExpressionDepth) != scan[4]"
+            let name=expressionStateFailure value="formattertapefailure(\"LEXICAL_DEPTH_LIMIT\", String(record))"
+            return value=expressionStateFailure
+          assign target=expressionDepth value=nextExpressionDepth
+          let name=nextStyleDepth value=0
+          while cond="String(nextStyleDepth) != scan[5] && nextStyleDepth <= maxLexicalDepth"
+            assign target=nextStyleDepth value="nextStyleDepth + 1"
+          if cond="String(nextStyleDepth) != scan[5]"
+            let name=styleStateFailure value="formattertapefailure(\"STYLE_DEPTH_INVALID\", String(record))"
+            return value=styleStateFailure
+          assign target=styleDepth value=nextStyleDepth
+          if cond="beganOpaque || quoteState != \"\" || expressionDepth > 0 || styleDepth > 0"
+            assign target=recordClass value="\"opaque\""
+          else
+            if cond="rawOffset != \"-1\""
+              if cond="scan[2] == \"true\""
+                assign target=recordClass value="\"raw-inline\""
+              else
+                assign target=recordClass value="\"raw-opener\""
+                assign target=raw value=true
+            else
+              if cond="commentOffset != \"-1\""
+                assign target=recordClass value="\"comment\""
+      do value="records.push(\"record\")"
+      do value="records.push(String(record))"
+      do value="records.push(content)"
+      do value="records.push(terminator)"
+      do value="records.push(recordClass)"
+      do value="records.push(commentOffset)"
+      do value="records.push(String(leadingWidth))"
+      do value="records.push(extent)"
+      do value="extents.push(extent)"
+      assign target=record value="record + 1"
+    if cond="!sealSeen"
+      let name=missingSealFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"seal\")"
+      return value=missingSealFailure
+    let name=reconstructed value="formatterconcatchunks(extents)"
+    if cond="reconstructed != source"
+      let name=reconstructionFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"reconstruction\")"
+      return value=reconstructionFailure
+    if cond=raw
+      let name=rawFailure value="formattertapefailure(\"UNTERMINATED_RAW\", String(record))"
+      return value=rawFailure
+    if cond="quoteState != \"\""
+      let name=quoteFailure value="formattertapefailure(\"UNTERMINATED_QUOTE\", String(record))"
+      return value=quoteFailure
+    if cond="expressionDepth > 0"
+      let name=expressionFailure value="formattertapefailure(\"UNTERMINATED_EXPRESSION\", String(record))"
+      return value=expressionFailure
+    if cond="styleDepth > 0"
+      let name=styleFailure value="formattertapefailure(\"UNTERMINATED_STYLE\", String(record))"
+      return value=styleFailure
+    let name=out value="[]"
+    do value="out.push(\"kern.formatter.source-tape.1\")"
+    do value="out.push(\"ok\")"
+    do value="out.push(style)"
+    do value="out.push(finalTerminator)"
+    for name=field from=0 to="records.length"
+      do value="out.push(records[field])"
+    do value="out.push(\"seal\")"
+    do value="out.push(source)"
+    do value="out.push(style)"
+    do value="out.push(finalTerminator)"
+    do value="out.push(String(record))"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    return value=out
+
+fn name=formatterfailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.formatter.native-result.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    return value=out
+
+fn name=formatsource returns="string[]" export=true
+  param name=source type=string
+  param name=physical type="string[]"
+  param name=maxCodePoints type=number
+  param name=maxRecords type=number
+  param name=maxRecordCodePoints type=number
+  param name=maxLexicalDepth type=number
+  param name=maxResultCodePoints type=number
+  handler lang="kern"
+    if cond="maxCodePoints <= 0 || maxRecords <= 0 || maxRecordCodePoints <= 0 || maxLexicalDepth <= 0 || maxResultCodePoints <= 0"
+      let name=invalidLimitsFailure value="formatterfailure(\"INVALID_LIMITS\", \"\")"
+      return value=invalidLimitsFailure
+    if cond="Text.length(source) > maxCodePoints"
+      let name=codePointsFailure value="formatterfailure(\"CODE_POINTS_LIMIT\", \"\")"
+      return value=codePointsFailure
+    if cond="physical.length < 3 || physical[0] != \"kern.formatter.physical-records.1\""
+      let name=physicalHeaderFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", \"header\")"
+      return value=physicalHeaderFailure
+    let name=style value="\"none\""
+    let name=finalTerminator value="\"none\""
+    let name=record value=0
+    let name=raw value=false
+    let name=quoteState value="\"\""
+    let name=expressionDepth value=0
+    let name=styleDepth value=0
+    let name=sealSeen value=false
+    let name=reconstructed value="\"\""
+    let name=formatted value="\"\""
+    let name=edits value=0
+    for name=offset from=1 to="physical.length" step=4
+      if cond="physical[offset] == \"seal\""
+        if cond="offset + 2 != physical.length || physical[offset + 1] != String(record)"
+          let name=physicalSealFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", \"seal\")"
+          return value=physicalSealFailure
+        assign target=sealSeen value=true
+        break
+      if cond="offset + 3 >= physical.length || physical[offset] != \"record\" || physical[offset + 1] != String(record)"
+        let name=physicalRecordFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=physicalRecordFailure
+      if cond="record >= maxRecords"
+        let name=recordLimitFailure value="formatterfailure(\"RECORD_LIMIT\", \"\")"
+        return value=recordLimitFailure
+      let name=content value="physical[offset + 2]"
+      let name=terminator value="physical[offset + 3]"
+      if cond="Text.length(content) > maxRecordCodePoints"
+        let name=recordCodePointsFailure value="formatterfailure(\"RECORD_CODE_POINTS_LIMIT\", String(record))"
+        return value=recordCodePointsFailure
+      if cond="Text.indexOf(content, \"\\n\") >= 0 || Text.indexOf(content, \"\\r\") >= 0"
+        let name=embeddedTerminatorFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=embeddedTerminatorFailure
+      if cond="terminator != \"lf\" && terminator != \"crlf\" && terminator != \"none\""
+        let name=terminatorFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=terminatorFailure
+      if cond="terminator == \"none\" && (content == \"\" || physical[offset + 4] != \"seal\")"
+        let name=noneTerminatorFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=noneTerminatorFailure
+      let name=extent value=content
+      if cond="terminator == \"lf\""
+        assign target=extent value="content + \"\\n\""
+      if cond="terminator == \"crlf\""
+        assign target=extent value="content + \"\\r\\n\""
+      assign target=reconstructed value="reconstructed + extent"
+      if cond="terminator != \"none\""
+        if cond="style == \"none\""
+          assign target=style value=terminator
+        else
+          if cond="style != terminator"
+            let name=mixedTerminatorFailure value="formatterfailure(\"MIXED_TERMINATORS\", String(record))"
+            return value=mixedTerminatorFailure
+      assign target=finalTerminator value=terminator
+      let name=recordClass value="\"code\""
+      let name=leadingWidth value="formatterleadingwidth(content)"
+      if cond="content == \"\" || leadingWidth == Text.length(content)"
+        assign target=recordClass value="\"blank\""
+      else
+        if cond=raw
+          assign target=recordClass value="\"raw-body\""
+          if cond="formatterstarts(content, leadingWidth, \">>>\")"
+            assign target=recordClass value="\"raw-closer\""
+            assign target=raw value=false
+        else
+          let name=beganOpaque value="quoteState != \"\" || expressionDepth > 0 || styleDepth > 0"
+          let name=scan value="formatterscanline(content, quoteState, expressionDepth, styleDepth, maxLexicalDepth)"
+          let name=rawOffset value="scan[1]"
+          assign target=quoteState value="scan[3]"
+          if cond="scan[4] == \"-1\""
+            let name=lexicalDepthFailure value="formatterfailure(\"LEXICAL_DEPTH_LIMIT\", String(record))"
+            return value=lexicalDepthFailure
+          let name=nextExpressionDepth value=0
+          while cond="String(nextExpressionDepth) != scan[4] && nextExpressionDepth <= maxLexicalDepth"
+            assign target=nextExpressionDepth value="nextExpressionDepth + 1"
+          if cond="String(nextExpressionDepth) != scan[4]"
+            let name=expressionStateFailure value="formatterfailure(\"LEXICAL_DEPTH_LIMIT\", String(record))"
+            return value=expressionStateFailure
+          assign target=expressionDepth value=nextExpressionDepth
+          let name=nextStyleDepth value=0
+          while cond="String(nextStyleDepth) != scan[5] && nextStyleDepth <= maxLexicalDepth"
+            assign target=nextStyleDepth value="nextStyleDepth + 1"
+          if cond="String(nextStyleDepth) != scan[5]"
+            let name=styleStateFailure value="formatterfailure(\"STYLE_DEPTH_INVALID\", String(record))"
+            return value=styleStateFailure
+          assign target=styleDepth value=nextStyleDepth
+          if cond="beganOpaque || quoteState != \"\" || expressionDepth > 0 || styleDepth > 0"
+            assign target=recordClass value="\"opaque\""
+          else
+            if cond="rawOffset != \"-1\""
+              if cond="scan[2] == \"true\""
+                assign target=recordClass value="\"raw-inline\""
+              else
+                assign target=recordClass value="\"raw-opener\""
+                assign target=raw value=true
+            else
+              if cond="scan[0] != \"-1\""
+                assign target=recordClass value="\"comment\""
+      let name=formattedContent value=content
+      if cond="recordClass == \"code\""
+        let name=trimmed value="formattertrimtrailing(content)"
+        if cond="trimmed != content"
+          assign target=formattedContent value=trimmed
+          assign target=edits value="edits + 1"
+      assign target=formatted value="formatted + formattedContent"
+      if cond="terminator == \"lf\""
+        assign target=formatted value="formatted + \"\\n\""
+      if cond="terminator == \"crlf\""
+        assign target=formatted value="formatted + \"\\r\\n\""
+      assign target=record value="record + 1"
+    if cond="!sealSeen"
+      let name=missingSealFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", \"seal\")"
+      return value=missingSealFailure
+    if cond="reconstructed != source"
+      let name=reconstructionFailure value="formatterfailure(\"MALFORMED_PHYSICAL_RECORDS\", \"reconstruction\")"
+      return value=reconstructionFailure
+    if cond=raw
+      let name=rawFailure value="formatterfailure(\"UNTERMINATED_RAW\", String(record))"
+      return value=rawFailure
+    if cond="quoteState != \"\""
+      let name=quoteFailure value="formatterfailure(\"UNTERMINATED_QUOTE\", String(record))"
+      return value=quoteFailure
+    if cond="expressionDepth > 0"
+      let name=expressionFailure value="formatterfailure(\"UNTERMINATED_EXPRESSION\", String(record))"
+      return value=expressionFailure
+    if cond="styleDepth > 0"
+      let name=styleFailure value="formatterfailure(\"UNTERMINATED_STYLE\", String(record))"
+      return value=styleFailure
+    if cond="source != \"\" && finalTerminator == \"none\""
+      let name=eofTerminator value="\"\\n\""
+      if cond="style == \"crlf\""
+        assign target=eofTerminator value="\"\\r\\n\""
+      assign target=formatted value="formatted + eofTerminator"
+      assign target=edits value="edits + 1"
+    if cond="Text.length(formatted) > maxResultCodePoints"
+      let name=resultFailure value="formatterfailure(\"RESULT_CODE_POINTS_LIMIT\", \"\")"
+      return value=resultFailure
+    let name=out value="[]"
+    do value="out.push(\"kern.formatter.native-result.1\")"
+    do value="out.push(\"formatted\")"
+    do value="out.push(String(edits))"
+    do value="out.push(formatted)"
+    return value=out

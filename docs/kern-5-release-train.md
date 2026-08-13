@@ -3919,6 +3919,28 @@ trusted-publishing/provenance configuration is inspected.
     only the explicit bootstrap fact producer and differential oracle until the
     frontend phase replaces it.
 
+  - [x] KERN 5 Phase 1 lossless formatter: tribunal
+    `tribunal-1786586085927-4a19ks-kern5-formatter-boundary` selected a bounded
+    lexical/framing formatter without claiming semantic frontend ownership.
+    Performance remediation tribunal `tribunal-1786588510615-smxjxl` selected
+    the classification-free `kern.formatter.physical-records.1` transport after
+    executable evidence proved whole-source portable Text scanning quadratic.
+    KERN authenticates record order, terminators, exact reconstruction, opaque
+    precedence, and the layout policy; the fused production path avoids
+    immutable-list quadratic accumulation. The 24,203-byte packaged source is
+    immutably anchored. `pnpm test:kern-formatter` proves 24 focused contracts,
+    hard scaling walls, 191/192 tracked-source idempotence, 27 structural-KIR
+    pairs, malformed Unicode/transport rejection, and hostile tape failures.
+    Exact-roster review `review-1786590302499-g11p5f-kern5-formatter-final`
+    verified and drove fixes for nested-style state, exact-limit CRLF result
+    capacity, parser-equivalent comment boundaries, inert runner imports,
+    sanitized unexpected errors, and executable corpus floors.
+    Targeted correctness confirmation
+    `review-1786591537959-93yuk1-kern5-formatter-review-fix-confi` passed 1/1
+    with zero findings after the repairs.
+    `kern-formatter` is current and `internal-product`; `kern-frontend` remains
+    planned.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

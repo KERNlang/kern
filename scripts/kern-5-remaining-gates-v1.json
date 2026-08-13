@@ -29,10 +29,13 @@
     },
     {
       "id": "kern-formatter",
-      "status": "planned",
+      "status": "current",
       "argv": ["pnpm", "test:kern-formatter"],
       "categories": ["source", "diagnostics", "trivia", "determinism", "limits", "rejection-behavior"],
-      "evidence": [".Codex/specs/kern-5-post-m4-171-completion/spec.md"]
+      "evidence": [
+        ".Codex/specs/kern-5-phase1-lossless-formatter/spec.md",
+        ".Codex/specs/kern-5-post-m4-171-completion/spec.md"
+      ]
     },
     {
       "id": "kern-frontend",

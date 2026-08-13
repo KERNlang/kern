@@ -1,0 +1,26 @@
+{
+  "composite": {
+    "bytes": 24203,
+    "path": "examples/kern-formatter/formatter.composed.kern",
+    "sha256": "461487b0bc0a7f2b5e9d3db77853575e696b83351cfb2aca09dd60a00d6832b0"
+  },
+  "format": "kern.formatter.composition.1",
+  "members": [
+    {
+      "bytes": 6474,
+      "path": "examples/kern-formatter/source-tape-helpers.kern",
+      "sha256": "6a8a3964ae1d0cbbb80fa376be238e428db6f421d5575f0eb2f1061a30e33d72"
+    },
+    {
+      "bytes": 8927,
+      "path": "examples/kern-formatter/source-tape.kern",
+      "sha256": "3f87d8e1c616924743d5194c30f72d70b704db1b7d9462523db1255ad419eef6"
+    },
+    {
+      "bytes": 9429,
+      "path": "examples/kern-formatter/formatter.kern",
+      "sha256": "9d33038c1b98a7e539b030f9e9b159cafb7fe476909a9d4931e064adf23b30cf"
+    }
+  ],
+  "recipe": "strip-leading-use-blocks-and-concat.1"
+}

@@ -53,8 +53,8 @@ test('Phase 0 declares the complete terminal gate suffix and versioned ledger', 
     policy.gates.slice(-terminalGateIds.length).map((gate) => gate.id),
     terminalGateIds,
   );
-  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 51);
-  assert.equal(policy.gates.filter((gate) => gate.status === 'planned').length, 7);
+  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 52);
+  assert.equal(policy.gates.filter((gate) => gate.status === 'planned').length, 6);
   assert.deepEqual(
     remainingGates.terminalGates.map((gate) => gate.id),
     terminalGateIds,
@@ -144,7 +144,7 @@ test('default contract loading is independent from the caller working directory'
   const originalCwd = process.cwd();
   try {
     process.chdir('scripts');
-    assert.equal(loadKern5FitnessContract().currentGates.length, 51);
+    assert.equal(loadKern5FitnessContract().currentGates.length, 52);
   } finally {
     process.chdir(originalCwd);
   }
@@ -187,10 +187,18 @@ test('policy and ledger bind terminal id, order, status, and argv', () => {
 
 test('planned terminal gates have no root scripts while promoted terminal gates execute', () => {
   const contract = validate();
-  assert.equal(contract.currentGates.length, 51);
+  assert.equal(contract.currentGates.length, 52);
   assert.deepEqual(
     contract.currentGates.filter((gate) => terminalGateIds.includes(gate.id)),
-    [{ id: 'kern-checker', label: 'Production KERN checker', status: 'current', argv: ['pnpm', 'test:kern-checker'] }],
+    [
+      { id: 'kern-checker', label: 'Production KERN checker', status: 'current', argv: ['pnpm', 'test:kern-checker'] },
+      {
+        id: 'kern-formatter',
+        label: 'Trivia-preserving KERN formatter',
+        status: 'current',
+        argv: ['pnpm', 'test:kern-formatter'],
+      },
+    ],
   );
   for (const gate of remainingGates.terminalGates.filter((candidate) => candidate.status === 'planned')) {
     assert.equal(packageJson.scripts[gate.argv[1]], undefined, `${gate.argv[1]} must remain absent`);
@@ -256,6 +264,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-frontend-keyword-handlers',
       'kern-frontend-successful-line-composition',
       'kern-checker',
+      'kern-formatter',
     ],
   );
 });

@@ -1,0 +1,172 @@
+fn name=formatterhoriz returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch == \" \" || ch == \"\\t\""
+
+fn name=formatterleadingwidth returns=number
+  param name=content type=string
+  handler lang="kern"
+    let name=i value=0
+    while cond="i < Text.length(content) && formatterhoriz(Text.charAt(content, i))"
+      assign target=i value="i + 1"
+    return value=i
+
+fn name=formattertrimtrailing returns=string
+  param name=content type=string
+  handler lang="kern"
+    let name=end value="Text.length(content)"
+    while cond="end > 0 && formatterhoriz(Text.charAt(content, end - 1))"
+      assign target=end value="end - 1"
+    return value="Text.slice(content, 0, end)"
+
+fn name=formatterstarts returns=boolean
+  param name=source type=string
+  param name=start type=number
+  param name=needle type=string
+  handler lang="kern"
+    if cond="start < 0 || start + Text.length(needle) > Text.length(source)"
+      return value=false
+    return value="Text.slice(source, start, start + Text.length(needle)) == needle"
+
+fn name=formatterscanline returns="string[]"
+  param name=content type=string
+  param name=initialQuote type=string
+  param name=initialExpressionDepth type=number
+  param name=initialStyleDepth type=number
+  param name=maxLexicalDepth type=number
+  handler lang="kern"
+    let name=n value="Text.length(content)"
+    let name=i value=0
+    let name=quote value=initialQuote
+    let name=escaped value=false
+    let name=expressionDepth value=initialExpressionDepth
+    let name=styleDepth value=initialStyleDepth
+    let name=commentOffset value=-1
+    let name=rawOffset value=-1
+    let name=rawInline value=false
+    let name=lexicalLimit value=false
+    while cond="i < n"
+      let name=ch value="Text.charAt(content, i)"
+      if cond="quote != \"\""
+        if cond=escaped
+          assign target=escaped value=false
+        else
+          if cond="ch == \"\\\\\""
+            assign target=escaped value=true
+          else
+            if cond="ch == quote"
+              assign target=quote value="\"\""
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"\\\"\" || ch == \"'\""
+        assign target=quote value=ch
+        assign target=i value="i + 1"
+        continue
+      if cond="formatterstarts(content, i, \"{{\")"
+        assign target=expressionDepth value="expressionDepth + 1"
+        if cond="expressionDepth > maxLexicalDepth"
+          assign target=lexicalLimit value=true
+          break
+        assign target=i value="i + 2"
+        continue
+      if cond="formatterstarts(content, i, \"}}\") && expressionDepth > 0"
+        assign target=expressionDepth value="expressionDepth - 1"
+        assign target=i value="i + 2"
+        continue
+      if cond="expressionDepth > 0"
+        assign target=i value="i + 1"
+        continue
+      if cond="styleDepth > 0"
+        if cond="ch == \"{\""
+          assign target=styleDepth value="styleDepth + 1"
+          if cond="styleDepth > maxLexicalDepth"
+            assign target=lexicalLimit value=true
+            break
+        else
+          if cond="ch == \"}\""
+            assign target=styleDepth value="styleDepth - 1"
+        assign target=i value="i + 1"
+        continue
+      if cond="formatterstarts(content, i, \"<<<\")"
+        assign target=rawOffset value=i
+        let name=after value="i + 3"
+        while cond="after + 2 < n"
+          if cond="formatterstarts(content, after, \">>>\")"
+            assign target=rawInline value=true
+            break
+          assign target=after value="after + 1"
+        break
+      if cond="ch == \"{\""
+        assign target=styleDepth value=1
+        assign target=i value="i + 1"
+        continue
+      if cond="ch == \"#\" && (i == 0 || formatterhoriz(Text.charAt(content, i - 1)))"
+        assign target=commentOffset value=i
+        break
+      if cond="formatterstarts(content, i, \"//\") && (i == 0 || formatterhoriz(Text.charAt(content, i - 1)))"
+        assign target=commentOffset value=i
+        break
+      assign target=i value="i + 1"
+    let name=out value="[]"
+    do value="out.push(String(commentOffset))"
+    do value="out.push(String(rawOffset))"
+    do value="out.push(String(rawInline))"
+    do value="out.push(quote)"
+    if cond=lexicalLimit
+      do value="out.push(\"-1\")"
+    else
+      do value="out.push(String(expressionDepth))"
+    do value="out.push(String(styleDepth))"
+    return value=out
+
+fn name=formattertapefailure returns="string[]"
+  param name=code type=string
+  param name=detail type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.formatter.source-tape.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    do value="out.push(detail)"
+    return value=out
+
+fn name=formatterpairchunks returns="string[]"
+  param name=chunks type="string[]"
+  handler lang="kern"
+    let name=next value="[]"
+    for name=index from=0 to="chunks.length" step=2
+      let name=left value="chunks[index]"
+      if cond="index + 1 < chunks.length"
+        let name=right value="chunks[index + 1]"
+        let name=combined value="left + right"
+        do value="next.push(combined)"
+      else
+        do value="next.push(left)"
+    return value=next
+
+fn name=formatterconcatchunks returns=string
+  param name=chunks type="string[]"
+  handler lang="kern"
+    if cond="chunks.length == 0"
+      return value="\"\""
+    if cond="chunks.length > 32769"
+      return value="\"\""
+    let name=level1 value="formatterpairchunks(chunks)"
+    let name=level2 value="formatterpairchunks(level1)"
+    let name=level3 value="formatterpairchunks(level2)"
+    let name=level4 value="formatterpairchunks(level3)"
+    let name=level5 value="formatterpairchunks(level4)"
+    let name=level6 value="formatterpairchunks(level5)"
+    let name=level7 value="formatterpairchunks(level6)"
+    let name=level8 value="formatterpairchunks(level7)"
+    let name=level9 value="formatterpairchunks(level8)"
+    let name=level10 value="formatterpairchunks(level9)"
+    let name=level11 value="formatterpairchunks(level10)"
+    let name=level12 value="formatterpairchunks(level11)"
+    let name=level13 value="formatterpairchunks(level12)"
+    let name=level14 value="formatterpairchunks(level13)"
+    let name=level15 value="formatterpairchunks(level14)"
+    let name=level16 value="formatterpairchunks(level15)"
+    if cond="level16.length != 1"
+      return value="\"\""
+    return value="level16[0]"

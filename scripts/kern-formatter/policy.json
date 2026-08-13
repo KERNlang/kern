@@ -1,0 +1,20 @@
+{
+  "format": "kern.formatter.policy.1",
+  "profileLimits": {
+    "maxCodePoints": 1048576,
+    "maxInputBytes": 2097152,
+    "maxLexicalDepth": 64,
+    "maxRecordCodePoints": 2048,
+    "maxRecords": 32768,
+    "maxResultBytes": 2097152,
+    "maxResultCodePoints": 1048578
+  },
+  "runtimeLimits": {
+    "maxBytes": 16777216,
+    "maxCollectionLength": 4000000,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 4194304
+  }
+}

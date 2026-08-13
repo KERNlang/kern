@@ -47,7 +47,8 @@
     "test:kern-frontend-evolved-hints": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-evolved-hints/*.test.mjs && node scripts/check-kern-frontend-evolved-hints-regressions.mjs",
     "test:kern-frontend-keyword-handlers": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-keyword-handlers/*.test.mjs && node scripts/check-kern-frontend-keyword-handlers-regressions.mjs",
     "test:kern-frontend-successful-line-composition": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-successful-line-composition/*.test.mjs && node scripts/check-kern-frontend-successful-line-composition-regressions.mjs",
-    "test:kern-checker": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-checker/composition.mjs && node --test scripts/kern-checker/*.test.mjs && node scripts/check-capstone-checker-subset.mjs && node scripts/check-kern-checker.mjs"
+    "test:kern-checker": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-checker/composition.mjs && node --test scripts/kern-checker/*.test.mjs && node scripts/check-capstone-checker-subset.mjs && node scripts/check-kern-checker.mjs",
+    "test:kern-formatter": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-formatter/composition.mjs && node --test scripts/kern-formatter/*.test.mjs && node scripts/check-kern-formatter-wall.mjs"
   },
   "gates": [
     {
@@ -359,7 +360,7 @@
     {
       "id": "kern-formatter",
       "label": "Trivia-preserving KERN formatter",
-      "status": "planned",
+      "status": "current",
       "argv": ["pnpm", "test:kern-formatter"]
     },
     {
@@ -750,9 +751,9 @@
     },
     {
       "id": "kern-formatter",
-      "label": "KERN formatter or canonicalizer",
-      "status": "not-shipped",
-      "evidence": "R2 planned"
+      "label": "Lossless KERN formatter",
+      "status": "internal-product",
+      "evidence": "pnpm test:kern-formatter"
     },
     {
       "id": "kern-frontend",

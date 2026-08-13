@@ -74,7 +74,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
-| kern-formatter | Trivia-preserving KERN formatter | planned | `pnpm test:kern-formatter` |
+| kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
 | selfhost-fixed-point | Stage 1 equals Stage 2 | planned | `pnpm test:selfhost-fixed-point` |
@@ -151,7 +151,7 @@ wall and must remain absent until promoted.
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | internal-oracle | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | internal-oracle | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | internal-oracle | `pnpm test:kern-frontend-successful-line-composition` |
-| kern-formatter | KERN formatter or canonicalizer | not-shipped | R2 planned |
+| kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
 | selfhost-fixed-point | Clean Stage 1 equals Stage 2 | not-shipped | R2 planned |
@@ -434,6 +434,17 @@ tape before fused bootstrap comparison. This proves only
 `parseLines`, decorators, multiline blocks, node/tree construction, KIR
 emission, and public cutover remain absent, so `kern-frontend` remains
 `not-shipped`.
+
+The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
+authenticated 24,203-byte KERN composition. TypeScript contributes only a
+bounded `kern.formatter.physical-records.1` LF/CRLF/EOF witness; KERN validates
+ordinal order, terminators, reconstruction, raw/quote/expression/style/comment
+precedence, and the trailing-trivia policy. The production path is fused to
+avoid immutable-list quadratic growth, while the explicit source tape remains
+  the losslessness oracle. The gate proves 24 focused contracts, hard 1x/2x/4x
+walls, 191/192 tracked-source idempotence, and 27 structural-KIR pairs. This
+does not promote `kern-frontend`: semantic nodes, diagnostics, and source-to-KIR
+remain bootstrap-owned.
 
 The R1.4b ownership proof is visibly `BOOTSTRAP-DEPENDENT`: it proves an
 acyclic, oracle-free assignment for the planned canonical path and binds the

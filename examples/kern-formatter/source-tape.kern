@@ -1,0 +1,165 @@
+use path="./source-tape-helpers"
+  from name=formatterconcatchunks kind=fn as=formatterconcatchunks
+  from name=formatterleadingwidth kind=fn as=formatterleadingwidth
+  from name=formatterstarts kind=fn as=formatterstarts
+  from name=formatterscanline kind=fn as=formatterscanline
+  from name=formattertapefailure kind=fn as=formattertapefailure
+
+fn name=formattersourcetape returns="string[]" export=true
+  param name=source type=string
+  param name=physical type="string[]"
+  param name=maxCodePoints type=number
+  param name=maxRecords type=number
+  param name=maxRecordCodePoints type=number
+  param name=maxLexicalDepth type=number
+  handler lang="kern"
+    if cond="maxCodePoints <= 0 || maxRecords <= 0 || maxRecordCodePoints <= 0 || maxLexicalDepth <= 0"
+      let name=invalidLimitsFailure value="formattertapefailure(\"INVALID_LIMITS\", \"\")"
+      return value=invalidLimitsFailure
+    if cond="Text.length(source) > maxCodePoints"
+      let name=codePointsFailure value="formattertapefailure(\"CODE_POINTS_LIMIT\", \"\")"
+      return value=codePointsFailure
+    if cond="physical.length < 3 || physical[0] != \"kern.formatter.physical-records.1\""
+      let name=physicalHeaderFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"header\")"
+      return value=physicalHeaderFailure
+    let name=records value="[]"
+    let name=extents value="[]"
+    let name=style value="\"none\""
+    let name=finalTerminator value="\"none\""
+    let name=record value=0
+    let name=raw value=false
+    let name=quoteState value="\"\""
+    let name=expressionDepth value=0
+    let name=styleDepth value=0
+    let name=sealSeen value=false
+    for name=offset from=1 to="physical.length" step=4
+      if cond="physical[offset] == \"seal\""
+        if cond="offset + 2 != physical.length || physical[offset + 1] != String(record)"
+          let name=physicalSealFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"seal\")"
+          return value=physicalSealFailure
+        assign target=sealSeen value=true
+        break
+      if cond="offset + 3 >= physical.length || physical[offset] != \"record\" || physical[offset + 1] != String(record)"
+        let name=physicalRecordFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=physicalRecordFailure
+      if cond="record >= maxRecords"
+        let name=recordLimitFailure value="formattertapefailure(\"RECORD_LIMIT\", \"\")"
+        return value=recordLimitFailure
+      let name=content value="physical[offset + 2]"
+      let name=terminator value="physical[offset + 3]"
+      if cond="Text.length(content) > maxRecordCodePoints"
+        let name=recordCodePointsFailure value="formattertapefailure(\"RECORD_CODE_POINTS_LIMIT\", String(record))"
+        return value=recordCodePointsFailure
+      if cond="Text.indexOf(content, \"\\n\") >= 0 || Text.indexOf(content, \"\\r\") >= 0"
+        let name=embeddedTerminatorFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=embeddedTerminatorFailure
+      if cond="terminator != \"lf\" && terminator != \"crlf\" && terminator != \"none\""
+        let name=terminatorFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=terminatorFailure
+      if cond="terminator == \"none\" && (content == \"\" || physical[offset + 4] != \"seal\")"
+        let name=noneTerminatorFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", String(record))"
+        return value=noneTerminatorFailure
+      let name=extent value=content
+      if cond="terminator == \"lf\""
+        assign target=extent value="content + \"\\n\""
+      if cond="terminator == \"crlf\""
+        assign target=extent value="content + \"\\r\\n\""
+      if cond="terminator != \"none\""
+        if cond="style == \"none\""
+          assign target=style value=terminator
+        else
+          if cond="style != terminator"
+            let name=mixedTerminatorFailure value="formattertapefailure(\"MIXED_TERMINATORS\", String(record))"
+            return value=mixedTerminatorFailure
+      assign target=finalTerminator value=terminator
+      let name=recordClass value="\"code\""
+      let name=commentOffset value="\"-1\""
+      let name=leadingWidth value="formatterleadingwidth(content)"
+      if cond="content == \"\" || leadingWidth == Text.length(content)"
+        assign target=recordClass value="\"blank\""
+      else
+        if cond=raw
+          assign target=recordClass value="\"raw-body\""
+          if cond="formatterstarts(content, leadingWidth, \">>>\")"
+            assign target=recordClass value="\"raw-closer\""
+            assign target=raw value=false
+        else
+          let name=beganOpaque value="quoteState != \"\" || expressionDepth > 0 || styleDepth > 0"
+          let name=scan value="formatterscanline(content, quoteState, expressionDepth, styleDepth, maxLexicalDepth)"
+          assign target=commentOffset value="scan[0]"
+          let name=rawOffset value="scan[1]"
+          assign target=quoteState value="scan[3]"
+          if cond="scan[4] == \"-1\""
+            let name=lexicalDepthFailure value="formattertapefailure(\"LEXICAL_DEPTH_LIMIT\", String(record))"
+            return value=lexicalDepthFailure
+          let name=nextExpressionDepth value=0
+          while cond="String(nextExpressionDepth) != scan[4] && nextExpressionDepth <= maxLexicalDepth"
+            assign target=nextExpressionDepth value="nextExpressionDepth + 1"
+          if cond="String(nextExpressionDepth) != scan[4]"
+            let name=expressionStateFailure value="formattertapefailure(\"LEXICAL_DEPTH_LIMIT\", String(record))"
+            return value=expressionStateFailure
+          assign target=expressionDepth value=nextExpressionDepth
+          let name=nextStyleDepth value=0
+          while cond="String(nextStyleDepth) != scan[5] && nextStyleDepth <= maxLexicalDepth"
+            assign target=nextStyleDepth value="nextStyleDepth + 1"
+          if cond="String(nextStyleDepth) != scan[5]"
+            let name=styleStateFailure value="formattertapefailure(\"STYLE_DEPTH_INVALID\", String(record))"
+            return value=styleStateFailure
+          assign target=styleDepth value=nextStyleDepth
+          if cond="beganOpaque || quoteState != \"\" || expressionDepth > 0 || styleDepth > 0"
+            assign target=recordClass value="\"opaque\""
+          else
+            if cond="rawOffset != \"-1\""
+              if cond="scan[2] == \"true\""
+                assign target=recordClass value="\"raw-inline\""
+              else
+                assign target=recordClass value="\"raw-opener\""
+                assign target=raw value=true
+            else
+              if cond="commentOffset != \"-1\""
+                assign target=recordClass value="\"comment\""
+      do value="records.push(\"record\")"
+      do value="records.push(String(record))"
+      do value="records.push(content)"
+      do value="records.push(terminator)"
+      do value="records.push(recordClass)"
+      do value="records.push(commentOffset)"
+      do value="records.push(String(leadingWidth))"
+      do value="records.push(extent)"
+      do value="extents.push(extent)"
+      assign target=record value="record + 1"
+    if cond="!sealSeen"
+      let name=missingSealFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"seal\")"
+      return value=missingSealFailure
+    let name=reconstructed value="formatterconcatchunks(extents)"
+    if cond="reconstructed != source"
+      let name=reconstructionFailure value="formattertapefailure(\"MALFORMED_PHYSICAL_RECORDS\", \"reconstruction\")"
+      return value=reconstructionFailure
+    if cond=raw
+      let name=rawFailure value="formattertapefailure(\"UNTERMINATED_RAW\", String(record))"
+      return value=rawFailure
+    if cond="quoteState != \"\""
+      let name=quoteFailure value="formattertapefailure(\"UNTERMINATED_QUOTE\", String(record))"
+      return value=quoteFailure
+    if cond="expressionDepth > 0"
+      let name=expressionFailure value="formattertapefailure(\"UNTERMINATED_EXPRESSION\", String(record))"
+      return value=expressionFailure
+    if cond="styleDepth > 0"
+      let name=styleFailure value="formattertapefailure(\"UNTERMINATED_STYLE\", String(record))"
+      return value=styleFailure
+    let name=out value="[]"
+    do value="out.push(\"kern.formatter.source-tape.1\")"
+    do value="out.push(\"ok\")"
+    do value="out.push(style)"
+    do value="out.push(finalTerminator)"
+    for name=field from=0 to="records.length"
+      do value="out.push(records[field])"
+    do value="out.push(\"seal\")"
+    do value="out.push(source)"
+    do value="out.push(style)"
+    do value="out.push(finalTerminator)"
+    do value="out.push(String(record))"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    do value="out.push(\"\")"
+    return value=out
