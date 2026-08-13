@@ -73,6 +73,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | current | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
+| kern-frontend-surface-closure | Frozen KERN frontend source-to-KIR closure contract | current | `pnpm test:kern-frontend-closure` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -151,6 +152,7 @@ wall and must remain absent until promoted.
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | internal-oracle | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | internal-oracle | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | internal-oracle | `pnpm test:kern-frontend-successful-line-composition` |
+| kern-frontend-surface-closure | Frozen frontend source-to-KIR closure contract and static goldens | internal-oracle | `pnpm test:kern-frontend-closure` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -434,6 +436,14 @@ tape before fused bootstrap comparison. This proves only
 `parseLines`, decorators, multiline blocks, node/tree construction, KIR
 emission, and public cutover remain absent, so `kern-frontend` remains
 `not-shipped`.
+
+F0 freezes `kern-frontend-surface-closure: internal-oracle`. Its machine ledger
+binds all 302 source node kinds, 1,149 structural properties, the expression
+and module catalogs, diagnostic ownership, nine frontend families, and static
+valid/malformed goldens. It distinguishes source admission from KIR admission
+and assigns excluded host expressions, host types, and raw blocks explicit
+fail-closed dispositions. It implements no parser and does not promote
+`kern-frontend`, which remains `not-shipped` until F1-F6 converge.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a

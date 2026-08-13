@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "format": "kern.frontend.semantic-expectations.1",
+  "validModules": [
+    {
+      "id": "lib/symbols.kern",
+      "sourceSha256": "20a1a0aa57425db295fe9c9f1867de4ddb3a25a96577a7a747f51381cdfb3b1d",
+      "decodedModuleSha256": "74ce61f6550b588a7ee18287e196524f1fdc0e3991822ef567610057fd1f4ae5",
+      "requiredLines": [
+        "fn name=double export=true",
+        "  param name=value type=number",
+        "  handler lang=kern",
+        "    return value=\"value * 2\""
+      ]
+    },
+    {
+      "id": "main.kern",
+      "sourceSha256": "077533dd08d2d366f5dcbc58460ec0ff67127260744f0db24cb441b0632645ca",
+      "decodedModuleSha256": "67d5b3ef69fce72aefb994a2da0b040bd2488b1ba6381caf3eed7aa87408fc90",
+      "requiredLines": [
+        "# static frontend golden",
+        "use path=\"./lib/symbols\"",
+        "  from name=double kind=fn as=twice export=true",
+        "@trace(\"main\")",
+        "fn name=main export=true",
+        "  handler lang=kern",
+        "    return value=\"twice(1 + 2 * 3)\""
+      ]
+    }
+  ],
+  "failures": [
+    {
+      "id": "excluded-raw-block",
+      "moduleId": "raw.kern",
+      "sourceSha256": "9c49bcc615bab1f9eb4f07261d4ad3aa467792c09022d45afdf94f8bee58ea33",
+      "diagnosticsSha256": "882d6b591f456fdbf40beb5262df5399feb8daf8f93489e4aca98e2fbfdda2da",
+      "triggerLines": ["  handler lang=ts code=\"console.log('host')\""]
+    },
+    {
+      "id": "dangling-decorator-and-indent-jump",
+      "moduleId": "malformed.kern",
+      "sourceSha256": "70f70594443502936b853e0b5caa39d965d408e0350c57ca0da597eda60d2539",
+      "diagnosticsSha256": "33e4517a009ca623307980c3c9d8b9b20c3b9d4b8a9cfd3d79cd919075e8ca51",
+      "triggerLines": ["@trace", "    fn name=jump"]
+    },
+    {
+      "id": "excluded-host-expression",
+      "moduleId": "host-expression.kern",
+      "sourceSha256": "5f433e182079b442380fc5db031c3e16a3ab2b3de5bee1cd951aeb7a6106afa0",
+      "diagnosticsSha256": "30ac8cadad573abe3e35005638772507bac28a074ba2ed2094f888b3a0e1c2f5",
+      "triggerLines": ["screen memo={{ window.value }}"]
+    },
+    {
+      "id": "excluded-host-type",
+      "moduleId": "host-type.kern",
+      "sourceSha256": "242560599df9ae13ffbde21f3d668694cd3146ae1fd016c9cad87a3bc17ad074",
+      "diagnosticsSha256": "2cd5f4e458f81586dcf48a7319639d8b7d92dd6d0b4ad9637da67977c1dff0a5",
+      "triggerLines": ["state name=count type=Promise<string>"]
+    },
+    {
+      "id": "invalid-expression",
+      "moduleId": "invalid-expression.kern",
+      "sourceSha256": "b79df2d2b55226277af414ba84e1ffa1899b68cdb6c2fc60b572cae1127125bc",
+      "diagnosticsSha256": "9045f460a5045bc0936079e36ae126286eb807fb11404f3cd5e47626c70b7708",
+      "triggerLines": ["    return value=\"1 +\""]
+    },
+    {
+      "id": "unsupported-module-root",
+      "moduleId": "unsupported-root.kern",
+      "sourceSha256": "071d96f608515866bf316c3f82ca7fa6aa08c07c9a95607d4ed9cb7112018e97",
+      "diagnosticsSha256": "65511b3b54767eb1ce7c14f6fef426ab6179ea2e2f20cfa53f58e5c5700bcaa1",
+      "triggerLines": ["screen name=main"]
+    }
+  ]
+}

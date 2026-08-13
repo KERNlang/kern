@@ -1,6 +1,6 @@
 # KERN 5 Post-M4.171 Completion Contract
 
-**Status:** PHASE 1 IN PROGRESS; CHECKER COMPLETE
+**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0 COMPLETE
 
 **Date:** 2026-08-13
 
@@ -30,11 +30,11 @@ contract produced by the earlier one. A big-bang cutover would make failures
 non-local, while parallel compiler/interpreter ownership would build against a
 moving frontend and KIR boundary.
 
-## Current State After M4.171 Publication and Phase 0 Reconciliation
+## Current State After M4.171 Publication and Phase 1 F0 Closure
 
 ### Repository-measured state
 
-- **[VERIFIED]** The KERN 5 policy declares 58 gates: 51 `current` and 7
+- **[VERIFIED]** The KERN 5 policy declares 59 gates: 53 `current` and 6
   `planned`. The terminal roster and its frozen classification vocabulary are
   bound in `scripts/kern-5-remaining-gates-v1.json`; policy and ledger agree on
   ID, order, status, and argv.
@@ -47,6 +47,13 @@ moving frontend and KIR boundary.
   `parseLines`, decorators, multiline blocks, node/tree construction, KIR
   emission, and public cutover remain absent. Evidence:
   `docs/kern-5-support-matrix.md`.
+- **[VERIFIED]** The bounded internal `Text.splice` prerequisite and scalar-tape
+  lexer/parser feasibility proof are current at `fa11d52d`. Frontend F0 binds
+  all 302 source nodes, 1,149 structural properties, the expression/operator
+  catalogs, diagnostics, source families, and static KIR goldens without
+  creating or promoting the production frontend entry point. Evidence:
+  `.Codex/specs/kern-5-frontend-surface-closure/spec.md` and
+  `scripts/kern-frontend-closure/closure-ledger.json`.
 - **[VERIFIED]** KIR v1 and the frontend slices are `internal-oracle`, which
   means they participate in release-blocking differential evidence but are not
   the production semantic authority. Evidence:
@@ -56,22 +63,23 @@ moving frontend and KIR boundary.
   executes through the reference runner. Evidence:
   `packages/core/src/runner.ts` and `packages/cli/src/commands/run.ts`.
 - **[VERIFIED]** The ownership matrix marks the production structural checker
-  `internal-product`; it still marks the formatter, complete
+  and formatter `internal-product`; it still marks the complete
   frontend, compiler, fixed point, interpreter, and packed-release proof as
   `not-shipped` and excludes full/canonical KIR-to-runtime cutover. Evidence:
   `docs/kern-5-support-matrix.md`.
 
 ### Progress interpretation
 
-- **[VERIFIED]** Promoted-gate row coverage after reconciliation is
-  `51 / 58 = 87.9%`.
-- **[INFERRED]** Release completion is approximately **48-58%**, not 87.9%.
+- **[VERIFIED]** Promoted-gate row coverage after F0 is
+  `53 / 59 = 89.8%`.
+- **[INFERRED]** Release completion is approximately **54-64%**, not 89.8%.
   The range is deliberately heuristic: the repository has a large, well-gated
   ownership substrate, but the remaining phases are the high-weight canonical
   product path—complete frontend, compiler, fixed point, interpreter, consumer
   cutover, packed proof, and public release.
-- **[VERIFIED]** The production checker is current. Full formatter and canonical
-  cutover remain planned terminal gates without placeholder root scripts.
+- **[VERIFIED]** The production checker and lossless formatter are current.
+  Complete frontend and canonical cutover remain planned terminal gates without
+  placeholder root scripts.
 
 ## What Already Works
 
@@ -81,7 +89,7 @@ moving frontend and KIR boundary.
 | KIR | Strict versioned `kern.kir.v1` envelope, structural codec/module graph, evidence, coverage closure, runtime binding | Current internal contract; deliberately not a public export or runtime authority |
 | Frontend | Tokenizer through successful single-line composition, with differential and mutation evidence | Substantial shadow ownership; no cross-line/tree/KIR/public frontend |
 | Checker | Versioned facts/result envelopes, native KERN verdicts, 48/48 parity, 36 hostile rejections, packaged private assets | Structural checker is current; bootstrap fact production remains until frontend cutover |
-| Formatter | Bounded canonicalizer profile and opt-in preview | Full trivia-preserving formatter is open |
+| Formatter | Bounded, deterministic, trivia-preserving lossless formatter | Current internal product |
 | Release machinery | Policy, packing, durability, recovery, promotion, and registry verification infrastructure exists | Exact KERN 5 packed-release/bootstrap proof is open |
 
 ## Required Terminal Gate Contract
@@ -94,7 +102,7 @@ slice promotes both atomically.
 | Gate | Current declaration | Promotion meaning |
 | --- | --- | --- |
 | `pnpm test:kern-checker` | **[VERIFIED]** current | the compiled authenticator plus KERN semantic checker owns verdicts over `kern.checker.facts.2`; the bootstrap producer remains explicit until frontend cutover |
-| `pnpm test:kern-formatter` | **[VERIFIED]** planned | KERN formatter preserves required trivia/source evidence and is idempotent and deterministic |
+| `pnpm test:kern-formatter` | **[VERIFIED]** current | KERN formatter preserves required trivia/source evidence and is idempotent and deterministic |
 | `pnpm test:kern-frontend` | **[VERIFIED]** planned | Complete admitted source produces byte-identical canonical KIR and diagnostics against the bootstrap oracle |
 | `pnpm test:kern-compiler` | **[VERIFIED]** planned | KERN-owned compiler covers the v5 target matrix and can compile its own toolchain sources |
 | `pnpm test:selfhost-fixed-point` | **[VERIFIED]** planned | Clean Stage 1 and Stage 2 packed outputs are byte-identical under enumerated normalization, twice |
@@ -218,6 +226,9 @@ publication require the authority specified by the active engineering doctrine.
 
 ## Corrections Log
 
+- **[CORRECTED]** The live post-F0 count is `53/59`: checker and formatter are
+  promoted, the non-terminal frontend closure gate is current, and six terminal
+  gates remain planned.
 - **[CORRECTED]** `51/58` measures promoted gate rows, not 87.9% release
   completion.
 - **[CORRECTED]** The five declared planned gates omit checker, formatter, and

@@ -3941,6 +3941,48 @@ trusted-publishing/provenance configuration is inspected.
     `kern-formatter` is current and `internal-product`; `kern-frontend` remains
     planned.
 
+  - [x] KERN 5 frontend runtime prerequisite and F0 surface closure: bounded
+    internal `Text.splice` was introduced by `2c030fef`, normalized by
+    `f4fdd742`, and published with the scalar-tape lexer/parser feasibility
+    proof at tip `fa11d52d`; this proves the portable runtime shape but not
+    terminal frontend ownership. F0 tribunal
+    `tribunal-1786601303025-nve8dx` then selected an exhaustive, non-promoting
+    contract freeze before parser implementation. The current closure gate
+    binds all 302 ordered source nodes, 1,149 ordered structural properties, 16
+    expression kinds, 24 binary and 6 unary operators, five module roots, two
+    symbol kinds, 27 parser diagnostics, five fail-closed diagnostics, nine
+    frontend families, and the ordered F1-F7 delivery path. Static valid KIR
+    bytes and six malformed-input cases are checked in independently of any
+    parser or projector. The validator and mutation tests reject authority drift,
+    missing family fields, reordered phases, duplicate diagnostics, corrupt
+    goldens, and premature exposure of `test:kern-frontend`. This slice leaves
+    the terminal frontend row `planned` and the complete frontend ownership row
+    `not-shipped`. Role review
+    `review-1786602640077-j5vb85-kern5-frontend-f0` verified that the first
+    implementation did not sufficiently bind source/diagnostic fixtures to the
+    static canonical artifact. The repaired oracle fixes authority paths and
+    baseline, authenticates both the entire golden file and canonical bytes,
+    checks the promised source features, covers every fail-closed disposition,
+    and derives diagnostic closure from both the type union and exhaustive
+    suggestion map. Independent Claude correctness confirmation
+    `review-1786603296561-2mfeo6-kern5-frontend-f0-review-fixes` passed 1/1 with
+    zero findings. The first complete Node 22 wall then exposed that the prior
+    splice slice had omitted its two same-commit reachable modules from the
+    exact runtime owner closure. Tribunals
+    `tribunal-1786604698231-lhr6z9-kern5-text-splice-runtime-owner` and
+    corrective
+    `tribunal-1786605061784-nxjic4-kern5-text-splice-owner-closure-` selected
+    an exact two-entry manifest reconciliation with no runtime receipt, ABI,
+    export, or behavior change. Runtime contract v1 passes 81/81 with 132/132
+    source/built owners. Combined high-risk review
+    `review-1786605270805-mkal1n-kern5-f0-runtime-owner-final` found the owner
+    repair clean but verified that the F0 golden checksum remained
+    self-updatable. A separately hashed semantic manifest now binds exact
+    module source/KIR pairs and malformed source/diagnostic/trigger pairs;
+    independent confirmation
+    `review-1786605631309-k2b1sn-kern5-f0-semantic-binding-confir` passed 1/1
+    with zero findings. F1 scan is the next implementation slice.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

@@ -1,6 +1,6 @@
 # KERN 5.0 Completion Goal
 
-**Status:** PHASE 1 IN PROGRESS; CHECKER COMPLETE
+**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0 COMPLETE
 
 **Goal confidence:** 0.96
 
@@ -27,9 +27,9 @@ or silently fall back to TypeScript semantics; and the exact accepted packed RC
 passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
-passes. After the production-checker and formatter promotions, that wall
-contains 52 promoted gates and excludes the six remaining planned terminal
-gates.
+passes. After the production-checker, formatter, and non-promoting frontend F0
+closure slices, that wall contains 53 promoted gates and excludes the six
+remaining planned terminal gates.
 
 ## Post-M4.171 Baseline
 
@@ -40,9 +40,10 @@ post-publication completion-contract baseline is
 verification resolved both `origin/main` and the remote ref to that baseline
 before the isolated Phase 0 worktree was created.
 
-Reconciled state after the Phase 1 checker and formatter slices:
+Reconciled state after the Phase 1 checker, formatter, runtime splice, and
+frontend F0 closure slices:
 
-- 58 declared KERN 5 gates: 52 current, 6 planned.
+- 59 declared KERN 5 gates: 53 current, 6 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - The production structural checker is `internal-product`; KIR v1, runtime
   ownership slices, canonicalizer, and frontend slices remain
@@ -51,10 +52,17 @@ Reconciled state after the Phase 1 checker and formatter slices:
 - The lossless formatter is `internal-product`; complete frontend, compiler,
   fixed point, interpreter, canonical cutover, exact packed proof, and public
   `5.0.0` remain open.
+- The bounded internal `Text.splice` primitive and scalar-tape lexer/parser
+  feasibility proof are current at `fa11d52d`; they are prerequisites, not a
+  complete frontend claim.
+- Frontend F0 freezes the full 302-node/1,149-property source-to-KIR
+  disposition ledger, 16 expression kinds, 30 operators, diagnostic catalogs,
+  static canonical KIR goldens, and the F1-F7 delivery order. It does not add a
+  production parser or promote `test:kern-frontend`.
 
-Promoted-gate row coverage is `52 / 58 = 89.7%`. The denominator fell because
-Phase 0 made three omitted terminal requirements visible; no implementation was
-lost. The source-grounded release-completion estimate is approximately 52-62%
+Promoted-gate row coverage is `53 / 59 = 89.8%`. Phase 0 made three omitted
+terminal requirements visible; no implementation was lost. The source-grounded
+release-completion estimate is approximately 54-64%
 because the remaining gates are the high-weight ownership and cutover phases.
 This estimate is directional, not a repository metric.
 
@@ -67,7 +75,7 @@ remain absent until an implementation slice promotes each with its complete
 binary oracle. The machine-readable authority is
 `scripts/kern-5-remaining-gates-v1.json`.
 
-| Gate | Current state after Phase 1 formatter |
+| Gate | Current state after frontend F0 |
 | --- | --- |
 | `pnpm test:kern-checker` | current |
 | `pnpm test:kern-formatter` | current |
@@ -99,11 +107,13 @@ machine-enumerated without promoting unfinished work.
 
 ### Phase 1 — Finish frontend, checker, and formatter ownership
 
+- [x] Freeze the exhaustive frontend surface/disposition ledger and static
+  canonical/malformed goldens without promoting the terminal frontend gate.
 - Extend M4.171 through cross-line parsing, decorators, multiline blocks,
   nodes/trees, declarations, modules/imports, malformed-input diagnostics,
   stable source evidence, and source-to-KIR emission.
 - [x] Finish production checker v2 over the frozen structural-facts contract.
-- Finish deterministic, idempotent, trivia-preserving formatting.
+- [x] Finish deterministic, idempotent, trivia-preserving formatting.
 - Require zero-drift valid and malformed corpora plus mutations that kill
   delegation, constants, reordering, partial coverage, and stale artifacts.
 

@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 1,
+  "format": "kern.frontend.surface-closure.1",
+  "status": "non-promoting-contract",
+  "baseline": "fa11d52d841508ed0ad0d5c2b9a62a00c6eb4970",
+  "terminalGate": {
+    "id": "kern-frontend",
+    "script": "test:kern-frontend",
+    "status": "planned",
+    "packageScriptMustBeAbsent": true
+  },
+  "authorities": [
+    {
+      "id": "builtin-node-types",
+      "path": "scripts/kern-frontend-builtin-node-type-attestation/catalog.json",
+      "sha256": "1cb662a5b54bd86f96d2fe3a2a90817e770e920351efd718ba91bfe1a095ab40",
+      "rows": 302
+    },
+    {
+      "id": "structural-constitution",
+      "path": "scripts/kir-structural/constitution.json",
+      "sha256": "d62b8b0ce021240f0eb432bff0303107d157578dea6314012c143a911272d271",
+      "rows": 1451
+    },
+    {
+      "id": "structural-witness-ledger",
+      "path": "scripts/kir-v1/coverage-witness-ledger.json",
+      "sha256": "45bc4ae85317e06e9dbd7a3123688726cc1c4caf339541b2d88a07ccc94d686b",
+      "rows": 1451
+    },
+    {
+      "id": "kir-eligibility",
+      "path": "scripts/kir-v1/eligibility.json",
+      "sha256": "9bf8fa6104d9f4c9b1c2ff3cd829211817387ba2ea3e444401b09509e28c2c43",
+      "rows": 302
+    },
+    {
+      "id": "expression-contract",
+      "path": "packages/core/src/kir-structural/expression.ts",
+      "sha256": "774f3f66cabcc26d06850f2a1974cbcf713f3ba530bd3ace56811464bfb0b957",
+      "rows": 46
+    },
+    {
+      "id": "module-contract",
+      "path": "packages/core/src/kir-structural/module-types.ts",
+      "sha256": "72b0b8831f701ee54e3f938bf3c3c91161cd72e6f2e3136bb9e6cadce88b459d",
+      "rows": 7
+    },
+    {
+      "id": "parser-diagnostic-types",
+      "path": "packages/core/src/types.ts",
+      "sha256": "c1900d6ce927024a6f60abb499a4bbba8ef8837baa4fb0f93ddb708edcb88ac9",
+      "rows": 27
+    },
+    {
+      "id": "parser-diagnostics",
+      "path": "packages/core/src/parser-diagnostics.ts",
+      "sha256": "d6049be56349d36de585a7406ab8e71b1494d1f2c2ca34239f4990fc691cb85c",
+      "rows": 27
+    }
+  ],
+  "nodeClosure": {
+    "count": 302,
+    "dispositions": {
+      "explicit-missing-schema": 2,
+      "included-structural": 199,
+      "lowered-semantic": 32,
+      "required-excluded-host-payload": 69
+    }
+  },
+  "propertyClosure": {
+    "count": 1149,
+    "dispositions": {
+      "excluded-host-expression": 185,
+      "excluded-host-type": 94,
+      "excluded-raw-block": 6,
+      "included-value": 824,
+      "lowered-branch-path-value": 1,
+      "lowered-each-collection-reference": 1,
+      "lowered-expression": 31,
+      "lowered-import-path": 5,
+      "lowered-type": 2
+    }
+  },
+  "expressionClosure": {
+    "kinds": ["identifier", "null", "boolean", "integer", "decimal", "text", "list", "record", "member", "index", "call", "new", "lambda", "binary", "unary", "conditional"],
+    "binaryOperators": ["+", "-", "*", "/", "%", "**", "==", "!=", "===", "!==", "<", "<=", ">", ">=", "instanceof", "&&", "||", "??", "&", "|", "^", "<<", ">>", ">>>"],
+    "unaryOperators": ["!", "-", "+", "~", "typeof", "void"],
+    "unsupportedDisposition": "FRONTEND_INVALID_EXPRESSION"
+  },
+  "moduleClosure": {
+    "rootKinds": ["class", "fn", "from", "module", "use"],
+    "symbolKinds": ["class", "fn"],
+    "diagnosticsInArtifact": 0,
+    "unsupportedDisposition": "FRONTEND_UNSUPPORTED_MODULE_ROOT"
+  },
+  "diagnosticCodes": [
+    "UNCLOSED_EXPR",
+    "UNCLOSED_STYLE",
+    "UNCLOSED_STRING",
+    "UNEXPECTED_TOKEN",
+    "EMPTY_DOCUMENT",
+    "INVALID_INDENT",
+    "UNKNOWN_NODE_TYPE",
+    "INDENT_JUMP",
+    "DUPLICATE_PROP",
+    "DROPPED_LINE",
+    "DROPPED_DECORATOR",
+    "INVALID_BIGINT",
+    "INVALID_EXPRESSION",
+    "INVALID_EFFECTS",
+    "INVALID_UNION_KIND",
+    "KIND_SHAPE_VIOLATION",
+    "INVALID_PROPAGATION",
+    "NESTED_PROPAGATION",
+    "UNSAFE_UNWRAP_IN_RESULT_FN",
+    "NATIVE_KERN_ELIGIBLE",
+    "BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER",
+    "BODY_LOOP_CONTROL_OUTSIDE_LOOP",
+    "LET_INVALID_KIND",
+    "BODY_FOR_INVALID_NAME",
+    "BODY_FOR_INVALID_STEP",
+    "BODY_FOR_INVALID_BOUND",
+    "CELL_OUTSIDE_HANDLER_TOP_LEVEL"
+  ],
+  "frontendFailureCodes": [
+    "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+    "FRONTEND_EXCLUDED_HOST_TYPE",
+    "FRONTEND_EXCLUDED_RAW_BLOCK",
+    "FRONTEND_INVALID_EXPRESSION",
+    "FRONTEND_UNSUPPORTED_MODULE_ROOT"
+  ],
+  "families": [
+    {
+      "id": "physical-framing",
+      "lexical": "scalar-lines-with-original-terminators",
+      "parse": "physical-record",
+      "attachment": "logical-line-input",
+      "propertyDefault": "none",
+      "kir": "evidence-only",
+      "malformedDiagnostic": "INVALID_INDENT"
+    },
+    {
+      "id": "trivia-comments-quotes",
+      "lexical": "modeful-scalar-scan",
+      "parse": "token-and-trivia-tapes",
+      "attachment": "source-span",
+      "propertyDefault": "none",
+      "kir": "semantic-exclusion-evidence",
+      "malformedDiagnostic": "UNCLOSED_STRING"
+    },
+    {
+      "id": "expressions",
+      "lexical": "expression-token-tape",
+      "parse": "iterative-precedence-parser",
+      "attachment": "property-or-statement-owner",
+      "propertyDefault": "expression-catalog",
+      "kir": "lowered-expression",
+      "malformedDiagnostic": "INVALID_EXPRESSION"
+    },
+    {
+      "id": "logical-lines",
+      "lexical": "continuation-aware",
+      "parse": "node-line",
+      "attachment": "indentation-stack",
+      "propertyDefault": "schema-owned",
+      "kir": "constitution-disposition",
+      "malformedDiagnostic": "DROPPED_LINE"
+    },
+    {
+      "id": "indentation-tree",
+      "lexical": "space-indent-only",
+      "parse": "ordinal-node-edge-tapes",
+      "attachment": "parent-depth-stack",
+      "propertyDefault": "none",
+      "kir": "ordered-children",
+      "malformedDiagnostic": "INDENT_JUMP"
+    },
+    {
+      "id": "decorators",
+      "lexical": "at-prefixed-logical-line",
+      "parse": "decorator-node",
+      "attachment": "same-indent-next-fn",
+      "propertyDefault": "export-next-fn-only-when-explicit",
+      "kir": "included-structural",
+      "malformedDiagnostic": "DROPPED_DECORATOR"
+    },
+    {
+      "id": "raw-and-multiline",
+      "lexical": "quote-aware-fence-scan",
+      "parse": "bounded-body-span",
+      "attachment": "owning-node-property",
+      "propertyDefault": "none",
+      "kir": "explicit-excluded-raw-block",
+      "malformedDiagnostic": "FRONTEND_EXCLUDED_RAW_BLOCK"
+    },
+    {
+      "id": "declarations-properties-defaults",
+      "lexical": "node-and-property-tokens",
+      "parse": "constitution-bound-node",
+      "attachment": "schema-allowed-children",
+      "propertyDefault": "explicit-schema-only",
+      "kir": "constitution-disposition",
+      "malformedDiagnostic": "UNEXPECTED_TOKEN"
+    },
+    {
+      "id": "modules-imports-exports",
+      "lexical": "module-use-from-node-lines",
+      "parse": "module-root-and-binding-tapes",
+      "attachment": "module-graph",
+      "propertyDefault": "reexport-false-alias-imported-name",
+      "kir": "module-contract-intersection",
+      "malformedDiagnostic": "FRONTEND_UNSUPPORTED_MODULE_ROOT"
+    }
+  ],
+  "phases": [
+    "F0-surface-closure",
+    "F1-document-scan",
+    "F2-expressions",
+    "F3-lines-tree",
+    "F4-declarations-modules",
+    "F5-projection",
+    "F6-adversarial-closure",
+    "F7-terminal-promotion"
+  ],
+  "goldens": {
+    "path": "scripts/kern-frontend-closure/static-goldens.json",
+    "sha256": "cd2ce58285f6cee4dc00cc26fb4a9371023d3b8cc20aab5f8b47d95c6e5a0a2a",
+    "canonicalSha256": "197f7332f07b32c53a85201009b191fe5f57c4ac98e3343eaa4ac9a781521271"
+  }
+}

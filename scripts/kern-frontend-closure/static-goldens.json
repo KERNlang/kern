@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "format": "kern.frontend.static-goldens.1",
+  "valid": {
+    "id": "two-module-decorated-expression",
+    "modules": [
+      {
+        "id": "lib/symbols.kern",
+        "source": "fn name=double export=true\n  param name=value type=number\n  handler lang=kern\n    return value=\"value * 2\"\n"
+      },
+      {
+        "id": "main.kern",
+        "source": "# static frontend golden\nuse path=\"./lib/symbols\"\n  from name=double kind=fn as=twice export=true\n@trace(\"main\")\nfn name=main export=true\n  handler lang=kern\n    return value=\"twice(1 + 2 * 3)\"\n"
+      }
+    ],
+    "expectedCanonicalBase64": "eyJmb3JtYXQiOiJrZXJuLmNhbm9uaWNhbC12YWx1ZS5yMS41Yi4xIiwidmFsdWUiOnsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImNvbnN0aXR1dGlvbiIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6Imtlcm4ua2lyLnN0cnVjdHVyYWwucjEuNWkuMSJ9fSx7ImtleSI6ImRpYWdub3N0aWNzIiwidmFsdWUiOnsidGFnIjoibGlzdCIsInZhbHVlIjpbXX19LHsia2V5IjoiZm9ybWF0IiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoia2Vybi5raXIubW9kdWxlcy5yMS41ZS4xLWFscGhhIn19LHsia2V5IjoibW9kdWxlcyIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W3sidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImV4cG9ydHMiLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOlt7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZm4ifX0seyJrZXkiOiJuYW1lIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZG91YmxlIn19LHsia2V5Ijoic291cmNlIiwidmFsdWUiOnsidGFnIjoibnVsbCJ9fV19XX19LHsia2V5IjoiaWQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJsaWIvc3ltYm9scy5rZXJuIn19LHsia2V5IjoiaW1wb3J0cyIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W119fSx7ImtleSI6InJvb3RzIiwidmFsdWUiOnsidGFnIjoibGlzdCIsInZhbHVlIjpbeyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiY2hpbGRyZW4iLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOlt7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJjaGlsZHJlbiIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W119fSx7ImtleSI6ImtpbmQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJwYXJhbSJ9fSx7ImtleSI6InByb3BlcnRpZXMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoibmFtZSIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6InZhbHVlIn19LHsia2V5IjoidHlwZSIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiaW50ZWdlciJ9fV19fV19fV19LHsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImNoaWxkcmVuIiwidmFsdWUiOnsidGFnIjoibGlzdCIsInZhbHVlIjpbeyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiY2hpbGRyZW4iLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOltdfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoicmV0dXJuIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJ2YWx1ZSIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJmaWVsZHMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoibGVmdCIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJmaWVsZHMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoibmFtZSIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6InZhbHVlIn19XX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImlkZW50aWZpZXIifX1dfX0seyJrZXkiOiJvcCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6IioifX0seyJrZXkiOiJyaWdodCIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJmaWVsZHMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoidmFsdWUiLCJ2YWx1ZSI6eyJ0YWciOiJpbnQiLCJ2YWx1ZSI6IjIifX1dfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiaW50ZWdlciJ9fV19fV19fSx7ImtleSI6ImtpbmQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJiaW5hcnkifX1dfX1dfX1dfV19fSx7ImtleSI6ImtpbmQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJoYW5kbGVyIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJsYW5nIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoia2VybiJ9fV19fV19XX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImZuIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJleHBvcnQiLCJ2YWx1ZSI6eyJ0YWciOiJib29sIiwidmFsdWUiOnRydWV9fSx7ImtleSI6Im5hbWUiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJkb3VibGUifX1dfX1dfV19fV19LHsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImV4cG9ydHMiLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOlt7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZm4ifX0seyJrZXkiOiJuYW1lIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoibWFpbiJ9fSx7ImtleSI6InNvdXJjZSIsInZhbHVlIjp7InRhZyI6Im51bGwifX1dfSx7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZm4ifX0seyJrZXkiOiJuYW1lIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoidHdpY2UifX0seyJrZXkiOiJzb3VyY2UiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJsaWIvc3ltYm9scy5rZXJuIn19XX1dfX0seyJrZXkiOiJpZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6Im1haW4ua2VybiJ9fSx7ImtleSI6ImltcG9ydHMiLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOlt7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJiaW5kaW5ncyIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W3sidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImltcG9ydGVkIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZG91YmxlIn19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImZuIn19LHsia2V5IjoibG9jYWwiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJ0d2ljZSJ9fSx7ImtleSI6InJlZXhwb3J0IiwidmFsdWUiOnsidGFnIjoiYm9vbCIsInZhbHVlIjp0cnVlfX1dfV19fSx7ImtleSI6InNvdXJjZSIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImxpYi9zeW1ib2xzLmtlcm4ifX1dfV19fSx7ImtleSI6InJvb3RzIiwidmFsdWUiOnsidGFnIjoibGlzdCIsInZhbHVlIjpbeyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiY2hpbGRyZW4iLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOlt7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJjaGlsZHJlbiIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W119fSx7ImtleSI6ImtpbmQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJmcm9tIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJhcyIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6InR3aWNlIn19LHsia2V5IjoiZXhwb3J0IiwidmFsdWUiOnsidGFnIjoiYm9vbCIsInZhbHVlIjp0cnVlfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZm4ifX0seyJrZXkiOiJuYW1lIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZG91YmxlIn19XX19XX1dfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoidXNlIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJwYXRoIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiLi9saWIvc3ltYm9scyJ9fV19fV19LHsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImNoaWxkcmVuIiwidmFsdWUiOnsidGFnIjoibGlzdCIsInZhbHVlIjpbeyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiY2hpbGRyZW4iLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOltdfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiZGVjb3JhdG9yIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJhcmdzIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiXCJtYWluXCIifX0seyJrZXkiOiJuYW1lIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoidHJhY2UifX1dfX1dfSx7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJjaGlsZHJlbiIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W3sidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImNoaWxkcmVuIiwidmFsdWUiOnsidGFnIjoibGlzdCIsInZhbHVlIjpbXX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6InJldHVybiJ9fSx7ImtleSI6InByb3BlcnRpZXMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoidmFsdWUiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiZmllbGRzIiwidmFsdWUiOnsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImFyZ3MiLCJ2YWx1ZSI6eyJ0YWciOiJsaXN0IiwidmFsdWUiOlt7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJmaWVsZHMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoibGVmdCIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJmaWVsZHMiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoidmFsdWUiLCJ2YWx1ZSI6eyJ0YWciOiJpbnQiLCJ2YWx1ZSI6IjEifX1dfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiaW50ZWdlciJ9fV19fSx7ImtleSI6Im9wIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiKyJ9fSx7ImtleSI6InJpZ2h0IiwidmFsdWUiOnsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImZpZWxkcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJsZWZ0IiwidmFsdWUiOnsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImZpZWxkcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJ2YWx1ZSIsInZhbHVlIjp7InRhZyI6ImludCIsInZhbHVlIjoiMiJ9fV19fSx7ImtleSI6ImtpbmQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJpbnRlZ2VyIn19XX19LHsia2V5Ijoib3AiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiIqIn19LHsia2V5IjoicmlnaHQiLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiZmllbGRzIiwidmFsdWUiOnsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6InZhbHVlIiwidmFsdWUiOnsidGFnIjoiaW50IiwidmFsdWUiOiIzIn19XX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImludGVnZXIifX1dfX1dfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiYmluYXJ5In19XX19XX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImJpbmFyeSJ9fV19XX19LHsia2V5IjoiY2FsbGVlIiwidmFsdWUiOnsidGFnIjoicmVjb3JkIiwidmFsdWUiOlt7ImtleSI6ImZpZWxkcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJuYW1lIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoidHdpY2UifX1dfX0seyJrZXkiOiJraW5kIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoiaWRlbnRpZmllciJ9fV19fSx7ImtleSI6Im9wdGlvbmFsIiwidmFsdWUiOnsidGFnIjoiYm9vbCIsInZhbHVlIjpmYWxzZX19XX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImNhbGwifX1dfX1dfX1dfV19fSx7ImtleSI6ImtpbmQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJoYW5kbGVyIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJsYW5nIiwidmFsdWUiOnsidGFnIjoidGV4dCIsInZhbHVlIjoia2VybiJ9fV19fV19XX19LHsia2V5Ijoia2luZCIsInZhbHVlIjp7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImZuIn19LHsia2V5IjoicHJvcGVydGllcyIsInZhbHVlIjp7InRhZyI6InJlY29yZCIsInZhbHVlIjpbeyJrZXkiOiJleHBvcnQiLCJ2YWx1ZSI6eyJ0YWciOiJib29sIiwidmFsdWUiOnRydWV9fSx7ImtleSI6Im5hbWUiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJtYWluIn19XX19XX1dfX1dfV19fSx7ImtleSI6InByb29mTGFiZWwiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJBTFBIQS1OTy1HTyJ9fSx7ImtleSI6InN5bWJvbENhdGFsb2ciLCJ2YWx1ZSI6eyJ0YWciOiJyZWNvcmQiLCJ2YWx1ZSI6W3sia2V5IjoiYWRtaXR0ZWRLaW5kcyIsInZhbHVlIjp7InRhZyI6Imxpc3QiLCJ2YWx1ZSI6W3sidGFnIjoidGV4dCIsInZhbHVlIjoiY2xhc3MifSx7InRhZyI6InRleHQiLCJ2YWx1ZSI6ImZuIn1dfX0seyJrZXkiOiJmb3JtYXQiLCJ2YWx1ZSI6eyJ0YWciOiJ0ZXh0IiwidmFsdWUiOiJrZXJuLnN5bWJvbC1hZG1pc3Npb24ucjEuNWMuMyJ9fV19fV19fQo=",
+    "requiredFeatures": [
+      "two-modules",
+      "use-from-binding",
+      "decorator-attachment",
+      "indented-handler",
+      "precedence-expression",
+      "comment-trivia"
+    ]
+  },
+  "failures": [
+    {
+      "id": "excluded-raw-block",
+      "moduleId": "raw.kern",
+      "source": "fn name=hostOnly export=true\n  handler lang=ts code=\"console.log('host')\"\n",
+      "diagnostics": [
+        {
+          "code": "FRONTEND_EXCLUDED_RAW_BLOCK",
+          "severity": "error",
+          "line": 2,
+          "col": 3,
+          "endLine": 2,
+          "endCol": 45
+        }
+      ]
+    },
+    {
+      "id": "dangling-decorator-and-indent-jump",
+      "moduleId": "malformed.kern",
+      "source": "@trace\n    fn name=jump\n",
+      "diagnostics": [
+        {
+          "code": "DROPPED_DECORATOR",
+          "severity": "warning",
+          "line": 1,
+          "col": 1,
+          "endLine": 1,
+          "endCol": 7
+        },
+        {
+          "code": "INDENT_JUMP",
+          "severity": "error",
+          "line": 2,
+          "col": 5,
+          "endLine": 2,
+          "endCol": 17
+        }
+      ]
+    },
+    {
+      "id": "excluded-host-expression",
+      "moduleId": "host-expression.kern",
+      "source": "screen memo={{ window.value }}\n",
+      "diagnostics": [
+        {
+          "code": "FRONTEND_EXCLUDED_HOST_EXPRESSION",
+          "severity": "error",
+          "line": 1,
+          "col": 13,
+          "endLine": 1,
+          "endCol": 31
+        }
+      ]
+    },
+    {
+      "id": "excluded-host-type",
+      "moduleId": "host-type.kern",
+      "source": "state name=count type=Promise<string>\n",
+      "diagnostics": [
+        {
+          "code": "FRONTEND_EXCLUDED_HOST_TYPE",
+          "severity": "error",
+          "line": 1,
+          "col": 23,
+          "endLine": 1,
+          "endCol": 38
+        }
+      ]
+    },
+    {
+      "id": "invalid-expression",
+      "moduleId": "invalid-expression.kern",
+      "source": "fn name=bad\n  handler lang=kern\n    return value=\"1 +\"\n",
+      "diagnostics": [
+        {
+          "code": "FRONTEND_INVALID_EXPRESSION",
+          "severity": "error",
+          "line": 3,
+          "col": 18,
+          "endLine": 3,
+          "endCol": 23
+        }
+      ]
+    },
+    {
+      "id": "unsupported-module-root",
+      "moduleId": "unsupported-root.kern",
+      "source": "screen name=main\n",
+      "diagnostics": [
+        {
+          "code": "FRONTEND_UNSUPPORTED_MODULE_ROOT",
+          "severity": "error",
+          "line": 1,
+          "col": 1,
+          "endLine": 1,
+          "endCol": 17
+        }
+      ]
+    }
+  ]
+}
