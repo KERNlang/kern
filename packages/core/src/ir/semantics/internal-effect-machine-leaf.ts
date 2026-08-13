@@ -15,6 +15,7 @@ import {
   classifyInternalMachineClassReturnValue,
   classifyInternalMachineClassScalarValue,
 } from './internal-effect-machine-class-value.js';
+import { defineDeferredInternalMachineBinding } from './internal-effect-machine-deferred-binding.js';
 import {
   internalMachineDoTargetName,
   parseInternalMachineDo,
@@ -31,9 +32,7 @@ import {
 } from './internal-effect-machine-expression-v1.js';
 import { internalMachineHelperCallInNode } from './internal-effect-machine-helper-graph.js';
 import { evalInternalMachineHelperValue } from './internal-effect-machine-helper-runtime.js';
-import { defineDeferredInternalMachineBinding } from './internal-effect-machine-deferred-binding.js';
 import { internalMachineRecordArrayFields } from './internal-effect-machine-leaf-record.js';
-import { assertInternalMachineTextSplicePreflight } from './internal-effect-machine-text-splice.js';
 import {
   assertInternalMachinePrintShape,
   assertInternalMachineReturnShape,
@@ -44,6 +43,7 @@ import {
   INTERNAL_EFFECT_MACHINE_LEAF_TYPES,
   isInternalEffectMachineLeafType,
 } from './internal-effect-machine-leaf-types.js';
+import { assertInternalMachineTextSplicePreflight } from './internal-effect-machine-text-splice.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';

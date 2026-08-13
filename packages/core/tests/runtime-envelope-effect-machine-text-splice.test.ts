@@ -1,4 +1,3 @@
-import { executeKernRuntimeHandlerSync, KERN_RUNTIME_HANDLER_ABI } from '../src/runtime-handler.js';
 import {
   assertInternalMachineTextSplicePreflight,
   parseInternalMachineTextSplice,
@@ -6,6 +5,7 @@ import {
 } from '../src/ir/semantics/internal-effect-machine-text-splice.js';
 import { defineBinding, defineIntBinding, getBinding, makeEnv } from '../src/ir/semantics/semantic-env.js';
 import { parseExpression } from '../src/parser-expression.js';
+import { executeKernRuntimeHandlerSync, KERN_RUNTIME_HANDLER_ABI } from '../src/runtime-handler.js';
 
 const limits = {
   maxBytes: 1_048_576,
@@ -32,12 +32,15 @@ function source(operation: string, declarations: readonly string[] = []): string
 }
 
 function execute(program: string, input = 'abcd') {
-  return executeKernRuntimeHandlerSync({
-    abi: KERN_RUNTIME_HANDLER_ABI,
-    arguments: [input],
-    identity: { handlerName: 'splice', sourcePath: 'tests/text-splice.kern' },
-    source: program,
-  }, { enabled: true, limits });
+  return executeKernRuntimeHandlerSync(
+    {
+      abi: KERN_RUNTIME_HANDLER_ABI,
+      arguments: [input],
+      identity: { handlerName: 'splice', sourcePath: 'tests/text-splice.kern' },
+      source: program,
+    },
+    { enabled: true, limits },
+  );
 }
 
 function value(program: string, input = 'abcd'): unknown {
@@ -72,14 +75,14 @@ describe('internal effect-machine text splice', () => {
   });
 
   test('rejects namespace shadowing and non-string operands', () => {
-    expect(execute(source(
-      'do value="Text.splice(input, start, end, replacement, cap)"',
-      ['let name=Text value="\\"shadow\\""'],
-    )).outcome).toBe('failure');
-    expect(execute(source(
-      'do value="Text.splice(input, start, end, bad, cap)"',
-      ['let name=bad value="1"'],
-    )).outcome).toBe('failure');
+    expect(
+      execute(
+        source('do value="Text.splice(input, start, end, replacement, cap)"', ['let name=Text value="\\"shadow\\""']),
+      ).outcome,
+    ).toBe('failure');
+    expect(
+      execute(source('do value="Text.splice(input, start, end, bad, cap)"', ['let name=bad value="1"'])).outcome,
+    ).toBe('failure');
   });
 
   test.each([
@@ -88,10 +91,9 @@ describe('internal effect-machine text splice', () => {
     ['assign target=start value="3"', 'assign target=end value="2"'],
     ['assign target=cap value="3"'],
   ])('rejects invalid bounds or caps without returning a mutated target', (...declarations) => {
-    expect(execute(source(
-      'do value="Text.splice(input, start, end, replacement, cap)"',
-      declarations as string[],
-    )).outcome).toBe('failure');
+    expect(
+      execute(source('do value="Text.splice(input, start, end, replacement, cap)"', declarations as string[])).outcome,
+    ).toBe('failure');
   });
 
   test('keeps the target unchanged when concrete validation rejects', () => {
@@ -134,7 +136,7 @@ describe('internal effect-machine text splice', () => {
       'fn name=wrap returns=string',
       '  param name=value type=string',
       '  handler lang="kern"',
-      '    return value="\\"[\\" + value + \"]\\""',
+      '    return value="\\"[\\" + value + "]\\""',
       '',
       'fn name=splice returns="string[]" export=true',
       '  param name=input type=string',

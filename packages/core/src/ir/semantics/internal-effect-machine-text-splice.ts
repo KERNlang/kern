@@ -1,12 +1,6 @@
 import { isWellFormedText, textCodePoints, textMalformedSurrogateFailMessage } from '../../codegen/text-contract.js';
 import type { ValueIR } from '../../value-ir.js';
-import {
-  assignBinding,
-  getBinding,
-  hasBinding,
-  isIntProvenanced,
-  type SemanticEnv,
-} from './semantic-env.js';
+import { assignBinding, getBinding, hasBinding, isIntProvenanced, type SemanticEnv } from './semantic-env.js';
 import { emptyTrace, type Trace } from './trace.js';
 
 export const INTERNAL_TEXT_SPLICE_MAX_CODE_POINTS = 1_000_000;

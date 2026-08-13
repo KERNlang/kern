@@ -1,16 +1,16 @@
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
+import {
+  type ParsedInternalMachineTextSplice,
+  parseInternalMachineTextSplice,
+  runInternalMachineTextSplice,
+} from './internal-effect-machine-text-splice.js';
 import { evalArrayLiteralValue, isArrayLiteralExpression, type PortableArrayElement } from './portable-array.js';
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableMachineLetShape, assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import { resolveParsedMapSet } from './portable-map.js';
 import { isPortableBindingName } from './portable-scalar-domain.js';
-import {
-  parseInternalMachineTextSplice,
-  type ParsedInternalMachineTextSplice,
-  runInternalMachineTextSplice,
-} from './internal-effect-machine-text-splice.js';
 import {
   assignBinding,
   assignOwnedExactScalarMapBinding,
