@@ -28,7 +28,8 @@ passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
 passes. After the production-checker, formatter, and non-promoting frontend F0
-closure slices, that wall contains 53 promoted gates and excludes the six
+closure and runtime text-scaling prerequisite slices, that wall contains 54
+promoted gates and excludes the six
 remaining planned terminal gates.
 
 ## Post-M4.171 Baseline
@@ -43,7 +44,7 @@ before the isolated Phase 0 worktree was created.
 Reconciled state after the Phase 1 checker, formatter, runtime splice, and
 frontend F0 closure slices:
 
-- 59 declared KERN 5 gates: 53 current, 6 planned.
+- 60 declared KERN 5 gates: 54 current, 6 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - The production structural checker is `internal-product`; KIR v1, runtime
   ownership slices, canonicalizer, and frontend slices remain
@@ -59,8 +60,11 @@ frontend F0 closure slices:
   disposition ledger, 16 expression kinds, 30 operators, diagnostic catalogs,
   static canonical KIR goldens, and the F1-F7 delivery order. It does not add a
   production parser or promote `test:kern-frontend`.
+- The execution-local Text cache prerequisite removes repeated Unicode-scalar
+  materialization from reference-runner document walks, but generated
+  TypeScript/Python parity and the F1 scanner remain open.
 
-Promoted-gate row coverage is `53 / 59 = 89.8%`. Phase 0 made three omitted
+Promoted-gate row coverage is `54 / 60 = 90.0%`. Phase 0 made three omitted
 terminal requirements visible; no implementation was lost. The source-grounded
 release-completion estimate is approximately 54-64%
 because the remaining gates are the high-weight ownership and cutover phases.

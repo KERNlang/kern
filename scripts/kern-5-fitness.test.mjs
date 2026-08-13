@@ -53,7 +53,7 @@ test('Phase 0 declares the complete terminal gate suffix and versioned ledger', 
     policy.gates.slice(-terminalGateIds.length).map((gate) => gate.id),
     terminalGateIds,
   );
-  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 53);
+  assert.equal(policy.gates.filter((gate) => gate.status === 'current').length, 54);
   assert.equal(policy.gates.filter((gate) => gate.status === 'planned').length, 6);
   assert.deepEqual(
     remainingGates.terminalGates.map((gate) => gate.id),
@@ -144,7 +144,7 @@ test('default contract loading is independent from the caller working directory'
   const originalCwd = process.cwd();
   try {
     process.chdir('scripts');
-    assert.equal(loadKern5FitnessContract().currentGates.length, 53);
+    assert.equal(loadKern5FitnessContract().currentGates.length, 54);
   } finally {
     process.chdir(originalCwd);
   }
@@ -187,7 +187,7 @@ test('policy and ledger bind terminal id, order, status, and argv', () => {
 
 test('planned terminal gates have no root scripts while promoted terminal gates execute', () => {
   const contract = validate();
-  assert.equal(contract.currentGates.length, 53);
+  assert.equal(contract.currentGates.length, 54);
   assert.deepEqual(
     contract.currentGates.filter((gate) => terminalGateIds.includes(gate.id)),
     [
@@ -264,6 +264,7 @@ test('current KERN 5 policy, matrix, and root scripts form one exact contract', 
       'kern-frontend-keyword-handlers',
       'kern-frontend-successful-line-composition',
       'kern-frontend-surface-closure',
+      'kern-frontend-runtime-text-cache',
       'kern-checker',
       'kern-formatter',
     ],

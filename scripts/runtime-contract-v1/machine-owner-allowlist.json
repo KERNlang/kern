@@ -64,6 +64,7 @@
     "ir/semantics/internal-effect-machine-try.ts",
     "ir/semantics/internal-effect-machine-types.ts",
     "ir/semantics/internal-effect-machine.ts",
+    "ir/semantics/internal-text-code-point-cache.ts",
     "ir/semantics/lambda-closure-graph.ts",
     "ir/semantics/lambda-owned-property.ts",
     "ir/semantics/lambda-preconditions.ts",

@@ -1,0 +1,9 @@
+fn name=probetextwalk returns="string[]" export=true
+  param name=source type=string
+  param name=alphabet type=string
+  handler lang="kern"
+    let name=n value="Text.length(source)"
+    for name=i from=0 to=n
+      if cond="Text.indexOf(alphabet, Text.charAt(source, i)) < 0"
+        return value="[\"kern.frontend.text-cache-probe.1\", \"failure\", String(i)]"
+    return value="[\"kern.frontend.text-cache-probe.1\", \"ok\", String(n)]"

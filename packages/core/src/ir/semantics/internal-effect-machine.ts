@@ -25,6 +25,7 @@ import {
   type InternalEffectMachineState,
   type InternalEffectMachineSyncOptions,
 } from './internal-effect-machine-types.js';
+import { installInternalTextCodePointCache } from './internal-text-code-point-cache.js';
 import { isOwnedSemanticEnvironment, type SemanticEnv } from './semantic-env.js';
 import type { Trace } from './trace.js';
 
@@ -119,6 +120,9 @@ export function runInternalEffectMachineSync(
     observer: options.observer,
     remainingIterations: options.iterationBudget,
   };
+  if (options.textCodePointCacheBudget !== undefined) {
+    installInternalTextCodePointCache(state, options.textCodePointCacheBudget);
+  }
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {
@@ -144,6 +148,9 @@ export async function runInternalEffectMachineAsync(
     observer: options.observer,
     remainingIterations: options.iterationBudget,
   };
+  if (options.textCodePointCacheBudget !== undefined) {
+    installInternalTextCodePointCache(state, options.textCodePointCacheBudget);
+  }
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
   while (!step.done) {

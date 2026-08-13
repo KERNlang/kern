@@ -47,9 +47,10 @@ export function runInternalRuntimeEngineSync(
   env: SemanticEnv,
   iterationBudget?: number,
   observer?: InternalEffectMachineObserver,
+  textCodePointCacheBudget?: number,
 ): Trace {
   // execute.ts owns direct admission before scheduler installation.
-  return runInternalEffectMachineSync(nodes, env, { iterationBudget, observer });
+  return runInternalEffectMachineSync(nodes, env, { iterationBudget, observer, textCodePointCacheBudget });
 }
 
 export async function runInternalRuntimeEngineAsync(

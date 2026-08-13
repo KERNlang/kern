@@ -34,7 +34,7 @@ moving frontend and KIR boundary.
 
 ### Repository-measured state
 
-- **[VERIFIED]** The KERN 5 policy declares 59 gates: 53 `current` and 6
+- **[VERIFIED]** The KERN 5 policy declares 60 gates: 54 `current` and 6
   `planned`. The terminal roster and its frozen classification vocabulary are
   bound in `scripts/kern-5-remaining-gates-v1.json`; policy and ledger agree on
   ID, order, status, and argv.
@@ -54,6 +54,11 @@ moving frontend and KIR boundary.
   creating or promoting the production frontend entry point. Evidence:
   `.Codex/specs/kern-5-frontend-surface-closure/spec.md` and
   `scripts/kern-frontend-closure/closure-ledger.json`.
+- **[VERIFIED]** The reference-runner Text cache prerequisite is execution
+  local, bounded, opaque, and current. It removes repeated scalar
+  materialization for F1 document walks without promoting the frontend or
+  claiming generated TypeScript/Python parity. Evidence:
+  `.Codex/specs/kern-5-runtime-text-cache-prerequisite/spec.md`.
 - **[VERIFIED]** KIR v1 and the frontend slices are `internal-oracle`, which
   means they participate in release-blocking differential evidence but are not
   the production semantic authority. Evidence:
@@ -70,8 +75,8 @@ moving frontend and KIR boundary.
 
 ### Progress interpretation
 
-- **[VERIFIED]** Promoted-gate row coverage after F0 is
-  `53 / 59 = 89.8%`.
+- **[VERIFIED]** Promoted-gate row coverage after the runtime prerequisite is
+  `54 / 60 = 90.0%`.
 - **[INFERRED]** Release completion is approximately **54-64%**, not 89.8%.
   The range is deliberately heuristic: the repository has a large, well-gated
   ownership substrate, but the remaining phases are the high-weight canonical
@@ -226,9 +231,9 @@ publication require the authority specified by the active engineering doctrine.
 
 ## Corrections Log
 
-- **[CORRECTED]** The live post-F0 count is `53/59`: checker and formatter are
-  promoted, the non-terminal frontend closure gate is current, and six terminal
-  gates remain planned.
+- **[CORRECTED]** The live post-prerequisite count is `54/60`: checker and
+  formatter are promoted, the non-terminal frontend closure and Text scaling
+  gates are current, and six terminal gates remain planned.
 - **[CORRECTED]** `51/58` measures promoted gate rows, not 87.9% release
   completion.
 - **[CORRECTED]** The five declared planned gates omit checker, formatter, and

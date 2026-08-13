@@ -39,24 +39,24 @@
  *   - `startsWith(prefix)` returns a boolean; there is no out-of-range case.
  */
 
-import {
-  codePointIndexOf,
-  isWellFormedText,
-  textCodePoints,
-  textMalformedSurrogateFailMessage,
-} from '../../codegen/text-contract.js';
+import { codePointIndexOf } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
-import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
+import {
+  copyInternalEffectMachineState,
+  internalEffectMachineStateForEnv,
+} from './internal-effect-machine-helper-state.js';
+import { acquireInternalTextCodePoints } from './internal-text-code-point-cache.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
 import { hasBinding, type SemanticEnv } from './semantic-env.js';
 
-function requireWellFormedString(value: PortableScalar, label: string): string {
+function requireString(value: PortableScalar, label: string): string {
   if (typeof value !== 'string') throw new Error(`portable: ${label} requires a string`);
-  if (!isWellFormedText(value)) {
-    throw new Error(textMalformedSurrogateFailMessage(label));
-  }
   return value;
+}
+
+function executionTextCodePoints(value: string, label: string, env: SemanticEnv): readonly string[] {
+  return acquireInternalTextCodePoints(internalEffectMachineStateForEnv(env), value, label);
 }
 
 /** True iff `node` is the builtin, UNSHADOWED `Text` namespace identifier —
@@ -100,14 +100,14 @@ export function evalStringOpCall(
 
   const receiverArg = node.args[0];
   if (!isValueIR(receiverArg)) throw new Error(`portable: ${label} requires a string receiver`);
-  const receiver = requireWellFormedString(evaluate(receiverArg, env), label);
+  const receiver = requireString(evaluate(receiverArg, env), label);
 
   switch (method) {
     case 'length':
-      return textCodePoints(receiver).length;
+      return executionTextCodePoints(receiver, label, env).length;
     case 'charAt': {
       const index = requireSafeIntegerArg(node.args[1], env, evaluate, label);
-      const cps = textCodePoints(receiver);
+      const cps = executionTextCodePoints(receiver, label, env);
       if (index < 0 || index >= cps.length) {
         throw new Error(`portable: ${label} index ${index} is out of bounds for a string of length ${cps.length}`);
       }
@@ -116,7 +116,7 @@ export function evalStringOpCall(
     case 'slice': {
       const start = requireSafeIntegerArg(node.args[1], env, evaluate, label);
       const end = requireSafeIntegerArg(node.args[2], env, evaluate, label);
-      const cps = textCodePoints(receiver);
+      const cps = executionTextCodePoints(receiver, label, env);
       if (start < 0 || end < 0 || start > cps.length || end > cps.length || start > end) {
         throw new Error(
           `portable: ${label}(${start}, ${end}) is out of bounds for a string of length ${cps.length} (0 <= start <= end <= length required)`,
@@ -125,11 +125,16 @@ export function evalStringOpCall(
       return cps.slice(start, end).join('');
     }
     case 'indexOf': {
-      const needle = requireWellFormedString(evaluate(node.args[1], env), label);
-      return codePointIndexOf(textCodePoints(receiver), textCodePoints(needle));
+      const needle = requireString(evaluate(node.args[1], env), label);
+      return codePointIndexOf(
+        executionTextCodePoints(receiver, label, env),
+        executionTextCodePoints(needle, label, env),
+      );
     }
     case 'startsWith': {
-      const prefix = requireWellFormedString(evaluate(node.args[1], env), label);
+      const prefix = requireString(evaluate(node.args[1], env), label);
+      executionTextCodePoints(receiver, label, env);
+      executionTextCodePoints(prefix, label, env);
       return receiver.startsWith(prefix);
     }
     default:

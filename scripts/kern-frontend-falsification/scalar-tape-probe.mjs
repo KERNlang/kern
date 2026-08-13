@@ -18,6 +18,7 @@ const runtimeLimits = {
 };
 const helper = readFileSync(new URL('../../examples/kern-frontend/expression-probe-helpers.kern', import.meta.url), 'utf8');
 const probe = readFileSync(new URL('../../examples/kern-frontend/scalar-tape-probe.kern', import.meta.url), 'utf8');
+const textCacheProbe = readFileSync(new URL('../../examples/kern-frontend/text-cache-probe.kern', import.meta.url), 'utf8');
 const kernSource = `${helper}\n${probe}`;
 
 function run(source) {
@@ -48,4 +49,48 @@ const timings = sizes.map((size) => {
 });
 assert.ok(timings[2].elapsedMs < 2000);
 assert.ok(timings[2].elapsedMs < timings[0].elapsedMs * 16);
-console.log(JSON.stringify({ status: 'pass', timings }));
+
+function runTextWalk(source, alphabet) {
+  const started = performance.now();
+  const envelope = executeKernRuntimeHandlerSync({
+    abi: KERN_RUNTIME_HANDLER_ABI,
+    arguments: [source, alphabet],
+    identity: { handlerName: 'probetextwalk', sourcePath: 'examples/kern-frontend/text-cache-probe.kern' },
+    source: textCacheProbe,
+  }, { enabled: true, limits: runtimeLimits, scheduler: { timeoutMs: 10_000 } });
+  const elapsedMs = performance.now() - started;
+  assert.equal(envelope.outcome, 'success', JSON.stringify(envelope.diagnostics));
+  assert.equal(envelope.result.presence, 'value');
+  assert.equal(envelope.result.value.tag, 'list');
+  const fields = envelope.result.value.value.map((item) => item.value);
+  assert.deepEqual(fields, ['kern.frontend.text-cache-probe.1', 'ok', String([...source].length)]);
+  return elapsedMs;
+}
+
+const textWalkSizes = [1024, 4096, 16_384];
+const textWalkCorpora = {
+  ascii: (size) => ({ alphabet: 'a', source: 'a'.repeat(size) }),
+  astral: (size) => ({ alphabet: '😀', source: '😀'.repeat(size) }),
+  crlf: (size) => ({ alphabet: '\r\n', source: '\r\n'.repeat(Math.floor(size / 2)) }),
+  mixed: (size) => ({ alphabet: 'a😀\r\n', source: 'a😀\r\n'.repeat(Math.floor(size / 4)) }),
+};
+const textWalkTimings = Object.fromEntries(Object.entries(textWalkCorpora).map(([name, build]) => {
+  const corpusTimings = textWalkSizes.map((size) => {
+    const corpus = build(size);
+    return {
+      elapsedMs: runTextWalk(corpus.source, corpus.alphabet),
+      sourceCodePoints: [...corpus.source].length,
+    };
+  });
+  assert.ok(
+    corpusTimings[2].elapsedMs < 6000,
+    `${name} maximum-scale walk exceeded 6000ms: ${JSON.stringify(corpusTimings)}`,
+  );
+  assert.ok(
+    corpusTimings[2].elapsedMs < corpusTimings[1].elapsedMs * 12,
+    `${name} 4x scalar growth exceeded the 12x scaling wall: ${JSON.stringify(corpusTimings)}`,
+  );
+  return [name, corpusTimings];
+}));
+
+console.log(JSON.stringify({ status: 'pass', textWalkTimings, timings }));

@@ -18,22 +18,23 @@ import {
   runtimeMachineOwnerPaths,
 } from './runtime-machine-owner-allowlist.mjs';
 
-const TEXT_SPLICE_OWNERS = [
+const RECENT_RUNTIME_OWNERS = [
   'ir/semantics/internal-effect-machine-deferred-binding',
   'ir/semantics/internal-effect-machine-text-splice',
+  'ir/semantics/internal-text-code-point-cache',
 ];
 
-test('Text.splice additions are exact source and built runtime machine owners', () => {
+test('Text.splice and F1 text-cache additions are exact source and built runtime machine owners', () => {
   for (const [root, extension, closure] of [
     [resolve('packages/core/src'), '.ts', assertPublicHandlerAbiClosure],
     [resolve('packages/core/dist'), '.js', assertPublicHandlerBuiltAbiClosure],
   ]) {
     const expected = runtimeMachineOwnerPaths(root, extension);
     const visited = closure(root);
-    const spliceOwners = TEXT_SPLICE_OWNERS.map((owner) => resolve(root, `${owner}${extension}`));
-    for (const spliceOwner of spliceOwners) {
-      assert.ok(expected.has(spliceOwner), `${extension} allowlist omits ${spliceOwner}`);
-      assert.ok(visited.has(spliceOwner), `${extension} closure omits ${spliceOwner}`);
+    const recentOwners = RECENT_RUNTIME_OWNERS.map((owner) => resolve(root, `${owner}${extension}`));
+    for (const owner of recentOwners) {
+      assert.ok(expected.has(owner), `${extension} allowlist omits ${owner}`);
+      assert.ok(visited.has(owner), `${extension} closure omits ${owner}`);
     }
 
     const unapproved = new Set(visited);
@@ -43,9 +44,9 @@ test('Text.splice additions are exact source and built runtime machine owners', 
       /unapproved machine owner/u,
     );
 
-    for (const spliceOwner of spliceOwners) {
+    for (const owner of recentOwners) {
       const unreachable = new Set(visited);
-      unreachable.delete(spliceOwner);
+      unreachable.delete(owner);
       assert.throws(
         () => assertExactRuntimeMachineOwners(root, unreachable, extension),
         /approved machine owner is unreachable/u,

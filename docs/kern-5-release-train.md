@@ -3983,6 +3983,18 @@ trusted-publishing/provenance configuration is inspected.
     `review-1786605631309-k2b1sn-kern5-f0-semantic-binding-confir` passed 1/1
     with zero findings. F1 scan is the next implementation slice.
 
+  - [x] KERN 5 F1 reference-runner text-scaling prerequisite: tribunal
+    `tribunal-1786631014526-n25590` rejected a new scalar-list API and selected
+    execution-local caching behind the existing Text contract. Corrective
+    tribunal `tribunal-1786631874182-yl58i3` resolved the validation/cache
+    contradiction by requiring an opaque exact-value store whose hits reuse a
+    previously successful validation and whose misses validate before frozen
+    insertion. The strengthened KERN probe captures the baseline quadratic
+    failure and proves 1K/4K/16K ASCII, astral, CRLF, and mixed walks at near
+    4x scaling for 4x input. `kern-frontend-runtime-text-cache` is a current
+    internal oracle; generated TypeScript/Python parity, the F1 scanner, and
+    terminal `kern-frontend` promotion remain open.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

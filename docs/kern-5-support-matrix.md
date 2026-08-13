@@ -74,6 +74,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-frontend-surface-closure | Frozen KERN frontend source-to-KIR closure contract | current | `pnpm test:kern-frontend-closure` |
+| kern-frontend-runtime-text-cache | Execution-local frontend text scaling prerequisite | current | `pnpm test:kern-frontend-runtime-text-cache` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -153,6 +154,7 @@ wall and must remain absent until promoted.
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | internal-oracle | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | internal-oracle | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-frontend-surface-closure | Frozen frontend source-to-KIR closure contract and static goldens | internal-oracle | `pnpm test:kern-frontend-closure` |
+| kern-frontend-runtime-text-cache | Execution-local frontend text scaling prerequisite | internal-oracle | `pnpm test:kern-frontend-runtime-text-cache` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -444,6 +446,16 @@ valid/malformed goldens. It distinguishes source admission from KIR admission
 and assigns excluded host expressions, host types, and raw blocks explicit
 fail-closed dispositions. It implements no parser and does not promote
 `kern-frontend`, which remains `not-shipped` until F1-F6 converge.
+
+The F1 runtime prerequisite promotes
+`kern-frontend-runtime-text-cache: internal-oracle`. The internal effect
+machine owns one opaque, execution-local Unicode-scalar cache keyed by exact
+immutable text values. Cache misses validate malformed UTF-16 before inserting
+frozen scalar arrays; hits reuse that validation, and conservative storage is
+bounded by the accepted runtime `maxBytes` budget. The gate proves 1K/4K/16K
+ASCII, astral, CRLF, and mixed walks with a 12x wall for 4x growth. It changes
+no public Text/KIR surface and does not promote `kern-frontend`; generated
+TypeScript/Python cache parity and F1 document scanning remain absent.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a
