@@ -3890,6 +3890,35 @@ trusted-publishing/provenance configuration is inspected.
     1/1 with zero findings. Phase 1 may now implement checker, formatter, and
     full frontend ownership against the frozen classification ledger.
 
+  - [x] KERN 5 Phase 1 production structural checker: tribunals
+    `tribunal-1786577085295-lw5l77-kern5-phase1-source-ownership` and
+    `tribunal-1786577674795-0e6jw1-kern5-checker-source-decompositi`,
+    `tribunal-1786579310959-g526bi-kern5-checker-review-remediation`, and
+    `tribunal-1786580646165-6xoo5w-kern5-checker-native-cardinality` selected
+    the declaration-owned `kern.checker.facts.2` boundary and preserved the 613-line
+    historical checker byte-identically because 136 evidence files bind its
+    path-and-ordinal identities. A new 175-line native entry validates the
+    table domains and canonical rows it consumes before the unchanged KERN
+    checker decides `kern.checker.result.1`; the compiled private CLI
+    authenticator owns exact contract shape, cardinality, aggregate bytes, and
+    immutable asset trust anchors. The packaged private composition is three
+    KERN members and 53,500 authenticated bytes. The terminal gate passes
+    48/48 byte-identical verdict fixtures, 36 accept-but-abstain rejections,
+    contract and mutation tests, the legacy generated runner, and asset drift
+    checks. High-risk review exposed a 41.6-second contract-valid
+    multiplicative-scan attack and raw U+2028/U+2029 output separators. Tribunal
+    `tribunal-1786582119747-xo3v3e-kern5-checker-security-remediati` selected a
+    compiled pre-runtime `kern.checker.native-work.1` oracle derived from the
+    authenticated 48-envelope corpus, with a pinned 25% headroom wall, plus
+    output-only NDJSON escaping. The maximum-cardinality attack now rejects in
+    under one second without entering the frozen checker. Targeted security
+    confirmation `review-1786582950711-y3w7lk-kern5-checker-security-confirmat`
+    completed 1/1 with zero findings after all review findings were verified.
+    `kern-checker` is
+    current and `internal-product`; TypeScript remains
+    only the explicit bootstrap fact producer and differential oracle until the
+    frontend phase replaces it.
+
 1. Correct the support matrix and make `fitness:kern-5` the planned aggregate,
    without pretending missing commands already exist.
 2. Close checker v2: admit structured `while`/`else`, replace literal numeric

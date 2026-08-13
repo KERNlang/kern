@@ -1,6 +1,6 @@
 # KERN 5.0 Completion Goal
 
-**Status:** PHASE 0 COMPLETE; PHASE 1 READY
+**Status:** PHASE 1 IN PROGRESS; CHECKER COMPLETE
 
 **Goal confidence:** 0.96
 
@@ -27,8 +27,8 @@ or silently fall back to TypeScript semantics; and the exact accepted packed RC
 passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
-passes. After Phase 0 reconciliation, that wall still contains 50 promoted
-gates and excludes all eight terminal planned gates.
+passes. After the production-checker promotion, that wall contains 51 promoted
+gates and excludes the seven remaining planned terminal gates.
 
 ## Post-M4.171 Baseline
 
@@ -39,19 +39,20 @@ post-publication completion-contract baseline is
 verification resolved both `origin/main` and the remote ref to that baseline
 before the isolated Phase 0 worktree was created.
 
-Reconciled Phase 0 state:
+Reconciled state after the Phase 1 checker slice:
 
-- 58 declared KERN 5 gates: 50 current, 8 planned.
+- 58 declared KERN 5 gates: 51 current, 7 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
-- KIR v1, checker v2, runtime ownership slices, canonicalizer, and frontend
-  slices remain `internal-oracle`, not canonical product authority.
+- The production structural checker is `internal-product`; KIR v1, runtime
+  ownership slices, canonicalizer, and frontend slices remain
+  `internal-oracle`, not canonical product authority.
 - TypeScript parser/compiler/ReferenceRunner paths remain production surfaces.
 - Formatter, complete frontend, compiler, fixed point, interpreter, canonical
   cutover, exact packed proof, and public `5.0.0` remain open.
 
-Promoted-gate row coverage is `50 / 58 = 86.2%`. The denominator fell because
+Promoted-gate row coverage is `51 / 58 = 87.9%`. The denominator fell because
 Phase 0 made three omitted terminal requirements visible; no implementation was
-lost. The source-grounded release-completion estimate remains only 45-55%
+lost. The source-grounded release-completion estimate is approximately 48-58%
 because the remaining gates are the high-weight ownership and cutover phases.
 This estimate is directional, not a repository metric.
 
@@ -65,7 +66,7 @@ machine-readable authority is `scripts/kern-5-remaining-gates-v1.json`.
 
 | Gate | Starting state after M4.171 |
 | --- | --- |
-| `pnpm test:kern-checker` | planned |
+| `pnpm test:kern-checker` | current |
 | `pnpm test:kern-formatter` | planned |
 | `pnpm test:kern-frontend` | planned |
 | `pnpm test:kern-compiler` | planned |
@@ -98,7 +99,7 @@ machine-enumerated without promoting unfinished work.
 - Extend M4.171 through cross-line parsing, decorators, multiline blocks,
   nodes/trees, declarations, modules/imports, malformed-input diagnostics,
   stable source evidence, and source-to-KIR emission.
-- Finish production checker v2 over the frozen source/KIR contract.
+- [x] Finish production checker v2 over the frozen structural-facts contract.
 - Finish deterministic, idempotent, trivia-preserving formatting.
 - Require zero-drift valid and malformed corpora plus mutations that kill
   delegation, constants, reordering, partial coverage, and stale artifacts.

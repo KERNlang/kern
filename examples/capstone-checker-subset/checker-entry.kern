@@ -1,0 +1,175 @@
+use path="./checker"
+  from name=checkModule kind=fn as=checkModule
+  from name=acceptLine kind=fn as=acceptLine
+
+fn name=checkerFactsFailure returns=string[]
+  param name=code type=string
+  handler lang="kern"
+    let name=out value="[]"
+    do value="out.push(\"kern.checker.native-result.1\")"
+    do value="out.push(\"failure\")"
+    do value="out.push(code)"
+    return value="out"
+
+fn name=checkerFactsArgumentsCanonical returns=boolean
+  param name=callArgCount type=number[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  handler lang="kern"
+    for name=callRow from=0 to="callArgCount.length"
+      if cond="callArgCount[callRow] < 0"
+        return value="false"
+    for name=row from=0 to="argCall.length"
+      if cond="argCall[row] < 0 || argCall[row] >= callArgCount.length"
+        return value="false"
+      if cond="row == 0"
+        if cond="argOrdinal[row] != 0"
+          return value="false"
+      if cond="row > 0"
+        if cond="argCall[row] == argCall[row - 1]"
+          if cond="argOrdinal[row] != argOrdinal[row - 1] + 1"
+            return value="false"
+        if cond="argCall[row] != argCall[row - 1]"
+          if cond="argCall[row] < argCall[row - 1]"
+            return value="false"
+          if cond="argOrdinal[row] != 0"
+            return value="false"
+    return value="true"
+
+fn name=checkerFactsParametersCanonical returns=boolean
+  param name=stmtKind type=string[]
+  param name=stmtName type=string[]
+  param name=paramFn type=string[]
+  param name=paramOrdinal type=number[]
+  param name=paramOwnerStmt type=number[]
+  handler lang="kern"
+    for name=row from=1 to="paramOwnerStmt.length"
+      if cond="paramOwnerStmt[row] < paramOwnerStmt[row - 1]"
+        return value="false"
+    let name=seen value=0
+    for name=statementRow from=0 to="stmtKind.length"
+      let name=ordinal value=0
+      for name=parameterRow from=0 to="paramFn.length"
+        if cond="paramOwnerStmt[parameterRow] == statementRow"
+          if cond="stmtKind[statementRow] != \"fn\""
+            return value="false"
+          if cond="paramFn[parameterRow] != stmtName[statementRow]"
+            return value="false"
+          if cond="paramOrdinal[parameterRow] != ordinal"
+            return value="false"
+          assign target=ordinal value="ordinal + 1"
+          assign target=seen value="seen + 1"
+    return value="seen == paramFn.length"
+
+fn name=checkFacts returns=string[] export=true
+  param name=format type=string
+  param name=path type=string
+  param name=stmtKind type=string[]
+  param name=stmtFn type=string[]
+  param name=stmtParent type=number[]
+  param name=stmtLine type=number[]
+  param name=stmtCol type=number[]
+  param name=stmtName type=string[]
+  param name=stmtTarget type=string[]
+  param name=stmtValue type=string[]
+  param name=stmtTemplate type=string[]
+  param name=stmtExprKind type=string[]
+  param name=stmtExprName type=string[]
+  param name=stmtExprLeftKind type=string[]
+  param name=stmtExprLeftName type=string[]
+  param name=stmtExprLeftNum type=string[]
+  param name=stmtExprLeftMemberObject type=string[]
+  param name=stmtExprLeftMemberProp type=string[]
+  param name=stmtExprRightKind type=string[]
+  param name=stmtExprRightName type=string[]
+  param name=stmtExprRightNum type=string[]
+  param name=stmtExprRightMemberObject type=string[]
+  param name=stmtExprRightMemberProp type=string[]
+  param name=stmtExprNum type=string[]
+  param name=stmtExprCall type=string[]
+  param name=stmtExprMemberObject type=string[]
+  param name=stmtExprMemberProp type=string[]
+  param name=stmtExprArgCount type=number[]
+  param name=idxStmt type=number[]
+  param name=idxFn type=string[]
+  param name=idxLine type=number[]
+  param name=idxCol type=number[]
+  param name=idxIndexKind type=string[]
+  param name=idxIndexName type=string[]
+  param name=callStmt type=number[]
+  param name=callFn type=string[]
+  param name=callStmtKind type=string[]
+  param name=callLine type=number[]
+  param name=callCol type=number[]
+  param name=callName type=string[]
+  param name=callMemberObject type=string[]
+  param name=callMemberProp type=string[]
+  param name=callArgCount type=number[]
+  param name=argCall type=number[]
+  param name=argOrdinal type=number[]
+  param name=argKind type=string[]
+  param name=argName type=string[]
+  param name=argNum type=string[]
+  param name=argOp type=string[]
+  param name=argLeftKind type=string[]
+  param name=argLeftName type=string[]
+  param name=argLeftNum type=string[]
+  param name=argRightKind type=string[]
+  param name=argRightName type=string[]
+  param name=argRightNum type=string[]
+  param name=paramFn type=string[]
+  param name=paramName type=string[]
+  param name=paramType type=string[]
+  param name=paramOrdinal type=number[]
+  param name=paramOwnerStmt type=number[]
+  param name=maxRows type=number
+  param name=maxCells type=number
+  param name=maxDiagnostics type=number
+  handler lang="kern"
+    if cond="format != \"kern.checker.facts.2\""
+      return value="checkerFactsFailure(\"CHECKER_FACTS_FORMAT\")"
+    if cond="path == \"\" || maxRows <= 0 || maxCells <= 0 || maxDiagnostics <= 0"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_LIMITS\")"
+    let name=statementRows value="stmtKind.length"
+    let name=indexRows value="idxStmt.length"
+    let name=callRows value="callStmt.length"
+    let name=argumentRows value="argCall.length"
+    let name=parameterRows value="paramFn.length"
+    if cond="stmtFn.length != statementRows || stmtParent.length != statementRows || stmtLine.length != statementRows || stmtCol.length != statementRows || stmtName.length != statementRows || stmtTarget.length != statementRows || stmtValue.length != statementRows || stmtTemplate.length != statementRows || stmtExprKind.length != statementRows || stmtExprName.length != statementRows || stmtExprLeftKind.length != statementRows || stmtExprLeftName.length != statementRows || stmtExprLeftNum.length != statementRows || stmtExprLeftMemberObject.length != statementRows || stmtExprLeftMemberProp.length != statementRows || stmtExprRightKind.length != statementRows || stmtExprRightName.length != statementRows || stmtExprRightNum.length != statementRows || stmtExprRightMemberObject.length != statementRows || stmtExprRightMemberProp.length != statementRows || stmtExprNum.length != statementRows || stmtExprCall.length != statementRows || stmtExprMemberObject.length != statementRows || stmtExprMemberProp.length != statementRows || stmtExprArgCount.length != statementRows"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_ALIGNMENT\")"
+    if cond="idxFn.length != indexRows || idxLine.length != indexRows || idxCol.length != indexRows || idxIndexKind.length != indexRows || idxIndexName.length != indexRows || callFn.length != callRows || callStmtKind.length != callRows || callLine.length != callRows || callCol.length != callRows || callName.length != callRows || callMemberObject.length != callRows || callMemberProp.length != callRows || callArgCount.length != callRows"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_ALIGNMENT\")"
+    if cond="argOrdinal.length != argumentRows || argKind.length != argumentRows || argName.length != argumentRows || argNum.length != argumentRows || argOp.length != argumentRows || argLeftKind.length != argumentRows || argLeftName.length != argumentRows || argLeftNum.length != argumentRows || argRightKind.length != argumentRows || argRightName.length != argumentRows || argRightNum.length != argumentRows || paramName.length != parameterRows || paramType.length != parameterRows || paramOrdinal.length != parameterRows || paramOwnerStmt.length != parameterRows"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_ALIGNMENT\")"
+    let name=factCells value="statementRows * 26 + indexRows * 6 + callRows * 9 + argumentRows * 12 + parameterRows * 5"
+    if cond="statementRows > maxRows || indexRows > maxRows || callRows > maxRows || argumentRows > maxRows || parameterRows > maxRows || factCells > maxCells"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_LIMITS\")"
+    for name=statementRow from=0 to=statementRows
+      if cond="stmtParent[statementRow] < -1 || stmtParent[statementRow] >= statementRow"
+        return value="checkerFactsFailure(\"CHECKER_FACTS_REFERENCES\")"
+    for name=indexRow from=0 to=indexRows
+      if cond="idxStmt[indexRow] < 0 || idxStmt[indexRow] >= statementRows"
+        return value="checkerFactsFailure(\"CHECKER_FACTS_REFERENCES\")"
+    for name=callRow from=0 to=callRows
+      if cond="callStmt[callRow] < 0 || callStmt[callRow] >= statementRows || callArgCount[callRow] < 0"
+        return value="checkerFactsFailure(\"CHECKER_FACTS_REFERENCES\")"
+    for name=statementCountRow from=0 to=statementRows
+      if cond="stmtExprArgCount[statementCountRow] < 0"
+        return value="checkerFactsFailure(\"CHECKER_FACTS_REFERENCES\")"
+    if cond="!checkerFactsArgumentsCanonical(callArgCount, argCall, argOrdinal)"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_ARGUMENTS\")"
+    if cond="!checkerFactsParametersCanonical(stmtKind, stmtName, paramFn, paramOrdinal, paramOwnerStmt)"
+      return value="checkerFactsFailure(\"CHECKER_FACTS_PARAMETERS\")"
+    let name=diagnostics value="checkModule(path, stmtKind, stmtFn, stmtParent, stmtLine, stmtCol, stmtName, stmtTarget, stmtValue, stmtTemplate, stmtExprKind, stmtExprName, stmtExprLeftKind, stmtExprLeftName, stmtExprLeftNum, stmtExprLeftMemberObject, stmtExprLeftMemberProp, stmtExprRightKind, stmtExprRightName, stmtExprRightNum, stmtExprRightMemberObject, stmtExprRightMemberProp, stmtExprNum, stmtExprCall, stmtExprMemberObject, stmtExprMemberProp, stmtExprArgCount, idxStmt, idxFn, idxLine, idxCol, idxIndexKind, idxIndexName, callStmt, callFn, callStmtKind, callLine, callCol, callName, callMemberObject, callMemberProp, callArgCount, argCall, argOrdinal, argKind, argName, argNum, argOp, argLeftKind, argLeftName, argLeftNum, argRightKind, argRightName, argRightNum, paramFn, paramName, paramType, paramOrdinal)"
+    if cond="diagnostics.length == 0 || diagnostics.length > maxDiagnostics"
+      return value="checkerFactsFailure(\"CHECKER_RESULT_LIMIT\")"
+    let name=out value="[]"
+    do value="out.push(\"kern.checker.native-result.1\")"
+    let name=outcome value="\"reject\""
+    if cond="diagnostics.length == 1"
+      if cond="diagnostics[0] == acceptLine(path)"
+        assign target=outcome value="\"accept\""
+    do value="out.push(outcome)"
+    for name=i from=0 to="diagnostics.length"
+      do value="out.push(diagnostics[i])"
+    return value="out"

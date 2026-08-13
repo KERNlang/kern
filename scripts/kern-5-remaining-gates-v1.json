@@ -19,10 +19,13 @@
   "terminalGates": [
     {
       "id": "kern-checker",
-      "status": "planned",
+      "status": "current",
       "argv": ["pnpm", "test:kern-checker"],
       "categories": ["source", "diagnostics", "kir", "determinism", "limits", "rejection-behavior"],
-      "evidence": [".Codex/specs/kern-5-post-m4-171-completion/spec.md"]
+      "evidence": [
+        ".Codex/specs/kern-5-phase1-production-checker/spec.md",
+        ".Codex/specs/kern-5-post-m4-171-completion/spec.md"
+      ]
     },
     {
       "id": "kern-formatter",

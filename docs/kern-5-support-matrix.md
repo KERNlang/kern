@@ -73,7 +73,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-evolved-hints | KERN-authored evolved parser-hint shadow | current | `pnpm test:kern-frontend-evolved-hints` |
 | kern-frontend-keyword-handlers | KERN-authored keyword-handler shadow | current | `pnpm test:kern-frontend-keyword-handlers` |
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
-| kern-checker | Production KERN checker | planned | `pnpm test:kern-checker` |
+| kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | planned | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
 | kern-compiler | KERN-authored compiler | planned | `pnpm test:kern-compiler` |
@@ -99,7 +99,7 @@ wall and must remain absent until promoted.
 | kern-module-validator | KERN module validator | internal-oracle | `pnpm test:selfhost-validator` |
 | kern-checker-v1 | KERN checker subset v1 | shipped-4.5 | `git show v4.5.0:examples/capstone-checker-subset/checker.kern` |
 | checker-v2 | Checker v2 and production shadow | internal-oracle | `pnpm test:capstone-checker-subset` |
-| kern-checker | Production KERN checker | not-shipped | `scripts/kern-5-remaining-gates-v1.json` |
+| kern-checker | Production KERN checker | internal-product | `pnpm test:kern-checker` |
 | kir-seam-selection | Typed semantic KIR seam selection | internal-oracle | `pnpm test:kern-ir-probe` |
 | kir-reader-candidate | Internal semantic KIR reader candidate | internal-oracle | `pnpm test:kern-ir-reader-candidate` |
 | semantic-ownership-proof | Non-circular semantic ownership substrate | internal-oracle | `pnpm test:kern-semantic-ownership` |
@@ -160,7 +160,10 @@ wall and must remain absent until promoted.
 | packed-release-proof | Exact packed release proof | not-shipped | R4 planned |
 <!-- KERN5_OWNERSHIP_MATRIX_END -->
 
-`shipped-4.5` means public substrate in the current product. `internal-oracle`
+`shipped-4.5` means public substrate in the current product. `internal-product`
+means a terminal KERN-owned component is packaged and release-blocking behind
+an explicit bootstrap boundary that a later cutover phase must replace.
+`internal-oracle`
 means KERN-authored logic participates in a release-blocking differential
 harness but is not yet the production API or semantic authority. `not-shipped`
 means the ownership boundary cannot support a KERN 5 release claim.
@@ -496,7 +499,7 @@ output, and JSON transport framing.
 
 Until their ownership rows and gates are promoted, KERN 5.0 does not claim:
 
-- a production KERN checker v2 or production checker shadow;
+- a KERN-authored raw-source fact producer or broad nominal-checker cutover;
 - a frozen versioned KIR/value/diagnostic contract or public/full KIR-to-runtime cutover beyond the sanctioned internal decoded-Module-KIR binder;
 - a KERN-authored formatter, source frontend, compiler, or semantic interpreter;
 - a clean Stage 0 to Stage 1 to Stage 2 fixed point;

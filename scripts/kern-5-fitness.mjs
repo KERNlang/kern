@@ -16,7 +16,7 @@ const ID_RE = /^[a-z][a-z0-9-]{0,63}$/;
 const SCRIPT_RE = /^[a-z][a-z0-9:-]{0,127}$/;
 const CONTROL_RE = /[\u0000-\u001f\u007f]/u;
 const GATE_STATUSES = new Set(['current', 'planned']);
-const OWNERSHIP_STATUSES = new Set(['shipped-4.5', 'internal-oracle', 'not-shipped']);
+const OWNERSHIP_STATUSES = new Set(['shipped-4.5', 'internal-oracle', 'internal-product', 'not-shipped']);
 const M4171_IMPLEMENTATION_SHA = '50407d08ac97eeb4bfe9ee007f1072841b058991';
 const PHASE0_BASELINE_SHA = 'bc1682880671b4dcac036ad74be8c4db4987810b';
 const CONTRACT_CATEGORIES = [
@@ -43,6 +43,7 @@ const TERMINAL_GATE_IDS = [
 ];
 const APPROVED_COMPLETION_EVIDENCE = new Set([
   '.Codex/goals/KERN-5-COMPLETION-GOAL.md',
+  '.Codex/specs/kern-5-phase1-production-checker/spec.md',
   '.Codex/specs/kern-5-post-m4-171-completion/spec.md',
   'docs/kern-5-release-train.md',
   'docs/kern-5-support-matrix.md',

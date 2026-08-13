@@ -1,75 +1,19 @@
 import { parseDocument } from '../../packages/core/dist/parser.js';
 import { parseExpression } from '../../packages/core/dist/parser-expression.js';
+import { KERN_CHECKER_TABLES } from '../../packages/cli/dist/kern-checker-contract.js';
 import {
   hasMixedParameterDeclarations,
   MIXED_PARAMETER_DECLARATION_MESSAGE,
 } from '../../packages/core/dist/parameter-declarations.js';
 
-export const DATA_ARRAYS = Object.freeze([
-  ['stmtKind', 'string'],
-  ['stmtFn', 'string'],
-  ['stmtParent', 'number'],
-  ['stmtLine', 'number'],
-  ['stmtCol', 'number'],
-  ['stmtName', 'string'],
-  ['stmtTarget', 'string'],
-  ['stmtValue', 'string'],
-  ['stmtTemplate', 'string'],
-  ['stmtExprKind', 'string'],
-  ['stmtExprName', 'string'],
-  ['stmtExprLeftKind', 'string'],
-  ['stmtExprLeftName', 'string'],
-  ['stmtExprLeftNum', 'string'],
-  ['stmtExprLeftMemberObject', 'string'],
-  ['stmtExprLeftMemberProp', 'string'],
-  ['stmtExprRightKind', 'string'],
-  ['stmtExprRightName', 'string'],
-  ['stmtExprRightNum', 'string'],
-  ['stmtExprRightMemberObject', 'string'],
-  ['stmtExprRightMemberProp', 'string'],
-  ['stmtExprNum', 'string'],
-  ['stmtExprCall', 'string'],
-  ['stmtExprMemberObject', 'string'],
-  ['stmtExprMemberProp', 'string'],
-  ['stmtExprArgCount', 'number'],
-  ['idxStmt', 'number'],
-  ['idxFn', 'string'],
-  ['idxLine', 'number'],
-  ['idxCol', 'number'],
-  ['idxIndexKind', 'string'],
-  ['idxIndexName', 'string'],
-  ['callStmt', 'number'],
-  ['callFn', 'string'],
-  ['callStmtKind', 'string'],
-  ['callLine', 'number'],
-  ['callCol', 'number'],
-  ['callName', 'string'],
-  ['callMemberObject', 'string'],
-  ['callMemberProp', 'string'],
-  ['callArgCount', 'number'],
-  ['argCall', 'number'],
-  ['argOrdinal', 'number'],
-  ['argKind', 'string'],
-  ['argName', 'string'],
-  ['argNum', 'string'],
-  ['argOp', 'string'],
-  ['argLeftKind', 'string'],
-  ['argLeftName', 'string'],
-  ['argLeftNum', 'string'],
-  ['argRightKind', 'string'],
-  ['argRightName', 'string'],
-  ['argRightNum', 'string'],
-  ['paramFn', 'string'],
-  ['paramName', 'string'],
-  ['paramType', 'string'],
-  ['paramOrdinal', 'number'],
-]);
+// Frozen checkModule ABI tables; facts.2 carries paramOwnerStmt only at its entry boundary.
+export const DATA_ARRAYS = Object.freeze(KERN_CHECKER_TABLES.slice(0, -1));
 
 const EXPR_PROPS = Object.freeze(['value', 'cond', 'from', 'to']);
 
 export function emptyFlatModule(path) {
   const out = { path };
-  for (const [name] of DATA_ARRAYS) out[name] = [];
+  for (const [name] of KERN_CHECKER_TABLES) out[name] = [];
   return out;
 }
 
@@ -106,6 +50,7 @@ function visitIr(node, out, currentFn, currentStmt) {
       out.paramName.push(param.name);
       out.paramType.push(param.type);
       out.paramOrdinal.push(ordinal);
+      out.paramOwnerStmt.push(stmtIndex);
     });
   }
 

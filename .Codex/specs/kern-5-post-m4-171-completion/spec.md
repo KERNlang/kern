@@ -1,6 +1,6 @@
 # KERN 5 Post-M4.171 Completion Contract
 
-**Status:** PHASE 0 COMPLETE; PHASE 1 READY
+**Status:** PHASE 1 IN PROGRESS; CHECKER COMPLETE
 
 **Date:** 2026-08-13
 
@@ -34,7 +34,7 @@ moving frontend and KIR boundary.
 
 ### Repository-measured state
 
-- **[VERIFIED]** The KERN 5 policy declares 58 gates: 50 `current` and 8
+- **[VERIFIED]** The KERN 5 policy declares 58 gates: 51 `current` and 7
   `planned`. The terminal roster and its frozen classification vocabulary are
   bound in `scripts/kern-5-remaining-gates-v1.json`; policy and ledger agree on
   ID, order, status, and argv.
@@ -55,22 +55,23 @@ moving frontend and KIR boundary.
   `referenceRunSequence` and TypeScript parser, and `kern run` documents that it
   executes through the reference runner. Evidence:
   `packages/core/src/runner.ts` and `packages/cli/src/commands/run.ts`.
-- **[VERIFIED]** The ownership matrix still marks the formatter, complete
+- **[VERIFIED]** The ownership matrix marks the production structural checker
+  `internal-product`; it still marks the formatter, complete
   frontend, compiler, fixed point, interpreter, and packed-release proof as
-  `not-shipped`. It also excludes a production checker v2 and full/canonical
-  KIR-to-runtime cutover. Evidence: `docs/kern-5-support-matrix.md`.
+  `not-shipped` and excludes full/canonical KIR-to-runtime cutover. Evidence:
+  `docs/kern-5-support-matrix.md`.
 
 ### Progress interpretation
 
 - **[VERIFIED]** Promoted-gate row coverage after reconciliation is
-  `50 / 58 = 86.2%`.
-- **[INFERRED]** Release completion is approximately **45-55%**, not 86.2%.
+  `51 / 58 = 87.9%`.
+- **[INFERRED]** Release completion is approximately **48-58%**, not 87.9%.
   The range is deliberately heuristic: the repository has a large, well-gated
   ownership substrate, but the remaining phases are the high-weight canonical
   product path—complete frontend, compiler, fixed point, interpreter, consumer
   cutover, packed proof, and public release.
-- **[VERIFIED]** Production checker, full formatter, and canonical cutover are
-  now represented as planned terminal gates without placeholder root scripts.
+- **[VERIFIED]** The production checker is current. Full formatter and canonical
+  cutover remain planned terminal gates without placeholder root scripts.
 
 ## What Already Works
 
@@ -79,7 +80,7 @@ moving frontend and KIR boundary.
 | Runtime/capability substrate | Typed handler ABI, capability seam, scheduler controls, effect-machine slices, source-runner convergence | Strong internal substrate; not the fully canonical KERN interpreter |
 | KIR | Strict versioned `kern.kir.v1` envelope, structural codec/module graph, evidence, coverage closure, runtime binding | Current internal contract; deliberately not a public export or runtime authority |
 | Frontend | Tokenizer through successful single-line composition, with differential and mutation evidence | Substantial shadow ownership; no cross-line/tree/KIR/public frontend |
-| Checker | Checker v1 shipped in 4.5; checker v2 production shadow is an internal oracle | Production checker v2 is open |
+| Checker | Versioned facts/result envelopes, native KERN verdicts, 48/48 parity, 36 hostile rejections, packaged private assets | Structural checker is current; bootstrap fact production remains until frontend cutover |
 | Formatter | Bounded canonicalizer profile and opt-in preview | Full trivia-preserving formatter is open |
 | Release machinery | Policy, packing, durability, recovery, promotion, and registry verification infrastructure exists | Exact KERN 5 packed-release/bootstrap proof is open |
 
@@ -92,7 +93,7 @@ slice promotes both atomically.
 
 | Gate | Current declaration | Promotion meaning |
 | --- | --- | --- |
-| `pnpm test:kern-checker` | **[VERIFIED]** planned | KERN checker owns the admitted v5 source/KIR contract and matches diagnostics with no tolerated drift |
+| `pnpm test:kern-checker` | **[VERIFIED]** current | the compiled authenticator plus KERN semantic checker owns verdicts over `kern.checker.facts.2`; the bootstrap producer remains explicit until frontend cutover |
 | `pnpm test:kern-formatter` | **[VERIFIED]** planned | KERN formatter preserves required trivia/source evidence and is idempotent and deterministic |
 | `pnpm test:kern-frontend` | **[VERIFIED]** planned | Complete admitted source produces byte-identical canonical KIR and diagnostics against the bootstrap oracle |
 | `pnpm test:kern-compiler` | **[VERIFIED]** planned | KERN-owned compiler covers the v5 target matrix and can compile its own toolchain sources |
@@ -217,7 +218,7 @@ publication require the authority specified by the active engineering doctrine.
 
 ## Corrections Log
 
-- **[CORRECTED]** `50/58` measures promoted gate rows, not 86.2% release
+- **[CORRECTED]** `51/58` measures promoted gate rows, not 87.9% release
   completion.
 - **[CORRECTED]** The five declared planned gates omit checker, formatter, and
   canonical-cutover completion gates.

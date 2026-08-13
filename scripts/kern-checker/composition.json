@@ -1,0 +1,26 @@
+{
+  "composite": {
+    "bytes": 53500,
+    "path": "examples/capstone-checker-subset/checker.composed.kern",
+    "sha256": "27542f388bc08bfe049c66cec6c7cf6783d84b63492260874abde514a5da396c"
+  },
+  "format": "kern.checker.composition.1",
+  "members": [
+    {
+      "bytes": 16227,
+      "path": "examples/capstone-checker-subset/checker-while.kern",
+      "sha256": "1382f193941dd1767815d7f1b0eb6482898bd7bb36fcdb6159057fc1e2c28c1d"
+    },
+    {
+      "bytes": 27028,
+      "path": "examples/capstone-checker-subset/checker.kern",
+      "sha256": "44a7ac9c556c0e876ec65c8a25ebca406c75346ab091ac70e9e8bc46fa56a614"
+    },
+    {
+      "bytes": 10590,
+      "path": "examples/capstone-checker-subset/checker-entry.kern",
+      "sha256": "f55edf993b8d3dfc919c86eb1c1f5cead06d7611f77331469bfff5edb24c4b28"
+    }
+  ],
+  "recipe": "strip-leading-use-blocks-and-concat.1"
+}
