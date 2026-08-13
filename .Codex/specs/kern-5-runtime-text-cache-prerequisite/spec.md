@@ -16,8 +16,13 @@
   chained 317-to-316 historical transition before the Text.splice transition;
   clean builds then refined five changed TypeScript owners to four changed
   retained JavaScript owners plus one byte-identical type-only owner.
+- `tribunal-1786652415894-8zgvr8` (`claude,codex,agy`, 3/3) rejected
+  exception-producing cache exhaustion, retained the sparse astral-position
+  representation, and required outcome-transparent fallback plus generated-leg
+  diagnostic ordering.
 
-**Confidence:** 0.82 before challenge; 0.92 after the tribunal and source trace.
+**Confidence:** 0.77 after independent review; 0.94 after the corrective
+tribunal, RED evidence, source trace, and 65K scalar-tape proof.
 
 ## Decision
 
@@ -25,8 +30,8 @@
   `Text.charAt`, `Text.slice`, `Text.indexOf`, and `Text.startsWith` contract.
   Add no KIR node, syntax, public namespace member, array result, or typed-array
   ABI.
-- **[RTC-D2 DECIDED]** The internal effect machine may memoize the immutable
-  Unicode-scalar sequence for a text value within one execution only. The
+- **[RTC-D2 DECIDED]** The internal effect machine may memoize a sparse index
+  of astral scalar positions for a text value within one execution only. The
   cache is execution state, not a semantic binding, result, event, capability,
   receipt, or module-global.
 - **[RTC-D3 DECIDED]** The cache store is opaque. A hit is authoritative because
@@ -34,14 +39,15 @@
   validated miss can be inserted. A miss is validated as well-formed UTF-16
   before insertion. Malformed text never enters the cache and retains the
   current fail-closed behavior.
-- **[RTC-D4 DECIDED]** Cache retention is bounded by the accepted runtime
-  `maxBytes` option. Retaining one value conservatively charges fixed entry
-  overhead, UTF-16 storage, scalar-array slots, and scalar values; equal
-  immutable string values share one entry. Exhaustion fails closed rather than
-  silently restoring quadratic execution under a claimed scaling guarantee.
-- **[RTC-D5 DECIDED]** Cached scalar arrays are frozen and never returned to
-  guest code. Cache admission cannot affect values, diagnostics, completion,
-  events, or source/KIR eligibility; only execution cost may improve.
+- **[RTC-D4 DECIDED]** Cache retention is bounded independently of result
+  `maxBytes` by a conservative two-maximum-entry capacity derived from
+  `maxStringBytes`. Each entry charges fixed overhead, retained UTF-16 key
+  storage, and four bytes per astral scalar position. LRU eviction preserves
+  the two hot operands required by the F1 scalar walk.
+- **[RTC-D5 DECIDED]** Admission cost is proven before the only
+  input-proportional allocation. An uncacheable value is validated and handled
+  by an allocation-free scan; cache admission, eviction, or absence never
+  changes values, diagnostics, completion, events, or source/KIR eligibility.
 - **[RTC-D6 DECIDED]** This slice closes the reference-runner prerequisite for
   F1. Equivalent isolated scaling proof for generated TypeScript and Python is
   an explicit F7 promotion dependency, not a claim made here.
@@ -72,15 +78,16 @@
 - **[RTC-A3 ACCEPT]** Child/helper/class environments see the same active
   execution state; independent executions never share retained values.
 - **[RTC-A4 ACCEPT]** Repeated `Text.length`, `Text.charAt`, and `Text.slice`
-  calls on the same well-formed value reuse one frozen scalar materialization.
-  `Text.indexOf` and `Text.startsWith` retain their current observable
-  semantics.
+  calls on an admitted well-formed value reuse one sparse scalar index.
+  `Text.indexOf` maps native UTF-16 matches back to scalar offsets, while
+  `Text.startsWith` validates allocation-free and remains cache-neutral.
 - **[RTC-A5 ACCEPT]** Cache removal, cross-execution retention, externally
   mutable storage, UTF-16-unit splitting, insertion-before-validation, and
   mutable-array mutations are rejected by focused tests or source validators.
 - **[RTC-A6 ACCEPT]** The geometric oracle covers ASCII, astral, mixed Unicode,
-  CRLF, and long-token inputs at sizes large enough to distinguish quadratic
-  rescanning, and binds the admitted F1 cap to the available retention budget.
+  CRLF, and long-token inputs through 65,536 scalars, large enough to reject
+  both quadratic rescanning and the former independent-`maxBytes` failure. It
+  binds the admitted F1 cap to `maxStringBytes`-derived retention.
 - **[RTC-A7 ACCEPT]** Existing Text contract, runtime-envelope, runtime-handler,
   canonicalizer, runtime-contract-v1, and scalar-tape tests remain green.
 - **[RTC-A8 ACCEPT]** Runtime owner closure and historical canonicalizer
@@ -92,10 +99,11 @@
 
 - Any cached value survives an execution boundary or becomes guest-observable.
 - Any malformed value is inserted, repaired, or replaced with U+FFFD.
-- Cache storage is externally injectable or exhaustion silently falls back to
-  the quadratic path.
-- F1 admits a source limit larger than the configured retention budget used by
-  its production gate.
+- Cache storage is externally injectable or an admission decision changes a
+  language-visible outcome.
+- The production F1 scaling claim is extended to internally-created strings
+  larger than `maxStringBytes`; those values retain correct uncached semantics
+  but are outside this slice's admitted-source scaling bound.
 - The non-promoting slice is described as generated-code parity or terminal
   frontend ownership.
 
@@ -120,13 +128,18 @@
 
 - **[RTC-V1 VERIFIED]** The baseline scaling oracle failed for the expected
   quadratic `Array.from`-per-call path.
-- **[RTC-V2 VERIFIED]** The corrected lookup-first implementation passes its
-  deterministic isolation, immutability, malformed-text, and exhaustion tests.
-- **[RTC-V3 VERIFIED]** ASCII, astral, CRLF, and mixed 1K/4K/16K scalar walks
-  scale near linearly; focused runtime envelope, public ABI, source-runner, and
-  runtime-contract-v1 gates pass.
+- **[RTC-V2 VERIFIED]** RED reproduced five failures from exception-producing
+  exhaustion, malformed-receiver diagnostic inversion, cache-dependent
+  `startsWith`, and under-budget mixed scalar mapping. The corrected sparse
+  index passes deterministic mapping, isolation, malformed-text, eviction,
+  fallback, and cache-neutrality tests.
+- **[RTC-V3 VERIFIED]** ASCII, astral, CRLF, and mixed 4K/16K/65K scalar walks
+  scale near linearly. The first 65K astral run exposed source/alphabet cache
+  thrash at 116.8 seconds; the bounded two-entry LRU correction reduces the
+  same case to approximately 0.56 seconds.
 - **[RTC-V4 VERIFIED]** The exact 317-to-316 successor-history reconstruction
   closes the fail-closed inventory break while preserving all frozen digests;
   the complete canonicalizer gate passes 750/750.
-- **[RTC-V5 PENDING]** Full KERN 5 fitness, independent Agon review, signed
-  history commit, and authorized publication.
+- **[RTC-V5 PENDING]** Corrected exact-history reconstruction, focused runtime
+  gates, full KERN 5 fitness, independent Agon review, signed history commit,
+  and authorized publication.

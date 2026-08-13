@@ -40,13 +40,13 @@ export interface InternalEffectMachineAsyncOptions {
   readonly capabilityTimeoutMs?: number;
   readonly iterationBudget?: number;
   readonly observer?: InternalEffectMachineObserver;
-  readonly textCodePointCacheBudget?: number;
+  readonly textCodePointCacheMaxStringBytes?: number;
 }
 
 export interface InternalEffectMachineSyncOptions {
   readonly iterationBudget?: number;
   readonly observer?: InternalEffectMachineObserver;
-  readonly textCodePointCacheBudget?: number;
+  readonly textCodePointCacheMaxStringBytes?: number;
 }
 
 export interface InternalCapabilityEffectRequest {

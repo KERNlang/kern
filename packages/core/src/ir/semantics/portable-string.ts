@@ -39,13 +39,18 @@
  *   - `startsWith(prefix)` returns a boolean; there is no out-of-range case.
  */
 
-import { codePointIndexOf } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   copyInternalEffectMachineState,
   internalEffectMachineStateForEnv,
 } from './internal-effect-machine-helper-state.js';
-import { acquireInternalTextCodePoints } from './internal-text-code-point-cache.js';
+import {
+  internalTextScalarAt,
+  internalTextScalarIndexOf,
+  internalTextScalarLength,
+  internalTextScalarSlice,
+  internalTextStartsWith,
+} from './internal-text-code-point-cache.js';
 import type { EvalPortableValue } from './portable-eval-types.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
 import { hasBinding, type SemanticEnv } from './semantic-env.js';
@@ -55,8 +60,8 @@ function requireString(value: PortableScalar, label: string): string {
   return value;
 }
 
-function executionTextCodePoints(value: string, label: string, env: SemanticEnv): readonly string[] {
-  return acquireInternalTextCodePoints(internalEffectMachineStateForEnv(env), value, label);
+function executionOwner(env: SemanticEnv): object | undefined {
+  return internalEffectMachineStateForEnv(env);
 }
 
 /** True iff `node` is the builtin, UNSHADOWED `Text` namespace identifier —
@@ -100,53 +105,60 @@ export function evalStringOpCall(
 
   const receiverArg = node.args[0];
   if (!isValueIR(receiverArg)) throw new Error(`portable: ${label} requires a string receiver`);
-  const receiver = requireString(evaluate(receiverArg, env), label);
+  const receiverValue = evaluate(receiverArg, env);
 
   switch (method) {
-    case 'length':
-      return executionTextCodePoints(receiver, label, env).length;
+    case 'length': {
+      const receiver = requireString(receiverValue, label);
+      return internalTextScalarLength(executionOwner(env), receiver, label);
+    }
     case 'charAt': {
-      const index = requireSafeIntegerArg(node.args[1], env, evaluate, label);
-      const cps = executionTextCodePoints(receiver, label, env);
-      if (index < 0 || index >= cps.length) {
-        throw new Error(`portable: ${label} index ${index} is out of bounds for a string of length ${cps.length}`);
+      const indexValue = evaluateIndexArg(node.args[1], env, evaluate);
+      const receiver = requireString(receiverValue, label);
+      const length = internalTextScalarLength(executionOwner(env), receiver, label);
+      const index = requireSafeIntegerValue(indexValue, label);
+      if (index < 0 || index >= length) {
+        throw new Error(`portable: ${label} index ${index} is out of bounds for a string of length ${length}`);
       }
-      return cps[index];
+      return internalTextScalarAt(executionOwner(env), receiver, index, label);
     }
     case 'slice': {
-      const start = requireSafeIntegerArg(node.args[1], env, evaluate, label);
-      const end = requireSafeIntegerArg(node.args[2], env, evaluate, label);
-      const cps = executionTextCodePoints(receiver, label, env);
-      if (start < 0 || end < 0 || start > cps.length || end > cps.length || start > end) {
+      const startValue = evaluateIndexArg(node.args[1], env, evaluate);
+      const endValue = evaluateIndexArg(node.args[2], env, evaluate);
+      const receiver = requireString(receiverValue, label);
+      const length = internalTextScalarLength(executionOwner(env), receiver, label);
+      const start = requireSafeIntegerValue(startValue, label);
+      const end = requireSafeIntegerValue(endValue, label);
+      if (start < 0 || end < 0 || start > length || end > length || start > end) {
         throw new Error(
-          `portable: ${label}(${start}, ${end}) is out of bounds for a string of length ${cps.length} (0 <= start <= end <= length required)`,
+          `portable: ${label}(${start}, ${end}) is out of bounds for a string of length ${length} (0 <= start <= end <= length required)`,
         );
       }
-      return cps.slice(start, end).join('');
+      return internalTextScalarSlice(executionOwner(env), receiver, start, end, label);
     }
     case 'indexOf': {
-      const needle = requireString(evaluate(node.args[1], env), label);
-      return codePointIndexOf(
-        executionTextCodePoints(receiver, label, env),
-        executionTextCodePoints(needle, label, env),
-      );
+      const needleValue = evaluate(node.args[1], env);
+      const receiver = requireString(receiverValue, label);
+      return internalTextScalarIndexOf(executionOwner(env), receiver, needleValue, label);
     }
     case 'startsWith': {
-      const prefix = requireString(evaluate(node.args[1], env), label);
-      executionTextCodePoints(receiver, label, env);
-      executionTextCodePoints(prefix, label, env);
-      return receiver.startsWith(prefix);
+      const prefixValue = evaluate(node.args[1], env);
+      const receiver = requireString(receiverValue, label);
+      return internalTextStartsWith(receiver, prefixValue, label);
     }
     default:
       return undefined;
   }
 }
 
-function requireSafeIntegerArg(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue, label: string): number {
+function evaluateIndexArg(node: ValueIR, env: SemanticEnv, evaluate: EvalPortableValue): PortableScalar {
   // Float/int fence escape hatch (see `SemanticEnv`): bounds-checked, never printed.
   const indexEnv = { ...env, intIndexCtx: true };
   copyInternalEffectMachineState(env, indexEnv);
-  const value = evaluate(node, indexEnv);
+  return evaluate(node, indexEnv);
+}
+
+function requireSafeIntegerValue(value: PortableScalar, label: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
     throw new Error(`portable: ${label} index arguments must be safe integers`);
   }

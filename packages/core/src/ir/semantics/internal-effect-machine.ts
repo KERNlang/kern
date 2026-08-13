@@ -120,8 +120,8 @@ export function runInternalEffectMachineSync(
     observer: options.observer,
     remainingIterations: options.iterationBudget,
   };
-  if (options.textCodePointCacheBudget !== undefined) {
-    installInternalTextCodePointCache(state, options.textCodePointCacheBudget);
+  if (options.textCodePointCacheMaxStringBytes !== undefined) {
+    installInternalTextCodePointCache(state, options.textCodePointCacheMaxStringBytes);
   }
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());
@@ -148,8 +148,8 @@ export async function runInternalEffectMachineAsync(
     observer: options.observer,
     remainingIterations: options.iterationBudget,
   };
-  if (options.textCodePointCacheBudget !== undefined) {
-    installInternalTextCodePointCache(state, options.textCodePointCacheBudget);
+  if (options.textCodePointCacheMaxStringBytes !== undefined) {
+    installInternalTextCodePointCache(state, options.textCodePointCacheMaxStringBytes);
   }
   const machine = runMachine(nodes, env, state);
   let step = withMachineState(env, state, () => machine.next());

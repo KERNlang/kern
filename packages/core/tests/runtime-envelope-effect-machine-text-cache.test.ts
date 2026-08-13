@@ -1,16 +1,15 @@
+import { readFileSync } from 'node:fs';
+
 import { bindInternalEffectMachineState } from '../src/ir/semantics/internal-effect-machine-helper-state.js';
 import type { InternalEffectMachineState } from '../src/ir/semantics/internal-effect-machine-types.js';
-import {
-  acquireInternalTextCodePoints,
-  installInternalTextCodePointCache,
-} from '../src/ir/semantics/internal-text-code-point-cache.js';
+import { installInternalTextCodePointCache } from '../src/ir/semantics/internal-text-code-point-cache.js';
 import { evalPortableValue } from '../src/ir/semantics/portable-machine-evaluator.js';
 import { makeEnv } from '../src/ir/semantics/semantic-env.js';
 import { parseExpression } from '../src/parser-expression.js';
 
-function state(budget: number): InternalEffectMachineState {
+function state(maxStringBytes: number): InternalEffectMachineState {
   const machine = { remainingIterations: 1 };
-  installInternalTextCodePointCache(machine, budget);
+  installInternalTextCodePointCache(machine, maxStringBytes);
   return machine;
 }
 
@@ -25,42 +24,86 @@ function evaluate(expression: string, source: string, machine: InternalEffectMac
 }
 
 describe('internal effect-machine Text code-point cache', () => {
-  test('retains one frozen scalar materialization per immutable value', () => {
-    const source = 'a😀b';
-    const machine = state(1024);
+  test('maps scalar boundaries exactly without exposing retained storage', () => {
+    const source = '😀a𐐀😀';
+    const machine = state(64);
 
-    expect(evaluate('Text.length(source)', source, machine)).toBe(3);
-    expect(evaluate('Text.charAt(source, 1)', source, machine)).toBe('😀');
-    expect(evaluate('Text.slice(source, 1, 3)', source, machine)).toBe('😀b');
-    expect(evaluate('Text.indexOf(source, "b")', source, machine)).toBe(2);
-
-    const retained = acquireInternalTextCodePoints(machine, source, 'Text.test');
-    const retainedAgain = acquireInternalTextCodePoints(machine, source, 'Text.test');
-    expect(retained).toEqual(['a', '😀', 'b']);
-    expect(Object.isFrozen(retained)).toBe(true);
-    expect(retainedAgain).toBe(retained);
+    expect(evaluate('Text.length(source)', source, machine)).toBe(4);
+    expect(evaluate('Text.charAt(source, 0)', source, machine)).toBe('😀');
+    expect(evaluate('Text.charAt(source, 1)', source, machine)).toBe('a');
+    expect(evaluate('Text.charAt(source, 2)', source, machine)).toBe('𐐀');
+    expect(evaluate('Text.charAt(source, 3)', source, machine)).toBe('😀');
+    expect(evaluate('Text.slice(source, 1, 3)', source, machine)).toBe('a𐐀');
+    expect(evaluate('Text.indexOf(source, "𐐀😀")', source, machine)).toBe(2);
     expect(Object.keys(machine)).toEqual(['remainingIterations']);
   });
 
-  test('fails closed without retention when the execution budget is exhausted', () => {
-    const machine = state(1);
-    expect(() => evaluate('Text.charAt(source, 2)', 'abcd', machine)).toThrow(/cache budget exhausted/u);
-    expect(() => acquireInternalTextCodePoints(machine, 'a', 'Text.test')).toThrow(/cache budget exhausted/u);
+  test('cache admission and eviction never change Text outcomes', () => {
+    const machine = state(4);
+    const first = '😀'.repeat(128);
+    const second = '𐐀'.repeat(128);
+
+    expect(evaluate('Text.charAt(source, 127)', first, machine)).toBe('😀');
+    expect(evaluate('Text.charAt(source, 127)', second, machine)).toBe('𐐀');
+    expect(evaluate('Text.charAt(source, 127)', first, machine)).toBe('😀');
   });
 
   test('rejects malformed UTF-16 before insertion', () => {
     const machine = state(1024);
     expect(() => evaluate('Text.length(source)', '\ud800', machine)).toThrow(/malformed.*UTF-16/u);
-    expect(acquireInternalTextCodePoints(machine, 'a', 'Text.test')).toEqual(['a']);
+    expect(() => evaluate('Text.length(source)', '\udc00', machine)).toThrow(/malformed.*UTF-16/u);
+    expect(() => evaluate('Text.length(source)', '\ud800\ud800', machine)).toThrow(/malformed.*UTF-16/u);
+    expect(evaluate('Text.length(source)', 'a', machine)).toBe(1);
   });
 
-  test('does not share retained arrays between execution states', () => {
+  test('does not share retained state between executions', () => {
     const first = state(1024);
     const second = state(1024);
     expect(evaluate('Text.length(source)', 'same', first)).toBe(4);
     expect(evaluate('Text.length(source)', 'same', second)).toBe(4);
-    expect(acquireInternalTextCodePoints(first, 'same', 'Text.test')).not.toBe(
-      acquireInternalTextCodePoints(second, 'same', 'Text.test'),
+    expect(Object.keys(first)).toEqual(['remainingIterations']);
+    expect(Object.keys(second)).toEqual(['remainingIterations']);
+  });
+
+  test('validates malformed receivers before index diagnostics', () => {
+    const machine = state(1024);
+    expect(() => evaluate('Text.charAt(source, 1.5)', '\ud800', machine)).toThrow(/malformed.*UTF-16/u);
+    expect(() => evaluate('Text.slice(source, -1, 99)', '\ud800', machine)).toThrow(/malformed.*UTF-16/u);
+    expect(() => evaluate('Text.indexOf(source, 1)', '\ud800', machine)).toThrow(/malformed.*UTF-16/u);
+    expect(() => evaluate('Text.startsWith(source, false)', '\ud800', machine)).toThrow(/malformed.*UTF-16/u);
+  });
+
+  test('startsWith validates operands without depending on cache admission', () => {
+    const machine = state(1);
+    const source = `${'a'.repeat(16_384)}😀`;
+    expect(evaluate('Text.startsWith(source, "aaaa")', source, machine)).toBe(true);
+    expect(() => evaluate('Text.startsWith(source, "\\uD800")', source, machine)).toThrow(/malformed.*UTF-16/u);
+  });
+
+  test('matches Array.from scalar behavior across deterministic mixed samples', () => {
+    const machine = state(64);
+    const samples = ['', 'ascii', 'é日', '😀a𐐀😀', 'a\r\nb', '𝄞'.repeat(32)];
+    for (const source of samples) {
+      const expected = Array.from(source);
+      expect(evaluate('Text.length(source)', source, machine)).toBe(expected.length);
+      for (let index = 0; index < expected.length; index += 1) {
+        expect(evaluate(`Text.charAt(source, ${index})`, source, machine)).toBe(expected[index]);
+      }
+      expect(evaluate(`Text.slice(source, 0, ${expected.length})`, source, machine)).toBe(source);
+    }
+  });
+
+  test('keeps cache admission allocation-bounded and startsWith cache-neutral', () => {
+    const source = readFileSync(
+      new URL('../src/ir/semantics/internal-text-code-point-cache.ts', import.meta.url),
+      'utf8',
     );
+    expect(source).not.toMatch(/Array\.from|textCodePoints|readonly string\[\]/u);
+    expect(source).not.toMatch(/cache budget exhausted/u);
+    expect(source.indexOf('const cost = retainedCost')).toBeLessThan(
+      source.indexOf('const astralScalarPositions = materializeAstralPositions'),
+    );
+    const startsWith = source.slice(source.indexOf('export function internalTextStartsWith'));
+    expect(startsWith).not.toMatch(/acquireTextScalarIndex|stores\.get|new Uint32Array/u);
   });
 });

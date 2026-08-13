@@ -43,7 +43,7 @@ export function executeInternalRuntimeEnvelopeSync(
       env,
       accepted.limits.maxCollectionLength,
       accepted.observer,
-      accepted.limits.maxBytes,
+      accepted.limits.maxStringBytes,
     );
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
@@ -71,7 +71,7 @@ export async function executeInternalRuntimeEnvelopeAsync(
         ...asyncOptions,
         iterationBudget: accepted.limits.maxCollectionLength,
         observer: accepted.observer,
-        textCodePointCacheBudget: accepted.limits.maxBytes,
+        textCodePointCacheMaxStringBytes: accepted.limits.maxStringBytes,
       }),
     );
     throwIfInternalRuntimeSchedulerTerminated(env);
