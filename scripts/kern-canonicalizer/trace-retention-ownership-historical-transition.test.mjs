@@ -10,6 +10,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
+} from './execution-context-hardening-format-historical-transition.mjs';
+import {
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
 } from './execution-context-hardening-historical-transition.mjs';
 import {
@@ -112,6 +115,9 @@ test('every source endpoint reconstructs exact 36d0 bytes and deleted helper con
 });
 
 test('every compiled endpoint reconstructs the authenticated 36d0 digest', () => {
+  const executionHardeningFormatByPath = new Map(
+    POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.map((row) => [row.path, row]),
+  );
   const executionHardeningByPath = new Map(
     POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.map((row) => [row.path, row]),
   );
@@ -123,6 +129,16 @@ test('every compiled endpoint reconstructs the authenticated 36d0 digest', () =>
   );
   for (const reconstruction of POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS) {
     let current = readFileSync(resolve(DIST, reconstruction.path));
+    const format = executionHardeningFormatByPath.get(reconstruction.path);
+    if (format !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: format.expectedDigest,
+        milestone: `execution-context hardening format ownership composition ${format.path}`,
+        path: format.path,
+        stages: [stage(format)],
+      });
+    }
     const hardening = executionHardeningByPath.get(reconstruction.path);
     if (hardening !== undefined) {
       current = reconstructHistoricalTransitionChain({

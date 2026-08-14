@@ -10,6 +10,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
+} from './execution-context-hardening-format-historical-transition.mjs';
+import {
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
 } from './execution-context-hardening-historical-transition.mjs';
 import {
@@ -59,13 +62,25 @@ function stage(reconstruction) {
 }
 
 function atTraceRetentionRootSuccessor(path, currentSource) {
+  const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  const hardeningSuccessor = format === undefined
+    ? currentSource
+    : reconstructHistoricalTransitionChain({
+        currentSource,
+        expectedTerminalDigest: format.expectedDigest,
+        milestone: `execution-context hardening format predecessor compiled ${path}`,
+        path,
+        stages: [stage(format)],
+      });
   const hardening = POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,
   );
   const isolationSuccessor = hardening === undefined
-    ? currentSource
+    ? hardeningSuccessor
     : reconstructHistoricalTransitionChain({
-        currentSource,
+        currentSource: hardeningSuccessor,
         expectedTerminalDigest: hardening.expectedDigest,
         milestone: `execution-context hardening predecessor compiled ${path}`,
         path,

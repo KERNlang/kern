@@ -6,6 +6,9 @@ import { join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 
 import {
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
+} from './execution-context-hardening-format-historical-transition.mjs';
+import {
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
 } from './execution-context-hardening-historical-transition.mjs';
 import {
@@ -65,12 +68,24 @@ function stage(reconstruction) {
 }
 
 function atExecutionContextIsolationSuccessor(path, currentSource) {
+  const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  const hardeningSuccessor = format === undefined
+    ? currentSource
+    : reconstructHistoricalTransitionChain({
+        currentSource,
+        expectedTerminalDigest: format.expectedDigest,
+        milestone: `execution-context hardening format predecessor compiled ${path}`,
+        path,
+        stages: [stage(format)],
+      });
   const hardening = POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,
   );
-  if (hardening === undefined) return currentSource;
+  if (hardening === undefined) return hardeningSuccessor;
   return reconstructHistoricalTransitionChain({
-    currentSource,
+    currentSource: hardeningSuccessor,
     expectedTerminalDigest: hardening.expectedDigest,
     milestone: `execution-context hardening predecessor compiled ${path}`,
     path,

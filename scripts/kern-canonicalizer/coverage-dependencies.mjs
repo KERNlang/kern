@@ -11,6 +11,11 @@ import {
 import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
 import { POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './each-collection-structural-target.mjs';
 import {
+  EXECUTION_CONTEXT_HARDENING_FORMAT_HISTORICAL_TRANSITION,
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
+  validateExecutionContextHardeningFormatHistoricalTransition,
+} from './execution-context-hardening-format-historical-transition.mjs';
+import {
   EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION,
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
   validateExecutionContextHardeningHistoricalTransition,
@@ -299,7 +304,26 @@ export function validateExecutionContextHardeningCompiledCoreJavaScriptPaths(pat
   return paths;
 }
 
+export function validateExecutionContextHardeningFormatCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(
+    paths,
+    'execution-context hardening format successor compiled core inventory',
+  );
+  const transition = EXECUTION_CONTEXT_HARDENING_FORMAT_HISTORICAL_TRANSITION;
+  const identity = { count: paths.length, digest: hashPathInventory(paths) };
+  if (
+    identity.count !== transition.compiledInventory.successor.count ||
+    identity.digest !== transition.compiledInventory.successor.digest ||
+    identity.count !== transition.compiledInventory.predecessor.count ||
+    identity.digest !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('execution-context hardening format transition requires an unchanged authenticated inventory');
+  }
+  return paths;
+}
+
 function m4145CompiledCoreJavaScriptPaths() {
+  validateExecutionContextHardeningFormatHistoricalTransition();
   validateExecutionContextHardeningHistoricalTransition();
   validateExecutionContextIsolationHistoricalTransition();
   validateTraceRetentionRootHistoricalTransition();
@@ -319,8 +343,10 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`legacy trace-compaction added compiled source drifted: ${identity.path}`);
     }
   }
+  const executionContextHardeningFormatPaths =
+    validateExecutionContextHardeningFormatCompiledCoreJavaScriptPaths(paths);
   const executionContextHardeningPaths =
-    validateExecutionContextHardeningCompiledCoreJavaScriptPaths(paths);
+    validateExecutionContextHardeningCompiledCoreJavaScriptPaths(executionContextHardeningFormatPaths);
   const executionContextIsolationPaths =
     validateExecutionContextIsolationCompiledCoreJavaScriptPaths(executionContextHardeningPaths);
   const traceRetentionRootPaths =
@@ -331,6 +357,29 @@ function m4145CompiledCoreJavaScriptPaths() {
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const overrides = new Map();
+  for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-execution-context-hardening-format compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `execution-context hardening format predecessor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [
+          historicalTransitionStage({
+            claim: reconstruction.claim,
+            currentDigest: reconstruction.currentDigest,
+            expectedDigest: reconstruction.expectedDigest,
+            path: reconstruction.path,
+            replacements: reconstruction.replacements,
+          }),
+        ],
+      }),
+    );
+  }
   for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-execution-context-hardening compiled path is absent from M4.145: ${reconstruction.path}`);
@@ -338,7 +387,8 @@ function m4145CompiledCoreJavaScriptPaths() {
     overrides.set(
       reconstruction.path,
       reconstructHistoricalTransitionChain({
-        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        currentSource:
+          overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
         expectedTerminalDigest: reconstruction.expectedDigest,
         milestone: `execution-context hardening predecessor compiled ${reconstruction.path}`,
         path: reconstruction.path,

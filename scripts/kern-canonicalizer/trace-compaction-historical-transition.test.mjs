@@ -11,6 +11,10 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_SOURCE_RECONSTRUCTIONS,
+} from './execution-context-hardening-format-historical-transition.mjs';
+import {
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
   POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS,
 } from './execution-context-hardening-historical-transition.mjs';
@@ -112,6 +116,18 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
   const { predecessorCommit, successorCommit } = TRACE_COMPACTION_HISTORICAL_TRANSITION;
   for (const reconstruction of POST_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS) {
     let current = readFileSync(resolve(ROOT, reconstruction.path));
+    const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_SOURCE_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (format !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: format.expectedDigest,
+        milestone: `execution-context hardening format source endpoint ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(format)],
+      });
+    }
     const hardening = POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -180,6 +196,18 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
 test('clean current build and every reconstructed compiled endpoint match exact identities', () => {
   for (const reconstruction of POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
     let current = readFileSync(resolve(DIST, reconstruction.path));
+    const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (format !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: format.expectedDigest,
+        milestone: `execution-context hardening format compiled endpoint ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(format)],
+      });
+    }
     const hardening = POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );

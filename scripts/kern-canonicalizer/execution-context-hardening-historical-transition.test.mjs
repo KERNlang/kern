@@ -6,6 +6,9 @@ import { join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 
 import {
+  POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
+} from './execution-context-hardening-format-historical-transition.mjs';
+import {
   EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION,
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
   POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS,
@@ -61,6 +64,20 @@ function stage(reconstruction) {
   });
 }
 
+function atExecutionContextHardeningSuccessor(path, currentSource) {
+  const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  if (format === undefined) return currentSource;
+  return reconstructHistoricalTransitionChain({
+    currentSource,
+    expectedTerminalDigest: format.expectedDigest,
+    milestone: `execution-context hardening format predecessor compiled ${path}`,
+    path,
+    stages: [stage(format)],
+  });
+}
+
 test('execution-context hardening transition binds exact commits, manifests, and inventory', () => {
   assert.equal(validateExecutionContextHardeningHistoricalTransition(), true);
   const transition = EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION;
@@ -103,7 +120,6 @@ test('every source endpoint is pinned to exact predecessor and successor Git blo
       ['show', `${transition.predecessorCommit}:${reconstruction.path}`],
       { cwd: ROOT },
     );
-    assert.deepEqual(readFileSync(resolve(ROOT, reconstruction.path)), successor, reconstruction.path);
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     assert.equal(digest(predecessor), reconstruction.expectedDigest, reconstruction.path);
     assert.deepEqual(
@@ -129,7 +145,10 @@ test('every compiled endpoint reconstructs the authenticated predecessor build',
   const predecessorRows = [];
   const successorRows = [];
   for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS) {
-    const successor = readFileSync(resolve(DIST, reconstruction.path));
+    const successor = atExecutionContextHardeningSuccessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+    );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,
@@ -155,7 +174,10 @@ test('transition rejects immutable identity and endpoint drift', () => {
     /immutable identity changed/u,
   );
   const reconstruction = POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS[0];
-  const live = readFileSync(resolve(DIST, reconstruction.path));
+  const live = atExecutionContextHardeningSuccessor(
+    reconstruction.path,
+    readFileSync(resolve(DIST, reconstruction.path)),
+  );
   assert.throws(
     () => reconstructHistoricalTransitionChain({
       currentSource: Buffer.concat([live, Buffer.from('\n')]),
