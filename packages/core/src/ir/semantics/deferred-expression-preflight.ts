@@ -1,6 +1,9 @@
 import { isWellFormedText } from '../../codegen/text-contract.js';
-import { DECIMAL_DIV_ZERO_FAILCLOSE, DECIMAL_MOD_ZERO_FAILCLOSE } from '../../decimal/contract.js';
-import { assertPortableDecimalPow } from '../../decimal/probe-gates.js';
+import {
+  assertPortableDecimalPow,
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
+} from '../../decimal/probe-gates.js';
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
@@ -37,7 +40,6 @@ import {
   portableTruthy,
 } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
-
 export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: ReadonlySet<string>): boolean {
   if (node.kind === 'ident') return deferredBindings.has(node.name);
   if (node.kind === 'unary' || node.kind === 'new') {
@@ -85,7 +87,6 @@ export function expressionHasDeferredBinding(node: ValueIR, deferredBindings: Re
   }
   return false;
 }
-
 export function expressionRequiresDeferredMachinePreflight(
   node: ValueIR,
   env: SemanticEnv,
@@ -93,7 +94,6 @@ export function expressionRequiresDeferredMachinePreflight(
 ): boolean {
   return expressionHasDeferredBinding(node, deferredBindings) || internalMachineHelperCallInValue(node, env);
 }
-
 function scalarRequiresDeferredMachinePreflight(
   node: ValueIR,
   env: SemanticEnv,

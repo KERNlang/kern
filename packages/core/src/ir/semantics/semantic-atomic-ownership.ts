@@ -1,4 +1,4 @@
-import { assertPortableDecimalLiteral, isPortableDecimalLiteral } from '../../decimal/contract.js';
+import { assertPortableDecimalLiteral, isPortableDecimalLiteral } from '../../decimal/probe-gates.js';
 
 const ownedDecimalValues = new WeakSet<object>();
 

@@ -1,4 +1,4 @@
-import { isPortableDecimalLiteral } from '../decimal/contract.js';
+import { isPortableDecimalLiteral } from '../decimal/probe-gates.js';
 import { isDecimalValue, isPortableRecordKey } from '../ir/semantics/portable-scalar-domain.js';
 import {
   InternalRuntimeEnvelopeError,

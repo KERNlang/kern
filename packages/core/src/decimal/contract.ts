@@ -25,6 +25,25 @@
  *  stays intact. */
 
 import DecimalImport from 'decimal.js';
+import {
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE,
+  DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
+} from './probe-gates.js';
+
+export {
+  assertPortableDecimalLiteral,
+  DECIMAL_DIV_ZERO_FAILCLOSE,
+  DECIMAL_MOD_ZERO_FAILCLOSE,
+  DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE,
+  DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE,
+  DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE,
+  DECIMAL_SCALE_FAILCLOSE,
+  decimalPowFailMessage,
+  decimalScaleFailMessage,
+  isPortableDecimalLiteral,
+} from './probe-gates.js';
 
 // decimal.js's `.d.ts` merges a `class Decimal`, an `export declare function
 // Decimal`, and an `export namespace Decimal`. Under `module: nodenext` +
@@ -85,84 +104,9 @@ export function makeKDecimal(): KDecimalCtor {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Canonical LITERAL grammar + validators (the portable surface). These were the
-// pure validator family; both the codegen emitters (via the
-// `codegen/decimal-contract.ts` re-export) and the runner call them so the
-// admit/refuse set is byte-identical across all three legs.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Diagnostic prefix for the Slice-1 Decimal scale/significance fail-close. */
-export const DECIMAL_SCALE_FAILCLOSE = 'Decimal literal carries non-canonical scale/significance';
-
 /** The npm package the TS leg's Decimal lowering depends on. Surfaced into the TS
  *  expression emitter's `imports` set so a caller can render the import line. */
 export const DECIMAL_TS_PACKAGE = 'decimal.js';
-
-/** The strict canonical Decimal-literal grammar KERN guarantees portable in v1.
- *
- *  Accepted (value === canonical rendering on BOTH decimal.js and Python decimal):
- *    - optional leading `-` (but NOT on a zero value — `-0` diverges)
- *    - an integer part with NO superfluous leading zeros (`0`, `1`, `42`, `123`),
- *      so `01` / `007` are refused (decimal.js drops them, scale-ambiguous)
- *    - an OPTIONAL fractional part: a single `.` then >=1 digit, whose LAST digit
- *      is non-zero when the value is non-zero (no trailing zeros), and which is not
- *      an all-zero fraction (`0.00`, scale-only)
- *    - NO exponent (`E`/`e`): exponent literals render divergently (`1E+2` vs `100`)
- *
- *  Examples accepted: `0`, `1`, `1.5`, `0.1`, `0.2`, `0.3`, `-1.5`, `42`, `123.456`.
- *  Examples refused: `1.10`, `1.2300`, `0.00`, `-0`, `1E+2`, `1.5e-10`, `007`, `1.0`. */
-const CANONICAL_DECIMAL_GRAMMAR = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
-
-/** True iff `raw` is a portable KERN Decimal literal per the v1 canonical grammar
- *  — i.e. decimal.js and Python `decimal` render it to the byte-identical string,
- *  so binding it makes NO scale promise. Drives the symmetric fail-close on all
- *  legs. `raw` is the literal's STRING value (the content of `Decimal.of("...")`). */
-export function isPortableDecimalLiteral(raw: string): boolean {
-  // Reject empty / whitespace outright (decimal.js trims, Python is stricter).
-  if (raw.length === 0) return false;
-  // Exponent form is always scale-divergent (`1E+2` -> Python `1E+2`, JS `100`).
-  if (/[eE]/.test(raw)) return false;
-  if (!CANONICAL_DECIMAL_GRAMMAR.test(raw)) return false;
-
-  // `-0` / `-0.0...` : Python keeps the sign (`-0`), decimal.js drops it (`0`).
-  if (raw.startsWith('-')) {
-    const magnitude = raw.slice(1);
-    if (/^0(?:\.0+)?$/.test(magnitude)) return false;
-  }
-
-  const dot = raw.indexOf('.');
-  if (dot !== -1) {
-    const frac = raw.slice(dot + 1);
-    // Trailing zero in the fraction is the significance decimal.js discards
-    // (`1.10` -> `1.1`). An all-zero fraction is scale-only (`0.00` -> `0`).
-    if (frac.endsWith('0')) return false;
-  }
-  return true;
-}
-
-/** Build the (target-agnostic) compile-error for a non-canonical Decimal literal.
- *  All legs throw this identical text — selected only by the offending literal — so
- *  the refusal is observably symmetric across TS, Python, AND the runner. */
-export function decimalScaleFailMessage(raw: string): string {
-  return (
-    `${DECIMAL_SCALE_FAILCLOSE}: Decimal("${raw}") cannot be lowered portably. ` +
-    `KERN's certified Decimal subset is NUMERIC: the TS leg (decimal.js) discards ` +
-    `trailing-zero / exponent / signed-zero significance (Decimal("${raw}") would ` +
-    `render differently than Python's stdlib decimal, which preserves scale), so KERN ` +
-    `cannot guarantee byte-exact cross-target rendering for this literal. Use a ` +
-    `canonical form with no trailing zeros, no exponent, and no signed zero ` +
-    `(e.g. "1.5", "0.1", "42").`
-  );
-}
-
-/** Throw the symmetric scale fail-close if `raw` is not a portable Decimal literal.
- *  Called by ALL legs at the `Decimal(...)` / `Decimal.of(...)` lowering / eval site. */
-export function assertPortableDecimalLiteral(raw: string): void {
-  if (!isPortableDecimalLiteral(raw)) {
-    throw new Error(decimalScaleFailMessage(raw));
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Guarded div / mod / pow runtime LOGIC + their fail-close message constants.
@@ -173,35 +117,6 @@ export function assertPortableDecimalLiteral(raw: string): void {
 // guards, so a zero-divide / `0**0` / `0**neg` fails or special-cases IDENTICALLY
 // across all legs. These functions are the runner's executable form of that logic.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/** The ONE byte-identical diagnostic a zero divisor raises (the text the emitted
- *  helper throws on both legs), so a `Decimal.div(x, Decimal.of("0"))` fails closed
- *  identically across targets. */
-export const DECIMAL_DIV_ZERO_FAILCLOSE = 'KERN Decimal division by zero';
-/** The byte-identical diagnostic a zero modulus raises. */
-export const DECIMAL_MOD_ZERO_FAILCLOSE = 'KERN Decimal modulo by zero';
-export const DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE =
-  'Decimal.pow supports only an integer exponent on a non-negative base';
-
-export function decimalPowFailMessage(reason: string): string {
-  return (
-    `${DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE}: ${reason}. ` +
-    `KERN's certified Decimal pow is INTEGER-exponent only (0**0=1, positive, and negative int like 2**-1) ` +
-    `on a non-negative base — these are byte-exact across decimal.js and Python's stdlib decimal. ` +
-    `A non-integer exponent or a negative base is correctly-rounded TRANSCENDENTAL on the TS leg ` +
-    `(decimal.js) and can diverge from the Python leg by ~1 ulp, so KERN cannot guarantee byte-exact ` +
-    `cross-target parity and refuses it at compile time. Pass an integer-literal exponent and a ` +
-    `non-negative base (e.g. Decimal.pow(Decimal.of("2"), Decimal.of("3"))). ` +
-    `Fractional/transcendental pow is deferred to a later correctly-rounded slice.`
-  );
-}
-
-/** Byte-identical runtime refusal for a negative base hidden behind a computed
- *  expression. Direct negative literals are still rejected by the static probe. */
-export const DECIMAL_POW_NEGATIVE_BASE_FAILCLOSE = `${DECIMAL_POW_NON_INTEGER_EXP_FAILCLOSE}: the evaluated base is negative`;
-/** `0 ** negative` is a zero-divide in disguise; the pow helper preflights it to
- *  this byte-identical zero-error so the surface never yields a non-finite value. */
-export const DECIMAL_POW_ZERO_NEGATIVE_EXP_FAILCLOSE = 'KERN Decimal 0 raised to a negative power (division by zero)';
 
 /** Guarded division LOGIC: throws the byte-identical {@link DECIMAL_DIV_ZERO_FAILCLOSE}
  *  on a zero divisor, else `a / b` under the caller's pinned constructor. The
