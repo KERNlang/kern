@@ -1,8 +1,8 @@
 # KERN 5 F1 Runtime Text Cache Prerequisite
 
-**Status:** IMPLEMENTED — FULL WALL PENDING
+**Status:** IMPLEMENTED — FULL WALL PASSED; INDEPENDENT REVIEW PENDING
 
-**Date:** 2026-08-13
+**Date:** 2026-08-14
 
 **Baseline:** `4330f42866d8e3d1534e471881d17b870c067106`
 
@@ -22,7 +22,8 @@
   diagnostic ordering.
 
 **Confidence:** 0.77 after independent review; 0.94 after the corrective
-tribunal, RED evidence, source trace, and 65K scalar-tape proof.
+tribunal, RED evidence, source trace, and 65K scalar-tape proof; 0.98 after the
+complete `fitness:kern-5` wall passed.
 
 ## Decision
 
@@ -140,6 +141,12 @@ tribunal, RED evidence, source trace, and 65K scalar-tape proof.
 - **[RTC-V4 VERIFIED]** The exact 317-to-316 successor-history reconstruction
   closes the fail-closed inventory break while preserving all frozen digests;
   the complete canonicalizer gate passes 750/750.
-- **[RTC-V5 PENDING]** Corrected exact-history reconstruction, focused runtime
-  gates, full KERN 5 fitness, independent Agon review, signed history commit,
-  and authorized publication.
+- **[RTC-V5 VERIFIED]** The complete `pnpm fitness:kern-5` wall passed on the
+  corrected three-commit slice. Evidence includes two independent 750/750
+  canonicalizer batches, 58 golden/idempotence/KIR fixtures, 250 hostile
+  fixtures, 112/112 terminal coverage, the complete frontend predecessor
+  replay, cross-target conformance, native KERN coverage, self-host validation,
+  application behavior, KIR/runtime contracts, checker, formatter, and the
+  cache-specific wall.
+- **[RTC-V6 PENDING]** Independent Agon review, any verified blocker repair,
+  and the single authorized publication push.
