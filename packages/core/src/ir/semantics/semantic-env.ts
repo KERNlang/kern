@@ -1,6 +1,7 @@
 import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
+import { runnerMachineScopeGraph, sameRunnerMachineScopeGraph } from './runner-machine-scope.js';
 import {
   assertExactSemanticBindings,
   assertExactSemanticCloneValue,
@@ -22,7 +23,6 @@ import {
 import type { InternalReferenceTraceRetention } from './trace.js';
 
 export type { InternalReferenceTraceRetention } from './trace.js';
-
 /** Runtime state shared by semantic evaluators without importing registry ownership. */
 export interface SemanticEnv {
   /** Lexical storage; machine paths require constructor-owned composites. */
@@ -55,15 +55,25 @@ export function bindInternalReferenceTraceRetention(
   if (!isExactSemanticEnvironment(env) || exactSemanticEnvironmentParent(env) !== undefined) {
     throw new TypeError('portable: isolated legacy execution requires an exact root environment');
   }
+  const initialScopeGraph = env.runnerFunctions
+    ? runnerMachineScopeGraph(env.runnerFunctions, env.runnerClasses)
+    : undefined;
+  const policy = { allowedRunnerModules: new Set(initialScopeGraph?.scopes ?? []) };
   const memo = copyExactSemanticMap<object, unknown>();
-  const bindings = cloneSemanticBindings(env.bindings, memo, ownSemanticComposite);
+  const bindings = cloneSemanticBindings(env.bindings, memo, ownSemanticComposite, policy);
   const runnerThis =
     env.runnerThis === undefined
       ? undefined
-      : (cloneSemanticBindingValue(env.runnerThis, memo, ownSemanticComposite) as RunnerClassInstanceValue);
+      : (cloneSemanticBindingValue(env.runnerThis, memo, ownSemanticComposite, policy) as RunnerClassInstanceValue);
   const seen = new WeakSet<object>();
-  assertExactSemanticBindings(bindings, seen);
-  if (runnerThis !== undefined) assertExactSemanticCloneValue(runnerThis, seen);
+  assertExactSemanticBindings(bindings, seen, policy);
+  if (runnerThis !== undefined) assertExactSemanticCloneValue(runnerThis, seen, policy);
+  const finalScopeGraph = env.runnerFunctions
+    ? runnerMachineScopeGraph(env.runnerFunctions, env.runnerClasses)
+    : undefined;
+  if (!sameRunnerMachineScopeGraph(initialScopeGraph, finalScopeGraph)) {
+    throw new TypeError('portable: isolated runner module graph changed during cloning');
+  }
   const executionEnv = constructEnv(
     { ...env, bindings, runnerCallCache: new Map(), runnerCallStack: [], runnerThis },
     undefined,

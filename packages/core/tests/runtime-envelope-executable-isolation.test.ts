@@ -11,7 +11,6 @@ import {
 } from '../src/ir/semantics/portable-scalar-domain.js';
 import { referenceRunSequence } from '../src/ir/semantics/reference-runner.js';
 import { registerAllContracts, resetAllContractRegistration } from '../src/ir/semantics/register-all.js';
-import { ownSemanticAtomicValue } from '../src/ir/semantics/semantic-atomic-ownership.js';
 import { tracesEqual } from '../src/ir/semantics/trace.js';
 import {
   executeInternalRuntimeEnvelopeAsync,
@@ -675,7 +674,6 @@ describe('M3.15 executable-envelope isolation', () => {
         },
       },
     });
-    ownSemanticAtomicValue(impostor);
     const env = makeEnv();
     env.bindings.set('decimal', impostor);
 

@@ -5,6 +5,7 @@ import {
   type RunnerClassInstanceValue,
   type RunnerModuleScope,
 } from '../src/ir/semantics/index.js';
+import { DECIMAL_VALUE_TAG, makeDecimalValue } from '../src/ir/semantics/portable-scalar-domain.js';
 import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
 import {
   internalExecutionInterceptorKey,
@@ -24,6 +25,7 @@ function aliasMutationFixture(
   ],
 ): {
   readonly caller: ReturnType<typeof makeEnv>;
+  readonly module: RunnerModuleScope;
   readonly nodes: readonly IRNode[];
   readonly receiver: RunnerClassInstanceValue;
 } {
@@ -63,12 +65,117 @@ function aliasMutationFixture(
   });
   return {
     caller,
+    module,
     nodes: [{ type: 'return', props: { value: 'box.touch(box)' } }],
     receiver: caller.bindings.get('box') as RunnerClassInstanceValue,
   };
 }
 
 describe('execution-context isolation review hardening', () => {
+  test('rejects a foreign runner module without invoking any Proxy traps', () => {
+    let traps = 0;
+    const hostileModule = new Proxy(Object.create(null), {
+      get: () => {
+        traps += 1;
+        throw new Error('module get trap ran');
+      },
+      getOwnPropertyDescriptor: () => {
+        traps += 1;
+        throw new Error('module descriptor trap ran');
+      },
+      getPrototypeOf: () => {
+        traps += 1;
+        throw new Error('module prototype trap ran');
+      },
+      ownKeys: () => {
+        traps += 1;
+        throw new Error('module ownKeys trap ran');
+      },
+    });
+    const caller = makeEnv({
+      bindings: new Map([
+        [
+          'box',
+          {
+            __kernRunnerClassInstance: true,
+            className: 'Box',
+            fields: { value: 1 },
+            module: hostileModule,
+          } as RunnerClassInstanceValue,
+        ],
+      ]),
+    });
+
+    expect(() => bindInternalReferenceTraceRetention(caller, 'observable-only')).toThrow(/module|isolated/u);
+    expect(traps).toBe(0);
+  });
+
+  test('preserves only dedicated linker-owned module identities and aliases', () => {
+    const fixture = aliasMutationFixture();
+    const second = {
+      __kernRunnerClassInstance: true,
+      className: 'Box',
+      fields: { value: 2 },
+      module: fixture.module,
+    } satisfies RunnerClassInstanceValue;
+    fixture.caller.bindings.set('second', second);
+
+    const execution = bindInternalReferenceTraceRetention(fixture.caller, 'observable-only');
+    const firstClone = execution.bindings.get('box') as RunnerClassInstanceValue;
+    const secondClone = execution.bindings.get('second') as RunnerClassInstanceValue;
+    expect(firstClone.module).toBe(fixture.module);
+    expect(secondClone.module).toBe(fixture.module);
+
+    const first = fixture.caller.bindings.get('box') as RunnerClassInstanceValue;
+    first.fields.self = first;
+    const cyclicExecution = bindInternalReferenceTraceRetention(fixture.caller, 'observable-only');
+    const cyclicClone = cyclicExecution.bindings.get('box') as RunnerClassInstanceValue;
+    expect(cyclicClone.fields.self).toBe(cyclicClone);
+
+    fixture.caller.bindings.set('leak', { module: fixture.module });
+    expect(() => bindInternalReferenceTraceRetention(fixture.caller, 'observable-only')).toThrow(/isolated/u);
+  });
+
+  test('rejects noncanonical owned Decimal carriers and preserves valid aliases', () => {
+    for (const canonical of ['-0', '1.0', '1E+2', 'Infinity', 'NaN']) {
+      expect(() => makeDecimalValue(canonical)).toThrow(/Decimal|canonical/u);
+    }
+    const decimal = makeDecimalValue('1.5');
+    const caller = makeEnv({
+      bindings: new Map([
+        ['first', decimal],
+        ['second', decimal],
+      ]),
+    });
+    const execution = bindInternalReferenceTraceRetention(caller, 'observable-only');
+    expect(execution.bindings.get('first')).toBe(decimal);
+    expect(execution.bindings.get('second')).toBe(decimal);
+
+    const forged = Object.freeze({ [DECIMAL_VALUE_TAG]: true as const, canonical: '1.5' });
+    const forgedCaller = makeEnv();
+    forgedCaller.bindings.set('decimal', forged);
+    expect(() => bindInternalReferenceTraceRetention(forgedCaller, 'observable-only')).toThrow(/isolated/u);
+  });
+
+  test('rejects linker graph mutation during quarantine before publication', () => {
+    const fixture = aliasMutationFixture();
+    const boxClass = fixture.module.classes.get('Box')!;
+    const mutator = new Proxy(Object.create(null) as Record<string, unknown>, {
+      getOwnPropertyDescriptor: (_target, key) => {
+        if (key === 'value') fixture.module.classes.delete('Box');
+        return key === 'value' ? { configurable: true, enumerable: true, value: 1, writable: true } : undefined;
+      },
+      getPrototypeOf: () => null,
+      ownKeys: () => ['value'],
+    });
+    fixture.caller.bindings.set('mutator', mutator);
+    try {
+      expect(() => bindInternalReferenceTraceRetention(fixture.caller, 'observable-only')).toThrow(/module graph/u);
+    } finally {
+      fixture.module.classes.set('Box', boxClass);
+    }
+  });
+
   test('validates only the quarantined clone of a stateful proxy graph', () => {
     let descriptorReads = 0;
     const payload = new Proxy(Object.create(null) as Record<string, unknown>, {

@@ -172,6 +172,18 @@ bounded, pre-write class-mutation audit.
   derived from an unassociated source receives fresh private keys, while a
   target derived from an associated source shares only the existing scheduler
   key and receives a fresh interceptor key.
+- **[ECI-K20] Module metadata is contextual authority.** At the isolated legacy
+  boundary, runner-instance `module` values are preserved by identity only in
+  the dedicated descriptor slot and only when contained in the unchanged
+  linker-owned scope graph captured before guest graph inspection. The same
+  identity in an ordinary record or field, or any foreign identity, rejects
+  without invoking Proxy traps. The linker graph is revalidated before the
+  execution environment is published.
+- **[ECI-K21] Decimal atoms are closed and canonical.** The atomic ownership leaf
+  owns only exact frozen Decimal carriers. Construction validates the existing
+  portable Decimal grammar, and clone validation admits only that privately
+  owned exact shape with a canonical payload. No generic API can bless an
+  arbitrary object as a semantic atom.
 
 ## Design
 
@@ -289,6 +301,14 @@ error. Nested activation gets its own record while retaining outer records;
   without private scheduler/interceptor keys. Installed scheduler continuity,
   cancellation, disposal refcounts, and derivation-local interceptor sequences
   retain their existing behavior.
+- [ ] **[ECI-P17]** A foreign runner-module Proxy rejects with zero trap
+  invocations; linker-owned module identity and sharing survive only in the
+  dedicated instance slot; the same module identity in ordinary fields rejects;
+  cyclic fields terminate; linker mutation during quarantine rejects before
+  publication.
+- [ ] **[ECI-P18]** Decimal construction rejects `-0`, trailing-scale,
+  exponent, `Infinity`, and `NaN` payloads; forged/unowned carriers reject; a
+  valid privately owned Decimal round-trips with alias identity preserved.
 
 ## Out of Scope
 

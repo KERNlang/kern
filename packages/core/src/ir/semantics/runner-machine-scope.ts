@@ -231,6 +231,16 @@ export interface RunnerMachineScopeGraph {
   readonly scopes: readonly RunnerModuleScope[];
 }
 
+export function sameRunnerMachineScopeGraph(
+  left: RunnerMachineScopeGraph | undefined,
+  right: RunnerMachineScopeGraph | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  if (left.root !== right.root || left.scopes.length !== right.scopes.length) return false;
+  const rightScopes = new Set(right.scopes);
+  return left.scopes.every((scope) => rightScopes.has(scope));
+}
+
 /** Resolve the exact unchanged linker-created scope graph behind a root view. */
 export function runnerMachineScopeGraph(
   functions: RunnerModuleScope['functions'],

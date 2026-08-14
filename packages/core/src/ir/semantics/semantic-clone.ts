@@ -1,6 +1,11 @@
-import { isOwnedSemanticAtomicValue } from './semantic-atomic-ownership.js';
+import { isOwnedDecimalValue } from './semantic-atomic-ownership.js';
+import type { RunnerModuleScope } from './semantic-env.js';
 
 type OwnComposite = <T extends object>(value: T) => T;
+
+export interface SemanticClonePolicy {
+  readonly allowedRunnerModules?: ReadonlySet<RunnerModuleScope>;
+}
 
 const rejectedSemanticClone = Object.freeze(Object.create(null)) as object;
 const MAP_CONSTRUCTOR = Map;
@@ -80,7 +85,11 @@ function hasDefaultDataDescriptor(descriptor: PropertyDescriptor | undefined): b
 }
 
 /** Validate the closed isolated-execution clone grammar without invoking guest code. */
-export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
+export function assertExactSemanticCloneValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+  policy: SemanticClonePolicy = {},
+): void {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
   if (typeof value === 'number') {
     if (Number.isFinite(value)) return;
@@ -88,7 +97,7 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
   }
   if (typeof value !== 'object') throw new TypeError('portable: isolated binding contains an unsupported value');
   if (value === rejectedSemanticClone) throw new TypeError('portable: isolated binding was rejected during cloning');
-  if (isOwnedSemanticAtomicValue(value)) return;
+  if (isOwnedDecimalValue(value)) return;
   if (seen.has(value)) return;
   seen.add(value);
 
@@ -118,21 +127,21 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
     for (let index = 0; index < length.value; index += 1) {
       const descriptor = descriptors[String(index)];
       if (!hasDefaultDataDescriptor(descriptor)) throw new TypeError('portable: isolated array descriptor is invalid');
-      assertExactSemanticCloneValue(descriptor.value, seen);
+      assertExactSemanticCloneValue(descriptor.value, seen, policy);
     }
     return;
   }
   if (prototype === Map.prototype) {
     if (Reflect.ownKeys(value).length !== 0) throw new TypeError('portable: isolated Map is decorated');
     forEachMapEntry(value as Map<unknown, unknown>, (key, nested) => {
-      assertExactSemanticCloneValue(key, seen);
-      assertExactSemanticCloneValue(nested, seen);
+      assertExactSemanticCloneValue(key, seen, policy);
+      assertExactSemanticCloneValue(nested, seen, policy);
     });
     return;
   }
   if (prototype === Set.prototype) {
     if (Reflect.ownKeys(value).length !== 0) throw new TypeError('portable: isolated Set is decorated');
-    forEachSetValue(value as Set<unknown>, (nested) => assertExactSemanticCloneValue(nested, seen));
+    forEachSetValue(value as Set<unknown>, (nested) => assertExactSemanticCloneValue(nested, seen, policy));
     return;
   }
   if (prototype !== Object.prototype && prototype !== null) {
@@ -156,10 +165,19 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
     ) {
       throw new TypeError('portable: isolated runner instance descriptor is invalid');
     }
-    if (descriptors.module && !hasDefaultDataDescriptor(descriptors.module)) {
-      throw new TypeError('portable: isolated runner module descriptor is invalid');
+    const module = descriptors.module;
+    if (module) {
+      if (
+        !hasDefaultDataDescriptor(module) ||
+        (policy.allowedRunnerModules !== undefined &&
+          (typeof module.value !== 'object' ||
+            module.value === null ||
+            !policy.allowedRunnerModules.has(module.value as RunnerModuleScope)))
+      ) {
+        throw new TypeError('portable: isolated runner module descriptor is invalid');
+      }
     }
-    assertExactSemanticCloneValue(fields.value, seen);
+    assertExactSemanticCloneValue(fields.value, seen, policy);
     return;
   }
 
@@ -167,7 +185,7 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
     if (typeof key !== 'string' || !hasDefaultDataDescriptor(descriptors[key])) {
       throw new TypeError('portable: isolated record descriptor is invalid');
     }
-    assertExactSemanticCloneValue(descriptors[key]?.value, seen);
+    assertExactSemanticCloneValue(descriptors[key]?.value, seen, policy);
   }
 }
 
@@ -184,7 +202,12 @@ function dataDescriptor(
   );
 }
 
-function cloneExactArray(source: unknown[], memo: Map<object, unknown>, own: OwnComposite): unknown {
+function cloneExactArray(
+  source: unknown[],
+  memo: Map<object, unknown>,
+  own: OwnComposite,
+  policy: SemanticClonePolicy,
+): unknown {
   const descriptors = Object.getOwnPropertyDescriptors(source) as Record<string, PropertyDescriptor>;
   const keys = Reflect.ownKeys(descriptors);
   const length = descriptors.length;
@@ -223,35 +246,51 @@ function cloneExactArray(source: unknown[], memo: Map<object, unknown>, own: Own
   );
   if (hasDefaultIndexDescriptors && Object.getPrototypeOf(clone) === Array.prototype) {
     Object.setPrototypeOf(clone, null);
-    for (const key of indexKeys) clone[Number(key)] = cloneSemanticBindingValue(descriptors[key].value, memo, own);
+    for (const key of indexKeys) {
+      clone[Number(key)] = cloneSemanticBindingValue(descriptors[key].value, memo, own, policy);
+    }
     Object.setPrototypeOf(clone, Array.prototype);
   } else {
     for (const key of indexKeys) {
       Object.defineProperty(clone, key, {
         ...descriptors[key],
-        value: cloneSemanticBindingValue(descriptors[key].value, memo, own),
+        value: cloneSemanticBindingValue(descriptors[key].value, memo, own, policy),
       });
     }
   }
   return clone;
 }
 
-function cloneExactMap(source: Map<unknown, unknown>, memo: Map<object, unknown>, own: OwnComposite): unknown {
+function cloneExactMap(
+  source: Map<unknown, unknown>,
+  memo: Map<object, unknown>,
+  own: OwnComposite,
+  policy: SemanticClonePolicy,
+): unknown {
   if (Reflect.ownKeys(source).length !== 0) return rejectedClone(source, memo);
   const clone = own(new MAP_CONSTRUCTOR<unknown, unknown>());
   mapSet(memo, source, clone);
   forEachMapEntry(source, (key, value) => {
-    mapSet(clone, cloneSemanticBindingValue(key, memo, own), cloneSemanticBindingValue(value, memo, own));
+    mapSet(
+      clone,
+      cloneSemanticBindingValue(key, memo, own, policy),
+      cloneSemanticBindingValue(value, memo, own, policy),
+    );
   });
   return clone;
 }
 
-function cloneExactSet(source: Set<unknown>, memo: Map<object, unknown>, own: OwnComposite): unknown {
+function cloneExactSet(
+  source: Set<unknown>,
+  memo: Map<object, unknown>,
+  own: OwnComposite,
+  policy: SemanticClonePolicy,
+): unknown {
   if (Reflect.ownKeys(source).length !== 0) return rejectedClone(source, memo);
   const clone = own(new SET_CONSTRUCTOR<unknown>());
   mapSet(memo, source, clone);
   forEachSetValue(source, (value) => {
-    REFLECT_APPLY(SET_ADD, clone, [cloneSemanticBindingValue(value, memo, own)]);
+    REFLECT_APPLY(SET_ADD, clone, [cloneSemanticBindingValue(value, memo, own, policy)]);
   });
   return clone;
 }
@@ -261,6 +300,7 @@ function cloneRunnerInstance(
   descriptors: PropertyDescriptorMap,
   memo: Map<object, unknown>,
   own: OwnComposite,
+  policy: SemanticClonePolicy,
 ): unknown | undefined {
   const marker = descriptors.__kernRunnerClassInstance;
   if (!dataDescriptor(marker) || marker.value !== true) return undefined;
@@ -282,10 +322,19 @@ function cloneRunnerInstance(
     className: className.value,
     fields: rejectedSemanticClone,
   };
-  if (module !== undefined) clone.module = module.value;
+  if (module !== undefined) {
+    if (
+      typeof module.value !== 'object' ||
+      module.value === null ||
+      (policy.allowedRunnerModules !== undefined && !policy.allowedRunnerModules.has(module.value as RunnerModuleScope))
+    ) {
+      return rejectedClone(source, memo);
+    }
+    clone.module = module.value;
+  }
   own(clone);
   mapSet(memo, source, clone);
-  clone.fields = cloneSemanticBindingValue(fields.value, memo, own);
+  clone.fields = cloneSemanticBindingValue(fields.value, memo, own, policy);
   return clone;
 }
 
@@ -294,9 +343,10 @@ function cloneExactRecord(
   prototype: object | null,
   memo: Map<object, unknown>,
   own: OwnComposite,
+  policy: SemanticClonePolicy,
 ): unknown {
   const descriptors = Object.getOwnPropertyDescriptors(source);
-  const runner = cloneRunnerInstance(source, descriptors, memo, own);
+  const runner = cloneRunnerInstance(source, descriptors, memo, own, policy);
   if (runner !== undefined) return runner;
   const keys = Reflect.ownKeys(descriptors);
   if (
@@ -310,7 +360,7 @@ function cloneExactRecord(
     Object.defineProperty(clone, key, {
       configurable: true,
       enumerable: true,
-      value: cloneSemanticBindingValue(descriptors[key].value, memo, own),
+      value: cloneSemanticBindingValue(descriptors[key].value, memo, own, policy),
       writable: true,
     });
   }
@@ -318,20 +368,26 @@ function cloneExactRecord(
 }
 
 /** Clone host bindings without invoking accessors or user-overridable collection iterators. */
-export function cloneSemanticBindingValue(value: unknown, memo: Map<object, unknown>, own: OwnComposite): unknown {
+export function cloneSemanticBindingValue(
+  value: unknown,
+  memo: Map<object, unknown>,
+  own: OwnComposite,
+  policy: SemanticClonePolicy = {},
+): unknown {
   if (value === rejectedSemanticClone) return value;
-  if (isOwnedSemanticAtomicValue(value) || value === null || typeof value !== 'object') return value;
+  if (isOwnedDecimalValue(value) || value === null || typeof value !== 'object') return value;
+  if (policy.allowedRunnerModules?.has(value as RunnerModuleScope)) return rejectedClone(value, memo);
   const cached = mapGet(memo, value);
   if (cached !== undefined) return cached;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (Array.isArray(value)) {
-      return prototype === Array.prototype ? cloneExactArray(value, memo, own) : rejectedClone(value, memo);
+      return prototype === Array.prototype ? cloneExactArray(value, memo, own, policy) : rejectedClone(value, memo);
     }
-    if (prototype === Map.prototype) return cloneExactMap(value as Map<unknown, unknown>, memo, own);
-    if (prototype === Set.prototype) return cloneExactSet(value as Set<unknown>, memo, own);
+    if (prototype === Map.prototype) return cloneExactMap(value as Map<unknown, unknown>, memo, own, policy);
+    if (prototype === Set.prototype) return cloneExactSet(value as Set<unknown>, memo, own, policy);
     if (prototype === Object.prototype || prototype === null) {
-      return cloneExactRecord(value, prototype, memo, own);
+      return cloneExactRecord(value, prototype, memo, own, policy);
     }
   } catch {
     // Hostile proxies and exotic objects fail closed as an unowned inert value.
@@ -343,18 +399,23 @@ export function cloneSemanticBindings(
   bindings: ReadonlyMap<string, unknown>,
   memo: Map<object, unknown>,
   own: OwnComposite,
+  policy: SemanticClonePolicy = {},
 ): Map<string, unknown> {
   const out = own(new MAP_CONSTRUCTOR<string, unknown>());
   forEachMapEntry(bindings, (key, value) => {
     if (typeof key !== 'string') throw new TypeError('portable: isolated binding key is invalid');
-    mapSet(out, key, cloneSemanticBindingValue(value, memo, own));
+    mapSet(out, key, cloneSemanticBindingValue(value, memo, own, policy));
   });
   return out;
 }
 
-export function assertExactSemanticBindings(bindings: ReadonlyMap<string, unknown>, seen: WeakSet<object>): void {
+export function assertExactSemanticBindings(
+  bindings: ReadonlyMap<string, unknown>,
+  seen: WeakSet<object>,
+  policy: SemanticClonePolicy = {},
+): void {
   forEachMapEntry(bindings, (key, value) => {
     if (typeof key !== 'string') throw new TypeError('portable: isolated binding key is invalid');
-    assertExactSemanticCloneValue(value, seen);
+    assertExactSemanticCloneValue(value, seen, policy);
   });
 }
