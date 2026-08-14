@@ -73,13 +73,11 @@ export function deriveInternalExecutionContext(
   target: SemanticEnv,
   traceRetention: InternalReferenceTraceRetention,
 ): void {
-  ensureInternalExecutionContext(source);
   const sourceContext = executionContexts.get(source);
-  if (!sourceContext) throw new Error('internal execution context was not installed');
   executionContexts.set(target, {
     audits: [],
     interceptorKey: {},
-    schedulerKey: sourceContext.schedulerKey,
+    schedulerKey: sourceContext?.schedulerKey ?? {},
     traceRetention,
   });
 }

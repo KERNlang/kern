@@ -151,7 +151,6 @@ export function installInternalRuntimeScheduler(env: SemanticEnv, control: Sched
 
 /** Retain shared scheduler state across construction and execution of an isolated derivation. */
 export function retainInternalRuntimeSchedulerDerivation(env: SemanticEnv): () => void {
-  ensureInternalExecutionContext(env);
   const state = stateFor(env);
   if (!state) return () => {};
   state.derivations += 1;

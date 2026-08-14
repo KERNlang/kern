@@ -3,6 +3,78 @@ import { isOwnedSemanticAtomicValue } from './semantic-atomic-ownership.js';
 type OwnComposite = <T extends object>(value: T) => T;
 
 const rejectedSemanticClone = Object.freeze(Object.create(null)) as object;
+const MAP_CONSTRUCTOR = Map;
+const SET_CONSTRUCTOR = Set;
+const REFLECT_APPLY = Reflect.apply;
+const MAP_ENTRIES = Map.prototype.entries;
+const MAP_GET = Map.prototype.get;
+const MAP_SET = Map.prototype.set;
+const SET_ADD = Set.prototype.add;
+const SET_VALUES = Set.prototype.values;
+const MAP_ITERATOR_NEXT = Object.getPrototypeOf(
+  REFLECT_APPLY(MAP_ENTRIES, new MAP_CONSTRUCTOR(), []),
+).next as () => IteratorResult<[unknown, unknown]>;
+const SET_ITERATOR_NEXT = Object.getPrototypeOf(
+  REFLECT_APPLY(SET_VALUES, new SET_CONSTRUCTOR(), []),
+).next as () => IteratorResult<unknown>;
+
+function mapGet<K, V>(map: Map<K, V>, key: K): V | undefined {
+  return REFLECT_APPLY(MAP_GET, map, [key]) as V | undefined;
+}
+
+function mapSet<K, V>(map: Map<K, V>, key: K, value: V): void {
+  REFLECT_APPLY(MAP_SET, map, [key, value]);
+}
+
+function forEachMapEntry<K, V>(map: ReadonlyMap<K, V>, visit: (key: K, value: V) => void): void {
+  const iterator = REFLECT_APPLY(MAP_ENTRIES, map, []) as MapIterator<[K, V]>;
+  while (true) {
+    const step = REFLECT_APPLY(MAP_ITERATOR_NEXT, iterator, []) as IteratorResult<[K, V]>;
+    if (step.done) return;
+    visit(step.value[0], step.value[1]);
+  }
+}
+
+function forEachSetValue<T>(set: ReadonlySet<T>, visit: (value: T) => void): void {
+  const iterator = REFLECT_APPLY(SET_VALUES, set, []) as SetIterator<T>;
+  while (true) {
+    const step = REFLECT_APPLY(SET_ITERATOR_NEXT, iterator, []) as IteratorResult<T>;
+    if (step.done) return;
+    visit(step.value);
+  }
+}
+
+export function copyExactSemanticMap<K, V>(source?: ReadonlyMap<K, V>): Map<K, V> {
+  const out = new MAP_CONSTRUCTOR<K, V>();
+  if (source) forEachMapEntry(source, (key, value) => mapSet(out, key, value));
+  return out;
+}
+
+export function copyExactSemanticMapValues<K, V, R>(
+  source: ReadonlyMap<K, V>,
+  copyValue: (value: V) => R,
+): Map<K, R> {
+  const out = new MAP_CONSTRUCTOR<K, R>();
+  forEachMapEntry(source, (key, value) => mapSet(out, key, copyValue(value)));
+  return out;
+}
+
+export function copyExactSemanticSet<T>(source?: ReadonlySet<T>): Set<T> {
+  const out = new SET_CONSTRUCTOR<T>();
+  if (source) forEachSetValue(source, (value) => REFLECT_APPLY(SET_ADD, out, [value]));
+  return out;
+}
+
+export function cloneSemanticRecordArrayFields(
+  fields: ReadonlyMap<string, Set<string> | null>,
+  own: OwnComposite,
+): Map<string, Set<string> | null> {
+  return own(
+    copyExactSemanticMapValues(fields, (value) =>
+      value === null ? null : own(copyExactSemanticSet(value)),
+    ),
+  );
+}
 
 function hasDefaultDataDescriptor(descriptor: PropertyDescriptor | undefined): boolean {
   return Boolean(
@@ -61,17 +133,15 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
   }
   if (prototype === Map.prototype) {
     if (Reflect.ownKeys(value).length !== 0) throw new TypeError('portable: isolated Map is decorated');
-    for (const [key, nested] of Map.prototype.entries.call(value) as MapIterator<[unknown, unknown]>) {
+    forEachMapEntry(value as Map<unknown, unknown>, (key, nested) => {
       assertExactSemanticCloneValue(key, seen);
       assertExactSemanticCloneValue(nested, seen);
-    }
+    });
     return;
   }
   if (prototype === Set.prototype) {
     if (Reflect.ownKeys(value).length !== 0) throw new TypeError('portable: isolated Set is decorated');
-    for (const nested of Set.prototype.values.call(value) as SetIterator<unknown>) {
-      assertExactSemanticCloneValue(nested, seen);
-    }
+    forEachSetValue(value as Set<unknown>, (nested) => assertExactSemanticCloneValue(nested, seen));
     return;
   }
   if (prototype !== Object.prototype && prototype !== null) {
@@ -80,9 +150,9 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
 
   const marker = descriptors.__kernRunnerClassInstance;
   if (dataDescriptor(marker) && marker.value === true) {
-    const allowed = new Set<PropertyKey>(['__kernRunnerClassInstance', 'className', 'fields', 'module']);
+    const allowed: readonly PropertyKey[] = ['__kernRunnerClassInstance', 'className', 'fields', 'module'];
     const keys = Reflect.ownKeys(descriptors);
-    if (keys.some((key) => !allowed.has(key)) || keys.length < 3 || keys.length > 4) {
+    if (keys.some((key) => !allowed.includes(key)) || keys.length < 3 || keys.length > 4) {
       throw new TypeError('portable: isolated runner instance shape is invalid');
     }
     if (!hasDefaultDataDescriptor(marker)) throw new TypeError('portable: isolated runner marker is invalid');
@@ -111,7 +181,7 @@ export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<obje
 }
 
 function rejectedClone(source: object, memo: Map<object, unknown>): object {
-  memo.set(source, rejectedSemanticClone);
+  mapSet(memo, source, rejectedSemanticClone);
   return rejectedSemanticClone;
 }
 
@@ -156,7 +226,7 @@ function cloneExactArray(source: unknown[], memo: Map<object, unknown>, own: Own
   const clone = new Array(length.value);
   if (indexKeys.length === length.value) own(clone);
   else Object.setPrototypeOf(clone, null);
-  memo.set(source, clone);
+  mapSet(memo, source, clone);
   const hasDefaultIndexDescriptors = indexKeys.every(
     (key) => descriptors[key].configurable === true && descriptors[key].writable === true,
   );
@@ -177,21 +247,21 @@ function cloneExactArray(source: unknown[], memo: Map<object, unknown>, own: Own
 
 function cloneExactMap(source: Map<unknown, unknown>, memo: Map<object, unknown>, own: OwnComposite): unknown {
   if (Reflect.ownKeys(source).length !== 0) return rejectedClone(source, memo);
-  const clone = own(new Map<unknown, unknown>());
-  memo.set(source, clone);
-  for (const [key, value] of Map.prototype.entries.call(source) as MapIterator<[unknown, unknown]>) {
-    clone.set(cloneSemanticBindingValue(key, memo, own), cloneSemanticBindingValue(value, memo, own));
-  }
+  const clone = own(new MAP_CONSTRUCTOR<unknown, unknown>());
+  mapSet(memo, source, clone);
+  forEachMapEntry(source, (key, value) => {
+    mapSet(clone, cloneSemanticBindingValue(key, memo, own), cloneSemanticBindingValue(value, memo, own));
+  });
   return clone;
 }
 
 function cloneExactSet(source: Set<unknown>, memo: Map<object, unknown>, own: OwnComposite): unknown {
   if (Reflect.ownKeys(source).length !== 0) return rejectedClone(source, memo);
-  const clone = own(new Set<unknown>());
-  memo.set(source, clone);
-  for (const value of Set.prototype.values.call(source) as SetIterator<unknown>) {
-    clone.add(cloneSemanticBindingValue(value, memo, own));
-  }
+  const clone = own(new SET_CONSTRUCTOR<unknown>());
+  mapSet(memo, source, clone);
+  forEachSetValue(source, (value) => {
+    REFLECT_APPLY(SET_ADD, clone, [cloneSemanticBindingValue(value, memo, own)]);
+  });
   return clone;
 }
 
@@ -223,7 +293,7 @@ function cloneRunnerInstance(
   };
   if (module !== undefined) clone.module = module.value;
   own(clone);
-  memo.set(source, clone);
+  mapSet(memo, source, clone);
   clone.fields = cloneSemanticBindingValue(fields.value, memo, own);
   return clone;
 }
@@ -244,7 +314,7 @@ function cloneExactRecord(
     return rejectedClone(source, memo);
   }
   const clone = own(Object.create(prototype) as Record<string, unknown>);
-  memo.set(source, clone);
+  mapSet(memo, source, clone);
   for (const key of keys as string[]) {
     Object.defineProperty(clone, key, {
       configurable: true,
@@ -258,8 +328,9 @@ function cloneExactRecord(
 
 /** Clone host bindings without invoking accessors or user-overridable collection iterators. */
 export function cloneSemanticBindingValue(value: unknown, memo: Map<object, unknown>, own: OwnComposite): unknown {
+  if (value === rejectedSemanticClone) return value;
   if (isOwnedSemanticAtomicValue(value) || value === null || typeof value !== 'object') return value;
-  const cached = memo.get(value);
+  const cached = mapGet(memo, value);
   if (cached !== undefined) return cached;
   try {
     const prototype = Object.getPrototypeOf(value);
@@ -275,4 +346,27 @@ export function cloneSemanticBindingValue(value: unknown, memo: Map<object, unkn
     // Hostile proxies and exotic objects fail closed as an unowned inert value.
   }
   return rejectedClone(value, memo);
+}
+
+export function cloneSemanticBindings(
+  bindings: ReadonlyMap<string, unknown>,
+  memo: Map<object, unknown>,
+  own: OwnComposite,
+): Map<string, unknown> {
+  const out = own(new MAP_CONSTRUCTOR<string, unknown>());
+  forEachMapEntry(bindings, (key, value) => {
+    if (typeof key !== 'string') throw new TypeError('portable: isolated binding key is invalid');
+    mapSet(out, key, cloneSemanticBindingValue(value, memo, own));
+  });
+  return out;
+}
+
+export function assertExactSemanticBindings(
+  bindings: ReadonlyMap<string, unknown>,
+  seen: WeakSet<object>,
+): void {
+  forEachMapEntry(bindings, (key, value) => {
+    if (typeof key !== 'string') throw new TypeError('portable: isolated binding key is invalid');
+    assertExactSemanticCloneValue(value, seen);
+  });
 }

@@ -150,6 +150,28 @@ bounded, pre-write class-mutation audit.
   `scripts/kern-canonicalizer/execution-context-isolation-historical-transition.mjs`;
   every byte identity uses SHA-256 and every manifest is normalized,
   lexicographically sorted, and path-framed before hashing.
+- **[ECI-K16] Quarantine before trust.** Isolated binding construction clones the
+  source graph once with one memo shared by `bindings` and `runnerThis`, then
+  validates only the completed clone. Validation never reconsults the source,
+  so stateful proxy observations cannot replace an admitted scalar with a host
+  function between validation and execution.
+- **[ECI-K17] Stable collection intrinsics.** The isolation clone captures the
+  complete Map/Set operation closure at module initialization: constructors,
+  entries/values, iterator `next`, set/add, and the invocation primitive. Both
+  nested collections and the top-level bindings map use only those captured
+  intrinsics; later prototype replacement cannot execute attacker callbacks.
+- **[ECI-K18] Receiver aliases are audited identities.** Every class activation
+  frame restores the exact dynamic receiver for `this`, `runnerThis`, and each
+  argument whose incoming identity equals the receiver. This applies to sync
+  and async reference members plus effect-machine member and constructor
+  frames, so aliased dotted writes poison the owning audit and roll back.
+- **[ECI-K19] Derivation is target-only.** Deriving an isolated context never
+  associates a previously unassociated caller. Scheduler and interceptor state
+  can only be installed after explicit caller association; the scheduler
+  retention path therefore performs lookup without installation. A target
+  derived from an unassociated source receives fresh private keys, while a
+  target derived from an associated source shares only the existing scheduler
+  key and receives a fresh interceptor key.
 
 ## Design
 
@@ -189,9 +211,9 @@ creates a derivation-local registry state with its own sequence counter.
 
 ### Isolated environment construction
 
-A single private constructor in `semantic-env.ts` validates the entire source
-graph first, then creates an exact parentless root using one clone memo for
-bindings and `runnerThis`. It copies provenance containers, shares capability
+A single private constructor in `semantic-env.ts` creates a quarantined clone
+using one memo for bindings and `runnerThis`, validates only that completed
+clone, then creates an exact parentless root. It copies provenance containers, shares capability
 functions and runtime-immutable runner definitions, creates an empty memo
 cache/call stack, marks the environment exact only after construction, and
 attaches a derived context. Any failure leaves no partially constructed exact
@@ -254,6 +276,19 @@ error. Nested activation gets its own record while retaining outer records;
   C's known hash, complete affected-path manifest, and exact source/compiled
   endpoints without `HEAD`, worktree-byte, or KERN-evaluation dependence;
   independent Agon review has no blocker.
+- [ ] **[ECI-P13]** A stateful proxy that changes descriptors between observations
+  cannot inject a function into the isolated graph; the admitted clone reflects
+  only its quarantine observation, and validation performs no source reread.
+- [ ] **[ECI-P14]** Replacing Map/Set entries, values, iterator-next, set, or add
+  after module initialization produces zero attacker callbacks during isolated
+  cloning and preserves exact aliases/cycles.
+- [ ] **[ECI-P15]** Sync, async, effect-machine member, and constructor frames
+  preserve direct receiver aliases; aliased same-value, caught, and ordinary
+  dotted writes reject and roll back exactly like `this` writes.
+- [ ] **[ECI-P16]** Derivation and scheduler retention leave unassociated callers
+  without private scheduler/interceptor keys. Installed scheduler continuity,
+  cancellation, disposal refcounts, and derivation-local interceptor sequences
+  retain their existing behavior.
 
 ## Out of Scope
 

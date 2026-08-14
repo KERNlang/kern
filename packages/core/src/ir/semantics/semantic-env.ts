@@ -1,7 +1,15 @@
 import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
-import { assertExactSemanticCloneValue, cloneSemanticBindingValue } from './semantic-clone.js';
+import {
+  assertExactSemanticBindings,
+  assertExactSemanticCloneValue,
+  cloneSemanticBindings,
+  cloneSemanticBindingValue,
+  cloneSemanticRecordArrayFields,
+  copyExactSemanticMap,
+  copyExactSemanticSet,
+} from './semantic-clone.js';
 import {
   deriveInternalExecutionContext,
   exactSemanticEnvironmentParent,
@@ -47,15 +55,15 @@ export function bindInternalReferenceTraceRetention(
   if (!isExactSemanticEnvironment(env) || exactSemanticEnvironmentParent(env) !== undefined) {
     throw new TypeError('portable: isolated legacy execution requires an exact root environment');
   }
-  const seen = new WeakSet<object>();
-  for (const value of env.bindings.values()) assertExactSemanticCloneValue(value, seen);
-  if (env.runnerThis !== undefined) assertExactSemanticCloneValue(env.runnerThis, seen);
-  const memo = new Map<object, unknown>();
-  const bindings = cloneBindings(env.bindings, memo);
+  const memo = copyExactSemanticMap<object, unknown>();
+  const bindings = cloneSemanticBindings(env.bindings, memo, ownSemanticComposite);
   const runnerThis =
     env.runnerThis === undefined
       ? undefined
       : (cloneSemanticBindingValue(env.runnerThis, memo, ownSemanticComposite) as RunnerClassInstanceValue);
+  const seen = new WeakSet<object>();
+  assertExactSemanticBindings(bindings, seen);
+  if (runnerThis !== undefined) assertExactSemanticCloneValue(runnerThis, seen);
   const executionEnv = constructEnv(
     { ...env, bindings, runnerCallCache: new Map(), runnerCallStack: [], runnerThis },
     undefined,
@@ -220,26 +228,26 @@ function constructEnv(
   bindingsAreOwned = false,
   preserveRuntimeReferences = false,
 ): SemanticEnv {
-  const memo = new Map<object, unknown>();
+  const memo = copyExactSemanticMap<object, unknown>();
   const bindings = overrides.bindings
     ? bindingsAreOwned
       ? overrides.bindings
-      : cloneBindings(overrides.bindings, memo)
+      : cloneSemanticBindings(overrides.bindings, memo, ownSemanticComposite)
     : ownSemanticComposite(new Map<string, unknown>());
   const env = ownSemanticEnvironment({
     bindings,
-    intProvenance: ownSemanticComposite(overrides.intProvenance ? new Set(overrides.intProvenance) : new Set()),
+    intProvenance: ownSemanticComposite(copyExactSemanticSet(overrides.intProvenance)),
     freshArrayBindings: ownSemanticComposite(
-      overrides.freshArrayBindings ? new Set(overrides.freshArrayBindings) : new Set(),
+      copyExactSemanticSet(overrides.freshArrayBindings),
     ),
     pushBuiltFreshArrayBindings: overrides.pushBuiltFreshArrayBindings
-      ? ownSemanticComposite(new Set(overrides.pushBuiltFreshArrayBindings))
+      ? ownSemanticComposite(copyExactSemanticSet(overrides.pushBuiltFreshArrayBindings))
       : ownSemanticComposite(new Set()),
     capturedArrayBindings: ownSemanticComposite(
-      overrides.capturedArrayBindings ? new Set(overrides.capturedArrayBindings) : new Set(),
+      copyExactSemanticSet(overrides.capturedArrayBindings),
     ),
     recordArrayFields: overrides.recordArrayFields
-      ? cloneRecordArrayFields(overrides.recordArrayFields)
+      ? cloneSemanticRecordArrayFields(overrides.recordArrayFields, ownSemanticComposite)
       : ownSemanticComposite(new Map()),
     runnerFunctions: ownPlainMap(overrides.runnerFunctions),
     runnerClasses: ownPlainMap(overrides.runnerClasses),
@@ -278,20 +286,6 @@ export function makeExecutionFrame(source: SemanticEnv, overrides: Partial<Seman
   inheritInternalExecutionContext(source, target);
   copyInternalEffectMachineState(source, target);
   return target;
-}
-
-function cloneBindings(bindings: Map<string, unknown>, memo = new Map<object, unknown>()): Map<string, unknown> {
-  const out = ownSemanticComposite(new Map<string, unknown>());
-  for (const [key, value] of bindings) out.set(key, cloneSemanticBindingValue(value, memo, ownSemanticComposite));
-  return out;
-}
-
-function cloneRecordArrayFields(fields: Map<string, Set<string> | null>): Map<string, Set<string> | null> {
-  const out = ownSemanticComposite(new Map<string, Set<string> | null>());
-  for (const [key, value] of fields) {
-    out.set(key, value === null ? null : ownSemanticComposite(new Set(value)));
-  }
-  return out;
 }
 
 export function childEnv(parent: SemanticEnv): SemanticEnv {

@@ -189,6 +189,19 @@ export function invokeRunnerClassMember(
   return runRunnerClassBody(member, receiver, args, member.body, env, true);
 }
 
+function restoreRunnerReceiverAliases(
+  env: SemanticEnv,
+  member: RunnerClassMemberBinding,
+  receiver: RunnerClassInstanceValue,
+  args: readonly unknown[],
+): void {
+  env.bindings.set('this', receiver);
+  for (let index = 0; index < member.params.length; index += 1) {
+    if (args[index] === receiver) env.bindings.set(member.params[index], receiver);
+  }
+  env.runnerThis = receiver;
+}
+
 function runRunnerClassBody(
   member: RunnerClassMemberBinding,
   receiver: RunnerClassInstanceValue,
@@ -220,8 +233,7 @@ function runRunnerClassBody(
     seed: env.seed,
     now: env.now,
   });
-  callEnv.bindings.set('this', receiver);
-  callEnv.runnerThis = receiver;
+  restoreRunnerReceiverAliases(callEnv, member, receiver, args);
   const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;
   const audit = requireReturn ? pushInternalRunnerMutationAudit(callEnv, receiver) : undefined;
   try {
@@ -271,8 +283,7 @@ export async function runRunnerClassBodyAsync(
     seed: env.seed,
     now: env.now,
   });
-  callEnv.bindings.set('this', receiver);
-  callEnv.runnerThis = receiver;
+  restoreRunnerReceiverAliases(callEnv, member, receiver, args);
   const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;
   const audit = requireReturn ? pushInternalRunnerMutationAudit(callEnv, receiver) : undefined;
   try {
