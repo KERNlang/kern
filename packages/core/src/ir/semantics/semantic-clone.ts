@@ -11,12 +11,10 @@ const MAP_GET = Map.prototype.get;
 const MAP_SET = Map.prototype.set;
 const SET_ADD = Set.prototype.add;
 const SET_VALUES = Set.prototype.values;
-const MAP_ITERATOR_NEXT = Object.getPrototypeOf(
-  REFLECT_APPLY(MAP_ENTRIES, new MAP_CONSTRUCTOR(), []),
-).next as () => IteratorResult<[unknown, unknown]>;
-const SET_ITERATOR_NEXT = Object.getPrototypeOf(
-  REFLECT_APPLY(SET_VALUES, new SET_CONSTRUCTOR(), []),
-).next as () => IteratorResult<unknown>;
+const MAP_ITERATOR_NEXT = Object.getPrototypeOf(REFLECT_APPLY(MAP_ENTRIES, new MAP_CONSTRUCTOR(), []))
+  .next as () => IteratorResult<[unknown, unknown]>;
+const SET_ITERATOR_NEXT = Object.getPrototypeOf(REFLECT_APPLY(SET_VALUES, new SET_CONSTRUCTOR(), []))
+  .next as () => IteratorResult<unknown>;
 
 function mapGet<K, V>(map: Map<K, V>, key: K): V | undefined {
   return REFLECT_APPLY(MAP_GET, map, [key]) as V | undefined;
@@ -50,10 +48,7 @@ export function copyExactSemanticMap<K, V>(source?: ReadonlyMap<K, V>): Map<K, V
   return out;
 }
 
-export function copyExactSemanticMapValues<K, V, R>(
-  source: ReadonlyMap<K, V>,
-  copyValue: (value: V) => R,
-): Map<K, R> {
+export function copyExactSemanticMapValues<K, V, R>(source: ReadonlyMap<K, V>, copyValue: (value: V) => R): Map<K, R> {
   const out = new MAP_CONSTRUCTOR<K, R>();
   forEachMapEntry(source, (key, value) => mapSet(out, key, copyValue(value)));
   return out;
@@ -69,11 +64,7 @@ export function cloneSemanticRecordArrayFields(
   fields: ReadonlyMap<string, Set<string> | null>,
   own: OwnComposite,
 ): Map<string, Set<string> | null> {
-  return own(
-    copyExactSemanticMapValues(fields, (value) =>
-      value === null ? null : own(copyExactSemanticSet(value)),
-    ),
-  );
+  return own(copyExactSemanticMapValues(fields, (value) => (value === null ? null : own(copyExactSemanticSet(value)))));
 }
 
 function hasDefaultDataDescriptor(descriptor: PropertyDescriptor | undefined): boolean {
@@ -361,10 +352,7 @@ export function cloneSemanticBindings(
   return out;
 }
 
-export function assertExactSemanticBindings(
-  bindings: ReadonlyMap<string, unknown>,
-  seen: WeakSet<object>,
-): void {
+export function assertExactSemanticBindings(bindings: ReadonlyMap<string, unknown>, seen: WeakSet<object>): void {
   forEachMapEntry(bindings, (key, value) => {
     if (typeof key !== 'string') throw new TypeError('portable: isolated binding key is invalid');
     assertExactSemanticCloneValue(value, seen);

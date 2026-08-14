@@ -5,11 +5,11 @@ import {
   type RunnerClassInstanceValue,
   type RunnerModuleScope,
 } from '../src/ir/semantics/index.js';
+import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
 import {
   internalExecutionInterceptorKey,
   internalExecutionSchedulerKey,
 } from '../src/ir/semantics/semantic-env-ownership.js';
-import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
 import {
   runInternalLegacyEngineAsync,
   runInternalLegacyEngineSync,

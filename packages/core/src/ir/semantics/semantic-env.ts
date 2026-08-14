@@ -237,15 +237,11 @@ function constructEnv(
   const env = ownSemanticEnvironment({
     bindings,
     intProvenance: ownSemanticComposite(copyExactSemanticSet(overrides.intProvenance)),
-    freshArrayBindings: ownSemanticComposite(
-      copyExactSemanticSet(overrides.freshArrayBindings),
-    ),
+    freshArrayBindings: ownSemanticComposite(copyExactSemanticSet(overrides.freshArrayBindings)),
     pushBuiltFreshArrayBindings: overrides.pushBuiltFreshArrayBindings
       ? ownSemanticComposite(copyExactSemanticSet(overrides.pushBuiltFreshArrayBindings))
       : ownSemanticComposite(new Set()),
-    capturedArrayBindings: ownSemanticComposite(
-      copyExactSemanticSet(overrides.capturedArrayBindings),
-    ),
+    capturedArrayBindings: ownSemanticComposite(copyExactSemanticSet(overrides.capturedArrayBindings)),
     recordArrayFields: overrides.recordArrayFields
       ? cloneSemanticRecordArrayFields(overrides.recordArrayFields, ownSemanticComposite)
       : ownSemanticComposite(new Map()),
