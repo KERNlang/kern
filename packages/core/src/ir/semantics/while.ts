@@ -29,6 +29,7 @@
 import type { IRNode } from '../../types.js';
 import {
   childEnv,
+  internalReferenceTraceRetentionForEnv,
   markRepeatableLoopBody,
   type NodeContract,
   type NodeFixture,
@@ -73,7 +74,7 @@ function whileEffects(ir: IRNode, env: SemanticEnv): Trace {
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     const childTrace = referenceRunSequence(children, iterEnv);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, childTrace.events, internalReferenceTraceRetentionForEnv(env));
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

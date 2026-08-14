@@ -20,7 +20,7 @@ import type { InternalEffectMachineRequest, InternalEffectMachineState } from '.
 import { evalPortableValue } from './portable-machine-evaluator.js';
 import { assertPortableScalar, type PortableScalar } from './portable-scalar-domain.js';
 import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env.js';
-import type { TraceEvent } from './trace.js';
+import { appendOrderedTraceEvents, type TraceEvent } from './trace.js';
 
 export interface InternalMachineClassEvaluatedValue<T = PortableScalar> {
   readonly events: readonly TraceEvent[];
@@ -49,7 +49,7 @@ function classFrameIdentity(
 }
 
 function appendEvaluation<T>(target: TraceEvent[], evaluated: InternalMachineClassEvaluatedValue<T>): T {
-  target.push(...evaluated.events);
+  appendOrderedTraceEvents(target, evaluated.events);
   return evaluated.value;
 }
 
@@ -76,7 +76,7 @@ function* evaluateInternalMachineClassConstructorLayer(
   try {
     if (plan.preSuper.length > 0) {
       const trace = yield* bodyRunner(plan.preSuper, constructorEnv, state);
-      events.push(...trace.events);
+      appendOrderedTraceEvents(events, trace.events);
       if (trace.completion.kind !== 'normal') {
         throw new Error(`machine class: constructor "${cls.name}" completed abnormally before super`);
       }
@@ -89,15 +89,16 @@ function* evaluateInternalMachineClassConstructorLayer(
       const baseValues = plan.superArguments.map((argument) =>
         assertPortableScalar(evalPortableValue(argument, constructorEnv), `super argument for "${cls.name}"`),
       );
-      events.push(
-        ...(yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues, outerEnv, state, registry))
+      appendOrderedTraceEvents(
+        events,
+        (yield* evaluateInternalMachineClassConstructorLayer(base, instance, baseValues, outerEnv, state, registry))
           .events,
       );
     }
     initializeInternalMachineClassLayerFields(cls, instance.fields, outerEnv, evalPortableValue);
     if (plan.postSuper.length > 0) {
       const trace = yield* bodyRunner(plan.postSuper, constructorEnv, state);
-      events.push(...trace.events);
+      appendOrderedTraceEvents(events, trace.events);
       if (trace.completion.kind !== 'normal') {
         throw new Error(`machine class: constructor "${cls.name}" completed abnormally`);
       }
@@ -125,8 +126,9 @@ export function* evaluateInternalMachineClassNewFrame(
     values.push(appendEvaluation(events, yield* evaluate(argument, env, state)));
   }
   const instance = createInternalMachineClassReceiver(cls, state);
-  events.push(
-    ...(yield* evaluateInternalMachineClassConstructorLayer(cls, instance, values, env, state, registry)).events,
+  appendOrderedTraceEvents(
+    events,
+    (yield* evaluateInternalMachineClassConstructorLayer(cls, instance, values, env, state, registry)).events,
   );
   return { events, value: instance };
 }
@@ -168,7 +170,7 @@ export function* evaluateInternalMachineClassMethodFrame(
   const restore = bindInternalEffectMachineState(methodEnv, state);
   try {
     const trace = yield* bodyRunner(resolved.method.body, methodEnv, state);
-    events.push(...trace.events);
+    appendOrderedTraceEvents(events, trace.events);
     if (trace.completion.kind !== 'return') {
       throw new Error(`machine class: method "${resolved.cls.name}.${resolved.method.name}" must return a scalar`);
     }

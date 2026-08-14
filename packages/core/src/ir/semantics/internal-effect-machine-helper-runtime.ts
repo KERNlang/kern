@@ -24,7 +24,14 @@ import {
   type PortableScalar,
   type RunnerPortableValue,
 } from './portable-scalar-domain.js';
-import { getBinding, hasBinding, makeEnv, type RunnerFunctionBinding, type SemanticEnv } from './semantic-env.js';
+import {
+  getBinding,
+  hasBinding,
+  inheritInternalReferenceTraceRetention,
+  makeEnv,
+  type RunnerFunctionBinding,
+  type SemanticEnv,
+} from './semantic-env.js';
 import { emptyTrace, type TraceEvent } from './trace.js';
 
 // Frozen native-runner semantics, shared with the compatibility helper owner.
@@ -187,16 +194,19 @@ function helperCallEnvironment(call: PreparedHelperCall): SemanticEnv {
   if (!scope) throw new Error(`portable machine: helper "${call.name}" has no defining module`);
   const identity = call.state.moduleGraph?.functionIdentity.get(fn);
   const stackLabel = identity === undefined ? call.name : `module-function:${identity}:${fn.name}`;
-  const callEnv = makeEnv({
-    bindings,
-    intProvenance: new Set(call.intProvenance),
-    runnerCallCache: call.cache,
-    runnerCallStack: [...(call.env.runnerCallStack ?? []), stackLabel],
-    runnerClasses: scope.classes,
-    runnerFunctions: scope.functions,
-    seed: call.env.seed,
-    now: call.env.now,
-  });
+  const callEnv = inheritInternalReferenceTraceRetention(
+    call.env,
+    makeEnv({
+      bindings,
+      intProvenance: new Set(call.intProvenance),
+      runnerCallCache: call.cache,
+      runnerCallStack: [...(call.env.runnerCallStack ?? []), stackLabel],
+      runnerClasses: scope.classes,
+      runnerFunctions: scope.functions,
+      seed: call.env.seed,
+      now: call.env.now,
+    }),
+  );
   return callEnv;
 }
 

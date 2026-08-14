@@ -2,6 +2,7 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
+  inheritInternalReferenceTraceRetention,
   makeEnv,
   type RunnerClassBinding,
   type RunnerClassInstanceValue,
@@ -43,7 +44,11 @@ export function runnerCallStackForEnv(env: SemanticEnv): readonly string[] {
 export function withModuleScope(env: SemanticEnv, scope: RunnerModuleScope | undefined): SemanticEnv {
   if (!scope) return env;
   if (env.runnerFunctions === scope.functions && env.runnerClasses === scope.classes) return env;
-  return { ...env, runnerFunctions: scope.functions, runnerClasses: scope.classes };
+  return inheritInternalReferenceTraceRetention(env, {
+    ...env,
+    runnerFunctions: scope.functions,
+    runnerClasses: scope.classes,
+  });
 }
 
 export function initializeRunnerClassInstance(
@@ -126,17 +131,20 @@ function explicitSuperCallArgs(
   if (parsed.kind !== 'call' || parsed.callee.kind !== 'ident' || parsed.callee.name !== 'super') return undefined;
   const bindings = new Map<string, unknown>();
   for (let index = 0; index < params.length; index += 1) bindings.set(params[index], args[index]);
-  const env = makeEnv({
-    bindings,
-    runnerFunctions: runnerFunctionsForEnv(outerEnv),
-    runnerClasses: runnerClassesForEnv(outerEnv),
-    runnerCallStack: outerEnv.runnerCallStack,
-    runnerCallCache: outerEnv.runnerCallCache,
-    capabilities: outerEnv.capabilities,
-    capabilityContext: outerEnv.capabilityContext,
-    seed: outerEnv.seed,
-    now: outerEnv.now,
-  });
+  const env = inheritInternalReferenceTraceRetention(
+    outerEnv,
+    makeEnv({
+      bindings,
+      runnerFunctions: runnerFunctionsForEnv(outerEnv),
+      runnerClasses: runnerClassesForEnv(outerEnv),
+      runnerCallStack: outerEnv.runnerCallStack,
+      runnerCallCache: outerEnv.runnerCallCache,
+      capabilities: outerEnv.capabilities,
+      capabilityContext: outerEnv.capabilityContext,
+      seed: outerEnv.seed,
+      now: outerEnv.now,
+    }),
+  );
   return parsed.args.map((arg) => evalArgument(arg, env));
 }
 
@@ -197,19 +205,22 @@ function runRunnerClassBody(
   if (callStack.includes(label)) throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
   const bindings = new Map<string, unknown>([['this', receiver]]);
   for (let index = 0; index < member.params.length; index += 1) bindings.set(member.params[index], args[index]);
-  const callEnv = makeEnv({
-    bindings,
-    runnerFunctions: runnerFunctionsForEnv(env),
-    runnerClasses: runnerClassesForEnv(env),
-    runnerCallStack: [...callStack, label],
-    runnerCallCache: env.runnerCallCache,
-    runnerThis: receiver,
-    runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
-    capabilities: env.capabilities,
-    capabilityContext: env.capabilityContext,
-    seed: env.seed,
-    now: env.now,
-  });
+  const callEnv = inheritInternalReferenceTraceRetention(
+    env,
+    makeEnv({
+      bindings,
+      runnerFunctions: runnerFunctionsForEnv(env),
+      runnerClasses: runnerClassesForEnv(env),
+      runnerCallStack: [...callStack, label],
+      runnerCallCache: env.runnerCallCache,
+      runnerThis: receiver,
+      runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
+      capabilities: env.capabilities,
+      capabilityContext: env.capabilityContext,
+      seed: env.seed,
+      now: env.now,
+    }),
+  );
   callEnv.bindings.set('this', receiver);
   callEnv.runnerThis = receiver;
   const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;
@@ -246,19 +257,22 @@ export async function runRunnerClassBodyAsync(
   if (callStack.includes(label)) throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
   const bindings = new Map<string, unknown>([['this', receiver]]);
   for (let index = 0; index < member.params.length; index += 1) bindings.set(member.params[index], args[index]);
-  const callEnv = makeEnv({
-    bindings,
-    runnerFunctions: runnerFunctionsForEnv(env),
-    runnerClasses: runnerClassesForEnv(env),
-    runnerCallStack: [...callStack, label],
-    runnerCallCache: env.runnerCallCache,
-    runnerThis: receiver,
-    runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
-    capabilities: env.capabilities,
-    capabilityContext: env.capabilityContext,
-    seed: env.seed,
-    now: env.now,
-  });
+  const callEnv = inheritInternalReferenceTraceRetention(
+    env,
+    makeEnv({
+      bindings,
+      runnerFunctions: runnerFunctionsForEnv(env),
+      runnerClasses: runnerClassesForEnv(env),
+      runnerCallStack: [...callStack, label],
+      runnerCallCache: env.runnerCallCache,
+      runnerThis: receiver,
+      runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
+      capabilities: env.capabilities,
+      capabilityContext: env.capabilityContext,
+      seed: env.seed,
+      now: env.now,
+    }),
+  );
   callEnv.bindings.set('this', receiver);
   callEnv.runnerThis = receiver;
   const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;

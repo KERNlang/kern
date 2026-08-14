@@ -29,6 +29,7 @@ import {
   getBinding,
   hasBinding,
   hasOwnBinding,
+  internalReferenceTraceRetentionForEnv,
   markRepeatableLoopBody,
   type SemanticEnv,
 } from './index.js';
@@ -146,7 +147,7 @@ export async function asyncReferenceRunSequence(
       throw new ReferenceRunnerError('`else` must immediately follow an `if` sibling.', n);
     }
     const t = await asyncReferenceRun(nodeToRun, env, options);
-    appendInternalReferenceTraceEvents(out, t.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, t.events, internalReferenceTraceRetentionForEnv(env));
     if (t.completion.kind !== 'normal') {
       out.completion = t.completion;
       return out;
@@ -413,7 +414,7 @@ async function asyncTryEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   const out: Trace = emptyTrace();
 
   const bodyTrace = await asyncReferenceRunSequence(body, env, options);
-  appendInternalReferenceTraceEvents(out, bodyTrace.events, env.internalReferenceTraceRetention);
+  appendInternalReferenceTraceEvents(out, bodyTrace.events, internalReferenceTraceRetentionForEnv(env));
   let completion: CompletionRecord = bodyTrace.completion;
 
   if (completion.kind === 'return' && catchNode) {
@@ -433,13 +434,13 @@ async function asyncTryEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
     } finally {
       if (hasBinding) defineBinding(env, caught, UNAVAILABLE_CAUGHT_ERROR);
     }
-    appendInternalReferenceTraceEvents(out, catchTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, catchTrace.events, internalReferenceTraceRetentionForEnv(env));
     completion = catchTrace.completion;
   }
 
   if (finallyNode) {
     const finallyTrace = await asyncReferenceRunSequence(finallyNode.children ?? [], env, options);
-    appendInternalReferenceTraceEvents(out, finallyTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, finallyTrace.events, internalReferenceTraceRetentionForEnv(env));
     if (finallyTrace.completion.kind !== 'normal') {
       throw new ReferenceRunnerError('try: finally must complete normally (cleanup-only this slice)', finallyNode);
     }
@@ -474,7 +475,7 @@ async function asyncWhileEffects(ir: IRNode, env: SemanticEnv, options: AsyncRef
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, childTrace.events, internalReferenceTraceRetentionForEnv(env));
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;
@@ -507,14 +508,18 @@ async function asyncForEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   const out: Trace = emptyTrace();
 
   for (let i = from; step > 0 ? i < to : i > to; i += step) {
-    appendInternalReferenceTraceEvent(out, { op: 'iter-next', binding: name, value: i }, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvent(
+      out,
+      { op: 'iter-next', binding: name, value: i },
+      internalReferenceTraceRetentionForEnv(env),
+    );
 
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     defineIntBinding(iterEnv, name, i);
 
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, childTrace.events, internalReferenceTraceRetentionForEnv(env));
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;
@@ -558,7 +563,7 @@ async function asyncEachEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefe
     appendInternalReferenceTraceEvent(
       out,
       { op: 'iter-next', binding: step.primary[0], value: step.primary[1] },
-      env.internalReferenceTraceRetention,
+      internalReferenceTraceRetentionForEnv(env),
     );
 
     const iterEnv = childEnv(env);
@@ -566,7 +571,7 @@ async function asyncEachEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefe
     for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, childTrace.events, internalReferenceTraceRetentionForEnv(env));
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

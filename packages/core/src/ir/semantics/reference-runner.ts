@@ -11,7 +11,7 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { CONTRACT_REGISTRY, type SemanticEnv } from './index.js';
+import { CONTRACT_REGISTRY, internalReferenceTraceRetentionForEnv, type SemanticEnv } from './index.js';
 import { appendInternalReferenceTraceEvents, emptyTrace, type Trace } from './trace.js';
 
 /**
@@ -62,7 +62,7 @@ export function referenceRunSequence(nodes: readonly IRNode[], env: SemanticEnv)
       throw new ReferenceRunnerError('`else` must immediately follow an `if` sibling.', n);
     }
     const t = referenceRun(nodeToRun, env);
-    appendInternalReferenceTraceEvents(out, t.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, t.events, internalReferenceTraceRetentionForEnv(env));
     if (t.completion.kind !== 'normal') {
       out.completion = t.completion;
       return out;

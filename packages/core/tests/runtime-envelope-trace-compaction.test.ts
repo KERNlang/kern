@@ -1,10 +1,21 @@
-import { makeEnv } from '../src/ir/semantics/index.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+import { evalRunnerFunctionValueAsync } from '../src/ir/semantics/async-portable-scalar.js';
+import { asyncReferenceRunSequence } from '../src/ir/semantics/async-reference-runner.js';
+import {
+  bindInternalReferenceTraceRetention,
+  internalReferenceTraceRetentionForEnv,
+  makeEnv,
+  type RunnerModuleScope,
+} from '../src/ir/semantics/index.js';
 import {
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../src/ir/semantics/internal-effect-machine.js';
 import { referenceRunSequence } from '../src/ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
+import { appendOrderedTraceEvents, type TraceEvent } from '../src/ir/semantics/trace.js';
 import {
   executeInternalRuntimeEnvelopeAsync,
   executeInternalRuntimeEnvelopeSync,
@@ -61,8 +72,59 @@ const legacyAssignmentLoop: IRNode[] = [
 const legacyLimits = { ...limits, maxCollectionLength: 100_000 } as const;
 const legacyEnabled = { enabled: true, limits: legacyLimits } as const;
 
+const effectMachineTraceJoinSources = [
+  'internal-effect-machine-try.ts',
+  'internal-effect-machine-class-frame.ts',
+  'internal-effect-machine-class-value-runtime.ts',
+] as const;
+
+function variadicTraceJoins(sourceName: string): string[] {
+  const path = fileURLToPath(new URL(`../src/ir/semantics/${sourceName}`, import.meta.url));
+  const source = readFileSync(path, 'utf8');
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const failures: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'push' &&
+      node.arguments.some(
+        (argument) =>
+          ts.isSpreadElement(argument) &&
+          ts.isPropertyAccessExpression(argument.expression) &&
+          argument.expression.name.text === 'events',
+      )
+    ) {
+      const { line, character } = file.getLineAndCharacterOfPosition(node.getStart(file));
+      failures.push(`${sourceName}:${line + 1}:${character + 1}`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return failures;
+}
+
 describe('runtime-envelope trace compaction', () => {
   beforeAll(() => registerAllContracts());
+
+  test('effect-machine trace joins never pass event arrays through host variadic arguments', () => {
+    expect(effectMachineTraceJoinSources.flatMap(variadicTraceJoins)).toEqual([]);
+  });
+
+  test('ordered trace append is self-join safe and preserves exact source order', () => {
+    const target: TraceEvent[] = [{ op: 'stdout', text: 'first' }];
+    const source: TraceEvent[] = [
+      { op: 'stdout', text: 'second' },
+      { op: 'stdout', text: 'third' },
+    ];
+    appendOrderedTraceEvents(target, source);
+    appendOrderedTraceEvents(target, target);
+    expect(target).toEqual([
+      { op: 'stdout', text: 'first' },
+      { op: 'stdout', text: 'second' },
+      { op: 'stdout', text: 'third' },
+    ]);
+  });
 
   test('direct effect-machine defaults retain the exact full sync and async trace', async () => {
     const sync = runInternalEffectMachineSync(assignmentLoop, makeEnv(), {
@@ -112,6 +174,61 @@ describe('runtime-envelope trace compaction', () => {
     const asyncTrace = await runInternalLegacyEngineAsync(legacyAssignmentLoop, makeEnv(), {}, 'observable-only');
     expect(sync).toEqual(asyncTrace);
     expect(sync).toEqual({ completion: { kind: 'return', value: LEGACY_ITERATIONS }, events: [] });
+  });
+
+  test('private legacy binding never mutates a frozen proxied caller or leaks into later direct runs', async () => {
+    const writes: string[] = [];
+    const caller = new Proxy(Object.freeze(makeEnv()), {
+      defineProperty: (_target, property) => {
+        writes.push(`define:${String(property)}`);
+        return false;
+      },
+      deleteProperty: (_target, property) => {
+        writes.push(`delete:${String(property)}`);
+        return false;
+      },
+      set: (_target, property) => {
+        writes.push(`set:${String(property)}`);
+        return false;
+      },
+    });
+
+    const sync = runInternalLegacyEngineSync(legacyAssignmentLoop, caller, 'observable-only');
+    const asyncTrace = await runInternalLegacyEngineAsync(legacyAssignmentLoop, caller, {}, 'observable-only');
+    expect(sync).toEqual(asyncTrace);
+    expect(sync.events).toEqual([]);
+    expect(writes).toEqual([]);
+
+    const direct = referenceRunSequence(legacyAssignmentLoop, caller);
+    expect(direct.events).toHaveLength(1 + 2 * LEGACY_ITERATIONS);
+    expect(writes).toEqual([]);
+  });
+
+  test('observable-only retention is inherited by an async function call frame without binding the caller', async () => {
+    const functions: RunnerModuleScope['functions'] = new Map();
+    const classes: RunnerModuleScope['classes'] = new Map();
+    const module: RunnerModuleScope = { classes, functions };
+    functions.set('answer', {
+      body: [{ type: 'return', props: { value: '7' } }],
+      module,
+      name: 'answer',
+      params: [],
+      returns: 'number',
+    });
+    const caller = makeEnv({ runnerClasses: classes, runnerFunctions: functions });
+    const executionEnv = bindInternalReferenceTraceRetention(caller, 'observable-only');
+    let frameRetention: string | undefined;
+
+    const value = await evalRunnerFunctionValueAsync('answer', [], executionEnv, {
+      runFunctionBody: async (body, callEnv) => {
+        frameRetention = internalReferenceTraceRetentionForEnv(callEnv);
+        return asyncReferenceRunSequence(body, callEnv, {});
+      },
+    });
+
+    expect(value).toBe(7);
+    expect(frameRetention).toBe('observable-only');
+    expect(internalReferenceTraceRetentionForEnv(caller)).toBe('full');
   });
 
   test('legacy compatibility sync and async preserve the full-boundary result with no hidden trace', async () => {

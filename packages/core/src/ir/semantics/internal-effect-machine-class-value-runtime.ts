@@ -42,7 +42,7 @@ import {
   sameType,
 } from './portable-scalar-domain.js';
 import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env.js';
-import type { TraceEvent } from './trace.js';
+import { appendOrderedTraceEvents, type TraceEvent } from './trace.js';
 
 function evaluated<T = PortableScalar>(
   value: T,
@@ -52,7 +52,7 @@ function evaluated<T = PortableScalar>(
 }
 
 function append<T>(events: TraceEvent[], next: InternalMachineClassEvaluatedValue<T>): T {
-  events.push(...next.events);
+  appendOrderedTraceEvents(events, next.events);
   return next.value;
 }
 
@@ -155,7 +155,7 @@ function* evaluateInternalMachineHelperCall(
     provenance.push(isIntProvenancedExpr(argument, env));
   }
   const body = yield* evalInternalMachineHelperFrame(node.callee.name, values, provenance, env);
-  events.push(...body.events);
+  appendOrderedTraceEvents(events, body.events);
   return { events, value: body.value };
 }
 

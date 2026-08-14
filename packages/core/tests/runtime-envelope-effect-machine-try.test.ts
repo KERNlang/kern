@@ -35,6 +35,32 @@ const cleanup = (): IRNode => ({
 describe('private effect-machine try ownership', () => {
   beforeAll(() => registerAllContracts());
 
+  test('joins a host-argument-limit-sized try trace without variadic exhaustion', () => {
+    const iterations = 130_000;
+    const nodes: IRNode[] = [
+      {
+        type: 'try',
+        children: [
+          {
+            type: 'for',
+            props: { from: '0', name: 'index', to: String(iterations) },
+            children: [{ type: 'print', props: { value: 'index' } }],
+          },
+          { type: 'finally', children: [{ type: 'print', props: { value: '"done"' } }] },
+        ],
+      },
+    ];
+
+    const trace = runInternalEffectMachineSync(nodes, makeEnv(), { iterationBudget: iterations });
+    expect(trace.completion).toEqual({ kind: 'normal' });
+    expect(trace.events).toHaveLength(2 * iterations + 1);
+    expect(trace.events.slice(0, 2)).toEqual([
+      { binding: 'index', op: 'iter-next', value: 0 },
+      { op: 'stdout', text: '0' },
+    ]);
+    expect(trace.events.at(-1)).toEqual({ op: 'stdout', text: 'done' });
+  });
+
   test('claims root try only after complete ownership is available', () => {
     const nodes: IRNode[] = [{ type: 'try', children: [{ type: 'print', props: { value: '"work"' } }, cleanup()] }];
     expect(INTERNAL_EFFECT_MACHINE_DISPOSITION.try).toBe('unified');

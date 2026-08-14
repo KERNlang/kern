@@ -3,6 +3,9 @@ import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { cloneSemanticBindingValue } from './semantic-clone.js';
 import { markChildSemanticEnvironment, markRootSemanticEnvironment } from './semantic-env-ownership.js';
+import type { InternalReferenceTraceRetention } from './trace.js';
+
+export type { InternalReferenceTraceRetention } from './trace.js';
 
 /** Runtime state shared by semantic evaluators without importing registry ownership. */
 export interface SemanticEnv {
@@ -29,24 +32,29 @@ export interface SemanticEnv {
   intIndexCtx?: boolean;
   parent?: SemanticEnv;
   repeatableLoopBody?: boolean;
-  /** Execution-scoped policy for retaining internal reference-runner events. */
-  internalReferenceTraceRetention?: InternalReferenceTraceRetention;
   seed: number;
   now: number;
 }
 
-export type InternalReferenceTraceRetention = 'full' | 'observable-only';
+const internalReferenceTraceRetentions = new WeakMap<SemanticEnv, InternalReferenceTraceRetention>();
 
 export function bindInternalReferenceTraceRetention(
   env: SemanticEnv,
   retention: InternalReferenceTraceRetention,
-): () => void {
-  const previous = env.internalReferenceTraceRetention;
-  env.internalReferenceTraceRetention = retention;
-  return () => {
-    if (previous === undefined) delete env.internalReferenceTraceRetention;
-    else env.internalReferenceTraceRetention = previous;
-  };
+): SemanticEnv {
+  const executionEnv = childEnv(env);
+  internalReferenceTraceRetentions.set(executionEnv, retention);
+  return executionEnv;
+}
+
+export function internalReferenceTraceRetentionForEnv(env: SemanticEnv): InternalReferenceTraceRetention {
+  return internalReferenceTraceRetentions.get(env) ?? 'full';
+}
+
+export function inheritInternalReferenceTraceRetention(source: SemanticEnv, target: SemanticEnv): SemanticEnv {
+  const retention = internalReferenceTraceRetentions.get(source);
+  if (retention !== undefined) internalReferenceTraceRetentions.set(target, retention);
+  return target;
 }
 
 const ownedSemanticComposites = new WeakSet<object>();
@@ -218,7 +226,6 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     intIndexCtx: overrides.intIndexCtx,
     parent: undefined,
     repeatableLoopBody: false,
-    internalReferenceTraceRetention: undefined,
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   });
@@ -261,10 +268,10 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     intIndexCtx: undefined,
     parent,
     repeatableLoopBody: false,
-    internalReferenceTraceRetention: parent.internalReferenceTraceRetention,
     seed: parent.seed,
     now: parent.now,
   });
+  inheritInternalReferenceTraceRetention(parent, child);
   copyInternalEffectMachineState(parent, child);
   markChildSemanticEnvironment(child, parent);
   return child;

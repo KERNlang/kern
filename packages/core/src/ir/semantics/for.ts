@@ -14,6 +14,7 @@ import { forPreconditions, forRuntimeRange } from './for-runtime.js';
 import {
   childEnv,
   defineIntBinding,
+  internalReferenceTraceRetentionForEnv,
   markRepeatableLoopBody,
   type NodeContract,
   type NodeFixture,
@@ -21,7 +22,12 @@ import {
   type SemanticEnv,
 } from './index.js';
 import { referenceRunSequence } from './reference-runner.js';
-import { appendInternalReferenceTraceEvent, appendInternalReferenceTraceEvents, emptyTrace, type Trace } from './trace.js';
+import {
+  appendInternalReferenceTraceEvent,
+  appendInternalReferenceTraceEvents,
+  emptyTrace,
+  type Trace,
+} from './trace.js';
 
 export type { ForProps, ForRuntimeRange } from './for-runtime.js';
 export {
@@ -38,7 +44,7 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
     appendInternalReferenceTraceEvent(
       out,
       { op: 'iter-next', binding: name, value: i },
-      env.internalReferenceTraceRetention,
+      internalReferenceTraceRetentionForEnv(env),
     );
 
     // Each iteration runs in a FRESH CHILD scope. The loop variable and any inner
@@ -54,7 +60,7 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
     defineIntBinding(iterEnv, name, i);
 
     const childTrace = referenceRunSequence(children, iterEnv);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, childTrace.events, internalReferenceTraceRetentionForEnv(env));
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

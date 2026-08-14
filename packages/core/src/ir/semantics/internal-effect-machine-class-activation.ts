@@ -6,6 +6,7 @@ import type { EvalPortableValue } from './portable-eval-types.js';
 import { assertPortableMachineScalarShape } from './portable-machine-shape.js';
 import type { PortableScalar } from './portable-scalar-domain.js';
 import {
+  inheritInternalReferenceTraceRetention,
   makeEnv,
   type RunnerClassBinding,
   type RunnerClassInstanceValue,
@@ -92,19 +93,22 @@ export function makeInternalMachineClassConstructorEnv(
 ): SemanticEnv {
   const params = cls.constructor?.params ?? [];
   const scope = cls.module;
-  return makeEnv({
-    bindings: new Map(params.map((param, index) => [param, values[index]])),
-    capabilities: env.capabilities,
-    capabilityContext: env.capabilityContext,
-    runnerCallCache: env.runnerCallCache,
-    runnerCallStack: [...(env.runnerCallStack ?? []), stackLabel],
-    runnerClasses: scope?.classes ?? new Map(registry),
-    runnerFunctions: scope?.functions ?? env.runnerFunctions,
-    runnerSuperClass: cls.extendsName,
-    runnerThis: instance,
-    seed: env.seed,
-    now: env.now,
-  });
+  return inheritInternalReferenceTraceRetention(
+    env,
+    makeEnv({
+      bindings: new Map(params.map((param, index) => [param, values[index]])),
+      capabilities: env.capabilities,
+      capabilityContext: env.capabilityContext,
+      runnerCallCache: env.runnerCallCache,
+      runnerCallStack: [...(env.runnerCallStack ?? []), stackLabel],
+      runnerClasses: scope?.classes ?? new Map(registry),
+      runnerFunctions: scope?.functions ?? env.runnerFunctions,
+      runnerSuperClass: cls.extendsName,
+      runnerThis: instance,
+      seed: env.seed,
+      now: env.now,
+    }),
+  );
 }
 
 export function makeInternalMachineClassMemberEnv(
@@ -117,19 +121,22 @@ export function makeInternalMachineClassMemberEnv(
   stackLabel = `${cls.name}.${member.name}`,
 ): SemanticEnv {
   const scope = cls.module;
-  return makeEnv({
-    bindings: new Map(member.params.map((param, index) => [param, values[index]])),
-    capabilities: env.capabilities,
-    capabilityContext: env.capabilityContext,
-    runnerCallCache: env.runnerCallCache,
-    runnerCallStack: [...(env.runnerCallStack ?? []), stackLabel],
-    runnerClasses: scope?.classes ?? new Map(registry),
-    runnerFunctions: scope?.functions ?? env.runnerFunctions,
-    runnerSuperClass: cls.extendsName,
-    runnerThis: instance,
-    seed: env.seed,
-    now: env.now,
-  });
+  return inheritInternalReferenceTraceRetention(
+    env,
+    makeEnv({
+      bindings: new Map(member.params.map((param, index) => [param, values[index]])),
+      capabilities: env.capabilities,
+      capabilityContext: env.capabilityContext,
+      runnerCallCache: env.runnerCallCache,
+      runnerCallStack: [...(env.runnerCallStack ?? []), stackLabel],
+      runnerClasses: scope?.classes ?? new Map(registry),
+      runnerFunctions: scope?.functions ?? env.runnerFunctions,
+      runnerSuperClass: cls.extendsName,
+      runnerThis: instance,
+      seed: env.seed,
+      now: env.now,
+    }),
+  );
 }
 
 export function createInternalMachineClassInstance(

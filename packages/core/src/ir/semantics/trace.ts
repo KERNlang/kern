@@ -68,6 +68,12 @@ export interface Trace {
   completion: CompletionRecord;
 }
 
+/** Append an ordered trace without depending on the host variadic-argument ceiling. */
+export function appendOrderedTraceEvents(target: TraceEvent[], source: readonly TraceEvent[]): void {
+  if (target === source) return;
+  for (const event of source) target.push(event);
+}
+
 export function appendInternalReferenceTraceEvent(
   out: Trace,
   event: TraceEvent,

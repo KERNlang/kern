@@ -18,12 +18,8 @@ export function runInternalLegacyEngineSync(
   traceRetention: InternalReferenceTraceRetention = 'full',
 ): Trace {
   registerAllContracts();
-  const restore = bindInternalReferenceTraceRetention(env, traceRetention);
-  try {
-    return referenceRunSequence(nodes, env);
-  } finally {
-    restore();
-  }
+  const executionEnv = bindInternalReferenceTraceRetention(env, traceRetention);
+  return referenceRunSequence(nodes, executionEnv);
 }
 
 /** Dirty compatibility runner. Call only after the compat entry selects legacy. */
@@ -34,10 +30,6 @@ export async function runInternalLegacyEngineAsync(
   traceRetention: InternalReferenceTraceRetention = 'full',
 ): Promise<Trace> {
   registerAllContracts();
-  const restore = bindInternalReferenceTraceRetention(env, traceRetention);
-  try {
-    return await asyncReferenceRunSequence(nodes, env, options);
-  } finally {
-    restore();
-  }
+  const executionEnv = bindInternalReferenceTraceRetention(env, traceRetention);
+  return asyncReferenceRunSequence(nodes, executionEnv, options);
 }

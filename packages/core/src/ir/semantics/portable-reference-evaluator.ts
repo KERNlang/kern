@@ -2,6 +2,7 @@ import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
+  inheritInternalReferenceTraceRetention,
   makeEnv,
   type RunnerClassInstanceValue,
   type RunnerModuleScope,
@@ -357,16 +358,19 @@ export function evalRunnerFunctionValue(
     return assertRunnerPortableValue(cache.get(cacheKey), `function "${fnName}" cached return`);
   }
 
-  const callEnv = makeEnv({
-    bindings,
-    intProvenance,
-    runnerFunctions: fn.module?.functions ?? functions,
-    runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
-    runnerCallStack: [...callStack, fnName],
-    runnerCallCache: cache,
-    seed: env.seed,
-    now: env.now,
-  });
+  const callEnv = inheritInternalReferenceTraceRetention(
+    env,
+    makeEnv({
+      bindings,
+      intProvenance,
+      runnerFunctions: fn.module?.functions ?? functions,
+      runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
+      runnerCallStack: [...callStack, fnName],
+      runnerCallCache: cache,
+      seed: env.seed,
+      now: env.now,
+    }),
+  );
   callEnv.runnerProtectedClassInstances = new WeakSet(
     Array.from(callEnv.bindings.values()).filter(isRunnerClassInstanceValue),
   );

@@ -33,7 +33,14 @@
  */
 
 import type { IRNode } from '../../types.js';
-import { defineBinding, type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
+import {
+  defineBinding,
+  internalReferenceTraceRetentionForEnv,
+  type NodeContract,
+  type NodeFixture,
+  registerContract,
+  type SemanticEnv,
+} from './index.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { appendInternalReferenceTraceEvents, type CompletionRecord, emptyTrace, type Trace } from './trace.js';
@@ -47,7 +54,7 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
   const out: Trace = emptyTrace();
 
   const bodyTrace = referenceRunSequence(body, env);
-  appendInternalReferenceTraceEvents(out, bodyTrace.events, env.internalReferenceTraceRetention);
+  appendInternalReferenceTraceEvents(out, bodyTrace.events, internalReferenceTraceRetentionForEnv(env));
   let completion: CompletionRecord = bodyTrace.completion;
 
   if (completion.kind === 'return' && catchNode) {
@@ -85,13 +92,13 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
         defineBinding(env, caught as string, UNAVAILABLE_CAUGHT_ERROR);
       }
     }
-    appendInternalReferenceTraceEvents(out, catchTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, catchTrace.events, internalReferenceTraceRetentionForEnv(env));
     completion = catchTrace.completion;
   }
 
   if (finallyNode) {
     const finallyTrace = referenceRunSequence(finallyNode.children ?? [], env);
-    appendInternalReferenceTraceEvents(out, finallyTrace.events, env.internalReferenceTraceRetention);
+    appendInternalReferenceTraceEvents(out, finallyTrace.events, internalReferenceTraceRetentionForEnv(env));
     if (finallyTrace.completion.kind !== 'normal') {
       // finally is cleanup-only this slice; an abrupt finally would override
       // the pending completion (the trap D2 defers).
