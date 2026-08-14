@@ -451,11 +451,14 @@ The F1 runtime prerequisite promotes
 `kern-frontend-runtime-text-cache: internal-oracle`. The internal effect
 machine owns one opaque, execution-local Unicode-scalar cache keyed by exact
 immutable text values. Cache misses validate malformed UTF-16 before inserting
-frozen scalar arrays; hits reuse that validation, and conservative storage is
-bounded by the accepted runtime `maxBytes` budget. The gate proves 1K/4K/16K
-ASCII, astral, CRLF, and mixed walks with a 12x wall for 4x growth. It changes
-no public Text/KIR surface and does not promote `kern-frontend`; generated
-TypeScript/Python cache parity and F1 document scanning remain absent.
+sparse `Uint32Array` astral-scalar positions; hits reuse that validation, and a
+conservative two-entry capacity is derived from the accepted runtime
+`maxStringBytes` limit independently of result `maxBytes`. Cache rejection and
+eviction fall back to allocation-free scans without changing observable
+outcomes. The gate proves 4K/16K/65K ASCII, astral, CRLF, and mixed walks with a
+12x wall for 4x growth. It changes no public Text/KIR surface and does not
+promote `kern-frontend`; generated TypeScript/Python cache parity and F1
+document scanning remain absent.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a

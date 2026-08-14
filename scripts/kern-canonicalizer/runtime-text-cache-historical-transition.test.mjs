@@ -21,6 +21,7 @@ const CACHE_SUCCESSOR_PATH = 'ir/semantics/internal-text-code-point-cache.js';
 const RETAINED_CHANGED_PATHS = [
   'ir/semantics/internal-effect-machine.js',
   'ir/semantics/portable-string.js',
+  'runtime-envelope/execute-compat.js',
   'runtime-envelope/execute.js',
   'runtime-envelope/internal-engine.js',
 ];

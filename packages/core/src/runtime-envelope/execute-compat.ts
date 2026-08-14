@@ -43,7 +43,13 @@ export function executeInternalRuntimeEnvelopeCompatSync(
     disposeScheduler = installInternalRuntimeScheduler(env, accepted.scheduler);
     throwIfInternalRuntimeSchedulerTerminated(env);
     const trace = useMachine
-      ? runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength, accepted.observer)
+      ? runInternalRuntimeEngineSync(
+          nodes,
+          env,
+          accepted.limits.maxCollectionLength,
+          accepted.observer,
+          accepted.limits.maxStringBytes,
+        )
       : runInternalLegacyEngineSync(nodes, env);
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
@@ -72,6 +78,7 @@ export async function executeInternalRuntimeEnvelopeCompatAsync(
             ...asyncOptions,
             iterationBudget: accepted.limits.maxCollectionLength,
             observer: accepted.observer,
+            textCodePointCacheMaxStringBytes: accepted.limits.maxStringBytes,
           })
         : runInternalLegacyEngineAsync(nodes, env, asyncOptions),
     );

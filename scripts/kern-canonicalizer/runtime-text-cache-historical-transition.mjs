@@ -323,6 +323,23 @@ export const POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS = Object.freeze([
     ]),
   }),
   Object.freeze({
+    path: 'runtime-envelope/execute-compat.js',
+    currentDigest: 'fa06481ecc1354b39bdfeec50e9e3dde8efd66003dbae3505c618afcfa7888dd',
+    expectedDigest: '49a26fbf65bbd5418af0c8ffbb54fdda19c1a9462f89846e1bdf9003ca943443',
+    replacements: Object.freeze([
+      Object.freeze({
+        current:
+          '            ? runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength, accepted.observer, accepted.limits.maxStringBytes)\n',
+        historical:
+          '            ? runInternalRuntimeEngineSync(nodes, env, accepted.limits.maxCollectionLength, accepted.observer)\n',
+      }),
+      Object.freeze({
+        current: '                textCodePointCacheMaxStringBytes: accepted.limits.maxStringBytes,\n',
+        historical: '',
+      }),
+    ]),
+  }),
+  Object.freeze({
     path: 'runtime-envelope/execute.js',
     currentDigest: '5a385612dae2dd814ce925ff50e3452c254cc90a5e99b1ede327de44652c3d8b',
     expectedDigest: '49da512b024e714edbb56f6dfd30c6daa2e498da4cc720707d7fbeedd9eb0eb5',

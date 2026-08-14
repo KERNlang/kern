@@ -1,6 +1,6 @@
 # KERN 5 F1 Runtime Text Cache Prerequisite
 
-**Status:** IMPLEMENTED — FULL WALL PASSED; INDEPENDENT REVIEW PENDING
+**Status:** IMPLEMENTED — POST-REVIEW CORRECTION GATED; TARGETED REVIEW PENDING
 
 **Date:** 2026-08-14
 
@@ -23,7 +23,10 @@
 
 **Confidence:** 0.77 after independent review; 0.94 after the corrective
 tribunal, RED evidence, source trace, and 65K scalar-tape proof; 0.98 after the
-complete `fitness:kern-5` wall passed.
+complete `fitness:kern-5` wall passed; 0.98 after post-review tribunal
+`tribunal-1786671515775-uhprzd` scoped the compat repair; 0.99 after the
+review-driven repair passed its focused runtime wall and complete 750-test
+canonicalizer gate.
 
 ## Decision
 
@@ -53,7 +56,9 @@ complete `fitness:kern-5` wall passed.
   F1. Equivalent isolated scaling proof for generated TypeScript and Python is
   an explicit F7 promotion dependency, not a claim made here.
 - **[RTC-D7 DECIDED]** The new compiled cache owner and all four changed
-  retained compiled owners require a dedicated successor-history epoch. It is
+  retained compiled owners require a dedicated successor-history epoch. The
+  post-review compat propagation makes `execute-compat.js` the fifth changed
+  retained owner without changing the 317-to-316 inventory delta. The epoch is
   applied before the frozen Text.splice transition; neither the Text.splice
   transition nor any published M4.145 or pre-M4.135 digest may change.
 
@@ -148,5 +153,14 @@ complete `fitness:kern-5` wall passed.
   replay, cross-target conformance, native KERN coverage, self-host validation,
   application behavior, KIR/runtime contracts, checker, formatter, and the
   cache-specific wall.
-- **[RTC-V6 PENDING]** Independent Agon review, any verified blocker repair,
-  and the single authorized publication push.
+- **[RTC-V6 VERIFIED]** Independent Agon review
+  `review-1786671153028-gy6p2j` completed 3/3 and identified stale support-matrix
+  text plus missing sync/async compat cache propagation; corrective tribunal
+  `tribunal-1786671515775-uhprzd` confirmed the repair and rejected the claimed
+  cached ASCII/BMP O(N) path as a false positive. RED tests reproduced both
+  genuine gaps; the corrected compat paths, documentation, and exact fifth
+  retained-owner reconstruction pass 68 focused runtime checks, the 4K/16K/65K
+  cache wall, runtime contract v1 at 81/81, and the complete canonicalizer gate
+  at 750/750 with the 112/112 terminal frontier.
+- **[RTC-V7 PENDING]** Targeted independent Agon confirmation of the
+  review-driven correction and the single authorized publication push.
