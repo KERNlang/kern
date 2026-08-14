@@ -10,6 +10,10 @@
 
 **Ownership-correction successor:** `0df8834f1ec2509118128fbe1f0676ae6d525d25`
 
+**Root-isolation successor:** `b3d3f5fcdd1c082559e314197c1300f6b27386cc`
+
+**Historical-transition commit:** `77e107a6`
+
 **Predecessor commit:** `1868480434adb54186b4077144748dd1afa7d07d`
 
 **Tribunal:** `tribunal-1786694195303-ky48c2-kern5-trace-historical-transitio`
@@ -126,6 +130,14 @@ rewriting any archived digest or weakening exact-once anchors.
   composes it backward through `0df8834f`; no transition names its containing
   commit.
 
+### Trace-retention root transition
+
+`trace-retention-root-historical-transition.mjs` binds the exact
+`b3d3f5fc -> 0df8834f` source and compiled endpoints across all 17 changed
+paths. Both sides retain the same 317-file compiled inventory. The transition
+definition is committed later in `77e107a6`, and its test proves that the
+containing commit is neither authenticated endpoint.
+
 ## Design
 
 ### Shared chain executor
@@ -182,14 +194,14 @@ bytes before the older `36d0f660 -> 45dd2808` transition removes that path.
   workspace/infra wall pass on the final tree.
 - [ ] **[HTC-P8]** Independent Agon review reports no unresolved blocker before
   the combined branch is pushed once to `main`.
-- [ ] **[HTC-P9]** Frozen and proxied caller environments observe zero property
+- [x] **[HTC-P9]** Frozen and proxied caller environments observe zero property
   writes across sync/async legacy execution; direct reference runs before and
   after retain full traces; nested function/class frames retain the bound
   observable-only policy.
-- [ ] **[HTC-P10]** A deterministic AST gate rejects variadic trace joins in the
+- [x] **[HTC-P10]** A deterministic AST gate rejects variadic trace joins in the
   affected effect-machine modules, and large try/class traces preserve exact
   event order without `RangeError`.
-- [ ] **[HTC-P11]** The final source successor is a formatter fixed point and a
+- [x] **[HTC-P11]** The final source successor is a formatter fixed point and a
   later transition commit reconstructs its exact source and compiled endpoints
   through the unchanged ownership-correction history.
 
