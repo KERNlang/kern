@@ -2,6 +2,7 @@ import {
   analyzeTypeScriptGeneratedHelperUsage,
   typescriptCodeBindsOrWritesIdentifier,
 } from '../src/typescript-generated-helper-safety.js';
+import { TYPESCRIPT_PARSER_EXHAUSTION_DEPTH } from './typescript-parser-exhaustion-fixture.js';
 
 const RESERVED = '__kern_pow_int';
 
@@ -76,7 +77,7 @@ describe('target-generated helper binding safety', () => {
   });
 
   test('fails closed when generated TypeScript exceeds the parser stack', () => {
-    const nested = `${'('.repeat(5_000)}1${')'.repeat(5_000)}`;
+    const nested = `${'('.repeat(TYPESCRIPT_PARSER_EXHAUSTION_DEPTH)}1${')'.repeat(TYPESCRIPT_PARSER_EXHAUSTION_DEPTH)}`;
     const source = `function deep() { return ${nested}; } const result = __kern_pow_int([2, 3]);`;
 
     expect(() => analyzeTypeScriptGeneratedHelperUsage(source, RESERVED)).toThrow(

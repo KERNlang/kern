@@ -8,6 +8,7 @@
 import type { KernTarget } from '@kernlang/core';
 import { parseDocument, resolveConfig } from '@kernlang/core';
 import { transpileForTarget } from '../src/shared.js';
+import { TYPESCRIPT_PARSER_EXHAUSTION_DEPTH } from './typescript-parser-exhaustion-fixture.js';
 
 function compile(src: string, target: KernTarget = 'lib'): string {
   const ast = parseDocument(src);
@@ -411,7 +412,7 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
   });
 
   test('generated-helper analysis fails closed on parser stack exhaustion', () => {
-    const nested = `${'('.repeat(1_000)}value${')'.repeat(1_000)}`;
+    const nested = `${'('.repeat(TYPESCRIPT_PARSER_EXHAUSTION_DEPTH)}value${')'.repeat(TYPESCRIPT_PARSER_EXHAUSTION_DEPTH)}`;
     const source = [
       'fn name=deepRaw params="value:number" returns=number export=true',
       '  handler <<<',
