@@ -6,14 +6,11 @@ import { join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 
 import {
+  EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION,
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
+  POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS,
+  validateExecutionContextHardeningHistoricalTransition,
 } from './execution-context-hardening-historical-transition.mjs';
-import {
-  EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION,
-  POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS,
-  POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
-  validateExecutionContextIsolationHistoricalTransition,
-} from './execution-context-isolation-historical-transition.mjs';
 import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
@@ -22,7 +19,7 @@ import {
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
 const DEFINITION_PATH =
-  'scripts/kern-canonicalizer/execution-context-isolation-historical-transition.mjs';
+  'scripts/kern-canonicalizer/execution-context-hardening-historical-transition.mjs';
 
 function digest(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -64,37 +61,23 @@ function stage(reconstruction) {
   });
 }
 
-function atExecutionContextIsolationSuccessor(path, currentSource) {
-  const hardening = POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.find(
-    (candidate) => candidate.path === path,
-  );
-  if (hardening === undefined) return currentSource;
-  return reconstructHistoricalTransitionChain({
-    currentSource,
-    expectedTerminalDigest: hardening.expectedDigest,
-    milestone: `execution-context hardening predecessor compiled ${path}`,
-    path,
-    stages: [stage(hardening)],
-  });
-}
-
-test('execution-context isolation transition binds exact commits, manifests, and inventory', () => {
-  assert.equal(validateExecutionContextIsolationHistoricalTransition(), true);
-  const transition = EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION;
+test('execution-context hardening transition binds exact commits, manifests, and inventory', () => {
+  assert.equal(validateExecutionContextHardeningHistoricalTransition(), true);
+  const transition = EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION;
   assert.deepEqual(
     {
-      count: POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS.length,
+      count: POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS.length,
       digest: inventoryDigest(
-        POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS.map((row) => row.path),
+        POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS.map((row) => row.path),
       ),
     },
     transition.sourceManifest,
   );
   assert.deepEqual(
     {
-      count: POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS.length,
+      count: POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.length,
       digest: inventoryDigest(
-        POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS.map((row) => row.path),
+        POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS.map((row) => row.path),
       ),
     },
     transition.compiledManifest,
@@ -106,10 +89,10 @@ test('execution-context isolation transition binds exact commits, manifests, and
 });
 
 test('every source endpoint is pinned to exact predecessor and successor Git blobs', () => {
-  const transition = EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION;
+  const transition = EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION;
   const predecessorRows = [];
   const successorRows = [];
-  for (const reconstruction of POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS) {
+  for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync(
       'git',
       ['show', `${transition.successorCommit}:${reconstruction.path}`],
@@ -120,13 +103,14 @@ test('every source endpoint is pinned to exact predecessor and successor Git blo
       ['show', `${transition.predecessorCommit}:${reconstruction.path}`],
       { cwd: ROOT },
     );
+    assert.deepEqual(readFileSync(resolve(ROOT, reconstruction.path)), successor, reconstruction.path);
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     assert.equal(digest(predecessor), reconstruction.expectedDigest, reconstruction.path);
     assert.deepEqual(
       reconstructHistoricalTransitionChain({
         currentSource: successor,
         expectedTerminalDigest: reconstruction.expectedDigest,
-        milestone: `execution-context source ${reconstruction.path}`,
+        milestone: `execution-context hardening source ${reconstruction.path}`,
         path: reconstruction.path,
         stages: [stage(reconstruction)],
       }),
@@ -141,19 +125,16 @@ test('every source endpoint is pinned to exact predecessor and successor Git blo
 });
 
 test('every compiled endpoint reconstructs the authenticated predecessor build', () => {
-  const transition = EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION;
+  const transition = EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION;
   const predecessorRows = [];
   const successorRows = [];
-  for (const reconstruction of POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS) {
-    const successor = atExecutionContextIsolationSuccessor(
-      reconstruction.path,
-      readFileSync(resolve(DIST, reconstruction.path)),
-    );
+  for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS) {
+    const successor = readFileSync(resolve(DIST, reconstruction.path));
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,
       expectedTerminalDigest: reconstruction.expectedDigest,
-      milestone: `execution-context compiled ${reconstruction.path}`,
+      milestone: `execution-context hardening compiled ${reconstruction.path}`,
       path: reconstruction.path,
       stages: [stage(reconstruction)],
     });
@@ -166,23 +147,20 @@ test('every compiled endpoint reconstructs the authenticated predecessor build',
 });
 
 test('transition rejects immutable identity and endpoint drift', () => {
-  const transition = EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION;
+  const transition = EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION;
   assert.throws(
-    () => validateExecutionContextIsolationHistoricalTransition({
+    () => validateExecutionContextHardeningHistoricalTransition({
       transition: { ...transition, successorCommit: '0'.repeat(40) },
     }),
     /immutable identity changed/u,
   );
-  const reconstruction = POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS[0];
-  const live = atExecutionContextIsolationSuccessor(
-    reconstruction.path,
-    readFileSync(resolve(DIST, reconstruction.path)),
-  );
+  const reconstruction = POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS[0];
+  const live = readFileSync(resolve(DIST, reconstruction.path));
   assert.throws(
     () => reconstructHistoricalTransitionChain({
       currentSource: Buffer.concat([live, Buffer.from('\n')]),
       expectedTerminalDigest: reconstruction.expectedDigest,
-      milestone: 'execution-context drift',
+      milestone: 'execution-context hardening drift',
       path: reconstruction.path,
       stages: [stage(reconstruction)],
     }),
@@ -191,7 +169,7 @@ test('transition rejects immutable identity and endpoint drift', () => {
 });
 
 test('transition definition is committed outside both authenticated endpoints', () => {
-  const transition = EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION;
+  const transition = EXECUTION_CONTEXT_HARDENING_HISTORICAL_TRANSITION;
   const containingCommit = execFileSync(
     'git',
     ['log', '--diff-filter=A', '--format=%H', '-1', '--', DEFINITION_PATH],

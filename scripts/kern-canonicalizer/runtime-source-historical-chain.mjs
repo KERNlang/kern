@@ -5,6 +5,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS,
+} from './execution-context-hardening-historical-transition.mjs';
+import {
   POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
 } from './execution-context-isolation-historical-transition.mjs';
 import {
@@ -43,6 +46,9 @@ export function reconstructCanonicalizerHistoricalRuntimeSource({
   sourceKey,
 }) {
   const path = SOURCE_PATHS[sourceKey];
+  const executionHardening = POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
   const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,
   );
@@ -52,6 +58,9 @@ export function reconstructCanonicalizerHistoricalRuntimeSource({
     (candidate) => candidate.sourceKey === sourceKey,
   );
   const stages = [];
+  if (executionHardening !== undefined) {
+    stages.push(stage(executionHardening, executionHardening.claim, executionHardening.path));
+  }
   if (executionContext !== undefined) {
     stages.push(stage(executionContext, executionContext.claim, executionContext.path));
   }
