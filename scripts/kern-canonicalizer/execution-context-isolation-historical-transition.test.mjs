@@ -18,6 +18,9 @@ import {
   validateExecutionContextIsolationHistoricalTransition,
 } from './execution-context-isolation-historical-transition.mjs';
 import {
+  POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
+} from './execution-metadata-hardening-historical-transition.mjs';
+import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
@@ -68,13 +71,25 @@ function stage(reconstruction) {
 }
 
 function atExecutionContextIsolationSuccessor(path, currentSource) {
+  const metadata = POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  const metadataPredecessor = metadata === undefined
+    ? currentSource
+    : reconstructHistoricalTransitionChain({
+        currentSource,
+        expectedTerminalDigest: metadata.expectedDigest,
+        milestone: `execution-metadata hardening predecessor compiled ${path}`,
+        path,
+        stages: [stage(metadata)],
+      });
   const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,
   );
   const hardeningSuccessor = format === undefined
-    ? currentSource
+    ? metadataPredecessor
     : reconstructHistoricalTransitionChain({
-        currentSource,
+        currentSource: metadataPredecessor,
         expectedTerminalDigest: format.expectedDigest,
         milestone: `execution-context hardening format predecessor compiled ${path}`,
         path,

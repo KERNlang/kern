@@ -24,6 +24,10 @@ import {
   POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
 } from './execution-context-isolation-historical-transition.mjs';
 import {
+  POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
+  POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS,
+} from './execution-metadata-hardening-historical-transition.mjs';
+import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
@@ -68,6 +72,18 @@ test('legacy trace-compaction transition has immutable commit and inventory iden
 test('every changed source reconstructs the exact 45dd predecessor', () => {
   for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS) {
     let current = readFileSync(resolve(ROOT, reconstruction.path));
+    const metadata = POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (metadata !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: metadata.expectedDigest,
+        milestone: `execution-metadata hardening source ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(metadata)],
+      });
+    }
     const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_SOURCE_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -140,6 +156,18 @@ test('every changed source reconstructs the exact 45dd predecessor', () => {
 test('every changed compiled endpoint reconstructs the exact 45dd predecessor', () => {
   for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
     let current = readFileSync(resolve(DIST, reconstruction.path));
+    const metadata = POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (metadata !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: metadata.expectedDigest,
+        milestone: `execution-metadata hardening compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(metadata)],
+      });
+    }
     const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );

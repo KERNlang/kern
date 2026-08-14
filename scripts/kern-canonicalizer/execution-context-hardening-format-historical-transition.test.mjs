@@ -15,6 +15,10 @@ import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
+import {
+  POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
+  POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS,
+} from './execution-metadata-hardening-historical-transition.mjs';
 
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
@@ -61,6 +65,18 @@ function stage(reconstruction) {
   });
 }
 
+function atFormatSuccessor(path, currentSource, reconstructions) {
+  const metadata = reconstructions.find((candidate) => candidate.path === path);
+  if (metadata === undefined) return currentSource;
+  return reconstructHistoricalTransitionChain({
+    currentSource,
+    expectedTerminalDigest: metadata.expectedDigest,
+    milestone: `execution-metadata hardening predecessor ${path}`,
+    path,
+    stages: [stage(metadata)],
+  });
+}
+
 test('format transition binds exact commits, manifests, and unchanged compiled inventory', () => {
   assert.equal(validateExecutionContextHardeningFormatHistoricalTransition(), true);
   const transition = EXECUTION_CONTEXT_HARDENING_FORMAT_HISTORICAL_TRANSITION;
@@ -90,7 +106,15 @@ test('format source endpoints reconstruct exact pinned Git blobs', () => {
   for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_FORMAT_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync('git', ['show', `${transition.successorCommit}:${reconstruction.path}`]);
     const predecessor = execFileSync('git', ['show', `${transition.predecessorCommit}:${reconstruction.path}`]);
-    assert.deepEqual(readFileSync(resolve(ROOT, reconstruction.path)), successor, reconstruction.path);
+    assert.deepEqual(
+      atFormatSuccessor(
+        reconstruction.path,
+        readFileSync(resolve(ROOT, reconstruction.path)),
+        POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS,
+      ),
+      successor,
+      reconstruction.path,
+    );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     assert.deepEqual(
       reconstructHistoricalTransitionChain({
@@ -115,7 +139,11 @@ test('format compiled endpoints reconstruct the authenticated predecessor build'
   const predecessors = [];
   const successors = [];
   for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS) {
-    const successor = readFileSync(resolve(DIST, reconstruction.path));
+    const successor = atFormatSuccessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+      POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
+    );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,
