@@ -75,6 +75,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | current | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-frontend-surface-closure | Frozen KERN frontend source-to-KIR closure contract | current | `pnpm test:kern-frontend-closure` |
 | kern-frontend-runtime-text-cache | Execution-local frontend text scaling prerequisite | current | `pnpm test:kern-frontend-runtime-text-cache` |
+| kern-frontend-f1 | F1 full-cap document transport falsification proof | current | `pnpm test:kern-frontend-f1` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -155,6 +156,7 @@ wall and must remain absent until promoted.
 | kern-frontend-successful-line-composition | KERN-authored successful-line composition shadow | internal-oracle | `pnpm test:kern-frontend-successful-line-composition` |
 | kern-frontend-surface-closure | Frozen frontend source-to-KIR closure contract and static goldens | internal-oracle | `pnpm test:kern-frontend-closure` |
 | kern-frontend-runtime-text-cache | Execution-local frontend text scaling prerequisite | internal-oracle | `pnpm test:kern-frontend-runtime-text-cache` |
+| kern-frontend-f1 | F1 full-cap document transport falsification proof | internal-oracle | `pnpm test:kern-frontend-f1` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |

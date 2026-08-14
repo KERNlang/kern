@@ -1,0 +1,152 @@
+fn name=f1transportfailure returns="string[]"
+  param name=code type=string
+  param name=sourceScalars type=number
+  handler lang="kern"
+    return value="[\"kern.frontend.f1-transport-probe.2\", \"failure\", code, String(sourceScalars), \"0\", \"0\", \"0\", \"\", \"failure\"]"
+
+fn name=f1transportpair returns="string[]"
+  param name=parts type="string[]"
+  handler lang="kern"
+    let name=next value="[]"
+    for name=index from=0 to="parts.length" step=2
+      let name=combined value="parts[index]"
+      if cond="index + 1 < parts.length"
+        assign target=combined value="combined + parts[index + 1]"
+      do value="next.push(combined)"
+    return value="next"
+
+fn name=f1transportconcat returns=string
+  param name=parts type="string[]"
+  handler lang="kern"
+    if cond="parts.length > 256"
+      return value="\"\""
+    let name=level1 value="f1transportpair(parts)"
+    let name=level2 value="f1transportpair(level1)"
+    let name=level3 value="f1transportpair(level2)"
+    let name=level4 value="f1transportpair(level3)"
+    let name=level5 value="f1transportpair(level4)"
+    let name=level6 value="f1transportpair(level5)"
+    let name=level7 value="f1transportpair(level6)"
+    let name=level8 value="f1transportpair(level7)"
+    if cond="level8.length == 0"
+      return value="\"\""
+    if cond="level8.length != 1"
+      return value="\"\""
+    return value="level8[0]"
+
+fn name=f1transportrecord returns=string
+  param name=ordinal type=number
+  param name=className type=string
+  param name=kind type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=raw type=string
+  handler lang="kern"
+    return value="\"r\" + String(ordinal) + \",\" + className + \",\" + kind + \",\" + String(startScalar) + \",\" + String(endScalar) + \",\" + String(Text.length(raw)) + \":\" + raw"
+
+fn name=f1transportchunk returns=string
+  param name=ordinal type=number
+  param name=firstRecord type=number
+  param name=count type=number
+  param name=records type="string[]"
+  handler lang="kern"
+    let name=payload value="f1transportconcat(records)"
+    return value="\"c\" + String(ordinal) + \",\" + String(firstRecord) + \",\" + String(count) + \",\" + String(Text.length(payload)) + \":\" + payload + \"s\" + String(ordinal)"
+
+fn name=probef1transport returns="string[]" export=true
+  param name=source type=string
+  param name=shape type=string
+  param name=maxSourceScalars type=number
+  param name=recordsPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxTapeUtf8Bytes type=number
+  param name=maxJsonContentBytes type=number
+  param name=maxEncodedBytes type=number
+  param name=encodedEnvelopeOverheadBytes type=number
+  param name=maxRetainedTransportBytes type=number
+  param name=maxChunkScalars type=number
+  param name=forceLateFailure type=boolean
+  handler lang="kern"
+    if cond="maxSourceScalars <= 0 || recordsPerChunk <= 0 || recordsPerChunk > 256 || maxChunks <= 0 || maxChunks > 256"
+      let name=sourceLimitFailure value="f1transportfailure(\"INVALID_LIMITS\", 0)"
+      return value=sourceLimitFailure
+    if cond="maxTapeScalars <= 0 || maxTapeUtf8Bytes <= 0 || maxJsonContentBytes <= 0 || maxEncodedBytes <= 0"
+      let name=tapeLimitFailure value="f1transportfailure(\"INVALID_LIMITS\", 0)"
+      return value=tapeLimitFailure
+    if cond="encodedEnvelopeOverheadBytes <= 0 || maxRetainedTransportBytes <= 0 || maxChunkScalars <= 0"
+      let name=retentionLimitFailure value="f1transportfailure(\"INVALID_LIMITS\", 0)"
+      return value=retentionLimitFailure
+    if cond="recordsPerChunk * maxChunks != maxSourceScalars"
+      let name=geometryFailure value="f1transportfailure(\"INVALID_LIMITS\", 0)"
+      return value=geometryFailure
+    let name=n value="Text.length(source)"
+    if cond="n > maxSourceScalars"
+      let name=sourceFailure value="f1transportfailure(\"SOURCE_LIMIT\", n)"
+      return value=sourceFailure
+    let name=chunks value="[]"
+    let name=maxGuestListLength value="0"
+    let name=cursor value="0"
+    let name=record value="0"
+    let name=chunk value="0"
+    let name=tapeScalars value="0"
+    let name=tapeUtf8Bytes value="0"
+    let name=tapeJsonBytes value="0"
+    while cond="cursor < n"
+      if cond="chunk >= maxChunks"
+        let name=chunkCountFailure value="f1transportfailure(\"TRANSPORT_LIMIT\", n)"
+        return value=chunkCountFailure
+      let name=records value="[]"
+      let name=firstRecord value="record"
+      let name=payloadScalars value="0"
+      let name=payloadUtf8Bytes value="0"
+      let name=payloadJsonBytes value="0"
+      while cond="cursor < n && records.length < recordsPerChunk"
+        let name=raw value="Text.charAt(source, cursor)"
+        let name=className value="\"token\""
+        if cond="shape == \"trivia\" || (shape == \"alternating\" && cursor % 2 == 1)"
+          assign target=className value="\"trivia\""
+        let name=kind value="\"probe-token\""
+        if cond="className == \"trivia\""
+          assign target=kind value="\"probe-trivia\""
+        let name=encodedRecord value="f1transportrecord(record, className, kind, cursor, cursor + 1, raw)"
+        let name=recordScalars value="Text.length(encodedRecord)"
+        do value="records.push(encodedRecord)"
+        assign target=payloadScalars value="payloadScalars + recordScalars"
+        assign target=payloadUtf8Bytes value="payloadUtf8Bytes + recordScalars + 3"
+        assign target=payloadJsonBytes value="payloadJsonBytes + recordScalars + 5"
+        if cond="records.length > maxGuestListLength"
+          assign target=maxGuestListLength value="records.length"
+        assign target=cursor value="cursor + 1"
+        assign target=record value="record + 1"
+      let name=encodedChunk value="f1transportchunk(chunk, firstRecord, records.length, records)"
+      let name=chunkScalars value="Text.length(encodedChunk)"
+      let name=chunkFrameScalars value="chunkScalars - payloadScalars"
+      if cond="chunkScalars > maxChunkScalars"
+        let name=chunkWidthFailure value="f1transportfailure(\"TRANSPORT_LIMIT\", n)"
+        return value=chunkWidthFailure
+      assign target=tapeScalars value="tapeScalars + chunkScalars"
+      assign target=tapeUtf8Bytes value="tapeUtf8Bytes + chunkFrameScalars + payloadUtf8Bytes"
+      assign target=tapeJsonBytes value="tapeJsonBytes + chunkFrameScalars + payloadJsonBytes"
+      do value="chunks.push(encodedChunk)"
+      if cond="chunks.length > maxGuestListLength"
+        assign target=maxGuestListLength value="chunks.length"
+      assign target=chunk value="chunk + 1"
+    if cond="forceLateFailure"
+      let name=lateFailure value="f1transportfailure(\"FORCED_LATE_FAILURE\", n)"
+      return value=lateFailure
+    if cond="tapeScalars > maxTapeScalars || tapeUtf8Bytes > maxTapeUtf8Bytes || tapeJsonBytes > maxJsonContentBytes"
+      let name=tapeWallFailure value="f1transportfailure(\"TRANSPORT_LIMIT\", n)"
+      return value=tapeWallFailure
+    if cond="tapeJsonBytes + encodedEnvelopeOverheadBytes > maxEncodedBytes"
+      let name=encodedWallFailure value="f1transportfailure(\"TRANSPORT_LIMIT\", n)"
+      return value=encodedWallFailure
+    if cond="tapeUtf8Bytes * 9 > maxRetainedTransportBytes"
+      let name=retainedWallFailure value="f1transportfailure(\"TRANSPORT_LIMIT\", n)"
+      return value=retainedWallFailure
+    let name=tape value="f1transportconcat(chunks)"
+    if cond="Text.length(tape) != tapeScalars"
+      let name=tapeSealFailure value="f1transportfailure(\"TRANSPORT_LIMIT\", n)"
+      return value=tapeSealFailure
+    let name=seal value="\"eof:\" + String(n) + \":\" + String(record) + \":\" + String(chunk) + \":closed\""
+    return value="[\"kern.frontend.f1-transport-probe.2\", \"scanned\", \"\", String(n), String(record), String(chunk), String(maxGuestListLength), tape, seal]"

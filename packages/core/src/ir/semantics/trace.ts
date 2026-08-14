@@ -55,6 +55,13 @@ export type TraceEvent =
   | { op: 'enter'; nodeType: string }
   | { op: 'exit'; nodeType: string };
 
+export type ExternallyObservableTraceEvent = Extract<TraceEvent, { op: 'capability' | 'stderr' | 'stdout' }>;
+
+/** Events safe to retain when an internal caller requests observable-only traces. */
+export function isExternallyObservableTraceEvent(event: TraceEvent): event is ExternallyObservableTraceEvent {
+  return event.op === 'stdout' || event.op === 'stderr' || event.op === 'capability';
+}
+
 export interface Trace {
   events: TraceEvent[];
   completion: CompletionRecord;

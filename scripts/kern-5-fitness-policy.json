@@ -49,6 +49,7 @@
     "test:kern-frontend-successful-line-composition": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-successful-line-composition/*.test.mjs && node scripts/check-kern-frontend-successful-line-composition-regressions.mjs",
     "test:kern-frontend-closure": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-closure/*.test.mjs && node scripts/kern-frontend-closure/validate.mjs",
     "test:kern-frontend-runtime-text-cache": "pnpm --filter @kernlang/core build && node scripts/run-node-tests.mjs \"packages/core/tests/runtime-envelope-effect-machine-text-cache.test.ts\" && node scripts/kern-frontend-falsification/scalar-tape-probe.mjs",
+    "test:kern-frontend-f1": "pnpm --filter @kernlang/core build && node scripts/run-node-tests.mjs \"packages/core/tests/runtime-envelope-trace-compaction.test.ts\" && node --test scripts/kern-frontend-f1/transport.test.mjs",
     "test:kern-checker": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-checker/composition.mjs && node --test scripts/kern-checker/*.test.mjs && node scripts/check-capstone-checker-subset.mjs && node scripts/check-kern-checker.mjs",
     "test:kern-formatter": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-formatter/composition.mjs && node --test scripts/kern-formatter/*.test.mjs && node scripts/check-kern-formatter-wall.mjs"
   },
@@ -364,6 +365,12 @@
       "label": "Execution-local frontend text scaling prerequisite",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-runtime-text-cache"]
+    },
+    {
+      "id": "kern-frontend-f1",
+      "label": "F1 full-cap document transport falsification proof",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-f1"]
     },
     {
       "id": "kern-checker",
@@ -774,6 +781,12 @@
       "label": "Execution-local frontend text scaling prerequisite",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-runtime-text-cache"
+    },
+    {
+      "id": "kern-frontend-f1",
+      "label": "F1 full-cap document transport falsification proof",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-f1"
     },
     {
       "id": "kern-formatter",

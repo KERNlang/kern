@@ -1,5 +1,5 @@
 import { InternalEffectMachineError } from '../ir/semantics/internal-effect-machine.js';
-import type { Trace, TraceEvent } from '../ir/semantics/trace.js';
+import { isExternallyObservableTraceEvent, type Trace, type TraceEvent } from '../ir/semantics/trace.js';
 import { KernCapabilityError } from '../runner-capabilities.js';
 import { InternalRuntimeSchedulerError } from './internal-scheduler.js';
 import {
@@ -86,6 +86,7 @@ export function internalRuntimeLinkFailure(code: InternalRuntimeDiagnosticCode):
 }
 
 function event(input: TraceEvent, limits: InternalRuntimeEnvelopeLimits, index: number): InternalRuntimeEvent | null {
+  if (!isExternallyObservableTraceEvent(input)) return null;
   if (input.op === 'stdout' || input.op === 'stderr') {
     const slot = normalizeInternalRuntimeSlot(input.text, limits, `$.events[${index}].text`);
     if (slot.presence !== 'value' || slot.value.tag !== 'text') throw new Error('text event normalization failed');

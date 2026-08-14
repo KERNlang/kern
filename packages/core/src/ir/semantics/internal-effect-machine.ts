@@ -80,6 +80,7 @@ export { isInternalEffectMachineEligible } from './internal-effect-machine-struc
 export type {
   InternalEffectMachineAsyncOptions,
   InternalEffectMachineSyncOptions,
+  InternalEffectMachineTraceRetention,
 } from './internal-effect-machine-types.js';
 export {
   INTERNAL_EFFECT_MACHINE_DISPOSITION,
@@ -119,6 +120,7 @@ export function runInternalEffectMachineSync(
   const state: InternalEffectMachineState = {
     observer: options.observer,
     remainingIterations: options.iterationBudget,
+    traceRetention: options.traceRetention,
   };
   if (options.textCodePointCacheMaxStringBytes !== undefined) {
     installInternalTextCodePointCache(state, options.textCodePointCacheMaxStringBytes);
@@ -147,6 +149,7 @@ export async function runInternalEffectMachineAsync(
   const state: InternalEffectMachineState = {
     observer: options.observer,
     remainingIterations: options.iterationBudget,
+    traceRetention: options.traceRetention,
   };
   if (options.textCodePointCacheMaxStringBytes !== undefined) {
     installInternalTextCodePointCache(state, options.textCodePointCacheMaxStringBytes);

@@ -1,0 +1,63 @@
+{
+  "format": "kern.frontend.f1-transport-policy.2",
+  "geometry": [
+    {
+      "chunks": 64,
+      "jsonContentBytes": 738089,
+      "maxChunkScalars": 10775,
+      "maxInnerRetainedBytes": 797458,
+      "records": 16384,
+      "retainedBytes": 6347889,
+      "tapeScalars": 656169,
+      "tapeUtf8Bytes": 705321
+    },
+    {
+      "chunks": 128,
+      "jsonContentBytes": 1509665,
+      "maxChunkScalars": 10777,
+      "maxInnerRetainedBytes": 1536264,
+      "records": 32768,
+      "retainedBytes": 12997161,
+      "tapeScalars": 1345825,
+      "tapeUtf8Bytes": 1444129
+    },
+    {
+      "chunks": 256,
+      "jsonContentBytes": 3052961,
+      "maxChunkScalars": 10777,
+      "maxInnerRetainedBytes": 3014024,
+      "records": 65536,
+      "retainedBytes": 26297001,
+      "tapeScalars": 2725281,
+      "tapeUtf8Bytes": 2921889
+    }
+  ],
+  "profileLimits": {
+    "encodedEnvelopeOverheadBytes": 497,
+    "expectedEvents": 0,
+    "maxChunkScalars": 12933,
+    "maxChunks": 256,
+    "maxElapsedMs": 120000,
+    "maxEncodedBytes": 3664150,
+    "maxJsonContentBytes": 3663554,
+    "maxPeakRssBytes": 1073741824,
+    "maxRetainedTransportBytes": 31556402,
+    "maxSourceScalars": 65536,
+    "maxTapeScalars": 3270338,
+    "maxTapeUtf8Bytes": 3506267,
+    "recordsPerChunk": 256,
+    "scalingMultiplier": 12,
+    "scalingSlackMs": 1000
+  },
+  "runtimeLimits": {
+    "maxBytes": 3664150,
+    "maxCollectionLength": 1000000,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 3506267
+  },
+  "scheduler": {
+    "timeoutMs": 120000
+  }
+}

@@ -2,6 +2,7 @@ import {
   INTERNAL_EFFECT_MACHINE_FORMAT,
   type InternalEffectMachineAsyncOptions,
   InternalEffectMachineError,
+  type InternalEffectMachineTraceRetention,
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../ir/semantics/internal-effect-machine.js';
@@ -48,12 +49,14 @@ export function runInternalRuntimeEngineSync(
   iterationBudget?: number,
   observer?: InternalEffectMachineObserver,
   textCodePointCacheMaxStringBytes?: number,
+  traceRetention?: InternalEffectMachineTraceRetention,
 ): Trace {
   // execute.ts owns direct admission before scheduler installation.
   return runInternalEffectMachineSync(nodes, env, {
     iterationBudget,
     observer,
     textCodePointCacheMaxStringBytes,
+    traceRetention,
   });
 }
 

@@ -41,13 +41,17 @@ export interface InternalEffectMachineAsyncOptions {
   readonly iterationBudget?: number;
   readonly observer?: InternalEffectMachineObserver;
   readonly textCodePointCacheMaxStringBytes?: number;
+  readonly traceRetention?: InternalEffectMachineTraceRetention;
 }
 
 export interface InternalEffectMachineSyncOptions {
   readonly iterationBudget?: number;
   readonly observer?: InternalEffectMachineObserver;
   readonly textCodePointCacheMaxStringBytes?: number;
+  readonly traceRetention?: InternalEffectMachineTraceRetention;
 }
+
+export type InternalEffectMachineTraceRetention = 'full' | 'observable-only';
 
 export interface InternalCapabilityEffectRequest {
   readonly format: typeof INTERNAL_EFFECT_MACHINE_FORMAT;
@@ -74,6 +78,7 @@ export interface InternalEffectMachineState {
   resumableHelpers?: ReadonlySet<RunnerFunctionBinding>;
   resumableHelperNames?: ReadonlySet<string>;
   remainingIterations: number | undefined;
+  traceRetention?: InternalEffectMachineTraceRetention;
 }
 
 export type InternalEffectMachineGenerator = Generator<

@@ -107,7 +107,7 @@ describe('internal effect-machine Text code-point cache', () => {
     expect(startsWith).not.toMatch(/acquireTextScalarIndex|stores\.get|new Uint32Array/u);
   });
 
-  test('compat sync and async machine paths propagate the accepted string limit to cache installation', () => {
+  test('compat sync and async machine paths propagate the accepted string limit and envelope trace retention', () => {
     const compatSource = readFileSync(new URL('../src/runtime-envelope/execute-compat.ts', import.meta.url), 'utf8');
     const engineSource = readFileSync(new URL('../src/runtime-envelope/internal-engine.ts', import.meta.url), 'utf8');
     const machineSource = readFileSync(
@@ -115,9 +115,11 @@ describe('internal effect-machine Text code-point cache', () => {
       'utf8',
     );
 
-    expect(compatSource).toMatch(/runInternalRuntimeEngineSync\([\s\S]*?accepted\.limits\.maxStringBytes,?\s*\)/u);
     expect(compatSource).toMatch(
-      /runInternalRuntimeEngineAsync\([\s\S]*?textCodePointCacheMaxStringBytes:\s*accepted\.limits\.maxStringBytes/u,
+      /runInternalRuntimeEngineSync\([\s\S]*?accepted\.limits\.maxStringBytes,\s*'observable-only',?\s*\)/u,
+    );
+    expect(compatSource).toMatch(
+      /runInternalRuntimeEngineAsync\([\s\S]*?textCodePointCacheMaxStringBytes:\s*accepted\.limits\.maxStringBytes,[\s\S]*?traceRetention:\s*'observable-only'/u,
     );
     expect(engineSource).toMatch(/runInternalEffectMachineSync\([\s\S]*?textCodePointCacheMaxStringBytes/u);
     expect(engineSource).toMatch(/runInternalEffectMachineAsync\(nodes, env, options\)/u);

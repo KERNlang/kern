@@ -49,6 +49,7 @@ export function executeInternalRuntimeEnvelopeCompatSync(
           accepted.limits.maxCollectionLength,
           accepted.observer,
           accepted.limits.maxStringBytes,
+          'observable-only',
         )
       : runInternalLegacyEngineSync(nodes, env);
     throwIfInternalRuntimeSchedulerTerminated(env);
@@ -79,6 +80,7 @@ export async function executeInternalRuntimeEnvelopeCompatAsync(
             iterationBudget: accepted.limits.maxCollectionLength,
             observer: accepted.observer,
             textCodePointCacheMaxStringBytes: accepted.limits.maxStringBytes,
+            traceRetention: 'observable-only',
           })
         : runInternalLegacyEngineAsync(nodes, env, asyncOptions),
     );

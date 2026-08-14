@@ -24,7 +24,7 @@ import {
 import { evaluateLambdaEffects } from './lambda-runtime.js';
 import { evalPortableValue as evalMachinePortableValue } from './portable-machine-evaluator.js';
 import { childEnv, defineBinding, defineIntBinding, markRepeatableLoopBody, type SemanticEnv } from './semantic-env.js';
-import { emptyTrace, type Trace } from './trace.js';
+import { emptyTrace, isExternallyObservableTraceEvent, type Trace, type TraceEvent } from './trace.js';
 import { evaluateWhileConditionWithEvaluator, WHILE_MAX_ITERATIONS } from './while-runtime.js';
 
 function prepareCapability(node: IRNode, env: SemanticEnv): PreparedInternalCapabilityEffect {
@@ -36,8 +36,16 @@ function prepareCapability(node: IRNode, env: SemanticEnv): PreparedInternalCapa
   }
 }
 
-function appendTrace(out: Trace, next: Trace): boolean {
-  out.events.push(...next.events);
+function retainTraceEvent(state: InternalEffectMachineState, event: TraceEvent): boolean {
+  return state.traceRetention !== 'observable-only' || isExternallyObservableTraceEvent(event);
+}
+
+function appendTraceEvents(out: Trace, events: readonly TraceEvent[], state: InternalEffectMachineState): void {
+  for (const event of events) if (retainTraceEvent(state, event)) out.events.push(event);
+}
+
+function appendTrace(out: Trace, next: Trace, state: InternalEffectMachineState): boolean {
+  appendTraceEvents(out, next.events, state);
   if (next.completion.kind === 'normal') return false;
   out.completion = next.completion;
   return true;
@@ -155,16 +163,13 @@ function* machineEachSteps(node: IRNode, env: SemanticEnv, beforeIteration: () =
 function* runEach(node: IRNode, env: SemanticEnv, state: InternalEffectMachineState): InternalEffectMachineGenerator {
   const out = emptyTrace();
   for (const step of machineEachSteps(node, env, () => consumeIterationBudget(state, node))) {
-    out.events.push({
-      binding: step.primary[0],
-      op: 'iter-next',
-      value: step.primary[1],
-    });
+    const iterationEvent: TraceEvent = { binding: step.primary[0], op: 'iter-next', value: step.primary[1] };
+    if (retainTraceEvent(state, iterationEvent)) out.events.push(iterationEvent);
     const iterationEnv = childEnv(env);
     markRepeatableLoopBody(iterationEnv);
     for (const [name, value] of step.bindings) defineBinding(iterationEnv, name, value);
     const next = yield* runInternalEffectMachineSequence(node.children ?? [], iterationEnv, state);
-    out.events.push(...next.events);
+    appendTraceEvents(out, next.events, state);
     if (next.completion.kind === 'break') return out;
     if (next.completion.kind === 'continue') continue;
     if (next.completion.kind === 'return' || next.completion.kind === 'throw') {
@@ -180,12 +185,13 @@ function* runFor(node: IRNode, env: SemanticEnv, state: InternalEffectMachineSta
   const out = emptyTrace();
   for (let value = from; step > 0 ? value < to : value > to; value += step) {
     consumeIterationBudget(state, node);
-    out.events.push({ binding: name, op: 'iter-next', value });
+    const iterationEvent: TraceEvent = { binding: name, op: 'iter-next', value };
+    if (retainTraceEvent(state, iterationEvent)) out.events.push(iterationEvent);
     const iterationEnv = childEnv(env);
     markRepeatableLoopBody(iterationEnv);
     defineIntBinding(iterationEnv, name, value);
     const next = yield* runInternalEffectMachineSequence(children, iterationEnv, state);
-    out.events.push(...next.events);
+    appendTraceEvents(out, next.events, state);
     if (next.completion.kind === 'break') return out;
     if (next.completion.kind === 'continue') continue;
     if (next.completion.kind === 'return' || next.completion.kind === 'throw') {
@@ -211,7 +217,7 @@ function* runWhile(node: IRNode, env: SemanticEnv, state: InternalEffectMachineS
     const iterationEnv = childEnv(env);
     markRepeatableLoopBody(iterationEnv);
     const next = yield* runInternalEffectMachineSequence(node.children ?? [], iterationEnv, state);
-    out.events.push(...next.events);
+    appendTraceEvents(out, next.events, state);
     if (next.completion.kind === 'break') return out;
     if (next.completion.kind === 'continue') continue;
     if (next.completion.kind === 'return' || next.completion.kind === 'throw') {
@@ -292,7 +298,7 @@ export function* runInternalEffectMachineSequence(
       }
       break;
     }
-    if (appendTrace(out, next)) return out;
+    if (appendTrace(out, next, state)) return out;
   }
   return out;
 }
