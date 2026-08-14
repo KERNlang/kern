@@ -52,6 +52,10 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
+import {
+  appendInternalReferenceTraceEvent,
+  appendInternalReferenceTraceEvents,
+} from './internal-reference-trace-retention.js';
 import { referenceRunSequence } from './reference-runner.js';
 import { emptyTrace, type Trace } from './trace.js';
 
@@ -69,7 +73,7 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
   const children = ir.children ?? [];
 
   for (const step of eachRuntimeSteps(ir, env)) {
-    out.events.push({ op: 'iter-next', binding: step.primary[0], value: step.primary[1] });
+    appendInternalReferenceTraceEvent(out, { op: 'iter-next', binding: step.primary[0], value: step.primary[1] }, env);
 
     // Fresh CHILD scope per element: the element binding(s) and any inner `let`
     // live only here (fresh per element, no post-loop leak), while an `assign` to
@@ -81,7 +85,7 @@ function eachEffects(ir: IRNode, env: SemanticEnv): Trace {
     for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
     const childTrace = referenceRunSequence(children, iterEnv);
-    out.events.push(...childTrace.events);
+    appendInternalReferenceTraceEvents(out, childTrace.events, env);
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

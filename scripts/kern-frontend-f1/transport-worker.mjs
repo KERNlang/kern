@@ -112,7 +112,7 @@ function runProbe(shape, size, forceLateFailure, policy) {
     fail('runtime result shape');
   }
   const fields = materialize(envelope.result.value);
-  const decoded = decodeResult(fields, source, shape, limits);
+  const decoded = decodeResult(fields, source, shape, limits, { forceLateFailure });
   const direct = encodeAndDecode(envelope, policy.runtimeLimits);
   const directEncoderRoundTrip = assertEncodedSuccess(direct, fields);
   if (elapsedMs > limits.maxElapsedMs) fail('elapsed wall');

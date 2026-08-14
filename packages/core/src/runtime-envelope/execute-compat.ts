@@ -51,7 +51,7 @@ export function executeInternalRuntimeEnvelopeCompatSync(
           accepted.limits.maxStringBytes,
           'observable-only',
         )
-      : runInternalLegacyEngineSync(nodes, env);
+      : runInternalLegacyEngineSync(nodes, env, 'observable-only');
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);
   } catch (error) {
@@ -82,7 +82,7 @@ export async function executeInternalRuntimeEnvelopeCompatAsync(
             textCodePointCacheMaxStringBytes: accepted.limits.maxStringBytes,
             traceRetention: 'observable-only',
           })
-        : runInternalLegacyEngineAsync(nodes, env, asyncOptions),
+        : runInternalLegacyEngineAsync(nodes, env, asyncOptions, 'observable-only'),
     );
     throwIfInternalRuntimeSchedulerTerminated(env);
     return normalizeInternalRuntimeTrace(trace, accepted.limits);

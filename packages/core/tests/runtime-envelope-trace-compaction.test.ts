@@ -3,20 +3,29 @@ import {
   runInternalEffectMachineAsync,
   runInternalEffectMachineSync,
 } from '../src/ir/semantics/internal-effect-machine.js';
+import { referenceRunSequence } from '../src/ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
 import {
   executeInternalRuntimeEnvelopeAsync,
   executeInternalRuntimeEnvelopeSync,
 } from '../src/runtime-envelope/execute.js';
-import { executeInternalRuntimeEnvelopeCompatSync } from '../src/runtime-envelope/execute-compat.js';
+import {
+  executeInternalRuntimeEnvelopeCompatAsync,
+  executeInternalRuntimeEnvelopeCompatSync,
+} from '../src/runtime-envelope/execute-compat.js';
 import {
   runInternalRuntimeEngineAsync,
   runInternalRuntimeEngineSync,
 } from '../src/runtime-envelope/internal-engine.js';
+import {
+  runInternalLegacyEngineAsync,
+  runInternalLegacyEngineSync,
+} from '../src/runtime-envelope/internal-legacy-engine.js';
 import type { InternalRuntimeEnvelopeLimits } from '../src/runtime-envelope/types.js';
 import type { IRNode } from '../src/types.js';
 
 const ITERATIONS = 16_384;
+const LEGACY_ITERATIONS = 65_536;
 const limits: InternalRuntimeEnvelopeLimits = {
   maxBytes: 65_536,
   maxCollectionLength: 100_000,
@@ -35,6 +44,22 @@ const assignmentLoop: IRNode[] = [
   },
   { type: 'return', props: { value: 'total' } },
 ];
+const legacyAssignmentLoop: IRNode[] = [
+  {
+    type: '__block',
+    children: [
+      { type: 'let', props: { name: 'total', value: '0' } },
+      {
+        type: 'for',
+        props: { from: '0', name: 'index', to: String(LEGACY_ITERATIONS) },
+        children: [{ type: 'assign', props: { target: 'total', value: 'total + 1' } }],
+      },
+      { type: 'return', props: { value: 'total' } },
+    ],
+  },
+];
+const legacyLimits = { ...limits, maxCollectionLength: 100_000 } as const;
+const legacyEnabled = { enabled: true, limits: legacyLimits } as const;
 
 describe('runtime-envelope trace compaction', () => {
   beforeAll(() => registerAllContracts());
@@ -73,6 +98,36 @@ describe('runtime-envelope trace compaction', () => {
     });
     expect(sync).toEqual(asyncTrace);
     expect(sync).toEqual({ completion: { kind: 'return', value: ITERATIONS }, events: [] });
+  });
+
+  test('direct reference runner retains the exact full legacy boundary trace without spread exhaustion', () => {
+    const trace = referenceRunSequence(legacyAssignmentLoop, makeEnv());
+    expect(trace.completion).toEqual({ kind: 'return', value: LEGACY_ITERATIONS });
+    expect(trace.events).toHaveLength(1 + 2 * LEGACY_ITERATIONS);
+    expect(trace.events.at(-1)).toEqual({ op: 'assign', target: 'total', value: LEGACY_ITERATIONS });
+  });
+
+  test('private legacy observable mode retains zero internal events at the full boundary', async () => {
+    const sync = runInternalLegacyEngineSync(legacyAssignmentLoop, makeEnv(), 'observable-only');
+    const asyncTrace = await runInternalLegacyEngineAsync(legacyAssignmentLoop, makeEnv(), {}, 'observable-only');
+    expect(sync).toEqual(asyncTrace);
+    expect(sync).toEqual({ completion: { kind: 'return', value: LEGACY_ITERATIONS }, events: [] });
+  });
+
+  test('legacy compatibility sync and async preserve the full-boundary result with no hidden trace', async () => {
+    const sync = executeInternalRuntimeEnvelopeCompatSync(legacyAssignmentLoop, makeEnv(), legacyEnabled);
+    const asyncEnvelope = await executeInternalRuntimeEnvelopeCompatAsync(
+      legacyAssignmentLoop,
+      makeEnv(),
+      legacyEnabled,
+    );
+    expect(sync).toEqual(asyncEnvelope);
+    expect(sync).toMatchObject({
+      completion: { kind: 'return' },
+      events: [],
+      outcome: 'success',
+      result: { presence: 'value', value: { tag: 'integer', value: String(LEGACY_ITERATIONS) } },
+    });
   });
 
   test('sync, async, and compatibility envelopes preserve result with no hidden trace', async () => {

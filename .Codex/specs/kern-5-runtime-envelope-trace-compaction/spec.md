@@ -76,6 +76,13 @@ public runtime ABI or weakening iteration, timeout, capability, or event limits.
 - **[RTC-K7]** Sync and async envelope results/events remain structurally equal.
 - **[RTC-K8]** No public export, handler ABI, trace event schema, or default
   direct-machine behavior changes.
+- **[RTC-K9]** Machine-ineligible compatibility execution uses a private,
+  execution-scoped observable-only retention policy. Sync and async legacy
+  runners retain zero internal events at 65,536 iterations while direct
+  reference execution keeps the complete default trace.
+- **[RTC-K10]** Every reference-runner trace join on the compatibility path is
+  iterative. No retained event batch is passed as spread arguments, including
+  when all retained events are externally observable.
 
 ## Options
 
@@ -95,6 +102,22 @@ violates **RTC-K2/K6**.
 
 Distorts the consumer around a runtime defect and leaves the next
 high-iteration envelope handler exposed.
+
+## Independent-review correction
+
+- **[RTC-R1 VERIFIED]** Review run
+  `review-1786707948550-891yag-kern5-f1-trace-history` reproduced stack
+  exhaustion in the legacy compatibility fallback at 65,536 iterations.
+- **[RTC-R2 DECIDED]** Tribunal
+  `tribunal-1786708320748-w7e1cj` rejected public reference-runner parameters.
+  The correction uses an internal execution-scoped binding inherited by child
+  semantic environments; direct reference calls remain full-trace by default.
+- **[RTC-R3 REQUIRED]** A direct full-trace boundary test discriminates the
+  spread-argument ceiling from retention. Compatibility tests separately prove
+  zero pre-normalization internal events for sync and async legacy execution.
+- **[RTC-R4 REQUIRED]** The F1 decoder derives failure metadata from the actual
+  source, invocation mode, and authenticated limits. Scaling assertions consume
+  the authenticated policy fields rather than duplicated literals.
 
 ## Blast Radius
 

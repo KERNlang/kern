@@ -3,9 +3,10 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { calculateWorstGeometry } from './transport-contract.mjs';
+import { calculateWorstGeometry, loadPolicy } from './transport-contract.mjs';
 
 const WORKER = fileURLToPath(new URL('./transport-worker.mjs', import.meta.url));
+const PROFILE_LIMITS = Object.freeze(loadPolicy().profileLimits);
 
 function run(shape, size, options = {}) {
   const completed = spawnSync(
@@ -91,8 +92,16 @@ test('bounded tape crosses runtime and direct encoder boundaries at 1x/2x/4x', (
     assert.equal(measurement.directEncoderRoundTrip, true);
     assert.equal(measurement.withinLogicalWalls, true);
   }
-  assert.ok(measurements[1].elapsedMs <= measurements[0].elapsedMs * 12 + 1_000, JSON.stringify(measurements));
-  assert.ok(measurements[2].elapsedMs <= measurements[1].elapsedMs * 12 + 1_000, JSON.stringify(measurements));
+  assert.ok(
+    measurements[1].elapsedMs <=
+      measurements[0].elapsedMs * PROFILE_LIMITS.scalingMultiplier + PROFILE_LIMITS.scalingSlackMs,
+    JSON.stringify(measurements),
+  );
+  assert.ok(
+    measurements[2].elapsedMs <=
+      measurements[1].elapsedMs * PROFILE_LIMITS.scalingMultiplier + PROFILE_LIMITS.scalingSlackMs,
+    JSON.stringify(measurements),
+  );
 });
 
 test('full-cap transport preserves all seven frozen raw corpus vectors', () => {
@@ -152,6 +161,8 @@ test('strict decoder rejects the complete transport mutation matrix', () => {
     'duplicate-record',
     'encoded-limit-substitution',
     'eof-record',
+    'failure-source-count',
+    'false-failure-code',
     'field-permutation',
     'frame-marker',
     'injected-raw',

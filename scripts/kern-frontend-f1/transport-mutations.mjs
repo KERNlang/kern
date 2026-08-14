@@ -118,6 +118,28 @@ export function mutationSuite(run, policy) {
   sealCount[8] = `eof:${run.source.length}:${run.source.length}:999:closed`;
   mutations.set('seal-count', sealCount);
   mutations.set('source-substitution', fields);
+  mutations.set('false-failure-code', [
+    fields[0],
+    'failure',
+    'SOURCE_LIMIT',
+    String(run.source.length),
+    '0',
+    '0',
+    '0',
+    '',
+    'failure',
+  ]);
+  mutations.set('failure-source-count', [
+    fields[0],
+    'failure',
+    'FORCED_LATE_FAILURE',
+    String(run.source.length + 1),
+    '0',
+    '0',
+    '0',
+    '',
+    'failure',
+  ]);
   mutations.set('encoded-limit-substitution', lowLimitSubstitution(fields, policy.runtimeLimits));
 
   const rejected = [];
@@ -131,6 +153,7 @@ export function mutationSuite(run, policy) {
           name === 'source-substitution' ? `${run.source}x` : run.source,
           'mutation-suite',
           policy.profileLimits,
+          { forceLateFailure: name === 'failure-source-count' },
         );
       }
     } catch {

@@ -242,7 +242,83 @@ export function encodeChunk(chunk) {
   return `c${chunk.ordinal},${chunk.firstRecord},${chunk.records.length},${Array.from(payload).length}:${payload}s${chunk.ordinal}`;
 }
 
-export function decodeResult(fields, source, shape, limits) {
+function deriveInvocation(source, shape, limits, forceLateFailure) {
+  const points = Array.from(source);
+  const sourceScalars = points.length;
+  if (sourceScalars > limits.maxSourceScalars) {
+    return { expectedFailureCode: 'SOURCE_LIMIT', maxGuestListLength: 0, sourceScalars };
+  }
+  const actualShape = shape === 'mutation-suite' ? 'alternating' : shape;
+  let chunkCount = 0;
+  let maxChunkScalars = 0;
+  let maxGuestListLength = 0;
+  let tapeJsonBytes = 0;
+  let tapeScalars = 0;
+  let tapeUtf8Bytes = 0;
+  for (let first = 0; first < points.length; first += limits.recordsPerChunk) {
+    const records = [];
+    const end = Math.min(points.length, first + limits.recordsPerChunk);
+    let payloadJsonBytes = 0;
+    let payloadScalars = 0;
+    let payloadUtf8Bytes = 0;
+    for (let ordinal = first; ordinal < end; ordinal += 1) {
+      const className = actualShape === 'trivia' || (actualShape === 'alternating' && ordinal % 2 === 1)
+        ? 'trivia'
+        : 'token';
+      const encoded = encodeRecord({
+        className,
+        endScalar: ordinal + 1,
+        kind: className === 'trivia' ? 'probe-trivia' : 'probe-token',
+        ordinal,
+        raw: points[ordinal],
+        startScalar: ordinal,
+      });
+      const recordScalars = Array.from(encoded).length;
+      records.push(encoded);
+      payloadScalars += recordScalars;
+      payloadUtf8Bytes += recordScalars + 3;
+      payloadJsonBytes += recordScalars + 5;
+    }
+    const ordinal = chunkCount;
+    const frameScalars = Array.from(
+      `c${ordinal},${first},${records.length},${payloadScalars}:s${ordinal}`,
+    ).length;
+    const chunkScalars = frameScalars + payloadScalars;
+    chunkCount += 1;
+    maxChunkScalars = Math.max(maxChunkScalars, chunkScalars);
+    maxGuestListLength = Math.max(maxGuestListLength, records.length, chunkCount);
+    tapeScalars += chunkScalars;
+    tapeUtf8Bytes += frameScalars + payloadUtf8Bytes;
+    tapeJsonBytes += frameScalars + payloadJsonBytes;
+  }
+  const earlyTransportFailure = chunkCount > limits.maxChunks || maxChunkScalars > limits.maxChunkScalars;
+  const lateTransportFailure =
+    tapeScalars > limits.maxTapeScalars ||
+    tapeUtf8Bytes > limits.maxTapeUtf8Bytes ||
+    tapeJsonBytes > limits.maxJsonContentBytes ||
+    tapeJsonBytes + limits.encodedEnvelopeOverheadBytes > limits.maxEncodedBytes ||
+    9 * tapeUtf8Bytes > limits.maxRetainedTransportBytes;
+  const expectedFailureCode = earlyTransportFailure
+    ? 'TRANSPORT_LIMIT'
+    : forceLateFailure
+      ? 'FORCED_LATE_FAILURE'
+      : lateTransportFailure
+        ? 'TRANSPORT_LIMIT'
+        : undefined;
+  return { expectedFailureCode, maxGuestListLength, sourceScalars };
+}
+
+export function decodeResult(fields, source, shape, limits, invocation = {}) {
+  if (
+    invocation === null ||
+    typeof invocation !== 'object' ||
+    Array.isArray(invocation) ||
+    Object.keys(invocation).some((key) => key !== 'forceLateFailure') ||
+    (invocation.forceLateFailure !== undefined && typeof invocation.forceLateFailure !== 'boolean')
+  ) {
+    fail('invocation context');
+  }
+  const derived = deriveInvocation(source, shape, limits, invocation.forceLateFailure === true);
   if (!Array.isArray(fields) || fields.length !== RESULT_LENGTH || fields.some((field) => typeof field !== 'string')) {
     fail('result must be exactly nine strings');
   }
@@ -253,17 +329,18 @@ export function decodeResult(fields, source, shape, limits) {
   const chunkCount = canonicalUnsigned(chunkText, 'chunkCount');
   const maxGuestListLength = canonicalUnsigned(maxListText, 'maxGuestListLength');
   if (status === 'failure') {
-    if (!['FORCED_LATE_FAILURE', 'INVALID_LIMITS', 'SOURCE_LIMIT', 'TRANSPORT_LIMIT'].includes(code)) fail('failure code');
+    if (code !== derived.expectedFailureCode || sourceScalars !== derived.sourceScalars) fail('failure provenance');
     if (recordCount !== 0 || chunkCount !== 0 || maxGuestListLength !== 0 || tape !== '' || seal !== 'failure') {
       fail('failure must be atomic');
     }
     return { chunks: [], fields, reconstructed: '', records: [], tape, values: { chunkCount, code, maxGuestListLength, recordCount, sourceScalars, status } };
   }
   if (status !== 'scanned' || code !== '') fail('result status');
+  if (derived.expectedFailureCode !== undefined) fail('success bypassed expected failure');
   const sourcePoints = Array.from(source);
   if (sourcePoints.length !== sourceScalars || sourcePoints.length > limits.maxSourceScalars) fail('source count');
   if (recordCount !== sourcePoints.length) fail('record/source count');
-  if (maxGuestListLength > Math.max(limits.recordsPerChunk, limits.maxChunks)) fail('guest list limit');
+  if (maxGuestListLength !== derived.maxGuestListLength) fail('guest list instrumentation');
   const chunks = parseTape(tape);
   if (chunkCount !== chunks.length || chunkCount > limits.maxChunks) fail('chunk/result count');
   const records = [];

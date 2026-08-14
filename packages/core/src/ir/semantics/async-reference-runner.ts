@@ -36,6 +36,10 @@ import {
   invokeInternalRuntimeCapabilityAsync,
   invokeInternalRuntimeSyncCapabilityAsync,
 } from './internal-capability-interceptor.js';
+import {
+  appendInternalReferenceTraceEvent,
+  appendInternalReferenceTraceEvents,
+} from './internal-reference-trace-retention.js';
 import { recordArrayFieldsFromValue } from './let.js';
 import { isArrayLiteralExpression } from './portable-array.js';
 import { makeCaughtErrorValue } from './portable-error.js';
@@ -140,7 +144,7 @@ export async function asyncReferenceRunSequence(
       throw new ReferenceRunnerError('`else` must immediately follow an `if` sibling.', n);
     }
     const t = await asyncReferenceRun(nodeToRun, env, options);
-    out.events.push(...t.events);
+    appendInternalReferenceTraceEvents(out, t.events, env);
     if (t.completion.kind !== 'normal') {
       out.completion = t.completion;
       return out;
@@ -407,7 +411,7 @@ async function asyncTryEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   const out: Trace = emptyTrace();
 
   const bodyTrace = await asyncReferenceRunSequence(body, env, options);
-  out.events.push(...bodyTrace.events);
+  appendInternalReferenceTraceEvents(out, bodyTrace.events, env);
   let completion: CompletionRecord = bodyTrace.completion;
 
   if (completion.kind === 'return' && catchNode) {
@@ -427,13 +431,13 @@ async function asyncTryEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
     } finally {
       if (hasBinding) defineBinding(env, caught, UNAVAILABLE_CAUGHT_ERROR);
     }
-    out.events.push(...catchTrace.events);
+    appendInternalReferenceTraceEvents(out, catchTrace.events, env);
     completion = catchTrace.completion;
   }
 
   if (finallyNode) {
     const finallyTrace = await asyncReferenceRunSequence(finallyNode.children ?? [], env, options);
-    out.events.push(...finallyTrace.events);
+    appendInternalReferenceTraceEvents(out, finallyTrace.events, env);
     if (finallyTrace.completion.kind !== 'normal') {
       throw new ReferenceRunnerError('try: finally must complete normally (cleanup-only this slice)', finallyNode);
     }
@@ -468,7 +472,7 @@ async function asyncWhileEffects(ir: IRNode, env: SemanticEnv, options: AsyncRef
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
-    out.events.push(...childTrace.events);
+    appendInternalReferenceTraceEvents(out, childTrace.events, env);
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;
@@ -501,14 +505,14 @@ async function asyncForEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefer
   const out: Trace = emptyTrace();
 
   for (let i = from; step > 0 ? i < to : i > to; i += step) {
-    out.events.push({ op: 'iter-next', binding: name, value: i });
+    appendInternalReferenceTraceEvent(out, { op: 'iter-next', binding: name, value: i }, env);
 
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     defineIntBinding(iterEnv, name, i);
 
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
-    out.events.push(...childTrace.events);
+    appendInternalReferenceTraceEvents(out, childTrace.events, env);
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;
@@ -549,14 +553,14 @@ async function asyncEachEffects(ir: IRNode, env: SemanticEnv, options: AsyncRefe
   const children = ir.children ?? [];
 
   for (const step of eachRuntimeSteps(ir, env)) {
-    out.events.push({ op: 'iter-next', binding: step.primary[0], value: step.primary[1] });
+    appendInternalReferenceTraceEvent(out, { op: 'iter-next', binding: step.primary[0], value: step.primary[1] }, env);
 
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     for (const [k, v] of step.bindings) defineBinding(iterEnv, k, v);
 
     const childTrace = await asyncReferenceRunSequence(children, iterEnv, options);
-    out.events.push(...childTrace.events);
+    appendInternalReferenceTraceEvents(out, childTrace.events, env);
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

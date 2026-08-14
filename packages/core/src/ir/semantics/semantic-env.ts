@@ -1,6 +1,7 @@
 import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
+import { copyInternalReferenceTraceRetention } from './internal-reference-trace-retention.js';
 import { cloneSemanticBindingValue } from './semantic-clone.js';
 import { markChildSemanticEnvironment, markRootSemanticEnvironment } from './semantic-env-ownership.js';
 
@@ -248,6 +249,7 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     now: parent.now,
   });
   copyInternalEffectMachineState(parent, child);
+  copyInternalReferenceTraceRetention(parent, child);
   markChildSemanticEnvironment(child, parent);
   return child;
 }
