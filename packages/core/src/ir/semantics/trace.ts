@@ -56,6 +56,7 @@ export type TraceEvent =
   | { op: 'exit'; nodeType: string };
 
 export type ExternallyObservableTraceEvent = Extract<TraceEvent, { op: 'capability' | 'stderr' | 'stdout' }>;
+export type InternalReferenceTraceRetention = 'full' | 'observable-only';
 
 /** Events safe to retain when an internal caller requests observable-only traces. */
 export function isExternallyObservableTraceEvent(event: TraceEvent): event is ExternallyObservableTraceEvent {
@@ -65,6 +66,22 @@ export function isExternallyObservableTraceEvent(event: TraceEvent): event is Ex
 export interface Trace {
   events: TraceEvent[];
   completion: CompletionRecord;
+}
+
+export function appendInternalReferenceTraceEvent(
+  out: Trace,
+  event: TraceEvent,
+  retention: InternalReferenceTraceRetention = 'full',
+): void {
+  if (retention === 'full' || isExternallyObservableTraceEvent(event)) out.events.push(event);
+}
+
+export function appendInternalReferenceTraceEvents(
+  out: Trace,
+  events: readonly TraceEvent[],
+  retention: InternalReferenceTraceRetention = 'full',
+): void {
+  for (const event of events) appendInternalReferenceTraceEvent(out, event, retention);
 }
 
 /** Empty starter trace — used by reference runner before any event is recorded. */

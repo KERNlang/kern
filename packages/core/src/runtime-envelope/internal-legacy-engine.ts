@@ -1,9 +1,9 @@
 import { type AsyncReferenceRunnerOptions, asyncReferenceRunSequence } from '../ir/semantics/async-reference-runner.js';
-import type { SemanticEnv } from '../ir/semantics/index.js';
 import {
   bindInternalReferenceTraceRetention,
   type InternalReferenceTraceRetention,
-} from '../ir/semantics/internal-reference-trace-retention.js';
+  type SemanticEnv,
+} from '../ir/semantics/index.js';
 import { referenceRunSequence } from '../ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../ir/semantics/register-all.js';
 import type { Trace } from '../ir/semantics/trace.js';

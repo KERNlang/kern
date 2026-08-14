@@ -35,10 +35,9 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
-import { appendInternalReferenceTraceEvents } from './internal-reference-trace-retention.js';
 import { evalPortableValue } from './portable-scalar.js';
 import { referenceRunSequence } from './reference-runner.js';
-import { emptyTrace, type Trace } from './trace.js';
+import { appendInternalReferenceTraceEvents, emptyTrace, type Trace } from './trace.js';
 import {
   evaluateWhileConditionWithEvaluator,
   WHILE_MAX_ITERATIONS,
@@ -74,7 +73,7 @@ function whileEffects(ir: IRNode, env: SemanticEnv): Trace {
     const iterEnv = childEnv(env);
     markRepeatableLoopBody(iterEnv);
     const childTrace = referenceRunSequence(children, iterEnv);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env);
+    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

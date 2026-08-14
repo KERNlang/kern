@@ -20,12 +20,8 @@ import {
   registerContract,
   type SemanticEnv,
 } from './index.js';
-import {
-  appendInternalReferenceTraceEvent,
-  appendInternalReferenceTraceEvents,
-} from './internal-reference-trace-retention.js';
 import { referenceRunSequence } from './reference-runner.js';
-import { emptyTrace, type Trace } from './trace.js';
+import { appendInternalReferenceTraceEvent, appendInternalReferenceTraceEvents, emptyTrace, type Trace } from './trace.js';
 
 export type { ForProps, ForRuntimeRange } from './for-runtime.js';
 export {
@@ -39,7 +35,11 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
   const out: Trace = emptyTrace();
 
   for (let i = from; step > 0 ? i < to : i > to; i += step) {
-    appendInternalReferenceTraceEvent(out, { op: 'iter-next', binding: name, value: i }, env);
+    appendInternalReferenceTraceEvent(
+      out,
+      { op: 'iter-next', binding: name, value: i },
+      env.internalReferenceTraceRetention,
+    );
 
     // Each iteration runs in a FRESH CHILD scope. The loop variable and any inner
     // `let` declared in the body live only in this child — so they are fresh per
@@ -54,7 +54,7 @@ function forEffects(ir: IRNode, env: SemanticEnv): Trace {
     defineIntBinding(iterEnv, name, i);
 
     const childTrace = referenceRunSequence(children, iterEnv);
-    appendInternalReferenceTraceEvents(out, childTrace.events, env);
+    appendInternalReferenceTraceEvents(out, childTrace.events, env.internalReferenceTraceRetention);
 
     const c = childTrace.completion;
     if (c.kind === 'break') break;

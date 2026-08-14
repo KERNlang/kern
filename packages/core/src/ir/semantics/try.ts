@@ -34,10 +34,9 @@
 
 import type { IRNode } from '../../types.js';
 import { defineBinding, type NodeContract, type NodeFixture, registerContract, type SemanticEnv } from './index.js';
-import { appendInternalReferenceTraceEvents } from './internal-reference-trace-retention.js';
 import { makeCaughtErrorValue } from './portable-error.js';
 import { referenceRunSequence } from './reference-runner.js';
-import { type CompletionRecord, emptyTrace, type Trace } from './trace.js';
+import { appendInternalReferenceTraceEvents, type CompletionRecord, emptyTrace, type Trace } from './trace.js';
 import { tryPreconditions, tryRuntimeParts, UNAVAILABLE_CAUGHT_ERROR } from './try-runtime.js';
 
 export type { TryParts } from './try-runtime.js';
@@ -48,7 +47,7 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
   const out: Trace = emptyTrace();
 
   const bodyTrace = referenceRunSequence(body, env);
-  appendInternalReferenceTraceEvents(out, bodyTrace.events, env);
+  appendInternalReferenceTraceEvents(out, bodyTrace.events, env.internalReferenceTraceRetention);
   let completion: CompletionRecord = bodyTrace.completion;
 
   if (completion.kind === 'return' && catchNode) {
@@ -86,13 +85,13 @@ function tryEffects(ir: IRNode, env: SemanticEnv): Trace {
         defineBinding(env, caught as string, UNAVAILABLE_CAUGHT_ERROR);
       }
     }
-    appendInternalReferenceTraceEvents(out, catchTrace.events, env);
+    appendInternalReferenceTraceEvents(out, catchTrace.events, env.internalReferenceTraceRetention);
     completion = catchTrace.completion;
   }
 
   if (finallyNode) {
     const finallyTrace = referenceRunSequence(finallyNode.children ?? [], env);
-    appendInternalReferenceTraceEvents(out, finallyTrace.events, env);
+    appendInternalReferenceTraceEvents(out, finallyTrace.events, env.internalReferenceTraceRetention);
     if (finallyTrace.completion.kind !== 'normal') {
       // finally is cleanup-only this slice; an abrupt finally would override
       // the pending completion (the trap D2 defers).

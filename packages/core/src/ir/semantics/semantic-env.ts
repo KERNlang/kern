@@ -1,7 +1,6 @@
 import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
-import { copyInternalReferenceTraceRetention } from './internal-reference-trace-retention.js';
 import { cloneSemanticBindingValue } from './semantic-clone.js';
 import { markChildSemanticEnvironment, markRootSemanticEnvironment } from './semantic-env-ownership.js';
 
@@ -30,8 +29,24 @@ export interface SemanticEnv {
   intIndexCtx?: boolean;
   parent?: SemanticEnv;
   repeatableLoopBody?: boolean;
+  /** Execution-scoped policy for retaining internal reference-runner events. */
+  internalReferenceTraceRetention?: InternalReferenceTraceRetention;
   seed: number;
   now: number;
+}
+
+export type InternalReferenceTraceRetention = 'full' | 'observable-only';
+
+export function bindInternalReferenceTraceRetention(
+  env: SemanticEnv,
+  retention: InternalReferenceTraceRetention,
+): () => void {
+  const previous = env.internalReferenceTraceRetention;
+  env.internalReferenceTraceRetention = retention;
+  return () => {
+    if (previous === undefined) delete env.internalReferenceTraceRetention;
+    else env.internalReferenceTraceRetention = previous;
+  };
 }
 
 const ownedSemanticComposites = new WeakSet<object>();
@@ -203,6 +218,7 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
     intIndexCtx: overrides.intIndexCtx,
     parent: undefined,
     repeatableLoopBody: false,
+    internalReferenceTraceRetention: undefined,
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   });
@@ -245,11 +261,11 @@ export function childEnv(parent: SemanticEnv): SemanticEnv {
     intIndexCtx: undefined,
     parent,
     repeatableLoopBody: false,
+    internalReferenceTraceRetention: parent.internalReferenceTraceRetention,
     seed: parent.seed,
     now: parent.now,
   });
   copyInternalEffectMachineState(parent, child);
-  copyInternalReferenceTraceRetention(parent, child);
   markChildSemanticEnvironment(child, parent);
   return child;
 }

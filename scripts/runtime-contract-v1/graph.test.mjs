@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
@@ -59,6 +59,17 @@ test('public source and built JavaScript dependency graphs are acyclic and machi
   const coreSource = resolve('packages/core/src');
   assert.ok(assertPublicHandlerAbiClosure(coreSource).size > 0);
   assert.ok(assertPublicHandlerBuiltAbiClosure(resolve('packages/core/dist')).size > 0);
+});
+
+test('reference trace retention remains environment-owned without a graph-visible helper', () => {
+  for (const [root, extension] of [
+    [resolve('packages/core/src'), '.ts'],
+    [resolve('packages/core/dist'), '.js'],
+  ]) {
+    const helper = resolve(root, `ir/semantics/internal-reference-trace-retention${extension}`);
+    assert.equal(existsSync(helper), false, `${extension} graph-visible retention helper reappeared`);
+    assert.equal(runtimeMachineOwnerPaths(root, extension).has(helper), false);
+  }
 });
 
 test('class body budget scan allowance is path, helper, and AST bound', () => {
