@@ -1,6 +1,6 @@
 # KERN 5 F1 Runtime Text Cache Prerequisite
 
-**Status:** IMPLEMENTED — POST-REVIEW CORRECTION GATED; TARGETED REVIEW PENDING
+**Status:** IMPLEMENTED — REVIEWED AND GATED; PUBLICATION PENDING
 
 **Date:** 2026-08-14
 
@@ -26,7 +26,8 @@ tribunal, RED evidence, source trace, and 65K scalar-tape proof; 0.98 after the
 complete `fitness:kern-5` wall passed; 0.98 after post-review tribunal
 `tribunal-1786671515775-uhprzd` scoped the compat repair; 0.99 after the
 review-driven repair passed its focused runtime wall and complete 750-test
-canonicalizer gate.
+canonicalizer gate and targeted review `review-1786673085559-zm0oga` completed
+3/3 with no actionable findings.
 
 ## Decision
 
@@ -162,5 +163,11 @@ canonicalizer gate.
   retained-owner reconstruction pass 68 focused runtime checks, the 4K/16K/65K
   cache wall, runtime contract v1 at 81/81, and the complete canonicalizer gate
   at 750/750 with the 112/112 terminal frontier.
-- **[RTC-V7 PENDING]** Targeted independent Agon confirmation of the
-  review-driven correction and the single authorized publication push.
+- **[RTC-V7 VERIFIED]** Targeted independent Agon review
+  `review-1786673085559-zm0oga` completed 3/3 with zero verified,
+  needs-check, or speculative findings. Claude and Codex reported no findings.
+  Agy's two non-blocking nits concern intentional source-level invariant guards
+  and a pre-existing sync/async internal API shape; neither changes the cache
+  propagation contract or warrants broadening this correction.
+- **[RTC-V8 PENDING]** The single authorized publication push and remote-main
+  identity verification.
