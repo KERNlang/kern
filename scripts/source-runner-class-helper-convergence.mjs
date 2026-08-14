@@ -284,7 +284,10 @@ export function validateClassHelperSlice(contents, errors) {
   if (!contents.structureState?.includes('resumableHelperNames: helperGraph.resumableHelperNames')) {
     errors.push('structure preflight must bind the resumable helper closure before admission');
   }
-  if (!contents.helperPreflight?.includes('copyInternalEffectMachineState(env, callEnv)')) {
+  if (
+    !contents.helperPreflight?.includes('makeExecutionFrame(env, {') ||
+    contents.helperPreflight?.includes('const callEnv = makeEnv(')
+  ) {
     errors.push('helper body preflight must inherit the resumable helper closure');
   }
   if (!contents.helperArgumentPreflight?.includes('assertDeferredInternalMachineHelperArgument(item')) {

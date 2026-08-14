@@ -1,4 +1,5 @@
-import type { SemanticEnv } from './semantic-env.js';
+import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env.js';
+import type { InternalReferenceTraceRetention } from './trace.js';
 
 const ENVIRONMENT_FIELDS = [
   'bindings',
@@ -36,6 +37,102 @@ interface SemanticEnvironmentFact {
 }
 
 const environmentFacts = new WeakMap<SemanticEnv, SemanticEnvironmentFact>();
+
+export interface InternalRunnerMutationAudit {
+  poisoned: boolean;
+  readonly receiver: RunnerClassInstanceValue;
+}
+
+interface InternalExecutionContext {
+  readonly audits: InternalRunnerMutationAudit[];
+  readonly interceptorKey: object;
+  readonly schedulerKey: object;
+  readonly traceRetention: InternalReferenceTraceRetention;
+}
+
+const executionContexts = new WeakMap<SemanticEnv, InternalExecutionContext>();
+const MAX_INTERNAL_RUNNER_AUDIT_DEPTH = 512;
+
+export function ensureInternalExecutionContext(env: SemanticEnv): void {
+  if (executionContexts.has(env)) return;
+  executionContexts.set(env, {
+    audits: [],
+    interceptorKey: {},
+    schedulerKey: {},
+    traceRetention: 'full',
+  });
+}
+
+export function inheritInternalExecutionContext(source: SemanticEnv, target: SemanticEnv): void {
+  const context = executionContexts.get(source);
+  if (context) executionContexts.set(target, context);
+}
+
+export function deriveInternalExecutionContext(
+  source: SemanticEnv,
+  target: SemanticEnv,
+  traceRetention: InternalReferenceTraceRetention,
+): void {
+  ensureInternalExecutionContext(source);
+  const sourceContext = executionContexts.get(source);
+  if (!sourceContext) throw new Error('internal execution context was not installed');
+  executionContexts.set(target, {
+    audits: [],
+    interceptorKey: {},
+    schedulerKey: sourceContext.schedulerKey,
+    traceRetention,
+  });
+}
+
+export function internalExecutionSchedulerKey(env: SemanticEnv): object | undefined {
+  return executionContexts.get(env)?.schedulerKey;
+}
+
+export function internalExecutionInterceptorKey(env: SemanticEnv): object | undefined {
+  return executionContexts.get(env)?.interceptorKey;
+}
+
+export function internalExecutionTraceRetention(env: SemanticEnv): InternalReferenceTraceRetention | undefined {
+  return executionContexts.get(env)?.traceRetention;
+}
+
+export function pushInternalRunnerMutationAudit(
+  env: SemanticEnv,
+  receiver: RunnerClassInstanceValue,
+): InternalRunnerMutationAudit {
+  const context = executionContexts.get(env);
+  if (!context) return { poisoned: false, receiver };
+  if (context.audits.length >= MAX_INTERNAL_RUNNER_AUDIT_DEPTH) {
+    throw new Error(`runner-class: mutation audit depth exceeded (limit ${MAX_INTERNAL_RUNNER_AUDIT_DEPTH})`);
+  }
+  const audit = { poisoned: false, receiver };
+  context.audits.push(audit);
+  return audit;
+}
+
+export function popInternalRunnerMutationAudit(env: SemanticEnv, audit: InternalRunnerMutationAudit): void {
+  const audits = executionContexts.get(env)?.audits;
+  if (!audits) return;
+  if (audits.at(-1) !== audit) throw new Error('runner-class: mutation audit stack corruption');
+  audits.pop();
+}
+
+export function poisonInternalRunnerMutationAudits(env: SemanticEnv, receiver: RunnerClassInstanceValue): boolean {
+  const audits = executionContexts.get(env)?.audits;
+  if (!audits) return false;
+  let matched = false;
+  for (const audit of audits) {
+    if (audit.receiver === receiver) {
+      audit.poisoned = true;
+      matched = true;
+    }
+  }
+  return matched;
+}
+
+export function isInternalRunnerMutationAuditPoisoned(audit: InternalRunnerMutationAudit): boolean {
+  return audit.poisoned;
+}
 
 function dataPropertyFact(env: SemanticEnv, key: keyof SemanticEnv): DataPropertyFact | undefined {
   const descriptor = Object.getOwnPropertyDescriptor(env, key);

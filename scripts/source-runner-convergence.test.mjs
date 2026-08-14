@@ -239,8 +239,8 @@ test('rejects non-root environment ownership regressions', () => {
     replace(
       mutated,
       'packages/core/src/ir/semantics/semantic-env.ts',
-      'markChildSemanticEnvironment(child, parent);',
-      'void child; void parent;',
+      'if (parent) markChildSemanticEnvironment(env, parent);',
+      'if (parent) void env;',
     ),
   );
   assert.ok(provenanceErrors.some((error) => error.includes('markChildSemanticEnvironment')));

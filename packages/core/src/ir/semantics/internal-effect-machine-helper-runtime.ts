@@ -27,8 +27,7 @@ import {
 import {
   getBinding,
   hasBinding,
-  inheritInternalReferenceTraceRetention,
-  makeEnv,
+  makeExecutionFrame,
   type RunnerFunctionBinding,
   type SemanticEnv,
 } from './semantic-env.js';
@@ -194,19 +193,16 @@ function helperCallEnvironment(call: PreparedHelperCall): SemanticEnv {
   if (!scope) throw new Error(`portable machine: helper "${call.name}" has no defining module`);
   const identity = call.state.moduleGraph?.functionIdentity.get(fn);
   const stackLabel = identity === undefined ? call.name : `module-function:${identity}:${fn.name}`;
-  const callEnv = inheritInternalReferenceTraceRetention(
-    call.env,
-    makeEnv({
-      bindings,
-      intProvenance: new Set(call.intProvenance),
-      runnerCallCache: call.cache,
-      runnerCallStack: [...(call.env.runnerCallStack ?? []), stackLabel],
-      runnerClasses: scope.classes,
-      runnerFunctions: scope.functions,
-      seed: call.env.seed,
-      now: call.env.now,
-    }),
-  );
+  const callEnv = makeExecutionFrame(call.env, {
+    bindings,
+    intProvenance: new Set(call.intProvenance),
+    runnerCallCache: call.cache,
+    runnerCallStack: [...(call.env.runnerCallStack ?? []), stackLabel],
+    runnerClasses: scope.classes,
+    runnerFunctions: scope.functions,
+    seed: call.env.seed,
+    now: call.env.now,
+  });
   return callEnv;
 }
 

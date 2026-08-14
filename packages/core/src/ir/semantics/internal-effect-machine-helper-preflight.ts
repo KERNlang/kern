@@ -1,10 +1,7 @@
 import type { IRNode } from '../../types.js';
 import { assertInternalMachineHelperGraph } from './internal-effect-machine-helper-graph.js';
-import {
-  copyInternalEffectMachineState,
-  internalEffectMachineStateForEnv,
-} from './internal-effect-machine-helper-state.js';
-import { makeEnv, type SemanticEnv } from './semantic-env.js';
+import { internalEffectMachineStateForEnv } from './internal-effect-machine-helper-state.js';
+import { makeExecutionFrame, type SemanticEnv } from './semantic-env.js';
 import type { CompletionKind } from './trace.js';
 
 type HelperBodyAnalyzer = (
@@ -30,7 +27,7 @@ export function assertInternalMachineHelperPreflight(
   for (const fn of graph.reachableFunctions) {
     const scope = fn.module;
     if (!scope) throw new Error(`machine helper: "${fn.name}" has no defining module`);
-    const callEnv = makeEnv({
+    const callEnv = makeExecutionFrame(env, {
       bindings: new Map(fn.params.map((name) => [name, null])),
       runnerCallCache: new Map(),
       runnerCallStack: [fn.name],
@@ -39,7 +36,6 @@ export function assertInternalMachineHelperPreflight(
       seed: env.seed,
       now: env.now,
     });
-    copyInternalEffectMachineState(env, callEnv);
     const completions = analyze(fn.body, 0, callEnv, new Set(fn.params), true);
     if (completions.size !== 1 || !completions.has('return')) {
       throw new Error(`machine helper: "${fn.name}" must return a portable value on every path`);

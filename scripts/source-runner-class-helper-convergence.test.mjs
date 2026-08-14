@@ -270,8 +270,8 @@ test('rejects deletion of resumable closure in helper body preflight', () => {
   const errors = validate(
     replace(
       'packages/core/src/ir/semantics/internal-effect-machine-helper-preflight.ts',
-      'copyInternalEffectMachineState(env, callEnv)',
-      'void callEnv',
+      'makeExecutionFrame(env, {',
+      'makeEnv({',
     ),
   );
   assert.ok(errors.some((error) => error.includes('helper body preflight must inherit')));

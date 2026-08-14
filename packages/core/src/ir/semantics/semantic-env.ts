@@ -1,19 +1,23 @@
 import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
 import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
-import { cloneSemanticBindingValue } from './semantic-clone.js';
-import { markChildSemanticEnvironment, markRootSemanticEnvironment } from './semantic-env-ownership.js';
+import { assertExactSemanticCloneValue, cloneSemanticBindingValue } from './semantic-clone.js';
+import {
+  deriveInternalExecutionContext,
+  exactSemanticEnvironmentParent,
+  inheritInternalExecutionContext,
+  internalExecutionTraceRetention,
+  isExactSemanticEnvironment,
+  markChildSemanticEnvironment,
+  markRootSemanticEnvironment,
+} from './semantic-env-ownership.js';
 import type { InternalReferenceTraceRetention } from './trace.js';
 
 export type { InternalReferenceTraceRetention } from './trace.js';
 
 /** Runtime state shared by semantic evaluators without importing registry ownership. */
 export interface SemanticEnv {
-  /**
-   * Lexical storage. Direct-envelope root composites must enter through
-   * makeEnv() or the semantic binding helpers so they receive machine
-   * ownership; raw post-construction composite injection fails closed.
-   */
+  /** Lexical storage; machine paths require constructor-owned composites. */
   bindings: Map<string, unknown>;
   intProvenance?: Set<string>;
   freshArrayBindings?: Set<string>;
@@ -36,24 +40,37 @@ export interface SemanticEnv {
   now: number;
 }
 
-const internalReferenceTraceRetentions = new WeakMap<SemanticEnv, InternalReferenceTraceRetention>();
-
 export function bindInternalReferenceTraceRetention(
   env: SemanticEnv,
   retention: InternalReferenceTraceRetention,
 ): SemanticEnv {
-  const executionEnv = childEnv(env);
-  internalReferenceTraceRetentions.set(executionEnv, retention);
+  if (!isExactSemanticEnvironment(env) || exactSemanticEnvironmentParent(env) !== undefined) {
+    throw new TypeError('portable: isolated legacy execution requires an exact root environment');
+  }
+  const seen = new WeakSet<object>();
+  for (const value of env.bindings.values()) assertExactSemanticCloneValue(value, seen);
+  if (env.runnerThis !== undefined) assertExactSemanticCloneValue(env.runnerThis, seen);
+  const memo = new Map<object, unknown>();
+  const bindings = cloneBindings(env.bindings, memo);
+  const runnerThis =
+    env.runnerThis === undefined
+      ? undefined
+      : (cloneSemanticBindingValue(env.runnerThis, memo, ownSemanticComposite) as RunnerClassInstanceValue);
+  const executionEnv = constructEnv(
+    { ...env, bindings, runnerCallCache: new Map(), runnerCallStack: [], runnerThis },
+    undefined,
+    true,
+  );
+  deriveInternalExecutionContext(env, executionEnv, retention);
   return executionEnv;
 }
 
 export function internalReferenceTraceRetentionForEnv(env: SemanticEnv): InternalReferenceTraceRetention {
-  return internalReferenceTraceRetentions.get(env) ?? 'full';
+  return internalExecutionTraceRetention(env) ?? 'full';
 }
 
 export function inheritInternalReferenceTraceRetention(source: SemanticEnv, target: SemanticEnv): SemanticEnv {
-  const retention = internalReferenceTraceRetentions.get(source);
-  if (retention !== undefined) internalReferenceTraceRetentions.set(target, retention);
+  inheritInternalExecutionContext(source, target);
   return target;
 }
 
@@ -197,10 +214,20 @@ export interface RunnerClassInstanceValue {
   readonly module?: RunnerModuleScope;
 }
 
-/** Build a fresh environment with deterministic defaults and cloned bindings. */
-export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
+function constructEnv(
+  overrides: Partial<SemanticEnv>,
+  parent: SemanticEnv | undefined,
+  bindingsAreOwned = false,
+  preserveRuntimeReferences = false,
+): SemanticEnv {
+  const memo = new Map<object, unknown>();
+  const bindings = overrides.bindings
+    ? bindingsAreOwned
+      ? overrides.bindings
+      : cloneBindings(overrides.bindings, memo)
+    : ownSemanticComposite(new Map<string, unknown>());
   const env = ownSemanticEnvironment({
-    bindings: overrides.bindings ? cloneBindings(overrides.bindings) : ownSemanticComposite(new Map()),
+    bindings,
     intProvenance: ownSemanticComposite(overrides.intProvenance ? new Set(overrides.intProvenance) : new Set()),
     freshArrayBindings: ownSemanticComposite(
       overrides.freshArrayBindings ? new Set(overrides.freshArrayBindings) : new Set(),
@@ -216,26 +243,45 @@ export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
       : ownSemanticComposite(new Map()),
     runnerFunctions: ownPlainMap(overrides.runnerFunctions),
     runnerClasses: ownPlainMap(overrides.runnerClasses),
-    runnerCallStack: ownSemanticComposite(overrides.runnerCallStack ? [...overrides.runnerCallStack] : []),
+    runnerCallStack: preserveRuntimeReferences
+      ? overrides.runnerCallStack
+      : ownSemanticComposite(overrides.runnerCallStack ? [...overrides.runnerCallStack] : []),
     runnerCallCache: ownPlainMap(overrides.runnerCallCache),
     runnerThis: overrides.runnerThis,
     runnerSuperClass: overrides.runnerSuperClass,
     runnerProtectedClassInstances: overrides.runnerProtectedClassInstances,
     capabilities: overrides.capabilities,
-    capabilityContext: overrides.capabilityContext ? { ...overrides.capabilityContext } : {},
+    capabilityContext: preserveRuntimeReferences
+      ? overrides.capabilityContext
+      : overrides.capabilityContext
+        ? { ...overrides.capabilityContext }
+        : {},
     intIndexCtx: overrides.intIndexCtx,
-    parent: undefined,
-    repeatableLoopBody: false,
+    parent,
+    repeatableLoopBody: overrides.repeatableLoopBody ?? false,
     seed: overrides.seed ?? 0,
     now: overrides.now ?? 0,
   });
-  markRootSemanticEnvironment(env);
+  if (parent) markChildSemanticEnvironment(env, parent);
+  else markRootSemanticEnvironment(env);
   return env;
 }
 
-function cloneBindings(bindings: Map<string, unknown>): Map<string, unknown> {
+/** Build a fresh external root with deterministic defaults and cloned bindings. */
+export function makeEnv(overrides: Partial<SemanticEnv> = {}): SemanticEnv {
+  return constructEnv(overrides, undefined);
+}
+
+/** Build an execution frame and propagate private state from the active caller. */
+export function makeExecutionFrame(source: SemanticEnv, overrides: Partial<SemanticEnv> = {}): SemanticEnv {
+  const target = constructEnv(overrides, undefined);
+  inheritInternalExecutionContext(source, target);
+  copyInternalEffectMachineState(source, target);
+  return target;
+}
+
+function cloneBindings(bindings: Map<string, unknown>, memo = new Map<object, unknown>()): Map<string, unknown> {
   const out = ownSemanticComposite(new Map<string, unknown>());
-  const memo = new Map<object, unknown>();
   for (const [key, value] of bindings) out.set(key, cloneSemanticBindingValue(value, memo, ownSemanticComposite));
   return out;
 }
@@ -249,31 +295,26 @@ function cloneRecordArrayFields(fields: Map<string, Set<string> | null>): Map<st
 }
 
 export function childEnv(parent: SemanticEnv): SemanticEnv {
-  const child = ownSemanticEnvironment({
-    bindings: ownSemanticComposite(new Map()),
-    intProvenance: ownSemanticComposite(new Set()),
-    freshArrayBindings: ownSemanticComposite(new Set()),
-    pushBuiltFreshArrayBindings: ownSemanticComposite(new Set()),
-    capturedArrayBindings: ownSemanticComposite(new Set()),
-    recordArrayFields: ownSemanticComposite(new Map()),
-    runnerFunctions: parent.runnerFunctions,
-    runnerClasses: parent.runnerClasses,
-    runnerCallStack: parent.runnerCallStack,
-    runnerCallCache: parent.runnerCallCache,
-    runnerThis: parent.runnerThis,
-    runnerSuperClass: parent.runnerSuperClass,
-    runnerProtectedClassInstances: parent.runnerProtectedClassInstances,
-    capabilities: parent.capabilities,
-    capabilityContext: parent.capabilityContext,
-    intIndexCtx: undefined,
+  const child = constructEnv(
+    {
+      runnerFunctions: parent.runnerFunctions,
+      runnerClasses: parent.runnerClasses,
+      runnerCallStack: parent.runnerCallStack,
+      runnerCallCache: parent.runnerCallCache,
+      runnerThis: parent.runnerThis,
+      runnerSuperClass: parent.runnerSuperClass,
+      runnerProtectedClassInstances: parent.runnerProtectedClassInstances,
+      capabilities: parent.capabilities,
+      capabilityContext: parent.capabilityContext,
+      seed: parent.seed,
+      now: parent.now,
+    },
     parent,
-    repeatableLoopBody: false,
-    seed: parent.seed,
-    now: parent.now,
-  });
-  inheritInternalReferenceTraceRetention(parent, child);
+    false,
+    true,
+  );
+  inheritInternalExecutionContext(parent, child);
   copyInternalEffectMachineState(parent, child);
-  markChildSemanticEnvironment(child, parent);
   return child;
 }
 

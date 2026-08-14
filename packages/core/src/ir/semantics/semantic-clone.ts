@@ -4,6 +4,112 @@ type OwnComposite = <T extends object>(value: T) => T;
 
 const rejectedSemanticClone = Object.freeze(Object.create(null)) as object;
 
+function hasDefaultDataDescriptor(descriptor: PropertyDescriptor | undefined): boolean {
+  return Boolean(
+    descriptor &&
+      'value' in descriptor &&
+      descriptor.get === undefined &&
+      descriptor.set === undefined &&
+      descriptor.configurable === true &&
+      descriptor.enumerable === true &&
+      descriptor.writable === true,
+  );
+}
+
+/** Validate the closed isolated-execution clone grammar without invoking guest code. */
+export function assertExactSemanticCloneValue(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+  if (typeof value === 'number') {
+    if (Number.isFinite(value)) return;
+    throw new TypeError('portable: isolated binding contains a non-finite number');
+  }
+  if (typeof value !== 'object') throw new TypeError('portable: isolated binding contains an unsupported value');
+  if (value === rejectedSemanticClone) throw new TypeError('portable: isolated binding was rejected during cloning');
+  if (isOwnedSemanticAtomicValue(value)) return;
+  if (seen.has(value)) return;
+  seen.add(value);
+
+  let prototype: object | null;
+  let descriptors: PropertyDescriptorMap;
+  try {
+    prototype = Object.getPrototypeOf(value);
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch {
+    throw new TypeError('portable: isolated binding is not safely inspectable');
+  }
+  if (Array.isArray(value)) {
+    if (prototype !== Array.prototype) throw new TypeError('portable: isolated array prototype is invalid');
+    const length = descriptors.length;
+    if (
+      !dataDescriptor(length) ||
+      !Number.isSafeInteger(length.value) ||
+      length.value < 0 ||
+      length.writable !== true ||
+      length.enumerable !== false ||
+      length.configurable !== false
+    ) {
+      throw new TypeError('portable: isolated array length is invalid');
+    }
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.length !== length.value + 1) throw new TypeError('portable: isolated arrays must be dense');
+    for (let index = 0; index < length.value; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!hasDefaultDataDescriptor(descriptor)) throw new TypeError('portable: isolated array descriptor is invalid');
+      assertExactSemanticCloneValue(descriptor.value, seen);
+    }
+    return;
+  }
+  if (prototype === Map.prototype) {
+    if (Reflect.ownKeys(value).length !== 0) throw new TypeError('portable: isolated Map is decorated');
+    for (const [key, nested] of Map.prototype.entries.call(value) as MapIterator<[unknown, unknown]>) {
+      assertExactSemanticCloneValue(key, seen);
+      assertExactSemanticCloneValue(nested, seen);
+    }
+    return;
+  }
+  if (prototype === Set.prototype) {
+    if (Reflect.ownKeys(value).length !== 0) throw new TypeError('portable: isolated Set is decorated');
+    for (const nested of Set.prototype.values.call(value) as SetIterator<unknown>) {
+      assertExactSemanticCloneValue(nested, seen);
+    }
+    return;
+  }
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError('portable: isolated binding prototype is invalid');
+  }
+
+  const marker = descriptors.__kernRunnerClassInstance;
+  if (dataDescriptor(marker) && marker.value === true) {
+    const allowed = new Set<PropertyKey>(['__kernRunnerClassInstance', 'className', 'fields', 'module']);
+    const keys = Reflect.ownKeys(descriptors);
+    if (keys.some((key) => !allowed.has(key)) || keys.length < 3 || keys.length > 4) {
+      throw new TypeError('portable: isolated runner instance shape is invalid');
+    }
+    if (!hasDefaultDataDescriptor(marker)) throw new TypeError('portable: isolated runner marker is invalid');
+    const className = descriptors.className;
+    const fields = descriptors.fields;
+    if (
+      !hasDefaultDataDescriptor(className) ||
+      typeof className.value !== 'string' ||
+      !hasDefaultDataDescriptor(fields)
+    ) {
+      throw new TypeError('portable: isolated runner instance descriptor is invalid');
+    }
+    if (descriptors.module && !hasDefaultDataDescriptor(descriptors.module)) {
+      throw new TypeError('portable: isolated runner module descriptor is invalid');
+    }
+    assertExactSemanticCloneValue(fields.value, seen);
+    return;
+  }
+
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key !== 'string' || !hasDefaultDataDescriptor(descriptors[key])) {
+      throw new TypeError('portable: isolated record descriptor is invalid');
+    }
+    assertExactSemanticCloneValue(descriptors[key]?.value, seen);
+  }
+}
+
 function rejectedClone(source: object, memo: Map<object, unknown>): object {
   memo.set(source, rejectedSemanticClone);
   return rejectedSemanticClone;

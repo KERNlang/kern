@@ -2,8 +2,7 @@ import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
-  inheritInternalReferenceTraceRetention,
-  makeEnv,
+  makeExecutionFrame,
   type RunnerClassInstanceValue,
   type RunnerModuleScope,
   type SemanticEnv,
@@ -40,6 +39,7 @@ import {
   type RunnerPortableArrayValue,
   type RunnerPortableValue,
 } from './portable-scalar-domain.js';
+import { poisonInternalRunnerMutationAudits } from './semantic-env-ownership.js';
 
 const RUNNER_CLASS_NO_VALUE = Symbol('runnerClassNoValue');
 // Same-file recursive helper calls are supported. This explicit depth limit is
@@ -191,10 +191,13 @@ export function assignRunnerClassMember(
   if (!hasBinding(env, receiverName)) return undefined;
   const receiver = getBinding(env, receiverName);
   if (!isRunnerClassInstanceValue(receiver)) return undefined;
-  const value = evalPortableValue(valueExpr, env);
+  if (mutate && poisonInternalRunnerMutationAudits(env, receiver)) {
+    throw new Error('runner-class: member mutated instance state');
+  }
   if (mutate && env.runnerProtectedClassInstances?.has(receiver)) {
     throw new Error('portable: function mutated class instance argument');
   }
+  const value = evalPortableValue(valueExpr, env);
   if (mutate) receiver.fields[fieldName] = value;
   return value;
 }
@@ -358,19 +361,16 @@ export function evalRunnerFunctionValue(
     return assertRunnerPortableValue(cache.get(cacheKey), `function "${fnName}" cached return`);
   }
 
-  const callEnv = inheritInternalReferenceTraceRetention(
-    env,
-    makeEnv({
-      bindings,
-      intProvenance,
-      runnerFunctions: fn.module?.functions ?? functions,
-      runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
-      runnerCallStack: [...callStack, fnName],
-      runnerCallCache: cache,
-      seed: env.seed,
-      now: env.now,
-    }),
-  );
+  const callEnv = makeExecutionFrame(env, {
+    bindings,
+    intProvenance,
+    runnerFunctions: fn.module?.functions ?? functions,
+    runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
+    runnerCallStack: [...callStack, fnName],
+    runnerCallCache: cache,
+    seed: env.seed,
+    now: env.now,
+  });
   callEnv.runnerProtectedClassInstances = new WeakSet(
     Array.from(callEnv.bindings.values()).filter(isRunnerClassInstanceValue),
   );

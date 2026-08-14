@@ -1,9 +1,14 @@
 import type { SemanticEnv } from '../ir/semantics/index.js';
+import {
+  ensureInternalExecutionContext,
+  internalExecutionSchedulerKey,
+} from '../ir/semantics/semantic-env-ownership.js';
 import type { InternalRuntimeEnvelopeOptions } from './types.js';
 
 type SchedulerControl = NonNullable<InternalRuntimeEnvelopeOptions['scheduler']>;
 
 interface SchedulerState {
+  derivations: number;
   disposed: boolean;
   readonly key: object;
   pendingWork: number;
@@ -25,19 +30,23 @@ const states = new WeakMap<object, SchedulerState>();
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 function stateKey(env: SemanticEnv): object {
-  return env.runnerCallCache ?? env;
+  return internalExecutionSchedulerKey(env) ?? env.runnerCallCache ?? env;
 }
 
 function stateFor(env: SemanticEnv): SchedulerState | undefined {
+  const contextKey = internalExecutionSchedulerKey(env);
+  if (contextKey) return states.get(contextKey);
   for (let current: SemanticEnv | undefined = env; current; current = current.parent) {
-    const state = states.get(stateKey(current));
+    const state = states.get(current.runnerCallCache ?? current);
     if (state) return state;
   }
   return undefined;
 }
 
 function releaseIfIdle(state: SchedulerState): void {
-  if (state.disposed && state.pendingWork === 0 && states.get(state.key) === state) states.delete(state.key);
+  if (state.disposed && state.pendingWork === 0 && state.derivations === 0 && states.get(state.key) === state) {
+    states.delete(state.key);
+  }
 }
 
 export function inspectInternalRuntimeSchedulerControl(control: SchedulerControl): {
@@ -93,12 +102,14 @@ export function inspectInternalRuntimeSchedulerControl(control: SchedulerControl
 
 export function installInternalRuntimeScheduler(env: SemanticEnv, control: SchedulerControl | undefined): () => void {
   if (control === undefined) return () => {};
+  ensureInternalExecutionContext(env);
   const accepted = inspectInternalRuntimeSchedulerControl(control);
   const key = stateKey(env);
   if (states.has(key)) throw new TypeError('internal runtime scheduler is already installed');
 
   let resolveTerminal: ((error: InternalRuntimeSchedulerError) => void) | undefined;
   const state: SchedulerState = {
+    derivations: 0,
     disposed: false,
     key,
     pendingWork: 0,
@@ -134,6 +145,21 @@ export function installInternalRuntimeScheduler(env: SemanticEnv, control: Sched
     if (timer !== undefined) clearTimeout(timer);
     if (listening) accepted.signal?.removeEventListener('abort', onAbort);
     state.disposed = true;
+    releaseIfIdle(state);
+  };
+}
+
+/** Retain shared scheduler state across construction and execution of an isolated derivation. */
+export function retainInternalRuntimeSchedulerDerivation(env: SemanticEnv): () => void {
+  ensureInternalExecutionContext(env);
+  const state = stateFor(env);
+  if (!state) return () => {};
+  state.derivations += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    state.derivations -= 1;
     releaseIfIdle(state);
   };
 }

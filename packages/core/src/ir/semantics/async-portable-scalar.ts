@@ -4,8 +4,7 @@ import type { ValueIR } from '../../value-ir.js';
 import {
   getBinding,
   hasBinding,
-  inheritInternalReferenceTraceRetention,
-  makeEnv,
+  makeExecutionFrame,
   type RunnerClassBinding,
   type RunnerFunctionBinding,
   type SemanticEnv,
@@ -248,21 +247,18 @@ export async function evalRunnerFunctionValueAsync(
     if (isSafeIntArg) intProvenance.add(fn.params[index]);
   }
 
-  const callEnv = inheritInternalReferenceTraceRetention(
-    env,
-    makeEnv({
-      bindings,
-      intProvenance,
-      runnerFunctions: fn.module?.functions ?? functions,
-      runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
-      runnerCallStack: [...callStack, fnName],
-      runnerCallCache: env.runnerCallCache,
-      capabilities: undefined,
-      capabilityContext: env.capabilityContext,
-      seed: env.seed,
-      now: env.now,
-    }),
-  );
+  const callEnv = makeExecutionFrame(env, {
+    bindings,
+    intProvenance,
+    runnerFunctions: fn.module?.functions ?? functions,
+    runnerClasses: fn.module?.classes ?? runnerClassesForEnv(env),
+    runnerCallStack: [...callStack, fnName],
+    runnerCallCache: env.runnerCallCache,
+    capabilities: undefined,
+    capabilityContext: env.capabilityContext,
+    seed: env.seed,
+    now: env.now,
+  });
   callEnv.runnerProtectedClassInstances = new WeakSet(
     Array.from(callEnv.bindings.values()).filter(isRunnerClassInstanceValue),
   );

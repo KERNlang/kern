@@ -13,6 +13,7 @@ import {
   waitForInternalRuntimeScheduler,
 } from '../../runtime-envelope/internal-scheduler.js';
 import type { SemanticEnv } from './semantic-env.js';
+import { ensureInternalExecutionContext, internalExecutionInterceptorKey } from './semantic-env-ownership.js';
 
 export const INTERNAL_RUNTIME_CAPABILITY_REQUEST_FORMAT = 'kern.capability.request.internal.r0' as const;
 
@@ -40,7 +41,7 @@ interface InterceptorState {
 const states = new WeakMap<object, InterceptorState>();
 
 function stateKey(env: SemanticEnv): object {
-  return env.runnerCallCache ?? env;
+  return internalExecutionInterceptorKey(env) ?? env.runnerCallCache ?? env;
 }
 
 function fail(request: InternalRuntimeCapabilityRequest, message: string, cause?: unknown): never {
@@ -56,8 +57,10 @@ function fail(request: InternalRuntimeCapabilityRequest, message: string, cause?
 }
 
 function stateFor(env: SemanticEnv): InterceptorState | undefined {
+  const contextKey = internalExecutionInterceptorKey(env);
+  if (contextKey) return states.get(contextKey);
   for (let current: SemanticEnv | undefined = env; current; current = current.parent) {
-    const state = states.get(stateKey(current));
+    const state = states.get(current.runnerCallCache ?? current);
     if (state) return state;
   }
   return undefined;
@@ -160,9 +163,20 @@ export function installInternalRuntimeCapabilityInterceptor(
   interceptor: InternalRuntimeCapabilityInterceptor,
 ): void {
   if (typeof interceptor !== 'function') throw new TypeError('internal capability interceptor must be a function');
+  ensureInternalExecutionContext(env);
   const key = stateKey(env);
   if (states.has(key)) throw new TypeError('internal capability interceptor is already installed');
   states.set(key, { interceptor, nextSequence: 0 });
+}
+
+/** Bind a derived execution-local sequence to the caller's interceptor authority. */
+export function deriveInternalRuntimeCapabilityInterceptor(source: SemanticEnv, target: SemanticEnv): void {
+  const sourceState = stateFor(source);
+  if (!sourceState) return;
+  const key = internalExecutionInterceptorKey(target);
+  if (!key) throw new Error('internal capability interceptor derivation has no execution context');
+  if (states.has(key)) throw new Error('internal capability interceptor derivation is already installed');
+  states.set(key, { interceptor: sourceState.interceptor, nextSequence: 0 });
 }
 
 export function invokeInternalRuntimeCapabilitySync(

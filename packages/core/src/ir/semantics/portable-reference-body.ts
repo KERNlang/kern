@@ -2,8 +2,7 @@ import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
 import {
-  inheritInternalReferenceTraceRetention,
-  makeEnv,
+  makeExecutionFrame,
   type RunnerClassBinding,
   type RunnerClassInstanceValue,
   type RunnerClassMemberBinding,
@@ -13,6 +12,12 @@ import {
 } from './index.js';
 import { runPortableReferenceBody } from './portable-reference-host.js';
 import { assertPortableScalar, isRunnerClassInstanceValue, type PortableScalar } from './portable-scalar-domain.js';
+import {
+  type InternalRunnerMutationAudit,
+  isInternalRunnerMutationAuditPoisoned,
+  popInternalRunnerMutationAudit,
+  pushInternalRunnerMutationAudit,
+} from './semantic-env-ownership.js';
 import type { Trace } from './trace.js';
 
 export type EvalRunnerClassArgument = (node: ValueIR, env: SemanticEnv) => unknown;
@@ -44,7 +49,7 @@ export function runnerCallStackForEnv(env: SemanticEnv): readonly string[] {
 export function withModuleScope(env: SemanticEnv, scope: RunnerModuleScope | undefined): SemanticEnv {
   if (!scope) return env;
   if (env.runnerFunctions === scope.functions && env.runnerClasses === scope.classes) return env;
-  return inheritInternalReferenceTraceRetention(env, {
+  return makeExecutionFrame(env, {
     ...env,
     runnerFunctions: scope.functions,
     runnerClasses: scope.classes,
@@ -131,20 +136,17 @@ function explicitSuperCallArgs(
   if (parsed.kind !== 'call' || parsed.callee.kind !== 'ident' || parsed.callee.name !== 'super') return undefined;
   const bindings = new Map<string, unknown>();
   for (let index = 0; index < params.length; index += 1) bindings.set(params[index], args[index]);
-  const env = inheritInternalReferenceTraceRetention(
-    outerEnv,
-    makeEnv({
-      bindings,
-      runnerFunctions: runnerFunctionsForEnv(outerEnv),
-      runnerClasses: runnerClassesForEnv(outerEnv),
-      runnerCallStack: outerEnv.runnerCallStack,
-      runnerCallCache: outerEnv.runnerCallCache,
-      capabilities: outerEnv.capabilities,
-      capabilityContext: outerEnv.capabilityContext,
-      seed: outerEnv.seed,
-      now: outerEnv.now,
-    }),
-  );
+  const env = makeExecutionFrame(outerEnv, {
+    bindings,
+    runnerFunctions: runnerFunctionsForEnv(outerEnv),
+    runnerClasses: runnerClassesForEnv(outerEnv),
+    runnerCallStack: outerEnv.runnerCallStack,
+    runnerCallCache: outerEnv.runnerCallCache,
+    capabilities: outerEnv.capabilities,
+    capabilityContext: outerEnv.capabilityContext,
+    seed: outerEnv.seed,
+    now: outerEnv.now,
+  });
   return parsed.args.map((arg) => evalArgument(arg, env));
 }
 
@@ -205,37 +207,36 @@ function runRunnerClassBody(
   if (callStack.includes(label)) throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
   const bindings = new Map<string, unknown>([['this', receiver]]);
   for (let index = 0; index < member.params.length; index += 1) bindings.set(member.params[index], args[index]);
-  const callEnv = inheritInternalReferenceTraceRetention(
-    env,
-    makeEnv({
-      bindings,
-      runnerFunctions: runnerFunctionsForEnv(env),
-      runnerClasses: runnerClassesForEnv(env),
-      runnerCallStack: [...callStack, label],
-      runnerCallCache: env.runnerCallCache,
-      runnerThis: receiver,
-      runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
-      capabilities: env.capabilities,
-      capabilityContext: env.capabilityContext,
-      seed: env.seed,
-      now: env.now,
-    }),
-  );
+  const callEnv = makeExecutionFrame(env, {
+    bindings,
+    runnerFunctions: runnerFunctionsForEnv(env),
+    runnerClasses: runnerClassesForEnv(env),
+    runnerCallStack: [...callStack, label],
+    runnerCallCache: env.runnerCallCache,
+    runnerThis: receiver,
+    runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
+    capabilities: env.capabilities,
+    capabilityContext: env.capabilityContext,
+    seed: env.seed,
+    now: env.now,
+  });
   callEnv.bindings.set('this', receiver);
   callEnv.runnerThis = receiver;
   const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;
-  if (runnerClassBodyHasCapability(body)) {
-    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
-    throw new Error(`runner-class: member "${label}" produced side effects`);
-  }
-  let trace: ReturnType<typeof runPortableReferenceBody>;
+  const audit = requireReturn ? pushInternalRunnerMutationAudit(callEnv, receiver) : undefined;
   try {
-    trace = runPortableReferenceBody(body, callEnv);
+    if (runnerClassBodyHasCapability(body)) {
+      if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+      throw new Error(`runner-class: member "${label}" produced side effects`);
+    }
+    const trace = runPortableReferenceBody(body, callEnv);
+    return finishRunnerClassBody(trace, receiver, fieldSnapshot, label, requireReturn, audit);
   } catch (error) {
     if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
     throw error;
+  } finally {
+    if (audit) popInternalRunnerMutationAudit(callEnv, audit);
   }
-  return finishRunnerClassBody(trace, receiver, fieldSnapshot, label, requireReturn);
 }
 
 export async function runRunnerClassBodyAsync(
@@ -257,37 +258,36 @@ export async function runRunnerClassBodyAsync(
   if (callStack.includes(label)) throw new Error(`runner-class: recursive member call "${label}" is unsupported`);
   const bindings = new Map<string, unknown>([['this', receiver]]);
   for (let index = 0; index < member.params.length; index += 1) bindings.set(member.params[index], args[index]);
-  const callEnv = inheritInternalReferenceTraceRetention(
-    env,
-    makeEnv({
-      bindings,
-      runnerFunctions: runnerFunctionsForEnv(env),
-      runnerClasses: runnerClassesForEnv(env),
-      runnerCallStack: [...callStack, label],
-      runnerCallCache: env.runnerCallCache,
-      runnerThis: receiver,
-      runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
-      capabilities: env.capabilities,
-      capabilityContext: env.capabilityContext,
-      seed: env.seed,
-      now: env.now,
-    }),
-  );
+  const callEnv = makeExecutionFrame(env, {
+    bindings,
+    runnerFunctions: runnerFunctionsForEnv(env),
+    runnerClasses: runnerClassesForEnv(env),
+    runnerCallStack: [...callStack, label],
+    runnerCallCache: env.runnerCallCache,
+    runnerThis: receiver,
+    runnerSuperClass: runnerClassesForEnv(env)?.get(member.ownerClass)?.extendsName,
+    capabilities: env.capabilities,
+    capabilityContext: env.capabilityContext,
+    seed: env.seed,
+    now: env.now,
+  });
   callEnv.bindings.set('this', receiver);
   callEnv.runnerThis = receiver;
   const fieldSnapshot = requireReturn ? cloneRunnerClassFields(receiver.fields) : undefined;
-  if (runnerClassBodyHasCapability(body)) {
-    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
-    throw new Error(`runner-class: member "${label}" produced side effects`);
-  }
-  let trace: Trace;
+  const audit = requireReturn ? pushInternalRunnerMutationAudit(callEnv, receiver) : undefined;
   try {
-    trace = await runBody(body, callEnv);
+    if (runnerClassBodyHasCapability(body)) {
+      if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+      throw new Error(`runner-class: member "${label}" produced side effects`);
+    }
+    const trace = await runBody(body, callEnv);
+    return finishRunnerClassBody(trace, receiver, fieldSnapshot, label, requireReturn, audit);
   } catch (error) {
     if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
     throw error;
+  } finally {
+    if (audit) popInternalRunnerMutationAudit(callEnv, audit);
   }
-  return finishRunnerClassBody(trace, receiver, fieldSnapshot, label, requireReturn);
 }
 
 function finishRunnerClassBody(
@@ -296,7 +296,12 @@ function finishRunnerClassBody(
   fieldSnapshot: Record<string, unknown> | undefined,
   label: string,
   requireReturn: boolean,
+  audit: InternalRunnerMutationAudit | undefined,
 ): PortableScalar {
+  if (audit && isInternalRunnerMutationAuditPoisoned(audit)) {
+    if (fieldSnapshot) restoreRunnerClassFields(receiver.fields, fieldSnapshot);
+    throw new Error(`runner-class: member "${label}" mutated instance state`);
+  }
   if (
     trace.events.some(
       (event) => event.op === 'stdout' || event.op === 'stderr' || event.op === 'call' || event.op === 'capability',
@@ -330,39 +335,62 @@ function runnerClassBodyHasCapability(nodes: readonly IRNode[]): boolean {
   return false;
 }
 
-function cloneRunnerClassFields(fields: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, cloneRunnerClassFieldValue(value)]));
+function cloneRunnerClassFields(
+  fields: Record<string, unknown>,
+  memo = new Map<object, unknown>(),
+  target: Record<string, unknown> = Object.create(Object.getPrototypeOf(fields)) as Record<string, unknown>,
+): Record<string, unknown> {
+  memo.set(fields, target);
+  for (const [key, value] of Object.entries(fields)) target[key] = cloneRunnerClassFieldValue(value, memo);
+  return target;
 }
 
-function cloneRunnerClassFieldValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(cloneRunnerClassFieldValue);
-  if (value instanceof Map) {
-    return new Map(Array.from(value.entries(), ([key, nested]) => [key, cloneRunnerClassFieldValue(nested)]));
+function cloneRunnerClassFieldValue(value: unknown, memo: Map<object, unknown>): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const cached = memo.get(value);
+  if (cached !== undefined) return cached;
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    memo.set(value, out);
+    for (const nested of value) out.push(cloneRunnerClassFieldValue(nested, memo));
+    return out;
   }
-  if (value instanceof Set) return new Set(Array.from(value.values(), cloneRunnerClassFieldValue));
+  if (value instanceof Map) {
+    const out = new Map<unknown, unknown>();
+    memo.set(value, out);
+    for (const [key, nested] of value) {
+      out.set(cloneRunnerClassFieldValue(key, memo), cloneRunnerClassFieldValue(nested, memo));
+    }
+    return out;
+  }
+  if (value instanceof Set) {
+    const out = new Set<unknown>();
+    memo.set(value, out);
+    for (const nested of value) out.add(cloneRunnerClassFieldValue(nested, memo));
+    return out;
+  }
   if (isRunnerClassInstanceValue(value)) {
-    return {
+    const out: RunnerClassInstanceValue = {
       __kernRunnerClassInstance: true,
       className: value.className,
-      fields: cloneRunnerClassFields(value.fields),
+      fields: Object.create(Object.getPrototypeOf(value.fields)) as Record<string, unknown>,
       ...(value.module ? { module: value.module } : {}),
-    } satisfies RunnerClassInstanceValue;
+    };
+    memo.set(value, out);
+    cloneRunnerClassFields(value.fields, memo, out.fields);
+    return out;
   }
-  if (value && typeof value === 'object') {
-    const proto = Object.getPrototypeOf(value);
-    if (proto === Object.prototype || proto === null) {
-      return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
-          key,
-          cloneRunnerClassFieldValue(nested),
-        ]),
-      );
-    }
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    const out = Object.create(proto) as Record<string, unknown>;
+    memo.set(value, out);
+    for (const [key, nested] of Object.entries(value)) out[key] = cloneRunnerClassFieldValue(nested, memo);
+    return out;
   }
   return value;
 }
 
 function restoreRunnerClassFields(target: Record<string, unknown>, snapshot: Record<string, unknown>): void {
   for (const key of Object.keys(target)) delete target[key];
-  for (const [key, value] of Object.entries(snapshot)) target[key] = cloneRunnerClassFieldValue(value);
+  cloneRunnerClassFields(snapshot, new Map(), target);
 }

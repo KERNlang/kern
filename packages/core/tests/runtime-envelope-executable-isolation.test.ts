@@ -185,7 +185,7 @@ describe('M3.15 executable-envelope isolation', () => {
     expect(CONTRACT_REGISTRY.size).toBe(0);
   });
 
-  test('direct rejects a hidden runner-class instance without executing its module getter', () => {
+  test('direct and compatibility paths reject hidden runner-class accessors without invoking them', () => {
     let getterCalls = 0;
     const classes = new Map<string, never>();
     const scope = { classes, functions: new Map<string, never>() };
@@ -228,10 +228,10 @@ describe('M3.15 executable-envelope isolation', () => {
     const compatEnv = makeEnv();
     compatEnv.bindings.set('obj', instance);
     expect(executeInternalRuntimeEnvelopeCompatSync(nodes, compatEnv, enabled)).toMatchObject({
-      outcome: 'success',
-      result: { presence: 'value', value: { tag: 'integer', value: '41' } },
+      events: [],
+      outcome: 'failure',
     });
-    expect(getterCalls).toBeGreaterThan(0);
+    expect(getterCalls).toBe(0);
   });
 
   test('direct rejects accessor-backed arrays before print, return, or each can invoke host code', async () => {

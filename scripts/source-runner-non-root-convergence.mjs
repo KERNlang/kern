@@ -27,8 +27,9 @@ export function validateNonRootEnvironmentSlice(contents, errors) {
   }
   for (const required of [
     'markRootSemanticEnvironment(env)',
-    'markChildSemanticEnvironment(child, parent)',
-    'parent: undefined',
+    'if (parent) markChildSemanticEnvironment(env, parent)',
+    'return constructEnv(overrides, undefined)',
+    'const child = constructEnv(',
   ]) {
     if (!environment.includes(required)) errors.push(`semantic environment construction is missing ${required}`);
   }

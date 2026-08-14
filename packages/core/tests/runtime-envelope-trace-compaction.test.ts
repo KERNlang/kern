@@ -7,6 +7,8 @@ import {
   bindInternalReferenceTraceRetention,
   internalReferenceTraceRetentionForEnv,
   makeEnv,
+  type RunnerClassBinding,
+  type RunnerClassInstanceValue,
   type RunnerModuleScope,
 } from '../src/ir/semantics/index.js';
 import {
@@ -15,6 +17,7 @@ import {
 } from '../src/ir/semantics/internal-effect-machine.js';
 import { referenceRunSequence } from '../src/ir/semantics/reference-runner.js';
 import { registerAllContracts } from '../src/ir/semantics/register-all.js';
+import { markRunnerMachineClassBinding, markRunnerMachineRootScope } from '../src/ir/semantics/runner-machine-scope.js';
 import { appendOrderedTraceEvents, type TraceEvent } from '../src/ir/semantics/trace.js';
 import {
   executeInternalRuntimeEnvelopeAsync,
@@ -77,6 +80,14 @@ const effectMachineTraceJoinSources = [
   'internal-effect-machine-class-frame.ts',
   'internal-effect-machine-class-value-runtime.ts',
 ] as const;
+const executionFrameSources = [
+  'async-portable-scalar.ts',
+  'internal-effect-machine-class-activation.ts',
+  'internal-effect-machine-helper-preflight.ts',
+  'internal-effect-machine-helper-runtime.ts',
+  'portable-reference-body.ts',
+  'portable-reference-evaluator.ts',
+] as const;
 
 function variadicTraceJoins(sourceName: string): string[] {
   const path = fileURLToPath(new URL(`../src/ir/semantics/${sourceName}`, import.meta.url));
@@ -104,11 +115,32 @@ function variadicTraceJoins(sourceName: string): string[] {
   return failures;
 }
 
+function constructorCalls(sourceName: string): string[] {
+  const path = fileURLToPath(new URL(`../src/ir/semantics/${sourceName}`, import.meta.url));
+  const source = readFileSync(path, 'utf8');
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const calls: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) calls.push(node.expression.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return calls;
+}
+
 describe('runtime-envelope trace compaction', () => {
   beforeAll(() => registerAllContracts());
 
   test('effect-machine trace joins never pass event arrays through host variadic arguments', () => {
     expect(effectMachineTraceJoinSources.flatMap(variadicTraceJoins)).toEqual([]);
+  });
+
+  test('execution-reachable rebuilt frames use the private frame constructor exclusively', () => {
+    for (const sourceName of executionFrameSources) {
+      const calls = constructorCalls(sourceName);
+      expect(calls).not.toContain('makeEnv');
+      expect(calls).toContain('makeExecutionFrame');
+    }
   });
 
   test('ordered trace append is self-join safe and preserves exact source order', () => {
@@ -176,7 +208,7 @@ describe('runtime-envelope trace compaction', () => {
     expect(sync).toEqual({ completion: { kind: 'return', value: LEGACY_ITERATIONS }, events: [] });
   });
 
-  test('private legacy binding never mutates a frozen proxied caller or leaks into later direct runs', async () => {
+  test('private legacy binding rejects a proxied caller without writes or later direct-run leakage', async () => {
     const writes: string[] = [];
     const caller = new Proxy(Object.freeze(makeEnv()), {
       defineProperty: (_target, property) => {
@@ -193,15 +225,151 @@ describe('runtime-envelope trace compaction', () => {
       },
     });
 
-    const sync = runInternalLegacyEngineSync(legacyAssignmentLoop, caller, 'observable-only');
-    const asyncTrace = await runInternalLegacyEngineAsync(legacyAssignmentLoop, caller, {}, 'observable-only');
-    expect(sync).toEqual(asyncTrace);
-    expect(sync.events).toEqual([]);
+    expect(() => runInternalLegacyEngineSync(legacyAssignmentLoop, caller, 'observable-only')).toThrow(
+      /requires an exact root environment/,
+    );
+    await expect(runInternalLegacyEngineAsync(legacyAssignmentLoop, caller, {}, 'observable-only')).rejects.toThrow(
+      /requires an exact root environment/,
+    );
     expect(writes).toEqual([]);
 
     const direct = referenceRunSequence(legacyAssignmentLoop, caller);
     expect(direct.events).toHaveLength(1 + 2 * LEGACY_ITERATIONS);
     expect(writes).toEqual([]);
+  });
+
+  test('private legacy execution isolates caller bindings and memoization in sync and async modes', async () => {
+    const functions: RunnerModuleScope['functions'] = new Map();
+    const classes: RunnerModuleScope['classes'] = new Map();
+    const module: RunnerModuleScope = { classes, functions };
+    functions.set('answer', {
+      body: [{ type: 'return', props: { value: '7' } }],
+      module,
+      name: 'answer',
+      params: [],
+      returns: 'number',
+    });
+    markRunnerMachineRootScope(module);
+    const nodes: IRNode[] = [
+      { type: 'assign', props: { target: 'total', value: 'total + answer()' } },
+      { type: 'return', props: { value: 'total' } },
+    ];
+    const makeCaller = () =>
+      makeEnv({
+        bindings: new Map([['total', 0]]),
+        runnerCallCache: new Map(),
+        runnerClasses: classes,
+        runnerFunctions: functions,
+      });
+
+    const syncCaller = makeCaller();
+    expect(runInternalLegacyEngineSync(nodes, syncCaller, 'observable-only').completion).toEqual({
+      kind: 'return',
+      value: 7,
+    });
+    expect(syncCaller.bindings.get('total')).toBe(0);
+    expect(syncCaller.runnerCallCache).toEqual(new Map());
+
+    const asyncCaller = makeCaller();
+    expect((await runInternalLegacyEngineAsync(nodes, asyncCaller, {}, 'observable-only')).completion).toEqual({
+      kind: 'return',
+      value: 7,
+    });
+    expect(asyncCaller.bindings.get('total')).toBe(0);
+    expect(asyncCaller.runnerCallCache).toEqual(new Map());
+  });
+
+  test('isolated legacy cloning preserves aliases and cycles without sharing mutable caller values', () => {
+    const shared: Record<string, unknown> = { value: 1 };
+    shared.self = shared;
+    const instance: RunnerClassInstanceValue = {
+      __kernRunnerClassInstance: true,
+      className: 'Box',
+      fields: { shared },
+    };
+    const caller = makeEnv({ runnerThis: instance });
+    const callerInstance = caller.runnerThis as RunnerClassInstanceValue;
+    caller.bindings.set('first', callerInstance.fields.shared);
+    caller.bindings.set('second', callerInstance.fields.shared);
+    caller.bindings.set('box', callerInstance);
+    caller.bindings.set('boxAlias', callerInstance);
+    const execution = bindInternalReferenceTraceRetention(caller, 'observable-only');
+    const first = execution.bindings.get('first') as Record<string, unknown>;
+    const box = execution.bindings.get('box') as RunnerClassInstanceValue;
+
+    expect(first).toBe(execution.bindings.get('second'));
+    expect(first).not.toBe(caller.bindings.get('first'));
+    expect(first.self).toBe(first);
+    expect(box).toBe(execution.bindings.get('boxAlias'));
+    expect(box).toBe(execution.runnerThis);
+    expect(box).not.toBe(caller.bindings.get('box'));
+    expect(box.fields.shared).toBe(first);
+  });
+
+  test('isolated legacy cloning rejects unsupported binding graphs before execution', () => {
+    const sparse = new Array(2);
+    sparse[1] = 1;
+    const accessor = {} as Record<string, unknown>;
+    Object.defineProperty(accessor, 'value', { enumerable: true, get: () => 1 });
+    const decoratedMap = new Map<string, number>([['value', 1]]) as Map<string, number> & { extra?: number };
+    decoratedMap.extra = 1;
+    const rejected = [undefined, () => 1, sparse, accessor, decoratedMap];
+
+    for (const value of rejected) {
+      const caller = makeEnv({ bindings: new Map([['value', value]]) });
+      expect(() => bindInternalReferenceTraceRetention(caller, 'observable-only')).toThrow(/isolated/);
+      expect(caller.bindings.has('value')).toBe(true);
+    }
+  });
+
+  test('observable-only legacy execution rejects same-value runner method mutation', async () => {
+    const method = {
+      body: [
+        { type: 'assign', props: { target: 'this.value', value: 'this.value' } },
+        { type: 'return', props: { value: 'this.value' } },
+      ],
+      name: 'touch',
+      ownerClass: 'Box',
+      params: [],
+    } as const;
+    const functions: RunnerModuleScope['functions'] = new Map();
+    const classes: RunnerModuleScope['classes'] = new Map();
+    const module: RunnerModuleScope = { classes, functions };
+    const boxClass: RunnerClassBinding = {
+      fields: [{ name: 'value', value: '1' }],
+      getters: new Map(),
+      methods: new Map([['touch', method]]),
+      module,
+      name: 'Box',
+    };
+    markRunnerMachineClassBinding(boxClass);
+    classes.set('Box', boxClass);
+    markRunnerMachineRootScope(module);
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const instance: RunnerClassInstanceValue = {
+      __kernRunnerClassInstance: true,
+      className: 'Box',
+      fields: { left: cyclic, right: cyclic, value: 1 },
+      module,
+    };
+    const nodes: IRNode[] = [{ type: 'return', props: { value: 'box.touch()' } }];
+    const makeCaller = () =>
+      makeEnv({
+        bindings: new Map([['box', instance]]),
+        runnerClasses: classes,
+        runnerFunctions: functions,
+      });
+
+    expect(() => runInternalLegacyEngineSync(nodes, makeCaller(), 'observable-only')).toThrow(
+      /Preconditions failed|mutated instance state/,
+    );
+    await expect(runInternalLegacyEngineAsync(nodes, makeCaller(), {}, 'observable-only')).rejects.toThrow(
+      /Preconditions failed|mutated instance state/,
+    );
+    expect(instance.fields.value).toBe(1);
+    expect(instance.fields.left).toBe(instance.fields.right);
+    expect((instance.fields.left as Record<string, unknown>).self).toBe(instance.fields.left);
   });
 
   test('observable-only retention is inherited by an async function call frame without binding the caller', async () => {

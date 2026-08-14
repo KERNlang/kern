@@ -1,5 +1,6 @@
-import { makeEnv } from '../src/ir/semantics/index.js';
+import { bindInternalReferenceTraceRetention, makeEnv, makeExecutionFrame } from '../src/ir/semantics/index.js';
 import {
+  deriveInternalRuntimeCapabilityInterceptor,
   INTERNAL_RUNTIME_CAPABILITY_REQUEST_FORMAT,
   type InternalRuntimeCapabilityInterceptor,
   type InternalRuntimeCapabilityRequest,
@@ -234,16 +235,17 @@ describe('internal runtime capability interception seam', () => {
     expect(calls).toBe(1);
   });
 
-  test('rebuilt function and class environments inherit the seam through the per-call cache', () => {
+  test('rebuilt function and class frames inherit the seam through execution context', () => {
     const runnerCallCache = new Map();
     const root = makeEnv({ runnerCallCache });
-    const functionEnv = makeEnv({ runnerCallCache });
-    const classEnv = makeEnv({ runnerCallCache });
     const requests: InternalRuntimeCapabilityRequest[] = [];
     installInternalRuntimeCapabilityInterceptor(root, (request) => {
       requests.push(request);
       return { kind: 'return', result: `${request.operation}-${request.sequence}` };
     });
+    const functionEnv = makeExecutionFrame(root, { runnerCallCache });
+    const classEnv = makeExecutionFrame(root, { runnerCallCache });
+    const unrelatedEnv = makeEnv({ runnerCallCache });
 
     expect(
       invokeInternalRuntimeCapabilitySync(functionEnv, {
@@ -261,5 +263,29 @@ describe('internal runtime capability interception seam', () => {
       { operation: 'function', sequence: 0 },
       { operation: 'class', sequence: 1 },
     ]);
+    expect(() =>
+      invokeInternalRuntimeCapabilitySync(unrelatedEnv, {
+        namespace: 'storage',
+        operation: 'unrelated',
+      }),
+    ).toThrow(/was requested but not provided/);
+  });
+
+  test('isolated derivations share interceptor authority but start independent sequences', () => {
+    const root = makeEnv();
+    const requests: InternalRuntimeCapabilityRequest[] = [];
+    installInternalRuntimeCapabilityInterceptor(root, (request) => {
+      requests.push(request);
+      return { kind: 'return', result: request.sequence };
+    });
+    const first = bindInternalReferenceTraceRetention(root, 'observable-only');
+    const second = bindInternalReferenceTraceRetention(root, 'observable-only');
+    deriveInternalRuntimeCapabilityInterceptor(root, first);
+    deriveInternalRuntimeCapabilityInterceptor(root, second);
+
+    for (const env of [first, first, second, second]) {
+      invokeInternalRuntimeCapabilitySync(env, { namespace: 'storage', operation: 'get' });
+    }
+    expect(requests.map(({ sequence }) => sequence)).toEqual([0, 1, 0, 1]);
   });
 });

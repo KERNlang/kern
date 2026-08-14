@@ -1,10 +1,15 @@
-import { makeEnv } from '../src/ir/semantics/index.js';
+import { bindInternalReferenceTraceRetention, makeEnv } from '../src/ir/semantics/index.js';
 import { executeInternalRuntimeEnvelopeSync } from '../src/runtime-envelope/execute.js';
 import {
   executeInternalRuntimeHandlerAsync,
   executeInternalRuntimeHandlerSync,
   type InternalRuntimeHandlerEntry,
 } from '../src/runtime-envelope/handler-entry.js';
+import {
+  installInternalRuntimeScheduler,
+  retainInternalRuntimeSchedulerDerivation,
+  throwIfInternalRuntimeSchedulerTerminated,
+} from '../src/runtime-envelope/internal-scheduler.js';
 import { encodeInternalRuntimeEnvelope } from '../src/runtime-envelope/normalize.js';
 import type { InternalRuntimeEnvelopeLimits, InternalRuntimeEnvelopeOptions } from '../src/runtime-envelope/types.js';
 
@@ -142,6 +147,26 @@ describe('internal runtime scheduler control', () => {
     const second = executeInternalRuntimeEnvelopeSync([], env, options({ signal: new AbortController().signal }));
     expect(first).toMatchObject({ outcome: 'success' });
     expect(second).toEqual(first);
+  });
+
+  test('isolated derivations share terminal state and retain disposed scheduler generations', () => {
+    const controller = new AbortController();
+    const root = makeEnv({ runnerCallCache: new Map() });
+    const dispose = installInternalRuntimeScheduler(root, { signal: controller.signal });
+    const release = retainInternalRuntimeSchedulerDerivation(root);
+    const derived = bindInternalReferenceTraceRetention(root, 'observable-only');
+
+    controller.abort();
+    dispose();
+    expect(() => throwIfInternalRuntimeSchedulerTerminated(derived)).toThrow(/execution-cancelled/);
+    expect(() => installInternalRuntimeScheduler(root, { signal: new AbortController().signal })).toThrow(
+      /already installed/,
+    );
+
+    release();
+    const disposeFresh = installInternalRuntimeScheduler(root, { signal: new AbortController().signal });
+    expect(() => throwIfInternalRuntimeSchedulerTerminated(root)).not.toThrow();
+    disposeFresh();
   });
 
   test('already-aborted calls fail before sync or async providers run', async () => {
