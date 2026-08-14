@@ -7,7 +7,9 @@ import test from 'node:test';
 import {
   digestM4145CompiledCoreJavaScript,
   digestPreM4135CompiledCoreJavaScript,
+  reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths,
   reconstructM4145CompiledCoreJavaScriptPaths,
+  reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
@@ -41,7 +43,11 @@ function textSpliceSuccessorPaths() {
   const runtimeTextCachePaths = new Set(
     RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
   );
-  return compiledCorePaths().filter((path) => !runtimeTextCachePaths.has(path));
+  const traceCompactionPaths =
+    reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(
+      reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(compiledCorePaths()),
+    );
+  return traceCompactionPaths.filter((path) => !runtimeTextCachePaths.has(path));
 }
 
 function digest(bytes) {
@@ -142,10 +148,14 @@ test('current compiled identity is sensitive to both text splice successor modul
 
 test('text splice transition preserves exact M4.145 and pre-M4.135 compiled identities', () => {
   const currentPaths = compiledCorePaths();
-  assert.equal(currentPaths.length, 317);
+  const traceRetentionOwnershipPaths =
+    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
+  const traceCompactionPaths =
+    reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
+  assert.equal(traceCompactionPaths.length, 317);
   assert.equal(textSpliceSuccessorPaths().length, 316);
-  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
-  const omitted = currentPaths.filter((path) => !historicalPaths.includes(path));
+  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
+  const omitted = traceCompactionPaths.filter((path) => !historicalPaths.includes(path));
   for (const path of TEXT_SPLICE_SUCCESSOR_PATHS) assert.ok(omitted.includes(path), path);
   assert.equal(
     digestM4145CompiledCoreJavaScript(),

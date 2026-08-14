@@ -18,7 +18,9 @@ import {
 import {
   digestM4145CompiledCoreJavaScript,
   digestPreM4135CompiledCoreJavaScript,
+  reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths,
   reconstructM4145CompiledCoreJavaScriptPaths,
+  reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import { freezeFunctionFacts, validateFunctionFacts } from './coverage-facts.mjs';
 import {
@@ -354,7 +356,11 @@ test('current compiled core identity is sensitive to post-M4.145 runtime modules
 
 test('historical compiled core identities authenticate exact M4.145 membership', () => {
   const currentPaths = compiledCorePaths();
-  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
+  const traceRetentionOwnershipPaths =
+    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
+  const traceCompactionPaths =
+    reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
+  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const omitted = new Set(currentPaths.filter((path) => !historicalPaths.includes(path)));
   assert.deepEqual([...omitted].sort(), [
     'each-collection-reference.js',

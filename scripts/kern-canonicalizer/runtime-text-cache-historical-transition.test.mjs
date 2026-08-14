@@ -7,7 +7,9 @@ import test from 'node:test';
 import {
   digestM4145CompiledCoreJavaScript,
   digestPreM4135CompiledCoreJavaScript,
+  reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths,
   reconstructM4145CompiledCoreJavaScriptPaths,
+  reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
@@ -16,6 +18,15 @@ import {
   RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION,
   RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES,
 } from './runtime-text-cache-historical-transition.mjs';
+import { reconstructCanonicalizerHistoricalRuntimeSource } from './runtime-source-historical-chain.mjs';
+import {
+  historicalTransitionStage,
+  reconstructHistoricalTransitionChain,
+} from './historical-transition-chain.mjs';
+import {
+  POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
+} from './legacy-trace-compaction-historical-transition.mjs';
+import { POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS } from './trace-compaction-historical-transition.mjs';
 
 const CACHE_SUCCESSOR_PATH = 'ir/semantics/internal-text-code-point-cache.js';
 const RETAINED_CHANGED_PATHS = [
@@ -61,6 +72,49 @@ function compiledCoreDigest(overrides = new Map()) {
   return hash.digest('hex');
 }
 
+function reconstructPreTraceCompiled(path, currentSource) {
+  const stages = [];
+  const legacyReconstruction = POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  if (legacyReconstruction !== undefined) {
+    stages.push(historicalTransitionStage({
+      claim: legacyReconstruction.claim,
+      currentDigest: legacyReconstruction.currentDigest,
+      expectedDigest: legacyReconstruction.expectedDigest,
+      path,
+      replacements: legacyReconstruction.replacements,
+    }));
+  }
+  const reconstruction = POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  if (reconstruction === undefined) {
+    if (stages.length === 0) return currentSource;
+    return reconstructHistoricalTransitionChain({
+      currentSource,
+      expectedTerminalDigest: legacyReconstruction.expectedDigest,
+      milestone: `test pre-trace ${path}`,
+      path,
+      stages,
+    });
+  }
+  stages.push(historicalTransitionStage({
+    claim: reconstruction.claim,
+    currentDigest: reconstruction.currentDigest,
+    expectedDigest: reconstruction.expectedDigest,
+    path,
+    replacements: reconstruction.replacements,
+  }));
+  return reconstructHistoricalTransitionChain({
+    currentSource,
+    expectedTerminalDigest: reconstruction.expectedDigest,
+    milestone: `test pre-trace ${path}`,
+    path,
+    stages,
+  });
+}
+
 test('runtime text cache transition binds the exact 316-to-317 inventory delta', () => {
   assert.equal(RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.commit, 'd33b9f50');
   assert.deepEqual(
@@ -68,10 +122,14 @@ test('runtime text cache transition binds the exact 316-to-317 inventory delta',
     [CACHE_SUCCESSOR_PATH],
   );
   const currentPaths = compiledCorePaths();
+  const traceRetentionOwnershipPaths =
+    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
+  const traceCompactionPaths =
+    reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const current = RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.currentInventory;
-  assert.equal(currentPaths.length, current.count);
-  assert.equal(pathInventoryDigest(currentPaths), current.digest);
-  const predecessorPaths = currentPaths.filter((path) => path !== CACHE_SUCCESSOR_PATH);
+  assert.equal(traceCompactionPaths.length, current.count);
+  assert.equal(pathInventoryDigest(traceCompactionPaths), current.digest);
+  const predecessorPaths = traceCompactionPaths.filter((path) => path !== CACHE_SUCCESSOR_PATH);
   const predecessor = RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.predecessorInventory;
   assert.equal(predecessorPaths.length, predecessor.count);
   assert.equal(pathInventoryDigest(predecessorPaths), predecessor.digest);
@@ -84,7 +142,8 @@ test('runtime text cache retained owners reconstruct exact clean baseline bytes'
     RETAINED_CHANGED_PATHS,
   );
   for (const reconstruction of POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS) {
-    const currentSource = readFileSync(resolve(root, reconstruction.path));
+    const liveSource = readFileSync(resolve(root, reconstruction.path));
+    const currentSource = reconstructPreTraceCompiled(reconstruction.path, liveSource);
     assert.equal(digest(currentSource), reconstruction.currentDigest, reconstruction.path);
     const historicalSource = reconstructHistoricalSource({
       currentSource,
@@ -149,12 +208,11 @@ test('runtime text cache source owners reconstruct exact M4.97 identities', () =
   );
   for (const reconstruction of POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS) {
     const currentSource = readFileSync(resolve(root, sourcePaths.get(reconstruction.sourceKey)));
-    assert.equal(digest(currentSource), reconstruction.currentDigest, reconstruction.sourceKey);
-    const historicalSource = reconstructHistoricalSource({
+    const historicalSource = reconstructCanonicalizerHistoricalRuntimeSource({
       currentSource,
       expectedDigest: reconstruction.expectedDigest,
-      milestone: `test pre-runtime-text-cache source ${reconstruction.sourceKey}`,
-      replacements: reconstruction.replacements,
+      milestone: `test historical runtime source ${reconstruction.sourceKey}`,
+      sourceKey: reconstruction.sourceKey,
     });
     assert.equal(digest(historicalSource), reconstruction.expectedDigest, reconstruction.sourceKey);
   }
@@ -189,8 +247,12 @@ test('current compiled identity is sensitive to the runtime text cache owner', (
 
 test('runtime text cache transition preserves exact frozen historical identities', () => {
   const currentPaths = compiledCorePaths();
-  assert.equal(currentPaths.length, 317);
-  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(currentPaths);
+  const traceRetentionOwnershipPaths =
+    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
+  const traceCompactionPaths =
+    reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
+  assert.equal(traceCompactionPaths.length, 317);
+  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   assert.ok(!historicalPaths.includes(CACHE_SUCCESSOR_PATH));
   assert.equal(
     digestM4145CompiledCoreJavaScript(),

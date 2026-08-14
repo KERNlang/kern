@@ -4,9 +4,18 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { reconstructHistoricalSource } from './historical-source.mjs';
+import {
+  historicalTransitionStage,
+  reconstructHistoricalTransitionChain,
+} from './historical-transition-chain.mjs';
 import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
 import { POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './each-collection-structural-target.mjs';
 import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
+import {
+  LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION,
+  POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
+  validateLegacyTraceCompactionHistoricalTransition,
+} from './legacy-trace-compaction-historical-transition.mjs';
 import {
   POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
   PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
@@ -23,6 +32,22 @@ import {
   POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS,
   TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION,
 } from './text-splice-historical-transition.mjs';
+import {
+  POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
+  TRACE_COMPACTION_TYPE_ONLY_COMPILED_IDENTITIES,
+  validateTraceCompactionHistoricalTransition,
+} from './trace-compaction-historical-transition.mjs';
+import {
+  POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS,
+  RESTORED_TRACE_RETENTION_COMPILED,
+  TRACE_RETENTION_OWNERSHIP_HISTORICAL_TRANSITION,
+  validateTraceRetentionOwnershipHistoricalTransition,
+} from './trace-retention-ownership-historical-transition.mjs';
+import {
+  POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS,
+  TRACE_RETENTION_ROOT_HISTORICAL_TRANSITION,
+  validateTraceRetentionRootHistoricalTransition,
+} from './trace-retention-root-historical-transition.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 const COMPILED_CORE_ROOT = resolve(ROOT, 'packages/core/dist');
@@ -167,23 +192,222 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
   return historicalPaths;
 }
 
+export function reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(paths, 'legacy trace-compaction successor compiled core inventory');
+  const transition = LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION;
+  if (
+    paths.length !== transition.compiledInventory.successor.count ||
+    hashPathInventory(paths) !== transition.compiledInventory.successor.digest
+  ) {
+    fail('legacy trace-compaction historical membership requires the authenticated successor inventory');
+  }
+  const added = new Set(transition.addedCompiledPaths.map((identity) => identity.path));
+  if ([...added].some((path) => !paths.includes(path))) {
+    fail('legacy trace-compaction added paths must exist in the authenticated inventory');
+  }
+  const predecessorPaths = paths.filter((path) => !added.has(path));
+  if (
+    predecessorPaths.length !== transition.compiledInventory.predecessor.count ||
+    hashPathInventory(predecessorPaths) !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('legacy trace-compaction predecessor inventory must reproduce the F1 successor');
+  }
+  return predecessorPaths;
+}
+
+export function reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(paths, 'trace-retention ownership successor compiled core inventory');
+  const transition = TRACE_RETENTION_OWNERSHIP_HISTORICAL_TRANSITION;
+  if (
+    paths.length !== transition.compiledInventory.successor.count ||
+    hashPathInventory(paths) !== transition.compiledInventory.successor.digest
+  ) {
+    fail('trace-retention ownership historical membership requires the authenticated successor inventory');
+  }
+  const restoredPath = transition.restoredCompiledPath.path;
+  if (paths.includes(restoredPath)) {
+    fail('trace-retention ownership successor inventory must exclude the restored predecessor path');
+  }
+  const predecessorPaths = [...paths, restoredPath].sort();
+  if (
+    predecessorPaths.length !== transition.compiledInventory.predecessor.count ||
+    hashPathInventory(predecessorPaths) !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('trace-retention ownership predecessor inventory must reproduce the 36d0 successor');
+  }
+  return predecessorPaths;
+}
+
+export function validateTraceRetentionRootCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(paths, 'trace-retention root successor compiled core inventory');
+  const transition = TRACE_RETENTION_ROOT_HISTORICAL_TRANSITION;
+  const identity = { count: paths.length, digest: hashPathInventory(paths) };
+  if (
+    identity.count !== transition.compiledInventory.successor.count ||
+    identity.digest !== transition.compiledInventory.successor.digest ||
+    identity.count !== transition.compiledInventory.predecessor.count ||
+    identity.digest !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('trace-retention root transition requires an unchanged authenticated inventory');
+  }
+  return paths;
+}
+
 function m4145CompiledCoreJavaScriptPaths() {
+  validateTraceRetentionRootHistoricalTransition();
+  validateTraceRetentionOwnershipHistoricalTransition();
+  validateLegacyTraceCompactionHistoricalTransition();
+  validateTraceCompactionHistoricalTransition();
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
-  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(paths);
+  const restoredTraceRetention = TRACE_RETENTION_OWNERSHIP_HISTORICAL_TRANSITION.restoredCompiledPath;
+  if (hashBytes(RESTORED_TRACE_RETENTION_COMPILED) !== restoredTraceRetention.digest) {
+    fail(`trace-retention ownership restored compiled source drifted: ${restoredTraceRetention.path}`);
+  }
+  for (const identity of LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION.addedCompiledPaths) {
+    const bytes = identity.path === restoredTraceRetention.path
+      ? RESTORED_TRACE_RETENTION_COMPILED
+      : readFileSync(resolve(canonicalRoot, identity.path));
+    if (hashBytes(bytes) !== identity.digest) {
+      fail(`legacy trace-compaction added compiled source drifted: ${identity.path}`);
+    }
+  }
+  const traceRetentionRootPaths = validateTraceRetentionRootCompiledCoreJavaScriptPaths(paths);
+  const traceRetentionOwnershipPaths =
+    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(traceRetentionRootPaths);
+  const traceCompactionPaths =
+    reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
+  const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const overrides = new Map();
-  for (const identity of RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES) {
+  for (const reconstruction of POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-trace-retention-root compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `b3d3f5fc successor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [
+          historicalTransitionStage({
+            claim: reconstruction.claim,
+            currentDigest: reconstruction.currentDigest,
+            expectedDigest: reconstruction.expectedDigest,
+            path: reconstruction.path,
+            replacements: reconstruction.replacements,
+          }),
+        ],
+      }),
+    );
+  }
+  for (const identity of [
+    ...RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES,
+    ...TRACE_COMPACTION_TYPE_ONLY_COMPILED_IDENTITIES,
+  ]) {
     if (!historicalPaths.includes(identity.path)) {
       fail(`runtime text cache type-only path is absent from M4.145: ${identity.path}`);
     }
-    if (hashBytes(readFileSync(resolve(canonicalRoot, identity.path))) !== identity.digest) {
-      fail(`runtime text cache type-only compiled source drifted: ${identity.path}`);
+    if (
+      hashBytes(overrides.get(identity.path) ?? readFileSync(resolve(canonicalRoot, identity.path))) !==
+      identity.digest
+    ) {
+      fail(`authenticated type-only compiled source drifted: ${identity.path}`);
     }
   }
+  const runtimeTextCacheByPath = new Map(
+    POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS.map((reconstruction) => [reconstruction.path, reconstruction]),
+  );
+  for (const reconstruction of POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-trace-retention-ownership compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `0df8834f successor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [
+          historicalTransitionStage({
+            claim: reconstruction.claim,
+            currentDigest: reconstruction.currentDigest,
+            expectedDigest: reconstruction.expectedDigest,
+            path: reconstruction.path,
+            replacements: reconstruction.replacements,
+          }),
+        ],
+      }),
+    );
+  }
+  for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-legacy-trace-compaction compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `F1 successor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [
+          historicalTransitionStage({
+            claim: reconstruction.claim,
+            currentDigest: reconstruction.currentDigest,
+            expectedDigest: reconstruction.expectedDigest,
+            path: reconstruction.path,
+            replacements: reconstruction.replacements,
+          }),
+        ],
+      }),
+    );
+  }
+  const chainedRuntimeTextCachePaths = new Set();
+  for (const reconstruction of POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-trace-compaction compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    const stages = [
+      historicalTransitionStage({
+        claim: reconstruction.claim,
+        currentDigest: reconstruction.currentDigest,
+        expectedDigest: reconstruction.expectedDigest,
+        path: reconstruction.path,
+        replacements: reconstruction.replacements,
+      }),
+    ];
+    const runtimeTextCache = runtimeTextCacheByPath.get(reconstruction.path);
+    if (runtimeTextCache !== undefined) {
+      stages.push(
+        historicalTransitionStage({
+          claim: 'kern.runtime.text-cache.r0',
+          currentDigest: runtimeTextCache.currentDigest,
+          expectedDigest: runtimeTextCache.expectedDigest,
+          path: runtimeTextCache.path,
+          replacements: runtimeTextCache.replacements,
+        }),
+      );
+      chainedRuntimeTextCachePaths.add(reconstruction.path);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: runtimeTextCache?.expectedDigest ?? reconstruction.expectedDigest,
+        milestone: `M4.145 compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages,
+      }),
+    );
+  }
   for (const reconstruction of POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS) {
+    if (chainedRuntimeTextCachePaths.has(reconstruction.path)) continue;
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-runtime-text-cache compiled path is absent from M4.145: ${reconstruction.path}`);
     }
-    const currentSource = readFileSync(resolve(canonicalRoot, reconstruction.path));
+    const currentSource = overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path));
     if (hashBytes(currentSource) !== reconstruction.currentDigest) {
       fail(`post-runtime-text-cache compiled source drifted: ${reconstruction.path}`);
     }
@@ -198,7 +422,7 @@ function m4145CompiledCoreJavaScriptPaths() {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-text-splice compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
-    const currentSource = readFileSync(resolve(canonicalRoot, reconstruction.path));
+    const currentSource = overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path));
     if (hashBytes(currentSource) !== reconstruction.currentDigest) {
       fail(`post-text-splice compiled core source drifted: ${reconstruction.path}`);
     }
@@ -215,7 +439,7 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`post-M4.171 compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     const historicalSource = reconstructHistoricalSource({
-      currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-M4.171 compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,
@@ -230,7 +454,7 @@ function m4145CompiledCoreJavaScriptPaths() {
     }
     const historicalSource = reconstructHistoricalSource({
       currentSource: preM4171Sources.get(reconstruction.path) ??
-        readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-lambda compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,
@@ -244,7 +468,8 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`post-each compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     const historicalSource = reconstructHistoricalSource({
-      currentSource: preLambdaSources.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preLambdaSources.get(reconstruction.path) ??
+        overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-each compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,
@@ -258,7 +483,8 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`post-branch compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     const historicalSource = reconstructHistoricalSource({
-      currentSource: preEachSources.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preEachSources.get(reconstruction.path) ??
+        overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `pre-branch compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,
@@ -271,7 +497,8 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`post-M4.153 compiled core path is absent from M4.145: ${reconstruction.path}`);
     }
     overrides.set(reconstruction.path, reconstructHistoricalSource({
-      currentSource: preBranchSources.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
+      currentSource: preBranchSources.get(reconstruction.path) ??
+        overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
       expectedDigest: reconstruction.expectedDigest,
       milestone: `M4.145 compiled ${reconstruction.path}`,
       replacements: reconstruction.replacements,

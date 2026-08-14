@@ -21,9 +21,7 @@ import {
 } from './historical-parameter-sources.mjs';
 import { loadHistoricalCanonicalizerPolicy } from './historical-policy.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
-import {
-  POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
-} from './runtime-text-cache-historical-transition.mjs';
+import { reconstructCanonicalizerHistoricalRuntimeSource } from './runtime-source-historical-chain.mjs';
 import { loadCanonicalizerTripleRowHeadroomM4115 } from './triple-row-headroom-m4-115.mjs';
 
 const FORMAT = 'kern.kir-canonicalizer.runtime-bottleneck.4';
@@ -165,18 +163,16 @@ function exactInputs() {
   for (const [name, url] of Object.entries(SOURCE_URLS)) {
     if (name === 'runtimePolicySha256') continue;
     let source = readFileSync(url);
-    if (name === 'effectMachineSha256') {
-      const reconstruction = POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS.find(
-        (candidate) => candidate.sourceKey === name,
-      );
-      if (reconstruction === undefined || digest(source) !== reconstruction.currentDigest) {
-        fail('post-runtime-text-cache effect machine source must remain exact');
-      }
-      source = reconstructHistoricalSource({
+    if (
+      name === 'effectMachineSha256' ||
+      name === 'helperRuntimeSha256' ||
+      name === 'sequenceSha256'
+    ) {
+      source = reconstructCanonicalizerHistoricalRuntimeSource({
         currentSource: source,
-        expectedDigest: reconstruction.expectedDigest,
-        milestone: 'pre-runtime-text-cache M4.116 effect machine',
-        replacements: reconstruction.replacements,
+        expectedDigest: SOURCE_DIGESTS[name],
+        milestone: `M4.116 ${name}`,
+        sourceKey: name,
       });
     } else if (name === 'measurementSha256') {
       source = reconstructLegacyParameterMeasurementSource({
