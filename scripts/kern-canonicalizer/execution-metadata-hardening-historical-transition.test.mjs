@@ -11,6 +11,10 @@ import {
   POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS,
   validateExecutionMetadataHardeningHistoricalTransition,
 } from './execution-metadata-hardening-historical-transition.mjs';
+import {
+  POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
+  POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
+} from './decimal-admission-isolation-historical-transition.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
 
 const ROOT = resolve(process.cwd());
@@ -55,6 +59,18 @@ function stage(reconstruction) {
   });
 }
 
+function atMetadataSuccessor(path, currentSource, reconstructions) {
+  const decimalAdmission = reconstructions.find((candidate) => candidate.path === path);
+  if (decimalAdmission === undefined) return currentSource;
+  return reconstructHistoricalTransitionChain({
+    currentSource,
+    expectedTerminalDigest: decimalAdmission.expectedDigest,
+    milestone: `decimal-admission isolation predecessor ${path}`,
+    path,
+    stages: [stage(decimalAdmission)],
+  });
+}
+
 test('execution-metadata hardening binds exact commits, manifests, and unchanged inventory', () => {
   assert.equal(validateExecutionMetadataHardeningHistoricalTransition(), true);
   const transition = EXECUTION_METADATA_HARDENING_HISTORICAL_TRANSITION;
@@ -84,7 +100,15 @@ test('execution-metadata source endpoints reconstruct exact pinned Git blobs', (
   for (const reconstruction of POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync('git', ['show', `${transition.successorCommit}:${reconstruction.path}`]);
     const predecessor = execFileSync('git', ['show', `${transition.predecessorCommit}:${reconstruction.path}`]);
-    assert.deepEqual(readFileSync(resolve(ROOT, reconstruction.path)), successor, reconstruction.path);
+    assert.deepEqual(
+      atMetadataSuccessor(
+        reconstruction.path,
+        readFileSync(resolve(ROOT, reconstruction.path)),
+        POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
+      ),
+      successor,
+      reconstruction.path,
+    );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     assert.deepEqual(
       reconstructHistoricalTransitionChain({
@@ -109,7 +133,11 @@ test('execution-metadata compiled endpoints reconstruct the authenticated predec
   const predecessors = [];
   const successors = [];
   for (const reconstruction of POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS) {
-    const successor = readFileSync(resolve(DIST, reconstruction.path));
+    const successor = atMetadataSuccessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+      POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
+    );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,
