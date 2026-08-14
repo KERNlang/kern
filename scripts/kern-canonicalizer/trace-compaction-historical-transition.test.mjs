@@ -11,6 +11,10 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS,
+  POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
+} from './execution-context-isolation-historical-transition.mjs';
+import {
   LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION,
   POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
   POST_LEGACY_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS,
@@ -103,7 +107,19 @@ test('trace compaction transition binds immutable commits, claim, paths, and neu
 test('every source endpoint matches the pinned successor and predecessor Git blobs', () => {
   const { predecessorCommit, successorCommit } = TRACE_COMPACTION_HISTORICAL_TRANSITION;
   for (const reconstruction of POST_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS) {
-    const live = readFileSync(resolve(ROOT, reconstruction.path));
+    let current = readFileSync(resolve(ROOT, reconstruction.path));
+    const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (executionContext !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: executionContext.expectedDigest,
+        milestone: `execution-context source endpoint ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(executionContext)],
+      });
+    }
     const ownership = POST_TRACE_RETENTION_OWNERSHIP_SOURCE_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -118,9 +134,9 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
     if (legacy !== undefined) predecessorStages.push(stage(legacy));
     const traceSuccessor = predecessorStages.length === 0
-      ? live
+      ? current
       : reconstructHistoricalTransitionChain({
-          currentSource: live,
+          currentSource: current,
           expectedTerminalDigest: legacy?.expectedDigest ?? ownership?.expectedDigest ?? root.expectedDigest,
           milestone: `trace source endpoint ${reconstruction.path}`,
           path: reconstruction.path,
@@ -147,7 +163,19 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
 
 test('clean current build and every reconstructed compiled endpoint match exact identities', () => {
   for (const reconstruction of POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
-    const live = readFileSync(resolve(DIST, reconstruction.path));
+    let current = readFileSync(resolve(DIST, reconstruction.path));
+    const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (executionContext !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: executionContext.expectedDigest,
+        milestone: `execution-context compiled endpoint ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(executionContext)],
+      });
+    }
     const ownership = POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -162,9 +190,9 @@ test('clean current build and every reconstructed compiled endpoint match exact 
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
     if (legacy !== undefined) predecessorStages.push(stage(legacy));
     const traceSuccessor = predecessorStages.length === 0
-      ? live
+      ? current
       : reconstructHistoricalTransitionChain({
-          currentSource: live,
+          currentSource: current,
           expectedTerminalDigest: legacy?.expectedDigest ?? ownership?.expectedDigest ?? root.expectedDigest,
           milestone: `trace compiled endpoint ${reconstruction.path}`,
           path: reconstruction.path,

@@ -12,6 +12,10 @@ import {
   validateLegacyTraceCompactionHistoricalTransition,
 } from './legacy-trace-compaction-historical-transition.mjs';
 import {
+  POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS,
+  POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
+} from './execution-context-isolation-historical-transition.mjs';
+import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
@@ -55,7 +59,19 @@ test('legacy trace-compaction transition has immutable commit and inventory iden
 
 test('every changed source reconstructs the exact 45dd predecessor', () => {
   for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS) {
-    const live = readFileSync(resolve(ROOT, reconstruction.path));
+    let current = readFileSync(resolve(ROOT, reconstruction.path));
+    const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (executionContext !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: executionContext.expectedDigest,
+        milestone: `execution-context source ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(executionContext)],
+      });
+    }
     const ownership = POST_TRACE_RETENTION_OWNERSHIP_SOURCE_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -66,9 +82,9 @@ test('every changed source reconstructs the exact 45dd predecessor', () => {
     if (root !== undefined) predecessorStages.push(stage(root));
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
     const legacySuccessor = predecessorStages.length === 0
-      ? live
+      ? current
       : reconstructHistoricalTransitionChain({
-          currentSource: live,
+          currentSource: current,
           expectedTerminalDigest: ownership?.expectedDigest ?? root.expectedDigest,
           milestone: `trace ownership source ${reconstruction.path}`,
           path: reconstruction.path,
@@ -91,7 +107,19 @@ test('every changed source reconstructs the exact 45dd predecessor', () => {
 
 test('every changed compiled endpoint reconstructs the exact 45dd predecessor', () => {
   for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
-    const live = readFileSync(resolve(DIST, reconstruction.path));
+    let current = readFileSync(resolve(DIST, reconstruction.path));
+    const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS.find(
+      (candidate) => candidate.path === reconstruction.path,
+    );
+    if (executionContext !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: executionContext.expectedDigest,
+        milestone: `execution-context compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [stage(executionContext)],
+      });
+    }
     const ownership = POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -102,9 +130,9 @@ test('every changed compiled endpoint reconstructs the exact 45dd predecessor', 
     if (root !== undefined) predecessorStages.push(stage(root));
     if (ownership !== undefined) predecessorStages.push(stage(ownership));
     const legacySuccessor = predecessorStages.length === 0
-      ? live
+      ? current
       : reconstructHistoricalTransitionChain({
-          currentSource: live,
+          currentSource: current,
           expectedTerminalDigest: ownership?.expectedDigest ?? root.expectedDigest,
           milestone: `trace ownership compiled ${reconstruction.path}`,
           path: reconstruction.path,

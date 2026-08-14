@@ -10,6 +10,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS,
+} from './execution-context-isolation-historical-transition.mjs';
+import {
   POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS,
   POST_TRACE_RETENTION_ROOT_SOURCE_RECONSTRUCTIONS,
   TRACE_RETENTION_ROOT_HISTORICAL_TRANSITION,
@@ -52,6 +55,20 @@ function stage(reconstruction) {
   });
 }
 
+function atTraceRetentionRootSuccessor(path, currentSource) {
+  const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
+  if (executionContext === undefined) return currentSource;
+  return reconstructHistoricalTransitionChain({
+    currentSource,
+    expectedTerminalDigest: executionContext.expectedDigest,
+    milestone: `execution-context predecessor compiled ${path}`,
+    path,
+    stages: [stage(executionContext)],
+  });
+}
+
 test('trace-retention root transition binds exact commits and unchanged compiled inventory', () => {
   assert.equal(validateTraceRetentionRootHistoricalTransition(), true);
   const transition = TRACE_RETENTION_ROOT_HISTORICAL_TRANSITION;
@@ -64,15 +81,12 @@ test('trace-retention root transition binds exact commits and unchanged compiled
 test('every source endpoint reconstructs exact 0df8834f bytes from b3d3f5fc', () => {
   const { predecessorCommit, successorCommit } = TRACE_RETENTION_ROOT_HISTORICAL_TRANSITION;
   for (const reconstruction of POST_TRACE_RETENTION_ROOT_SOURCE_RECONSTRUCTIONS) {
-    const live = readFileSync(resolve(ROOT, reconstruction.path));
     const successor = execFileSync('git', ['show', `${successorCommit}:${reconstruction.path}`]);
     const predecessor = execFileSync('git', ['show', `${predecessorCommit}:${reconstruction.path}`]);
-    assert.equal(digest(live), reconstruction.currentDigest, reconstruction.path);
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
-    assert.deepEqual(live, successor, reconstruction.path);
     assert.deepEqual(
       reconstructHistoricalTransitionChain({
-        currentSource: live,
+        currentSource: successor,
         expectedTerminalDigest: reconstruction.expectedDigest,
         milestone: `trace root source ${reconstruction.path}`,
         path: reconstruction.path,
@@ -86,10 +100,13 @@ test('every source endpoint reconstructs exact 0df8834f bytes from b3d3f5fc', ()
 
 test('every compiled endpoint reconstructs the authenticated 0df8834f build digest', () => {
   for (const reconstruction of POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS) {
-    const live = readFileSync(resolve(DIST, reconstruction.path));
-    assert.equal(digest(live), reconstruction.currentDigest, reconstruction.path);
+    const current = atTraceRetentionRootSuccessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+    );
+    assert.equal(digest(current), reconstruction.currentDigest, reconstruction.path);
     const predecessor = reconstructHistoricalTransitionChain({
-      currentSource: live,
+      currentSource: current,
       expectedTerminalDigest: reconstruction.expectedDigest,
       milestone: `trace root compiled ${reconstruction.path}`,
       path: reconstruction.path,
@@ -108,10 +125,13 @@ test('transition data rejects immutable identity and endpoint drift', () => {
     /immutable identity changed/u,
   );
   const reconstruction = POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS[0];
-  const live = readFileSync(resolve(DIST, reconstruction.path));
+  const current = atTraceRetentionRootSuccessor(
+    reconstruction.path,
+    readFileSync(resolve(DIST, reconstruction.path)),
+  );
   assert.throws(
     () => reconstructHistoricalTransitionChain({
-      currentSource: Buffer.concat([live, Buffer.from('\n')]),
+      currentSource: Buffer.concat([current, Buffer.from('\n')]),
       expectedTerminalDigest: reconstruction.expectedDigest,
       milestone: 'trace root drift',
       path: reconstruction.path,

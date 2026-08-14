@@ -10,6 +10,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS,
+} from './execution-context-isolation-historical-transition.mjs';
+import {
   POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS,
   POST_TRACE_RETENTION_OWNERSHIP_SOURCE_RECONSTRUCTIONS,
   RESTORED_TRACE_RETENTION_COMPILED,
@@ -106,11 +109,24 @@ test('every source endpoint reconstructs exact 36d0 bytes and deleted helper con
 });
 
 test('every compiled endpoint reconstructs the authenticated 36d0 digest', () => {
+  const executionContextByPath = new Map(
+    POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS.map((row) => [row.path, row]),
+  );
   const rootByPath = new Map(
     POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS.map((row) => [row.path, row]),
   );
   for (const reconstruction of POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS) {
     let current = readFileSync(resolve(DIST, reconstruction.path));
+    const executionContext = executionContextByPath.get(reconstruction.path);
+    if (executionContext !== undefined) {
+      current = reconstructHistoricalTransitionChain({
+        currentSource: current,
+        expectedTerminalDigest: executionContext.expectedDigest,
+        milestone: `execution-context ownership composition ${executionContext.path}`,
+        path: executionContext.path,
+        stages: [stage(executionContext)],
+      });
+    }
     const root = rootByPath.get(reconstruction.path);
     if (root !== undefined) {
       current = reconstructHistoricalTransitionChain({

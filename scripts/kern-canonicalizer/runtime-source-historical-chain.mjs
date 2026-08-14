@@ -5,6 +5,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
+} from './execution-context-isolation-historical-transition.mjs';
+import {
   POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
 } from './runtime-text-cache-historical-transition.mjs';
 import { traceCompactionSourceReconstruction } from './trace-compaction-historical-transition.mjs';
@@ -40,12 +43,18 @@ export function reconstructCanonicalizerHistoricalRuntimeSource({
   sourceKey,
 }) {
   const path = SOURCE_PATHS[sourceKey];
+  const executionContext = POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
   const traceRoot = path === undefined ? undefined : traceRetentionRootSourceReconstruction(path);
   const trace = traceCompactionSourceReconstruction(sourceKey);
   const cache = POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS.find(
     (candidate) => candidate.sourceKey === sourceKey,
   );
   const stages = [];
+  if (executionContext !== undefined) {
+    stages.push(stage(executionContext, executionContext.claim, executionContext.path));
+  }
   if (traceRoot !== undefined) stages.push(stage(traceRoot, traceRoot.claim, traceRoot.path));
   if (trace !== undefined) stages.push(stage(trace, trace.claim, trace.path));
   if (cache !== undefined) stages.push(stage(cache, RUNTIME_TEXT_CACHE_CLAIM, path));

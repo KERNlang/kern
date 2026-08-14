@@ -10,6 +10,11 @@ import {
 } from './historical-transition-chain.mjs';
 import { POST_BRANCH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './branch-path-structural-target.mjs';
 import { POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './each-collection-structural-target.mjs';
+import {
+  EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION,
+  POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS,
+  validateExecutionContextIsolationHistoricalTransition,
+} from './execution-context-isolation-historical-transition.mjs';
 import { POST_LAMBDA_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './lambda-runner-structural-target.mjs';
 import {
   LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION,
@@ -253,7 +258,26 @@ export function validateTraceRetentionRootCompiledCoreJavaScriptPaths(paths) {
   return paths;
 }
 
+export function validateExecutionContextIsolationCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(
+    paths,
+    'execution-context isolation successor compiled core inventory',
+  );
+  const transition = EXECUTION_CONTEXT_ISOLATION_HISTORICAL_TRANSITION;
+  const identity = { count: paths.length, digest: hashPathInventory(paths) };
+  if (
+    identity.count !== transition.compiledInventory.successor.count ||
+    identity.digest !== transition.compiledInventory.successor.digest ||
+    identity.count !== transition.compiledInventory.predecessor.count ||
+    identity.digest !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('execution-context isolation transition requires an unchanged authenticated inventory');
+  }
+  return paths;
+}
+
 function m4145CompiledCoreJavaScriptPaths() {
+  validateExecutionContextIsolationHistoricalTransition();
   validateTraceRetentionRootHistoricalTransition();
   validateTraceRetentionOwnershipHistoricalTransition();
   validateLegacyTraceCompactionHistoricalTransition();
@@ -271,13 +295,39 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`legacy trace-compaction added compiled source drifted: ${identity.path}`);
     }
   }
-  const traceRetentionRootPaths = validateTraceRetentionRootCompiledCoreJavaScriptPaths(paths);
+  const executionContextIsolationPaths =
+    validateExecutionContextIsolationCompiledCoreJavaScriptPaths(paths);
+  const traceRetentionRootPaths =
+    validateTraceRetentionRootCompiledCoreJavaScriptPaths(executionContextIsolationPaths);
   const traceRetentionOwnershipPaths =
     reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(traceRetentionRootPaths);
   const traceCompactionPaths =
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const overrides = new Map();
+  for (const reconstruction of POST_EXECUTION_CONTEXT_ISOLATION_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-execution-context-isolation compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `execution-context predecessor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [
+          historicalTransitionStage({
+            claim: reconstruction.claim,
+            currentDigest: reconstruction.currentDigest,
+            expectedDigest: reconstruction.expectedDigest,
+            path: reconstruction.path,
+            replacements: reconstruction.replacements,
+          }),
+        ],
+      }),
+    );
+  }
   for (const reconstruction of POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-trace-retention-root compiled path is absent from M4.145: ${reconstruction.path}`);
@@ -285,7 +335,8 @@ function m4145CompiledCoreJavaScriptPaths() {
     overrides.set(
       reconstruction.path,
       reconstructHistoricalTransitionChain({
-        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        currentSource:
+          overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
         expectedTerminalDigest: reconstruction.expectedDigest,
         milestone: `b3d3f5fc successor compiled ${reconstruction.path}`,
         path: reconstruction.path,
