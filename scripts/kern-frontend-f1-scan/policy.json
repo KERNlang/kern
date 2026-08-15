@@ -1,0 +1,60 @@
+{
+  "format": "kern.frontend.f1-scan-policy.1",
+  "resultFormat": "kern.frontend.f1-scan.1",
+  "modules": [
+    "examples/kern-frontend/f1-transport.kern",
+    "examples/kern-frontend/f1-scan-catalog.kern",
+    "examples/kern-frontend/f1-scan-token.kern",
+    "examples/kern-frontend/f1-scan-main.kern"
+  ],
+  "kindIds": {
+    "identifier": 0,
+    "number": 1,
+    "equals": 2,
+    "slash": 3,
+    "comma": 4,
+    "quoted": 5,
+    "expr": 6,
+    "style": 7,
+    "themeRef": 8,
+    "unknown": 9,
+    "whitespace": 10,
+    "newline": 11,
+    "comment": 12,
+    "fenceMarker": 13,
+    "fenceBody": 14
+  },
+  "flags": {
+    "opener": 1,
+    "closer": 2,
+    "continuation": 4
+  },
+  "profileLimits": {
+    "encodedEnvelopeOverheadBytes": 497,
+    "expectedEvents": 0,
+    "maxChunkScalars": 12933,
+    "maxChunks": 256,
+    "maxElapsedMs": 120000,
+    "maxEncodedBytes": 3664150,
+    "maxJsonContentBytes": 3663554,
+    "maxPeakRssBytes": 1073741824,
+    "maxRetainedTransportBytes": 31556402,
+    "maxSourceScalars": 65536,
+    "maxTapeScalars": 3270338,
+    "maxTapeUtf8Bytes": 3506267,
+    "recordsPerChunk": 256,
+    "scalingMultiplier": 12,
+    "scalingSlackMs": 1000
+  },
+  "runtimeLimits": {
+    "maxBytes": 3664150,
+    "maxCollectionLength": 1000000,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 3506267
+  },
+  "scheduler": {
+    "timeoutMs": 120000
+  }
+}
