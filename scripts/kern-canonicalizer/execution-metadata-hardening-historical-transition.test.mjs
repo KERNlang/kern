@@ -15,6 +15,10 @@ import {
   POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
   POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
 } from './decimal-admission-isolation-historical-transition.mjs';
+import {
+  atEnvironmentQuarantineCompiledPredecessor,
+  atEnvironmentQuarantineSourcePredecessor,
+} from './environment-quarantine-transition-composition.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
 
 const ROOT = resolve(process.cwd());
@@ -103,7 +107,10 @@ test('execution-metadata source endpoints reconstruct exact pinned Git blobs', (
     assert.deepEqual(
       atMetadataSuccessor(
         reconstruction.path,
-        readFileSync(resolve(ROOT, reconstruction.path)),
+        atEnvironmentQuarantineSourcePredecessor(
+          reconstruction.path,
+          readFileSync(resolve(ROOT, reconstruction.path)),
+        ),
         POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
       ),
       successor,
@@ -135,7 +142,10 @@ test('execution-metadata compiled endpoints reconstruct the authenticated predec
   for (const reconstruction of POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS) {
     const successor = atMetadataSuccessor(
       reconstruction.path,
-      readFileSync(resolve(DIST, reconstruction.path)),
+      atEnvironmentQuarantineCompiledPredecessor(
+        reconstruction.path,
+        readFileSync(resolve(DIST, reconstruction.path)),
+      ),
       POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
     );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);

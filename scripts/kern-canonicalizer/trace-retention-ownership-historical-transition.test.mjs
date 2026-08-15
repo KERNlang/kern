@@ -10,6 +10,9 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  atEnvironmentQuarantineCompiledPredecessor,
+} from './environment-quarantine-transition-composition.mjs';
+import {
   POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
 } from './execution-context-hardening-format-historical-transition.mjs';
 import {
@@ -134,7 +137,10 @@ test('every compiled endpoint reconstructs the authenticated 36d0 digest', () =>
     POST_TRACE_RETENTION_ROOT_COMPILED_RECONSTRUCTIONS.map((row) => [row.path, row]),
   );
   for (const reconstruction of POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS) {
-    let current = readFileSync(resolve(DIST, reconstruction.path));
+    let current = atEnvironmentQuarantineCompiledPredecessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+    );
     const metadata = executionMetadataByPath.get(reconstruction.path);
     if (metadata !== undefined) {
       current = reconstructHistoricalTransitionChain({
@@ -206,7 +212,10 @@ test('trace-retention ownership transition rejects immutable identity and endpoi
     /immutable identity changed/u,
   );
   const reconstruction = POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS[0];
-  const live = readFileSync(resolve(DIST, reconstruction.path));
+  const live = atEnvironmentQuarantineCompiledPredecessor(
+    reconstruction.path,
+    readFileSync(resolve(DIST, reconstruction.path)),
+  );
   assert.throws(
     () => reconstructHistoricalTransitionChain({
       currentSource: Buffer.concat([live, Buffer.from('\n')]),

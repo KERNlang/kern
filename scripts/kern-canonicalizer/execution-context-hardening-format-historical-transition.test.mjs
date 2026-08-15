@@ -19,6 +19,10 @@ import {
   POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
   POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS,
 } from './execution-metadata-hardening-historical-transition.mjs';
+import {
+  atEnvironmentQuarantineCompiledPredecessor,
+  atEnvironmentQuarantineSourcePredecessor,
+} from './environment-quarantine-transition-composition.mjs';
 
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
@@ -109,7 +113,10 @@ test('format source endpoints reconstruct exact pinned Git blobs', () => {
     assert.deepEqual(
       atFormatSuccessor(
         reconstruction.path,
-        readFileSync(resolve(ROOT, reconstruction.path)),
+        atEnvironmentQuarantineSourcePredecessor(
+          reconstruction.path,
+          readFileSync(resolve(ROOT, reconstruction.path)),
+        ),
         POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS,
       ),
       successor,
@@ -141,7 +148,10 @@ test('format compiled endpoints reconstruct the authenticated predecessor build'
   for (const reconstruction of POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS) {
     const successor = atFormatSuccessor(
       reconstruction.path,
-      readFileSync(resolve(DIST, reconstruction.path)),
+      atEnvironmentQuarantineCompiledPredecessor(
+        reconstruction.path,
+        readFileSync(resolve(DIST, reconstruction.path)),
+      ),
       POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
     );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);

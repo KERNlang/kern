@@ -18,6 +18,9 @@ import {
   POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS,
 } from './execution-metadata-hardening-historical-transition.mjs';
 import {
+  atEnvironmentQuarantineCompiledPredecessor,
+} from './environment-quarantine-transition-composition.mjs';
+import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
@@ -68,13 +71,14 @@ function stage(reconstruction) {
 }
 
 function atExecutionContextHardeningSuccessor(path, currentSource) {
+  const environmentPredecessor = atEnvironmentQuarantineCompiledPredecessor(path, currentSource);
   const metadata = POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,
   );
   const metadataPredecessor = metadata === undefined
-    ? currentSource
+    ? environmentPredecessor
     : reconstructHistoricalTransitionChain({
-        currentSource,
+        currentSource: environmentPredecessor,
         expectedTerminalDigest: metadata.expectedDigest,
         milestone: `execution-metadata hardening predecessor compiled ${path}`,
         path,

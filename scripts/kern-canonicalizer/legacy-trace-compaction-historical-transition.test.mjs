@@ -32,6 +32,10 @@ import {
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
 import {
+  atEnvironmentQuarantineCompiledPredecessor,
+  atEnvironmentQuarantineSourcePredecessor,
+} from './environment-quarantine-transition-composition.mjs';
+import {
   POST_TRACE_RETENTION_OWNERSHIP_COMPILED_RECONSTRUCTIONS,
   POST_TRACE_RETENTION_OWNERSHIP_SOURCE_RECONSTRUCTIONS,
   RESTORED_TRACE_RETENTION_COMPILED,
@@ -71,7 +75,10 @@ test('legacy trace-compaction transition has immutable commit and inventory iden
 
 test('every changed source reconstructs the exact 45dd predecessor', () => {
   for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS) {
-    let current = readFileSync(resolve(ROOT, reconstruction.path));
+    let current = atEnvironmentQuarantineSourcePredecessor(
+      reconstruction.path,
+      readFileSync(resolve(ROOT, reconstruction.path)),
+    );
     const metadata = POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -155,7 +162,10 @@ test('every changed source reconstructs the exact 45dd predecessor', () => {
 
 test('every changed compiled endpoint reconstructs the exact 45dd predecessor', () => {
   for (const reconstruction of POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
-    let current = readFileSync(resolve(DIST, reconstruction.path));
+    let current = atEnvironmentQuarantineCompiledPredecessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+    );
     const metadata = POST_EXECUTION_METADATA_HARDENING_COMPILED_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
