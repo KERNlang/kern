@@ -5,6 +5,7 @@ type OwnComposite = <T extends object>(value: T) => T;
 
 export interface SemanticClonePolicy {
   readonly allowedRunnerModules?: ReadonlySet<RunnerModuleScope>;
+  readonly requireCanonicalSourceDescriptors?: boolean;
 }
 
 const rejectedSemanticClone = Object.freeze(Object.create(null)) as object;
@@ -218,6 +219,7 @@ function cloneExactArray(
     length.value < 0 ||
     length.enumerable !== false ||
     length.configurable !== false ||
+    (policy.requireCanonicalSourceDescriptors === true && length.writable !== true) ||
     keys.some((key) => typeof key !== 'string')
   ) {
     return rejectedClone(source, memo);
@@ -231,12 +233,12 @@ function cloneExactArray(
       !Number.isSafeInteger(index) ||
       index >= length.value ||
       !dataDescriptor(descriptor) ||
-      descriptor.enumerable !== true
+      descriptor.enumerable !== true ||
+      (policy.requireCanonicalSourceDescriptors === true && !hasDefaultDataDescriptor(descriptor))
     ) {
       return rejectedClone(source, memo);
     }
   }
-
   const clone = new Array(length.value);
   if (indexKeys.length === length.value) own(clone);
   else Object.setPrototypeOf(clone, null);
@@ -317,6 +319,21 @@ function cloneRunnerInstance(
   ) {
     return rejectedClone(source, memo);
   }
+  if (policy.requireCanonicalSourceDescriptors === true) {
+    const allowed: readonly PropertyKey[] = ['__kernRunnerClassInstance', 'className', 'fields', 'module'];
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.some((key) => !allowed.includes(key)) ||
+      keys.length < 3 ||
+      keys.length > 4 ||
+      !hasDefaultDataDescriptor(marker) ||
+      !hasDefaultDataDescriptor(className) ||
+      !hasDefaultDataDescriptor(fields) ||
+      (module !== undefined && !hasDefaultDataDescriptor(module))
+    ) {
+      return rejectedClone(source, memo);
+    }
+  }
   const clone: Record<string, unknown> = {
     __kernRunnerClassInstance: true,
     className: className.value,
@@ -350,7 +367,13 @@ function cloneExactRecord(
   if (runner !== undefined) return runner;
   const keys = Reflect.ownKeys(descriptors);
   if (
-    keys.some((key) => typeof key !== 'string' || !dataDescriptor(descriptors[key]) || !descriptors[key].enumerable)
+    keys.some(
+      (key) =>
+        typeof key !== 'string' ||
+        !dataDescriptor(descriptors[key]) ||
+        !descriptors[key].enumerable ||
+        (policy.requireCanonicalSourceDescriptors === true && !hasDefaultDataDescriptor(descriptors[key])),
+    )
   ) {
     return rejectedClone(source, memo);
   }

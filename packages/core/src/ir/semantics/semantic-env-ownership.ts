@@ -168,6 +168,13 @@ export function markChildSemanticEnvironment(env: SemanticEnv, parent: SemanticE
 export function isExactSemanticEnvironment(env: SemanticEnv): boolean {
   const fact = environmentFacts.get(env);
   if (!fact || Object.getPrototypeOf(env) !== Object.prototype) return false;
+  const keys = Reflect.ownKeys(env);
+  if (
+    keys.length !== fact.fields.length ||
+    keys.some((key) => typeof key !== 'string' || !ENVIRONMENT_FIELDS.includes(key as keyof SemanticEnv))
+  ) {
+    return false;
+  }
   for (let index = 0; index < fact.fields.length; index += 1) {
     const [key, expected] = fact.fields[index];
     const current = dataPropertyFact(env, key);
@@ -182,6 +189,16 @@ export function isExactSemanticEnvironment(env: SemanticEnv): boolean {
     }
   }
   return true;
+}
+
+/** Snapshot only recorded data values after exact shape and descriptor validation. */
+export function snapshotExactSemanticEnvironment(env: SemanticEnv): SemanticEnv | undefined {
+  if (!isExactSemanticEnvironment(env)) return undefined;
+  const fact = environmentFacts.get(env);
+  if (!fact) return undefined;
+  const snapshot = Object.create(null) as Record<keyof SemanticEnv, unknown>;
+  for (const [key, field] of fact.fields) snapshot[key] = field.value;
+  return snapshot as unknown as SemanticEnv;
 }
 
 /** Undefined means either an authentic root or no fact; check exactness first. */

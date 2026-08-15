@@ -72,6 +72,71 @@ function aliasMutationFixture(
 }
 
 describe('execution-context isolation review hardening', () => {
+  test('rejects added environment keys without invoking accessors', () => {
+    const caller = makeEnv();
+    let getterCalls = 0;
+    Object.defineProperty(caller, 'unexpected', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        getterCalls += 1;
+        throw new Error('unexpected environment getter ran');
+      },
+    });
+
+    expect(() => bindInternalReferenceTraceRetention(caller, 'observable-only')).toThrow(/exact root/u);
+    expect(getterCalls).toBe(0);
+  });
+
+  test('revalidates the exact environment after quarantining hostile bindings', () => {
+    const caller = makeEnv();
+    const payload = new Proxy(Object.create(null) as Record<string, unknown>, {
+      getOwnPropertyDescriptor: (_target, key) => {
+        if (key !== 'value') return undefined;
+        Object.defineProperty(caller, 'lateMutation', {
+          configurable: true,
+          enumerable: true,
+          value: 1,
+          writable: true,
+        });
+        return {
+          configurable: true,
+          enumerable: true,
+          value: 1,
+          writable: true,
+        };
+      },
+      getPrototypeOf: () => null,
+      ownKeys: () => ['value'],
+    });
+    caller.bindings.set('payload', payload);
+
+    expect(() => bindInternalReferenceTraceRetention(caller, 'observable-only')).toThrow(/exact root/u);
+  });
+
+  test('rejects descriptor laundering in records, arrays, and runner instances', () => {
+    const nonDefaultRecord = Object.defineProperty({}, 'value', {
+      configurable: false,
+      enumerable: true,
+      value: 1,
+      writable: false,
+    });
+    const nonDefaultArray = [1];
+    Object.defineProperty(nonDefaultArray, 'length', { writable: false });
+    const decoratedRunnerInstance = {
+      __kernRunnerClassInstance: true as const,
+      className: 'Box',
+      fields: { value: 1 },
+      unexpected: true,
+    };
+
+    for (const value of [nonDefaultRecord, nonDefaultArray, decoratedRunnerInstance]) {
+      const caller = makeEnv();
+      caller.bindings.set('value', value);
+      expect(() => bindInternalReferenceTraceRetention(caller, 'observable-only')).toThrow(/isolated/u);
+    }
+  });
+
   test('rejects a foreign runner module without invoking any Proxy traps', () => {
     let traps = 0;
     const hostileModule = new Proxy(Object.create(null), {
@@ -151,7 +216,10 @@ describe('execution-context isolation review hardening', () => {
     expect(execution.bindings.get('first')).toBe(decimal);
     expect(execution.bindings.get('second')).toBe(decimal);
 
-    const forged = Object.freeze({ [DECIMAL_VALUE_TAG]: true as const, canonical: '1.5' });
+    const forged = Object.freeze({
+      [DECIMAL_VALUE_TAG]: true as const,
+      canonical: '1.5',
+    });
     const forgedCaller = makeEnv();
     forgedCaller.bindings.set('decimal', forged);
     expect(() => bindInternalReferenceTraceRetention(forgedCaller, 'observable-only')).toThrow(/isolated/u);

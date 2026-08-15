@@ -1,5 +1,3 @@
-import type { KernRunnerCapabilities, KernRunnerCapabilityContext } from '../../runner-capabilities.js';
-import type { IRNode } from '../../types.js';
 import { copyInternalEffectMachineState } from './internal-effect-machine-helper-state.js';
 import { runnerMachineScopeGraph, sameRunnerMachineScopeGraph } from './runner-machine-scope.js';
 import {
@@ -16,90 +14,87 @@ import {
   exactSemanticEnvironmentParent,
   inheritInternalExecutionContext,
   internalExecutionTraceRetention,
-  isExactSemanticEnvironment,
   markChildSemanticEnvironment,
   markRootSemanticEnvironment,
+  snapshotExactSemanticEnvironment,
 } from './semantic-env-ownership.js';
+import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env-types.js';
 import type { InternalReferenceTraceRetention } from './trace.js';
 
+export type {
+  RunnerClassBinding,
+  RunnerClassFieldBinding,
+  RunnerClassInstanceValue,
+  RunnerClassMemberBinding,
+  RunnerFunctionBinding,
+  RunnerModuleScope,
+  SemanticEnv,
+} from './semantic-env-types.js';
 export type { InternalReferenceTraceRetention } from './trace.js';
-/** Runtime state shared by semantic evaluators without importing registry ownership. */
-export interface SemanticEnv {
-  /** Lexical storage; machine paths require constructor-owned composites. */
-  bindings: Map<string, unknown>;
-  intProvenance?: Set<string>;
-  freshArrayBindings?: Set<string>;
-  pushBuiltFreshArrayBindings?: Set<string>;
-  capturedArrayBindings?: Set<string>;
-  recordArrayFields?: Map<string, Set<string> | null>;
-  runnerFunctions?: Map<string, RunnerFunctionBinding>;
-  runnerClasses?: Map<string, RunnerClassBinding>;
-  runnerCallStack?: string[];
-  runnerCallCache?: Map<string, unknown>;
-  runnerThis?: RunnerClassInstanceValue;
-  runnerSuperClass?: string;
-  runnerProtectedClassInstances?: WeakSet<RunnerClassInstanceValue>;
-  capabilities?: KernRunnerCapabilities;
-  capabilityContext?: KernRunnerCapabilityContext;
-  intIndexCtx?: boolean;
-  parent?: SemanticEnv;
-  repeatableLoopBody?: boolean;
-  seed: number;
-  now: number;
-}
-
 export function bindInternalReferenceTraceRetention(
   env: SemanticEnv,
   retention: InternalReferenceTraceRetention,
 ): SemanticEnv {
-  if (!isExactSemanticEnvironment(env) || exactSemanticEnvironmentParent(env) !== undefined) {
+  const initialEnv = snapshotExactSemanticEnvironment(env);
+  if (!initialEnv || exactSemanticEnvironmentParent(env) !== undefined) {
     throw new TypeError('portable: isolated legacy execution requires an exact root environment');
   }
-  const initialScopeGraph = env.runnerFunctions
-    ? runnerMachineScopeGraph(env.runnerFunctions, env.runnerClasses)
+  const initialScopeGraph = initialEnv.runnerFunctions
+    ? runnerMachineScopeGraph(initialEnv.runnerFunctions, initialEnv.runnerClasses)
     : undefined;
-  const policy = { allowedRunnerModules: new Set(initialScopeGraph?.scopes ?? []) };
+  const policy = {
+    allowedRunnerModules: new Set(initialScopeGraph?.scopes ?? []),
+    requireCanonicalSourceDescriptors: true,
+  };
   const memo = copyExactSemanticMap<object, unknown>();
-  const bindings = cloneSemanticBindings(env.bindings, memo, ownSemanticComposite, policy);
+  const bindings = cloneSemanticBindings(initialEnv.bindings, memo, ownSemanticComposite, policy);
   const runnerThis =
-    env.runnerThis === undefined
+    initialEnv.runnerThis === undefined
       ? undefined
-      : (cloneSemanticBindingValue(env.runnerThis, memo, ownSemanticComposite, policy) as RunnerClassInstanceValue);
+      : (cloneSemanticBindingValue(
+          initialEnv.runnerThis,
+          memo,
+          ownSemanticComposite,
+          policy,
+        ) as RunnerClassInstanceValue);
   const seen = new WeakSet<object>();
   assertExactSemanticBindings(bindings, seen, policy);
   if (runnerThis !== undefined) assertExactSemanticCloneValue(runnerThis, seen, policy);
-  const finalScopeGraph = env.runnerFunctions
-    ? runnerMachineScopeGraph(env.runnerFunctions, env.runnerClasses)
+  const finalEnv = snapshotExactSemanticEnvironment(env);
+  if (!finalEnv) throw new TypeError('portable: isolated legacy execution requires an exact root environment');
+  const finalScopeGraph = finalEnv.runnerFunctions
+    ? runnerMachineScopeGraph(finalEnv.runnerFunctions, finalEnv.runnerClasses)
     : undefined;
   if (!sameRunnerMachineScopeGraph(initialScopeGraph, finalScopeGraph)) {
     throw new TypeError('portable: isolated runner module graph changed during cloning');
   }
   const executionEnv = constructEnv(
-    { ...env, bindings, runnerCallCache: new Map(), runnerCallStack: [], runnerThis },
+    {
+      ...finalEnv,
+      bindings,
+      runnerCallCache: new Map(),
+      runnerCallStack: [],
+      runnerThis,
+    },
     undefined,
     true,
   );
   deriveInternalExecutionContext(env, executionEnv, retention);
   return executionEnv;
 }
-
 export function internalReferenceTraceRetentionForEnv(env: SemanticEnv): InternalReferenceTraceRetention {
   return internalExecutionTraceRetention(env) ?? 'full';
 }
-
 export function inheritInternalReferenceTraceRetention(source: SemanticEnv, target: SemanticEnv): SemanticEnv {
   inheritInternalExecutionContext(source, target);
   return target;
 }
-
 const ownedSemanticComposites = new WeakSet<object>();
 const ownedSemanticEnvironments = new WeakSet<object>();
-
 function ownSemanticComposite<T extends object>(value: T): T {
   ownedSemanticComposites.add(value);
   return value;
 }
-
 function ownSemanticValueGraph(value: unknown, seen: WeakSet<object> = new WeakSet()): void {
   if (typeof value !== 'object' || value === null || seen.has(value)) return;
   seen.add(value);
@@ -135,7 +130,6 @@ function ownSemanticValueGraph(value: unknown, seen: WeakSet<object> = new WeakS
     }
   }
 }
-
 function ownSemanticEnvironment<T extends SemanticEnv>(env: T): T {
   ownedSemanticEnvironments.add(env);
   return env;
@@ -144,7 +138,6 @@ function ownSemanticEnvironment<T extends SemanticEnv>(env: T): T {
 export function isOwnedSemanticComposite(value: unknown): value is object {
   return typeof value === 'object' && value !== null && ownedSemanticComposites.has(value);
 }
-
 export function isOwnedSemanticEnvironment(value: unknown): value is SemanticEnv {
   return typeof value === 'object' && value !== null && ownedSemanticEnvironments.has(value);
 }
@@ -157,7 +150,6 @@ export function isOwnedExactSemanticMap(value: unknown): value is Map<unknown, u
     Reflect.ownKeys(value).length === 0
   );
 }
-
 export function isOwnedExactSemanticSet(value: unknown): value is Set<unknown> {
   return (
     isOwnedSemanticComposite(value) &&
@@ -166,7 +158,6 @@ export function isOwnedExactSemanticSet(value: unknown): value is Set<unknown> {
     Reflect.ownKeys(value).length === 0
   );
 }
-
 export function isOwnedEmptyExactSemanticArray(value: unknown): value is unknown[] {
   if (!isOwnedSemanticComposite(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
     return false;
@@ -182,54 +173,9 @@ export function isOwnedEmptyExactSemanticArray(value: unknown): value is unknown
     length.configurable === false
   );
 }
-
 function ownPlainMap<T>(value: Map<string, T> | undefined): Map<string, T> | undefined {
   if (value instanceof Map && Object.getPrototypeOf(value) === Map.prototype) ownSemanticComposite(value);
   return value;
-}
-
-export interface RunnerModuleScope {
-  readonly functions: Map<string, RunnerFunctionBinding>;
-  readonly classes: Map<string, RunnerClassBinding>;
-}
-
-export interface RunnerFunctionBinding {
-  readonly name: string;
-  readonly params: readonly string[];
-  readonly returns?: unknown;
-  readonly handler?: IRNode;
-  readonly body: readonly IRNode[];
-  readonly module?: RunnerModuleScope;
-}
-
-export interface RunnerClassFieldBinding {
-  readonly name: string;
-  readonly value?: unknown;
-}
-
-export interface RunnerClassMemberBinding {
-  readonly name: string;
-  readonly params: readonly string[];
-  readonly handler?: IRNode;
-  readonly body: readonly IRNode[];
-  readonly ownerClass: string;
-}
-
-export interface RunnerClassBinding {
-  readonly name: string;
-  readonly extendsName?: string;
-  readonly fields: readonly RunnerClassFieldBinding[];
-  readonly constructor?: RunnerClassMemberBinding;
-  readonly methods: ReadonlyMap<string, RunnerClassMemberBinding>;
-  readonly getters: ReadonlyMap<string, RunnerClassMemberBinding>;
-  readonly module?: RunnerModuleScope;
-}
-
-export interface RunnerClassInstanceValue {
-  readonly __kernRunnerClassInstance: true;
-  readonly className: string;
-  readonly fields: Record<string, unknown>;
-  readonly module?: RunnerModuleScope;
 }
 
 function constructEnv(
