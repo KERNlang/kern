@@ -9,6 +9,7 @@ import {
   copyExactSemanticMap,
   copyExactSemanticSet,
 } from './semantic-clone.js';
+import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env-ownership.js';
 import {
   deriveInternalExecutionContext,
   exactSemanticEnvironmentParent,
@@ -18,7 +19,6 @@ import {
   markRootSemanticEnvironment,
   snapshotExactSemanticEnvironment,
 } from './semantic-env-ownership.js';
-import type { RunnerClassInstanceValue, SemanticEnv } from './semantic-env-types.js';
 import type { InternalReferenceTraceRetention } from './trace.js';
 
 export type {
@@ -29,7 +29,7 @@ export type {
   RunnerFunctionBinding,
   RunnerModuleScope,
   SemanticEnv,
-} from './semantic-env-types.js';
+} from './semantic-env-ownership.js';
 export type { InternalReferenceTraceRetention } from './trace.js';
 export function bindInternalReferenceTraceRetention(
   env: SemanticEnv,
