@@ -14,6 +14,11 @@ import {
   POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
   validateDecimalAdmissionIsolationHistoricalTransition,
 } from './decimal-admission-isolation-historical-transition.mjs';
+import {
+  ENVIRONMENT_QUARANTINE_HISTORICAL_TRANSITION,
+  POST_ENVIRONMENT_QUARANTINE_COMPILED_RECONSTRUCTIONS,
+  validateEnvironmentQuarantineHistoricalTransition,
+} from './environment-quarantine-historical-transition.mjs';
 import { POST_EACH_COMPILED_CONSTITUTION_RECONSTRUCTIONS } from './each-collection-structural-target.mjs';
 import {
   EXECUTION_CONTEXT_HARDENING_FORMAT_HISTORICAL_TRANSITION,
@@ -362,7 +367,23 @@ export function validateDecimalAdmissionIsolationCompiledCoreJavaScriptPaths(pat
   return paths;
 }
 
+export function validateEnvironmentQuarantineCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(paths, 'environment quarantine successor compiled core inventory');
+  const transition = ENVIRONMENT_QUARANTINE_HISTORICAL_TRANSITION;
+  const identity = { count: paths.length, digest: hashPathInventory(paths) };
+  if (
+    identity.count !== transition.compiledInventory.successor.count ||
+    identity.digest !== transition.compiledInventory.successor.digest ||
+    identity.count !== transition.compiledInventory.predecessor.count ||
+    identity.digest !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('environment quarantine transition requires an unchanged authenticated inventory');
+  }
+  return paths;
+}
+
 function m4145CompiledCoreJavaScriptPaths() {
+  validateEnvironmentQuarantineHistoricalTransition();
   validateDecimalAdmissionIsolationHistoricalTransition();
   validateExecutionMetadataHardeningHistoricalTransition();
   validateExecutionContextHardeningFormatHistoricalTransition();
@@ -385,7 +406,9 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`legacy trace-compaction added compiled source drifted: ${identity.path}`);
     }
   }
-  const decimalAdmissionIsolationPaths = validateDecimalAdmissionIsolationCompiledCoreJavaScriptPaths(paths);
+  const environmentQuarantinePaths = validateEnvironmentQuarantineCompiledCoreJavaScriptPaths(paths);
+  const decimalAdmissionIsolationPaths =
+    validateDecimalAdmissionIsolationCompiledCoreJavaScriptPaths(environmentQuarantinePaths);
   const executionMetadataHardeningPaths =
     validateExecutionMetadataHardeningCompiledCoreJavaScriptPaths(decimalAdmissionIsolationPaths);
   const executionContextHardeningFormatPaths =
@@ -402,6 +425,29 @@ function m4145CompiledCoreJavaScriptPaths() {
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
   const overrides = new Map();
+  for (const reconstruction of POST_ENVIRONMENT_QUARANTINE_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-environment-quarantine compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `environment quarantine predecessor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [
+          historicalTransitionStage({
+            claim: reconstruction.claim,
+            currentDigest: reconstruction.currentDigest,
+            expectedDigest: reconstruction.expectedDigest,
+            path: reconstruction.path,
+            replacements: reconstruction.replacements,
+          }),
+        ],
+      }),
+    );
+  }
   for (const reconstruction of POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-decimal-admission-isolation compiled path is absent from M4.145: ${reconstruction.path}`);
@@ -409,7 +455,8 @@ function m4145CompiledCoreJavaScriptPaths() {
     overrides.set(
       reconstruction.path,
       reconstructHistoricalTransitionChain({
-        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        currentSource:
+          overrides.get(reconstruction.path) ?? readFileSync(resolve(canonicalRoot, reconstruction.path)),
         expectedTerminalDigest: reconstruction.expectedDigest,
         milestone: `decimal-admission isolation predecessor compiled ${reconstruction.path}`,
         path: reconstruction.path,
