@@ -1,0 +1,30 @@
+fn name=parsef2expression returns="string[]" export=true
+  param name=source type=string
+  param name=maxSourceScalars type=number
+  param name=maxTokens type=number
+  param name=maxNodes type=number
+  param name=nodesPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxNestingDepth type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  handler lang="kern"
+    let name=n value="Text.length(source)"
+    if cond="n > maxSourceScalars"
+      let name=sourceFailure value="f2failure(\"SOURCE_LIMIT\", 0, n, n)"
+      return value=sourceFailure
+    let name=tokens value="f2lex(source, maxTokens)"
+    if cond="Text.charAt(tokens, 0) != \"o\""
+      let name=startField value="f2readitem(tokens, 1)"
+      let name=endField value="f2readitem(tokens, f2uint(startField[1]))"
+      if cond="Text.charAt(tokens, 0) == \"l\""
+        let name=tokenLimitFailure value="f2failure(\"EXPRESSION_LIMIT\", f2uint(startField[0]), f2uint(endField[0]), n)"
+        return value=tokenLimitFailure
+      let name=lexFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", f2uint(startField[0]), f2uint(endField[0]), n)"
+      return value=lexFailure
+    if cond="maxNodes < 1 || nodesPerChunk < 1"
+      let name=configurationFailure value="f2failure(\"EXPRESSION_LIMIT\", 0, n, n)"
+      return value=configurationFailure
+    let name=result value="f2parse(source, tokens, maxNodes, nodesPerChunk, maxChunks, maxTapeScalars, maxNestingDepth, maxWorkSteps, forceLateFailure)"
+    return value=result

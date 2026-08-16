@@ -1,0 +1,270 @@
+fn name=f2identstart returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="(ch >= \"A\" && ch <= \"Z\") || (ch >= \"a\" && ch <= \"z\") || ch == \"_\" || ch == \"$\""
+
+fn name=f2identnext returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="f2identstart(ch) || (ch >= \"0\" && ch <= \"9\")"
+
+fn name=f2digit returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch >= \"0\" && ch <= \"9\""
+
+fn name=f2space returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch == \" \" || ch == \"\\t\" || ch == \"\\n\" || ch == \"\\r\""
+
+fn name=f2hex returns=number
+  param name=ch type=string
+  handler lang="kern"
+    if cond="ch >= \"0\" && ch <= \"9\""
+      return value="Text.indexOf(\"0123456789\", ch)"
+    if cond="ch >= \"a\" && ch <= \"f\""
+      return value="Text.indexOf(\"abcdef\", ch) + 10"
+    if cond="ch >= \"A\" && ch <= \"F\""
+      return value="Text.indexOf(\"ABCDEF\", ch) + 10"
+    return value="-1"
+
+fn name=f2uint returns=number
+  param name=value type=string
+  handler lang="kern"
+    if cond="Text.length(value) == 0"
+      return value="-1"
+    let name=out value="0"
+    let name=n value="Text.length(value)"
+    for name=index from=0 to="n"
+      let name=digit value="Text.indexOf(\"0123456789\", Text.charAt(value, index))"
+      if cond="digit < 0"
+        return value="-1"
+      assign target=out value="out * 10 + digit"
+    return value="out"
+
+fn name=f2binaryprec returns=number
+  param name=op type=string
+  handler lang="kern"
+    if cond="op == \"**\""
+      return value="15"
+    if cond="op == \"*\" || op == \"/\" || op == \"%\""
+      return value="14"
+    if cond="op == \"+\" || op == \"-\""
+      return value="13"
+    if cond="op == \"<<\" || op == \">>\" || op == \">>>\""
+      return value="12"
+    if cond="op == \"<\" || op == \"<=\" || op == \">\" || op == \">=\" || op == \"instanceof\""
+      return value="11"
+    if cond="op == \"==\" || op == \"!=\" || op == \"===\" || op == \"!==\""
+      return value="10"
+    if cond="op == \"&\""
+      return value="9"
+    if cond="op == \"^\""
+      return value="8"
+    if cond="op == \"|\""
+      return value="7"
+    if cond="op == \"&&\""
+      return value="6"
+    if cond="op == \"||\""
+      return value="5"
+    if cond="op == \"??\""
+      return value="4"
+    return value="0"
+
+fn name=f2unary returns=boolean
+  param name=op type=string
+  handler lang="kern"
+    return value="op == \"!\" || op == \"-\" || op == \"+\" || op == \"~\" || op == \"typeof\" || op == \"void\""
+
+fn name=f2zeronumber returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    if cond="value == \"0\""
+      return value=true
+    if cond="!Text.startsWith(value, \"0.\")"
+      return value=false
+    let name=n value="Text.length(value)"
+    for name=index from=2 to=n
+      if cond="Text.charAt(value, index) != \"0\""
+        return value=false
+    return value=true
+
+fn name=f2frame returns=boolean
+  param name=kind type=string
+  handler lang="kern"
+    return value="kind == \"group\" || kind == \"list\" || kind == \"record\" || kind == \"index\" || kind == \"call\" || kind == \"constructor\""
+
+fn name=f2precheck returns="string[]"
+  param name=tokens type=string
+  param name=tokenCount type=number
+  param name=maxWorkSteps type=number
+  param name=maxNestingDepth type=number
+  handler lang="kern"
+    let name=countField value="f2readitem(tokens, 1)"
+    let name=offset value="f2uint(countField[1])"
+    let name=depth value="0"
+    for name=cursor from=0 to=tokenCount
+      let name=kindField value="f2readitem(tokens, offset)"
+      let name=textField value="f2readitem(tokens, f2uint(kindField[1]))"
+      let name=startField value="f2readitem(tokens, f2uint(textField[1]))"
+      let name=endField value="f2readitem(tokens, f2uint(startField[1]))"
+      assign target=offset value="f2uint(endField[1])"
+      if cond="cursor >= maxWorkSteps"
+        return value="[\"EXPRESSION_LIMIT\", startField[0], endField[0]]"
+      if cond="textField[0] == \"(\" || textField[0] == \"[\" || textField[0] == \"{\""
+        if cond="depth >= maxNestingDepth"
+          return value="[\"EXPRESSION_LIMIT\", startField[0], endField[0]]"
+        assign target=depth value="depth + 1"
+      if cond="textField[0] == \")\" || textField[0] == \"]\" || textField[0] == \"}\""
+        if cond="depth > 0"
+          assign target=depth value="depth - 1"
+    return value="[\"\", \"0\", \"0\"]"
+
+fn name=f2hasitem returns=boolean
+  param name=tape type=string
+  param name=needle type=string
+  handler lang="kern"
+    let name=offset value="0"
+    while cond="offset < Text.length(tape)"
+      let name=item value="f2readitem(tape, offset)"
+      if cond="item[0] == needle"
+        return value=true
+      assign target=offset value="f2uint(item[1])"
+    return value=false
+
+fn name=f2validparam returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    return value="value != \"await\" && value != \"undefined\" && value != \"new\" && value != \"instanceof\" && value != \"typeof\" && value != \"void\" && value != \"true\" && value != \"false\" && value != \"null\" && value != \"none\""
+
+fn name=f2lambdahead returns="string[]"
+  param name=tokens type=string
+  param name=offset type=number
+  param name=cursor type=number
+  param name=tokenCount type=number
+  handler lang="kern"
+    let name=openKind value="f2readitem(tokens, offset)"
+    let name=openText value="f2readitem(tokens, f2uint(openKind[1]))"
+    let name=openStart value="f2readitem(tokens, f2uint(openText[1]))"
+    let name=openEnd value="f2readitem(tokens, f2uint(openStart[1]))"
+    assign target=offset value="f2uint(openEnd[1])"
+    assign target=cursor value="cursor + 1"
+    let name=payload value="\"\""
+    let name=expectParam value=true
+    while cond="cursor < tokenCount"
+      let name=kind value="f2readitem(tokens, offset)"
+      let name=text value="f2readitem(tokens, f2uint(kind[1]))"
+      let name=start value="f2readitem(tokens, f2uint(text[1]))"
+      let name=end value="f2readitem(tokens, f2uint(start[1]))"
+      let name=nextOffset value="f2uint(end[1])"
+      if cond="text[0] == \")\""
+        if cond="expectParam && Text.length(payload) > 0"
+          return value="[\"false\", \"\", \"0\", \"0\"]"
+        if cond="cursor + 1 >= tokenCount"
+          return value="[\"false\", \"\", \"0\", \"0\"]"
+        let name=arrowKind value="f2readitem(tokens, nextOffset)"
+        let name=arrowText value="f2readitem(tokens, f2uint(arrowKind[1]))"
+        let name=arrowStart value="f2readitem(tokens, f2uint(arrowText[1]))"
+        let name=arrowEnd value="f2readitem(tokens, f2uint(arrowStart[1]))"
+        if cond="arrowText[0] != \"=>\""
+          return value="[\"false\", \"\", \"0\", \"0\"]"
+        return value="[\"true\", payload, arrowEnd[1], String(cursor + 2)]"
+      if cond="expectParam"
+        if cond="kind[0] != \"identifier\" || !f2validparam(text[0]) || f2hasitem(payload, text[0])"
+          return value="[\"false\", \"\", \"0\", \"0\"]"
+        assign target=payload value="payload + f2item(text[0])"
+        assign target=expectParam value=false
+      else
+        if cond="text[0] != \",\""
+          return value="[\"false\", \"\", \"0\", \"0\"]"
+        assign target=expectParam value=true
+      assign target=offset value="nextOffset"
+      assign target=cursor value="cursor + 1"
+    return value="[\"false\", \"\", \"0\", \"0\"]"
+
+fn name=f2item returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="\"i\" + String(Text.length(value)) + \":\" + value"
+
+fn name=f2readitem returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  handler lang="kern"
+    if cond="Text.charAt(tape, cursor) != \"i\""
+      return value="[\"\", \"-1\"]"
+    let name=lengthEnd value="cursor + 1"
+    let name=n value="Text.length(tape)"
+    while cond="lengthEnd < n && Text.charAt(tape, lengthEnd) != \":\""
+      assign target=lengthEnd value="lengthEnd + 1"
+    if cond="lengthEnd >= n"
+      return value="[\"\", \"-1\"]"
+    let name=width value="f2uint(Text.slice(tape, cursor + 1, lengthEnd))"
+    let name=valueStart value="lengthEnd + 1"
+    let name=valueEnd value="valueStart + width"
+    if cond="width < 0 || valueEnd > n"
+      return value="[\"\", \"-1\"]"
+    return value="[Text.slice(tape, valueStart, valueEnd), String(valueEnd)]"
+
+fn name=f2field returns=string
+  param name=index type=number
+  param name=value type=string
+  handler lang="kern"
+    return value="\"f\" + String(index) + \",\" + String(Text.length(value)) + \":\" + value"
+
+fn name=f2nodeframe returns=string
+  param name=id type=number
+  param name=kind type=number
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=flags type=number
+  param name=subtree type=number
+  param name=payload type=string
+  param name=children type=string
+  handler lang="kern"
+    let name=body value="f2field(0, String(id)) + f2field(1, String(kind)) + f2field(2, String(startScalar)) + f2field(3, String(endScalar)) + f2field(4, String(flags)) + f2field(5, String(subtree)) + f2field(6, payload) + f2field(7, children)"
+    return value="\"n\" + String(Text.length(body)) + \":\" + body"
+
+fn name=f2failurepayload returns=string
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  handler lang="kern"
+    return value="\"C\" + String(Text.length(code)) + \":\" + code + \"S\" + String(Text.length(String(startScalar))) + \":\" + String(startScalar) + \"E\" + String(Text.length(String(endScalar))) + \":\" + String(endScalar)"
+
+fn name=f2failure returns="string[]"
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=sourceScalars type=number
+  handler lang="kern"
+    return value="[\"kern.frontend.f2-expression.1\", \"failure\", f2failurepayload(code, startScalar, endScalar), String(sourceScalars), \"0\", \"0\", \"0\", \"\", \"failure\"]"
+
+fn name=f2pair returns="string[]"
+  param name=parts type="string[]"
+  handler lang="kern"
+    let name=next value="[]"
+    for name=index from=0 to="parts.length" step=2
+      let name=combined value="parts[index]"
+      if cond="index + 1 < parts.length"
+        assign target=combined value="combined + parts[index + 1]"
+      do value="next.push(combined)"
+    return value="next"
+
+fn name=f2concat returns=string
+  param name=parts type="string[]"
+  handler lang="kern"
+    if cond="parts.length > 256"
+      return value="\"\""
+    let name=l1 value="f2pair(parts)"
+    let name=l2 value="f2pair(l1)"
+    let name=l3 value="f2pair(l2)"
+    let name=l4 value="f2pair(l3)"
+    let name=l5 value="f2pair(l4)"
+    let name=l6 value="f2pair(l5)"
+    let name=l7 value="f2pair(l6)"
+    let name=l8 value="f2pair(l7)"
+    if cond="l8.length != 1"
+      return value="\"\""
+    return value="l8[0]"

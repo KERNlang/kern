@@ -1,0 +1,62 @@
+{
+  "format": "kern.frontend.f2-expression-policy.1",
+  "resultFormat": "kern.frontend.f2-expression.1",
+  "sourceLedger": "scripts/kern-frontend-f2-expression/source-form-ledger.json",
+  "sourceLedgerSha256": "0832eb8e08225590fe0246dd90e30dd96c8dd339e59ce5b17472ee3944d82889",
+  "conformanceCorpus": "scripts/kern-frontend-f2-expression/conformance-corpus.json",
+  "conformanceCorpusSha256": "fcd4822f8e2833154db8801fe04e6fe154530aa1516cd926568fc6f09944ffab",
+  "ruleCoverage": "scripts/kern-frontend-f2-expression/rule-coverage.json",
+  "ruleCoverageSha256": "aa82a2d1e92835d7e6d66e95fe8ae5f28488624ed17bbf7bc34d3a37cfcbca7e",
+  "modules": [
+    "examples/kern-frontend/f2-expression-catalog.kern",
+    "examples/kern-frontend/f2-expression-lexer.kern",
+    "examples/kern-frontend/f2-expression-main.kern"
+  ],
+  "moduleSha256": {
+    "examples/kern-frontend/f2-expression-catalog.kern": "56197d8449f39bcd78a98ab1acdac4cbc6245668d59097b9f9d4391244d17b39",
+    "examples/kern-frontend/f2-expression-lexer.kern": "e343c857060fc269eafbdcd6b841bc188a9e3073509f8d0e8f0d7790899e22b7",
+    "examples/kern-frontend/f2-expression-main.kern": "9b11fbab882bdd5b14fc0d1a096e914dd5341451ca79e20cd819d2ccc533d306"
+  },
+  "parserFragments": [
+    "examples/kern-frontend/f2-expression-parser-01.kernpart",
+    "examples/kern-frontend/f2-expression-parser-02.kernpart",
+    "examples/kern-frontend/f2-expression-parser-03.kernpart"
+  ],
+  "parserFragmentSha256": {
+    "examples/kern-frontend/f2-expression-parser-01.kernpart": "8223d85f5d455283aeecdec19f000a075390f2bff96f43635614d36ef24e0531",
+    "examples/kern-frontend/f2-expression-parser-02.kernpart": "85a9a5b2ac794c97a976e15c6f400bfdb916a2b697cf63c9b0628959dd27cd1b",
+    "examples/kern-frontend/f2-expression-parser-03.kernpart": "d90f1b15a51a8cfd7d788e85f8bd4898b300807cd09a252ed7ca462a83d5b011"
+  },
+  "parserCompositeSha256": "268ca720a2905b4eb7118033c50ec16394b605914a391c919a1238270cf58832",
+  "scalingWalls": {
+    "flatTerms": [16, 32, 64, 128],
+    "nestedDepths": [8, 16, 32, 64],
+    "maxAdjacentTapeRatio": 3,
+    "maxTapeScalarsPerNode": 128,
+    "maxGuestList": 256,
+    "maxPeakRssKiB": 1048576
+  },
+  "profileLimits": {
+    "expectedEvents": 0,
+    "maxChunks": 256,
+    "maxEncodedBytes": 4194304,
+    "maxNestingDepth": 512,
+    "maxNodes": 65536,
+    "maxSourceScalars": 65536,
+    "maxTapeScalars": 3600000,
+    "maxTokens": 65536,
+    "maxWorkSteps": 1000000,
+    "nodesPerChunk": 256
+  },
+  "runtimeLimits": {
+    "maxBytes": 4194304,
+    "maxCollectionLength": 1000000,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 3600000
+  },
+  "scheduler": {
+    "timeoutMs": 120000
+  }
+}

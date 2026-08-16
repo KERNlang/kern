@@ -67,7 +67,13 @@
       { "source": "backslash-CRLF", "value": "empty", "consumedSourceScalars": 3 }
     ],
     "unlistedEscapes": "reject",
-    "isolatedEscapedSurrogate": "reject"
+    "isolatedEscapedSurrogate": "reject",
+    "decodedScalarConstructor": {
+      "operation": "KernInternal.textFromScalar",
+      "visibility": "reserved-compiler-runtime-lowering-not-public-stdlib-commitment",
+      "precondition": "F2-has-validated-safe-integer-0-through-0x10FFFF-excluding-surrogates",
+      "result": "exactly-one-unicode-scalar-text"
+    }
   },
   "primaryForms": [
     "identifier",

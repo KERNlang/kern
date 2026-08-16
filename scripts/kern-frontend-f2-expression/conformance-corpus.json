@@ -1,0 +1,947 @@
+{
+  "cases": [
+    {
+      "id": "identifier",
+      "rules": [
+        "primary:identifier",
+        "kind:identifier"
+      ],
+      "source": "answer",
+      "status": "parsed"
+    },
+    {
+      "id": "null",
+      "rules": [
+        "primary:null",
+        "kind:null"
+      ],
+      "source": "null",
+      "status": "parsed"
+    },
+    {
+      "id": "boolean",
+      "rules": [
+        "primary:boolean",
+        "kind:boolean"
+      ],
+      "source": "true",
+      "status": "parsed"
+    },
+    {
+      "id": "integer",
+      "rules": [
+        "primary:integer",
+        "kind:integer"
+      ],
+      "source": "42",
+      "status": "parsed"
+    },
+    {
+      "id": "decimal",
+      "rules": [
+        "primary:decimal",
+        "kind:decimal"
+      ],
+      "source": "3.14",
+      "status": "parsed"
+    },
+    {
+      "id": "text",
+      "rules": [
+        "primary:text",
+        "kind:text",
+        "text:decoded-escapes"
+      ],
+      "source": "\"\\x41\\u0042\\u{1F600}\"",
+      "status": "parsed"
+    },
+    {
+      "id": "parenthesized",
+      "rules": [
+        "primary:parenthesized"
+      ],
+      "source": "(answer)",
+      "status": "parsed"
+    },
+    {
+      "id": "list",
+      "rules": [
+        "primary:list",
+        "kind:list",
+        "collection:list-trailing-comma"
+      ],
+      "source": "[a, b,]",
+      "status": "parsed"
+    },
+    {
+      "id": "record",
+      "rules": [
+        "primary:record",
+        "kind:record",
+        "collection:record-key-forms"
+      ],
+      "source": "{a, 2: b, \"c\": d,}",
+      "status": "parsed"
+    },
+    {
+      "id": "member",
+      "rules": [
+        "kind:member",
+        "postfix:member:false"
+      ],
+      "source": "a.b",
+      "status": "parsed"
+    },
+    {
+      "id": "optional-member",
+      "rules": [
+        "postfix:member:true"
+      ],
+      "source": "a?.b",
+      "status": "parsed"
+    },
+    {
+      "id": "index",
+      "rules": [
+        "kind:index",
+        "postfix:index:false"
+      ],
+      "source": "a[b]",
+      "status": "parsed"
+    },
+    {
+      "id": "optional-index",
+      "rules": [
+        "postfix:index:true"
+      ],
+      "source": "a?.[b]",
+      "status": "parsed"
+    },
+    {
+      "id": "call",
+      "rules": [
+        "kind:call",
+        "postfix:call:false"
+      ],
+      "source": "f(a, b)",
+      "status": "parsed"
+    },
+    {
+      "id": "optional-call",
+      "rules": [
+        "postfix:call:true"
+      ],
+      "source": "f?.(a)",
+      "status": "parsed"
+    },
+    {
+      "id": "new-map",
+      "rules": [
+        "kind:new",
+        "constructor:Map"
+      ],
+      "source": "new Map()",
+      "status": "parsed"
+    },
+    {
+      "id": "new-error",
+      "rules": [
+        "constructor:Error"
+      ],
+      "source": "new Error(problem)",
+      "status": "parsed"
+    },
+    {
+      "id": "lambda-bare",
+      "rules": [
+        "kind:lambda",
+        "lambda:identifier"
+      ],
+      "source": "a => b => c",
+      "status": "parsed"
+    },
+    {
+      "id": "lambda-list",
+      "rules": [
+        "lambda:identifier-list",
+        "lambda:empty-list"
+      ],
+      "source": "() => ((a, b) => a)",
+      "status": "parsed"
+    },
+    {
+      "id": "binary",
+      "rules": [
+        "kind:binary",
+        "precedence:binary"
+      ],
+      "source": "a + b * c",
+      "status": "parsed"
+    },
+    {
+      "id": "unary",
+      "rules": [
+        "kind:unary",
+        "precedence:unary-power"
+      ],
+      "source": "(-a) ** b",
+      "status": "parsed"
+    },
+    {
+      "id": "conditional",
+      "rules": [
+        "kind:conditional",
+        "precedence:conditional"
+      ],
+      "source": "a ? b : c ? d : e",
+      "status": "parsed"
+    },
+    {
+      "id": "nested-postfix",
+      "rules": [
+        "postfix:left-chain"
+      ],
+      "source": "a?.b[c]?.(d)",
+      "status": "parsed"
+    },
+    {
+      "id": "nested-collections",
+      "rules": [
+        "collection:nested"
+      ],
+      "source": "[{a: [b, c]}, d]",
+      "status": "parsed"
+    },
+    {
+      "id": "whitespace-newlines",
+      "rules": [
+        "lexer:whitespace"
+      ],
+      "source": "\t(a\n +\r\n b)\t",
+      "status": "parsed"
+    },
+    {
+      "id": "astral-span",
+      "rules": [
+        "span:astral"
+      ],
+      "source": "\"😀\" + \"x\"",
+      "status": "parsed"
+    },
+    {
+      "id": "surrogate-pair",
+      "rules": [
+        "text:surrogate-pair"
+      ],
+      "source": "\"\\uD83D\\uDE00\"",
+      "status": "parsed"
+    },
+    {
+      "id": "terminator-in-string",
+      "rules": [
+        "text:terminator"
+      ],
+      "source": "\"}} ] ) , :\"",
+      "status": "parsed"
+    },
+    {
+      "id": "nullish-grouped",
+      "rules": [
+        "restriction:nullish-logical-parenthesized"
+      ],
+      "source": "(a ?? b) || c",
+      "status": "parsed"
+    },
+    {
+      "id": "reject-assignment",
+      "rules": [
+        "reject:assignment"
+      ],
+      "source": "a = b",
+      "status": "failure"
+    },
+    {
+      "id": "reject-await",
+      "rules": [
+        "reject:await"
+      ],
+      "source": "await a",
+      "status": "failure"
+    },
+    {
+      "id": "reject-bigint",
+      "rules": [
+        "reject:bigint"
+      ],
+      "source": "1n",
+      "status": "failure"
+    },
+    {
+      "id": "reject-block-lambda",
+      "rules": [
+        "reject:block-lambda"
+      ],
+      "source": "a => { b }",
+      "status": "failure"
+    },
+    {
+      "id": "reject-host-closure",
+      "rules": [
+        "reject:host-closure"
+      ],
+      "source": "function() { a }",
+      "status": "failure"
+    },
+    {
+      "id": "reject-non-null",
+      "rules": [
+        "reject:non-null"
+      ],
+      "source": "a!",
+      "status": "failure"
+    },
+    {
+      "id": "reject-propagation",
+      "rules": [
+        "reject:propagation"
+      ],
+      "source": "a?",
+      "status": "failure"
+    },
+    {
+      "id": "reject-record-spread",
+      "rules": [
+        "reject:record-spread"
+      ],
+      "source": "{...a}",
+      "status": "failure"
+    },
+    {
+      "id": "reject-regex",
+      "rules": [
+        "reject:regex"
+      ],
+      "source": "/x/",
+      "status": "failure"
+    },
+    {
+      "id": "reject-spread",
+      "rules": [
+        "reject:spread"
+      ],
+      "source": "[...a]",
+      "status": "failure"
+    },
+    {
+      "id": "reject-template",
+      "rules": [
+        "reject:template"
+      ],
+      "source": "`x`",
+      "status": "failure"
+    },
+    {
+      "id": "reject-type-assertion",
+      "rules": [
+        "reject:type-assertion"
+      ],
+      "source": "a as T",
+      "status": "failure"
+    },
+    {
+      "id": "reject-typed-call",
+      "rules": [
+        "reject:typed-call"
+      ],
+      "source": "f<T>(x)",
+      "status": "failure"
+    },
+    {
+      "id": "reject-typed-lambda",
+      "rules": [
+        "reject:typed-lambda"
+      ],
+      "source": "(a: T) => a",
+      "status": "failure"
+    },
+    {
+      "id": "reject-undefined",
+      "rules": [
+        "reject:undefined"
+      ],
+      "source": "undefined",
+      "status": "failure"
+    },
+    {
+      "id": "reject-unlisted-constructor",
+      "rules": [
+        "reject:unlisted-constructor"
+      ],
+      "source": "new Date()",
+      "status": "failure"
+    },
+    {
+      "id": "binary-00",
+      "rules": [
+        "operator:+"
+      ],
+      "source": "left + right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-01",
+      "rules": [
+        "operator:-"
+      ],
+      "source": "left - right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-02",
+      "rules": [
+        "operator:*"
+      ],
+      "source": "left * right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-03",
+      "rules": [
+        "operator:/"
+      ],
+      "source": "left / right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-04",
+      "rules": [
+        "operator:%"
+      ],
+      "source": "left % right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-05",
+      "rules": [
+        "operator:**"
+      ],
+      "source": "left ** right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-06",
+      "rules": [
+        "operator:=="
+      ],
+      "source": "left == right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-07",
+      "rules": [
+        "operator:!="
+      ],
+      "source": "left != right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-08",
+      "rules": [
+        "operator:==="
+      ],
+      "source": "left === right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-09",
+      "rules": [
+        "operator:!=="
+      ],
+      "source": "left !== right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-10",
+      "rules": [
+        "operator:<"
+      ],
+      "source": "left < right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-11",
+      "rules": [
+        "operator:<="
+      ],
+      "source": "left <= right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-12",
+      "rules": [
+        "operator:>"
+      ],
+      "source": "left > right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-13",
+      "rules": [
+        "operator:>="
+      ],
+      "source": "left >= right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-14",
+      "rules": [
+        "operator:instanceof"
+      ],
+      "source": "left instanceof right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-15",
+      "rules": [
+        "operator:&&"
+      ],
+      "source": "left && right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-16",
+      "rules": [
+        "operator:||"
+      ],
+      "source": "left || right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-17",
+      "rules": [
+        "operator:??"
+      ],
+      "source": "left ?? right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-18",
+      "rules": [
+        "operator:&"
+      ],
+      "source": "left & right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-19",
+      "rules": [
+        "operator:|"
+      ],
+      "source": "left | right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-20",
+      "rules": [
+        "operator:^"
+      ],
+      "source": "left ^ right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-21",
+      "rules": [
+        "operator:<<"
+      ],
+      "source": "left << right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-22",
+      "rules": [
+        "operator:>>"
+      ],
+      "source": "left >> right",
+      "status": "parsed"
+    },
+    {
+      "id": "binary-23",
+      "rules": [
+        "operator:>>>"
+      ],
+      "source": "left >>> right",
+      "status": "parsed"
+    },
+    {
+      "id": "unary-00",
+      "rules": [
+        "unary:!"
+      ],
+      "source": "! value",
+      "status": "parsed"
+    },
+    {
+      "id": "unary-01",
+      "rules": [
+        "unary:-"
+      ],
+      "source": "- value",
+      "status": "parsed"
+    },
+    {
+      "id": "unary-02",
+      "rules": [
+        "unary:+"
+      ],
+      "source": "+ value",
+      "status": "parsed"
+    },
+    {
+      "id": "unary-03",
+      "rules": [
+        "unary:~"
+      ],
+      "source": "~ value",
+      "status": "parsed"
+    },
+    {
+      "id": "unary-04",
+      "rules": [
+        "unary:typeof"
+      ],
+      "source": "typeof value",
+      "status": "parsed"
+    },
+    {
+      "id": "unary-05",
+      "rules": [
+        "unary:void"
+      ],
+      "source": "void value",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-00",
+      "rules": [
+        "generator:splitmix64",
+        "operator:===",
+        "operator:/"
+      ],
+      "source": "(2.5 === true) / 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-01",
+      "rules": [
+        "generator:splitmix64",
+        "operator:==",
+        "operator:!=="
+      ],
+      "source": "(null == null) !== 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-02",
+      "rules": [
+        "generator:splitmix64",
+        "operator:|",
+        "operator:||"
+      ],
+      "source": "(c | 2.5) || true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-03",
+      "rules": [
+        "generator:splitmix64",
+        "operator:||",
+        "operator:!="
+      ],
+      "source": "(\"😀\" || true) != c",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-04",
+      "rules": [
+        "generator:splitmix64",
+        "operator:??",
+        "operator:+"
+      ],
+      "source": "(2.5 ?? b) + b",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-05",
+      "rules": [
+        "generator:splitmix64",
+        "operator:??",
+        "operator:<<"
+      ],
+      "source": "(c ?? 2.5) << null",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-06",
+      "rules": [
+        "generator:splitmix64",
+        "operator:<<",
+        "operator:||"
+      ],
+      "source": "(b << 1) || \"x\"",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-07",
+      "rules": [
+        "generator:splitmix64",
+        "operator:<",
+        "operator:>"
+      ],
+      "source": "(null < \"😀\") > 2.5",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-08",
+      "rules": [
+        "generator:splitmix64",
+        "operator:-",
+        "operator:&"
+      ],
+      "source": "(c - null) & true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-09",
+      "rules": [
+        "generator:splitmix64",
+        "operator:instanceof",
+        "operator:&&"
+      ],
+      "source": "(1 instanceof \"x\") && true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-10",
+      "rules": [
+        "generator:splitmix64",
+        "operator:&&",
+        "operator:<<"
+      ],
+      "source": "(null && b) << true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-11",
+      "rules": [
+        "generator:splitmix64",
+        "operator:&&",
+        "operator:>>"
+      ],
+      "source": "(\"x\" && c) >> 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-12",
+      "rules": [
+        "generator:splitmix64",
+        "operator:/",
+        "operator:>>"
+      ],
+      "source": "(1 / null) >> 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-13",
+      "rules": [
+        "generator:splitmix64",
+        "operator:>>>",
+        "operator:+"
+      ],
+      "source": "(true >>> true) + \"x\"",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-14",
+      "rules": [
+        "generator:splitmix64",
+        "operator:>",
+        "operator:|"
+      ],
+      "source": "(c > \"😀\") | true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-15",
+      "rules": [
+        "generator:splitmix64",
+        "operator:<=",
+        "operator:!=="
+      ],
+      "source": "(\"😀\" <= \"😀\") !== \"x\"",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-16",
+      "rules": [
+        "generator:splitmix64",
+        "operator:>",
+        "operator:??"
+      ],
+      "source": "(true > b) ?? b",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-17",
+      "rules": [
+        "generator:splitmix64",
+        "operator:%",
+        "operator:/"
+      ],
+      "source": "(\"x\" % true) / c",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-18",
+      "rules": [
+        "generator:splitmix64",
+        "operator:*",
+        "operator:-"
+      ],
+      "source": "(a * b) - a",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-19",
+      "rules": [
+        "generator:splitmix64",
+        "operator:|",
+        "operator:>>"
+      ],
+      "source": "(a | 1) >> c",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-20",
+      "rules": [
+        "generator:splitmix64",
+        "operator:instanceof",
+        "operator:<<"
+      ],
+      "source": "(\"x\" instanceof true) << 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-21",
+      "rules": [
+        "generator:splitmix64",
+        "operator:/",
+        "operator:/"
+      ],
+      "source": "(2.5 / 1) / b",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-22",
+      "rules": [
+        "generator:splitmix64",
+        "operator:instanceof",
+        "operator:=="
+      ],
+      "source": "(\"x\" instanceof b) == 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-23",
+      "rules": [
+        "generator:splitmix64",
+        "operator:<",
+        "operator:+"
+      ],
+      "source": "(\"😀\" < true) + 1",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-24",
+      "rules": [
+        "generator:splitmix64",
+        "operator:>>>",
+        "operator:>"
+      ],
+      "source": "(c >>> \"😀\") > true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-25",
+      "rules": [
+        "generator:splitmix64",
+        "operator:||",
+        "operator:!="
+      ],
+      "source": "(c || \"x\") != c",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-26",
+      "rules": [
+        "generator:splitmix64",
+        "operator:+",
+        "operator:<"
+      ],
+      "source": "(true + b) < null",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-27",
+      "rules": [
+        "generator:splitmix64",
+        "operator:||",
+        "operator:instanceof"
+      ],
+      "source": "(c || \"😀\") instanceof \"x\"",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-28",
+      "rules": [
+        "generator:splitmix64",
+        "operator:||",
+        "operator:^"
+      ],
+      "source": "(2.5 || c) ^ a",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-29",
+      "rules": [
+        "generator:splitmix64",
+        "operator:<",
+        "operator:&&"
+      ],
+      "source": "(c < c) && true",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-30",
+      "rules": [
+        "generator:splitmix64",
+        "operator:>>",
+        "operator:**"
+      ],
+      "source": "(b >> 2.5) ** a",
+      "status": "parsed"
+    },
+    {
+      "id": "generated-31",
+      "rules": [
+        "generator:splitmix64",
+        "operator:|",
+        "operator:/"
+      ],
+      "source": "(1 | \"x\") / 1",
+      "status": "parsed"
+    }
+  ],
+  "format": "kern.frontend.f2-expression-corpus.1",
+  "seed": "0x4b45524e354632",
+  "version": "kern.frontend.f2-expression-generator.1"
+}

@@ -1,0 +1,388 @@
+{
+  "format": "kern.frontend.f2-expression-rule-coverage.1",
+  "rules": {
+    "primary:identifier": [
+      "identifier"
+    ],
+    "kind:identifier": [
+      "identifier"
+    ],
+    "primary:null": [
+      "null"
+    ],
+    "kind:null": [
+      "null"
+    ],
+    "primary:boolean": [
+      "boolean"
+    ],
+    "kind:boolean": [
+      "boolean"
+    ],
+    "primary:integer": [
+      "integer"
+    ],
+    "kind:integer": [
+      "integer"
+    ],
+    "primary:decimal": [
+      "decimal"
+    ],
+    "kind:decimal": [
+      "decimal"
+    ],
+    "primary:text": [
+      "text"
+    ],
+    "kind:text": [
+      "text"
+    ],
+    "text:decoded-escapes": [
+      "text"
+    ],
+    "primary:parenthesized": [
+      "parenthesized"
+    ],
+    "primary:list": [
+      "list"
+    ],
+    "kind:list": [
+      "list"
+    ],
+    "collection:list-trailing-comma": [
+      "list"
+    ],
+    "primary:record": [
+      "record"
+    ],
+    "kind:record": [
+      "record"
+    ],
+    "collection:record-key-forms": [
+      "record"
+    ],
+    "kind:member": [
+      "member"
+    ],
+    "postfix:member:false": [
+      "member"
+    ],
+    "postfix:member:true": [
+      "optional-member"
+    ],
+    "kind:index": [
+      "index"
+    ],
+    "postfix:index:false": [
+      "index"
+    ],
+    "postfix:index:true": [
+      "optional-index"
+    ],
+    "kind:call": [
+      "call"
+    ],
+    "postfix:call:false": [
+      "call"
+    ],
+    "postfix:call:true": [
+      "optional-call"
+    ],
+    "kind:new": [
+      "new-map"
+    ],
+    "constructor:Map": [
+      "new-map"
+    ],
+    "constructor:Error": [
+      "new-error"
+    ],
+    "kind:lambda": [
+      "lambda-bare"
+    ],
+    "lambda:identifier": [
+      "lambda-bare"
+    ],
+    "lambda:identifier-list": [
+      "lambda-list"
+    ],
+    "lambda:empty-list": [
+      "lambda-list"
+    ],
+    "kind:binary": [
+      "binary"
+    ],
+    "precedence:binary": [
+      "binary"
+    ],
+    "kind:unary": [
+      "unary"
+    ],
+    "precedence:unary-power": [
+      "unary"
+    ],
+    "kind:conditional": [
+      "conditional"
+    ],
+    "precedence:conditional": [
+      "conditional"
+    ],
+    "postfix:left-chain": [
+      "nested-postfix"
+    ],
+    "collection:nested": [
+      "nested-collections"
+    ],
+    "lexer:whitespace": [
+      "whitespace-newlines"
+    ],
+    "span:astral": [
+      "astral-span"
+    ],
+    "text:surrogate-pair": [
+      "surrogate-pair"
+    ],
+    "text:terminator": [
+      "terminator-in-string"
+    ],
+    "restriction:nullish-logical-parenthesized": [
+      "nullish-grouped"
+    ],
+    "reject:assignment": [
+      "reject-assignment"
+    ],
+    "reject:await": [
+      "reject-await"
+    ],
+    "reject:bigint": [
+      "reject-bigint"
+    ],
+    "reject:block-lambda": [
+      "reject-block-lambda"
+    ],
+    "reject:host-closure": [
+      "reject-host-closure"
+    ],
+    "reject:non-null": [
+      "reject-non-null"
+    ],
+    "reject:propagation": [
+      "reject-propagation"
+    ],
+    "reject:record-spread": [
+      "reject-record-spread"
+    ],
+    "reject:regex": [
+      "reject-regex"
+    ],
+    "reject:spread": [
+      "reject-spread"
+    ],
+    "reject:template": [
+      "reject-template"
+    ],
+    "reject:type-assertion": [
+      "reject-type-assertion"
+    ],
+    "reject:typed-call": [
+      "reject-typed-call"
+    ],
+    "reject:typed-lambda": [
+      "reject-typed-lambda"
+    ],
+    "reject:undefined": [
+      "reject-undefined"
+    ],
+    "reject:unlisted-constructor": [
+      "reject-unlisted-constructor"
+    ],
+    "operator:+": [
+      "binary-00",
+      "generated-04",
+      "generated-13",
+      "generated-23",
+      "generated-26"
+    ],
+    "operator:-": [
+      "binary-01",
+      "generated-08",
+      "generated-18"
+    ],
+    "operator:*": [
+      "binary-02",
+      "generated-18"
+    ],
+    "operator:/": [
+      "binary-03",
+      "generated-00",
+      "generated-12",
+      "generated-17",
+      "generated-21",
+      "generated-21",
+      "generated-31"
+    ],
+    "operator:%": [
+      "binary-04",
+      "generated-17"
+    ],
+    "operator:**": [
+      "binary-05",
+      "generated-30"
+    ],
+    "operator:==": [
+      "binary-06",
+      "generated-01",
+      "generated-22"
+    ],
+    "operator:!=": [
+      "binary-07",
+      "generated-03",
+      "generated-25"
+    ],
+    "operator:===": [
+      "binary-08",
+      "generated-00"
+    ],
+    "operator:!==": [
+      "binary-09",
+      "generated-01",
+      "generated-15"
+    ],
+    "operator:<": [
+      "binary-10",
+      "generated-07",
+      "generated-23",
+      "generated-26",
+      "generated-29"
+    ],
+    "operator:<=": [
+      "binary-11",
+      "generated-15"
+    ],
+    "operator:>": [
+      "binary-12",
+      "generated-07",
+      "generated-14",
+      "generated-16",
+      "generated-24"
+    ],
+    "operator:>=": [
+      "binary-13"
+    ],
+    "operator:instanceof": [
+      "binary-14",
+      "generated-09",
+      "generated-20",
+      "generated-22",
+      "generated-27"
+    ],
+    "operator:&&": [
+      "binary-15",
+      "generated-09",
+      "generated-10",
+      "generated-11",
+      "generated-29"
+    ],
+    "operator:||": [
+      "binary-16",
+      "generated-02",
+      "generated-03",
+      "generated-06",
+      "generated-25",
+      "generated-27",
+      "generated-28"
+    ],
+    "operator:??": [
+      "binary-17",
+      "generated-04",
+      "generated-05",
+      "generated-16"
+    ],
+    "operator:&": [
+      "binary-18",
+      "generated-08"
+    ],
+    "operator:|": [
+      "binary-19",
+      "generated-02",
+      "generated-14",
+      "generated-19",
+      "generated-31"
+    ],
+    "operator:^": [
+      "binary-20",
+      "generated-28"
+    ],
+    "operator:<<": [
+      "binary-21",
+      "generated-05",
+      "generated-06",
+      "generated-10",
+      "generated-20"
+    ],
+    "operator:>>": [
+      "binary-22",
+      "generated-11",
+      "generated-12",
+      "generated-19",
+      "generated-30"
+    ],
+    "operator:>>>": [
+      "binary-23",
+      "generated-13",
+      "generated-24"
+    ],
+    "unary:!": [
+      "unary-00"
+    ],
+    "unary:-": [
+      "unary-01"
+    ],
+    "unary:+": [
+      "unary-02"
+    ],
+    "unary:~": [
+      "unary-03"
+    ],
+    "unary:typeof": [
+      "unary-04"
+    ],
+    "unary:void": [
+      "unary-05"
+    ],
+    "generator:splitmix64": [
+      "generated-00",
+      "generated-01",
+      "generated-02",
+      "generated-03",
+      "generated-04",
+      "generated-05",
+      "generated-06",
+      "generated-07",
+      "generated-08",
+      "generated-09",
+      "generated-10",
+      "generated-11",
+      "generated-12",
+      "generated-13",
+      "generated-14",
+      "generated-15",
+      "generated-16",
+      "generated-17",
+      "generated-18",
+      "generated-19",
+      "generated-20",
+      "generated-21",
+      "generated-22",
+      "generated-23",
+      "generated-24",
+      "generated-25",
+      "generated-26",
+      "generated-27",
+      "generated-28",
+      "generated-29",
+      "generated-30",
+      "generated-31"
+    ]
+  }
+}

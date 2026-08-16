@@ -1,0 +1,400 @@
+fn name=f2parse returns="string[]"
+  param name=source type=string
+  param name=tokens type=string
+  param name=maxNodes type=number
+  param name=nodesPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxNestingDepth type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  handler lang="kern"
+    let name=n value="Text.length(source)"
+    let name=countField value="f2readitem(tokens, 1)"
+    let name=tokenCount value="f2uint(countField[0])"
+    if cond="tokenCount == 0"
+      let name=emptyFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", 0, n, n)"
+      return value=emptyFailure
+    let name=precheck value="f2precheck(tokens, tokenCount, maxWorkSteps, maxNestingDepth)"
+    if cond="precheck[0] != \"\""
+      let name=limitFailure value="f2failure(precheck[0], f2uint(precheck[1]), f2uint(precheck[2]), n)"
+      return value=limitFailure
+    let name=nodeKinds value="[]"
+    let name=nodeStarts value="[]"
+    let name=nodeEnds value="[]"
+    let name=nodeFlags value="[]"
+    let name=nodeSubtrees value="[]"
+    let name=nodePayloads value="[]"
+    let name=nodeValues value="[]"
+    let name=nodeChildren value="[]"
+    let name=spanStarts value="new Map()"
+    let name=spanEnds value="new Map()"
+    let name=grouped value="new Map()"
+    let name=mixProvenance value="new Map()"
+    let name=values value="new Map()"
+    let name=valueTop value="0"
+    let name=opKinds value="new Map()"
+    let name=opTexts value="new Map()"
+    let name=opStarts value="new Map()"
+    let name=opPrecs value="new Map()"
+    let name=opBases value="new Map()"
+    let name=opStages value="new Map()"
+    let name=frameCounts value="new Map()"
+    let name=frameStates value="new Map()"
+    let name=frameFlags value="new Map()"
+    let name=recordKeyOwners value="[]"
+    let name=recordKeyValues value="[]"
+    let name=recordParentIds value="new Map()"
+    let name=recordParentCounts value="new Map()"
+    let name=recordDepth value="0"
+    let name=currentRecordId value="-1"
+    let name=currentRecordCount value="0"
+    let name=nextRecordId value="0"
+    let name=opTop value="0"
+    let name=cursor value="0"
+    let name=tokenOffset value="f2uint(countField[1])"
+    let name=expectValue value=true
+    let name=reduceMode value="0"
+    let name=pendingOp value="\"\""
+    let name=pendingKind value="\"binary\""
+    let name=pendingStart value="0"
+    let name=pendingPrec value="0"
+    let name=closeEnd value="0"
+    let name=closeToken value="\"\""
+    let name=pendingNextOffset value="tokenOffset"
+    let name=failed value=false
+    let name=finished value=false
+    let name=failureCode value="\"FRONTEND_INVALID_EXPRESSION\""
+    let name=failStart value="0"
+    let name=failEnd value="0"
+    while cond="(!failed) && (!finished)"
+      if cond="reduceMode > 0"
+        let name=shouldReduce value=false
+        if cond="opTop > 0"
+          let name=topKind value="Map.get(opKinds, String(opTop - 1))"
+          if cond="!f2frame(topKind)"
+            if cond="reduceMode == 1"
+              let name=topPrec value="Map.get(opPrecs, String(opTop - 1))"
+              assign target=shouldReduce value="topPrec > pendingPrec || (topPrec == pendingPrec && pendingOp != \"**\" && pendingKind != \"conditional\")"
+              if cond="pendingOp == \"**\" && topKind == \"unary\""
+                assign target=failed value=true
+                assign target=failStart value="pendingStart"
+                assign target=failEnd value="pendingStart + 2"
+                continue
+            else
+              if cond="reduceMode == 5 && topKind == \"conditional\" && Map.get(opStages, String(opTop - 1)) == 1"
+                assign target=shouldReduce value=false
+              else
+                assign target=shouldReduce value=true
+        if cond=shouldReduce
+          let name=reductionKind value="Map.get(opKinds, String(opTop - 1))"
+          let name=operator value="Map.get(opTexts, String(opTop - 1))"
+          let name=operatorStart value="Map.get(opStarts, String(opTop - 1))"
+          let name=newId value="nodeKinds.length"
+          if cond="newId >= maxNodes"
+            assign target=failed value=true
+            assign target=failureCode value="\"EXPRESSION_LIMIT\""
+            assign target=failStart value="operatorStart"
+            assign target=failEnd value="operatorStart + Text.length(operator)"
+            continue
+          if cond="reductionKind == \"unary\""
+            if cond="valueTop < 1"
+              assign target=failed value=true
+              assign target=failStart value="operatorStart"
+              assign target=failEnd value="operatorStart + Text.length(operator)"
+              continue
+            let name=child value="Map.get(values, String(valueTop - 1))"
+            let name=childEnd value="List.index(nodeEnds, child)"
+            let name=childKind value="List.index(nodeKinds, child)"
+            let name=childValue value="List.index(nodeValues, child)"
+            let name=childSubtree value="List.index(nodeSubtrees, child)"
+            if cond="Map.has(spanEnds, String(child))"
+              assign target=childEnd value="Map.get(spanEnds, String(child))"
+            if cond="operator == \"-\" && (childKind == 3 || childKind == 4) && f2zeronumber(childValue)"
+              assign target=failed value=true
+              assign target=failStart value="operatorStart"
+              assign target=failEnd value="childEnd"
+              continue
+            do value="nodeKinds.push(14)"
+            do value="nodeStarts.push(operatorStart)"
+            do value="nodeEnds.push(childEnd)"
+            do value="nodeFlags.push(0)"
+            do value="nodeSubtrees.push(1 + childSubtree)"
+            do value="nodePayloads.push(f2item(operator))"
+            do value="nodeValues.push(operator)"
+            do value="nodeChildren.push(f2item(String(child)))"
+            do value="Map.set(mixProvenance, String(newId), Map.get(mixProvenance, String(child)))"
+            do value="Map.set(values, String(valueTop - 1), newId)"
+          else
+            if cond="reductionKind == \"lambda\""
+              let name=base value="Map.get(opBases, String(opTop - 1))"
+              if cond="valueTop != base + 1"
+                assign target=failed value=true
+                assign target=failStart value="operatorStart"
+                assign target=failEnd value="operatorStart + 2"
+                continue
+              let name=body value="Map.get(values, String(base))"
+              let name=bodyEnd value="List.index(nodeEnds, body)"
+              if cond="Map.has(spanEnds, String(body))"
+                assign target=bodyEnd value="Map.get(spanEnds, String(body))"
+              do value="nodeKinds.push(12)"
+              do value="nodeStarts.push(operatorStart)"
+              do value="nodeEnds.push(bodyEnd)"
+              do value="nodeFlags.push(0)"
+              do value="nodeSubtrees.push(1 + List.index(nodeSubtrees, body))"
+              do value="nodePayloads.push(operator)"
+              do value="nodeValues.push(\"\")"
+              do value="nodeChildren.push(f2item(String(body)))"
+              do value="Map.set(mixProvenance, String(newId), 0)"
+              do value="Map.set(values, String(base), newId)"
+            else
+              if cond="reductionKind == \"conditional\""
+                let name=base value="Map.get(opBases, String(opTop - 1))"
+                if cond="Map.get(opStages, String(opTop - 1)) != 2 || valueTop != base + 3"
+                  assign target=failed value=true
+                  assign target=failStart value="operatorStart"
+                  assign target=failEnd value="operatorStart + 1"
+                  continue
+                let name=test value="Map.get(values, String(base))"
+                let name=consequent value="Map.get(values, String(base + 1))"
+                let name=alternate value="Map.get(values, String(base + 2))"
+                let name=testStart value="List.index(nodeStarts, test)"
+                let name=alternateEnd value="List.index(nodeEnds, alternate)"
+                if cond="Map.has(spanStarts, String(test))"
+                  assign target=testStart value="Map.get(spanStarts, String(test))"
+                if cond="Map.has(spanEnds, String(alternate))"
+                  assign target=alternateEnd value="Map.get(spanEnds, String(alternate))"
+                do value="nodeKinds.push(15)"
+                do value="nodeStarts.push(testStart)"
+                do value="nodeEnds.push(alternateEnd)"
+                do value="nodeFlags.push(0)"
+                do value="nodeSubtrees.push(1 + List.index(nodeSubtrees, test) + List.index(nodeSubtrees, consequent) + List.index(nodeSubtrees, alternate))"
+                do value="nodePayloads.push(\"\")"
+                do value="nodeValues.push(\"\")"
+                do value="nodeChildren.push(f2item(String(test)) + f2item(String(consequent)) + f2item(String(alternate)))"
+                do value="Map.set(mixProvenance, String(newId), 0)"
+                do value="Map.set(values, String(base), newId)"
+                assign target=valueTop value="base + 1"
+              else
+                if cond="valueTop < 2"
+                  assign target=failed value=true
+                  assign target=failStart value="operatorStart"
+                  assign target=failEnd value="operatorStart + Text.length(operator)"
+                  continue
+                let name=left value="Map.get(values, String(valueTop - 2))"
+                let name=right value="Map.get(values, String(valueTop - 1))"
+                let name=leftStart value="List.index(nodeStarts, left)"
+                let name=rightEnd value="List.index(nodeEnds, right)"
+                let name=leftSubtree value="List.index(nodeSubtrees, left)"
+                let name=rightSubtree value="List.index(nodeSubtrees, right)"
+                let name=leftMix value="Map.get(mixProvenance, String(left))"
+                let name=rightMix value="Map.get(mixProvenance, String(right))"
+                if cond="(operator == \"??\" && (leftMix == 2 || rightMix == 2)) || ((operator == \"&&\" || operator == \"||\") && (leftMix == 1 || rightMix == 1))"
+                  assign target=failed value=true
+                  assign target=failStart value="operatorStart"
+                  assign target=failEnd value="operatorStart + Text.length(operator)"
+                  continue
+                if cond="Map.has(spanStarts, String(left))"
+                  assign target=leftStart value="Map.get(spanStarts, String(left))"
+                if cond="Map.has(spanEnds, String(right))"
+                  assign target=rightEnd value="Map.get(spanEnds, String(right))"
+                do value="nodeKinds.push(13)"
+                do value="nodeStarts.push(leftStart)"
+                do value="nodeEnds.push(rightEnd)"
+                do value="nodeFlags.push(0)"
+                do value="nodeSubtrees.push(1 + leftSubtree + rightSubtree)"
+                do value="nodePayloads.push(f2item(operator))"
+                do value="nodeValues.push(operator)"
+                do value="nodeChildren.push(f2item(String(left)) + f2item(String(right)))"
+                let name=resultMix value="leftMix > rightMix ? leftMix : rightMix"
+                if cond="operator == \"??\""
+                  assign target=resultMix value="1"
+                if cond="operator == \"&&\" || operator == \"||\""
+                  assign target=resultMix value="2"
+                do value="Map.set(mixProvenance, String(newId), resultMix)"
+                do value="Map.set(values, String(valueTop - 2), newId)"
+                assign target=valueTop value="valueTop - 1"
+          assign target=opTop value="opTop - 1"
+          continue
+        if cond="reduceMode == 1"
+          do value="Map.set(opKinds, String(opTop), pendingKind)"
+          do value="Map.set(opTexts, String(opTop), pendingOp)"
+          do value="Map.set(opStarts, String(opTop), pendingStart)"
+          do value="Map.set(opPrecs, String(opTop), pendingPrec)"
+          do value="Map.set(opBases, String(opTop), valueTop - 1)"
+          if cond="pendingKind == \"conditional\""
+            do value="Map.set(opStages, String(opTop), 1)"
+          assign target=opTop value="opTop + 1"
+          assign target=cursor value="cursor + 1"
+          assign target=tokenOffset value="pendingNextOffset"
+          assign target=expectValue value=true
+          assign target=reduceMode value="0"
+          continue
+        if cond="reduceMode == 5"
+          if cond="opTop == 0 || Map.get(opKinds, String(opTop - 1)) != \"conditional\" || Map.get(opStages, String(opTop - 1)) != 1"
+            assign target=failed value=true
+            assign target=failStart value="pendingStart"
+            assign target=failEnd value="pendingStart + 1"
+            continue
+          let name=base value="Map.get(opBases, String(opTop - 1))"
+          if cond="valueTop != base + 2"
+            assign target=failed value=true
+            assign target=failStart value="pendingStart"
+            assign target=failEnd value="pendingStart + 1"
+            continue
+          do value="Map.set(opStages, String(opTop - 1), 2)"
+          assign target=cursor value="cursor + 1"
+          assign target=tokenOffset value="pendingNextOffset"
+          assign target=expectValue value=true
+          assign target=reduceMode value="0"
+          continue
+        if cond="reduceMode == 2"
+          if cond="opTop == 0"
+            assign target=failed value=true
+            assign target=failStart value="closeEnd - 1"
+            assign target=failEnd value="closeEnd"
+            continue
+          let name=frameKind value="Map.get(opKinds, String(opTop - 1))"
+          let name=frameBase value="Map.get(opBases, String(opTop - 1))"
+          if cond="frameKind == \"group\""
+            if cond="closeToken != \")\" || valueTop != frameBase + 1"
+              assign target=failed value=true
+              assign target=failStart value="closeEnd - 1"
+              assign target=failEnd value="closeEnd"
+              continue
+            let name=root value="Map.get(values, String(valueTop - 1))"
+            do value="Map.set(spanStarts, String(root), Map.get(opStarts, String(opTop - 1)))"
+            do value="Map.set(spanEnds, String(root), closeEnd)"
+            do value="Map.set(grouped, String(root), true)"
+            do value="Map.set(mixProvenance, String(root), 0)"
+          else
+            if cond="frameKind != \"list\" && frameKind != \"record\" && frameKind != \"index\" && frameKind != \"call\" && frameKind != \"constructor\""
+              assign target=failed value=true
+              assign target=failStart value="closeEnd - 1"
+              assign target=failEnd value="closeEnd"
+              continue
+            let name=itemCount value="Map.get(frameCounts, String(opTop - 1))"
+            let name=containerKind value="6"
+            let name=containerFlags value="0"
+            let name=payload value="\"\""
+            let name=expectedTop value="frameBase + itemCount"
+            if cond="frameKind == \"list\""
+              if cond="closeToken != \"]\""
+                assign target=failed value=true
+              if cond="valueTop == frameBase + itemCount + 1"
+                assign target=itemCount value="itemCount + 1"
+              assign target=expectedTop value="frameBase + itemCount"
+            if cond="frameKind == \"record\""
+              assign target=itemCount value="currentRecordCount"
+              assign target=containerKind value="7"
+              for name=keyIndex from=0 to="recordKeyValues.length"
+                if cond="recordKeyOwners[keyIndex] == currentRecordId"
+                  assign target=payload value="payload + f2item(recordKeyValues[keyIndex])"
+              if cond="closeToken != \"}\" || valueTop != frameBase + itemCount"
+                assign target=failed value=true
+              assign target=expectedTop value="frameBase + itemCount"
+            if cond="frameKind == \"index\""
+              assign target=containerKind value="9"
+              assign target=containerFlags value="Map.get(frameFlags, String(opTop - 1))"
+              assign target=expectedTop value="frameBase + 2"
+              if cond="closeToken != \"]\""
+                assign target=failed value=true
+            if cond="frameKind == \"call\""
+              assign target=containerKind value="10"
+              assign target=containerFlags value="Map.get(frameFlags, String(opTop - 1))"
+              if cond="valueTop == frameBase + itemCount + 2"
+                assign target=itemCount value="itemCount + 1"
+              assign target=expectedTop value="frameBase + itemCount + 1"
+              if cond="closeToken != \")\""
+                assign target=failed value=true
+            if cond="frameKind == \"constructor\""
+              let name=constructorName value="Map.get(opTexts, String(opTop - 1))"
+              assign target=containerKind value="11"
+              assign target=payload value="f2item(constructorName)"
+              assign target=expectedTop value="constructorName == \"Map\" ? frameBase : frameBase + 1"
+              if cond="closeToken != \")\""
+                assign target=failed value=true
+            if cond="failed || valueTop != expectedTop || nodeKinds.length >= maxNodes"
+              assign target=failed value=true
+              if cond="nodeKinds.length >= maxNodes"
+                assign target=failureCode value="\"EXPRESSION_LIMIT\""
+              assign target=failStart value="closeEnd - 1"
+              assign target=failEnd value="closeEnd"
+              continue
+            let name=children value="\"\""
+            let name=subtree value="1"
+            for name=itemIndex from=frameBase to=valueTop
+              let name=itemNode value="Map.get(values, String(itemIndex))"
+              assign target=children value="children + f2item(String(itemNode))"
+              assign target=subtree value="subtree + List.index(nodeSubtrees, itemNode)"
+            let name=newId value="nodeKinds.length"
+            do value="nodeKinds.push(containerKind)"
+            do value="nodeStarts.push(Map.get(opStarts, String(opTop - 1)))"
+            do value="nodeEnds.push(closeEnd)"
+            do value="nodeFlags.push(containerFlags)"
+            do value="nodeSubtrees.push(subtree)"
+            do value="nodePayloads.push(payload)"
+            do value="nodeValues.push(\"\")"
+            do value="nodeChildren.push(children)"
+            do value="Map.set(mixProvenance, String(newId), 0)"
+            do value="Map.set(values, String(frameBase), newId)"
+            assign target=valueTop value="frameBase + 1"
+            if cond="frameKind == \"record\""
+              assign target=recordDepth value="recordDepth - 1"
+              assign target=currentRecordId value="Map.get(recordParentIds, String(recordDepth))"
+              assign target=currentRecordCount value="Map.get(recordParentCounts, String(recordDepth))"
+          assign target=opTop value="opTop - 1"
+          assign target=cursor value="cursor + 1"
+          assign target=tokenOffset value="pendingNextOffset"
+          assign target=expectValue value=false
+          assign target=reduceMode value="0"
+          continue
+        if cond="reduceMode == 4"
+          if cond="opTop == 0 || (Map.get(opKinds, String(opTop - 1)) != \"list\" && Map.get(opKinds, String(opTop - 1)) != \"record\" && Map.get(opKinds, String(opTop - 1)) != \"call\")"
+            assign target=failed value=true
+            assign target=failStart value="pendingStart"
+            assign target=failEnd value="pendingStart + 1"
+            continue
+          let name=frameBase value="Map.get(opBases, String(opTop - 1))"
+          let name=itemCount value="Map.get(frameCounts, String(opTop - 1))"
+          let name=frameKind value="Map.get(opKinds, String(opTop - 1))"
+          let name=expectedTop value="frameBase + itemCount + 1"
+          if cond="frameKind == \"record\""
+            assign target=itemCount value="currentRecordCount"
+            assign target=expectedTop value="frameBase + itemCount"
+          if cond="frameKind == \"call\""
+            assign target=expectedTop value="frameBase + itemCount + 2"
+          if cond="valueTop != expectedTop"
+            assign target=failed value=true
+            assign target=failStart value="pendingStart"
+            assign target=failEnd value="pendingStart + 1"
+            continue
+          if cond="frameKind == \"list\" || frameKind == \"call\""
+            do value="Map.set(frameCounts, String(opTop - 1), itemCount + 1)"
+          else
+            do value="Map.set(frameStates, String(opTop - 1), \"key\")"
+          assign target=cursor value="cursor + 1"
+          assign target=tokenOffset value="pendingNextOffset"
+          assign target=expectValue value=true
+          assign target=reduceMode value="0"
+          continue
+        assign target=reduceMode value="0"
+        continue
+      if cond="cursor >= tokenCount"
+        if cond=expectValue
+          assign target=failed value=true
+          assign target=failStart value="n"
+          assign target=failEnd value="n"
+          continue
+        if cond="opTop > 0"
+          assign target=reduceMode value="3"
+          continue
+        assign target=finished value=true
+        continue
+      let name=kindField value="f2readitem(tokens, tokenOffset)"
+      let name=kind value="kindField[0]"
+      let name=fieldOffset value="f2uint(kindField[1])"
+      let name=textField value="f2readitem(tokens, fieldOffset)"
+      let name=text value="textField[0]"
+      assign target=fieldOffset value="f2uint(textField[1])"
+      let name=startField value="f2readitem(tokens, fieldOffset)"
