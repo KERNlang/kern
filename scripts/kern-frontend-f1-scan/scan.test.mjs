@@ -50,6 +50,9 @@ test('production F1 scanner assets exist in authenticated order', () => {
   assert.ok(policy.modules.every((path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').length > 0));
   assert.throws(() => loadComposition({ ...policy, modules: [...policy.modules].reverse() }), /module order/u);
   assert.throws(() => assertProductionSource('do value="parseDocument(source)"', 'mutant.kern'), /forbidden production authority/u);
+  assert.throws(() => assertProductionSource('capability("parser-shadow")', 'mutant.kern'), /forbidden production authority/u);
+  const decoderSource = readFileSync(new URL('./decoder.mjs', import.meta.url), 'utf8');
+  assert.equal(decoderSource.match(/Array\.from\(source\)/gu)?.length, 1);
 });
 
 test('KERN scanner partitions valid physical source exactly', () => {

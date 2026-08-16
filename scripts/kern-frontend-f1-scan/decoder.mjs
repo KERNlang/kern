@@ -164,7 +164,8 @@ export function decodeScan(fields, source, policy = loadPolicy()) {
     fail('result shape');
   }
   if (fields[0] !== policy.resultFormat) fail('result format');
-  const sourceScalars = Array.from(source).length;
+  const sourceCodePoints = Array.from(source);
+  const sourceScalars = sourceCodePoints.length;
   if (canonicalUnsigned(fields[3], 'source count') !== sourceScalars) fail('source count');
   if (fields[1] === 'failure') {
     if (fields[4] !== '0' || fields[5] !== '0' || fields[6] !== '0' || fields[7] !== '' || fields[8] !== 'failure') {
@@ -192,7 +193,7 @@ export function decodeScan(fields, source, policy = loadPolicy()) {
       fail('record order/span');
     }
     if (record.endScalar <= record.startScalar) fail('record width');
-    const expectedRaw = Array.from(source).slice(record.startScalar, record.endScalar).join('');
+    const expectedRaw = sourceCodePoints.slice(record.startScalar, record.endScalar).join('');
     if (record.raw !== expectedRaw) fail('record source slice');
     return validateRole(record, policy, roleState);
   });

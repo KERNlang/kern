@@ -12,7 +12,7 @@ import {
 import { materialize } from '../kern-frontend-f1/transport-contract.mjs';
 import { decodeScan, fail, loadPolicy } from './decoder.mjs';
 
-const FORBIDDEN = /(?:parseInternal|parseDocument|parseExpression|tokenizeLineInternal|projectExpressionText|ReferenceRunner|typescript|kern\.frontend\..*-shadow|capability\s)/u;
+const FORBIDDEN = /(?:\bcapability\b|parser-|parseInternal|parseDocument|parseExpression|tokenizeLineInternal|projectExpressionText|ReferenceRunner|typescript|kern\.frontend\..*-shadow)/u;
 
 function sourceUrl(path) {
   return new URL(`../../${path}`, import.meta.url);
