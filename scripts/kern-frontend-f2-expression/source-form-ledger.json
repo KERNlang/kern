@@ -1,0 +1,255 @@
+{
+  "format": "kern.frontend.f2-expression-source-ledger.1",
+  "baseline": "41c49879b7331cbe599621f435971b1949539888",
+  "input": {
+    "shape": "expression-body-without-outer-double-braces",
+    "spanUnit": "unicode-scalar",
+    "maxSourceScalars": 65536,
+    "whitespaceScalars": ["U+0009", "U+000A", "U+000D", "U+0020"],
+    "illFormedUnicode": "ILL_FORMED_SOURCE"
+  },
+  "identifiers": {
+    "pattern": "[A-Za-z_$][A-Za-z0-9_$]*",
+    "keywords": {
+      "false": "boolean:false",
+      "instanceof": "binary-operator-in-operator-position",
+      "new": "constructor-in-prefix-position",
+      "none": "null",
+      "null": "null",
+      "true": "boolean:true",
+      "typeof": "unary-operator-in-prefix-position",
+      "void": "unary-operator-in-prefix-position"
+    },
+    "rejectedWords": {
+      "await": "reject-except-as-member-identifier-after-separator",
+      "undefined": "reject-except-as-member-identifier-after-separator"
+    },
+    "unlistedWords": "identifier-except-rejectedWords",
+    "hostReservedWords": "identifier-unless-listed-above",
+    "positionalFallback": {
+      "false": "identifier-after-member-separator",
+      "instanceof": "identifier-outside-operator-position",
+      "new": "identifier-after-member-separator",
+      "null": "identifier-after-member-separator",
+      "none": "identifier-after-member-separator",
+      "true": "identifier-after-member-separator",
+      "typeof": "identifier-after-member-separator",
+      "void": "identifier-after-member-separator"
+    }
+  },
+  "numbers": {
+    "integerPattern": "(?:0|[1-9][0-9]*)",
+    "decimalPattern": "(?:0|[1-9][0-9]*)[.][0-9]+",
+    "negativeForm": "unary-minus",
+    "negativeZero": "reject-unary-minus-over-zero-integer-or-zero-decimal-after-parenthesis-elision",
+    "unlistedForms": "reject",
+    "explicitlyRejected": ["bigint", "binary", "exponent", "hex", "leading-dot", "leading-zero", "numeric-separator", "octal", "trailing-dot"]
+  },
+  "text": {
+    "quotes": ["single", "double"],
+    "rawLineBreaks": "admit",
+    "f1RecordBoundaryRule": "backslash-stops-before-CR-or-LF-for-physical-record-partition-only;F2-semantic-decoding-is-defined-by-escapes",
+    "escapes": [
+      { "source": "\\\\", "value": "U+005C" },
+      { "source": "\\\"", "value": "U+0022" },
+      { "source": "\\'", "value": "U+0027" },
+      { "source": "\\0", "value": "U+0000", "condition": "next-source-scalar-is-not-ascii-digit" },
+      { "source": "\\b", "value": "U+0008" },
+      { "source": "\\f", "value": "U+000C" },
+      { "source": "\\n", "value": "U+000A" },
+      { "source": "\\r", "value": "U+000D" },
+      { "source": "\\t", "value": "U+0009" },
+      { "source": "\\v", "value": "U+000B" },
+      { "source": "\\xHH", "value": "one-scalar-from-two-hex-digits" },
+      { "source": "\\uHHHH", "value": "one-non-surrogate-scalar-or-one-adjacent-valid-surrogate-pair" },
+      { "source": "\\u{H-HHHHHH}", "value": "one-non-surrogate-scalar-at-most-U+10FFFF" },
+      { "source": "backslash-LF", "value": "empty", "consumedSourceScalars": 2 },
+      { "source": "backslash-CRLF", "value": "empty", "consumedSourceScalars": 3 }
+    ],
+    "unlistedEscapes": "reject",
+    "isolatedEscapedSurrogate": "reject"
+  },
+  "primaryForms": [
+    "identifier",
+    "null",
+    "boolean",
+    "integer",
+    "decimal",
+    "text",
+    "parenthesized",
+    "list",
+    "record"
+  ],
+  "collections": {
+    "list": {
+      "empty": "admit",
+      "separator": ",",
+      "trailingComma": "admit",
+      "spread": "reject"
+    },
+    "record": {
+      "empty": "admit",
+      "keyForms": ["identifier", "canonical-integer", "text"],
+      "shorthandIdentifier": "admit",
+      "separator": ",",
+      "trailingComma": "admit",
+      "duplicateDecodedKey": "reject-across-all-key-forms-after-decoding",
+      "keyEquality": "unicode-scalar-sequence",
+      "decodedKeyStorage": "Map-or-null-prototype-record-only",
+      "forbiddenDuplicateImplementation": "plain-object-property-assignment",
+      "spread": "reject",
+      "computedKey": "reject"
+    }
+  },
+  "postfixForms": [
+    { "form": "member", "syntax": ".identifier", "optional": false },
+    { "form": "member", "syntax": "?.identifier", "optional": true },
+    { "form": "index", "syntax": "[expression]", "optional": false },
+    { "form": "index", "syntax": "?.[expression]", "optional": true },
+    { "form": "call", "syntax": "(arguments)", "optional": false },
+    { "form": "call", "syntax": "?.(arguments)", "optional": true }
+  ],
+  "parenthesisDisambiguation": {
+    "expectOperator": "call-frame",
+    "expectValue": "lambda-parameters-only-when-matching-rparen-is-followed-by-arrow-and-interior-is-a-comma-separated-identifier-list-otherwise-one-grouped-expression",
+    "emptyParentheses": "lambda-parameters-only",
+    "lookahead": "one-bounded-token-prepass-pairs-delimiters-and-classifies-arrow-followed-rparens"
+  },
+  "constructors": [
+    { "name": "Map", "arity": 0, "resultMayReceivePostfixForms": true },
+    { "name": "Error", "arity": 1, "resultMayReceivePostfixForms": true }
+  ],
+  "lambda": {
+    "forms": ["identifier=>expression", "(identifier-list)=>expression"],
+    "emptyParameterList": "admit",
+    "typedParameters": "reject",
+    "returnType": "reject",
+    "blockBody": "reject",
+    "associativity": "right",
+    "bareIdentifierArrowReduction": "before-admitting-arrow-reduce-every-pending-prefix-binary-and-conditional-operator-to-the-current-frame-boundary;the-current-frame-value-segment-must-then-contain-exactly-one-ungrouped-identifier-node",
+    "classifiedParameterArrowReduction": "a-delimiter-prepass-classified-lambda-parameters-frame-consumes-rparen-and-following-arrow-as-one-close-action;no-general-operator-reduction-may-cross-the-frame-boundary",
+    "nonParameterLeftExamples": ["a+b=>c", "!a=>b", "a?b:c=>d", "(a+b)=>c"]
+  },
+  "operatorsHighToLow": [
+    { "level": 1, "operators": ["postfix-member", "postfix-index", "postfix-call"], "associativity": "left" },
+    { "level": 2, "operators": ["!", "-", "+", "~", "typeof", "void"], "associativity": "right" },
+    { "level": 3, "operators": ["**"], "associativity": "right", "unparenthesizedPrefixLeftOperand": "reject" },
+    { "level": 4, "operators": ["*", "/", "%"], "associativity": "left" },
+    { "level": 5, "operators": ["+", "-"], "associativity": "left" },
+    { "level": 6, "operators": ["<<", ">>", ">>>"], "associativity": "left" },
+    { "level": 7, "operators": ["<", "<=", ">", ">=", "instanceof"], "associativity": "left" },
+    { "level": 8, "operators": ["==", "!=", "===", "!=="], "associativity": "left" },
+    { "level": 9, "operators": ["&"], "associativity": "left" },
+    { "level": 10, "operators": ["^"], "associativity": "left" },
+    { "level": 11, "operators": ["|"], "associativity": "left" },
+    { "level": 12, "operators": ["&&"], "associativity": "left" },
+    { "level": 13, "operators": ["||"], "associativity": "left" },
+    { "level": 14, "operators": ["??"], "associativity": "left" },
+    { "level": 15, "operators": ["?:"], "associativity": "right" },
+    { "level": 16, "operators": ["=>"], "associativity": "right" }
+  ],
+  "binaryOperators": ["+", "-", "*", "/", "%", "**", "==", "!=", "===", "!==", "<", "<=", ">", ">=", "instanceof", "&&", "||", "??", "&", "|", "^", "<<", ">>", ">>>"],
+  "unaryOperators": ["!", "-", "+", "~", "typeof", "void"],
+  "operatorRestrictions": {
+    "unparenthesizedNullishLogicalMix": "reject",
+    "parenthesizedNullishLogicalMix": "admit"
+  },
+  "transitionStates": ["expect-value", "expect-operator"],
+  "openFrames": ["parenthesized", "list", "record", "index", "call", "constructor", "conditional", "lambda-parameters"],
+  "lexer": {
+    "maximalMunchOrder": ["whitespace", "text", "number", "identifier-or-keyword", "multi-character-operator", "single-character-token", "invalid"],
+    "multiCharacterOperatorsLongestFirst": [">>>", "===", "!==", "**", "==", "!=", "<=", ">=", "&&", "||", "??", "<<", ">>", "?.", "=>"],
+    "singleCharacterTokens": ["(", ")", "[", "]", "{", "}", ".", ",", ":", "?", "+", "-", "*", "/", "%", "<", ">", "!", "~", "&", "|", "^"],
+    "unknownDisposition": "FRONTEND_INVALID_EXPRESSION-at-one-scalar",
+    "eofToken": "eof"
+  },
+  "transitionTokenClasses": {
+    "value-atom": ["identifier", "null", "boolean", "integer", "decimal", "text"],
+    "value-opener": ["list-open", "record-open", "group-or-lambda-open", "constructor-open"],
+    "prefix-operator": ["!", "-", "+", "~", "typeof", "void"],
+    "postfix-member": [".", "optional-member"],
+    "postfix-frame": ["index-open", "optional-index-open", "call-open", "optional-call-open"],
+    "binary-operator": ["+", "-", "*", "/", "%", "**", "==", "!=", "===", "!==", "<", "<=", ">", ">=", "instanceof", "&&", "||", "??", "&", "|", "^", "<<", ">>", ">>>"],
+    "frame-separator-or-closer": [",", ":", ")", "]", "}"],
+    "frame-empty-close": [")", "]", "}"],
+    "conditional-open": ["?"],
+    "lambda-arrow": ["=>"],
+    "terminal": ["eof"]
+  },
+  "transitionTable": {
+    "expect-value": [
+      { "on": "whitespace", "action": "skip", "next": "expect-value" },
+      { "on": "value-atom", "action": "emit-atom", "next": "expect-operator" },
+      { "on": "value-opener", "action": "push-classified-frame", "next": "expect-value" },
+      { "on": "prefix-operator", "action": "push-prefix-operator", "next": "expect-value" },
+      { "on": "frame-empty-close", "action": "close-only-if-frame-admits-empty", "next": "expect-operator" },
+      { "on": "otherwise", "action": "fail-FRONTEND_INVALID_EXPRESSION-at-token", "next": "terminal-failure" }
+    ],
+    "expect-operator": [
+      { "on": "whitespace", "action": "skip", "next": "expect-operator" },
+      { "on": "postfix-member", "action": "consume-required-identifier-and-emit-member", "next": "expect-operator" },
+      { "on": "postfix-frame", "action": "push-index-or-call-frame", "next": "expect-value" },
+      { "on": "binary-operator", "action": "reduce-by-precedence-then-push", "next": "expect-value" },
+      { "on": "conditional-open", "action": "push-conditional-frame", "next": "expect-value" },
+      { "on": "lambda-arrow", "action": "reduce-all-pending-operators-to-current-frame-boundary-then-require-exactly-one-ungrouped-identifier-value-in-current-frame-segment-and-push-right-associative-lambda;classified-parameter-frames-consume-their-own-following-arrow-during-close", "next": "expect-value" },
+      { "on": "frame-separator-or-closer", "action": "apply-top-frame-rule", "next": "expect-value-or-expect-operator-as-specified-by-frame-action" },
+      { "on": "eof", "action": "reduce-all-and-accept-only-one-root-with-no-open-frame", "next": "terminal-success" },
+      { "on": "otherwise", "action": "fail-FRONTEND_INVALID_EXPRESSION-at-token", "next": "terminal-failure" }
+    ]
+  },
+  "frameRules": {
+    "parenthesized": { "open": "(", "empty": "reject", "separator": "reject", "close": ")", "onClose": "require-exactly-one-value-and-extend-its-span", "nextAfterClose": "expect-operator", "onEof": "fail-at-opener" },
+    "lambda-parameters": { "open": "(", "empty": "admit", "item": "identifier-only", "separator": ",", "trailingSeparator": "reject", "nextAfterSeparator": "expect-value", "close": ")-then-=>", "onClose": "capture-ordered-unique-parameters-and-push-lambda", "nextAfterClose": "expect-value", "onEof": "fail-at-opener" },
+    "list": { "open": "[", "empty": "admit", "item": "expression", "separator": ",", "trailingSeparator": "admit", "nextAfterSeparator": "expect-value", "close": "]", "onClose": "emit-list", "nextAfterClose": "expect-operator", "onEof": "fail-at-opener" },
+    "record": { "open": "{", "empty": "admit", "entry": "key-then-:-then-expression-or-shorthand-identifier", "colonAction": "after-key-enter-expect-value", "separator": ",", "trailingSeparator": "admit", "nextAfterSeparator": "expect-value", "close": "}", "onClose": "reject-duplicate-decoded-keys-then-emit-record", "nextAfterClose": "expect-operator", "onEof": "fail-at-opener" },
+    "index": { "open": "[-or-?.[", "empty": "reject", "item": "exactly-one-expression", "separator": "reject", "close": "]", "onClose": "emit-index-with-optional-flag", "nextAfterClose": "expect-operator", "onEof": "fail-at-opener" },
+    "call": { "open": "(-or-?.(", "empty": "admit", "item": "expression", "separator": ",", "trailingSeparator": "admit", "nextAfterSeparator": "expect-value", "close": ")", "onClose": "emit-call-with-optional-flag", "nextAfterClose": "expect-operator", "onEof": "fail-at-opener" },
+    "constructor": { "open": "new-then-Map(-or-new-then-Error(", "empty": "Map-only", "item": "Error-requires-exactly-one-expression", "separator": "reject", "trailingSeparator": "reject", "close": ")", "onClose": "emit-new-and-allow-postfix", "nextAfterClose": "expect-operator", "onEof": "fail-at-new-token" },
+    "conditional": { "open": "?", "first": "consequent-expression", "separator": ":", "nextAfterSeparator": "expect-value", "second": "alternate-expression", "close": "implicit-after-alternate-reduction", "onClose": "emit-conditional", "nextAfterClose": "expect-operator", "onEof": "fail-at-question-token" }
+  },
+  "eofRules": {
+    "expect-value": "FRONTEND_INVALID_EXPRESSION-at-eof-or-top-frame-opener",
+    "expect-operator-with-open-frame": "FRONTEND_INVALID_EXPRESSION-at-top-frame-opener",
+    "expect-operator-no-frame": "reduce-pending-operators-and-require-exactly-one-root"
+  },
+  "nodeTape": {
+    "format": "kern.frontend.f2-expression-node-tape.1",
+    "fieldOrder": ["id", "kindId", "startScalar", "endScalar", "flags", "subtreeSize", "payloadTape", "childIdTape"],
+    "fieldFrame": "f<fieldIndex>,<canonicalScalarLength>:<fieldText>",
+    "nodeFrame": "n<canonicalNodePayloadScalarLength>:<eightFieldFrames>",
+    "listItemFrame": "i<canonicalScalarLength>:<itemText>",
+    "emptyListTape": "",
+    "chunkFrame": "c<ordinal>,<firstNodeId>,<nodeCount>,<payloadScalarLength>:<nodeFrames>s<ordinal>",
+    "flags": { "optional": 1, "allOtherBits": "reject", "default": 0 },
+    "spanConventions": {
+      "unit": "unicode-scalar-half-open",
+      "outerWhitespace": "leading-and-trailing-body-whitespace-is-excluded-so-the-root-span-equals-the-complete-trimmed-body",
+      "interiorWhitespace": "included-when-between-a-node-owning-first-and-last-syntactic-token",
+      "parentheses": "grouping-emits-no-node-and-expands-the-contained-root-start-to-the-opening-paren-start-and-end-to-the-closing-paren-end-for-each-group",
+      "mutationRequirement": "each-kind-first-boundary-last-boundary-interior-operator-or-delimiter-and-parenthesis-expansion-drift-must-reject"
+    },
+    "kinds": [
+      { "id": 0, "kind": "identifier", "flags": [0], "payload": ["identifier-name"], "children": [], "spanRule": "exact-identifier-token-except-parenthesis-expansion" },
+      { "id": 1, "kind": "null", "flags": [0], "payload": [], "children": [], "spanRule": "exact-null-or-none-token-except-parenthesis-expansion" },
+      { "id": 2, "kind": "boolean", "flags": [0], "payload": ["true-or-false"], "children": [], "spanRule": "exact-true-or-false-token-except-parenthesis-expansion" },
+      { "id": 3, "kind": "integer", "flags": [0], "payload": ["canonical-source-text"], "children": [], "spanRule": "exact-canonical-integer-token-except-parenthesis-expansion" },
+      { "id": 4, "kind": "decimal", "flags": [0], "payload": ["canonical-source-text"], "children": [], "spanRule": "exact-canonical-decimal-token-except-parenthesis-expansion" },
+      { "id": 5, "kind": "text", "flags": [0], "payload": ["decoded-unicode-scalar-text"], "children": [], "spanRule": "opening-quote-start-through-matching-closing-quote-end-except-parenthesis-expansion" },
+      { "id": 6, "kind": "list", "flags": [0], "payload": [], "children": [{ "role": "items", "cardinality": "0..n" }], "spanRule": "opening-bracket-start-through-closing-bracket-end-except-parenthesis-expansion" },
+      { "id": 7, "kind": "record", "flags": [0], "payload": [{ "role": "decoded-source-order-keys", "cardinality": "n" }], "children": [{ "role": "values-aligned-with-keys", "cardinality": "n" }], "spanRule": "opening-brace-start-through-closing-brace-end-except-parenthesis-expansion" },
+      { "id": 8, "kind": "member", "flags": [0, 1], "payload": ["member-identifier"], "children": ["object"], "spanRule": "object-start-through-member-identifier-end-including-dot-or-optional-dot-except-parenthesis-expansion" },
+      { "id": 9, "kind": "index", "flags": [0, 1], "payload": [], "children": ["object", "index"], "spanRule": "object-start-through-closing-bracket-end-including-optional-marker-except-parenthesis-expansion" },
+      { "id": 10, "kind": "call", "flags": [0, 1], "payload": [], "children": ["callee", { "role": "arguments", "cardinality": "0..n" }], "spanRule": "callee-start-through-closing-paren-end-including-optional-marker-except-parenthesis-expansion" },
+      { "id": 11, "kind": "new", "flags": [0], "payload": ["Map-or-Error"], "children": [{ "role": "arguments", "cardinality": "Map:0;Error:1" }], "spanRule": "new-keyword-start-through-constructor-closing-paren-end-except-parenthesis-expansion" },
+      { "id": 12, "kind": "lambda", "flags": [0], "payload": [{ "role": "ordered-unique-parameter-identifiers", "cardinality": "0..n" }], "children": ["body"], "spanRule": "bare-parameter-identifier-start-or-parameter-opening-paren-start-through-body-end-except-parenthesis-expansion" },
+      { "id": 13, "kind": "binary", "flags": [0], "payload": ["one-binaryOperators-entry"], "children": ["left", "right"], "spanRule": "left-start-through-right-end-including-operator-and-interior-whitespace-except-parenthesis-expansion" },
+      { "id": 14, "kind": "unary", "flags": [0], "payload": ["one-unaryOperators-entry"], "children": ["operand"], "spanRule": "operator-token-start-through-operand-end-including-interior-whitespace-except-parenthesis-expansion" },
+      { "id": 15, "kind": "conditional", "flags": [0], "payload": [], "children": ["test", "consequent", "alternate"], "spanRule": "test-start-through-alternate-end-including-question-colon-and-interior-whitespace-except-parenthesis-expansion" }
+    ]
+  },
+  "failureCodes": ["ILL_FORMED_SOURCE", "SOURCE_LIMIT", "FRONTEND_INVALID_EXPRESSION", "EXPRESSION_LIMIT", "TRANSPORT_LIMIT", "FORCED_LATE_FAILURE"],
+  "expressionLimitSpan": "the-token-whose-consumption-would-exceed-token-node-depth-or-work-budget;zero-width-at-eof-only",
+  "resultKinds": ["identifier", "null", "boolean", "integer", "decimal", "text", "list", "record", "member", "index", "call", "new", "lambda", "binary", "unary", "conditional"],
+  "emptyOrWhitespaceOnlyBody": "FRONTEND_INVALID_EXPRESSION-span-complete-body",
+  "explicitlyRejectedFamilies": ["assignment", "await", "bigint", "block-lambda", "host-closure", "non-null", "propagation", "record-spread", "regex", "spread", "template", "type-assertion", "typed-call", "typed-lambda", "undefined", "unlisted-constructor"]
+}
