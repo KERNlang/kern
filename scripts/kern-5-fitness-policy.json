@@ -51,6 +51,7 @@
     "test:kern-frontend-runtime-text-cache": "pnpm --filter @kernlang/core build && node scripts/run-node-tests.mjs \"packages/core/tests/runtime-envelope-effect-machine-text-cache.test.ts\" && node scripts/kern-frontend-falsification/scalar-tape-probe.mjs",
     "test:kern-frontend-f1": "pnpm --filter @kernlang/core build && node scripts/run-node-tests.mjs \"packages/core/tests/runtime-envelope-trace-compaction.test.ts\" && node --test scripts/kern-frontend-f1/transport.test.mjs",
     "test:kern-frontend-f1-scan": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-f1-scan/scan.test.mjs",
+    "test:kern-frontend-f2-expression": "pnpm --filter @kernlang/core build && node --test scripts/kern-frontend-f2-expression/*.test.mjs",
     "test:kern-checker": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-checker/composition.mjs && node --test scripts/kern-checker/*.test.mjs && node scripts/check-capstone-checker-subset.mjs && node scripts/check-kern-checker.mjs",
     "test:kern-formatter": "pnpm --filter @kernlang/core build && pnpm --filter @kernlang/cli build && node scripts/kern-formatter/composition.mjs && node --test scripts/kern-formatter/*.test.mjs && node scripts/check-kern-formatter-wall.mjs"
   },
@@ -378,6 +379,12 @@
       "label": "KERN-owned production F1 physical scanner",
       "status": "current",
       "argv": ["pnpm", "test:kern-frontend-f1-scan"]
+    },
+    {
+      "id": "kern-frontend-f2-expression",
+      "label": "KERN-owned production F2 expression parser",
+      "status": "current",
+      "argv": ["pnpm", "test:kern-frontend-f2-expression"]
     },
     {
       "id": "kern-checker",
@@ -800,6 +807,12 @@
       "label": "KERN-owned production F1 physical scanner",
       "status": "internal-oracle",
       "evidence": "pnpm test:kern-frontend-f1-scan"
+    },
+    {
+      "id": "kern-frontend-f2-expression",
+      "label": "KERN-owned production F2 expression parser",
+      "status": "internal-oracle",
+      "evidence": "pnpm test:kern-frontend-f2-expression"
     },
     {
       "id": "kern-formatter",

@@ -77,6 +77,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-runtime-text-cache | Execution-local frontend text scaling prerequisite | current | `pnpm test:kern-frontend-runtime-text-cache` |
 | kern-frontend-f1 | F1 full-cap document transport falsification proof | current | `pnpm test:kern-frontend-f1` |
 | kern-frontend-f1-scan | KERN-owned production F1 physical scanner | current | `pnpm test:kern-frontend-f1-scan` |
+| kern-frontend-f2-expression | KERN-owned production F2 expression parser | current | `pnpm test:kern-frontend-f2-expression` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -159,6 +160,7 @@ wall and must remain absent until promoted.
 | kern-frontend-runtime-text-cache | Execution-local frontend text scaling prerequisite | internal-oracle | `pnpm test:kern-frontend-runtime-text-cache` |
 | kern-frontend-f1 | F1 full-cap document transport falsification proof | internal-oracle | `pnpm test:kern-frontend-f1` |
 | kern-frontend-f1-scan | KERN-owned production F1 physical scanner | internal-oracle | `pnpm test:kern-frontend-f1-scan` |
+| kern-frontend-f2-expression | KERN-owned production F2 expression parser | internal-oracle | `pnpm test:kern-frontend-f2-expression` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -463,6 +465,17 @@ outcomes. The gate proves 4K/16K/65K ASCII, astral, CRLF, and mixed walks with a
 12x wall for 4x growth. It changes no public Text/KIR surface and does not
 promote `kern-frontend`; generated TypeScript/Python cache parity and F1
 document scanning remain absent.
+
+F2 promotes `kern-frontend-f2-expression: internal-oracle`. One authenticated
+KERN composition owns scalar tokenization, the frozen 16-kind expression
+grammar, precedence and associativity, strict atomic diagnostics, and bounded
+postorder tape emission. The single stateful parser handler is packaged as
+three independently hashed sub-500-line fragments with a composite digest;
+TypeScript is used only by a passive structural parity oracle. A frozen
+SplitMix64 corpus, real F1 receipt seams, source/tape mutations, and deterministic
+1x/2x/4x/8x walls cover the production path. This does not discover or group
+expressions, assemble logical lines, attach nodes, emit canonical KIR, or
+promote `kern-frontend`; those remain F3-F7 ownership.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a
