@@ -6,6 +6,7 @@
  *  per-target lowering table picks the right shape (method / prop / freeFn). */
 
 import { KERN_STDLIB_MODULES, lookupStdlib, suggestStdlibMethod } from '../src/codegen/kern-stdlib.js';
+import { emittedCodeUsesTextOps } from '../src/codegen/stdlib-preamble.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
 
@@ -77,7 +78,9 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
   });
 
   test('reserved frontend scalar construction lowers to the guarded TS helper', () => {
-    expect(emitExpression(parseExpression('KernInternal.textFromScalar(code)'))).toBe('__kern_text_from_scalar(code)');
+    const emitted = emitExpression(parseExpression('KernInternal.textFromScalar(code)'));
+    expect(emitted).toBe('__kern_text_from_scalar(code)');
+    expect(emittedCodeUsesTextOps(emitted)).toBe(true);
   });
 
   test('Text.trim(s) lowers to TS s.trim()', () => {

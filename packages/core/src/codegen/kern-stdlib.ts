@@ -34,21 +34,31 @@
  *  throws with a Levenshtein did-you-mean. Calls into modules NOT in this
  *  table fall through to the default emit path (passthrough). */
 
-import type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './kern-stdlib-types.js';
+import { KERN_INTERNAL_TEXT_STDLIB } from './text-contract.js';
 
-export type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './kern-stdlib-types.js';
+export interface StdlibCallEntry {
+  kind?: 'call';
+  arity?: number;
+  minArity?: number;
+  maxArity?: number;
+  variadic?: boolean;
+  ts: string | ((args: string[]) => string);
+  py: string | ((args: string[]) => string);
+  /** Per-target imports required when this lowering is used. */
+  requires?: { ts?: string; py?: string };
+}
+
+export interface StdlibPropertyEntry {
+  kind: 'property';
+  ts: string;
+  py: string;
+  requires?: { ts?: string; py?: string };
+}
+
+export type StdlibEntry = StdlibCallEntry | StdlibPropertyEntry;
 
 export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
-  // Reserved compiler/runtime surface for authenticated KERN-owned modules.
-  // This is intentionally not part of the documented public Text namespace.
-  KernInternal: {
-    textFromScalar: {
-      arity: 1,
-      ts: '__kern_text_from_scalar($0)',
-      py: '_kern_text_from_scalar($0)',
-      requires: { py: 'text-ops' },
-    },
-  },
+  KernInternal: KERN_INTERNAL_TEXT_STDLIB,
   Text: {
     upper: { arity: 1, ts: '$0.toUpperCase()', py: '$0.upper()' },
     lower: { arity: 1, ts: '$0.toLowerCase()', py: '$0.lower()' },

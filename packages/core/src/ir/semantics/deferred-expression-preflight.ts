@@ -7,7 +7,6 @@ import {
 import { parseExpression } from '../../parser-expression.js';
 import type { IRNode } from '../../types.js';
 import type { ValueIR } from '../../value-ir.js';
-import { expressionHasDeferredBinding } from './deferred-binding.js';
 import { isSyntacticallyStringMapKey } from './deferred-map-key.js';
 import { expressionV1Parsed } from './expression-v1-runtime.js';
 import {
@@ -19,6 +18,7 @@ import {
   classifyInternalMachineClassScalarValue,
 } from './internal-effect-machine-class-value.js';
 import { assertInternalMachineDoNamespaceAvailable, parseInternalMachineDo } from './internal-effect-machine-do.js';
+import { expressionHasDeferredBinding } from './internal-effect-machine-expression-bindings.js';
 import { assertDeferredInternalMachineHelperArgument } from './internal-effect-machine-helper-argument-preflight.js';
 import { internalMachineHelperCallInValue } from './internal-effect-machine-helper-graph.js';
 import { evalDecimalExpression, isDecimalExpression, isDecimalValueExpression } from './portable-decimal-evaluator.js';
@@ -42,7 +42,7 @@ import {
 } from './portable-scalar-domain.js';
 import { getBinding, hasBinding, isCapturedArrayBinding, type SemanticEnv } from './semantic-env.js';
 
-export { expressionHasDeferredBinding } from './deferred-binding.js';
+export { expressionHasDeferredBinding } from './internal-effect-machine-expression-bindings.js';
 export function expressionRequiresDeferredMachinePreflight(
   node: ValueIR,
   env: SemanticEnv,

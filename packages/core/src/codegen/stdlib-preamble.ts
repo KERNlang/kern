@@ -143,6 +143,7 @@ export function emittedCodeUsesLooseEq(code: string): boolean {
  *  false-positive (a user STRING literal containing this exact token) harmless
  *  and astronomically unlikely, mirroring the loose-eq precedent. */
 const TEXT_OPS_CALL_TOKENS = [
+  '__kern_text_from_scalar(',
   '__kern_text_length(',
   '__kern_text_char_at(',
   '__kern_text_slice(',

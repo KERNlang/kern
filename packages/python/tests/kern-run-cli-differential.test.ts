@@ -22,8 +22,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { IRNode } from '@kernlang/core';
-import { emitNativeKernBodyTSWithImports, parseDocumentWithDiagnostics } from '@kernlang/core';
+import {
+  emitNativeKernBodyTSWithImports,
+  emittedCodeUsesTextOps,
+  parseDocumentWithDiagnostics,
+  textOpsHelpersTS,
+} from '@kernlang/core';
 import { nativeEligibilityClassifier, typescriptClosureClassifier } from '@kernlang/core/node';
+import ts from 'typescript';
 import { emitNativeKernBodyPythonWithImports } from '../src/codegen-body-python.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -92,8 +98,13 @@ function runRefStdout(src: string): string {
 function runTsStdout(src: string): string {
   const r = emitNativeKernBodyTSWithImports(handlerOf(src));
   const imports = [...(r.imports ?? [])].map((m) => `import * as __k_${m} from '${m}';`).join('\n');
+  const helpers = emittedCodeUsesTextOps(r.code) ? textOpsHelpersTS() : '';
   const file = join(dir, 'run.mjs');
-  writeFileSync(file, `${imports}\nfunction __h() {\n${r.code}\n}\n__h();\n`);
+  const source = `${imports}\n${helpers}\nfunction __h() {\n${r.code}\n}\n__h();\n`;
+  const emitted = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  writeFileSync(file, emitted);
   const out = spawnSync('node', [file], { encoding: 'utf-8', env: QUIET_NODE_ENV, timeout: 20000 });
   if (out.error) throw out.error;
   if (out.signal) {
@@ -139,6 +150,15 @@ function runPyStdout(src: string): string {
 
 // ── CERTIFIED: kern-run === ts === py === expected stdout ─────────────────────
 const CERT: Array<[string, string[], string]> = [
+  [
+    'private scalar constructor preserves astral values across all three legs',
+    [
+      'print value="KernInternal.textFromScalar(65536)"',
+      'print value="KernInternal.textFromScalar(128512)"',
+      'print value="KernInternal.textFromScalar(1114111)"',
+    ],
+    '𐀀\n😀\n􏿿\n',
+  ],
   ['two prints', ['print value="42"', 'print value="7"'], '42\n7\n'],
   ['bool + null', ['print value="true"', 'print value="null"'], 'true\nnull\n'],
   ['string passthrough', ['print value="\\"hello\\""'], 'hello\n'],
