@@ -27,6 +27,7 @@ import {
   POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
 } from './legacy-trace-compaction-historical-transition.mjs';
 import { POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS } from './trace-compaction-historical-transition.mjs';
+import { atScalarHelperHistoryCompiledPredecessor } from './scalar-helper-history-transition.mjs';
 
 const CACHE_SUCCESSOR_PATH = 'ir/semantics/internal-text-code-point-cache.js';
 const RETAINED_CHANGED_PATHS = [
@@ -143,7 +144,10 @@ test('runtime text cache retained owners reconstruct exact clean baseline bytes'
   );
   for (const reconstruction of POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS) {
     const liveSource = readFileSync(resolve(root, reconstruction.path));
-    const currentSource = reconstructPreTraceCompiled(reconstruction.path, liveSource);
+    const currentSource = reconstructPreTraceCompiled(
+      reconstruction.path,
+      atScalarHelperHistoryCompiledPredecessor(reconstruction.path, liveSource),
+    );
     assert.equal(digest(currentSource), reconstruction.currentDigest, reconstruction.path);
     const historicalSource = reconstructHistoricalSource({
       currentSource,

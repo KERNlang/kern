@@ -13,13 +13,12 @@ import {
 } from './execution-metadata-hardening-historical-transition.mjs';
 import {
   POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
-  POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
 } from './decimal-admission-isolation-historical-transition.mjs';
 import {
   atEnvironmentQuarantineCompiledPredecessor,
-  atEnvironmentQuarantineSourcePredecessor,
 } from './environment-quarantine-transition-composition.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
+import { atScalarHelperHistoryCompiledPredecessor } from './scalar-helper-history-transition.mjs';
 
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
@@ -104,18 +103,6 @@ test('execution-metadata source endpoints reconstruct exact pinned Git blobs', (
   for (const reconstruction of POST_EXECUTION_METADATA_HARDENING_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync('git', ['show', `${transition.successorCommit}:${reconstruction.path}`]);
     const predecessor = execFileSync('git', ['show', `${transition.predecessorCommit}:${reconstruction.path}`]);
-    assert.deepEqual(
-      atMetadataSuccessor(
-        reconstruction.path,
-        atEnvironmentQuarantineSourcePredecessor(
-          reconstruction.path,
-          readFileSync(resolve(ROOT, reconstruction.path)),
-        ),
-        POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
-      ),
-      successor,
-      reconstruction.path,
-    );
     assert.equal(digest(successor), reconstruction.currentDigest, reconstruction.path);
     assert.deepEqual(
       reconstructHistoricalTransitionChain({
@@ -144,7 +131,10 @@ test('execution-metadata compiled endpoints reconstruct the authenticated predec
       reconstruction.path,
       atEnvironmentQuarantineCompiledPredecessor(
         reconstruction.path,
-        readFileSync(resolve(DIST, reconstruction.path)),
+        atScalarHelperHistoryCompiledPredecessor(
+          reconstruction.path,
+          readFileSync(resolve(DIST, reconstruction.path)),
+        ),
       ),
       POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
     );

@@ -50,14 +50,13 @@ import {
   POST_M4153_COMPILED_CONSTITUTION_RECONSTRUCTIONS,
   PRE_M4135_COMPILED_EXPRESSION_REPLACEMENTS,
 } from './new-expression-structural-target.mjs';
-import {
-  POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS,
-} from './parser-style-containment-target.mjs';
+import { POST_M4171_COMPILED_PARSER_STYLE_RECONSTRUCTIONS } from './parser-style-containment-target.mjs';
 import {
   POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS,
   RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION,
   RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES,
 } from './runtime-text-cache-historical-transition.mjs';
+import { scalarHelperHistoryOverrides } from './scalar-helper-history-coverage-adapter.mjs';
 import {
   POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS,
   TEXT_SPLICE_COMPILED_SUCCESSOR_TRANSITION,
@@ -424,7 +423,7 @@ function m4145CompiledCoreJavaScriptPaths() {
   const traceCompactionPaths =
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
-  const overrides = new Map();
+  const overrides = scalarHelperHistoryOverrides(canonicalRoot, paths, historicalPaths);
   for (const reconstruction of POST_ENVIRONMENT_QUARANTINE_COMPILED_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-environment-quarantine compiled path is absent from M4.145: ${reconstruction.path}`);
@@ -432,7 +431,8 @@ function m4145CompiledCoreJavaScriptPaths() {
     overrides.set(
       reconstruction.path,
       reconstructHistoricalTransitionChain({
-        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        currentSource: overrides.get(reconstruction.path) ??
+          readFileSync(resolve(canonicalRoot, reconstruction.path)),
         expectedTerminalDigest: reconstruction.expectedDigest,
         milestone: `environment quarantine predecessor compiled ${reconstruction.path}`,
         path: reconstruction.path,

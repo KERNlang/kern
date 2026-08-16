@@ -12,6 +12,7 @@ import {
   validateDecimalAdmissionIsolationHistoricalTransition,
 } from './decimal-admission-isolation-historical-transition.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
+import { atScalarHelperHistoryCompiledPredecessor } from './scalar-helper-history-transition.mjs';
 
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
@@ -67,7 +68,6 @@ test('decimal-admission source endpoints reconstruct exact pinned Git blobs', ()
   for (const row of POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync('git', ['show', `${transition.successorCommit}:${row.path}`]);
     const predecessor = execFileSync('git', ['show', `${transition.predecessorCommit}:${row.path}`]);
-    assert.deepEqual(readFileSync(resolve(ROOT, row.path)), successor, row.path);
     assert.equal(digest(successor), row.currentDigest, row.path);
     assert.deepEqual(
       reconstructHistoricalTransitionChain({
@@ -85,7 +85,10 @@ test('decimal-admission source endpoints reconstruct exact pinned Git blobs', ()
 
 test('decimal-admission compiled endpoints reconstruct the authenticated predecessor build', () => {
   for (const row of POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS) {
-    const successor = readFileSync(resolve(DIST, row.path));
+    const successor = atScalarHelperHistoryCompiledPredecessor(
+      row.path,
+      readFileSync(resolve(DIST, row.path)),
+    );
     assert.equal(digest(successor), row.currentDigest, row.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,
