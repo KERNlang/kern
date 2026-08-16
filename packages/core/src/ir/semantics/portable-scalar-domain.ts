@@ -26,6 +26,7 @@ export const RESERVED_NAMES = new Set([
   'Array',
   'Boolean',
   'JSON',
+  'KernInternal',
   'List',
   'Map',
   'Math',

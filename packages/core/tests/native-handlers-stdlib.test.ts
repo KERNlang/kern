@@ -76,6 +76,10 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     expect(emitExpression(parseExpression('Text.startsWith(s, prefix)'))).toBe('__kern_text_starts_with(s, prefix)');
   });
 
+  test('reserved frontend scalar construction lowers to the guarded TS helper', () => {
+    expect(emitExpression(parseExpression('KernInternal.textFromScalar(code)'))).toBe('__kern_text_from_scalar(code)');
+  });
+
   test('Text.trim(s) lowers to TS s.trim()', () => {
     expect(emitExpression(parseExpression('Text.trim(input)'))).toBe('input.trim()');
   });

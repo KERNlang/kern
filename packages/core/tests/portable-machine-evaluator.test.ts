@@ -90,6 +90,25 @@ describe('portable machine evaluator', () => {
     expect(evaluate('Text.charAt("A😀B", 1)', bindings)).toBe('😀');
   });
 
+  test('owns the reserved bounded frontend scalar constructor', () => {
+    expect(evaluate('KernInternal.textFromScalar(0)')).toBe('\0');
+    expect(evaluate('KernInternal.textFromScalar(55295)')).toBe('\ud7ff');
+    expect(evaluate('KernInternal.textFromScalar(57344)')).toBe('\ue000');
+    expect(evaluate('KernInternal.textFromScalar(128512)')).toBe('😀');
+    expect(evaluate('Text.length(KernInternal.textFromScalar(1114111))')).toBe(1);
+    for (const source of [
+      'KernInternal.textFromScalar(-1)',
+      'KernInternal.textFromScalar(1114112)',
+      'KernInternal.textFromScalar(55296)',
+      'KernInternal.textFromScalar(57343)',
+      'KernInternal.textFromScalar(1.5)',
+      'KernInternal.textFromScalar(true)',
+      'KernInternal.textFromScalar("65")',
+    ]) {
+      expect(() => evaluate(source)).toThrow('KernInternal.textFromScalar');
+    }
+  });
+
   test('owns strict List.index hits and nullish misses without weakening raw index provenance', () => {
     const sparse = [1, 2, 3];
     delete sparse[1];

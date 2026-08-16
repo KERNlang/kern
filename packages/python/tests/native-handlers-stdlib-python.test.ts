@@ -43,6 +43,10 @@ describe('emitPyExpression — KERN-stdlib dispatch (Text module)', () => {
     expect(emitPyExpression(parseExpression('Text.startsWith(s, prefix)'))).toBe('_kern_text_starts_with(s, prefix)');
   });
 
+  test('reserved frontend scalar construction lowers to the guarded Python helper', () => {
+    expect(emitPyExpression(parseExpression('KernInternal.textFromScalar(code)'))).toBe('_kern_text_from_scalar(code)');
+  });
+
   test('Text.trim(s) lowers to Python s.strip() (NOT s.trim — that is JS)', () => {
     expect(emitPyExpression(parseExpression('Text.trim(input)'))).toBe('input.strip()');
   });

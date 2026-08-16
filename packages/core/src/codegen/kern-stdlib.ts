@@ -34,32 +34,21 @@
  *  throws with a Levenshtein did-you-mean. Calls into modules NOT in this
  *  table fall through to the default emit path (passthrough). */
 
-export interface StdlibCallEntry {
-  kind?: 'call';
-  arity?: number;
-  minArity?: number;
-  maxArity?: number;
-  variadic?: boolean;
-  ts: string | ((args: string[]) => string);
-  py: string | ((args: string[]) => string);
-  /** Slice 3b — per-target imports required when this lowering is used.
-   *  The body emitter collects these into a per-handler import set so the
-   *  generator can emit `import math` (etc.) at the top of the function
-   *  body. Keys are target names ('ts' / 'py'); values are the import
-   *  identifier (`'math'` ⇒ `import math`). Undefined when none required. */
-  requires?: { ts?: string; py?: string };
-}
+import type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './kern-stdlib-types.js';
 
-export interface StdlibPropertyEntry {
-  kind: 'property';
-  ts: string;
-  py: string;
-  requires?: { ts?: string; py?: string };
-}
-
-export type StdlibEntry = StdlibCallEntry | StdlibPropertyEntry;
+export type { StdlibCallEntry, StdlibEntry, StdlibPropertyEntry } from './kern-stdlib-types.js';
 
 export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
+  // Reserved compiler/runtime surface for authenticated KERN-owned modules.
+  // This is intentionally not part of the documented public Text namespace.
+  KernInternal: {
+    textFromScalar: {
+      arity: 1,
+      ts: '__kern_text_from_scalar($0)',
+      py: '_kern_text_from_scalar($0)',
+      requires: { py: 'text-ops' },
+    },
+  },
   Text: {
     upper: { arity: 1, ts: '$0.toUpperCase()', py: '$0.upper()' },
     lower: { arity: 1, ts: '$0.toLowerCase()', py: '$0.lower()' },

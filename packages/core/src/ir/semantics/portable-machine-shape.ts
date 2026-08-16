@@ -98,6 +98,11 @@ function assertScalarCallShape(
     assertPortableMachineScalarShape(node.args[1], env, scalarHelperCall, portableHelperCall);
     return;
   }
+  if (namespace === 'KernInternal') {
+    if (method !== 'textFromScalar' || node.args.length !== 1) fail('KernInternal call');
+    assertPortableMachineScalarShape(node.args[0], env, scalarHelperCall, portableHelperCall);
+    return;
+  }
   if (namespace === 'Text') {
     if (TEXT_ARITY[method] !== node.args.length) fail('Text call');
     for (const argument of node.args) {

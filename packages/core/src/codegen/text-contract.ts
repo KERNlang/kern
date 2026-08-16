@@ -136,6 +136,9 @@ export function textSliceOutOfRangeMessage(label: string, start: number, end: nu
   );
 }
 
+export const TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE =
+  'requires a safe integer Unicode scalar (0..1114111 excluding surrogates)';
+
 /** TS-leg helper functions for the code-point-indexed Text ops, rendered
  *  into the file-level KERN-stdlib preamble (see `stdlib-preamble.ts`'s
  *  `usage.textOps` gate) exactly once per generated module — mirroring
@@ -169,6 +172,12 @@ export function textOpsHelpersTS(): string {
     '}',
     'function __kern_text_code_points(s: string): string[] {',
     '  return Array.from(s);',
+    '}',
+    'function __kern_text_from_scalar(value: number): string {',
+    '  if (!Number.isSafeInteger(value) || value < 0 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) {',
+    `    throw new Error('portable: KernInternal.textFromScalar ' + ${JSON.stringify(TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE)});`,
+    '  }',
+    '  return String.fromCodePoint(value);',
     '}',
     'function __kern_text_length(s: string): number {',
     "  return __kern_text_code_points(__kern_text_require_well_formed(s, 'Text.length')).length;",
@@ -253,6 +262,12 @@ export const KERN_TEXT_OPS_HELPER_PY = [
   '    if isinstance(i, float) and i.is_integer():',
   '        return int(i)',
   '    return None',
+  '',
+  'def _kern_text_from_scalar(value):',
+  '    k = _kern_text_int_index(value)',
+  '    if k is None or k < 0 or k > 0x10ffff or 0xd800 <= k <= 0xdfff:',
+  `        raise Exception('portable: KernInternal.textFromScalar ' + ${pyStr(TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE)})`,
+  '    return chr(k)',
   '',
   // Render an index for the bounds-error message with JS-parity: an
   // integer-valued float renders as its int form (JS String(2.0) is "2",

@@ -39,6 +39,7 @@
  *   - `startsWith(prefix)` returns a boolean; there is no out-of-range case.
  */
 
+import { TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE } from '../../codegen/text-contract.js';
 import { isValueIR, type ValueIR } from '../../value-ir.js';
 import {
   copyInternalEffectMachineState,
@@ -95,6 +96,26 @@ export function evalStringOpCall(
   if (node.optional) return undefined;
   const callee = node.callee;
   if (callee.kind !== 'member' || callee.optional) return undefined;
+  if (
+    callee.object.kind === 'ident' &&
+    callee.object.name === 'KernInternal' &&
+    !hasBinding(env, 'KernInternal') &&
+    callee.property === 'textFromScalar'
+  ) {
+    const label = 'KernInternal.textFromScalar';
+    if (node.args.length !== 1) throw new Error(`portable: ${label} expects exactly 1 argument`);
+    const value = evaluate(node.args[0], env);
+    if (
+      typeof value !== 'number' ||
+      !Number.isSafeInteger(value) ||
+      value < 0 ||
+      value > 0x10ffff ||
+      (value >= 0xd800 && value <= 0xdfff)
+    ) {
+      throw new Error(`portable: ${label} ${TEXT_SCALAR_CONSTRUCTOR_FAILCLOSE}`);
+    }
+    return String.fromCodePoint(value);
+  }
   if (!isTextNamespaceIdent(callee.object, env)) return undefined;
   const method = callee.property;
   const arity = STRING_OP_ARITY[method];
