@@ -65,6 +65,15 @@ test('scalar helper history authenticates the exact stable 317-path inventory', 
   );
 });
 
+test('the canonicalizer gate rebuilds core before authenticating transition bytes', () => {
+  const script = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).scripts['test:kern-canonicalizer'];
+  const build = 'pnpm --filter @kernlang/core build';
+  const authenticate = 'node --test scripts/kern-canonicalizer/*.test.mjs';
+  assert.equal(typeof script, 'string');
+  assert.ok(script.indexOf(build) >= 0, 'canonicalizer gate must rebuild core');
+  assert.ok(script.indexOf(build) < script.indexOf(authenticate), 'core rebuild must precede transition tests');
+});
+
 test('every changed compiled path reconstructs its authenticated Git blob endpoint', () => {
   const predecessor = [];
   const successor = [];
@@ -72,6 +81,7 @@ test('every changed compiled path reconstructs its authenticated Git blob endpoi
     const current = readFileSync(resolve(DIST, row.path));
     assert.equal(digest(current), row.currentDigest, row.path);
     assert.equal(blob(current), row.currentBlob, row.path);
+    assert.deepEqual(current, Buffer.from(row.replacements[0].current), row.path);
     const historical = reconstructHistoricalTransitionChain({
       currentSource: current,
       expectedTerminalDigest: row.expectedDigest,
@@ -79,8 +89,16 @@ test('every changed compiled path reconstructs its authenticated Git blob endpoi
       path: row.path,
       stages: [historicalTransitionStage(row)],
     });
+    assert.deepEqual(historical, Buffer.from(row.replacements[0].historical), row.path);
     assert.equal(blob(historical), row.expectedBlob, row.path);
     assert.deepEqual(atScalarHelperHistoryCompiledPredecessor(row.path, current), historical, row.path);
+    const tampered = Buffer.from(current);
+    tampered[0] ^= 1;
+    assert.throws(
+      () => atScalarHelperHistoryCompiledPredecessor(row.path, tampered),
+      /broken or misordered successor edge/u,
+      row.path,
+    );
     assert.throws(
       () => atScalarHelperHistoryCompiledPredecessor(row.path, historical),
       /broken or misordered successor edge/u,
@@ -95,6 +113,8 @@ test('every changed compiled path reconstructs its authenticated Git blob endpoi
   }
   assert.equal(endpointDigest(predecessor, 'historical'), TRANSITION.compiledEndpoints.predecessor);
   assert.equal(endpointDigest(successor, 'current'), TRANSITION.compiledEndpoints.successor);
+  const unknown = Buffer.from('export const untouched = true;\n');
+  assert.deepEqual(atScalarHelperHistoryCompiledPredecessor('unknown.js', unknown), unknown);
 });
 
 test('scalar helper history rejects omission, addition, reorder, and identity drift', () => {

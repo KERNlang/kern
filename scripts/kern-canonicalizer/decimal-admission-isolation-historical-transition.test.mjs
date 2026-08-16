@@ -63,7 +63,7 @@ test('decimal-admission isolation binds exact commits, manifests, and unchanged 
   assert.deepEqual(identity, transition.compiledInventory.predecessor);
 });
 
-test('decimal-admission source endpoints reconstruct exact pinned Git blobs', () => {
+test('decimal-admission pinned source endpoints reconstruct exact Git blobs', () => {
   const transition = DECIMAL_ADMISSION_ISOLATION_HISTORICAL_TRANSITION;
   for (const row of POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync('git', ['show', `${transition.successorCommit}:${row.path}`]);

@@ -96,7 +96,7 @@ test('execution-metadata hardening binds exact commits, manifests, and unchanged
   assert.deepEqual(identity, transition.compiledInventory.predecessor);
 });
 
-test('execution-metadata source endpoints reconstruct exact pinned Git blobs', () => {
+test('execution-metadata pinned source endpoints reconstruct exact Git blobs', () => {
   const transition = EXECUTION_METADATA_HARDENING_HISTORICAL_TRANSITION;
   const predecessors = [];
   const successors = [];
