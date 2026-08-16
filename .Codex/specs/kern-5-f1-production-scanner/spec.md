@@ -1,8 +1,8 @@
 # KERN 5 F1 Production Physical Scanner
 
-**Status:** IMPLEMENTED — FINAL GATES AND INDEPENDENT REVIEW PENDING
+**Status:** VERIFIED COMPLETE — F2 IS NEXT
 
-**Date:** 2026-08-15
+**Date:** 2026-08-16
 
 **Baseline:** `8e4d4e79400dae07ae33a6f37727db7b7416d654`
 
@@ -12,7 +12,13 @@
 **Nero challenge:**
 `/Users/nicolascukas/.agon/runs/nero-1786788419463-66i9eg`
 
-**Confidence:** 0.92 after resolving the adversarial challenge
+**Independent review:**
+`/Users/nicolascukas/.agon/runs/review-1786865841006-i8nmk0`
+
+**Targeted remediation review:**
+`/Users/nicolascukas/.agon/runs/review-1786866671411-a437hp`
+
+**Confidence:** 0.99 after the full promoted KERN 5 fitness wall passed
 
 ## Executive Summary
 
@@ -264,7 +270,7 @@ raw text for physical terminators, duplicating F1 semantics across the seam.
 - [x] **[F1S-A8]** Built and source import/call closure contains none of the
       forbidden authorities, and all authenticated source/policy digests are
       checked before invocation.
-- [ ] **[F1S-A9]** 1x/2x/4x/8x corpora satisfy authenticated absolute and
+- [x] **[F1S-A9]** 1x/2x/4x/8x corpora satisfy authenticated absolute and
       adjacent scaling walls while P0's full-cap transport, runtime envelope,
       source-runner convergence, canonicalizer, checker, formatter, lint, and
       full promoted KERN 5 fitness gates remain green.
