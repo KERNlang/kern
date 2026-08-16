@@ -1,0 +1,64 @@
+fn name=f1scanidentstart returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="(ch >= \"A\" && ch <= \"Z\") || (ch >= \"a\" && ch <= \"z\") || ch == \"_\""
+
+fn name=f1scanidentchar returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="f1scanidentstart(ch) || (ch >= \"0\" && ch <= \"9\") || ch == \"-\""
+
+fn name=f1scandigit returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch >= \"0\" && ch <= \"9\""
+
+fn name=f1scanhexdigit returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="f1scandigit(ch) || (ch >= \"a\" && ch <= \"f\") || (ch >= \"A\" && ch <= \"F\")"
+
+fn name=f1scanbindigit returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch == \"0\" || ch == \"1\""
+
+fn name=f1scanoctdigit returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch >= \"0\" && ch <= \"7\""
+
+fn name=f1scanspace returns=boolean
+  param name=ch type=string
+  handler lang="kern"
+    return value="ch == \" \" || ch == \"\\t\""
+
+fn name=f1scankindcode returns=string
+  param name=kindId type=number
+  param name=flags type=number
+  handler lang="kern"
+    if cond="kindId < 0 || kindId > 14 || flags < 0 || flags > 7"
+      return value="\"\""
+    return value="String(kindId * 8 + flags)"
+
+fn name=f1scanframe returns=string
+  param name=marker type=string
+  param name=value type=string
+  handler lang="kern"
+    return value="marker + String(Text.length(value)) + \":\" + value"
+
+fn name=f1scanfailurepayload returns=string
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  handler lang="kern"
+    return value="f1scanframe(\"C\", code) + f1scanframe(\"S\", String(startScalar)) + f1scanframe(\"E\", String(endScalar))"
+
+fn name=f1scanfailure returns="string[]"
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=sourceScalars type=number
+  handler lang="kern"
+    let name=payload value="f1scanfailurepayload(code, startScalar, endScalar)"
+    return value="[\"kern.frontend.f1-scan.1\", \"failure\", payload, String(sourceScalars), \"0\", \"0\", \"0\", \"\", \"failure\"]"

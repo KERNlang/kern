@@ -1,6 +1,6 @@
 # KERN 5.0 Completion Goal
 
-**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0 COMPLETE
+**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0/F1 COMPLETE
 
 **Goal confidence:** 0.96
 
@@ -28,7 +28,8 @@ passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
 passes. After the production-checker, formatter, and non-promoting frontend F0
-closure and runtime text-scaling prerequisite slices, that wall contains 54
+closure, runtime text-scaling prerequisite, P0 transport, and production F1
+physical-scanner slices, that wall contains 56
 promoted gates and excludes the six
 remaining planned terminal gates.
 
@@ -44,7 +45,7 @@ before the isolated Phase 0 worktree was created.
 Reconciled state after the Phase 1 checker, formatter, runtime splice, and
 frontend F0 closure slices:
 
-- 60 declared KERN 5 gates: 54 current, 6 planned.
+- 62 declared KERN 5 gates: 56 current, 6 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - The production structural checker is `internal-product`; KIR v1, runtime
   ownership slices, canonicalizer, and frontend slices remain
@@ -61,10 +62,11 @@ frontend F0 closure slices:
   static canonical KIR goldens, and the F1-F7 delivery order. It does not add a
   production parser or promote `test:kern-frontend`.
 - The execution-local Text cache prerequisite removes repeated Unicode-scalar
-  materialization from reference-runner document walks, but generated
-  TypeScript/Python parity and the F1 scanner remain open.
+  materialization from reference-runner document walks. P0 transport and the
+  authenticated KERN-owned production F1 physical scanner are current; F2-F7,
+  generated target parity, and terminal frontend promotion remain open.
 
-Promoted-gate row coverage is `54 / 60 = 90.0%`. Phase 0 made three omitted
+Promoted-gate row coverage is `56 / 62 = 90.3%`. Phase 0 made three omitted
 terminal requirements visible; no implementation was lost. The source-grounded
 release-completion estimate is approximately 54-64%
 because the remaining gates are the high-weight ownership and cutover phases.
@@ -113,6 +115,8 @@ machine-enumerated without promoting unfinished work.
 
 - [x] Freeze the exhaustive frontend surface/disposition ledger and static
   canonical/malformed goldens without promoting the terminal frontend gate.
+- [x] Land authenticated P0 result transport and the KERN-owned production F1
+  physical scanner without promoting the terminal frontend gate.
 - Extend M4.171 through cross-line parsing, decorators, multiline blocks,
   nodes/trees, declarations, modules/imports, malformed-input diagnostics,
   stable source evidence, and source-to-KIR emission.

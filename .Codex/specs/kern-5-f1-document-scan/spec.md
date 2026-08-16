@@ -1,6 +1,6 @@
 # KERN 5 F1 Physical Document Scanner
 
-**Status:** P0 VERIFIED — PRODUCTION F1 CONTRACT EXTRACTION NEXT
+**Status:** P0 + PRODUCTION F1 VERIFIED — F2 NEXT
 
 **Date:** 2026-08-14
 
@@ -409,19 +409,19 @@ and F0/release evidence updates. No public parser export is planned.
   the configured runtime limits and proves the decoded envelope remains the
   original success result rather than an `encoded-limit` substitute.
 
-### F1 — Production scanner gate (blocked until P0 and F1-D5 resolve)
+### F1 — Production scanner gate (verified by the dedicated semantic gate)
 
-- [ ] Raw source is scanned only by the authenticated KERN composition and
+- [x] Raw source is scanned only by the authenticated KERN composition and
   returns the six-field tape with exact partition/reconstruction.
-- [ ] Valid and malformed fixtures cover every frozen F1 lexical family,
+- [x] Valid and malformed fixtures cover every frozen F1 lexical family,
   Unicode scalar spans, original terminators, quotes, comments, fences, exact
   limits, and deterministic first-failure precedence.
-- [ ] Independent current-source oracles agree on all admitted fixtures without
+- [x] Independent current-source oracles agree on all admitted fixtures without
   sharing production helpers or feeding shadow receipts to production.
-- [ ] Mutations kill host classification/delegation, constants, stale assets,
+- [x] Mutations kill host classification/delegation, constants, stale assets,
   reordered modules, kind changes with unchanged raw text, span drift, partial
   output on failure, and accidental F2/F3 fields.
-- [ ] `pnpm test:kern-frontend-f1` is current in the internal KERN 5 wall while
+- [x] `pnpm test:kern-frontend-f1-scan` is current in the internal KERN 5 wall while
   `pnpm test:kern-frontend` remains absent/planned until F7.
 
 ## Out of Scope

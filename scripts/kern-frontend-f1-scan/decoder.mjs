@@ -39,13 +39,17 @@ export function loadPolicy() {
   const policy = JSON.parse(readFileSync(new URL('./policy.json', import.meta.url), 'utf8'));
   exactKeys(
     policy,
-    ['format', 'resultFormat', 'modules', 'kindIds', 'flags', 'profileLimits', 'runtimeLimits', 'scheduler'],
+    ['format', 'resultFormat', 'modules', 'moduleSha256', 'kindIds', 'flags', 'profileLimits', 'runtimeLimits', 'scheduler'],
     'policy',
   );
   if (policy.format !== 'kern.frontend.f1-scan-policy.1') fail('policy format');
   if (policy.resultFormat !== 'kern.frontend.f1-scan.1') fail('result format');
   if (!Array.isArray(policy.modules) || policy.modules.length !== 4 || new Set(policy.modules).size !== 4) {
     fail('module list');
+  }
+  exactKeys(policy.moduleSha256, policy.modules, 'module digests');
+  for (const [path, digest] of Object.entries(policy.moduleSha256)) {
+    if (!/^[0-9a-f]{64}$/u.test(digest) || !policy.modules.includes(path)) fail('module digest');
   }
   const kinds = [
     'identifier', 'number', 'equals', 'slash', 'comma', 'quoted', 'expr', 'style',
@@ -131,7 +135,8 @@ function validateRole(record, policy, state) {
       if (state.mode !== null) fail('nested fence opener');
       state.mode = 'fence';
     } else if (flags === 2) {
-      if (state.mode === 'fence') state.mode = null;
+      if (state.mode !== 'fence') fail('orphan fence closer');
+      state.mode = null;
     } else fail('fence marker flags');
   }
   if (kind === 'quoted' || kind === 'expr') {

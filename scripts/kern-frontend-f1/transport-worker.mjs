@@ -19,10 +19,15 @@ import {
 } from './transport-contract.mjs';
 import { mutationSuite } from './transport-mutations.mjs';
 
+const transportSource = readFileSync(
+  new URL('../../examples/kern-frontend/f1-transport.kern', import.meta.url),
+  'utf8',
+);
 const probeSource = readFileSync(
   new URL('../../examples/kern-frontend/f1-output-transport-probe.kern', import.meta.url),
   'utf8',
 );
+const kernSource = `${transportSource}\n${probeSource}`;
 const UINT = /^(?:0|[1-9][0-9]*)$/u;
 
 function encodeAndDecode(envelope, runtimeLimits) {
@@ -100,7 +105,7 @@ function runProbe(shape, size, forceLateFailure, policy) {
         handlerName: 'probef1transport',
         sourcePath: 'examples/kern-frontend/f1-output-transport-probe.kern',
       },
-      source: probeSource,
+      source: kernSource,
     },
     { enabled: true, limits: policy.runtimeLimits, scheduler: policy.scheduler },
   );

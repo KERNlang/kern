@@ -1,0 +1,48 @@
+fn name=f1transportpair returns="string[]"
+  param name=parts type="string[]"
+  handler lang="kern"
+    let name=next value="[]"
+    for name=index from=0 to="parts.length" step=2
+      let name=combined value="parts[index]"
+      if cond="index + 1 < parts.length"
+        assign target=combined value="combined + parts[index + 1]"
+      do value="next.push(combined)"
+    return value="next"
+
+fn name=f1transportconcat returns=string
+  param name=parts type="string[]"
+  handler lang="kern"
+    if cond="parts.length > 256"
+      return value="\"\""
+    let name=level1 value="f1transportpair(parts)"
+    let name=level2 value="f1transportpair(level1)"
+    let name=level3 value="f1transportpair(level2)"
+    let name=level4 value="f1transportpair(level3)"
+    let name=level5 value="f1transportpair(level4)"
+    let name=level6 value="f1transportpair(level5)"
+    let name=level7 value="f1transportpair(level6)"
+    let name=level8 value="f1transportpair(level7)"
+    if cond="level8.length == 0"
+      return value="\"\""
+    if cond="level8.length != 1"
+      return value="\"\""
+    return value="level8[0]"
+
+fn name=f1transportrecord returns=string
+  param name=ordinal type=number
+  param name=className type=string
+  param name=kind type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=raw type=string
+  handler lang="kern"
+    return value="\"r\" + String(ordinal) + \",\" + className + \",\" + kind + \",\" + String(startScalar) + \",\" + String(endScalar) + \",\" + String(Text.length(raw)) + \":\" + raw"
+
+fn name=f1transportchunk returns=string
+  param name=ordinal type=number
+  param name=firstRecord type=number
+  param name=count type=number
+  param name=records type="string[]"
+  handler lang="kern"
+    let name=payload value="f1transportconcat(records)"
+    return value="\"c\" + String(ordinal) + \",\" + String(firstRecord) + \",\" + String(count) + \",\" + String(Text.length(payload)) + \":\" + payload + \"s\" + String(ordinal)"

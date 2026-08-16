@@ -7,6 +7,12 @@
     "examples/kern-frontend/f1-scan-token.kern",
     "examples/kern-frontend/f1-scan-main.kern"
   ],
+  "moduleSha256": {
+    "examples/kern-frontend/f1-transport.kern": "c747e1887b80b89485d5b77b9193563aa35715db0f592099fbd8610abc65d5af",
+    "examples/kern-frontend/f1-scan-catalog.kern": "e002b4206d4cf86f4a8fb44b161ba2ccda7dc23757e7b268776f797ea20090d0",
+    "examples/kern-frontend/f1-scan-token.kern": "0f242b2dfa25c4838bd721455dcd4019a24a51ba648e3a06dd8e46ec3ba6769b",
+    "examples/kern-frontend/f1-scan-main.kern": "b081cd406b5a851302c5b741557964b216a2613f4135b1bc946d9b3f98f285e6"
+  },
   "kindIds": {
     "identifier": 0,
     "number": 1,
@@ -32,7 +38,7 @@
   "profileLimits": {
     "encodedEnvelopeOverheadBytes": 497,
     "expectedEvents": 0,
-    "maxChunkScalars": 12933,
+    "maxChunkScalars": 131072,
     "maxChunks": 256,
     "maxElapsedMs": 120000,
     "maxEncodedBytes": 3664150,

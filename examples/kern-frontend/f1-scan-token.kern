@@ -1,0 +1,106 @@
+fn name=f1scanidentend returns=number
+  param name=source type=string
+  param name=start type=number
+  param name=n type=number
+  handler lang="kern"
+    let name=cursor value="start + 1"
+    while cond="cursor < n && f1scanidentchar(Text.charAt(source, cursor))"
+      assign target=cursor value="cursor + 1"
+    if cond="Text.slice(source, start, cursor) == \"evolved\" && cursor < n && Text.charAt(source, cursor) == \":\" && cursor + 1 < n && f1scanidentstart(Text.charAt(source, cursor + 1))"
+      assign target=cursor value="cursor + 2"
+      while cond="cursor < n && f1scanidentchar(Text.charAt(source, cursor))"
+        assign target=cursor value="cursor + 1"
+    return value=cursor
+
+fn name=f1scanconsumevaliddigits returns=number
+  param name=source type=string
+  param name=start type=number
+  param name=n type=number
+  param name=mode type=number
+  handler lang="kern"
+    let name=cursor value=start
+    let name=started value=false
+    let name=lastUnderscore value=false
+    while cond="cursor < n"
+      let name=ch value="Text.charAt(source, cursor)"
+      let name=valid value="f1scandigit(ch)"
+      if cond="mode == 1"
+        assign target=valid value="f1scanhexdigit(ch)"
+      if cond="mode == 2"
+        assign target=valid value="f1scanbindigit(ch)"
+      if cond="mode == 3"
+        assign target=valid value="f1scanoctdigit(ch)"
+      if cond=valid
+        assign target=started value=true
+        assign target=lastUnderscore value=false
+        assign target=cursor value="cursor + 1"
+        continue
+      if cond="ch == \"_\" && started && !lastUnderscore && cursor + 1 < n"
+        let name=next value="Text.charAt(source, cursor + 1)"
+        let name=nextValid value="f1scandigit(next)"
+        if cond="mode == 1"
+          assign target=nextValid value="f1scanhexdigit(next)"
+        if cond="mode == 2"
+          assign target=nextValid value="f1scanbindigit(next)"
+        if cond="mode == 3"
+          assign target=nextValid value="f1scanoctdigit(next)"
+        if cond=nextValid
+          assign target=lastUnderscore value=true
+          assign target=cursor value="cursor + 1"
+          continue
+      break
+    return value=cursor
+
+fn name=f1scannumberend returns=number
+  param name=source type=string
+  param name=start type=number
+  param name=n type=number
+  handler lang="kern"
+    let name=cursor value=start
+    if cond="Text.charAt(source, cursor) == \"0\" && cursor + 2 < n"
+      let name=prefix value="Text.charAt(source, cursor + 1)"
+      let name=mode value=0
+      if cond="prefix == \"x\" || prefix == \"X\""
+        assign target=mode value=1
+      if cond="prefix == \"b\" || prefix == \"B\""
+        assign target=mode value=2
+      if cond="prefix == \"o\" || prefix == \"O\""
+        assign target=mode value=3
+      if cond="mode > 0"
+        let name=baseEnd value="f1scanconsumevaliddigits(source, cursor + 2, n, mode)"
+        if cond="baseEnd > cursor + 2"
+          assign target=cursor value=baseEnd
+          if cond="cursor < n && Text.charAt(source, cursor) == \"n\""
+            assign target=cursor value="cursor + 1"
+          return value=cursor
+    if cond="Text.charAt(source, cursor) == \".\""
+      assign target=cursor value="cursor + 1"
+    assign target=cursor value="f1scanconsumevaliddigits(source, cursor, n, 0)"
+    if cond="cursor < n && Text.charAt(source, cursor) == \".\" && cursor + 1 < n && f1scandigit(Text.charAt(source, cursor + 1))"
+      assign target=cursor value="f1scanconsumevaliddigits(source, cursor + 1, n, 0)"
+    if cond="cursor < n && Text.charAt(source, cursor) == \"n\""
+      assign target=cursor value="cursor + 1"
+    return value=cursor
+
+fn name=f1scanslashend returns=number
+  param name=source type=string
+  param name=start type=number
+  param name=n type=number
+  handler lang="kern"
+    let name=cursor value="start + 1"
+    while cond="cursor < n"
+      let name=ch value="Text.charAt(source, cursor)"
+      if cond="f1scanspace(ch) || ch == \"\\r\" || ch == \"\\n\" || ch == \"{\" || ch == \"$\""
+        break
+      assign target=cursor value="cursor + 1"
+    return value=cursor
+
+fn name=f1scanthemeend returns=number
+  param name=source type=string
+  param name=start type=number
+  param name=n type=number
+  handler lang="kern"
+    let name=cursor value="start + 2"
+    while cond="cursor < n && f1scanidentchar(Text.charAt(source, cursor))"
+      assign target=cursor value="cursor + 1"
+    return value=cursor

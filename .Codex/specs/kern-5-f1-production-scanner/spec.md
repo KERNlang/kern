@@ -1,6 +1,6 @@
 # KERN 5 F1 Production Physical Scanner
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED — FINAL GATES AND INDEPENDENT REVIEW PENDING
 
 **Date:** 2026-08-15
 
@@ -239,36 +239,36 @@ raw text for physical terminators, duplicating F1 semantics across the seam.
 
 ## Acceptance Criteria
 
-- [ ] **[F1S-A1]** RED at `8e4d4e79` is the missing
+- [x] **[F1S-A1]** RED at `8e4d4e79` is the missing
       `test:kern-frontend-f1-scan` script and production scanner assets; the P0
       gate remains green.
-- [ ] **[F1S-A2]** The KERN composition alone returns all 15 kind IDs and every
+- [x] **[F1S-A2]** The KERN composition alone returns all 15 kind IDs and every
       valid flag combination through the strict decoder.
-- [ ] **[F1S-A3]** Every valid fixture partitions source exactly once in
+- [x] **[F1S-A3]** Every valid fixture partitions source exactly once in
       Unicode-scalar half-open spans, preserves raw delimiters and original
       LF/CRLF, reconstructs byte-identical source, and emits zero events.
-- [ ] **[F1S-A4]** Bug-fingerprint fixtures prove symmetric single/double quote
+- [x] **[F1S-A4]** Bug-fingerprint fixtures prove symmetric single/double quote
       continuation, CRLF isolation, inline-versus-line-leading fence closure,
       whitespace-gated comments, `url=http://x`, astral scalars at chunk
       boundaries, nested expressions, and quote-gated style closure.
-- [ ] **[F1S-A5]** Malformed source produces the exact first framed diagnostic
+- [x] **[F1S-A5]** Malformed source produces the exact first framed diagnostic
       and otherwise atomic empty output; exact-cap succeeds and cap-plus-one
       fails before classification.
-- [ ] **[F1S-A6]** A frozen splitmix64 generator produces at least 10,000
-      deterministic sources and proves partition identity, newline isolation,
+- [x] **[F1S-A6]** A frozen splitmix64 generator produces 10,000 deterministic
+      fragments in one bounded composite source and proves partition identity, newline isolation,
       flag-state coherence, determinism, and decoder rejection of mutations.
-- [ ] **[F1S-A7]** Mutations kill TypeScript/host/shadow delegation, constant or
+- [x] **[F1S-A7]** Mutations kill TypeScript/host/shadow delegation, constant or
       stale output, kind/class/flag drift, span drift, dropped/duplicated/
       reordered records, swallowed newline, marker drift, partial failure,
       changed module order, and permissive decoder behavior.
-- [ ] **[F1S-A8]** Built and source import/call closure contains none of the
+- [x] **[F1S-A8]** Built and source import/call closure contains none of the
       forbidden authorities, and all authenticated source/policy digests are
       checked before invocation.
 - [ ] **[F1S-A9]** 1x/2x/4x/8x corpora satisfy authenticated absolute and
       adjacent scaling walls while P0's full-cap transport, runtime envelope,
       source-runner convergence, canonicalizer, checker, formatter, lint, and
       full promoted KERN 5 fitness gates remain green.
-- [ ] **[F1S-A10]** `test:kern-frontend-f1-scan` is current and
+- [x] **[F1S-A10]** `test:kern-frontend-f1-scan` is current and
       `internal-oracle`; `test:kern-frontend` remains absent/planned and all six
       terminal ownership gates remain open.
 

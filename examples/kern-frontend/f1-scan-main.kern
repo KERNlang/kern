@@ -1,0 +1,423 @@
+fn name=scanf1records returns="string[]" export=true
+  param name=source type=string
+  param name=maxSourceScalars type=number
+  param name=recordsPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxTapeUtf8Bytes type=number
+  param name=maxJsonContentBytes type=number
+  param name=maxEncodedBytes type=number
+  param name=encodedEnvelopeOverheadBytes type=number
+  param name=maxRetainedTransportBytes type=number
+  param name=maxChunkScalars type=number
+  param name=forceLateFailure type=boolean
+  handler lang="kern"
+    let name=n value="Text.length(source)"
+    if cond="maxSourceScalars <= 0 || recordsPerChunk <= 0 || recordsPerChunk > 256 || maxChunks <= 0 || maxChunks > 256"
+      let name=invalidGeometry value="f1scanfailure(\"TRANSPORT_LIMIT\", 0, 0, n)"
+      return value=invalidGeometry
+    if cond="recordsPerChunk * maxChunks != maxSourceScalars"
+      let name=invalidCapacity value="f1scanfailure(\"TRANSPORT_LIMIT\", 0, 0, n)"
+      return value=invalidCapacity
+    if cond="maxTapeScalars <= 0 || maxTapeUtf8Bytes <= 0 || maxJsonContentBytes <= 0 || maxEncodedBytes <= 0"
+      let name=invalidTape value="f1scanfailure(\"TRANSPORT_LIMIT\", 0, 0, n)"
+      return value=invalidTape
+    if cond="encodedEnvelopeOverheadBytes <= 0 || maxRetainedTransportBytes <= 0 || maxChunkScalars <= 0"
+      let name=invalidRetention value="f1scanfailure(\"TRANSPORT_LIMIT\", 0, 0, n)"
+      return value=invalidRetention
+    if cond="n > maxSourceScalars"
+      let name=sourceFailure value="f1scanfailure(\"SOURCE_LIMIT\", 0, n, n)"
+      return value=sourceFailure
+    let name=chunks value="[]"
+    let name=cursor value=0
+    let name=record value=0
+    let name=chunk value=0
+    let name=maxGuestListLength value=0
+    let name=tapeScalars value=0
+    let name=tapeUtf8Bytes value=0
+    let name=tapeJsonBytes value=0
+    let name=mode value=0
+    let name=modeStart value=0
+    let name=quoteChar value="\"\""
+    let name=exprDepth value=0
+    let name=exprQuote value="\"\""
+    let name=fenceInline value=false
+    let name=lineStart value=true
+    while cond="cursor < n"
+      if cond="chunk >= maxChunks"
+        let name=chunkFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", cursor, cursor, n)"
+        return value=chunkFailure
+      let name=records value="[]"
+      let name=firstRecord value=record
+      let name=payloadScalars value=0
+      let name=payloadUtf8Bytes value=0
+      let name=payloadJsonBytes value=0
+      while cond="cursor < n && records.length < recordsPerChunk"
+        let name=start value=cursor
+        let name=end value="cursor + 1"
+        let name=className value="\"token\""
+        let name=kindId value=9
+        let name=flags value=0
+        let name=ch value="Text.charAt(source, cursor)"
+        let name=next value="\"\""
+        let name=third value="\"\""
+        if cond="cursor + 1 < n"
+          assign target=next value="Text.charAt(source, cursor + 1)"
+        if cond="cursor + 2 < n"
+          assign target=third value="Text.charAt(source, cursor + 2)"
+        if cond="ch == \"\\n\" || (ch == \"\\r\" && next == \"\\n\")"
+          assign target=className value="\"trivia\""
+          assign target=kindId value=11
+          if cond="ch == \"\\r\""
+            assign target=end value="cursor + 2"
+          assign target=lineStart value=true
+          if cond="mode == 3"
+            assign target=fenceInline value=false
+        else
+          if cond="mode == 1"
+            assign target=kindId value=5
+            assign target=flags value=4
+            let name=quoteCursor value=cursor
+            let name=quoteClosed value=false
+            while cond="quoteCursor < n"
+              let name=quotePoint value="Text.charAt(source, quoteCursor)"
+              if cond="quotePoint == \"\\r\" || quotePoint == \"\\n\""
+                break
+              if cond="quotePoint == \"\\\\\" && quoteCursor + 1 < n"
+                let name=escapedQuotePoint value="Text.charAt(source, quoteCursor + 1)"
+                if cond="escapedQuotePoint != \"\\r\" && escapedQuotePoint != \"\\n\""
+                  assign target=quoteCursor value="quoteCursor + 2"
+                  continue
+              if cond="quotePoint == quoteChar"
+                assign target=quoteCursor value="quoteCursor + 1"
+                assign target=quoteClosed value=true
+                break
+              assign target=quoteCursor value="quoteCursor + 1"
+            assign target=end value=quoteCursor
+            if cond=quoteClosed
+              assign target=flags value=6
+              assign target=mode value=0
+              assign target=quoteChar value="\"\""
+          else
+            if cond="mode == 2"
+              assign target=kindId value=6
+              assign target=flags value=4
+              let name=exprCursor value=cursor
+              let name=exprClosed value=false
+              let name=segmentExprDepth value=exprDepth
+              let name=segmentExprQuote value=exprQuote
+              while cond="exprCursor < n"
+                let name=exprPoint value="Text.charAt(source, exprCursor)"
+                let name=exprNext value="\"\""
+                if cond="exprCursor + 1 < n"
+                  assign target=exprNext value="Text.charAt(source, exprCursor + 1)"
+                if cond="exprPoint == \"\\r\" || exprPoint == \"\\n\""
+                  break
+                if cond="segmentExprQuote != \"\""
+                  if cond="exprPoint == \"\\\\\" && exprCursor + 1 < n"
+                    assign target=exprCursor value="exprCursor + 2"
+                    continue
+                  if cond="exprPoint == segmentExprQuote"
+                    assign target=segmentExprQuote value="\"\""
+                  assign target=exprCursor value="exprCursor + 1"
+                  continue
+                if cond="exprPoint == \"\\\"\" || exprPoint == \"'\""
+                  assign target=segmentExprQuote value=exprPoint
+                  assign target=exprCursor value="exprCursor + 1"
+                  continue
+                if cond="exprPoint == \"{\" && exprNext == \"{\""
+                  assign target=segmentExprDepth value="segmentExprDepth + 1"
+                  assign target=exprCursor value="exprCursor + 2"
+                  continue
+                if cond="exprPoint == \"}\" && exprNext == \"}\""
+                  assign target=segmentExprDepth value="segmentExprDepth - 1"
+                  assign target=exprCursor value="exprCursor + 2"
+                  if cond="segmentExprDepth == 0"
+                    assign target=exprClosed value=true
+                    break
+                  continue
+                assign target=exprCursor value="exprCursor + 1"
+              assign target=end value=exprCursor
+              assign target=exprDepth value=segmentExprDepth
+              assign target=exprQuote value=segmentExprQuote
+              if cond=exprClosed
+                assign target=flags value=6
+                assign target=mode value=0
+                assign target=exprDepth value=0
+                assign target=exprQuote value="\"\""
+            else
+              if cond="mode == 3"
+                assign target=className value="\"trivia\""
+                let name=fenceFirst value="Text.charAt(source, cursor)"
+                let name=fenceNext value="\"\""
+                let name=fenceThird value="\"\""
+                if cond="cursor + 1 < n"
+                  assign target=fenceNext value="Text.charAt(source, cursor + 1)"
+                if cond="cursor + 2 < n"
+                  assign target=fenceThird value="Text.charAt(source, cursor + 2)"
+                if cond="fenceInline && fenceFirst == \">\" && fenceNext == \">\" && fenceThird == \">\""
+                  assign target=kindId value=13
+                  assign target=flags value=2
+                  assign target=end value="cursor + 3"
+                  assign target=mode value=0
+                  assign target=fenceInline value=false
+                else
+                  let name=leadingEnd value=cursor
+                  if cond="fenceInline == false && lineStart"
+                    while cond="leadingEnd < n && f1scanspace(Text.charAt(source, leadingEnd))"
+                      assign target=leadingEnd value="leadingEnd + 1"
+                  let name=leadingFirst value="\"\""
+                  let name=leadingNext value="\"\""
+                  let name=leadingThird value="\"\""
+                  if cond="leadingEnd < n"
+                    assign target=leadingFirst value="Text.charAt(source, leadingEnd)"
+                  if cond="leadingEnd + 1 < n"
+                    assign target=leadingNext value="Text.charAt(source, leadingEnd + 1)"
+                  if cond="leadingEnd + 2 < n"
+                    assign target=leadingThird value="Text.charAt(source, leadingEnd + 2)"
+                  if cond="fenceInline == false && lineStart && leadingFirst == \">\" && leadingNext == \">\" && leadingThird == \">\""
+                    if cond="leadingEnd > cursor"
+                      assign target=kindId value=10
+                      assign target=flags value=0
+                      assign target=end value=leadingEnd
+                    else
+                      assign target=kindId value=13
+                      assign target=flags value=2
+                      assign target=end value="cursor + 3"
+                      assign target=mode value=0
+                  else
+                    assign target=kindId value=14
+                    assign target=flags value=4
+                    let name=bodyCursor value=cursor
+                    while cond="bodyCursor < n"
+                      let name=bodyPoint value="Text.charAt(source, bodyCursor)"
+                      let name=bodyNext value="\"\""
+                      let name=bodyThird value="\"\""
+                      if cond="bodyCursor + 1 < n"
+                        assign target=bodyNext value="Text.charAt(source, bodyCursor + 1)"
+                      if cond="bodyCursor + 2 < n"
+                        assign target=bodyThird value="Text.charAt(source, bodyCursor + 2)"
+                      if cond="bodyPoint == \"\\r\" || bodyPoint == \"\\n\""
+                        break
+                      if cond="fenceInline && bodyPoint == \">\" && bodyNext == \">\" && bodyThird == \">\""
+                        break
+                      assign target=bodyCursor value="bodyCursor + 1"
+                    assign target=end value=bodyCursor
+              else
+                if cond="f1scanspace(ch)"
+                  assign target=className value="\"trivia\""
+                  assign target=kindId value=10
+                  let name=spaceCursor value="cursor + 1"
+                  while cond="spaceCursor < n && f1scanspace(Text.charAt(source, spaceCursor))"
+                    assign target=spaceCursor value="spaceCursor + 1"
+                  assign target=end value=spaceCursor
+                else
+                  let name=precededBySpace value="cursor == 0"
+                  if cond="cursor > 0"
+                    assign target=precededBySpace value="f1scanspace(Text.charAt(source, cursor - 1)) || Text.charAt(source, cursor - 1) == \"\\n\""
+                  if cond="precededBySpace && (ch == \"#\" || (ch == \"/\" && next == \"/\"))"
+                    assign target=className value="\"trivia\""
+                    assign target=kindId value=12
+                    let name=commentCursor value="cursor + 1"
+                    while cond="commentCursor < n && Text.charAt(source, commentCursor) != \"\\r\" && Text.charAt(source, commentCursor) != \"\\n\""
+                      assign target=commentCursor value="commentCursor + 1"
+                    assign target=end value=commentCursor
+                  else
+                    if cond="ch == \"<\" && next == \"<\" && third == \"<\""
+                      assign target=className value="\"trivia\""
+                      assign target=kindId value=13
+                      assign target=flags value=1
+                      assign target=end value="cursor + 3"
+                      assign target=mode value=3
+                      assign target=modeStart value=cursor
+                      assign target=fenceInline value=true
+                    else
+                      if cond="ch == \">\" && next == \">\" && third == \">\""
+                        assign target=className value="\"trivia\""
+                        assign target=kindId value=13
+                        assign target=flags value=2
+                        assign target=end value="cursor + 3"
+                      else
+                        if cond="ch == \"{\" && next == \"{\""
+                          assign target=kindId value=6
+                          assign target=flags value=1
+                          assign target=mode value=2
+                          assign target=modeStart value=cursor
+                          let name=openExprCursor value="cursor + 2"
+                          let name=openExprClosed value=false
+                          let name=openExprDepth value=1
+                          let name=openExprQuote value="\"\""
+                          while cond="openExprCursor < n"
+                            let name=openExprPoint value="Text.charAt(source, openExprCursor)"
+                            let name=openExprNext value="\"\""
+                            if cond="openExprCursor + 1 < n"
+                              assign target=openExprNext value="Text.charAt(source, openExprCursor + 1)"
+                            if cond="openExprPoint == \"\\r\" || openExprPoint == \"\\n\""
+                              break
+                            if cond="openExprQuote != \"\""
+                              if cond="openExprPoint == \"\\\\\" && openExprCursor + 1 < n"
+                                assign target=openExprCursor value="openExprCursor + 2"
+                                continue
+                              if cond="openExprPoint == openExprQuote"
+                                assign target=openExprQuote value="\"\""
+                              assign target=openExprCursor value="openExprCursor + 1"
+                              continue
+                            if cond="openExprPoint == \"\\\"\" || openExprPoint == \"'\""
+                              assign target=openExprQuote value=openExprPoint
+                              assign target=openExprCursor value="openExprCursor + 1"
+                              continue
+                            if cond="openExprPoint == \"{\" && openExprNext == \"{\""
+                              assign target=openExprDepth value="openExprDepth + 1"
+                              assign target=openExprCursor value="openExprCursor + 2"
+                              continue
+                            if cond="openExprPoint == \"}\" && openExprNext == \"}\""
+                              assign target=openExprDepth value="openExprDepth - 1"
+                              assign target=openExprCursor value="openExprCursor + 2"
+                              if cond="openExprDepth == 0"
+                                assign target=openExprClosed value=true
+                                break
+                              continue
+                            assign target=openExprCursor value="openExprCursor + 1"
+                          assign target=end value=openExprCursor
+                          assign target=exprDepth value=openExprDepth
+                          assign target=exprQuote value=openExprQuote
+                          if cond=openExprClosed
+                            assign target=flags value=3
+                            assign target=mode value=0
+                            assign target=exprDepth value=0
+                            assign target=exprQuote value="\"\""
+                        else
+                          if cond="ch == \"\\\"\" || ch == \"'\""
+                            assign target=kindId value=5
+                            assign target=flags value=1
+                            assign target=mode value=1
+                            assign target=modeStart value=cursor
+                            assign target=quoteChar value=ch
+                            let name=openQuoteCursor value="cursor + 1"
+                            let name=openQuoteClosed value=false
+                            while cond="openQuoteCursor < n"
+                              let name=openQuotePoint value="Text.charAt(source, openQuoteCursor)"
+                              if cond="openQuotePoint == \"\\r\" || openQuotePoint == \"\\n\""
+                                break
+                              if cond="openQuotePoint == \"\\\\\" && openQuoteCursor + 1 < n"
+                                let name=escapedOpenQuote value="Text.charAt(source, openQuoteCursor + 1)"
+                                if cond="escapedOpenQuote != \"\\r\" && escapedOpenQuote != \"\\n\""
+                                  assign target=openQuoteCursor value="openQuoteCursor + 2"
+                                  continue
+                              if cond="openQuotePoint == quoteChar"
+                                assign target=openQuoteCursor value="openQuoteCursor + 1"
+                                assign target=openQuoteClosed value=true
+                                break
+                              assign target=openQuoteCursor value="openQuoteCursor + 1"
+                            assign target=end value=openQuoteCursor
+                            if cond=openQuoteClosed
+                              assign target=flags value=3
+                              assign target=mode value=0
+                              assign target=quoteChar value="\"\""
+                          else
+                            if cond="ch == \"{\""
+                              assign target=kindId value=7
+                              assign target=flags value=3
+                              let name=styleCursor value="cursor + 1"
+                              let name=styleQuote value=false
+                              let name=styleClosed value=false
+                              while cond="styleCursor < n"
+                                let name=stylePoint value="Text.charAt(source, styleCursor)"
+                                if cond="stylePoint == \"\\r\" || stylePoint == \"\\n\""
+                                  break
+                                if cond="stylePoint == \"\\\\\" && styleQuote && styleCursor + 1 < n"
+                                  assign target=styleCursor value="styleCursor + 2"
+                                  continue
+                                if cond="stylePoint == \"\\\"\""
+                                  assign target=styleQuote value="!styleQuote"
+                                  assign target=styleCursor value="styleCursor + 1"
+                                  continue
+                                if cond="stylePoint == \"}\" && !styleQuote"
+                                  assign target=styleCursor value="styleCursor + 1"
+                                  assign target=styleClosed value=true
+                                  break
+                                assign target=styleCursor value="styleCursor + 1"
+                              if cond="!styleClosed"
+                                let name=styleFailure value="f1scanfailure(\"UNCLOSED_STYLE\", cursor, cursor + 1, n)"
+                                return value=styleFailure
+                              assign target=end value=styleCursor
+                            else
+                              if cond="ch == \"$\" && cursor + 1 < n && f1scanidentstart(next)"
+                                assign target=kindId value=8
+                                assign target=end value="f1scanthemeend(source, cursor, n)"
+                              else
+                                if cond="ch == \"=\""
+                                  assign target=kindId value=2
+                                else
+                                  if cond="ch == \",\""
+                                    assign target=kindId value=4
+                                  else
+                                    if cond="ch == \"/\""
+                                      assign target=kindId value=3
+                                      assign target=end value="f1scanslashend(source, cursor, n)"
+                                    else
+                                      if cond="f1scandigit(ch) || (ch == \".\" && cursor + 1 < n && f1scandigit(next))"
+                                        assign target=kindId value=1
+                                        assign target=end value="f1scannumberend(source, cursor, n)"
+                                      else
+                                        if cond="f1scanidentstart(ch)"
+                                          assign target=kindId value=0
+                                          assign target=end value="f1scanidentend(source, cursor, n)"
+        if cond="end == n && mode == 1"
+          let name=quoteEofFailure value="f1scanfailure(\"UNCLOSED_STRING\", modeStart, modeStart + 1, n)"
+          return value=quoteEofFailure
+        if cond="end == n && mode == 2"
+          let name=exprEofFailure value="f1scanfailure(\"UNCLOSED_EXPR\", modeStart, modeStart + 2, n)"
+          return value=exprEofFailure
+        if cond="end == n && mode == 3"
+          let name=fenceEofFailure value="f1scanfailure(\"UNEXPECTED_TOKEN\", modeStart, modeStart + 3, n)"
+          return value=fenceEofFailure
+        if cond="end <= start"
+          let name=widthFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", start, start, n)"
+          return value=widthFailure
+        let name=raw value="Text.slice(source, start, end)"
+        let name=kindCode value="f1scankindcode(kindId, flags)"
+        if cond="kindCode == \"\""
+          let name=kindFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", start, end, n)"
+          return value=kindFailure
+        let name=encodedRecord value="f1transportrecord(record, className, kindCode, start, end, raw)"
+        let name=recordScalars value="Text.length(encodedRecord)"
+        let name=rawScalars value="end - start"
+        do value="records.push(encodedRecord)"
+        assign target=payloadScalars value="payloadScalars + recordScalars"
+        assign target=payloadUtf8Bytes value="payloadUtf8Bytes + recordScalars + rawScalars * 3"
+        assign target=payloadJsonBytes value="payloadJsonBytes + recordScalars + rawScalars * 5"
+        assign target=record value="record + 1"
+        assign target=cursor value=end
+        if cond="kindId != 11 && !(kindId == 10 && lineStart)"
+          assign target=lineStart value=false
+        if cond="records.length > maxGuestListLength"
+          assign target=maxGuestListLength value="records.length"
+      let name=encodedChunk value="f1transportchunk(chunk, firstRecord, records.length, records)"
+      let name=chunkScalars value="Text.length(encodedChunk)"
+      let name=chunkFrameScalars value="chunkScalars - payloadScalars"
+      if cond="chunkScalars > maxChunkScalars"
+        let name=chunkWidthFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", cursor, cursor, n)"
+        return value=chunkWidthFailure
+      assign target=tapeScalars value="tapeScalars + chunkScalars"
+      assign target=tapeUtf8Bytes value="tapeUtf8Bytes + chunkFrameScalars + payloadUtf8Bytes"
+      assign target=tapeJsonBytes value="tapeJsonBytes + chunkFrameScalars + payloadJsonBytes"
+      do value="chunks.push(encodedChunk)"
+      if cond="chunks.length > maxGuestListLength"
+        assign target=maxGuestListLength value="chunks.length"
+      assign target=chunk value="chunk + 1"
+    if cond=forceLateFailure
+      let name=lateFailure value="f1scanfailure(\"FORCED_LATE_FAILURE\", n, n, n)"
+      return value=lateFailure
+    if cond="tapeScalars > maxTapeScalars || tapeUtf8Bytes > maxTapeUtf8Bytes || tapeJsonBytes > maxJsonContentBytes"
+      let name=tapeFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", n, n, n)"
+      return value=tapeFailure
+    if cond="tapeJsonBytes + encodedEnvelopeOverheadBytes > maxEncodedBytes || tapeUtf8Bytes * 9 > maxRetainedTransportBytes"
+      let name=encodedFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", n, n, n)"
+      return value=encodedFailure
+    let name=tape value="f1transportconcat(chunks)"
+    if cond="Text.length(tape) != tapeScalars"
+      let name=sealFailure value="f1scanfailure(\"TRANSPORT_LIMIT\", n, n, n)"
+      return value=sealFailure
+    let name=seal value="\"eof:\" + String(n) + \":\" + String(record) + \":\" + String(chunk) + \":closed\""
+    return value="[\"kern.frontend.f1-scan.1\", \"scanned\", \"\", String(n), String(record), String(chunk), String(maxGuestListLength), tape, seal]"
