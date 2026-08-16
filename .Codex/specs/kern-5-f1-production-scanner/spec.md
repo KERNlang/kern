@@ -1,6 +1,6 @@
 # KERN 5 F1 Production Physical Scanner
 
-**Status:** VERIFIED COMPLETE — F2 IS NEXT
+**Status:** VERIFIED F1 SCAN GATE — CUMULATIVE WALL PENDING F2
 
 **Date:** 2026-08-16
 
@@ -18,7 +18,11 @@
 **Targeted remediation review:**
 `/Users/nicolascukas/.agon/runs/review-1786866671411-a437hp`
 
-**Confidence:** 0.99 after the full promoted KERN 5 fitness wall passed
+**Amendment review:**
+`/Users/nicolascukas/.agon/runs/review-1786898221656-uz93we`
+
+**Confidence:** 0.99 after the amended full F1 gate passed; final cumulative
+KERN 5 fitness remains scheduled after F2
 
 ## Executive Summary
 
@@ -120,6 +124,10 @@ state returns the atomic failure envelope and emits no record. No fourth flag
 exists. The producer rejects any internal flags outside `0..7`, and the decoder
 rejects any encoded `kindCode` whose quotient/remainder is not an admitted
 kind/flag combination, so arithmetic cannot alias one kind into another.
+The decoder also independently validates every admitted kind's raw lexical
+shape and maximal boundary, plus the only records permitted while quote,
+expression, or fence state is open. Same-class kind substitution is therefore
+not trusted merely because its numeric code and source span are well formed.
 
 | ID | Kind | Class |
 | ---: | --- | --- |
@@ -146,7 +154,9 @@ continuation without a preceding open composite.
 ### Physical dispositions
 
 - Every LF or CRLF is exactly one `newline` record in every lexical state.
-  Lone CR and BOM are `unknown`.
+  Lone CR and BOM are `unknown` in base and continuable quote/expression/fence
+  states. A lone CR encountered inside an atomic line-local style makes that
+  style malformed rather than adding a new style-continuation protocol.
 - Quote, expression, and fence segments never absorb a newline. The first
   segment has `OPENER`, middle segments have `CONTINUATION`, and the final
   segment has `CONTINUATION|CLOSER`; a same-line composite has
@@ -156,8 +166,8 @@ continuation without a preceding open composite.
 - `{{...}}` expression depth is nested-pair and quote aware. F1 does not parse
   the expression body.
 - `{...}` style spans are line-local, close only on an unquoted `}`, and cover
-  the adversarial `x={a:"}"}` case. An open style at newline fails atomically
-  with `UNCLOSED_STYLE`.
+  the adversarial `x={a:"}"}` case. An open style at any CR/LF boundary,
+  including lone CR, fails atomically with `UNCLOSED_STYLE`.
 - `#` and `//` begin a `comment` only at source start or after space/tab and
   only in base state. The marker and comment body form one record; the newline
   is separate. `url=http://x` is not a comment.
@@ -176,6 +186,34 @@ output batching only; they are never input pages and never reset lexical state.
 The scalar cursor may therefore inspect the next scalar before classifying CR
 as lone `unknown` or the first half of one CRLF `newline`, including when the
 result record happens to cross an output-chunk boundary.
+
+### F2 expression-boundary addendum
+
+The F2 contract review made an existing F1 rule load-bearing for the next
+consumer, so it is recorded explicitly rather than silently inferred from the
+implementation. Inside an expression quote, a raw backslash consumes exactly
+the next Unicode source scalar for delimiter detection unless that scalar is
+CR or LF. LF and CRLF always remain independent newline records; lone CR
+remains an independent one-scalar `unknown` record. In every case the open
+quote/expression state survives the intervening physical record. Only an
+unescaped raw matching quote leaves quote state, and only raw `{{`/`}}` pairs
+outside quote state change expression depth. Escape decoding is not F1
+ownership.
+
+F2 must use this same raw rule to locate string-token boundaries before applying
+its stricter closed escape decoder. The seam corpus includes escaped quotes,
+escaped backslashes followed by quotes, `\\x22`, `\\u0022`, astral text, and
+raw `}}` inside both quote forms. The CRLF witness exposed and now guards a
+scanner defect where backslash skipped CR and left LF as a one-scalar newline.
+This addendum narrows the consumer contract and corrects that existing physical
+newline invariant; it does not move cross-record expression assembly out of F3.
+
+The same physical-terminator priority applies inside line-local style quotes:
+backslash may escape a following non-terminator scalar, but it may never absorb
+LF or CRLF. A style still open at that boundary fails atomically. The strict
+decoder enforces both directions of the partition invariant: every `newline`
+record is exactly LF or CRLF, and no other record may contain LF (including as
+the second scalar of CRLF). Lone CR remains the frozen `unknown` disposition.
 
 ### Failure precedence
 
@@ -234,6 +272,7 @@ raw text for physical terminators, duplicating F1 semantics across the seam.
 | `examples/kern-frontend/f1-scan-*.kern` | add | KERN-owned scanner composition, all files below 500 lines |
 | `scripts/kern-frontend-f1-scan/policy.json` | add | Tunable limits, format, kind IDs, flags, and corpus geometry |
 | `scripts/kern-frontend-f1-scan/decoder.mjs` | add | Independent strict tape/result decoder |
+| `scripts/kern-frontend-f1-scan/receipt-validator.mjs` | add | Exact success geometry and failure-precondition verifier |
 | `scripts/kern-frontend-f1-scan/fixtures.mjs` | add | Hand-authored bug fingerprints and valid/malformed corpus |
 | `scripts/kern-frontend-f1-scan/mutations.mjs` | add | Killable contract mutations |
 | `scripts/kern-frontend-f1-scan/worker.mjs` | add | Authenticate composition and invoke the real runtime |
@@ -256,7 +295,12 @@ raw text for physical terminators, duplicating F1 semantics across the seam.
 - [x] **[F1S-A4]** Bug-fingerprint fixtures prove symmetric single/double quote
       continuation, CRLF isolation, inline-versus-line-leading fence closure,
       whitespace-gated comments, `url=http://x`, astral scalars at chunk
-      boundaries, nested expressions, and quote-gated style closure.
+      boundaries, nested expressions, quote-gated style closure, and rejection
+      of backslash before LF/CRLF inside an open style quote. Escaped and
+      unescaped lone CR remain exact `unknown` records without clearing open
+      quote/expression/fence state; style-lone-CR is an explicit atomic failure.
+      Adjacent numeric suffix/base cases and orphan/line-leading fence markers
+      prove producer/decoder precedence.
 - [x] **[F1S-A5]** Malformed source produces the exact first framed diagnostic
       and otherwise atomic empty output; exact-cap succeeds and cap-plus-one
       fails before classification.
@@ -266,14 +310,26 @@ raw text for physical terminators, duplicating F1 semantics across the seam.
 - [x] **[F1S-A7]** Mutations kill TypeScript/host/shadow delegation, constant or
       stale output, kind/class/flag drift, span drift, dropped/duplicated/
       reordered records, swallowed newline, marker drift, partial failure,
-      changed module order, and permissive decoder behavior.
+      changed module order, permissive decoder behavior, and a source-consistent
+      mutation that merges a newline into a non-newline record. Same-class kind
+      substitution, lone-CR merging, and ordinary records injected inside a
+      composite are also rejected by independent raw/state validation, as are
+      comment-to-slash, closer-to-fence-body, and same-line composite-split
+      mutations. A fabricated `{{}` style receipt is rejected because expression
+      opener precedence wins before style classification. Underreported guest
+      lists, oversized chunks/chunk lists, impossible failure spans, and
+      ungated forced failures are rejected independently. Successful receipts
+      also reapply Unicode/source-cap admission and canonical full-chunk
+      packing; lexical failure codes must reproduce an actually unclosed
+      construct.
 - [x] **[F1S-A8]** Built and source import/call closure contains none of the
       forbidden authorities, and all authenticated source/policy digests are
       checked before invocation.
-- [x] **[F1S-A9]** 1x/2x/4x/8x corpora satisfy authenticated absolute and
-      adjacent scaling walls while P0's full-cap transport, runtime envelope,
-      source-runner convergence, canonicalizer, checker, formatter, lint, and
-      full promoted KERN 5 fitness gates remain green.
+- [ ] **[F1S-A9]** The amended 1x/2x/4x/8x corpora satisfy authenticated
+      absolute and adjacent scaling walls. P0 transport and core build remain
+      green; runtime envelope, source-runner convergence, canonicalizer,
+      checker, formatter, and the full promoted KERN 5 fitness wall must be
+      rerun on the final F2 candidate before promotion.
 - [x] **[F1S-A10]** `test:kern-frontend-f1-scan` is current and
       `internal-oracle`; `test:kern-frontend` remains absent/planned and all six
       terminal ownership gates remain open.
@@ -308,3 +364,12 @@ unresolved.
 | F1 scanning was current after `8e4d4e79`. | Only the P0 transport/falsification prerequisite is current. | Production F1, not F2, is the next slice. |
 | Composite records could swallow physical newlines. | Downstream consumers would need to re-lex raw text. | Newlines are always separate and composite role is encoded in flags. |
 | TypeScript behavior is one coherent lexical oracle. | Quote continuation, CRLF, and fence paths disagree. | Freeze a KERN contract and use the disagreements as delegation fingerprints. |
+| F1's quote escape behavior did not need a consumer-facing statement. | F2 must locate the same raw quote boundary before decoding escapes. | The raw backslash/quote/depth rule and adversarial seam corpus are now explicit. |
+| Checking only the raw value of `newline` records proved physical isolation. | Source-consistent mutations could merge LF/CRLF into another record or merge lone CR into a neighboring token and still reconstruct the source. | The decoder bans LF outside exact newline records and admits CR only as exact one-scalar `unknown`; producer fingerprints cover escaped line breaks and lone CR. |
+| Valid kind IDs and matching token/trivia classes authenticated classification. | An admitted number code over identifier raw, or an ordinary record injected between quote segments, remained source-consistent and survived. | The decoder now validates all 15 raw grammars and open-mode placement independently; fence fixtures include lone CR in inline and line-oriented bodies. |
+| Generic next-digit checks and delimiter-only composite validation were sufficient maximality proofs. | Authentic `1n2`-family scans were rejected, while same-line composite splits, comment-to-slash, and line-leading closer-to-body mutations survived. | The decoder mirrors numeric endpoint consumption and authenticates lexical precedence plus physical segment boundaries. |
+| Lone CR had one disposition inside every construct. | Style has no continuation role in the frozen three-bit protocol, unlike quote/expression/fence modes. | Lone CR is `unknown` in base/continuable modes; inside an unclosed atomic style it deterministically returns `UNCLOSED_STYLE`. |
+| Rejecting merged terminators proved canonical CRLF and inline fence partitioning. | CRLF could still split into `unknown("\r")` plus `newline("\n")`, and inline body `a>>b` could split at two chevrons. | Source-consistent split mutations now require one exact CRLF record and a full `>>>` before an inline fence-body boundary. |
+| A raw string satisfying the style delimiter walk was necessarily a style. | `{{}` satisfies that local walk but production precedence treats `{{` as an expression opener and fails it as unclosed. | A fabricated receipt mutation binds expression-before-style precedence in the decoder. |
+| Canonical counts and a parseable tape authenticated resource geometry and failures. | Receipts could underreport maximum guest-list length, exceed chunk walls, or attach impossible spans/codes to a source. | A separate receipt verifier checks tape limits before parsing, exact decoded geometry, source-bounded code-specific spans, and explicit test-only forced-failure authority. |
+| An opener-shaped failure span proved the source was actually unclosed. | A closed string could be labeled `UNCLOSED_STRING`, and a success could bypass Unicode/source-cap admission or deterministic chunk filling. | Independent source walks verify each lexical failure predicate; success rechecks admission and canonical producer packing, while authenticated-policy `TRANSPORT_LIMIT` is impossible. |

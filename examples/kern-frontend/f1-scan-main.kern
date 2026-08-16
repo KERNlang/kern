@@ -65,14 +65,15 @@ fn name=scanf1records returns="string[]" export=true
           assign target=next value="Text.charAt(source, cursor + 1)"
         if cond="cursor + 2 < n"
           assign target=third value="Text.charAt(source, cursor + 2)"
-        if cond="ch == \"\\n\" || (ch == \"\\r\" && next == \"\\n\")"
-          assign target=className value="\"trivia\""
-          assign target=kindId value=11
-          if cond="ch == \"\\r\""
-            assign target=end value="cursor + 2"
-          assign target=lineStart value=true
-          if cond="mode == 3"
-            assign target=fenceInline value=false
+        if cond="ch == \"\\r\" || ch == \"\\n\""
+          if cond="ch == \"\\n\" || next == \"\\n\""
+            assign target=className value="\"trivia\""
+            assign target=kindId value=11
+            if cond="ch == \"\\r\""
+              assign target=end value="cursor + 2"
+            assign target=lineStart value=true
+            if cond="mode == 3"
+              assign target=fenceInline value=false
         else
           if cond="mode == 1"
             assign target=kindId value=5
@@ -115,8 +116,9 @@ fn name=scanf1records returns="string[]" export=true
                   break
                 if cond="segmentExprQuote != \"\""
                   if cond="exprPoint == \"\\\\\" && exprCursor + 1 < n"
-                    assign target=exprCursor value="exprCursor + 2"
-                    continue
+                    if cond="exprNext != \"\\r\" && exprNext != \"\\n\""
+                      assign target=exprCursor value="exprCursor + 2"
+                      continue
                   if cond="exprPoint == segmentExprQuote"
                     assign target=segmentExprQuote value="\"\""
                   assign target=exprCursor value="exprCursor + 1"
@@ -256,8 +258,9 @@ fn name=scanf1records returns="string[]" export=true
                               break
                             if cond="openExprQuote != \"\""
                               if cond="openExprPoint == \"\\\\\" && openExprCursor + 1 < n"
-                                assign target=openExprCursor value="openExprCursor + 2"
-                                continue
+                                if cond="openExprNext != \"\\r\" && openExprNext != \"\\n\""
+                                  assign target=openExprCursor value="openExprCursor + 2"
+                                  continue
                               if cond="openExprPoint == openExprQuote"
                                 assign target=openExprQuote value="\"\""
                               assign target=openExprCursor value="openExprCursor + 1"
@@ -326,8 +329,10 @@ fn name=scanf1records returns="string[]" export=true
                                 if cond="stylePoint == \"\\r\" || stylePoint == \"\\n\""
                                   break
                                 if cond="stylePoint == \"\\\\\" && styleQuote && styleCursor + 1 < n"
-                                  assign target=styleCursor value="styleCursor + 2"
-                                  continue
+                                  let name=escapedStylePoint value="Text.charAt(source, styleCursor + 1)"
+                                  if cond="escapedStylePoint != \"\\r\" && escapedStylePoint != \"\\n\""
+                                    assign target=styleCursor value="styleCursor + 2"
+                                    continue
                                 if cond="stylePoint == \"\\\"\""
                                   assign target=styleQuote value="!styleQuote"
                                   assign target=styleCursor value="styleCursor + 1"

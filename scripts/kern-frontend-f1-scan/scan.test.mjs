@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadPolicy } from './decoder.mjs';
 import { FAILURE_FIXTURES, VALID_FIXTURES } from './fixtures.mjs';
-import { rejectedMutations } from './mutations.mjs';
+import { rejectedFabricatedReceipts, rejectedMutations } from './mutations.mjs';
 import { assertProductionSource, loadComposition, runScan } from './worker.mjs';
 
 const WORKER = fileURLToPath(new URL('./worker.mjs', import.meta.url));
@@ -75,10 +75,79 @@ test('KERN scanner partitions valid physical source exactly', () => {
 
 test('bug fingerprints preserve physical newlines and composite roles', () => {
   const byId = Object.fromEntries(VALID_FIXTURES.map((fixture) => [fixture.id, runScan(fixture.source)]));
+  assert.deepEqual(
+    byId['number-adjacent-suffixes'].decoded.records
+      .filter((record) => record.kind === 'number')
+      .map((record) => record.raw),
+    ['1n', '2', '0x1n', '2', '1.5n', '2', '0b10', '2', '0o7', '8'],
+  );
   assert.deepEqual(roles(byId['quote-middle'], 'quoted'), [1, 4, 6]);
+  for (const id of ['quote-lone-cr', 'quote-escaped-lone-cr']) {
+    assert.equal(byId[id].decoded.status, 'scanned', id);
+    assert.deepEqual(roles(byId[id], 'quoted'), [1, 6], id);
+    assert.deepEqual(
+      byId[id].decoded.records.filter((record) => record.raw === '\r').map((record) => record.kind),
+      ['unknown'],
+    );
+  }
   assert.deepEqual(roles(byId['expression-continuation'], 'expr'), [1, 4, 6]);
+  for (const id of ['expression-double-quote-seam', 'expression-single-quote-seam']) {
+    const expressionRaw = byId[id].decoded.records
+      .filter((record) => record.kind === 'expr')
+      .map((record) => record.raw)
+      .join('');
+    assert.match(expressionRaw, /\\x22/u, id);
+    assert.match(expressionRaw, /\\u0022/u, id);
+    assert.equal(expressionRaw.includes('😀 }}'), true, id);
+  }
+  assert.deepEqual(roles(byId['expression-escaped-crlf'], 'expr'), [1, 6]);
+  assert.deepEqual(
+    byId['expression-escaped-crlf'].decoded.records
+      .filter((record) => record.kind === 'expr')
+      .map(({ endScalar, flags, raw, startScalar }) => ({ endScalar, flags, raw, startScalar })),
+    [
+      { endScalar: 17, flags: 1, raw: '{{ "a\\', startScalar: 11 },
+      { endScalar: 24, flags: 6, raw: 'b" }}', startScalar: 19 },
+    ],
+  );
+  for (const id of ['expression-lone-cr', 'expression-escaped-lone-cr']) {
+    assert.equal(byId[id].decoded.status, 'scanned', id);
+    assert.deepEqual(roles(byId[id], 'expr'), [1, 6], id);
+    assert.deepEqual(
+      byId[id].decoded.records.filter((record) => record.raw === '\r').map((record) => record.kind),
+      ['unknown'],
+    );
+  }
+  assert.deepEqual(
+    byId['expression-escaped-crlf'].decoded.records
+      .filter((record) => record.kind === 'newline')
+      .map((record) => record.raw),
+    ['\r\n', '\r\n'],
+  );
   assert.deepEqual(roles(byId['fence-inline'], 'fenceMarker'), [1, 2]);
+  assert.deepEqual(
+    byId['fence-inline-double-chevron'].decoded.records
+      .filter((record) => record.kind === 'fenceBody')
+      .map((record) => record.raw),
+    ['a>>b'],
+  );
+  assert.deepEqual(roles(byId['fence-inline-lone-cr'], 'fenceMarker'), [1, 2]);
   assert.deepEqual(roles(byId['fence-lines'], 'fenceMarker'), [1, 2]);
+  assert.deepEqual(roles(byId['fence-lines-lone-cr'], 'fenceMarker'), [1, 2]);
+  assert.deepEqual(roles(byId['fence-lines-cr-indent'], 'fenceMarker'), [1, 2]);
+  assert.equal(
+    byId['fence-lines-cr-indent'].decoded.records.some(
+      (record) => record.kind === 'fenceBody' && record.raw === ' >>>',
+    ),
+    true,
+  );
+  assert.deepEqual(roles(byId['fence-orphan-closer'], 'fenceMarker'), [2]);
+  for (const id of ['fence-inline-lone-cr', 'fence-lines-lone-cr']) {
+    assert.deepEqual(
+      byId[id].decoded.records.filter((record) => record.raw === '\r').map((record) => record.kind),
+      ['unknown'],
+    );
+  }
   assert.deepEqual(
     byId.comments.decoded.records.filter((record) => record.kind === 'comment').map((record) => record.raw),
     ['# full', '// tail'],
@@ -88,6 +157,12 @@ test('bug fingerprints preserve physical newlines and composite roles', () => {
     for (const record of result.decoded.records.filter((entry) => entry.kind === 'newline')) {
       assert.ok(record.raw === '\n' || record.raw === '\r\n');
     }
+    assert.equal(
+      result.decoded.records.some(
+        (record) => record.kind !== 'newline' && record.raw.includes('\n'),
+      ),
+      false,
+    );
   }
 });
 
@@ -127,22 +202,50 @@ test('frozen splitmix64 10k-fragment corpus is deterministic and lossless', () =
 });
 
 test('strict decoder rejects semantic, framing, state, and atomicity mutations', () => {
-  const source = 'text value="x"\nhandler <<<z>>>\n';
+  const source = '//tail\r\ntext value="x"\ntext value={{x}}\na\rb\nhandler <<<a>>b>>>\n<<<\n>>>\n>>>\n<<<\n\r>>>\n>>>\n';
   const run = runScan(source);
   assert.deepEqual(rejectedMutations(run.fields, source, loadPolicy()), [
+    'base-fence-body',
     'class-drift',
+    'comment-to-slash',
     'constant-output',
     'drop-record',
     'duplicate-record',
+    'fence-closer-to-body',
     'flag-drift',
+    'intra-quote-record',
     'kind-drift',
+    'lone-cr-in-non-unknown-record',
     'marker-drift',
+    'max-list-underreport',
+    'newline-in-non-newline-record',
+    'non-line-start-fence-closer',
     'noncanonical-count',
     'partial-failure',
     'reorder-record',
+    'same-class-kind-drift',
     'span-drift',
+    'split-crlf-newline',
+    'split-expression-without-boundary',
+    'split-inline-fence-body',
+    'split-quote-without-boundary',
     'swallowed-newline',
   ]);
+  assert.deepEqual(rejectedFabricatedReceipts(loadPolicy()), [
+    'chunk-count-overflow',
+    'closed-string-failure',
+    'expression-to-style',
+    'forced-before-lexical-failure',
+    'ill-formed-success',
+    'ill-formed-before-source-limit',
+    'inner-expression-failure-precedence',
+    'impossible-source-limit',
+    'impossible-transport-failure',
+    'noncanonical-chunk-packing',
+    'over-cap-success',
+    'records-per-chunk-overflow',
+    'ungated-forced-late-failure',
+  ].sort());
 });
 
 test('1x/2x/4x/8x scanner corpora satisfy adjacent and absolute walls', () => {

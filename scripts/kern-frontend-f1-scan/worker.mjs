@@ -78,7 +78,7 @@ export function runScan(source, options = {}) {
     fail('runtime result shape');
   }
   const fields = materialize(envelope.result.value);
-  const decoded = decodeScan(fields, source, policy);
+  const decoded = decodeScan(fields, source, policy, { allowForcedLateFailure: options.forceLateFailure === true });
   const encoded = encodeInternalRuntimeEnvelope(envelope, policy.runtimeLimits);
   const encodedResult = JSON.parse(Buffer.from(encoded).toString('utf8'));
   if (encodedResult.outcome !== 'success') fail('encoded envelope substituted result');
