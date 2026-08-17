@@ -49,8 +49,8 @@ export function sourceMutants() {
       id: 'constant-output',
       path: mainPath,
       source: byPath[mainPath].replace(
-        'return value=result',
-        'return value="[\\"kern.frontend.f2-expression.1\\", \\"failure\\", \\"C27:FRONTEND_INVALID_EXPRESSIONS1:0E1:1\\", \\"1\\", \\"0\\", \\"0\\", \\"0\\", \\"\\", \\"failure\\"]"',
+        '    # __F2_LEXER_BODY__',
+        '    return value="[\\"kern.frontend.f2-expression.1\\", \\"failure\\", \\"C27:FRONTEND_INVALID_EXPRESSIONS1:0E1:1\\", \\"1\\", \\"0\\", \\"0\\", \\"0\\", \\"\\", \\"failure\\"]"\n    # __F2_LEXER_BODY__',
       ),
       witness: 'answer',
     },
@@ -85,6 +85,30 @@ export function receiptMutations(fields) {
     mutate('framing-width', tape.replace(/^c0,0,3,171:/u, 'c0,0,3,170:')),
     { fields: [...fields.slice(0, 8), 'root:1:3:1:closed'], id: 'root-seal' },
     { fields: [fields[0], 'failure', 'C27:FRONTEND_INVALID_EXPRESSIONS1:0E1:1', fields[3], fields[4], fields[5], fields[6], fields[7], 'failure'], id: 'partial-failure' },
+  ];
+}
+
+export function semanticPayloadSubstitutionMutations() {
+  const binaryRun = runExpression('a + b');
+  const textRun = runExpression('"hello"');
+  const recordRun = runExpression('{a: 1}');
+  const lambdaRun = runExpression('a => a');
+  const memberRun = runExpression('a.b');
+  const unaryRun = runExpression('!a');
+
+  const mutateTape = (run, target, replacement, id, source) => ({
+    fields: [...run.fields.slice(0, 7), run.fields[7].replace(target, replacement), run.fields[8]],
+    id,
+    source,
+  });
+
+  return [
+    mutateTape(binaryRun, 'f6,4:i1:+', 'f6,4:i1:-', 'substitute-binary-op', 'a + b'),
+    mutateTape(textRun, 'f6,8:i5:hello', 'f6,8:i5:world', 'substitute-decoded-text', '"hello"'),
+    mutateTape(recordRun, 'f6,4:i1:a', 'f6,4:i1:b', 'substitute-record-key', '{a: 1}'),
+    mutateTape(lambdaRun, 'f6,4:i1:a', 'f6,4:i1:b', 'substitute-lambda-param', 'a => a'),
+    mutateTape(memberRun, 'f6,4:i1:b', 'f6,4:i1:c', 'substitute-member-name', 'a.b'),
+    mutateTape(unaryRun, 'f6,4:i1:!', 'f6,4:i1:~', 'substitute-unary-op', '!a'),
   ];
 }
 

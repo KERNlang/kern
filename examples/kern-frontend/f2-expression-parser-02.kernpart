@@ -5,12 +5,10 @@
       let name=nextTokenOffset value="f2uint(endField[1])"
       if cond=expectValue
         let name=bareLambdaHead value=true
-        for name=lambdaOpIndex from=0 to=opTop
-          let name=lambdaOpKind value="Map.get(opKinds, String(lambdaOpIndex))"
-          if cond="f2frame(lambdaOpKind) || lambdaOpKind == \"lambda\""
-            assign target=bareLambdaHead value=true
-          else
-            if cond="lambdaOpKind == \"unary\" || lambdaOpKind == \"binary\" || lambdaOpKind == \"conditional\""
+        if cond="opTop > 0"
+          if cond="Map.has(opKinds, String(opTop - 1))"
+            let name=topOpKind value="Map.get(opKinds, String(opTop - 1))"
+            if cond="topOpKind == \"unary\" || topOpKind == \"binary\" || topOpKind == \"conditional\""
               assign target=bareLambdaHead value=false
         if cond="bareLambdaHead && kind == \"identifier\" && f2validparam(text) && cursor + 1 < tokenCount"
           let name=arrowKind value="f2readitem(tokens, nextTokenOffset)"
@@ -59,24 +57,33 @@
           assign target=cursor value="cursor + 3"
           assign target=tokenOffset value="f2uint(openEnd[1])"
           continue
-        if cond="opTop > 0 && Map.get(opKinds, String(opTop - 1)) == \"record\" && Map.get(frameStates, String(opTop - 1)) == \"key\" && text != \"}\""
+        if cond="opTop > 0 && Map.has(opKinds, String(opTop - 1)) && Map.get(opKinds, String(opTop - 1)) == \"record\" && Map.has(frameStates, String(opTop - 1)) && Map.get(frameStates, String(opTop - 1)) == \"key\" && text != \"}\""
           if cond="kind != \"identifier\" && kind != \"integer\" && kind != \"text\""
             assign target=failed value=true
             assign target=failStart value="start"
             assign target=failEnd value="end"
             continue
-          let name=duplicateKey value=false
-          for name=keyIndex from=0 to="recordKeyValues.length"
-            if cond="recordKeyOwners[keyIndex] == currentRecordId && recordKeyValues[keyIndex] == text"
-              assign target=duplicateKey value=true
-          if cond=duplicateKey
+          let name=recordId value="Map.get(frameRecordIds, String(opTop - 1))"
+          if cond="Map.has(recordKeySets, String(recordId) + \":\" + String(Text.length(text)) + \":\" + String(text))"
             assign target=failed value=true
             assign target=failStart value="start"
             assign target=failEnd value="end"
             continue
-          do value="recordKeyOwners.push(currentRecordId)"
-          do value="recordKeyValues.push(text)"
-          assign target=currentRecordCount value="currentRecordCount + 1"
+          do value="Map.set(recordKeySets, String(recordId) + \":\" + String(Text.length(text)) + \":\" + String(text), true)"
+          let name=recordChunkOrdinal value="Map.get(recordChunkOrdinals, String(recordId))"
+          let name=recordChunkCount value="Map.get(recordChunkCounts, String(recordId))"
+          let name=recordChunk value="\"\""
+          if cond="Map.has(recordKeyChunks, String(recordId) + \":\" + String(recordChunkOrdinal))"
+            assign target=recordChunk value="Map.get(recordKeyChunks, String(recordId) + \":\" + String(recordChunkOrdinal))"
+          do value="Map.set(recordKeyChunks, String(recordId) + \":\" + String(recordChunkOrdinal), recordChunk + f2item(text))"
+          assign target=recordChunkCount value="recordChunkCount + 1"
+          if cond="recordChunkCount == 256"
+            assign target=recordChunkOrdinal value="recordChunkOrdinal + 1"
+            assign target=recordChunkCount value="0"
+          do value="Map.set(recordChunkOrdinals, String(recordId), recordChunkOrdinal)"
+          do value="Map.set(recordChunkCounts, String(recordId), recordChunkCount)"
+          let name=existingCount value="Map.has(frameCounts, String(opTop - 1)) ? Map.get(frameCounts, String(opTop - 1)) : 0"
+          do value="Map.set(frameCounts, String(opTop - 1), existingCount + 1)"
           let name=nextKind value="f2readitem(tokens, nextTokenOffset)"
           let name=nextText value="f2readitem(tokens, f2uint(nextKind[1]))"
           if cond="cursor + 1 < tokenCount && nextText[0] == \":\""
@@ -91,21 +98,22 @@
             assign target=failStart value="start"
             assign target=failEnd value="end"
             continue
-          let name=nodeId value="nodeKinds.length"
+          let name=nodeId value="nodeCount"
           if cond="nodeId >= maxNodes"
             assign target=failed value=true
             assign target=failureCode value="\"EXPRESSION_LIMIT\""
             assign target=failStart value="start"
             assign target=failEnd value="end"
             continue
-          do value="nodeKinds.push(0)"
-          do value="nodeStarts.push(start)"
-          do value="nodeEnds.push(end)"
-          do value="nodeFlags.push(0)"
-          do value="nodeSubtrees.push(1)"
-          do value="nodePayloads.push(f2item(text))"
-          do value="nodeValues.push(text)"
-          do value="nodeChildren.push(\"\")"
+          do value="Map.set(nodeKinds, String(nodeId), 0)"
+          do value="Map.set(nodeStarts, String(nodeId), start)"
+          do value="Map.set(nodeEnds, String(nodeId), end)"
+          do value="Map.set(nodeFlags, String(nodeId), 0)"
+          do value="Map.set(nodeSubtrees, String(nodeId), 1)"
+          do value="Map.set(nodePayloads, String(nodeId), f2item(text))"
+          do value="Map.set(nodeValues, String(nodeId), text)"
+          do value="Map.set(nodeChildren, String(nodeId), \"\")"
+          assign target=nodeCount value="nodeCount + 1"
           do value="Map.set(mixProvenance, String(nodeId), 0)"
           do value="Map.set(values, String(valueTop), nodeId)"
           assign target=valueTop value="valueTop + 1"
@@ -126,12 +134,10 @@
           do value="Map.set(opBases, String(opTop), valueTop)"
           do value="Map.set(frameCounts, String(opTop), 0)"
           do value="Map.set(frameStates, String(opTop), \"key\")"
-          do value="Map.set(recordParentIds, String(recordDepth), currentRecordId)"
-          do value="Map.set(recordParentCounts, String(recordDepth), currentRecordCount)"
-          assign target=currentRecordId value="nextRecordId"
-          assign target=currentRecordCount value="0"
+          do value="Map.set(frameRecordIds, String(opTop), nextRecordId)"
+          do value="Map.set(recordChunkOrdinals, String(nextRecordId), 0)"
+          do value="Map.set(recordChunkCounts, String(nextRecordId), 0)"
           assign target=nextRecordId value="nextRecordId + 1"
-          assign target=recordDepth value="recordDepth + 1"
           assign target=opTop value="opTop + 1"
           assign target=cursor value="cursor + 1"
           assign target=tokenOffset value="nextTokenOffset"
@@ -235,22 +241,23 @@
               if cond="kind == \"text\""
                 assign target=kindId value="5"
                 assign target=payload value="f2item(text)"
-        if cond="kindId < 0 || nodeKinds.length >= maxNodes"
+        if cond="kindId < 0 || nodeCount >= maxNodes"
           if cond="kindId >= 0"
             assign target=failureCode value="\"EXPRESSION_LIMIT\""
           assign target=failed value=true
           assign target=failStart value="start"
           assign target=failEnd value="end"
           continue
-        let name=nodeId value="nodeKinds.length"
-        do value="nodeKinds.push(kindId)"
-        do value="nodeStarts.push(start)"
-        do value="nodeEnds.push(end)"
-        do value="nodeFlags.push(0)"
-        do value="nodeSubtrees.push(1)"
-        do value="nodePayloads.push(payload)"
-        do value="nodeValues.push(text)"
-        do value="nodeChildren.push(\"\")"
+        let name=nodeId value="nodeCount"
+        do value="Map.set(nodeKinds, String(nodeId), kindId)"
+        do value="Map.set(nodeStarts, String(nodeId), start)"
+        do value="Map.set(nodeEnds, String(nodeId), end)"
+        do value="Map.set(nodeFlags, String(nodeId), 0)"
+        do value="Map.set(nodeSubtrees, String(nodeId), 1)"
+        do value="Map.set(nodePayloads, String(nodeId), payload)"
+        do value="Map.set(nodeValues, String(nodeId), text)"
+        do value="Map.set(nodeChildren, String(nodeId), \"\")"
+        assign target=nodeCount value="nodeCount + 1"
         do value="Map.set(mixProvenance, String(nodeId), 0)"
         do value="Map.set(values, String(valueTop), nodeId)"
         assign target=valueTop value="valueTop + 1"
@@ -266,7 +273,7 @@
         continue
       if cond="text == \"[\" || text == \"(\""
         let name=object value="Map.get(values, String(valueTop - 1))"
-        let name=objectStart value="List.index(nodeStarts, object)"
+        let name=objectStart value="Map.get(nodeStarts, String(object))"
         if cond="Map.has(spanStarts, String(object))"
           assign target=objectStart value="Map.get(spanStarts, String(object))"
         do value="Map.set(opKinds, String(opTop), text == \"[\" ? \"index\" : \"call\")"
@@ -296,7 +303,7 @@
         let name=memberEnd value="f2readitem(tokens, memberFieldOffset)"
         if cond="text == \"?.\" && memberKind[0] == \"symbol\" && (memberText[0] == \"[\" || memberText[0] == \"(\")"
           let name=object value="Map.get(values, String(valueTop - 1))"
-          let name=objectStart value="List.index(nodeStarts, object)"
+          let name=objectStart value="Map.get(nodeStarts, String(object))"
           if cond="Map.has(spanStarts, String(object))"
             assign target=objectStart value="Map.get(spanStarts, String(object))"
           do value="Map.set(opKinds, String(opTop), memberText[0] == \"[\" ? \"index\" : \"call\")"
@@ -317,24 +324,25 @@
           assign target=failEnd value="f2uint(memberEnd[0])"
           continue
         let name=object value="Map.get(values, String(valueTop - 1))"
-        let name=objectStart value="List.index(nodeStarts, object)"
+        let name=objectStart value="Map.get(nodeStarts, String(object))"
         if cond="Map.has(spanStarts, String(object))"
           assign target=objectStart value="Map.get(spanStarts, String(object))"
-        let name=newId value="nodeKinds.length"
+        let name=newId value="nodeCount"
         if cond="newId >= maxNodes"
           assign target=failed value=true
           assign target=failureCode value="\"EXPRESSION_LIMIT\""
           assign target=failStart value="start"
           assign target=failEnd value="end"
           continue
-        do value="nodeKinds.push(8)"
-        do value="nodeStarts.push(objectStart)"
-        do value="nodeEnds.push(f2uint(memberEnd[0]))"
-        do value="nodeFlags.push(text == \"?.\" ? 1 : 0)"
-        do value="nodeSubtrees.push(1 + List.index(nodeSubtrees, object))"
-        do value="nodePayloads.push(f2item(memberText[0]))"
-        do value="nodeValues.push(memberText[0])"
-        do value="nodeChildren.push(f2item(String(object)))"
+        do value="Map.set(nodeKinds, String(newId), 8)"
+        do value="Map.set(nodeStarts, String(newId), objectStart)"
+        do value="Map.set(nodeEnds, String(newId), f2uint(memberEnd[0]))"
+        do value="Map.set(nodeFlags, String(newId), text == \"?.\" ? 1 : 0)"
+        do value="Map.set(nodeSubtrees, String(newId), 1 + Map.get(nodeSubtrees, String(object)))"
+        do value="Map.set(nodePayloads, String(newId), f2item(memberText[0]))"
+        do value="Map.set(nodeValues, String(newId), memberText[0])"
+        do value="Map.set(nodeChildren, String(newId), f2item(String(object)))"
+        assign target=nodeCount value="nodeCount + 1"
         do value="Map.set(mixProvenance, String(newId), 0)"
         do value="Map.set(values, String(valueTop - 1), newId)"
         assign target=cursor value="cursor + 2"
@@ -374,15 +382,7 @@
         let name=afterGreaterKind value="f2readitem(tokens, nextTokenOffset)"
         let name=afterGreaterText value="f2readitem(tokens, f2uint(afterGreaterKind[1]))"
         if cond="afterGreaterText[0] == \"(\""
-          let name=typedCallHead value=false
-          for name=typedCallOpIndex from=0 to=opTop
-            let name=typedCallOpKind value="Map.get(opKinds, String(typedCallOpIndex))"
-            if cond="f2frame(typedCallOpKind) || typedCallOpKind == \"lambda\""
-              assign target=typedCallHead value=false
-            else
-              if cond="typedCallOpKind == \"binary\" && Map.get(opTexts, String(typedCallOpIndex)) == \"<\""
-                assign target=typedCallHead value=true
-          if cond=typedCallHead
+          if cond="opTop > 0 && Map.has(opKinds, String(opTop - 1)) && Map.get(opKinds, String(opTop - 1)) == \"binary\" && Map.has(opTexts, String(opTop - 1)) && Map.get(opTexts, String(opTop - 1)) == \"<\""
             assign target=failed value=true
             assign target=failStart value="start"
             assign target=failEnd value="end"
@@ -404,7 +404,7 @@
     if cond=failed
       let name=parseFailure value="f2failure(failureCode, failStart, failEnd, n)"
       return value=parseFailure
-    if cond="valueTop != 1 || nodeKinds.length == 0"
+    if cond="valueTop != 1 || nodeCount == 0"
       let name=shapeFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", 0, n, n)"
       return value=shapeFailure
     if cond=forceLateFailure
@@ -416,7 +416,11 @@
     let name=chunkPayload value="\"\""
     let name=frameCount value="0"
     let name=firstNode value="0"
-    for name=nodeCursor from=0 to="nodeKinds.length"
-      let name=nodeStart value="nodeStarts[nodeCursor]"
-      let name=nodeEnd value="nodeEnds[nodeCursor]"
+    for name=nodeCursor from=0 to=nodeCount
+      if cond="workSteps >= maxWorkSteps"
+        let name=tapeWorkFailure value="f2failure(\"EXPRESSION_LIMIT\", 0, n, n)"
+        return value=tapeWorkFailure
+      assign target=workSteps value="workSteps + 1"
+      let name=nodeStart value="Map.get(nodeStarts, String(nodeCursor))"
+      let name=nodeEnd value="Map.get(nodeEnds, String(nodeCursor))"
       if cond="Map.has(spanStarts, String(nodeCursor))"

@@ -1,6 +1,15 @@
 {
   "format": "kern.frontend.f2-expression-policy.1",
   "resultFormat": "kern.frontend.f2-expression.1",
+  "workCharging": {
+    "format": "kern.frontend.f2-work.unit.1",
+    "sourceScalar": 1,
+    "tokenAdmission": 1,
+    "parserTransition": 1,
+    "containerItem": 1,
+    "recordChunk": 1,
+    "tapeNode": 1
+  },
   "sourceLedger": "scripts/kern-frontend-f2-expression/source-form-ledger.json",
   "sourceLedgerSha256": "0832eb8e08225590fe0246dd90e30dd96c8dd339e59ce5b17472ee3944d82889",
   "conformanceCorpus": "scripts/kern-frontend-f2-expression/conformance-corpus.json",
@@ -9,13 +18,13 @@
   "ruleCoverageSha256": "aa82a2d1e92835d7e6d66e95fe8ae5f28488624ed17bbf7bc34d3a37cfcbca7e",
   "modules": [
     "examples/kern-frontend/f2-expression-catalog.kern",
-    "examples/kern-frontend/f2-expression-lexer.kern",
+    "examples/kern-frontend/f2-expression-lexer.kernpart",
     "examples/kern-frontend/f2-expression-main.kern"
   ],
   "moduleSha256": {
-    "examples/kern-frontend/f2-expression-catalog.kern": "56197d8449f39bcd78a98ab1acdac4cbc6245668d59097b9f9d4391244d17b39",
-    "examples/kern-frontend/f2-expression-lexer.kern": "e343c857060fc269eafbdcd6b841bc188a9e3073509f8d0e8f0d7790899e22b7",
-    "examples/kern-frontend/f2-expression-main.kern": "9b11fbab882bdd5b14fc0d1a096e914dd5341451ca79e20cd819d2ccc533d306"
+    "examples/kern-frontend/f2-expression-catalog.kern": "85aa6c25886d26033628c30d6fae6136bc59f75f5d65f9dc13cfab1468ab3e88",
+    "examples/kern-frontend/f2-expression-lexer.kernpart": "7b79e0608309c0afd06b7962d5f0543c0ad2263141aaf9a1a30888e1437c7206",
+    "examples/kern-frontend/f2-expression-main.kern": "b4dfbc9684a3a2434357f6afd9140c2801672c752ba5f57886a2627460fef3e0"
   },
   "parserFragments": [
     "examples/kern-frontend/f2-expression-parser-01.kernpart",
@@ -23,14 +32,24 @@
     "examples/kern-frontend/f2-expression-parser-03.kernpart"
   ],
   "parserFragmentSha256": {
-    "examples/kern-frontend/f2-expression-parser-01.kernpart": "8223d85f5d455283aeecdec19f000a075390f2bff96f43635614d36ef24e0531",
-    "examples/kern-frontend/f2-expression-parser-02.kernpart": "85a9a5b2ac794c97a976e15c6f400bfdb916a2b697cf63c9b0628959dd27cd1b",
-    "examples/kern-frontend/f2-expression-parser-03.kernpart": "d90f1b15a51a8cfd7d788e85f8bd4898b300807cd09a252ed7ca462a83d5b011"
+    "examples/kern-frontend/f2-expression-parser-01.kernpart": "049d4e468f3307381641d451dd85f9363bc72d85763265ea3edbc1742042fcf3",
+    "examples/kern-frontend/f2-expression-parser-02.kernpart": "1b920dfad53b05b795e40ec9bf1e0e5259cf55c285790a264d41ea20064d18e0",
+    "examples/kern-frontend/f2-expression-parser-03.kernpart": "6784fab0ce974745037accb18fc61742eae201cc5d9baa5e62c14f96c8fc902b"
   },
-  "parserCompositeSha256": "268ca720a2905b4eb7118033c50ec16394b605914a391c919a1238270cf58832",
+  "parserCompositeSha256": "1e2f785312b9c7ff1896699caf15a9cb3cf58b092db13c6aa010b32e18623f68",
   "scalingWalls": {
-    "flatTerms": [16, 32, 64, 128],
-    "nestedDepths": [8, 16, 32, 64],
+    "flatTerms": [
+      16,
+      32,
+      64,
+      128
+    ],
+    "nestedDepths": [
+      8,
+      16,
+      32,
+      64
+    ],
     "maxAdjacentTapeRatio": 3,
     "maxTapeScalarsPerNode": 128,
     "maxGuestList": 256,

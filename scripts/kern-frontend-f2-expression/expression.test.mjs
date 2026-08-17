@@ -214,8 +214,8 @@ test('production F2 source authority cannot delegate parsing', () => {
     'fn name=x handler lang="kern" return value="kern.frontend.any-shadow(x)"',
   ]) assert.throws(() => assertProductionSource(source, 'mutation.kern'));
   const parserSource = loaded.parserSource;
-  assert.equal((parserSource.match(/fn name=f2parse\b/gu) ?? []).length, 1);
-  assert.doesNotMatch(parserSource, /f2parse\s*[(]/u);
+  assert.doesNotMatch(parserSource, /fn name=f2parse\b|f2parse\s*[(]/u);
+  assert.doesNotMatch(loaded.composition, /__F2_(?:LEXER|PARSER)_BODY__|f2(?:lex|parse)\s*[(]/u);
   const helperNames = new Set((loaded.composition.match(/fn name=[A-Za-z_$][A-Za-z0-9_$]*/gu) ?? []).map((match) => match.slice(8)));
   const bareCalls = [...loaded.composition.matchAll(/(?<![.])\b([A-Za-z_$][A-Za-z0-9_$]*)[(]/gu)].map((match) => match[1]);
   for (const name of bareCalls) {

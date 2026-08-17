@@ -1,7 +1,7 @@
         assign target=nodeStart value="Map.get(spanStarts, String(nodeCursor))"
       if cond="Map.has(spanEnds, String(nodeCursor))"
         assign target=nodeEnd value="Map.get(spanEnds, String(nodeCursor))"
-      assign target=chunkPayload value="chunkPayload + f2nodeframe(nodeCursor, nodeKinds[nodeCursor], nodeStart, nodeEnd, nodeFlags[nodeCursor], nodeSubtrees[nodeCursor], nodePayloads[nodeCursor], nodeChildren[nodeCursor])"
+      assign target=chunkPayload value="chunkPayload + f2nodeframe(nodeCursor, Map.get(nodeKinds, String(nodeCursor)), nodeStart, nodeEnd, Map.get(nodeFlags, String(nodeCursor)), Map.get(nodeSubtrees, String(nodeCursor)), Map.get(nodePayloads, String(nodeCursor)), Map.get(nodeChildren, String(nodeCursor)))"
       assign target=frameCount value="frameCount + 1"
       if cond="frameCount == nodesPerChunk"
         do value="chunks.push(\"c\" + String(chunkOrdinal) + \",\" + String(firstNode) + \",\" + String(frameCount) + \",\" + String(Text.length(chunkPayload)) + \":\" + chunkPayload + \"s\" + String(chunkOrdinal))"
@@ -21,5 +21,5 @@
     if cond="chunks.length > maxChunks || Text.length(tape) > maxTapeScalars"
       let name=transportFailure value="f2failure(\"TRANSPORT_LIMIT\", 0, n, n)"
       return value=transportFailure
-    let name=root value="nodeKinds.length - 1"
-    return value="[\"kern.frontend.f2-expression.1\", \"parsed\", \"\", String(n), String(nodeKinds.length), String(chunks.length), String(maxGuest), tape, \"root:\" + String(root) + \":\" + String(nodeKinds.length) + \":\" + String(chunks.length) + \":closed\"]"
+    let name=root value="nodeCount - 1"
+    return value="[\"kern.frontend.f2-expression.1\", \"parsed\", \"\", String(n), String(nodeCount), String(chunks.length), String(maxGuest), tape, \"root:\" + String(root) + \":\" + String(nodeCount) + \":\" + String(chunks.length) + \":closed\"]"

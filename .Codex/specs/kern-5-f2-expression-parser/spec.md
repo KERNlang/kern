@@ -12,6 +12,9 @@
 **Independent contract review:**
 `/Users/nicolascukas/.agon/runs/review-1786898221656-uz93we`
 
+**Scalar-construction amendment:**
+`.Codex/specs/kern-5-f2-private-scalar-constructor/spec.md`
+
 **Confidence:** 0.98 after the tribunal corrections, repeated contract review,
 and a final review with no verified blockers
 
@@ -256,6 +259,12 @@ lets F5 consume a valid tape without source access or duplicate escape parsing.
 The private tape is deterministic and authenticated but is explicitly not the
 canonical KIR serialization; F5 still owns record-key sorting and canonical
 value encoding.
+
+Production KERN's ordinary Text operations are substring-closed, so F2 uses the
+reserved bounded `KernInternal.textFromScalar` lowering only after it has
+independently validated a numeric escape as one non-surrogate Unicode scalar.
+The intrinsic performs no parsing or classification; its three-leg contract is
+specified separately and does not expand the documented public Text surface.
 
 ### Parsing and limits
 

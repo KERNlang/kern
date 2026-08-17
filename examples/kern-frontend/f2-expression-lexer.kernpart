@@ -1,0 +1,239 @@
+    # F2 lexer body fragment.
+    let name=lexPayload value="\"\""
+    let name=lexFrameCount value="0"
+    let name=lexChunks value="[]"
+    let name=lexCursor value="0"
+    let name=lexCount value="0"
+    let name=lexDepth value="0"
+    let name=lexPeakDepth value="0"
+    while cond="lexCursor < n"
+      let name=ch value="Text.charAt(source, lexCursor)"
+      if cond="f2space(ch)"
+        assign target=lexCursor value="lexCursor + 1"
+        continue
+      if cond="lexCount >= maxTokens"
+        let name=lexTokenLimitFailure value="f2failure(\"EXPRESSION_LIMIT\", lexCursor, lexCursor + 1, n)"
+        return value=lexTokenLimitFailure
+      let name=start value="lexCursor"
+      let name=kind value="\"\""
+      let name=value value="\"\""
+      if cond="f2identstart(ch)"
+        assign target=lexCursor value="lexCursor + 1"
+        while cond="lexCursor < n && f2identnext(Text.charAt(source, lexCursor))"
+          assign target=lexCursor value="lexCursor + 1"
+        assign target=kind value="\"identifier\""
+        assign target=value value="Text.slice(source, start, lexCursor)"
+      else
+        if cond="f2digit(ch)"
+          assign target=lexCursor value="lexCursor + 1"
+          while cond="lexCursor < n && f2digit(Text.charAt(source, lexCursor))"
+            assign target=lexCursor value="lexCursor + 1"
+          let name=decimal value=false
+          if cond="lexCursor < n && Text.charAt(source, lexCursor) == \".\""
+            assign target=decimal value=true
+            assign target=lexCursor value="lexCursor + 1"
+            if cond="lexCursor >= n || (!f2digit(Text.charAt(source, lexCursor)))"
+              let name=lexDecimalFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", start, lexCursor, n)"
+              return value=lexDecimalFailure
+            while cond="lexCursor < n && f2digit(Text.charAt(source, lexCursor))"
+              assign target=lexCursor value="lexCursor + 1"
+          if cond="(ch == \"0\" && lexCursor - start > 1 && (!decimal)) || (lexCursor < n && (f2identnext(Text.charAt(source, lexCursor)) || Text.charAt(source, lexCursor) == \".\"))"
+            let name=lexNumberFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", start, lexCursor, n)"
+            return value=lexNumberFailure
+          assign target=kind value="decimal ? \"decimal\" : \"integer\""
+          assign target=value value="Text.slice(source, start, lexCursor)"
+        else
+          if cond="ch == \"\\\"\" || ch == \"'\""
+            let name=quote value="ch"
+            let name=decodedParts value="[]"
+            let name=decodedChunk value="\"\""
+            let name=decodedChunkCount value="0"
+            assign target=lexCursor value="lexCursor + 1"
+            let name=closed value=false
+            while cond="lexCursor < n"
+              let name=point value="Text.charAt(source, lexCursor)"
+              if cond="point == quote"
+                assign target=lexCursor value="lexCursor + 1"
+                assign target=closed value=true
+                break
+              if cond="point != \"\\\\\""
+                assign target=decodedChunk value="decodedChunk + point"
+                assign target=decodedChunkCount value="decodedChunkCount + 1"
+                if cond="decodedChunkCount == 256"
+                  do value="decodedParts.push(decodedChunk)"
+                  assign target=decodedChunk value="\"\""
+                  assign target=decodedChunkCount value="0"
+                assign target=lexCursor value="lexCursor + 1"
+                continue
+              if cond="lexCursor + 1 >= n"
+                let name=lexTrailingEscapeFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 1, n)"
+                return value=lexTrailingEscapeFailure
+              let name=escape value="Text.charAt(source, lexCursor + 1)"
+              if cond="escape == \"\\n\""
+                assign target=lexCursor value="lexCursor + 2"
+                continue
+              if cond="escape == \"\\r\""
+                if cond="lexCursor + 2 < n && Text.charAt(source, lexCursor + 2) == \"\\n\""
+                  assign target=lexCursor value="lexCursor + 3"
+                  continue
+                let name=lexCarriageReturnFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 2, n)"
+                return value=lexCarriageReturnFailure
+              let name=replacement value="\"\""
+              if cond="escape == \"\\\\\""
+                assign target=replacement value="\"\\\\\""
+              else
+                if cond="escape == \"\\\"\""
+                  assign target=replacement value="\"\\\"\""
+                else
+                  if cond="escape == \"'\""
+                    assign target=replacement value="\"'\""
+                  else
+                    if cond="escape == \"0\""
+                      if cond="lexCursor + 2 < n && f2digit(Text.charAt(source, lexCursor + 2))"
+                        let name=lexNullEscapeFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 2, n)"
+                        return value=lexNullEscapeFailure
+                      assign target=replacement value="\"\\0\""
+                    else
+                      if cond="escape == \"b\""
+                        assign target=replacement value="\"\\b\""
+                      else
+                        if cond="escape == \"f\""
+                          assign target=replacement value="\"\\f\""
+                        else
+                          if cond="escape == \"n\""
+                            assign target=replacement value="\"\\n\""
+                          else
+                            if cond="escape == \"r\""
+                              assign target=replacement value="\"\\r\""
+                            else
+                              if cond="escape == \"t\""
+                                assign target=replacement value="\"\\t\""
+                              else
+                                if cond="escape == \"v\""
+                                  assign target=replacement value="\"\\v\""
+                                else
+                                  let name=scalar value="-1"
+                                  let name=advance value="0"
+                                  if cond="escape == \"x\""
+                                    if cond="lexCursor + 3 >= n || f2hex(Text.charAt(source, lexCursor + 2)) < 0 || f2hex(Text.charAt(source, lexCursor + 3)) < 0"
+                                      let name=lexHexEscapeFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 2, n)"
+                                      return value=lexHexEscapeFailure
+                                    assign target=scalar value="f2hex(Text.charAt(source, lexCursor + 2)) * 16 + f2hex(Text.charAt(source, lexCursor + 3))"
+                                    assign target=advance value="4"
+                                  else
+                                    if cond="escape == \"u\""
+                                      if cond="lexCursor + 2 < n && Text.charAt(source, lexCursor + 2) == \"{\""
+                                        let name=hexCursor value="lexCursor + 3"
+                                        let name=digits value="0"
+                                        assign target=scalar value="0"
+                                        while cond="hexCursor < n && Text.charAt(source, hexCursor) != \"}\""
+                                          let name=hexDigit value="f2hex(Text.charAt(source, hexCursor))"
+                                          if cond="hexDigit < 0 || digits >= 6"
+                                            let name=lexUnicodeDigitFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, hexCursor + 1, n)"
+                                            return value=lexUnicodeDigitFailure
+                                          assign target=scalar value="scalar * 16 + hexDigit"
+                                          assign target=digits value="digits + 1"
+                                          assign target=hexCursor value="hexCursor + 1"
+                                        if cond="digits == 0 || hexCursor >= n"
+                                          let name=lexUnicodeBraceFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, hexCursor, n)"
+                                          return value=lexUnicodeBraceFailure
+                                        assign target=advance value="hexCursor - lexCursor + 1"
+                                      else
+                                        if cond="lexCursor + 5 >= n"
+                                          let name=lexUnicodeLengthFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, n, n)"
+                                          return value=lexUnicodeLengthFailure
+                                        assign target=scalar value="0"
+                                        for name=hexIndex from=2 to=6
+                                          let name=hexDigit value="f2hex(Text.charAt(source, lexCursor + hexIndex))"
+                                          if cond="hexDigit < 0"
+                                            let name=lexUnicodeUnitFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + hexIndex + 1, n)"
+                                            return value=lexUnicodeUnitFailure
+                                          assign target=scalar value="scalar * 16 + hexDigit"
+                                        assign target=advance value="6"
+                                        if cond="scalar >= 55296 && scalar <= 56319"
+                                          if cond="lexCursor + 11 >= n || Text.slice(source, lexCursor + 6, lexCursor + 8) != \"\\\\u\""
+                                            let name=lexHighSurrogateFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 6, n)"
+                                            return value=lexHighSurrogateFailure
+                                          let name=low value="0"
+                                          for name=lowIndex from=8 to=12
+                                            let name=lowDigit value="f2hex(Text.charAt(source, lexCursor + lowIndex))"
+                                            if cond="lowDigit < 0"
+                                              let name=lexSurrogateDigitFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor + 6, lexCursor + lowIndex + 1, n)"
+                                              return value=lexSurrogateDigitFailure
+                                            assign target=low value="low * 16 + lowDigit"
+                                          if cond="low < 56320 || low > 57343"
+                                            let name=lexSurrogatePairFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor + 6, lexCursor + 12, n)"
+                                            return value=lexSurrogatePairFailure
+                                          assign target=scalar value="65536 + (scalar - 55296) * 1024 + low - 56320"
+                                          assign target=advance value="12"
+                                        else
+                                          if cond="scalar >= 56320 && scalar <= 57343"
+                                            let name=lexLowSurrogateFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 6, n)"
+                                            return value=lexLowSurrogateFailure
+                                  if cond="scalar < 0 || scalar > 1114111 || (scalar >= 55296 && scalar <= 57343)"
+                                    let name=lexUnicodeScalarFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", lexCursor, lexCursor + 2, n)"
+                                    return value=lexUnicodeScalarFailure
+                                  assign target=replacement value="KernInternal.textFromScalar(scalar)"
+                                  assign target=decodedChunk value="decodedChunk + replacement"
+                                  assign target=decodedChunkCount value="decodedChunkCount + 1"
+                                  if cond="decodedChunkCount == 256"
+                                    do value="decodedParts.push(decodedChunk)"
+                                    assign target=decodedChunk value="\"\""
+                                    assign target=decodedChunkCount value="0"
+                                  assign target=lexCursor value="lexCursor + advance"
+                                  continue
+              assign target=decodedChunk value="decodedChunk + replacement"
+              assign target=decodedChunkCount value="decodedChunkCount + 1"
+              if cond="decodedChunkCount == 256"
+                do value="decodedParts.push(decodedChunk)"
+                assign target=decodedChunk value="\"\""
+                assign target=decodedChunkCount value="0"
+              assign target=lexCursor value="lexCursor + 2"
+            if cond="!closed"
+              let name=lexUnclosedStringFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", start, n, n)"
+              return value=lexUnclosedStringFailure
+            if cond="decodedChunkCount > 0"
+              do value="decodedParts.push(decodedChunk)"
+            let name=decoded value="decodedParts.length == 0 ? \"\" : f2concat(decodedParts)"
+            assign target=kind value="\"text\""
+            assign target=value value="decoded"
+          else
+            let name=three value="\"\""
+            let name=two value="\"\""
+            if cond="lexCursor + 3 <= n"
+              assign target=three value="Text.slice(source, lexCursor, lexCursor + 3)"
+            if cond="lexCursor + 2 <= n"
+              assign target=two value="Text.slice(source, lexCursor, lexCursor + 2)"
+            if cond="three == \">>>\" || three == \"===\" || three == \"!==\""
+              assign target=value value="three"
+              assign target=lexCursor value="lexCursor + 3"
+            else
+              if cond="two == \"**\" || two == \"==\" || two == \"!=\" || two == \"<=\" || two == \">=\" || two == \"&&\" || two == \"||\" || two == \"??\" || two == \"<<\" || two == \">>\" || two == \"?.\" || two == \"=>\""
+                assign target=value value="two"
+                assign target=lexCursor value="lexCursor + 2"
+              else
+                if cond="Text.indexOf(\"()[]{}.,:?-+*/%<>!~&|^\", ch) < 0"
+                  let name=lexCharacterFailure value="f2failure(\"FRONTEND_INVALID_EXPRESSION\", start, start + 1, n)"
+                  return value=lexCharacterFailure
+                assign target=value value="ch"
+                assign target=lexCursor value="lexCursor + 1"
+            assign target=kind value="\"symbol\""
+      if cond="kind == \"symbol\""
+        if cond="value == \"(\" || value == \"[\" || value == \"{\""
+          assign target=lexDepth value="lexDepth + 1"
+          if cond="lexDepth > lexPeakDepth"
+            assign target=lexPeakDepth value="lexDepth"
+        if cond="value == \")\" || value == \"]\" || value == \"}\""
+          if cond="lexDepth > 0"
+            assign target=lexDepth value="lexDepth - 1"
+      assign target=lexPayload value="lexPayload + f2item(kind) + f2item(value) + f2item(String(start)) + f2item(String(lexCursor))"
+      assign target=lexFrameCount value="lexFrameCount + 1"
+      assign target=lexCount value="lexCount + 1"
+      if cond="lexFrameCount == 256"
+        do value="lexChunks.push(lexPayload)"
+        assign target=lexPayload value="\"\""
+        assign target=lexFrameCount value="0"
+    if cond="lexFrameCount > 0"
+      do value="lexChunks.push(lexPayload)"
+    let name=tokens value="\"o\" + f2item(String(lexCount)) + f2item(String(lexPeakDepth)) + f2concat(lexChunks)"
+    # __F2_PARSER_BODY__

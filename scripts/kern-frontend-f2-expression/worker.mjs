@@ -10,6 +10,8 @@ const FORBIDDEN = /(?:\bcapability\b|parseExpression|projectExpressionText|types
 const TEST_LIMIT_KEYS = new Set([
   'maxChunks', 'maxNestingDepth', 'maxNodes', 'maxSourceScalars', 'maxTapeScalars', 'maxTokens', 'maxWorkSteps', 'nodesPerChunk',
 ]);
+const LEXER_BODY_MARKER = '    # __F2_LEXER_BODY__';
+const PARSER_BODY_MARKER = '    # __F2_PARSER_BODY__';
 
 function sourceUrl(path) {
   return new URL(`../../${path}`, import.meta.url);
@@ -44,11 +46,14 @@ export function loadComposition(policy = loadPolicy(), sourceOverrides = {}) {
   }
   const ledgerSource = readFileSync(sourceUrl(policy.sourceLedger), 'utf8');
   if (createHash('sha256').update(ledgerSource).digest('hex') !== policy.sourceLedgerSha256) fail('ledger digest');
-  const composition = [modules[0].source, modules[1].source, parserSource, modules[2].source].join('\n');
+  if ((modules[1].source.match(/__F2_PARSER_BODY__/gu) ?? []).length !== 1) fail('parser body marker');
+  if ((modules[2].source.match(/__F2_LEXER_BODY__/gu) ?? []).length !== 1) fail('lexer body marker');
+  if (/fn name=f2parse\b|f2parse\s*[(]/u.test(parserSource)) fail('parser entry ownership');
+  const lexerSource = modules[1].source.replace(PARSER_BODY_MARKER, parserSource.trimEnd());
+  const mainSource = modules[2].source.replace(LEXER_BODY_MARKER, lexerSource.trimEnd());
+  const composition = [modules[0].source, mainSource].join('\n');
   if ((composition.match(/export=true/gu) ?? []).length !== 1) fail('production export count');
-  if ((parserSource.match(/fn name=f2parse\b/gu) ?? []).length !== 1 || /f2parse\s*[(]/u.test(parserSource)) {
-    fail('parser entry ownership');
-  }
+  if (/__F2_PARSER_BODY__/u.test(composition)) fail('parser body marker');
   return { composition, modules, parserFragments, parserSource };
 }
 
@@ -58,6 +63,7 @@ export function runExpression(source, options = {}) {
   if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) fail('profile limit override shape');
   for (const [key, value] of Object.entries(overrides)) {
     if (!TEST_LIMIT_KEYS.has(key) || !Number.isSafeInteger(value) || value < 1) fail('profile limit override');
+    if (key === 'nodesPerChunk' && value > loadedPolicy.scalingWalls.maxGuestList) fail('profile limit override');
   }
   const policy = { ...loadedPolicy, profileLimits: { ...loadedPolicy.profileLimits, ...overrides } };
   if (!isWellFormedText(source)) fail('worker received ill-formed source');
@@ -88,11 +94,32 @@ export function runExpression(source, options = {}) {
   }
   if (envelope.events.length !== limits.expectedEvents || envelope.result.value.tag !== 'list') fail('runtime result shape');
   const fields = materialize(envelope.result.value);
+  const decoded = decodeExpression(fields, source, policy, { allowForcedLateFailure: options.forceLateFailure === true });
+  const moduleSha256 = Object.fromEntries(
+    [...loaded.modules, ...loaded.parserFragments].map((module) => [module.path, module.sha256]),
+  );
+  const failurePhase = decoded.status !== 'failure'
+    ? 'mechanical'
+    : {
+        EXPRESSION_LIMIT: 'resource-policy',
+        FORCED_LATE_FAILURE: 'forced-test',
+        FRONTEND_INVALID_EXPRESSION: 'parser-semantic',
+        SOURCE_LIMIT: 'source-admission',
+        TRANSPORT_LIMIT: 'transport-policy',
+      }[decoded.diagnostic.code];
+  const provenance = {
+    authority: 'worker',
+    phase: failurePhase,
+    handlerName: 'parsef2expression',
+    moduleSha256,
+    parserCompositeSha256: policy.parserCompositeSha256,
+    sourceLedgerSha256: policy.sourceLedgerSha256,
+    sourcePath: 'examples/kern-frontend/f2-expression-main.kern',
+  };
   return {
-    decoded: decodeExpression(fields, source, policy, { allowForcedLateFailure: options.forceLateFailure === true }),
+    decoded,
     fields,
-    moduleSha256: Object.fromEntries(
-      [...loaded.modules, ...loaded.parserFragments].map((module) => [module.path, module.sha256]),
-    ),
+    moduleSha256,
+    provenance,
   };
 }
