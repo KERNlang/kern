@@ -11,6 +11,7 @@ import {
   POST_EXECUTION_CONTEXT_HARDENING_FORMAT_SOURCE_RECONSTRUCTIONS,
   validateExecutionContextHardeningFormatHistoricalTransition,
 } from './execution-context-hardening-format-historical-transition.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
@@ -98,7 +99,8 @@ test('format transition binds exact commits, manifests, and unchanged compiled i
     },
     transition.compiledManifest,
   );
-  const identity = { count: compiledPaths().length, digest: pathDigest(compiledPaths()) };
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
+  const identity = { count: paths.length, digest: pathDigest(paths) };
   assert.deepEqual(identity, transition.compiledInventory.successor);
   assert.deepEqual(identity, transition.compiledInventory.predecessor);
 });

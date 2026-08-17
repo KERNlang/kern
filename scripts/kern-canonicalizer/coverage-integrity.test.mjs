@@ -20,6 +20,7 @@ import {
   digestPreM4135CompiledCoreJavaScript,
   reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths,
   reconstructM4145CompiledCoreJavaScriptPaths,
+  reconstructRunnerCallCacheCompiledCoreJavaScriptPaths,
   reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import { freezeFunctionFacts, validateFunctionFacts } from './coverage-facts.mjs';
@@ -356,8 +357,10 @@ test('current compiled core identity is sensitive to post-M4.145 runtime modules
 
 test('historical compiled core identities authenticate exact M4.145 membership', () => {
   const currentPaths = compiledCorePaths();
+  const runnerCallCachePredecessorPaths =
+    reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(currentPaths);
   const traceRetentionOwnershipPaths =
-    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
+    reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(runnerCallCachePredecessorPaths);
   const traceCompactionPaths =
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
@@ -367,6 +370,7 @@ test('historical compiled core identities authenticate exact M4.145 membership',
     'ir/semantics/internal-effect-machine-deferred-binding.js',
     'ir/semantics/internal-effect-machine-text-splice.js',
     'ir/semantics/internal-text-code-point-cache.js',
+    'ir/semantics/runner-call-cache.js',
     'kir-structural/branch-path-value.js',
     'kir-structural/each-collection-reference.js',
     'kir-structural/runtime-inflate.js',

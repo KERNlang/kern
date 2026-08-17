@@ -11,6 +11,9 @@ import {
   POST_EXECUTION_CONTEXT_ISOLATION_SOURCE_RECONSTRUCTIONS,
 } from './execution-context-isolation-historical-transition.mjs';
 import {
+  POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS,
+} from './runner-call-cache-historical-transition.mjs';
+import {
   POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
 } from './runtime-text-cache-historical-transition.mjs';
 import { traceCompactionSourceReconstruction } from './trace-compaction-historical-transition.mjs';
@@ -46,6 +49,9 @@ export function reconstructCanonicalizerHistoricalRuntimeSource({
   sourceKey,
 }) {
   const path = SOURCE_PATHS[sourceKey];
+  const runnerCallCache = POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS.find(
+    (candidate) => candidate.path === path,
+  );
   const executionHardening = POST_EXECUTION_CONTEXT_HARDENING_SOURCE_RECONSTRUCTIONS.find(
     (candidate) => candidate.path === path,
   );
@@ -58,6 +64,9 @@ export function reconstructCanonicalizerHistoricalRuntimeSource({
     (candidate) => candidate.sourceKey === sourceKey,
   );
   const stages = [];
+  if (runnerCallCache !== undefined) {
+    stages.push(stage(runnerCallCache, runnerCallCache.claim, runnerCallCache.path));
+  }
   if (executionHardening !== undefined) {
     stages.push(stage(executionHardening, executionHardening.claim, executionHardening.path));
   }

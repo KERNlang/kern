@@ -11,7 +11,12 @@ import {
   POST_ENVIRONMENT_QUARANTINE_SOURCE_RECONSTRUCTIONS,
   validateEnvironmentQuarantineHistoricalTransition,
 } from './environment-quarantine-historical-transition.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
+import {
+  atRunnerCallCacheCompiledPredecessor,
+  atRunnerCallCacheSourcePredecessor,
+} from './runner-call-cache-transition-composition.mjs';
 
 const ROOT = resolve(process.cwd());
 const DIST = resolve(ROOT, 'packages/core/dist');
@@ -66,7 +71,8 @@ test('environment quarantine binds exact commits, manifests, and unchanged inven
     },
     transition.compiledManifest,
   );
-  const identity = { count: compiledPaths().length, digest: pathDigest(compiledPaths()) };
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
+  const identity = { count: paths.length, digest: pathDigest(paths) };
   assert.deepEqual(identity, transition.compiledInventory.successor);
   assert.deepEqual(identity, transition.compiledInventory.predecessor);
 });
@@ -78,7 +84,11 @@ test('environment quarantine source endpoints reconstruct exact pinned Git blobs
   for (const row of POST_ENVIRONMENT_QUARANTINE_SOURCE_RECONSTRUCTIONS) {
     const successor = execFileSync('git', ['show', `${transition.successorCommit}:${row.path}`]);
     const predecessor = execFileSync('git', ['show', `${transition.predecessorCommit}:${row.path}`]);
-    assert.deepEqual(readFileSync(resolve(ROOT, row.path)), successor, row.path);
+    assert.deepEqual(
+      atRunnerCallCacheSourcePredecessor(row.path, readFileSync(resolve(ROOT, row.path))),
+      successor,
+      row.path,
+    );
     assert.equal(digest(successor), row.currentDigest, row.path);
     const reconstructed = reconstructHistoricalTransitionChain({
       currentSource: successor,
@@ -100,7 +110,10 @@ test('environment quarantine compiled endpoints reconstruct the authenticated pr
   const predecessorRows = [];
   const successorRows = [];
   for (const row of POST_ENVIRONMENT_QUARANTINE_COMPILED_RECONSTRUCTIONS) {
-    const successor = readFileSync(resolve(DIST, row.path));
+    const successor = atRunnerCallCacheCompiledPredecessor(
+      row.path,
+      readFileSync(resolve(DIST, row.path)),
+    );
     assert.equal(digest(successor), row.currentDigest, row.path);
     const predecessor = reconstructHistoricalTransitionChain({
       currentSource: successor,

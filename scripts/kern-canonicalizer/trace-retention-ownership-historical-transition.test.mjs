@@ -9,6 +9,7 @@ import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import {
   atEnvironmentQuarantineCompiledPredecessor,
 } from './environment-quarantine-transition-composition.mjs';
@@ -73,7 +74,7 @@ function stage(reconstruction) {
 test('trace-retention ownership transition binds exact commits, restored path, and reverse inventory', () => {
   assert.equal(validateTraceRetentionOwnershipHistoricalTransition(), true);
   const transition = TRACE_RETENTION_OWNERSHIP_HISTORICAL_TRANSITION;
-  const current = compiledPaths();
+  const current = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
   assert.deepEqual(
     { count: current.length, digest: inventoryDigest(current) },
     transition.compiledInventory.successor,

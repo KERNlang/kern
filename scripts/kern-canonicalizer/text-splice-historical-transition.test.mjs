@@ -9,6 +9,7 @@ import {
   digestPreM4135CompiledCoreJavaScript,
   reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths,
   reconstructM4145CompiledCoreJavaScriptPaths,
+  reconstructRunnerCallCacheCompiledCoreJavaScriptPaths,
   reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
@@ -45,7 +46,9 @@ function textSpliceSuccessorPaths() {
   );
   const traceCompactionPaths =
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(
-      reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(compiledCorePaths()),
+      reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(
+        reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledCorePaths()),
+      ),
     );
   return traceCompactionPaths.filter((path) => !runtimeTextCachePaths.has(path));
 }
@@ -147,7 +150,7 @@ test('current compiled identity is sensitive to both text splice successor modul
 });
 
 test('text splice transition preserves exact M4.145 and pre-M4.135 compiled identities', () => {
-  const currentPaths = compiledCorePaths();
+  const currentPaths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledCorePaths());
   const traceRetentionOwnershipPaths =
     reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
   const traceCompactionPaths =

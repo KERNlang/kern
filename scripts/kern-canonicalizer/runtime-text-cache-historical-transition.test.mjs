@@ -9,6 +9,7 @@ import {
   digestPreM4135CompiledCoreJavaScript,
   reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths,
   reconstructM4145CompiledCoreJavaScriptPaths,
+  reconstructRunnerCallCacheCompiledCoreJavaScriptPaths,
   reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths,
 } from './coverage-dependencies.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
@@ -122,7 +123,7 @@ test('runtime text cache transition binds the exact 316-to-317 inventory delta',
     RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION.addedPaths,
     [CACHE_SUCCESSOR_PATH],
   );
-  const currentPaths = compiledCorePaths();
+  const currentPaths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledCorePaths());
   const traceRetentionOwnershipPaths =
     reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
   const traceCompactionPaths =
@@ -250,7 +251,7 @@ test('current compiled identity is sensitive to the runtime text cache owner', (
 });
 
 test('runtime text cache transition preserves exact frozen historical identities', () => {
-  const currentPaths = compiledCorePaths();
+  const currentPaths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledCorePaths());
   const traceRetentionOwnershipPaths =
     reconstructTraceRetentionOwnershipCompiledCoreJavaScriptPaths(currentPaths);
   const traceCompactionPaths =

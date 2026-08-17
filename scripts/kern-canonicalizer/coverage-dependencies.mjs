@@ -56,6 +56,12 @@ import {
   RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION,
   RUNTIME_TEXT_CACHE_TYPE_ONLY_COMPILED_IDENTITIES,
 } from './runtime-text-cache-historical-transition.mjs';
+import {
+  POST_RUNNER_CALL_CACHE_COMPILED_RECONSTRUCTIONS,
+  RUNNER_CALL_CACHE_HISTORICAL_TRANSITION,
+  RUNNER_CALL_CACHE_TYPE_ONLY_COMPILED_IDENTITIES,
+  validateRunnerCallCacheHistoricalTransition,
+} from './runner-call-cache-historical-transition.mjs';
 import { scalarHelperHistoryOverrides } from './scalar-helper-history-coverage-adapter.mjs';
 import {
   POST_TEXT_SPLICE_COMPILED_RUNTIME_RECONSTRUCTIONS,
@@ -221,6 +227,29 @@ export function reconstructM4145CompiledCoreJavaScriptPaths(paths) {
   return historicalPaths;
 }
 
+export function reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths) {
+  assertCanonicalRelativeJavaScriptPaths(paths, 'runner-call-cache successor compiled core inventory');
+  const transition = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION;
+  if (
+    paths.length !== transition.compiledInventory.successor.count ||
+    hashPathInventory(paths) !== transition.compiledInventory.successor.digest
+  ) {
+    fail('runner-call-cache historical membership requires the authenticated successor inventory');
+  }
+  const addedPath = transition.addedCompiled.path;
+  if (!paths.includes(addedPath)) {
+    fail('runner-call-cache added path must exist in the authenticated successor inventory');
+  }
+  const predecessorPaths = paths.filter((path) => path !== addedPath);
+  if (
+    predecessorPaths.length !== transition.compiledInventory.predecessor.count ||
+    hashPathInventory(predecessorPaths) !== transition.compiledInventory.predecessor.digest
+  ) {
+    fail('runner-call-cache predecessor inventory must reproduce the environment-quarantine successor');
+  }
+  return predecessorPaths;
+}
+
 export function reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(paths) {
   assertCanonicalRelativeJavaScriptPaths(paths, 'legacy trace-compaction successor compiled core inventory');
   const transition = LEGACY_TRACE_COMPACTION_HISTORICAL_TRANSITION;
@@ -382,6 +411,7 @@ export function validateEnvironmentQuarantineCompiledCoreJavaScriptPaths(paths) 
 }
 
 function m4145CompiledCoreJavaScriptPaths() {
+  validateRunnerCallCacheHistoricalTransition();
   validateEnvironmentQuarantineHistoricalTransition();
   validateDecimalAdmissionIsolationHistoricalTransition();
   validateExecutionMetadataHardeningHistoricalTransition();
@@ -393,6 +423,10 @@ function m4145CompiledCoreJavaScriptPaths() {
   validateLegacyTraceCompactionHistoricalTransition();
   validateTraceCompactionHistoricalTransition();
   const { canonicalRoot, paths } = compiledCoreJavaScriptPaths();
+  const addedRunnerCache = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION.addedCompiled;
+  if (hashBytes(readFileSync(resolve(canonicalRoot, addedRunnerCache.path))) !== addedRunnerCache.digest) {
+    fail(`runner-call-cache added compiled source drifted: ${addedRunnerCache.path}`);
+  }
   const restoredTraceRetention = TRACE_RETENTION_OWNERSHIP_HISTORICAL_TRANSITION.restoredCompiledPath;
   if (hashBytes(RESTORED_TRACE_RETENTION_COMPILED) !== restoredTraceRetention.digest) {
     fail(`trace-retention ownership restored compiled source drifted: ${restoredTraceRetention.path}`);
@@ -405,7 +439,8 @@ function m4145CompiledCoreJavaScriptPaths() {
       fail(`legacy trace-compaction added compiled source drifted: ${identity.path}`);
     }
   }
-  const environmentQuarantinePaths = validateEnvironmentQuarantineCompiledCoreJavaScriptPaths(paths);
+  const runnerCallCachePaths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths);
+  const environmentQuarantinePaths = validateEnvironmentQuarantineCompiledCoreJavaScriptPaths(runnerCallCachePaths);
   const decimalAdmissionIsolationPaths =
     validateDecimalAdmissionIsolationCompiledCoreJavaScriptPaths(environmentQuarantinePaths);
   const executionMetadataHardeningPaths =
@@ -423,7 +458,30 @@ function m4145CompiledCoreJavaScriptPaths() {
   const traceCompactionPaths =
     reconstructLegacyTraceCompactionCompiledCoreJavaScriptPaths(traceRetentionOwnershipPaths);
   const historicalPaths = reconstructM4145CompiledCoreJavaScriptPaths(traceCompactionPaths);
-  const overrides = scalarHelperHistoryOverrides(canonicalRoot, paths, historicalPaths);
+  const overrides = scalarHelperHistoryOverrides(canonicalRoot, runnerCallCachePaths, historicalPaths);
+  for (const identity of RUNNER_CALL_CACHE_TYPE_ONLY_COMPILED_IDENTITIES) {
+    if (!runnerCallCachePaths.includes(identity.path)) {
+      fail(`runner-call-cache type-only path is absent from its predecessor: ${identity.path}`);
+    }
+    if (hashBytes(readFileSync(resolve(canonicalRoot, identity.path))) !== identity.digest) {
+      fail(`runner-call-cache type-only compiled source drifted: ${identity.path}`);
+    }
+  }
+  for (const reconstruction of POST_RUNNER_CALL_CACHE_COMPILED_RECONSTRUCTIONS) {
+    if (!historicalPaths.includes(reconstruction.path)) {
+      fail(`post-runner-call-cache compiled path is absent from M4.145: ${reconstruction.path}`);
+    }
+    overrides.set(
+      reconstruction.path,
+      reconstructHistoricalTransitionChain({
+        currentSource: readFileSync(resolve(canonicalRoot, reconstruction.path)),
+        expectedTerminalDigest: reconstruction.expectedDigest,
+        milestone: `runner-call-cache predecessor compiled ${reconstruction.path}`,
+        path: reconstruction.path,
+        stages: [historicalTransitionStage(reconstruction)],
+      }),
+    );
+  }
   for (const reconstruction of POST_ENVIRONMENT_QUARANTINE_COMPILED_RECONSTRUCTIONS) {
     if (!historicalPaths.includes(reconstruction.path)) {
       fail(`post-environment-quarantine compiled path is absent from M4.145: ${reconstruction.path}`);

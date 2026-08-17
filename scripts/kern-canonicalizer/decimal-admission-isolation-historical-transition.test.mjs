@@ -11,6 +11,7 @@ import {
   POST_DECIMAL_ADMISSION_ISOLATION_SOURCE_RECONSTRUCTIONS,
   validateDecimalAdmissionIsolationHistoricalTransition,
 } from './decimal-admission-isolation-historical-transition.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
 import { atScalarHelperHistoryCompiledPredecessor } from './scalar-helper-history-transition.mjs';
 
@@ -58,7 +59,8 @@ test('decimal-admission isolation binds exact commits, manifests, and unchanged 
     },
     transition.compiledManifest,
   );
-  const identity = { count: compiledPaths().length, digest: pathDigest(compiledPaths()) };
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
+  const identity = { count: paths.length, digest: pathDigest(paths) };
   assert.deepEqual(identity, transition.compiledInventory.successor);
   assert.deepEqual(identity, transition.compiledInventory.predecessor);
 });

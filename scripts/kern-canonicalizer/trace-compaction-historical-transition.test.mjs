@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import {
   historicalTransitionStage,
   indexHistoricalTransitionStages,
@@ -31,6 +32,10 @@ import {
   POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS,
   POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
 } from './runtime-text-cache-historical-transition.mjs';
+import {
+  atRunnerCallCacheCompiledPredecessor,
+  atRunnerCallCacheSourcePredecessor,
+} from './runner-call-cache-transition-composition.mjs';
 import {
   POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
   POST_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS,
@@ -85,7 +90,7 @@ function inventoryDigest(paths) {
 test('trace compaction transition binds immutable commits, claim, paths, and neutral inventory', () => {
   assert.equal(validateTraceCompactionHistoricalTransition(), true);
   assert.equal(TRACE_COMPACTION_HISTORICAL_TRANSITION.claim, 'kern.runtime.trace-compaction.r0');
-  const paths = compiledPaths();
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
   assert.deepEqual(
     { count: paths.length, digest: inventoryDigest(paths) },
     TRACE_RETENTION_OWNERSHIP_HISTORICAL_TRANSITION.compiledInventory.successor,
@@ -115,7 +120,10 @@ test('trace compaction transition binds immutable commits, claim, paths, and neu
 test('every source endpoint matches the pinned successor and predecessor Git blobs', () => {
   const { predecessorCommit, successorCommit } = TRACE_COMPACTION_HISTORICAL_TRANSITION;
   for (const reconstruction of POST_TRACE_COMPACTION_SOURCE_RECONSTRUCTIONS) {
-    let current = readFileSync(resolve(ROOT, reconstruction.path));
+    let current = atRunnerCallCacheSourcePredecessor(
+      reconstruction.path,
+      readFileSync(resolve(ROOT, reconstruction.path)),
+    );
     const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_SOURCE_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );
@@ -195,7 +203,10 @@ test('every source endpoint matches the pinned successor and predecessor Git blo
 
 test('clean current build and every reconstructed compiled endpoint match exact identities', () => {
   for (const reconstruction of POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS) {
-    let current = readFileSync(resolve(DIST, reconstruction.path));
+    let current = atRunnerCallCacheCompiledPredecessor(
+      reconstruction.path,
+      readFileSync(resolve(DIST, reconstruction.path)),
+    );
     const format = POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS.find(
       (candidate) => candidate.path === reconstruction.path,
     );

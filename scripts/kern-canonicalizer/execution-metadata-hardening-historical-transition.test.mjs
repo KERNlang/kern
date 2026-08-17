@@ -14,6 +14,7 @@ import {
 import {
   POST_DECIMAL_ADMISSION_ISOLATION_COMPILED_RECONSTRUCTIONS,
 } from './decimal-admission-isolation-historical-transition.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import {
   atEnvironmentQuarantineCompiledPredecessor,
 } from './environment-quarantine-transition-composition.mjs';
@@ -91,7 +92,8 @@ test('execution-metadata hardening binds exact commits, manifests, and unchanged
     },
     transition.compiledManifest,
   );
-  const identity = { count: compiledPaths().length, digest: pathDigest(compiledPaths()) };
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
+  const identity = { count: paths.length, digest: pathDigest(paths) };
   assert.deepEqual(identity, transition.compiledInventory.successor);
   assert.deepEqual(identity, transition.compiledInventory.predecessor);
 });

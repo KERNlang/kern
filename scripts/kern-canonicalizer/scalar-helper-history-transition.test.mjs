@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import test from 'node:test';
 
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import { historicalTransitionStage, reconstructHistoricalTransitionChain } from './historical-transition-chain.mjs';
 import {
   POST_SCALAR_HELPER_HISTORY_COMPILED_RECONSTRUCTIONS as ROWS,
@@ -53,7 +54,7 @@ function clonedRows() {
 
 test('scalar helper history authenticates the exact stable 317-path inventory', () => {
   assert.equal(validateScalarHelperHistoryHistoricalTransition(), true);
-  const actual = compiledPaths();
+  const actual = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
   assert.equal(actual.length, 317);
   assert.deepEqual(actual, SCALAR_HELPER_HISTORY_INVENTORY);
   assert.equal(validateScalarHelperHistoryCompiledInventory(actual), actual);

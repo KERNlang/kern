@@ -8,6 +8,7 @@ import test from 'node:test';
 import {
   POST_EXECUTION_CONTEXT_HARDENING_FORMAT_COMPILED_RECONSTRUCTIONS,
 } from './execution-context-hardening-format-historical-transition.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import {
   POST_EXECUTION_CONTEXT_HARDENING_COMPILED_RECONSTRUCTIONS,
 } from './execution-context-hardening-historical-transition.mjs';
@@ -133,7 +134,7 @@ test('execution-context isolation transition binds exact commits, manifests, and
     },
     transition.compiledManifest,
   );
-  const paths = compiledPaths();
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
   const identity = { count: paths.length, digest: inventoryDigest(paths) };
   assert.deepEqual(identity, transition.compiledInventory.successor);
   assert.deepEqual(identity, transition.compiledInventory.predecessor);

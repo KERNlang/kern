@@ -9,6 +9,7 @@ import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
+import { reconstructRunnerCallCacheCompiledCoreJavaScriptPaths } from './coverage-dependencies.mjs';
 import {
   atEnvironmentQuarantineCompiledPredecessor,
 } from './environment-quarantine-transition-composition.mjs';
@@ -121,7 +122,7 @@ function atTraceRetentionRootSuccessor(path, currentSource) {
 test('trace-retention root transition binds exact commits and unchanged compiled inventory', () => {
   assert.equal(validateTraceRetentionRootHistoricalTransition(), true);
   const transition = TRACE_RETENTION_ROOT_HISTORICAL_TRANSITION;
-  const paths = compiledPaths();
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledPaths());
   const identity = { count: paths.length, digest: inventoryDigest(paths) };
   assert.deepEqual(identity, transition.compiledInventory.successor);
   assert.deepEqual(identity, transition.compiledInventory.predecessor);

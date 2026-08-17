@@ -6,6 +6,10 @@ import {
   historicalTransitionStage,
   reconstructHistoricalTransitionChain,
 } from './historical-transition-chain.mjs';
+import {
+  atRunnerCallCacheCompiledPredecessor,
+  atRunnerCallCacheSourcePredecessor,
+} from './runner-call-cache-transition-composition.mjs';
 
 function reconstructEnvironmentQuarantinePredecessor({
   currentSource,
@@ -26,7 +30,7 @@ function reconstructEnvironmentQuarantinePredecessor({
 
 export function atEnvironmentQuarantineSourcePredecessor(path, currentSource) {
   return reconstructEnvironmentQuarantinePredecessor({
-    currentSource,
+    currentSource: atRunnerCallCacheSourcePredecessor(path, currentSource),
     path,
     reconstructions: POST_ENVIRONMENT_QUARANTINE_SOURCE_RECONSTRUCTIONS,
     surface: 'source',
@@ -35,7 +39,7 @@ export function atEnvironmentQuarantineSourcePredecessor(path, currentSource) {
 
 export function atEnvironmentQuarantineCompiledPredecessor(path, currentSource) {
   return reconstructEnvironmentQuarantinePredecessor({
-    currentSource,
+    currentSource: atRunnerCallCacheCompiledPredecessor(path, currentSource),
     path,
     reconstructions: POST_ENVIRONMENT_QUARANTINE_COMPILED_RECONSTRUCTIONS,
     surface: 'compiled',
