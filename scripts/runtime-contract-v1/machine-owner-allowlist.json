@@ -85,6 +85,7 @@
     "ir/semantics/portable-return-array.ts",
     "ir/semantics/portable-scalar-domain.ts",
     "ir/semantics/portable-string.ts",
+    "ir/semantics/runner-call-cache.ts",
     "ir/semantics/runner-machine-scope.ts",
     "ir/semantics/semantic-atomic-ownership.ts",
     "ir/semantics/semantic-clone.ts",

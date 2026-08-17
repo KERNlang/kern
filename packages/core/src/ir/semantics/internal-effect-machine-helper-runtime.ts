@@ -25,6 +25,13 @@ import {
   type RunnerPortableValue,
 } from './portable-scalar-domain.js';
 import {
+  lookupRunnerCallCache,
+  type PreparedRunnerCallCacheKey,
+  prepareRunnerCallCacheKey,
+  type RunnerCallCache,
+  rememberRunnerCallCache,
+} from './runner-call-cache.js';
+import {
   getBinding,
   hasBinding,
   makeExecutionFrame,
@@ -36,14 +43,6 @@ import { emptyTrace, type TraceEvent } from './trace.js';
 // Frozen native-runner semantics, shared with the compatibility helper owner.
 const RUNNER_CALL_DEPTH_LIMIT = 512;
 const RUNNER_CALL_CACHE_LIMIT = 1024;
-
-function helperCacheKey(values: readonly RunnerPortableValue[], provenance: readonly boolean[]): string | undefined {
-  try {
-    return JSON.stringify(values.map((value, index) => [value, provenance[index]]));
-  } catch {
-    return undefined;
-  }
-}
 
 export function evalInternalMachineHelperArgumentValue(
   node: ValueIR,
@@ -65,7 +64,7 @@ export function evalInternalMachineHelperArgumentValue(
   return evaluate(node, env);
 }
 
-function helperCache(state: InternalEffectMachineState, fn: RunnerFunctionBinding): Map<string, unknown> {
+function helperCache(state: InternalEffectMachineState, fn: RunnerFunctionBinding): RunnerCallCache {
   const caches = (state.helperCallCache ??= new Map());
   let cache = caches.get(fn);
   if (!cache) {
@@ -76,8 +75,8 @@ function helperCache(state: InternalEffectMachineState, fn: RunnerFunctionBindin
 }
 
 interface PreparedHelperCall {
-  readonly cache: Map<string, unknown>;
-  readonly cacheKey: string | undefined;
+  readonly cache: RunnerCallCache;
+  readonly cacheKey: PreparedRunnerCallCacheKey | undefined;
   readonly env: SemanticEnv;
   readonly fn: RunnerFunctionBinding;
   readonly intProvenance: ReadonlySet<string>;
@@ -110,17 +109,18 @@ function prepareHelperCallFromValues(
   for (let index = 0; index < fn.params.length; index += 1) {
     if (provenance[index]) intProvenance.add(fn.params[index]);
   }
-  const cacheKey = helperCacheKey(values, provenance);
+  const cache = helperCache(state, fn);
+  const cacheKey = prepareRunnerCallCacheKey([], values, provenance);
   if (state.observer !== undefined) {
     emitInternalEffectMachineDiagnostic(state.observer, {
       argumentCount: values.length,
-      cacheKeyLength: cacheKey?.length ?? null,
+      cacheKeyLength: cacheKey?.encodedLength ?? null,
       kind: 'helper-prepare',
       name,
     });
   }
   return {
-    cache: helperCache(state, fn),
+    cache,
     cacheKey,
     env,
     fn,
@@ -159,7 +159,8 @@ function prepareHelperCall(
 }
 
 function cachedHelperValue(call: PreparedHelperCall): RunnerPortableValue | undefined {
-  const hit = call.cacheKey !== undefined && call.cache.has(call.cacheKey);
+  const cached = call.cacheKey === undefined ? { hit: false } : lookupRunnerCallCache(call.cache, call.cacheKey);
+  const hit = cached.hit;
   if (call.state.observer !== undefined) {
     emitInternalEffectMachineDiagnostic(call.state.observer, {
       hit,
@@ -168,16 +169,12 @@ function cachedHelperValue(call: PreparedHelperCall): RunnerPortableValue | unde
     });
   }
   if (!hit || call.cacheKey === undefined) return undefined;
-  return assertRunnerPortableValue(call.cache.get(call.cacheKey), `function "${call.name}" cached return`);
+  return assertRunnerPortableValue(cached.value, `function "${call.name}" cached return`);
 }
 
 function rememberHelperValue(call: PreparedHelperCall, value: RunnerPortableValue): void {
   if (call.cacheKey === undefined) return;
-  if (call.cache.size >= RUNNER_CALL_CACHE_LIMIT) {
-    const oldest = call.cache.keys().next().value;
-    if (oldest !== undefined) call.cache.delete(oldest);
-  }
-  call.cache.set(call.cacheKey, value);
+  rememberRunnerCallCache(call.cache, call.cacheKey, value, RUNNER_CALL_CACHE_LIMIT);
 }
 
 function helperCallEnvironment(call: PreparedHelperCall): SemanticEnv {

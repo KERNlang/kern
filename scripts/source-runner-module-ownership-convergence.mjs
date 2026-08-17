@@ -135,7 +135,7 @@ export function validateModuleOwnershipSlice(contents, errors) {
   requireAll(
     contents.moduleState,
     [
-      'helperCallCache?: Map<RunnerFunctionBinding, Map<string, unknown>>',
+      'helperCallCache?: Map<RunnerFunctionBinding, Map<unknown, unknown>>',
       'moduleGraph?: InternalMachineModuleGraph',
       'resumableHelpers?: ReadonlySet<RunnerFunctionBinding>',
     ],

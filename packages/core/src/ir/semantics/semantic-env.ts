@@ -173,7 +173,7 @@ export function isOwnedEmptyExactSemanticArray(value: unknown): value is unknown
     length.configurable === false
   );
 }
-function ownPlainMap<T>(value: Map<string, T> | undefined): Map<string, T> | undefined {
+function ownPlainMap<K, V>(value: Map<K, V> | undefined): Map<K, V> | undefined {
   if (value instanceof Map && Object.getPrototypeOf(value) === Map.prototype) ownSemanticComposite(value);
   return value;
 }

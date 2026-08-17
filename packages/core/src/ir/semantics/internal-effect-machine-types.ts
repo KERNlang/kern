@@ -70,7 +70,7 @@ export type InternalEffectMachineRequest = InternalCapabilityEffectRequest | Int
 export interface InternalEffectMachineState {
   classRegistry?: ReadonlyMap<string, RunnerClassBinding>;
   helperBodyRunner?: InternalEffectMachineChildSequenceRunner;
-  helperCallCache?: Map<RunnerFunctionBinding, Map<string, unknown>>;
+  helperCallCache?: Map<RunnerFunctionBinding, Map<unknown, unknown>>;
   helperEvaluationDepth?: number;
   helperRegistry?: ReadonlyMap<string, RunnerFunctionBinding>;
   moduleGraph?: InternalMachineModuleGraph;

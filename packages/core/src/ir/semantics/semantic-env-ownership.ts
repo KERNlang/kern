@@ -14,7 +14,7 @@ export interface SemanticEnv {
   runnerFunctions?: Map<string, RunnerFunctionBinding>;
   runnerClasses?: Map<string, RunnerClassBinding>;
   runnerCallStack?: string[];
-  runnerCallCache?: Map<string, unknown>;
+  runnerCallCache?: Map<unknown, unknown>;
   runnerThis?: RunnerClassInstanceValue;
   runnerSuperClass?: string;
   runnerProtectedClassInstances?: WeakSet<RunnerClassInstanceValue>;

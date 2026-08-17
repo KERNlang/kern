@@ -39,6 +39,12 @@ import {
   type RunnerPortableArrayValue,
   type RunnerPortableValue,
 } from './portable-scalar-domain.js';
+import {
+  lookupRunnerCallCache,
+  prepareRunnerCallCacheKey,
+  type RunnerCallCache,
+  rememberRunnerCallCache,
+} from './runner-call-cache.js';
 import { poisonInternalRunnerMutationAudits } from './semantic-env-ownership.js';
 
 const RUNNER_CLASS_NO_VALUE = Symbol('runnerClassNoValue');
@@ -73,20 +79,6 @@ function moduleScopeCacheId(scope: RunnerModuleScope | undefined): number {
     moduleScopeIds.set(scope, id);
   }
   return id;
-}
-
-function runnerFunctionCacheKey(
-  moduleId: number,
-  fnName: string,
-  argValues: readonly RunnerFunctionValue[],
-  argIntProvenance: readonly boolean[],
-): string | undefined {
-  if (argValues.some(isRunnerClassInstanceValue)) return undefined;
-  try {
-    return JSON.stringify([moduleId, fnName, argValues.map((value, index) => [value, argIntProvenance[index]])]);
-  } catch {
-    return undefined;
-  }
 }
 
 export function evalRecordArrayFieldValue(
@@ -316,7 +308,7 @@ export async function evalRunnerClassMethodScalarWithArgumentsAsync(
   return runRunnerClassBodyAsync(method, receiver, args, method.body, menv, true, runBody);
 }
 
-function runnerCallCacheForEnv(env: SemanticEnv): Map<string, unknown> {
+function runnerCallCacheForEnv(env: SemanticEnv): RunnerCallCache {
   for (let cur: SemanticEnv | undefined = env; cur; cur = cur.parent) {
     if (cur.runnerCallCache) return cur.runnerCallCache;
   }
@@ -356,9 +348,12 @@ export function evalRunnerFunctionValue(
   }
 
   const cache = runnerCallCacheForEnv(env);
-  const cacheKey = runnerFunctionCacheKey(moduleScopeCacheId(fn.module), fnName, argValues, argIntProvenance);
-  if (cacheKey !== undefined && cache.has(cacheKey)) {
-    return assertRunnerPortableValue(cache.get(cacheKey), `function "${fnName}" cached return`);
+  const cacheKey = argValues.some(isRunnerClassInstanceValue)
+    ? undefined
+    : prepareRunnerCallCacheKey([moduleScopeCacheId(fn.module), fnName], argValues, argIntProvenance);
+  const cached = cacheKey === undefined ? { hit: false } : lookupRunnerCallCache(cache, cacheKey);
+  if (cached.hit) {
+    return assertRunnerPortableValue(cached.value, `function "${fnName}" cached return`);
   }
 
   const callEnv = makeExecutionFrame(env, {
@@ -383,11 +378,7 @@ export function evalRunnerFunctionValue(
   }
   const out = assertRunnerFunctionValue(trace.completion.value, `function "${fnName}" return`);
   if (cacheKey !== undefined && !isRunnerClassInstanceValue(out)) {
-    if (cache.size >= MAX_RUNNER_CALL_CACHE_ENTRIES) {
-      const oldestKey = cache.keys().next().value;
-      if (oldestKey !== undefined) cache.delete(oldestKey);
-    }
-    cache.set(cacheKey, out);
+    rememberRunnerCallCache(cache, cacheKey, out, MAX_RUNNER_CALL_CACHE_ENTRIES);
   }
   return out;
 }

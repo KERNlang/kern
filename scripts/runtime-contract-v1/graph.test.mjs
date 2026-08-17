@@ -22,9 +22,10 @@ const RECENT_RUNTIME_OWNERS = [
   'ir/semantics/internal-effect-machine-deferred-binding',
   'ir/semantics/internal-effect-machine-text-splice',
   'ir/semantics/internal-text-code-point-cache',
+  'ir/semantics/runner-call-cache',
 ];
 
-test('Text.splice and F1 text-cache additions are exact source and built runtime machine owners', () => {
+test('recent machine helpers are exact source and built runtime owners', () => {
   for (const [root, extension, closure] of [
     [resolve('packages/core/src'), '.ts', assertPublicHandlerAbiClosure],
     [resolve('packages/core/dist'), '.js', assertPublicHandlerBuiltAbiClosure],
