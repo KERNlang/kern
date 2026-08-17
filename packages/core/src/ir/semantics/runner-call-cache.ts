@@ -36,6 +36,55 @@ interface CacheStore {
 const stores = new WeakMap<RunnerCallCache, CacheStore>();
 const structuralEntries = new WeakSet<object>();
 
+function jsonStringLiteralLength(value: string): number {
+  let length = 2;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (
+      code === 0x22 ||
+      code === 0x5c ||
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0c ||
+      code === 0x0d
+    ) {
+      length += 2;
+    } else if (code <= 0x1f || (code >= 0xd800 && code <= 0xdfff)) {
+      const next = value.charCodeAt(index + 1);
+      if (code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+        length += 2;
+        index += 1;
+      } else {
+        length += 6;
+      }
+    } else {
+      length += 1;
+    }
+  }
+  return length;
+}
+
+function legacyLengthAdjustment(
+  namespace: readonly (number | string)[],
+  values: readonly unknown[],
+  provenance: readonly boolean[],
+): number {
+  let adjustment = namespace.length === 0 ? -5 : -2;
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (typeof value !== 'string') {
+      adjustment -= 8;
+      continue;
+    }
+    const integer = provenance[index] === true;
+    const terminalEntryLength = JSON.stringify(['outer-string', index, integer]).length;
+    const legacyEntryLength = jsonStringLiteralLength(value) + String(integer).length + 3;
+    adjustment += legacyEntryLength - terminalEntryLength;
+  }
+  return adjustment;
+}
+
 function branch(): CacheBranch {
   return { leaves: new Map(), positions: new Map() };
 }
@@ -112,7 +161,11 @@ export function prepareRunnerCallCacheKey(
   });
   try {
     const terminal = JSON.stringify([namespace, terminalValues]);
-    return { encodedLength: terminal.length + outerStrings.length, outerStrings, terminal };
+    return {
+      encodedLength: terminal.length + legacyLengthAdjustment(namespace, values, provenance),
+      outerStrings,
+      terminal,
+    };
   } catch {
     return undefined;
   }

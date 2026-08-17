@@ -26,6 +26,36 @@ test('top-level strings use collision-free content paths without terminal copies
   expect(lookupRunnerCallCache(cache, other)).toEqual({ hit: false });
 });
 
+test('encoded length preserves the legacy helper-cache observer contract', () => {
+  const tape = `line\n${'x'.repeat(4_096)}"\\end`;
+  const values = [tape, 7, ['nested', true]];
+  const provenance = [false, true, false];
+  const key = prepareRunnerCallCacheKey([], values, provenance);
+  if (!key) throw new Error('expected cacheable key');
+
+  expect(key.terminal).not.toContain(tape);
+  expect(key.encodedLength).toBe(JSON.stringify(values.map((value, index) => [value, provenance[index]])).length);
+});
+
+test('encoded length matches JSON boundaries and serializes nested values once', () => {
+  let serializations = 0;
+  const nested = {
+    toJSON() {
+      serializations += 1;
+      return ['nested', '\ud800', '\udc00', '😀'];
+    },
+  };
+  const controls = Array.from({ length: 0x20 }, (_, code) => String.fromCharCode(code)).join('');
+  const values = [`${controls}"\\\ud800\udc00😀`, nested];
+  const provenance = [false, false];
+  const key = prepareRunnerCallCacheKey([], values, provenance);
+  if (!key) throw new Error('expected cacheable key');
+
+  expect(serializations).toBe(1);
+  const legacyValues = [values[0], ['nested', '\ud800', '\udc00', '😀']];
+  expect(key.encodedLength).toBe(JSON.stringify(legacyValues.map((value, index) => [value, provenance[index]])).length);
+});
+
 test('FIFO eviction prunes structural leaves and reinsertion is a safe miss', () => {
   const cache: RunnerCallCache = new Map();
   const first = prepared(['tape-a', 0]);
