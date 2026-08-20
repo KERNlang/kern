@@ -115,6 +115,8 @@ function prepareHelperCallFromValues(
     emitInternalEffectMachineDiagnostic(state.observer, {
       argumentCount: values.length,
       cacheKeyLength: cacheKey?.encodedLength ?? null,
+      cacheOuterStringPathSteps: cacheKey?.outerStrings.length ?? null,
+      cacheTerminalCodeUnits: cacheKey?.terminal.length ?? null,
       kind: 'helper-prepare',
       name,
     });

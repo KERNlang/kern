@@ -1,6 +1,11 @@
 export type InternalEffectMachineDiagnosticEvent =
   | {
       readonly argumentCount: number;
+      /** UTF-16 code units retained in the structural cache's serialized terminal key. */
+      readonly cacheTerminalCodeUnits: number | null;
+      /** Top-level string arguments represented as collision-free structural path steps. */
+      readonly cacheOuterStringPathSteps: number | null;
+      /** Length of the byte-identical legacy JSON key used by authenticated historical receipts. */
       readonly cacheKeyLength: number | null;
       readonly kind: 'helper-prepare';
       readonly name: string;

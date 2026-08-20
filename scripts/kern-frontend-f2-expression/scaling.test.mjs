@@ -76,11 +76,27 @@ function helperDiagnostics(source) {
       limits: policy.runtimeLimits,
       observer(event) {
         if (event.kind !== 'helper-cache' && event.kind !== 'helper-execute' && event.kind !== 'helper-prepare') return;
-        const current = stats.get(event.name) ?? { executes: 0, keyCharacters: 0, lookups: 0, prepares: 0 };
+        const current = stats.get(event.name) ?? {
+          executes: 0,
+          keyCharacters: 0,
+          lookups: 0,
+          outerStringPathSteps: 0,
+          prepares: 0,
+          terminalCodeUnits: 0,
+        };
         if (event.kind === 'helper-execute') current.executes += 1;
         else if (event.kind === 'helper-prepare') {
+          if (event.cacheKeyLength !== null) {
+            assert.equal(typeof event.cacheOuterStringPathSteps, 'number');
+            assert.equal(typeof event.cacheTerminalCodeUnits, 'number');
+          } else {
+            assert.equal(event.cacheOuterStringPathSteps, null);
+            assert.equal(event.cacheTerminalCodeUnits, null);
+          }
           current.keyCharacters += event.cacheKeyLength ?? 0;
+          current.outerStringPathSteps += event.cacheOuterStringPathSteps ?? 0;
           current.prepares += 1;
+          current.terminalCodeUnits += event.cacheTerminalCodeUnits ?? 0;
         } else current.lookups += 1;
         stats.set(event.name, current);
       },
@@ -165,18 +181,26 @@ test('hostile unary helper cache keys scale linearly', () => {
   assert.ok(shallowRead && deepRead && deeperRead, JSON.stringify(Object.fromEntries(deeper.stats)));
   assert.ok(deepRead.executes <= shallowRead.executes * 2.1 + 32, `${shallowRead.executes} -> ${deepRead.executes}`);
   assert.ok(deeperRead.executes <= deepRead.executes * 2.1 + 32, `${deepRead.executes} -> ${deeperRead.executes}`);
-  const superlinearCacheKeys = (smaller, larger) => {
+  const superlinearCacheKeys = (smaller, larger, dimension) => {
     const violations = [];
     for (const [name, largerStat] of larger.stats) {
-      const smallerStat = smaller.stats.get(name) ?? { keyCharacters: 0 };
-      if (largerStat.keyCharacters > smallerStat.keyCharacters * 2.5 + 4096) {
-        violations.push(`${name}: ${smallerStat.keyCharacters} -> ${largerStat.keyCharacters}`);
+      const smallerValue = smaller.stats.get(name)?.[dimension] ?? 0;
+      const largerValue = largerStat[dimension];
+      assert.ok(Number.isFinite(smallerValue), `${name}.${dimension} missing from smaller sample`);
+      assert.ok(Number.isFinite(largerValue), `${name}.${dimension} missing from larger sample`);
+      if (largerValue > smallerValue * 2.5 + 4096) {
+        violations.push(`${name}: ${smallerValue} -> ${largerValue}`);
       }
     }
     return violations;
   };
-  assert.deepEqual(superlinearCacheKeys(shallow, deep), []);
-  assert.deepEqual(superlinearCacheKeys(deep, deeper), []);
+  for (const dimension of ['terminalCodeUnits', 'outerStringPathSteps']) {
+    assert.deepEqual(superlinearCacheKeys(shallow, deep, dimension), [], dimension);
+    assert.deepEqual(superlinearCacheKeys(deep, deeper, dimension), [], dimension);
+  }
+  // The compatibility field includes the full outer source per prepare and is
+  // intentionally not used as the structural-allocation scaling oracle.
+  assert.ok(deeperRead.keyCharacters > deeperRead.terminalCodeUnits);
 });
 
 test('measured expression geometry derives exact-cap and cap-minus-one failures', () => {

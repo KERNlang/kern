@@ -193,6 +193,43 @@ test('M4.96 observer events are frozen and observer failures cannot affect execu
   expect(allFrozen).toBe(true);
 });
 
+test('helper preparation reports legacy and structural cache dimensions independently', () => {
+  const shortEvents: InternalEffectMachineDiagnosticEvent[] = [];
+  const longEvents: InternalEffectMachineDiagnosticEvent[] = [];
+  runInternalEffectMachineSync(
+    [{ type: 'print', props: { value: 'regexOuter("a")' } }],
+    expressionHelperEnvironment(),
+    { observer: (event) => shortEvents.push(event) },
+  );
+  runInternalEffectMachineSync(
+    [{ type: 'print', props: { value: `regexOuter("${'a'.repeat(4_096)}")` } }],
+    expressionHelperEnvironment(),
+    { observer: (event) => longEvents.push(event) },
+  );
+  const prepare = (events: readonly InternalEffectMachineDiagnosticEvent[]) => {
+    const matches = events.filter((event) => event.kind === 'helper-prepare' && event.name === 'identityText');
+    expect(matches.length).toBeGreaterThan(0);
+    const dimensions = matches.map((event) => [
+      event.cacheKeyLength,
+      event.cacheOuterStringPathSteps,
+      event.cacheTerminalCodeUnits,
+    ]);
+    expect(dimensions.every((value) => JSON.stringify(value) === JSON.stringify(dimensions[0]))).toBe(true);
+    return matches[0];
+  };
+  const short = prepare(shortEvents);
+  const long = prepare(longEvents);
+  if (short?.kind !== 'helper-prepare' || long?.kind !== 'helper-prepare') {
+    throw new Error('expected identityText helper preparation diagnostics');
+  }
+
+  expect(short.cacheOuterStringPathSteps).toBe(1);
+  expect(long.cacheOuterStringPathSteps).toBe(1);
+  expect(typeof short.cacheTerminalCodeUnits).toBe('number');
+  expect(long.cacheTerminalCodeUnits).toBe(short.cacheTerminalCodeUnits);
+  expect(long.cacheKeyLength).toBeGreaterThan(short.cacheKeyLength ?? 0);
+});
+
 test('M4.96 observer reports helper execution reached through a resumable class frame', () => {
   const env = classHelperEnv({
     classes: [
