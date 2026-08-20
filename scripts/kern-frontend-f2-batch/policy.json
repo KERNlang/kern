@@ -1,0 +1,35 @@
+{
+  "format": "kern.frontend.f2-batch-policy.1",
+  "resultFormat": "kern.frontend.f2-batch.1",
+  "sourcePath": "examples/kern-frontend/f2-batch-main.kern",
+  "sourceSha256": "e3481d8af52d562c4434c861839902aec34d17bdd4361994f90a42de44d7ae3b",
+  "profileLimits": {
+    "maxAbsoluteSpans": 65536,
+    "maxAggregateBodyScalars": 65536,
+    "maxAggregateNodes": 65536,
+    "maxEncodedBytes": 16777216,
+    "maxRecords": 65536,
+    "maxSegments": 10000,
+    "maxWorkSteps": 2000000
+  },
+  "scalingWalls": {
+    "densityCounts": [125, 250, 500, 1000],
+    "fullDensitySegments": 10000,
+    "maxAdjacentByteRatio": 3,
+    "maxAdjacentTimeRatio": 4,
+    "maxElapsedMs": 120000,
+    "maxPeakRssBytes": 1073741824,
+    "timeSlackMs": 1000
+  },
+  "runtimeLimits": {
+    "maxBytes": 16777216,
+    "maxCollectionLength": 1000000,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 16777216
+  },
+  "scheduler": {
+    "timeoutMs": 120000
+  }
+}

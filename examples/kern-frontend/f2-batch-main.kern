@@ -1,0 +1,272 @@
+fn name=f2batchreadto returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  param name=delimiter type=string
+  handler lang="kern"
+    let name=n value="Text.length(tape)"
+    let name=end value=cursor
+    while cond="end < n && Text.charAt(tape, end) != delimiter"
+      assign target=end value="end + 1"
+    if cond="end >= n"
+      return value="[\"\", \"-1\"]"
+    return value="[Text.slice(tape, cursor, end), String(end + 1)]"
+
+fn name=f2batchreaddigits returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  handler lang="kern"
+    let name=n value="Text.length(tape)"
+    let name=end value=cursor
+    while cond="end < n && Text.indexOf(\"0123456789\", Text.charAt(tape, end)) >= 0"
+      assign target=end value="end + 1"
+    if cond="end == cursor"
+      return value="[\"\", \"-1\"]"
+    return value="[Text.slice(tape, cursor, end), String(end)]"
+
+fn name=f2batchmarked returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  param name=marker type=string
+  handler lang="kern"
+    if cond="Text.charAt(tape, cursor) != marker"
+      return value="[\"\", \"-1\"]"
+    let name=lengthPart value="f2batchreadto(tape, cursor + 1, \":\")"
+    let name=width value="f2uint(lengthPart[0])"
+    let name=start value="f2uint(lengthPart[1])"
+    let name=end value="start + width"
+    if cond="width < 0 || start < 0 || end > Text.length(tape)"
+      return value="[\"\", \"-1\"]"
+    return value="[Text.slice(tape, start, end), String(end)]"
+
+fn name=f2batchdiagnostic returns="string[]"
+  param name=tape type=string
+  handler lang="kern"
+    let name=code value="f2batchmarked(tape, 0, \"C\")"
+    let name=start value="f2batchmarked(tape, f2uint(code[1]), \"S\")"
+    let name=end value="f2batchmarked(tape, f2uint(start[1]), \"E\")"
+    if cond="f2uint(code[1]) < 0 || f2uint(start[1]) < 0 || f2uint(end[1]) != Text.length(tape) || f2uint(start[0]) < 0 || f2uint(end[0]) < f2uint(start[0])"
+      return value="[\"\", \"-1\", \"-1\"]"
+    return value="[code[0], start[0], end[0]]"
+
+fn name=f2batchfailure returns="string[]"
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=sourceScalars type=number
+  param name=segmentOrdinal type=number
+  handler lang="kern"
+    let name=diagnostic value="f2failurepayload(code, startScalar, endScalar) + \"O\" + String(Text.length(String(segmentOrdinal))) + \":\" + String(segmentOrdinal)"
+    return value="[\"kern.frontend.f2-batch.1\", \"failure\", diagnostic, String(sourceScalars), \"0\", \"0\", \"\", \"\", \"\", \"failure\"]"
+
+fn name=f2batchsegment returns=string
+  param name=ordinal type=number
+  param name=firstRecord type=number
+  param name=lastRecord type=number
+  param name=outerStart type=number
+  param name=outerEnd type=number
+  param name=bodyStart type=number
+  param name=bodyEnd type=number
+  param name=bodyDigest type=string
+  param name=recordDigest type=string
+  param name=nodeCount type=number
+  handler lang="kern"
+    return value="f2item(String(ordinal)) + f2item(String(firstRecord)) + f2item(String(lastRecord)) + f2item(String(outerStart)) + f2item(String(outerEnd)) + f2item(String(bodyStart)) + f2item(String(bodyEnd)) + f2item(bodyDigest) + f2item(recordDigest) + f2item(String(nodeCount))"
+
+fn name=f2batchspan returns=string
+  param name=segmentOrdinal type=number
+  param name=nodeId type=number
+  param name=startScalar type=number
+  param name=endScalar type=number
+  handler lang="kern"
+    return value="f2item(String(segmentOrdinal)) + f2item(String(nodeId)) + f2item(String(startScalar)) + f2item(String(endScalar))"
+
+fn name=f2batchreceipt returns=string
+  param name=fields type="string[]"
+  handler lang="kern"
+    let name=row value="\"\""
+    for name=index from=0 to=9
+      assign target=row value="row + f2item(fields[index])"
+    return value=row
+
+fn name=parsef2batch returns="string[]" export=true
+  param name=source type=string
+  param name=bodies type="string[]"
+  param name=firstRecords type="number[]"
+  param name=lastRecords type="number[]"
+  param name=outerStarts type="number[]"
+  param name=outerEnds type="number[]"
+  param name=bodyStarts type="number[]"
+  param name=bodyEnds type="number[]"
+  param name=bodyDigests type="string[]"
+  param name=recordDigests type="string[]"
+  param name=maxSegments type=number
+  param name=maxAggregateBodyScalars type=number
+  param name=maxAggregateNodes type=number
+  param name=maxAbsoluteSpans type=number
+  param name=maxWorkSteps type=number
+  param name=maxSourceScalars type=number
+  param name=maxTokens type=number
+  param name=maxNodes type=number
+  param name=nodesPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxNestingDepth type=number
+  param name=maxExpressionWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  handler lang="kern"
+    let name=sourceScalars value="Text.length(source)"
+    let name=segmentCount value="bodies.length"
+    if cond="sourceScalars > maxSourceScalars"
+      let name=sourceLimitFailure value="f2batchfailure(\"BATCH_LIMIT\", 0, sourceScalars, sourceScalars, -1)"
+      return value=sourceLimitFailure
+    if cond="firstRecords.length != segmentCount || lastRecords.length != segmentCount || outerStarts.length != segmentCount || outerEnds.length != segmentCount || bodyStarts.length != segmentCount || bodyEnds.length != segmentCount || bodyDigests.length != segmentCount || recordDigests.length != segmentCount"
+      let name=shapeFailure value="f2batchfailure(\"BATCH_INVALID_REQUEST\", 0, sourceScalars, sourceScalars, -1)"
+      return value=shapeFailure
+    let name=segmentParts value="[]"
+    let name=segmentChunk value="\"\""
+    let name=segmentChunkCount value="0"
+    let name=spanParts value="[]"
+    let name=spanChunk value="\"\""
+    let name=spanChunkCount value="0"
+    let name=receiptParts value="[]"
+    let name=receiptChunk value="\"\""
+    let name=receiptChunkCount value="0"
+    let name=aggregateBodies value="0"
+    let name=aggregateNodes value="0"
+    let name=workSteps value="0"
+    let name=previousOuterEnd value="0"
+    for name=segment from=0 to=segmentCount
+      let name=body value="bodies[segment]"
+      let name=bodyLength value="Text.length(body)"
+      if cond="segment >= maxSegments"
+        let name=segmentLimitFailure value="f2batchfailure(\"BATCH_LIMIT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=segmentLimitFailure
+      if cond="outerStarts[segment] < previousOuterEnd || outerEnds[segment] <= outerStarts[segment] || bodyStarts[segment] != outerStarts[segment] + 2 || bodyEnds[segment] != outerEnds[segment] - 2 || bodyEnds[segment] < bodyStarts[segment] || bodyLength != bodyEnds[segment] - bodyStarts[segment] || body != Text.slice(source, bodyStarts[segment], bodyEnds[segment]) || firstRecords[segment] < 0 || lastRecords[segment] < firstRecords[segment]"
+        let name=geometryFailure value="f2batchfailure(\"BATCH_INVALID_REQUEST\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=geometryFailure
+      if cond="segment > 0 && firstRecords[segment] <= lastRecords[segment - 1]"
+        let name=orderFailure value="f2batchfailure(\"BATCH_INVALID_REQUEST\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=orderFailure
+      assign target=previousOuterEnd value="outerEnds[segment]"
+      assign target=aggregateBodies value="aggregateBodies + bodyLength"
+      assign target=workSteps value="workSteps + bodyLength + 1"
+      if cond="aggregateBodies > maxAggregateBodyScalars || workSteps > maxWorkSteps"
+        let name=bodyLimitFailure value="f2batchfailure(\"BATCH_LIMIT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=bodyLimitFailure
+      let name=result value="parsef2expression(body, maxSourceScalars, maxTokens, maxNodes, nodesPerChunk, maxChunks, maxTapeScalars, maxNestingDepth, maxExpressionWorkSteps, false)"
+      if cond="result.length != 9 || result[0] != \"kern.frontend.f2-expression.1\""
+        let name=resultShapeFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=resultShapeFailure
+      if cond="result[1] != \"parsed\""
+        let name=innerDiagnostic value="f2batchdiagnostic(result[2])"
+        if cond="f2uint(innerDiagnostic[1]) < 0"
+          let name=diagnosticShapeFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+          return value=diagnosticShapeFailure
+        let name=rejectedStart value="bodyStarts[segment] + f2uint(innerDiagnostic[1])"
+        let name=rejectedEnd value="bodyStarts[segment] + f2uint(innerDiagnostic[2])"
+        let name=expressionFailure value="f2batchfailure(\"BATCH_EXPRESSION_REJECTED\", rejectedStart, rejectedEnd, sourceScalars, segment)"
+        return value=expressionFailure
+      let name=expressionNodes value="f2uint(result[4])"
+      assign target=aggregateNodes value="aggregateNodes + expressionNodes"
+      assign target=workSteps value="workSteps + expressionNodes * 2 + 1"
+      if cond="expressionNodes < 1 || aggregateNodes > maxAggregateNodes || aggregateNodes > maxAbsoluteSpans || workSteps > maxWorkSteps"
+        let name=nodeLimitFailure value="f2batchfailure(\"BATCH_LIMIT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=nodeLimitFailure
+      let name=tape value="result[7]"
+      let name=tapeCursor value="0"
+      let name=expectedChunk value="0"
+      let name=expectedNode value="0"
+      while cond="tapeCursor < Text.length(tape)"
+        if cond="Text.charAt(tape, tapeCursor) != \"c\""
+          let name=chunkMarkerFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+          return value=chunkMarkerFailure
+        let name=chunkOrdinal value="f2batchreadto(tape, tapeCursor + 1, \",\")"
+        let name=firstNode value="f2batchreadto(tape, f2uint(chunkOrdinal[1]), \",\")"
+        let name=chunkCount value="f2batchreadto(tape, f2uint(firstNode[1]), \",\")"
+        let name=payloadLength value="f2batchreadto(tape, f2uint(chunkCount[1]), \":\")"
+        let name=payloadStart value="f2uint(payloadLength[1])"
+        let name=payloadEnd value="payloadStart + f2uint(payloadLength[0])"
+        if cond="f2uint(chunkOrdinal[0]) != expectedChunk || f2uint(firstNode[0]) != expectedNode || f2uint(chunkCount[0]) < 1 || payloadStart < 0 || payloadEnd > Text.length(tape)"
+          let name=chunkGeometryFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+          return value=chunkGeometryFailure
+        assign target=tapeCursor value=payloadStart
+        let name=chunkNodes value="f2uint(chunkCount[0])"
+        for name=chunkNode from=0 to=chunkNodes
+          if cond="Text.charAt(tape, tapeCursor) != \"n\""
+            let name=nodeMarkerFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+            return value=nodeMarkerFailure
+          let name=nodeLength value="f2batchreadto(tape, tapeCursor + 1, \":\")"
+          let name=fieldCursor value="f2uint(nodeLength[1])"
+          let name=nodeEnd value="fieldCursor + f2uint(nodeLength[0])"
+          let name=nodeId value="-1"
+          let name=relativeStart value="-1"
+          let name=relativeEnd value="-1"
+          for name=field from=0 to=8
+            if cond="Text.charAt(tape, fieldCursor) != \"f\""
+              let name=fieldMarkerFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+              return value=fieldMarkerFailure
+            let name=fieldIndex value="f2batchreadto(tape, fieldCursor + 1, \",\")"
+            let name=fieldLength value="f2batchreadto(tape, f2uint(fieldIndex[1]), \":\")"
+            let name=valueStart value="f2uint(fieldLength[1])"
+            let name=valueEnd value="valueStart + f2uint(fieldLength[0])"
+            if cond="f2uint(fieldIndex[0]) != field || valueStart < 0 || valueEnd > nodeEnd"
+              let name=fieldGeometryFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+              return value=fieldGeometryFailure
+            if cond="field == 0"
+              assign target=nodeId value="f2uint(Text.slice(tape, valueStart, valueEnd))"
+            if cond="field == 2"
+              assign target=relativeStart value="f2uint(Text.slice(tape, valueStart, valueEnd))"
+            if cond="field == 3"
+              assign target=relativeEnd value="f2uint(Text.slice(tape, valueStart, valueEnd))"
+            assign target=fieldCursor value=valueEnd
+          if cond="fieldCursor != nodeEnd || nodeId != expectedNode || relativeStart < 0 || relativeEnd <= relativeStart || relativeEnd > bodyLength"
+            let name=nodeGeometryFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+            return value=nodeGeometryFailure
+          let name=spanRow value="f2batchspan(segment, nodeId, bodyStarts[segment] + relativeStart, bodyStarts[segment] + relativeEnd)"
+          assign target=spanChunk value="spanChunk + f2item(spanRow)"
+          assign target=spanChunkCount value="spanChunkCount + 1"
+          if cond="spanChunkCount == 256"
+            do value="spanParts.push(spanChunk)"
+            assign target=spanChunk value="\"\""
+            assign target=spanChunkCount value="0"
+          assign target=expectedNode value="expectedNode + 1"
+          assign target=tapeCursor value=nodeEnd
+        if cond="tapeCursor != payloadEnd || Text.charAt(tape, tapeCursor) != \"s\""
+          let name=chunkSealMarkerFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+          return value=chunkSealMarkerFailure
+        let name=chunkSeal value="f2batchreaddigits(tape, tapeCursor + 1)"
+        if cond="f2uint(chunkSeal[0]) != expectedChunk"
+          let name=chunkSealValueFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+          return value=chunkSealValueFailure
+        assign target=tapeCursor value="f2uint(chunkSeal[1])"
+        assign target=expectedChunk value="expectedChunk + 1"
+      if cond="expectedNode != expressionNodes"
+        let name=nodeCountFailure value="f2batchfailure(\"BATCH_INVALID_F2_RECEIPT\", outerStarts[segment], outerEnds[segment], sourceScalars, segment)"
+        return value=nodeCountFailure
+      let name=segmentRow value="f2batchsegment(segment, firstRecords[segment], lastRecords[segment], outerStarts[segment], outerEnds[segment], bodyStarts[segment], bodyEnds[segment], bodyDigests[segment], recordDigests[segment], expressionNodes)"
+      assign target=segmentChunk value="segmentChunk + f2item(segmentRow)"
+      assign target=segmentChunkCount value="segmentChunkCount + 1"
+      if cond="segmentChunkCount == 256"
+        do value="segmentParts.push(segmentChunk)"
+        assign target=segmentChunk value="\"\""
+        assign target=segmentChunkCount value="0"
+      assign target=receiptChunk value="receiptChunk + f2item(f2batchreceipt(result))"
+      assign target=receiptChunkCount value="receiptChunkCount + 1"
+      if cond="receiptChunkCount == 256"
+        do value="receiptParts.push(receiptChunk)"
+        assign target=receiptChunk value="\"\""
+        assign target=receiptChunkCount value="0"
+    if cond="forceLateFailure"
+      let name=lateFailure value="f2batchfailure(\"FORCED_LATE_FAILURE\", sourceScalars, sourceScalars, sourceScalars, -1)"
+      return value=lateFailure
+    if cond="segmentChunkCount > 0"
+      do value="segmentParts.push(segmentChunk)"
+    if cond="spanChunkCount > 0"
+      do value="spanParts.push(spanChunk)"
+    if cond="receiptChunkCount > 0"
+      do value="receiptParts.push(receiptChunk)"
+    let name=segmentTape value="segmentParts.length == 0 ? \"\" : f2concat(segmentParts)"
+    let name=spanTape value="spanParts.length == 0 ? \"\" : f2concat(spanParts)"
+    let name=receiptTape value="receiptParts.length == 0 ? \"\" : f2concat(receiptParts)"
+    let name=seal value="\"batch:\" + String(segmentCount) + \":\" + String(aggregateNodes) + \":\" + String(Text.length(segmentTape)) + \":\" + String(Text.length(spanTape)) + \":\" + String(Text.length(receiptTape)) + \":closed\""
+    return value="[\"kern.frontend.f2-batch.1\", \"batched\", \"\", String(sourceScalars), String(segmentCount), String(aggregateNodes), segmentTape, spanTape, receiptTape, seal]"
