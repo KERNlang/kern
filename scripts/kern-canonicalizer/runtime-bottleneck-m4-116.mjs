@@ -164,6 +164,7 @@ function exactInputs() {
     if (name === 'runtimePolicySha256') continue;
     let source = readFileSync(url);
     if (
+      name === 'diagnosticObserverSha256' ||
       name === 'effectMachineSha256' ||
       name === 'helperRuntimeSha256' ||
       name === 'sequenceSha256'

@@ -22,6 +22,7 @@ import { traceRetentionRootSourceReconstruction } from './trace-retention-root-h
 const RUNTIME_TEXT_CACHE_CLAIM = 'kern.runtime.text-cache.r0';
 const SOURCE_PATHS = Object.freeze({
   classFrameSha256: 'packages/core/src/ir/semantics/internal-effect-machine-class-frame.ts',
+  diagnosticObserverSha256: 'packages/core/src/ir/semantics/internal-effect-machine-diagnostics.ts',
   effectMachineSha256: 'packages/core/src/ir/semantics/internal-effect-machine.ts',
   effectMachineTypesSha256: 'packages/core/src/ir/semantics/internal-effect-machine-types.ts',
   helperRuntimeSha256: 'packages/core/src/ir/semantics/internal-effect-machine-helper-runtime.ts',

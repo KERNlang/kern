@@ -55,7 +55,7 @@ test('runner-call-cache binds exact commits, manifests, endpoints, and 318-to-31
   assert.equal(validateRunnerCallCacheHistoricalTransition(), true);
   const transition = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION;
   assert.equal(transition.predecessorCommit, '5e3bebd283a43e916b014d1406f025bd5bc14bb6');
-  assert.equal(transition.successorCommit, 'a54e70aa4fa376a83c4b302c5a889b5407f29ce4');
+  assert.equal(transition.successorCommit, '6f92fe7a316f42bed9b74bdddff1f13bc20f08ae');
   assert.deepEqual({ count: POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS.length, digest: pathDigest(POST_RUNNER_CALL_CACHE_SOURCE_RECONSTRUCTIONS.map(({ path }) => path)) }, transition.sourceManifest);
   assert.deepEqual({ count: POST_RUNNER_CALL_CACHE_COMPILED_RECONSTRUCTIONS.length, digest: pathDigest(POST_RUNNER_CALL_CACHE_COMPILED_RECONSTRUCTIONS.map(({ path }) => path)) }, transition.compiledManifest);
   const paths = compiledPaths();
@@ -63,6 +63,24 @@ test('runner-call-cache binds exact commits, manifests, endpoints, and 318-to-31
   const predecessor = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(paths);
   assert.deepEqual({ count: predecessor.length, digest: pathDigest(predecessor) }, transition.compiledInventory.predecessor);
   assert.ok(!predecessor.includes(transition.addedCompiled.path));
+});
+
+test('authenticated transition evidence is recursively frozen', () => {
+  const transition = RUNNER_CALL_CACHE_HISTORICAL_TRANSITION;
+  for (const evidence of [
+    transition,
+    transition.sourceManifest,
+    transition.compiledManifest,
+    transition.sourceEndpoints,
+    transition.compiledEndpoints,
+    transition.compiledInventory,
+    transition.compiledInventory.predecessor,
+    transition.compiledInventory.successor,
+    transition.addedSource,
+    transition.addedCompiled,
+  ]) {
+    assert.equal(Object.isFrozen(evidence), true);
+  }
 });
 
 test('source and compiled retained owners reconstruct exact pinned endpoints', () => {
