@@ -34,7 +34,7 @@ moving frontend and KIR boundary.
 
 ### Repository-measured state
 
-- **[VERIFIED]** The KERN 5 policy declares 62 gates: 56 `current` and 6
+- **[VERIFIED]** The KERN 5 policy declares 64 gates: 58 `current` and 6
   `planned`. The terminal roster and its frozen classification vocabulary are
   bound in `scripts/kern-5-remaining-gates-v1.json`; policy and ledger agree on
   ID, order, status, and argv.
@@ -75,8 +75,9 @@ moving frontend and KIR boundary.
 
 ### Progress interpretation
 
-- **[VERIFIED]** Promoted-gate row coverage after P0 transport and production
-  F1 physical scanning is `56 / 62 = 90.3%`.
+- **[VERIFIED]** Promoted-gate row coverage after P0 transport, production F1
+  physical scanning, F2 expression parsing, and F2 document batching is
+  `58 / 64 = 90.6%`.
 - **[INFERRED]** Release completion is approximately **54-64%**, not 89.8%.
   The range is deliberately heuristic: the repository has a large, well-gated
   ownership substrate, but the remaining phases are the high-weight canonical
@@ -231,8 +232,8 @@ publication require the authority specified by the active engineering doctrine.
 
 ## Corrections Log
 
-- **[CORRECTED]** The live post-F1 count is `56/62`: checker and
-  formatter are promoted, the non-terminal frontend closure and Text scaling
+- **[CORRECTED]** The live post-F2B count is `58/64`: checker and formatter are
+  promoted, the non-terminal frontend closure, Text scaling, F1, F2, and F2B
   gates are current, and six terminal gates remain planned.
 - **[CORRECTED]** `51/58` measures promoted gate rows, not 87.9% release
   completion.

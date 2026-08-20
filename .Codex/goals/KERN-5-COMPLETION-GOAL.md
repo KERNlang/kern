@@ -1,6 +1,6 @@
 # KERN 5.0 Completion Goal
 
-**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0/F1 COMPLETE
+**Status:** PHASE 1 IN PROGRESS; CHECKER + FORMATTER + FRONTEND F0-F2B COMPLETE
 
 **Goal confidence:** 0.96
 
@@ -28,8 +28,8 @@ passes the required product and recovery walls.
 
 The goal is not complete merely because the current `pnpm fitness:kern-5` wall
 passes. After the production-checker, formatter, and non-promoting frontend F0
-closure, runtime text-scaling prerequisite, P0 transport, and production F1
-physical-scanner slices, that wall contains 56
+closure, runtime text-scaling prerequisite, P0 transport, production F1
+physical-scanner, production F2 expression-parser, and F2 document-batch slices, that wall contains 58
 promoted gates and excludes the six
 remaining planned terminal gates.
 
@@ -45,7 +45,7 @@ before the isolated Phase 0 worktree was created.
 Reconciled state after the Phase 1 checker, formatter, runtime splice, and
 frontend F0 closure slices:
 
-- 62 declared KERN 5 gates: 56 current, 6 planned.
+- 64 declared KERN 5 gates: 58 current, 6 planned.
 - M4.171 proves one authenticated successful logical-line shadow only.
 - The production structural checker is `internal-product`; KIR v1, runtime
   ownership slices, canonicalizer, and frontend slices remain
@@ -63,10 +63,11 @@ frontend F0 closure slices:
   production parser or promote `test:kern-frontend`.
 - The execution-local Text cache prerequisite removes repeated Unicode-scalar
   materialization from reference-runner document walks. P0 transport and the
-  authenticated KERN-owned production F1 physical scanner are current; F2-F7,
+  authenticated KERN-owned production F1 physical scanner, and the authenticated
+  KERN-owned production F2 expression parser and document batch are current; F3-F7,
   generated target parity, and terminal frontend promotion remain open.
 
-Promoted-gate row coverage is `56 / 62 = 90.3%`. Phase 0 made three omitted
+Promoted-gate row coverage is `58 / 64 = 90.6%`. Phase 0 made three omitted
 terminal requirements visible; no implementation was lost. The source-grounded
 release-completion estimate is approximately 54-64%
 because the remaining gates are the high-weight ownership and cutover phases.

@@ -78,6 +78,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-f1 | F1 full-cap document transport falsification proof | current | `pnpm test:kern-frontend-f1` |
 | kern-frontend-f1-scan | KERN-owned production F1 physical scanner | current | `pnpm test:kern-frontend-f1-scan` |
 | kern-frontend-f2-expression | KERN-owned production F2 expression parser | current | `pnpm test:kern-frontend-f2-expression` |
+| kern-frontend-f2-batch | KERN-owned F2 document expression batch | current | `pnpm test:kern-frontend-f2-batch` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -161,6 +162,7 @@ wall and must remain absent until promoted.
 | kern-frontend-f1 | F1 full-cap document transport falsification proof | internal-oracle | `pnpm test:kern-frontend-f1` |
 | kern-frontend-f1-scan | KERN-owned production F1 physical scanner | internal-oracle | `pnpm test:kern-frontend-f1-scan` |
 | kern-frontend-f2-expression | KERN-owned production F2 expression parser | internal-oracle | `pnpm test:kern-frontend-f2-expression` |
+| kern-frontend-f2-batch | KERN-owned F2 document expression batch | internal-oracle | `pnpm test:kern-frontend-f2-batch` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -476,6 +478,15 @@ SplitMix64 corpus, real F1 receipt seams, source/tape mutations, and determinist
 1x/2x/4x/8x walls cover the production path. This does not discover or group
 expressions, assemble logical lines, attach nodes, emit canonical KIR, or
 promote `kern-frontend`; those remain F3-F7 ownership.
+
+The F2 document amendment promotes `kern-frontend-f2-batch: internal-oracle`.
+Host transport discovers only the expression record boundaries already
+authenticated by F1, then invokes one KERN batch handler. KERN owns ordered F2
+dispatch, document-wide limits, absolute-span projection, first-failure
+precedence, atomic result construction, and the structural batch seal. Exact
+single-expression receipts remain byte-identical sidecars and are revalidated
+independently. The density wall proves 10,000 individually valid expressions in
+one F2 runtime invocation without promoting logical-line/tree or KIR ownership.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a
