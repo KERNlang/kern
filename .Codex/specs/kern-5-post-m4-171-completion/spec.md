@@ -34,7 +34,7 @@ moving frontend and KIR boundary.
 
 ### Repository-measured state
 
-- **[VERIFIED]** The KERN 5 policy declares 64 gates: 58 `current` and 6
+- **[VERIFIED]** The KERN 5 policy declares 65 gates: 59 `current` and 6
   `planned`. The terminal roster and its frozen classification vocabulary are
   bound in `scripts/kern-5-remaining-gates-v1.json`; policy and ledger agree on
   ID, order, status, and argv.
@@ -63,6 +63,11 @@ moving frontend and KIR boundary.
   means they participate in release-blocking differential evidence but are not
   the production semantic authority. Evidence:
   `docs/kern-5-support-matrix.md`.
+- **[VERIFIED]** F3 authenticates the exact F1 record tape positionally, owns
+  logical-line framing and geometric tree topology, and remains
+  `internal-oracle`; declaration admission, node attachment, KIR emission, and
+  terminal frontend promotion remain F4-F7 work. Evidence:
+  `.Codex/specs/kern-5-f3-line-tree/spec.md`.
 - **[VERIFIED]** The production runner still imports the TypeScript
   `referenceRunSequence` and TypeScript parser, and `kern run` documents that it
   executes through the reference runner. Evidence:
@@ -76,8 +81,8 @@ moving frontend and KIR boundary.
 ### Progress interpretation
 
 - **[VERIFIED]** Promoted-gate row coverage after P0 transport, production F1
-  physical scanning, F2 expression parsing, and F2 document batching is
-  `58 / 64 = 90.6%`.
+  physical scanning, F2 expression parsing, F2 document batching, and F3
+  logical-line/tree assembly is `59 / 65 = 90.8%`.
 - **[INFERRED]** Release completion is approximately **54-64%**, not 89.8%.
   The range is deliberately heuristic: the repository has a large, well-gated
   ownership substrate, but the remaining phases are the high-weight canonical
@@ -232,9 +237,9 @@ publication require the authority specified by the active engineering doctrine.
 
 ## Corrections Log
 
-- **[CORRECTED]** The live post-F2B count is `58/64`: checker and formatter are
-  promoted, the non-terminal frontend closure, Text scaling, F1, F2, and F2B
-  gates are current, and six terminal gates remain planned.
+- **[CORRECTED]** The live post-F3 count is `59/65`: checker and formatter are
+  promoted, the non-terminal frontend closure, Text scaling, F1, F2, F2B, and
+  F3 gates are current, and six terminal gates remain planned.
 - **[CORRECTED]** `51/58` measures promoted gate rows, not 87.9% release
   completion.
 - **[CORRECTED]** The five declared planned gates omit checker, formatter, and

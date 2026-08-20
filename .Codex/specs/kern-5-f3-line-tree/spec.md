@@ -1,6 +1,6 @@
 # KERN 5 Frontend F3 Logical-Line and Tree Contract
 
-**Status:** DECIDED; IMPLEMENTATION PENDING
+**Status:** ACCEPTED
 
 **Date:** 2026-08-20
 
@@ -18,7 +18,16 @@
 **Conflict-resolution brainstorm:**
 `/Users/nicolascukas/.agon/runs/brainstorm-1787221740211-i8xxeu`
 
-**Confidence:** 0.93
+**Repair tribunal:**
+`/Users/nicolascukas/.agon/runs/tribunal-1787226230036-zlk56d`
+
+**Initial high-risk review:**
+`/Users/nicolascukas/.agon/runs/review-1787224556578-his4nw-kern5-f3-line-tree`
+
+**Targeted repair review:**
+`/Users/nicolascukas/.agon/runs/review-1787226660590-3vv3qr-kern5-f3-repair`
+
+**Confidence:** 0.98
 
 ## Decision
 
@@ -89,15 +98,20 @@ The host worker performs no semantic classification. It:
 1. runs the authenticated F1 scanner exactly once;
 2. passes that same F1 result into F2B without rescanning;
 3. rejects if either prerequisite fails;
-4. passes exact F1 record geometry/kinds/flags and exact F2B segment geometry
-   into one `structuref3document` KERN invocation; and
+4. passes the exact authenticated F1 record tape, its decoded
+   geometry/kinds/flags, and exact F2B segment geometry into one
+   `structuref3document` KERN invocation; and
 5. strictly decodes and replays standalone receipts under the same effective
    policy, matching the F2B verification model.
 
-KERN independently proves that record ordinals are contiguous, spans partition
-the source, raw values equal their source slices, composite modes close, every
-F2B segment matches an F1 expression run, and every expression is contained in
-exactly one logical row.
+KERN reconstructs each F1 transport chunk from the supplied arrays and source
+slices, compares it at an advancing exact tape cursor, and requires terminal
+tape coverage. This independently proves that record ordinals are contiguous,
+spans partition the source, raw values equal their authenticated source slices,
+kinds and flags match the F1 receipt, composite modes close, every F2B segment
+matches an F1 expression run, and every expression is contained in exactly one
+logical row. Whole-tape substring search is forbidden because it admits
+permutation and hides unmetered character work.
 
 ## Success Protocol
 
@@ -208,10 +222,13 @@ elapsed time, and peak RSS. F1/F2B retain their own source and expression
 ceilings. The runtime envelope separately owns collection, depth, event, and
 string bounds.
 
-Charging is monotone: one unit per F1 record visit, logical row, edge,
-decorator-run transition, raw row, diagnostic, and F2B segment binding. F3 uses
-one forward record pass, one indentation stack, one pending decorator run, and
-no whole-document substring search or post-hoc sort.
+Charging is monotone: one unit per F1 record visit in each pass, logical row,
+edge, decorator-run transition, raw row, diagnostic, and F2B segment binding.
+F3 uses one forward authentication pass followed by one forward structural
+pass, with a ceiling of two charged record visits per record. It publishes no
+structural result before authentication closes. It uses one indentation stack,
+one pending decorator run, an advancing exact tape cursor, and no
+whole-document substring search or post-hoc sort.
 
 The gate includes 1x/2x/4x/8x depth, sibling, continuation, decorator, and raw
 families plus an exact maximum-density document that remains below inherited
@@ -226,6 +243,9 @@ F1/F2B caps.
   and malformed-line fixtures match an independent geometric oracle.
 - **[F3-A3]** Every F2B segment is bound exactly once to the containing logical
   row; crossing, missing, duplicated, reordered, or stale segments reject.
+- **[F3-A3a]** Stale F1 spans, kinds, flags, record order, chunk order,
+  duplicated/dropped chunks, within-chunk record permutations, and trailing
+  tape bytes reject atomically under positional tape replay.
 - **[F3-A4]** Parent edges match an independent nearest-lower-indent stack,
   preserve source order, and reject reordered, cyclic, forward, or skipped
   edges.
