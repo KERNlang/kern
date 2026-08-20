@@ -1,0 +1,57 @@
+{
+  "format": "kern.frontend.f4-declarations-policy.1",
+  "documentResultFormat": "kern.frontend.f4-document.1",
+  "moduleSetResultFormat": "kern.frontend.f4-module-set.1",
+  "authorities": [
+    {
+      "path": "scripts/kern-frontend-builtin-node-type-attestation/catalog.json",
+      "sha256": "1cb662a5b54bd86f96d2fe3a2a90817e770e920351efd718ba91bfe1a095ab40",
+      "rows": 302
+    },
+    {
+      "path": "scripts/kir-structural/constitution.json",
+      "sha256": "d62b8b0ce021240f0eb432bff0303107d157578dea6314012c143a911272d271",
+      "rows": 1451
+    },
+    {
+      "path": "scripts/kern-frontend-closure/closure-ledger.json",
+      "sha256": "bf5d6ce132e3173de8c14af3b78c84e740928bea86dcd755fb9e311b1794b69a"
+    },
+    {
+      "path": "scripts/kern-frontend-closure/static-goldens.json",
+      "sha256": "cd2ce58285f6cee4dc00cc26fb4a9371023d3b8cc20aab5f8b47d95c6e5a0a2a"
+    }
+  ],
+  "prerequisites": [
+    "kern.frontend.f1.record-tape.1",
+    "kern.frontend.f2.document-batch.1",
+    "kern.frontend.f3-line-tree.1"
+  ],
+  "profileLimits": {
+    "maxModules": 1024,
+    "maxSourceScalars": 4194304,
+    "maxRecords": 1048576,
+    "maxLogicalLines": 262144,
+    "maxDeclarations": 262144,
+    "maxPropertyOccurrences": 1048576,
+    "maxAttachments": 262144,
+    "maxDecorators": 262144,
+    "maxSymbols": 262144,
+    "maxBindings": 262144,
+    "maxDiagnostics": 262144,
+    "maxFacts": 262144,
+    "maxWorkSteps": 16777216,
+    "maxEncodedBytes": 67108864
+  },
+  "runtimeLimits": {
+    "maxBytes": 67108864,
+    "maxCollectionLength": 1048576,
+    "maxDepth": 256,
+    "maxDiagnostics": 262144,
+    "maxEvents": 16777216,
+    "maxStringBytes": 67108864
+  },
+  "scheduler": {
+    "timeoutMs": 120000
+  }
+}
