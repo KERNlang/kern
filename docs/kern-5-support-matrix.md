@@ -79,6 +79,7 @@ before partial output, result, diagnostic, or implicit host effect escapes.
 | kern-frontend-f1-scan | KERN-owned production F1 physical scanner | current | `pnpm test:kern-frontend-f1-scan` |
 | kern-frontend-f2-expression | KERN-owned production F2 expression parser | current | `pnpm test:kern-frontend-f2-expression` |
 | kern-frontend-f2-batch | KERN-owned F2 document expression batch | current | `pnpm test:kern-frontend-f2-batch` |
+| kern-frontend-f3-line-tree | KERN-owned F3 logical-line tree | current | `pnpm test:kern-frontend-f3-line-tree` |
 | kern-checker | Production KERN checker | current | `pnpm test:kern-checker` |
 | kern-formatter | Trivia-preserving KERN formatter | current | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored frontend | planned | `pnpm test:kern-frontend` |
@@ -163,6 +164,7 @@ wall and must remain absent until promoted.
 | kern-frontend-f1-scan | KERN-owned production F1 physical scanner | internal-oracle | `pnpm test:kern-frontend-f1-scan` |
 | kern-frontend-f2-expression | KERN-owned production F2 expression parser | internal-oracle | `pnpm test:kern-frontend-f2-expression` |
 | kern-frontend-f2-batch | KERN-owned F2 document expression batch | internal-oracle | `pnpm test:kern-frontend-f2-batch` |
+| kern-frontend-f3-line-tree | KERN-owned F3 logical-line tree | internal-oracle | `pnpm test:kern-frontend-f3-line-tree` |
 | kern-formatter | Lossless KERN formatter | internal-product | `pnpm test:kern-formatter` |
 | kern-frontend | KERN-authored source frontend | not-shipped | R2 planned |
 | kern-compiler | KERN-authored compiler | not-shipped | R2 planned |
@@ -477,7 +479,8 @@ TypeScript is used only by a passive structural parity oracle. A frozen
 SplitMix64 corpus, real F1 receipt seams, source/tape mutations, and deterministic
 1x/2x/4x/8x walls cover the production path. This does not discover or group
 expressions, assemble logical lines, attach nodes, emit canonical KIR, or
-promote `kern-frontend`; those remain F3-F7 ownership.
+promote `kern-frontend`; those proceed through the F3-F7 ownership sequence,
+with the current F3 boundary described below.
 
 The F2 document amendment promotes `kern-frontend-f2-batch: internal-oracle`.
 Host transport discovers only the expression record boundaries already
@@ -487,6 +490,15 @@ precedence, atomic result construction, and the structural batch seal. Exact
 single-expression receipts remain byte-identical sidecars and are revalidated
 independently. The density wall proves 10,000 individually valid expressions in
 one F2 runtime invocation without promoting logical-line/tree or KIR ownership.
+
+F3 promotes `kern-frontend-f3-line-tree: internal-oracle`. One KERN handler
+authenticates the exact F1 record tape at an advancing positional cursor, binds
+every F2B segment once, assembles logical rows and nearest-lower-indent parent
+edges, records provisional decorator adjacency and recognized raw geometry, and
+emits bounded structural diagnostics. Continuation fixtures cover trailing
+same-line content and mixed composite reopeners; permutation mutations cover
+record and chunk order. This does not classify declarations, attach schema, or
+emit canonical KIR; F4-F7 remain unpromoted.
 
 The Phase 1 formatter promotes `kern-formatter` to `internal-product` with an
 authenticated 24,203-byte KERN composition. TypeScript contributes only a

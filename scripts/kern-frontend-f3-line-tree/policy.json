@@ -1,0 +1,51 @@
+{
+  "format": "kern.frontend.f3-line-tree-policy.1",
+  "resultFormat": "kern.frontend.f3-line-tree.1",
+  "sourcePath": "examples/kern-frontend/f3-line-tree-main.kern",
+  "sourceSha256": "16cc8d1d42bef6cef21feb3194adc021d3abad0534a73c0dbd2090d28cc948c4",
+  "helperPath": "examples/kern-frontend/f3-line-tree-collection-helpers.kern",
+  "helperSha256": "9b47c83840ff02bb0affdd096557034bd26d17bf9c9ab76ff5ac4dd756be32f5",
+  "rawOpenerTypes": [
+    "body",
+    "cleanup",
+    "doc",
+    "handler",
+    "logic",
+    "render"
+  ],
+  "profileLimits": {
+    "maxRecords": 65536,
+    "maxLogicalLines": 65536,
+    "maxParentEdges": 65536,
+    "maxDecoratorRuns": 65536,
+    "maxRawBlocks": 65536,
+    "maxStructuralDiagnostics": 65536,
+    "maxWorkSteps": 262144,
+    "maxEncodedBytes": 16777216
+  },
+  "scalingWalls": {
+    "densityCounts": [
+      25,
+      50,
+      100,
+      200
+    ],
+    "fullDensityLines": 800,
+    "maxAdjacentByteRatio": 4,
+    "maxAdjacentTimeRatio": 5,
+    "maxElapsedMs": 5000,
+    "maxPeakRssBytes": 402653184,
+    "timeSlackMs": 100
+  },
+  "runtimeLimits": {
+    "maxBytes": 16777216,
+    "maxCollectionLength": 1000000,
+    "maxDepth": 64,
+    "maxDiagnostics": 8,
+    "maxEvents": 1,
+    "maxStringBytes": 16777216
+  },
+  "scheduler": {
+    "timeoutMs": 10000
+  }
+}

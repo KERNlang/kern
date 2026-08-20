@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 
 import { executeKernRuntimeHandlerSync, KERN_RUNTIME_HANDLER_ABI } from '../../packages/core/dist/runtime-handler.js';
 import { materialize } from '../kern-frontend-f1/transport-contract.mjs';
-import { runScan } from '../kern-frontend-f1-scan/worker.mjs';
+import { decodeScan, loadPolicy as loadF1Policy } from '../kern-frontend-f1-scan/decoder.mjs';
+import { loadComposition as loadF1Composition, runScan } from '../kern-frontend-f1-scan/worker.mjs';
 import { loadPolicy as loadF2Policy } from '../kern-frontend-f2-expression/decoder.mjs';
 import { loadComposition as loadF2Composition } from '../kern-frontend-f2-expression/worker.mjs';
 import { decodeBatch } from './decoder.mjs';
@@ -150,11 +151,27 @@ function loadBatchComposition(policyState, f2Policy) {
   return { batchSource, composition, f2 };
 }
 
-function prepareBatch(source, options = {}) {
+function authenticatedScan(source, supplied) {
+  if (supplied === undefined) return runScan(source);
+  if (!supplied || typeof supplied !== 'object' || !Array.isArray(supplied.fields)) {
+    fail('authenticated F1 scan shape');
+  }
+  const f1Policy = loadF1Policy();
+  const decoded = decodeScan(supplied.fields, source, f1Policy);
+  if (decoded.status !== 'scanned') fail(`F1 rejected batch source: ${decoded.diagnostic.code}`);
+  const loaded = loadF1Composition(f1Policy);
+  return {
+    ...supplied,
+    decoded,
+    moduleSha256: Object.fromEntries(loaded.modules.map((module) => [module.path, module.sha256])),
+  };
+}
+
+function prepareBatch(source, options = {}, suppliedScan) {
   if (typeof source !== 'string') fail('source type');
   const policyState = loadPolicy();
   const limits = effectiveLimits(policyState.policy.profileLimits, options.profileLimits);
-  const scan = runScan(source);
+  const scan = authenticatedScan(source, suppliedScan);
   if (scan.decoded.status !== 'scanned') fail(`F1 rejected batch source: ${scan.decoded.diagnostic.code}`);
   const request = discoverSegments(source, scan.decoded.records, limits.maxRecords);
   const f2Policy = loadF2Policy();
@@ -171,7 +188,7 @@ function prepareBatch(source, options = {}) {
     limits,
     resultFormat: policyState.policy.resultFormat,
   };
-  return { context, f2Policy, loaded, limits, policyState, request };
+  return { context, f2Policy, loaded, limits, policyState, request, scan };
 }
 
 export function verifyBatchFields(source, fields, options = {}) {
@@ -233,11 +250,15 @@ function executePreparedBatch(source, prepared, options) {
   const fields = executePreparedFields(source, prepared, options);
   const { context, request } = prepared;
   const decoded = decodeBatch(fields, source, request, context);
-  return { ...decoded, fields, runtimeInvocations: 1 };
+  return { ...decoded, fields, f1ReceiptSha256: prepared.context.f1ReceiptSha256, runtimeInvocations: 1 };
 }
 
 export function runBatch(source, options = {}) {
   return executePreparedBatch(source, prepareBatch(source, options), options);
+}
+
+export function runBatchWithScan(source, scan, options = {}) {
+  return executePreparedBatch(source, prepareBatch(source, options, scan), options);
 }
 
 function runWithBodySubstitution(source, segmentOrdinal, body) {

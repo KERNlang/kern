@@ -1,0 +1,128 @@
+fn name=f3pair returns="string[]"
+  param name=parts type="string[]"
+  handler lang="kern"
+    let name=next value="[]"
+    for name=index from=0 to="parts.length" step=2
+      let name=combined value="parts[index]"
+      if cond="index + 1 < parts.length"
+        assign target=combined value="combined + parts[index + 1]"
+      do value="next.push(combined)"
+    return value=next
+
+fn name=f3concat returns=string
+  param name=parts type="string[]"
+  handler lang="kern"
+    if cond="parts.length > 256"
+      return value="\"\""
+    let name=l1 value="f3pair(parts)"
+    let name=l2 value="f3pair(l1)"
+    let name=l3 value="f3pair(l2)"
+    let name=l4 value="f3pair(l3)"
+    let name=l5 value="f3pair(l4)"
+    let name=l6 value="f3pair(l5)"
+    let name=l7 value="f3pair(l6)"
+    let name=l8 value="f3pair(l7)"
+    if cond="l8.length != 1"
+      return value="\"\""
+    return value="l8[0]"
+
+fn name=f3contains returns=boolean
+  param name=items type="string[]"
+  param name=target type=string
+  handler lang="kern"
+    for name=idx from=0 to="items.length"
+      if cond="items[idx] == target"
+        return value=true
+    return value=false
+
+fn name=f3f1kindcode returns=string
+  param name=kindId type=number
+  param name=flags type=number
+  handler lang="kern"
+    if cond="kindId < 0 || kindId > 14 || flags < 0 || flags > 7"
+      return value="\"\""
+    return value="String(kindId * 8 + flags)"
+
+fn name=f3f1record returns=string
+  param name=ordinal type=number
+  param name=className type=string
+  param name=kind type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=raw type=string
+  handler lang="kern"
+    return value="\"r\" + String(ordinal) + \",\" + className + \",\" + kind + \",\" + String(startScalar) + \",\" + String(endScalar) + \",\" + String(Text.length(raw)) + \":\" + raw"
+
+fn name=f3item returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="\"i\" + String(Text.length(value)) + \":\" + value"
+
+fn name=f3failurepayload returns=string
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  handler lang="kern"
+    return value="\"C\" + String(Text.length(code)) + \":\" + code + \"S\" + String(Text.length(String(startScalar))) + \":\" + String(startScalar) + \"E\" + String(Text.length(String(endScalar))) + \":\" + String(endScalar)"
+
+fn name=f3failure returns="string[]"
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=sourceScalars type=number
+  handler lang="kern"
+    let name=payload value="f3failurepayload(code, startScalar, endScalar)"
+    return value="[\"kern.frontend.f3-line-tree.1\", \"failure\", payload, String(sourceScalars), \"0\", \"0\", \"0\", \"0\", \"\", \"\", \"\", \"\", \"failure\"]"
+
+fn name=f3logicalrow returns=string
+  param name=ordinal type=number
+  param name=firstRec type=number
+  param name=lastRec type=number
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=firstPhysLine type=number
+  param name=lastPhysLine type=number
+  param name=indent type=number
+  param name=contentStart type=number
+  param name=role type=string
+  param name=firstSeg type=number
+  param name=segCount type=number
+  handler lang="kern"
+    return value="f3item(String(ordinal)) + f3item(String(firstRec)) + f3item(String(lastRec)) + f3item(String(startScalar)) + f3item(String(endScalar)) + f3item(String(firstPhysLine)) + f3item(String(lastPhysLine)) + f3item(String(indent)) + f3item(String(contentStart)) + f3item(role) + f3item(String(firstSeg)) + f3item(String(segCount))"
+
+fn name=f3parentrow returns=string
+  param name=childOrd type=number
+  param name=parentOrd type=number
+  param name=childIndent type=number
+  param name=parentIndent type=number
+  handler lang="kern"
+    return value="f3item(String(childOrd)) + f3item(String(parentOrd)) + f3item(String(childIndent)) + f3item(String(parentIndent))"
+
+fn name=f3decoratorrunrow returns=string
+  param name=runOrd type=number
+  param name=firstDec type=number
+  param name=lastDec type=number
+  param name=succOrd type=number
+  param name=disp type=string
+  handler lang="kern"
+    return value="f3item(String(runOrd)) + f3item(String(firstDec)) + f3item(String(lastDec)) + f3item(String(succOrd)) + f3item(disp)"
+
+fn name=f3rawblockrow returns=string
+  param name=rawOrd type=number
+  param name=ownerOrd type=number
+  param name=openerRec type=number
+  param name=closerRec type=number
+  param name=bodyStart type=number
+  param name=bodyEnd type=number
+  param name=inlineFlag type=string
+  param name=rawType type=string
+  handler lang="kern"
+    return value="f3item(String(rawOrd)) + f3item(String(ownerOrd)) + f3item(String(openerRec)) + f3item(String(closerRec)) + f3item(String(bodyStart)) + f3item(String(bodyEnd)) + f3item(inlineFlag) + f3item(rawType)"
+
+fn name=f3diagnosticrow returns=string
+  param name=code type=string
+  param name=startScalar type=number
+  param name=endScalar type=number
+  param name=logOrd type=number
+  handler lang="kern"
+    return value="f3item(code) + f3item(String(startScalar)) + f3item(String(endScalar)) + f3item(String(logOrd))"

@@ -1,0 +1,467 @@
+fn name=structuref3document returns="string[]" export=true
+  param name=source type=string
+  param name=recordKinds type="number[]"
+  param name=recordFlags type="number[]"
+  param name=recordStarts type="number[]"
+  param name=recordEnds type="number[]"
+  param name=f1RecordTape type=string
+  param name=segmentFirstRecords type="number[]"
+  param name=segmentLastRecords type="number[]"
+  param name=segmentOuterStarts type="number[]"
+  param name=segmentOuterEnds type="number[]"
+  param name=segmentBodyStarts type="number[]"
+  param name=segmentBodyEnds type="number[]"
+  param name=rawOpenerTypes type="string[]"
+  param name=maxRecords type=number
+  param name=maxLogicalLines type=number
+  param name=maxParentEdges type=number
+  param name=maxDecoratorRuns type=number
+  param name=maxRawBlocks type=number
+  param name=maxStructuralDiagnostics type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  handler lang="kern"
+    let name=sourceScalars value="Text.length(source)"
+    let name=recordCount value="recordKinds.length"
+    let name=segmentCount value="segmentFirstRecords.length"
+    if cond="recordFlags.length != recordCount || recordStarts.length != recordCount || recordEnds.length != recordCount || segmentLastRecords.length != segmentCount || segmentOuterStarts.length != segmentCount || segmentOuterEnds.length != segmentCount || segmentBodyStarts.length != segmentCount || segmentBodyEnds.length != segmentCount"
+      let name=shapeFailure value="f3failure(\"F3_INVALID_REQUEST\", 0, sourceScalars, sourceScalars)"
+      return value=shapeFailure
+    if cond="recordCount > maxRecords"
+      let name=recordLimitFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+      return value=recordLimitFailure
+    let name=workSteps value="0"
+    let name=recordKindByOrdinal value="new Map()"
+    let name=recordFlagByOrdinal value="new Map()"
+    let name=recordStartByOrdinal value="new Map()"
+    let name=recordEndByOrdinal value="new Map()"
+    let name=expectedRecordStart value="0"
+    let name=f1ChunkPayload value="\"\""
+    let name=f1ChunkRecordCount value="0"
+    let name=f1ChunkOrdinal value="0"
+    let name=f1ChunkFirstRecord value="0"
+    let name=f1TapeCursor value="0"
+    for name=chk from=0 to=recordCount
+      if cond="recordStarts[chk] != expectedRecordStart || recordEnds[chk] <= recordStarts[chk]"
+        let name=recDriftFailure value="f3failure(\"F3_F1_DRIFT\", recordStarts[chk], recordEnds[chk], sourceScalars)"
+        return value=recDriftFailure
+      do value="Map.set(recordKindByOrdinal, String(chk), recordKinds[chk])"
+      do value="Map.set(recordFlagByOrdinal, String(chk), recordFlags[chk])"
+      do value="Map.set(recordStartByOrdinal, String(chk), recordStarts[chk])"
+      do value="Map.set(recordEndByOrdinal, String(chk), recordEnds[chk])"
+      let name=f1ClassName value="recordKinds[chk] <= 9 ? \"token\" : \"trivia\""
+      let name=f1Raw value="Text.slice(source, recordStarts[chk], recordEnds[chk])"
+      let name=f1KindCode value="f3f1kindcode(recordKinds[chk], recordFlags[chk])"
+      if cond="f1KindCode == \"\""
+        let name=f1KindFailure value="f3failure(\"F3_F1_DRIFT\", recordStarts[chk], recordEnds[chk], sourceScalars)"
+        return value=f1KindFailure
+      let name=f1EncodedRecord value="f3f1record(chk, f1ClassName, f1KindCode, recordStarts[chk], recordEnds[chk], f1Raw)"
+      assign target=f1ChunkPayload value="f1ChunkPayload + f1EncodedRecord"
+      assign target=f1ChunkRecordCount value="f1ChunkRecordCount + 1"
+      if cond="f1ChunkRecordCount == 256"
+        let name=f1EncodedChunk value="\"c\" + String(f1ChunkOrdinal) + \",\" + String(f1ChunkFirstRecord) + \",\" + String(f1ChunkRecordCount) + \",\" + String(Text.length(f1ChunkPayload)) + \":\" + f1ChunkPayload + \"s\" + String(f1ChunkOrdinal)"
+        let name=f1EncodedChunkScalars value="Text.length(f1EncodedChunk)"
+        if cond="Text.slice(f1RecordTape, f1TapeCursor, f1TapeCursor + f1EncodedChunkScalars) != f1EncodedChunk"
+          let name=f1ChunkFailure value="f3failure(\"F3_F1_DRIFT\", 0, sourceScalars, sourceScalars)"
+          return value=f1ChunkFailure
+        assign target=f1TapeCursor value="f1TapeCursor + f1EncodedChunkScalars"
+        assign target=f1ChunkOrdinal value="f1ChunkOrdinal + 1"
+        assign target=f1ChunkFirstRecord value="chk + 1"
+        assign target=f1ChunkPayload value="\"\""
+        assign target=f1ChunkRecordCount value="0"
+      assign target=expectedRecordStart value="recordEnds[chk]"
+      assign target=workSteps value="workSteps + 1"
+      if cond="workSteps > maxWorkSteps"
+        let name=recordWorkFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+        return value=recordWorkFailure
+    if cond="expectedRecordStart != sourceScalars"
+      let name=driftFailure value="f3failure(\"F3_F1_DRIFT\", expectedRecordStart, sourceScalars, sourceScalars)"
+      return value=driftFailure
+    if cond="f1ChunkRecordCount > 0"
+      let name=f1FinalChunk value="\"c\" + String(f1ChunkOrdinal) + \",\" + String(f1ChunkFirstRecord) + \",\" + String(f1ChunkRecordCount) + \",\" + String(Text.length(f1ChunkPayload)) + \":\" + f1ChunkPayload + \"s\" + String(f1ChunkOrdinal)"
+      let name=f1FinalChunkScalars value="Text.length(f1FinalChunk)"
+      if cond="Text.slice(f1RecordTape, f1TapeCursor, f1TapeCursor + f1FinalChunkScalars) != f1FinalChunk"
+        let name=f1FinalChunkFailure value="f3failure(\"F3_F1_DRIFT\", 0, sourceScalars, sourceScalars)"
+        return value=f1FinalChunkFailure
+      assign target=f1TapeCursor value="f1TapeCursor + f1FinalChunkScalars"
+      assign target=f1ChunkOrdinal value="f1ChunkOrdinal + 1"
+    if cond="f1TapeCursor != Text.length(f1RecordTape)"
+      let name=f1TapeFailure value="f3failure(\"F3_F1_DRIFT\", 0, sourceScalars, sourceScalars)"
+      return value=f1TapeFailure
+
+    let name=segmentFirstByOrdinal value="new Map()"
+    let name=segmentLastByOrdinal value="new Map()"
+    let name=segmentOuterStartByOrdinal value="new Map()"
+    let name=segmentOuterEndByOrdinal value="new Map()"
+    let name=previousSegmentLast value="-1"
+    for name=segmentOrdinal from=0 to=segmentCount
+      let name=segmentFirst value="segmentFirstRecords[segmentOrdinal]"
+      let name=segmentLast value="segmentLastRecords[segmentOrdinal]"
+      if cond="segmentFirst < 0 || segmentLast < segmentFirst || segmentLast >= recordCount || (segmentOrdinal > 0 && segmentFirst <= previousSegmentLast)"
+        let name=segmentOrderFailure value="f3failure(\"F3_F2B_DRIFT\", 0, sourceScalars, sourceScalars)"
+        return value=segmentOrderFailure
+      if cond="!Map.has(recordKindByOrdinal, String(segmentFirst)) || !Map.has(recordKindByOrdinal, String(segmentLast))"
+        let name=segmentRecordFailure value="f3failure(\"F3_F2B_DRIFT\", 0, sourceScalars, sourceScalars)"
+        return value=segmentRecordFailure
+      let name=segmentFirstKind value="Map.get(recordKindByOrdinal, String(segmentFirst))"
+      let name=segmentLastKind value="Map.get(recordKindByOrdinal, String(segmentLast))"
+      let name=segmentFirstFlag value="Map.get(recordFlagByOrdinal, String(segmentFirst))"
+      let name=segmentLastFlag value="Map.get(recordFlagByOrdinal, String(segmentLast))"
+      if cond="segmentFirstKind != 6 || segmentLastKind != 6 || (segmentFirstFlag != 1 && segmentFirstFlag != 3) || (segmentLastFlag != 2 && segmentLastFlag != 3 && segmentLastFlag != 6) || segmentOuterStarts[segmentOrdinal] != Map.get(recordStartByOrdinal, String(segmentFirst)) || segmentOuterEnds[segmentOrdinal] != Map.get(recordEndByOrdinal, String(segmentLast)) || segmentBodyStarts[segmentOrdinal] != segmentOuterStarts[segmentOrdinal] + 2 || segmentBodyEnds[segmentOrdinal] != segmentOuterEnds[segmentOrdinal] - 2 || segmentBodyEnds[segmentOrdinal] < segmentBodyStarts[segmentOrdinal]"
+        let name=segmentGeometryFailure value="f3failure(\"F3_F2B_DRIFT\", 0, sourceScalars, sourceScalars)"
+        return value=segmentGeometryFailure
+      do value="Map.set(segmentFirstByOrdinal, String(segmentOrdinal), segmentFirstRecords[segmentOrdinal])"
+      do value="Map.set(segmentLastByOrdinal, String(segmentOrdinal), segmentLastRecords[segmentOrdinal])"
+      do value="Map.set(segmentOuterStartByOrdinal, String(segmentOrdinal), segmentOuterStarts[segmentOrdinal])"
+      do value="Map.set(segmentOuterEndByOrdinal, String(segmentOrdinal), segmentOuterEnds[segmentOrdinal])"
+      assign target=previousSegmentLast value=segmentLast
+      assign target=workSteps value="workSteps + 1"
+      if cond="workSteps > maxWorkSteps"
+        let name=segmentWorkFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+        return value=segmentWorkFailure
+
+    let name=diagParts value="[]"
+    let name=diagChunk value="\"\""
+    let name=diagChunkCount value="0"
+    let name=diagCount value="0"
+    let name=logParts value="[]"
+    let name=logChunk value="\"\""
+    let name=logChunkCount value="0"
+    let name=logCount value="0"
+    let name=edgeParts value="[]"
+    let name=edgeChunk value="\"\""
+    let name=edgeChunkCount value="0"
+    let name=edgeCount value="0"
+    let name=decParts value="[]"
+    let name=decChunk value="\"\""
+    let name=decChunkCount value="0"
+    let name=decRunCount value="0"
+    let name=rawParts value="[]"
+    let name=rawChunk value="\"\""
+    let name=rawChunkCount value="0"
+    let name=rawCount value="0"
+    let name=pendingDecStart value="-1"
+    let name=pendingDecEnd value="-1"
+    let name=pendingDecIndent value="-1"
+    let name=stackOrds value="new Map()"
+    let name=stackIndents value="new Map()"
+    let name=stackDepth value="0"
+    let name=seenIndents value="new Map()"
+    let name=prevNonDecIndent value="-1"
+
+    let name=physicalLine value="1"
+    let name=recIdx value="0"
+    let name=nextSegIdx value="0"
+
+    while cond="recIdx < recordCount"
+      if cond="!Map.has(recordKindByOrdinal, String(recIdx))"
+        let name=recordMapFailure value="f3failure(\"F3_F1_DRIFT\", 0, sourceScalars, sourceScalars)"
+        return value=recordMapFailure
+      let name=lineStartRec value=recIdx
+      let name=startLineNum value=physicalLine
+      let name=lineEndRec value=recIdx
+      let name=hasNonWs value=false
+      let name=firstNonWsRec value="-1"
+      let name=nonWsCount value="0"
+      let name=onlyComment value=false
+      let name=openQuote value=false
+      let name=openExpr value=false
+      let name=openFence value=false
+      let name=fenceOpenerRec value="-1"
+      let name=fenceCloserRec value="-1"
+
+      while cond="recIdx < recordCount"
+        let name=rKindId value="Map.get(recordKindByOrdinal, String(recIdx))"
+        let name=rFlags value="Map.get(recordFlagByOrdinal, String(recIdx))"
+        if cond="rKindId != 10 && rKindId != 11"
+          if cond="!hasNonWs"
+            assign target=hasNonWs value=true
+            assign target=firstNonWsRec value=recIdx
+          assign target=nonWsCount value="nonWsCount + 1"
+        if cond="rKindId == 5"
+          if cond="rFlags == 1 || rFlags == 4"
+            assign target=openQuote value=true
+          if cond="rFlags == 2 || rFlags == 6 || rFlags == 3"
+            assign target=openQuote value=false
+        if cond="rKindId == 6"
+          if cond="rFlags == 1 || rFlags == 4"
+            assign target=openExpr value=true
+          if cond="rFlags == 2 || rFlags == 6 || rFlags == 3"
+            assign target=openExpr value=false
+        if cond="rKindId == 13"
+          if cond="rFlags == 1"
+            assign target=openFence value=true
+            assign target=fenceOpenerRec value=recIdx
+            assign target=fenceCloserRec value=-1
+          if cond="rFlags == 2"
+            assign target=openFence value=false
+            assign target=fenceCloserRec value=recIdx
+        assign target=lineEndRec value=recIdx
+        assign target=recIdx value="recIdx + 1"
+        assign target=workSteps value="workSteps + 1"
+        if cond="rKindId == 11"
+          assign target=physicalLine value="physicalLine + 1"
+          break
+
+      if cond="workSteps > maxWorkSteps"
+        let name=wsLimitFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+        return value=wsLimitFailure
+
+      if cond="!hasNonWs"
+        continue
+      if cond="nonWsCount == 1 && Map.get(recordKindByOrdinal, String(firstNonWsRec)) == 12"
+        continue
+
+      let name=endLineNum value=startLineNum
+      let name=continuationMode value="openQuote ? 1 : (openExpr ? 2 : (openFence ? 3 : 0))"
+      let name=continuationActive value="continuationMode > 0"
+      while cond="continuationActive && recIdx < recordCount"
+        let name=contKindId value="Map.get(recordKindByOrdinal, String(recIdx))"
+        let name=contFlags value="Map.get(recordFlagByOrdinal, String(recIdx))"
+        let name=nextContinuationMode value=continuationMode
+        let name=nextFenceOpenerRec value=fenceOpenerRec
+        let name=nextFenceCloserRec value=fenceCloserRec
+        if cond="contKindId == 5"
+          if cond="contFlags == 1 || contFlags == 4"
+            assign target=nextContinuationMode value=1
+          if cond="contFlags == 2 || contFlags == 6 || contFlags == 3"
+            assign target=nextContinuationMode value=0
+        if cond="contKindId == 6"
+          if cond="contFlags == 1 || contFlags == 4"
+            assign target=nextContinuationMode value=2
+          if cond="contFlags == 2 || contFlags == 6 || contFlags == 3"
+            assign target=nextContinuationMode value=0
+        if cond="contKindId == 13"
+          if cond="contFlags == 1"
+            assign target=nextContinuationMode value=3
+            assign target=nextFenceOpenerRec value=recIdx
+            assign target=nextFenceCloserRec value=-1
+          if cond="contFlags == 2"
+            assign target=nextContinuationMode value=0
+            assign target=nextFenceCloserRec value=recIdx
+        assign target=continuationMode value=nextContinuationMode
+        assign target=fenceOpenerRec value=nextFenceOpenerRec
+        assign target=fenceCloserRec value=nextFenceCloserRec
+        assign target=lineEndRec value=recIdx
+        assign target=recIdx value="recIdx + 1"
+        assign target=workSteps value="workSteps + 1"
+        if cond="contKindId == 11"
+          assign target=physicalLine value="physicalLine + 1"
+          assign target=endLineNum value="physicalLine - 1"
+          if cond="continuationMode == 0"
+            assign target=continuationActive value=false
+        else
+          assign target=endLineNum value=physicalLine
+
+      if cond="continuationMode != 0"
+        let name=unclosedFailure value="f3failure(\"F3_F1_DRIFT\", Map.get(recordStartByOrdinal, String(lineStartRec)), sourceScalars, sourceScalars)"
+        return value=unclosedFailure
+
+      let name=sourceStartScalar value="Map.get(recordStartByOrdinal, String(lineStartRec))"
+      let name=sourceEndScalar value="Map.get(recordKindByOrdinal, String(lineEndRec)) == 11 ? Map.get(recordStartByOrdinal, String(lineEndRec)) : Map.get(recordEndByOrdinal, String(lineEndRec))"
+      let name=indent value="0"
+      let name=contentStart value=sourceStartScalar
+
+      if cond="Map.get(recordKindByOrdinal, String(lineStartRec)) == 10"
+        assign target=indent value="Map.get(recordEndByOrdinal, String(lineStartRec)) - Map.get(recordStartByOrdinal, String(lineStartRec))"
+        assign target=contentStart value="Map.get(recordEndByOrdinal, String(lineStartRec))"
+        let name=indentSlice value="Text.slice(source, Map.get(recordStartByOrdinal, String(lineStartRec)), Map.get(recordEndByOrdinal, String(lineStartRec)))"
+        if cond="Text.indexOf(indentSlice, \"\\t\") >= 0"
+          let name=tabDiag value="f3diagnosticrow(\"INVALID_INDENT\", sourceStartScalar, contentStart, logCount)"
+          assign target=diagChunk value="diagChunk + f3item(tabDiag)"
+          assign target=diagChunkCount value="diagChunkCount + 1"
+          assign target=diagCount value="diagCount + 1"
+          assign target=workSteps value="workSteps + 1"
+          if cond="diagChunkCount == 256"
+            do value="diagParts.push(diagChunk)"
+            assign target=diagChunk value="\"\""
+            assign target=diagChunkCount value="0"
+
+      let name=role value="\"ordinary\""
+      let name=firstTokKindId value="Map.get(recordKindByOrdinal, String(firstNonWsRec))"
+      let name=firstTokSlice value="Text.slice(source, Map.get(recordStartByOrdinal, String(firstNonWsRec)), Map.get(recordEndByOrdinal, String(firstNonWsRec)))"
+
+      if cond="firstTokKindId == 9 && firstTokSlice == \"@\""
+        assign target=role value="\"decorator\""
+      else
+        if cond="fenceOpenerRec >= 0"
+          if cond="firstTokKindId == 0 && f3contains(rawOpenerTypes, firstTokSlice)"
+            assign target=role value="\"raw-owner\""
+            let name=bStart value="Map.get(recordEndByOrdinal, String(fenceOpenerRec))"
+            let name=bEnd value="fenceCloserRec >= 0 ? Map.get(recordStartByOrdinal, String(fenceCloserRec)) : bStart"
+            let name=inFlag value="startLineNum == endLineNum ? \"true\" : \"false\""
+            let name=rawRow value="f3rawblockrow(rawCount, logCount, fenceOpenerRec, fenceCloserRec, bStart, bEnd, inFlag, firstTokSlice)"
+            assign target=rawChunk value="rawChunk + f3item(rawRow)"
+            assign target=rawChunkCount value="rawChunkCount + 1"
+            assign target=rawCount value="rawCount + 1"
+            assign target=workSteps value="workSteps + 1"
+            if cond="rawChunkCount == 256"
+              do value="rawParts.push(rawChunk)"
+              assign target=rawChunk value="\"\""
+              assign target=rawChunkCount value="0"
+          else
+            if cond="firstTokKindId != 0"
+              assign target=role value="\"error\""
+              let name=dropDiag value="f3diagnosticrow(\"DROPPED_LINE\", contentStart, sourceEndScalar, logCount)"
+              assign target=diagChunk value="diagChunk + f3item(dropDiag)"
+              assign target=diagChunkCount value="diagChunkCount + 1"
+              assign target=diagCount value="diagCount + 1"
+              assign target=workSteps value="workSteps + 1"
+              if cond="diagChunkCount == 256"
+                do value="diagParts.push(diagChunk)"
+                assign target=diagChunk value="\"\""
+                assign target=diagChunkCount value="0"
+            else
+              assign target=role value="\"ordinary\""
+        else
+          if cond="firstTokKindId != 0"
+            assign target=role value="\"error\""
+            let name=dropDiag value="f3diagnosticrow(\"DROPPED_LINE\", contentStart, sourceEndScalar, logCount)"
+            assign target=diagChunk value="diagChunk + f3item(dropDiag)"
+            assign target=diagChunkCount value="diagChunkCount + 1"
+            assign target=diagCount value="diagCount + 1"
+            assign target=workSteps value="workSteps + 1"
+            if cond="diagChunkCount == 256"
+              do value="diagParts.push(diagChunk)"
+              assign target=diagChunk value="\"\""
+              assign target=diagChunkCount value="0"
+          else
+            assign target=role value="\"ordinary\""
+
+      let name=firstSegInLine value="-1"
+      let name=segCountInLine value="0"
+      while cond="nextSegIdx < segmentCount"
+        if cond="!Map.has(segmentFirstByOrdinal, String(nextSegIdx))"
+          let name=segmentMapFailure value="f3failure(\"F3_F2B_DRIFT\", 0, sourceScalars, sourceScalars)"
+          return value=segmentMapFailure
+        if cond="Map.get(segmentFirstByOrdinal, String(nextSegIdx)) > lineEndRec"
+          break
+        if cond="Map.get(segmentFirstByOrdinal, String(nextSegIdx)) < lineStartRec || Map.get(segmentLastByOrdinal, String(nextSegIdx)) > lineEndRec"
+          let name=segCrossFailure value="f3failure(\"F3_F2B_DRIFT\", Map.get(segmentOuterStartByOrdinal, String(nextSegIdx)), Map.get(segmentOuterEndByOrdinal, String(nextSegIdx)), sourceScalars)"
+          return value=segCrossFailure
+        if cond="firstSegInLine < 0"
+          assign target=firstSegInLine value=nextSegIdx
+        assign target=segCountInLine value="segCountInLine + 1"
+        assign target=nextSegIdx value="nextSegIdx + 1"
+        assign target=workSteps value="workSteps + 1"
+
+      let name=lRow value="f3logicalrow(logCount, lineStartRec, lineEndRec, sourceStartScalar, sourceEndScalar, startLineNum, endLineNum, indent, contentStart, role, firstSegInLine, segCountInLine)"
+      assign target=logChunk value="logChunk + f3item(lRow)"
+      assign target=logChunkCount value="logChunkCount + 1"
+      assign target=workSteps value="workSteps + 1"
+      if cond="role == \"decorator\""
+        if cond="pendingDecStart < 0"
+          assign target=pendingDecStart value=logCount
+          assign target=pendingDecEnd value=logCount
+          assign target=pendingDecIndent value=indent
+        else
+          if cond="indent == pendingDecIndent && logCount == pendingDecEnd + 1"
+            assign target=pendingDecEnd value=logCount
+          else
+            let name=splitDecRow value="f3decoratorrunrow(decRunCount, pendingDecStart, pendingDecEnd, logCount, \"orphan-indent\")"
+            assign target=decChunk value="decChunk + f3item(splitDecRow)"
+            assign target=decChunkCount value="decChunkCount + 1"
+            assign target=decRunCount value="decRunCount + 1"
+            assign target=workSteps value="workSteps + 1"
+            assign target=pendingDecStart value=logCount
+            assign target=pendingDecEnd value=logCount
+            assign target=pendingDecIndent value=indent
+      else
+        if cond="pendingDecStart >= 0"
+          let name=resolvedDisposition value="indent == pendingDecIndent ? \"candidate\" : \"orphan-indent\""
+          let name=resolvedDecRow value="f3decoratorrunrow(decRunCount, pendingDecStart, pendingDecEnd, logCount, resolvedDisposition)"
+          assign target=decChunk value="decChunk + f3item(resolvedDecRow)"
+          assign target=decChunkCount value="decChunkCount + 1"
+          assign target=decRunCount value="decRunCount + 1"
+          assign target=workSteps value="workSteps + 1"
+          assign target=pendingDecStart value="-1"
+          assign target=pendingDecEnd value="-1"
+          assign target=pendingDecIndent value="-1"
+      if cond="decChunkCount == 256"
+        do value="decParts.push(decChunk)"
+        assign target=decChunk value="\"\""
+        assign target=decChunkCount value="0"
+      if cond="decRunCount > maxDecoratorRuns"
+        let name=decLimitFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+        return value=decLimitFailure
+      if cond="role != \"decorator\""
+        if cond="prevNonDecIndent >= 0 && indent < prevNonDecIndent && !Map.has(seenIndents, String(indent))"
+          let name=jumpDiag value="f3diagnosticrow(\"INDENT_JUMP\", sourceStartScalar, contentStart, logCount)"
+          assign target=diagChunk value="diagChunk + f3item(jumpDiag)"
+          assign target=diagChunkCount value="diagChunkCount + 1"
+          assign target=diagCount value="diagCount + 1"
+          assign target=workSteps value="workSteps + 1"
+          if cond="diagChunkCount == 256"
+            do value="diagParts.push(diagChunk)"
+            assign target=diagChunk value="\"\""
+            assign target=diagChunkCount value="0"
+        do value="Map.set(seenIndents, String(indent), true)"
+        while cond="stackDepth > 0 && Map.get(stackIndents, String(stackDepth - 1)) >= indent"
+          assign target=stackDepth value="stackDepth - 1"
+        let name=parentOrd value="-1"
+        let name=parentIndent value="-1"
+        if cond="stackDepth > 0"
+          assign target=parentOrd value="Map.get(stackOrds, String(stackDepth - 1))"
+          assign target=parentIndent value="Map.get(stackIndents, String(stackDepth - 1))"
+        let name=pRow value="f3parentrow(logCount, parentOrd, indent, parentIndent)"
+        assign target=edgeChunk value="edgeChunk + f3item(pRow)"
+        assign target=edgeChunkCount value="edgeChunkCount + 1"
+        assign target=edgeCount value="edgeCount + 1"
+        assign target=workSteps value="workSteps + 1"
+        if cond="edgeChunkCount == 256"
+          do value="edgeParts.push(edgeChunk)"
+          assign target=edgeChunk value="\"\""
+          assign target=edgeChunkCount value="0"
+        do value="Map.set(stackOrds, String(stackDepth), logCount)"
+        do value="Map.set(stackIndents, String(stackDepth), indent)"
+        assign target=stackDepth value="stackDepth + 1"
+        assign target=prevNonDecIndent value=indent
+      assign target=logCount value="logCount + 1"
+
+      if cond="logChunkCount == 256"
+        do value="logParts.push(logChunk)"
+        assign target=logChunk value="\"\""
+        assign target=logChunkCount value="0"
+
+      if cond="logCount > maxLogicalLines || edgeCount > maxParentEdges || rawCount > maxRawBlocks || diagCount > maxStructuralDiagnostics || workSteps > maxWorkSteps"
+        let name=linesLimitFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+        return value=linesLimitFailure
+
+    if cond="nextSegIdx != segmentCount"
+      let name=segMissingFailure value="f3failure(\"F3_F2B_DRIFT\", 0, sourceScalars, sourceScalars)"
+      return value=segMissingFailure
+
+    if cond="pendingDecStart >= 0"
+      let name=eofDecRow value="f3decoratorrunrow(decRunCount, pendingDecStart, pendingDecEnd, -1, \"orphan-eof\")"
+      assign target=decChunk value="decChunk + f3item(eofDecRow)"
+      assign target=decChunkCount value="decChunkCount + 1"
+      assign target=decRunCount value="decRunCount + 1"
+      assign target=workSteps value="workSteps + 1"
+      if cond="decRunCount > maxDecoratorRuns || workSteps > maxWorkSteps"
+        let name=eofDecLimitFailure value="f3failure(\"F3_LIMIT\", 0, sourceScalars, sourceScalars)"
+        return value=eofDecLimitFailure
+
+    if cond="forceLateFailure"
+      let name=lateFailure value="f3failure(\"FORCED_LATE_FAILURE\", sourceScalars, sourceScalars, sourceScalars)"
+      return value=lateFailure
+
+    if cond="diagChunkCount > 0"
+      do value="diagParts.push(diagChunk)"
+    if cond="logChunkCount > 0"
+      do value="logParts.push(logChunk)"
+    if cond="edgeChunkCount > 0"
+      do value="edgeParts.push(edgeChunk)"
+    if cond="decChunkCount > 0"
+      do value="decParts.push(decChunk)"
+    if cond="rawChunkCount > 0"
+      do value="rawParts.push(rawChunk)"
+
+    let name=diagTape value="diagParts.length == 0 ? \"\" : f3concat(diagParts)"
+    let name=logTape value="logParts.length == 0 ? \"\" : f3concat(logParts)"
+    let name=edgeTape value="edgeParts.length == 0 ? \"\" : f3concat(edgeParts)"
+    let name=decTape value="decParts.length == 0 ? \"\" : f3concat(decParts)"
+    let name=rawTape value="rawParts.length == 0 ? \"\" : f3concat(rawParts)"
+
+    let name=seal value="\"tree:\" + String(logCount) + \":\" + String(edgeCount) + \":\" + String(decRunCount) + \":\" + String(rawCount) + \":\" + String(Text.length(diagTape)) + \":\" + String(Text.length(logTape)) + \":\" + String(Text.length(edgeTape)) + \":\" + String(Text.length(decTape)) + \":\" + String(Text.length(rawTape)) + \":closed\""
+
+    return value="[\"kern.frontend.f3-line-tree.1\", \"structured\", diagTape, String(sourceScalars), String(logCount), String(edgeCount), String(decRunCount), String(rawCount), logTape, edgeTape, decTape, rawTape, seal]"
