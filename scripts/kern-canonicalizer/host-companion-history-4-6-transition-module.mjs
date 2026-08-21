@@ -1,33 +1,34 @@
 import { createHash } from 'node:crypto';
 
-import {
-  SCALAR_HELPER_HISTORY_INVENTORY,
-  SCALAR_HELPER_HISTORY_ROWS,
-} from './scalar-helper-history-transition-data.mjs';
+import { HOST_COMPANION_HISTORY_4_6_ROWS } from './host-companion-history-4-6-transition-data.mjs';
 import {
   createHistoricalPredecessorClosure,
   hasExactHistoricalRowStructure,
   isExactPlainDataRecord,
 } from './scalar-history-transition-structure.mjs';
 
-const CLAIM = 'kern.runtime.scalar-helper-history.r0';
-const PREDECESSOR_COMMIT = '7efa4c3a7fe134e3f269a161c92d94a86ad7e064';
-const SUCCESSOR_COMMIT = '8a453a4447572194a314df57e717396169b9accf';
-const INVENTORY_DIGEST = '34aa878fbfb82d4235547aed9abec7cd1d6c848f68d990ad9cba915d1def5d67';
-const MANIFEST_DIGEST = '12f4726267c78c4cc4b9d1087b1e3a2a5d7cb2f94d7b6ec624cc51af34315069';
-const ROWS_DIGEST = 'a55c7182f7e8a96520d18d439da731bc422180c5c2fd22e2ecbb2cf6fc9e1556';
-const PREDECESSOR_ENDPOINT = '5ab8b0146f70b354f6e92cb386238ac602a0ce80534e945f9e239623eaa448bf';
-const SUCCESSOR_ENDPOINT = 'd908fefc278843bcc99ad6935bee9704f23696944d2375845f036ec1d232a097';
+const CLAIM = 'kern.compiler.host-companion-history-4-6.r0';
+const PREDECESSOR_COMMIT = '8a453a4447572194a314df57e717396169b9accf';
+const SUCCESSOR_COMMIT = '91f794dc31ebe11a9d29a8b25479f03900141950';
+const MANIFEST_DIGEST = '05053fd4d10925c0c8b14873f59a32cca799ce612d0d0b2c17a79bc899600bca';
+const ROWS_DIGEST = '690dc37665a6ab09a2c11c5c9e254936665a318dccf6a08b2ee9436ead72d983';
+const PREDECESSOR_ENDPOINT = 'ab865fe01a7c6349e7b9bb9152baf1999e4f01b954b9e5f83b6e3814f5186e18';
+const SUCCESSOR_ENDPOINT = 'bb5cecfb3674d15cd7ec632c5fc63a21fad4bd42b774e5ff5e01bc9d1b3aa590';
+const PATHS = Object.freeze([
+  'codegen-expression.js',
+  'codegen/host-namespace-ir.js',
+  'codegen/host-namespace.js',
+  'index.js',
+  'spec.js',
+]);
 const TRANSITION_KEYS = Object.freeze([
   'claim',
   'predecessorCommit',
   'successorCommit',
-  'compiledInventory',
   'compiledManifest',
   'compiledEndpoints',
   'rowsDigest',
 ]);
-
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -98,12 +99,11 @@ function exactRow(row) {
     gitBlob(historical) === row.expectedBlob;
 }
 
-export const SCALAR_HELPER_HISTORY_HISTORICAL_TRANSITION = Object.freeze({
+export const HOST_COMPANION_HISTORY_4_6_HISTORICAL_TRANSITION = Object.freeze({
   claim: CLAIM,
   predecessorCommit: PREDECESSOR_COMMIT,
   successorCommit: SUCCESSOR_COMMIT,
-  compiledInventory: Object.freeze({ count: 317, digest: INVENTORY_DIGEST }),
-  compiledManifest: Object.freeze({ count: 8, digest: MANIFEST_DIGEST }),
+  compiledManifest: Object.freeze({ count: 5, digest: MANIFEST_DIGEST }),
   compiledEndpoints: Object.freeze({
     predecessor: PREDECESSOR_ENDPOINT,
     successor: SUCCESSOR_ENDPOINT,
@@ -111,72 +111,50 @@ export const SCALAR_HELPER_HISTORY_HISTORICAL_TRANSITION = Object.freeze({
   rowsDigest: ROWS_DIGEST,
 });
 
-export const POST_SCALAR_HELPER_HISTORY_COMPILED_RECONSTRUCTIONS = Object.freeze(
-  SCALAR_HELPER_HISTORY_ROWS.map((row) => Object.freeze({ ...row, claim: CLAIM })),
+export const POST_HOST_COMPANION_HISTORY_4_6_COMPILED_RECONSTRUCTIONS = Object.freeze(
+  HOST_COMPANION_HISTORY_4_6_ROWS.map((row) => Object.freeze({ ...row, claim: CLAIM })),
 );
 
-export function validateScalarHelperHistoryHistoricalTransition({
-  transition = SCALAR_HELPER_HISTORY_HISTORICAL_TRANSITION,
-  inventory = SCALAR_HELPER_HISTORY_INVENTORY,
-  reconstructions = POST_SCALAR_HELPER_HISTORY_COMPILED_RECONSTRUCTIONS,
+export function validateHostCompanionHistory4_6HistoricalTransition({
+  transition = HOST_COMPANION_HISTORY_4_6_HISTORICAL_TRANSITION,
+  reconstructions = POST_HOST_COMPANION_HISTORY_4_6_COMPILED_RECONSTRUCTIONS,
 } = {}) {
   const exactTransition = isExactPlainDataRecord(transition, TRANSITION_KEYS) &&
     transition.claim === CLAIM &&
     transition.predecessorCommit === PREDECESSOR_COMMIT &&
     transition.successorCommit === SUCCESSOR_COMMIT &&
-    isExactPlainDataRecord(transition.compiledInventory, ['count', 'digest']) &&
-    transition.compiledInventory.count === 317 &&
-    transition.compiledInventory.digest === INVENTORY_DIGEST &&
     isExactPlainDataRecord(transition.compiledManifest, ['count', 'digest']) &&
-    transition.compiledManifest.count === 8 &&
+    transition.compiledManifest.count === 5 &&
     transition.compiledManifest.digest === MANIFEST_DIGEST &&
     isExactPlainDataRecord(transition.compiledEndpoints, ['predecessor', 'successor']) &&
     transition.compiledEndpoints.predecessor === PREDECESSOR_ENDPOINT &&
     transition.compiledEndpoints.successor === SUCCESSOR_ENDPOINT &&
     transition.rowsDigest === ROWS_DIGEST;
-  const exactInventory = Array.isArray(inventory) &&
-    inventory.length === 317 &&
-    inventory.every((path) => typeof path === 'string');
   const exactRows = Array.isArray(reconstructions) && reconstructions.every(exactRow);
   const paths = exactRows ? reconstructions.map((row) => row.path) : [];
   if (
     !exactTransition ||
-    !exactInventory || pathDigest(inventory) !== INVENTORY_DIGEST ||
-    !exactRows || paths.length !== 8 || pathDigest(paths) !== MANIFEST_DIGEST ||
+    !exactRows ||
+    JSON.stringify(paths) !== JSON.stringify(PATHS) ||
+    pathDigest(paths) !== MANIFEST_DIGEST ||
     rowsDigest(reconstructions) !== ROWS_DIGEST ||
     endpointDigest(reconstructions, 'historical') !== PREDECESSOR_ENDPOINT ||
     endpointDigest(reconstructions, 'current') !== SUCCESSOR_ENDPOINT
   ) {
-    throw new TypeError('scalar helper history transition immutable identity changed');
+    throw new TypeError('host companion history 4.6 transition immutable identity changed');
   }
   return true;
 }
 
-export function validateScalarHelperHistoryCompiledInventory(paths) {
-  validateScalarHelperHistoryHistoricalTransition();
-  return validateCompiledInventoryIdentity(paths);
-}
-
-function validateCompiledInventoryIdentity(paths) {
-  if (
-    !Array.isArray(paths) ||
-    JSON.stringify(paths) !== JSON.stringify(SCALAR_HELPER_HISTORY_INVENTORY)
-  ) {
-    throw new TypeError('scalar helper history transition requires the exact stable compiled inventory');
-  }
-  return paths;
-}
-
-export function atScalarHelperHistoryCompiledPredecessor(path, currentSource) {
-  const predecessor = createValidatedScalarHelperHistoryCompiledPredecessor();
-  return predecessor(path, currentSource);
-}
-
-export function createValidatedScalarHelperHistoryCompiledPredecessor(paths) {
-  validateScalarHelperHistoryHistoricalTransition();
-  if (paths !== undefined) validateCompiledInventoryIdentity(paths);
+export function createValidatedHostCompanionHistory4_6CompiledPredecessor() {
+  validateHostCompanionHistory4_6HistoricalTransition();
   return createHistoricalPredecessorClosure(
-    POST_SCALAR_HELPER_HISTORY_COMPILED_RECONSTRUCTIONS,
-    'scalar helper history predecessor compiled',
+    POST_HOST_COMPANION_HISTORY_4_6_COMPILED_RECONSTRUCTIONS,
+    'host companion history 4.6 predecessor compiled',
   );
+}
+
+export function atHostCompanionHistory4_6CompiledPredecessor(path, currentSource) {
+  const predecessor = createValidatedHostCompanionHistory4_6CompiledPredecessor();
+  return predecessor(path, currentSource);
 }

@@ -14,6 +14,10 @@ import {
 } from './coverage-dependencies.mjs';
 import { reconstructHistoricalSource } from './historical-source.mjs';
 import {
+  composeScalarHelperHistoryPredecessor,
+  createScalarHelperHistoryPredecessorRegistry,
+} from './scalar-helper-history-coverage-adapter.mjs';
+import {
   POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS,
   POST_RUNTIME_TEXT_CACHE_SOURCE_RECONSTRUCTIONS,
   RUNTIME_TEXT_CACHE_COMPILED_SUCCESSOR_TRANSITION,
@@ -28,7 +32,6 @@ import {
   POST_LEGACY_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS,
 } from './legacy-trace-compaction-historical-transition.mjs';
 import { POST_TRACE_COMPACTION_COMPILED_RECONSTRUCTIONS } from './trace-compaction-historical-transition.mjs';
-import { atScalarHelperHistoryCompiledPredecessor } from './scalar-helper-history-transition.mjs';
 
 const CACHE_SUCCESSOR_PATH = 'ir/semantics/internal-text-code-point-cache.js';
 const RETAINED_CHANGED_PATHS = [
@@ -139,15 +142,22 @@ test('runtime text cache transition binds the exact 316-to-317 inventory delta',
 
 test('runtime text cache retained owners reconstruct exact clean baseline bytes', () => {
   const root = resolve(process.cwd(), 'packages/core/dist');
+  const paths = reconstructRunnerCallCacheCompiledCoreJavaScriptPaths(compiledCorePaths());
+  const registry = createScalarHelperHistoryPredecessorRegistry(paths);
   assert.deepEqual(
     POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS.map(({ path }) => path),
     RETAINED_CHANGED_PATHS,
   );
   for (const reconstruction of POST_RUNTIME_TEXT_CACHE_COMPILED_RECONSTRUCTIONS) {
     const liveSource = readFileSync(resolve(root, reconstruction.path));
+    const scalarHistorySource = composeScalarHelperHistoryPredecessor(
+      registry,
+      reconstruction.path,
+      liveSource,
+    );
     const currentSource = reconstructPreTraceCompiled(
       reconstruction.path,
-      atScalarHelperHistoryCompiledPredecessor(reconstruction.path, liveSource),
+      scalarHistorySource,
     );
     assert.equal(digest(currentSource), reconstruction.currentDigest, reconstruction.path);
     const historicalSource = reconstructHistoricalSource({

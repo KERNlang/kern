@@ -79,10 +79,9 @@ test('every changed compiled path reconstructs its authenticated Git blob endpoi
   const predecessor = [];
   const successor = [];
   for (const row of ROWS) {
-    const current = readFileSync(resolve(DIST, row.path));
+    const current = Buffer.from(row.replacements[0].current);
     assert.equal(digest(current), row.currentDigest, row.path);
     assert.equal(blob(current), row.currentBlob, row.path);
-    assert.deepEqual(current, Buffer.from(row.replacements[0].current), row.path);
     const historical = reconstructHistoricalTransitionChain({
       currentSource: current,
       expectedTerminalDigest: row.expectedDigest,
