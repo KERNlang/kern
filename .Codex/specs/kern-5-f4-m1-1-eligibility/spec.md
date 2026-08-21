@@ -189,6 +189,15 @@ displaced. This permits bounded `O(N log N)` finalization while forbidding
 repeated growing-prefix concatenation. The root stays arity 109, document `.2`,
 and policy `.4`.
 
+**[M1.1-C13 IMPLEMENTATION / ACCEPTANCE PARTIAL]** Current implementation and
+focused acceptance cover prospective admission for bare-token, malformed-
+decorator, and required-missing facts, their eligibility diagnostics, and E18's
+property-phase cap precedence. They do not yet close C13 universally: the
+pre-existing unknown-node, unknown-property, rejected-value, expression, child,
+path, and root fact families remain outside that prospective-admission path.
+M1.1 is merged but not accepted or closed while those families lack the same
+end-to-end C13 admission proof.
+
 ## Implementation options
 
 | Option | Decision | Reason |
@@ -232,7 +241,7 @@ compatible. Evidence: `worker.mjs:201-271`, `policy.json:72-84`, and
 | E14 | matching M1.1 helper/semantic pins and loader source guard | both current source SHA-256 values equal policy descriptors, and `loadComposition` verifies each composition descriptor before runtime execution; the focused suite does not install a mutable production-loader seam merely to forge skew. |
 | E15 | `export\u00a0@trace`, `\ufeff@trace\u3000`, and `@trace(\u2009arg\u2009)` | all classify as valid decorators; export/outer/args use M1.1-R5 trim semantics while `@trace\u00a0// note` remains malformed because comment delimiters are ASCII-only. |
 | E16 | `@trace()` | classified with exactly one zero-width `decorator.args` occurrence/effective value. |
-| E17 | low `maxFacts`, `maxDiagnostics`, and `maxEncodedBytes` profile overrides | diagnostics/bytes return atomic `F4_LIMIT`; current facts-cap portable-runtime rejection is an intentional RED until its fatal is materialized. Source inspection requires one generic Map-owned `f4balancedtapefold`, prospective bounded leaf admission, and rejects growing-prefix retention in eligibility and diagnostic merge paths. |
+| E17 | tested low `maxFacts`, `maxDiagnostics`, and `maxEncodedBytes` profile overrides | the E17 cases in `scripts/kern-frontend-f4-declarations/line-eligibility.test.mjs` return atomic `F4_LIMIT`. They prove the current bounded-leaf/fold paths, not universal C13 admission for every pre-existing fact family. Source inspection requires one generic Map-owned `f4balancedtapefold`, prospective bounded leaf admission, and rejects growing-prefix retention in eligibility and diagnostic merge paths. |
 | E18 | `module name=app\n  page name=Home name=Dash name=Third route="/home"\n` (two `DUPLICATE_PROP` warnings followed by the `route` occurrence) | baseline and the exact two-warning count/byte ceilings classify; `maxDiagnostics=1` and `maxEncodedBytes=64` each return atomic `F4_LIMIT`, never `F4_AUTHORITY_DRIFT`. This closes the adjacent inherited property-phase cursor-before-status ordering under M1.1 cap acceptance. |
 
 ## Out of scope

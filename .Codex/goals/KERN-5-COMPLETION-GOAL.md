@@ -5,8 +5,8 @@ CANDIDATE AWAITING ACCEPTANCE
 
 **Goal confidence:** 0.96
 
-**Current public version:** `4.5.0` (current `origin/main`)
-**Unmerged source candidate:** `4.6.0` (local candidate only; not public)
+**Current `origin/main` source:** `4.6.0` at `ab360354` (source baseline only;
+not a KERN 5 release, tag, or publication claim)
 **Authoritative spec:**
 `.Codex/specs/kern-5-post-m4-171-completion/spec.md`
 
@@ -103,10 +103,9 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 
 ## Current state — 2026-08-21
 
-- **[K5-CS1 VERIFIED]** `origin/main` remains the public `4.5.0` baseline.
-  The isolated `feat/kern-5-f2-frontend` worktree contains an unmerged `4.6.0`
-  source candidate. Candidate source, focused gates, and scoped reviews are not
-  a merge, release, tag, or publication claim.
+- **[K5-CS1 VERIFIED]** `origin/main` is `ab360354` with the integrated `4.6.0`
+  source baseline. M0 candidate integration is landed. This source fact is not
+  KERN 5 acceptance, terminal promotion, release, tag, or publication.
 - **[K5-CS2 VERIFIED]** F0, P0, F1, F2, F2B, and F3 form an implemented,
   current-gated *candidate* internal frontend substrate. Their authenticated
   KERN composition remains `internal-oracle`; it does not promote the terminal
@@ -115,16 +114,18 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   specifications.
 - **[K5-CS3 VERIFIED]** F4 is a substantial, independently scoped
   review-clean *candidate* (declarations, expression evidence, request verdict,
-  path/ID, resource-prefix, and UTF-8 slices). It is neither accepted nor
-  promoted: F4-A1 through F4-A11, canonical C15 graph ordering, and the
-  full-scale closure remain open. The F4 specification is authoritative for
-  slice-level status; no candidate result changes the terminal-gate ledger.
+  path/ID, resource-prefix, UTF-8, and merged M1.1 eligibility slices). M1.1
+  acceptance remains open: C13 is only partially evidenced, and the remaining
+  F4-A1–A6/A11 corpus, canonical C15 graph ordering, and full-scale closure are
+  unfinished. F4 is neither accepted nor promoted; the F4 specification remains
+  authoritative for slice-level status, and no candidate result changes the
+  terminal-gate ledger.
 - **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
   rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
   (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
   cutover, packed-release). Therefore the promoted prerequisite count remains
   `2 / 8` terminal rows and `59 / 65` all prerequisite gates; neither count is
-  evidence that an unmerged candidate is shippable.
+  evidence that the merged candidate source is shippable.
 - **[K5-CS5 DECIDED]** Retain the directional 54–64% completion heuristic. It
   weighs the still-open ownership/cutover gates rather than the 59/65 row count;
   it is not a repository metric or publication forecast.
@@ -149,7 +150,7 @@ its stated dependency is complete.
 
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
-| **M0 — candidate integration** | Reconcile the local F4/4.6 candidate against current `origin/main`; dependency: K5-CS1. | Clean, reviewable candidate provenance; `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force` recorded. No terminal-gate promotion. |
+| **M0 — candidate integration (source landed; acceptance receipt not attached)** | `origin/main` `ab360354` contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
 | **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
 | **M2 — F4B canonical graph closure** | Close F4-A7 and canonical C15: deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Permutation, cycle, malformed, and multi-hop re-export oracles; exact canonical receipt/decoder evidence. |
 | **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
