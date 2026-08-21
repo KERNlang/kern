@@ -115,11 +115,12 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 - **[K5-CS3 VERIFIED]** F4 is a substantial, independently scoped
   review-clean *candidate* (declarations, expression evidence, request verdict,
   path/ID, resource-prefix, UTF-8, and merged M1.1 eligibility slices). M1.1
-  acceptance remains open: C13 is only partially evidenced, and the remaining
-  F4-A1–A6/A11 corpus, canonical C15 graph ordering, and full-scale closure are
-  unfinished. F4 is neither accepted nor promoted; the F4 specification remains
-  authoritative for slice-level status, and no candidate result changes the
-  terminal-gate ledger.
+  acceptance remains open: C13-LOCAL is the current unimplemented eight-family
+  constructed-here admission slice, while C13-GLOBAL imported expression/path
+  admission remains M3/open. The remaining F4-A1–A6/A11 corpus, canonical C15
+  graph ordering, and full-scale closure are unfinished. F4 is neither accepted
+  nor promoted; the F4 specification remains authoritative for slice-level
+  status, and no candidate result changes the terminal-gate ledger.
 - **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
   rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
   (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
@@ -151,9 +152,9 @@ its stated dependency is complete.
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
 | **M0 — candidate integration (source landed; acceptance receipt not attached)** | `origin/main` `ab360354` contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
-| **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
+| **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; current C13 work is C13-LOCAL's eight constructed-here facts; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
 | **M2 — F4B canonical graph closure** | Close F4-A7 and canonical C15: deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Permutation, cycle, malformed, and multi-hop re-export oracles; exact canonical receipt/decoder evidence. |
-| **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
+| **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, C13-GLOBAL imported expression/path admission, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
 | **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |
 | **M5 — F6/F7 frontend promotion** | Complete adversarial frontend closure and promote the terminal frontend gate only after F0–F6 converge; dependency: M4. | `pnpm test:kern-frontend` is added, current, and green; the ledger, policy, support matrix, and release train promote atomically. |
 | **M6 — remaining canonical ownership** | Complete compiler, fixed-point, interpreter-shadow, and canonical-cutover ownership serially; dependency: M5. | In order: `pnpm test:kern-compiler`, `pnpm test:selfhost-fixed-point`, `pnpm test:kern-interpreter-shadow`, and `pnpm test:kern-canonical-cutover` are each current and green. |

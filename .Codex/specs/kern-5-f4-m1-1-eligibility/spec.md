@@ -173,30 +173,39 @@ existing `maxWorkSteps` fatal limit. The implementation may extract a
 KERN helper to retain the under-500-line source rule, but may not perform an
 unbounded host regex/parser pass or alter F1/F3 replay work.
 
-**[M1.1-C13 DECIDED]** Eligibility-owned fact and diagnostic framed leaves are
-prospectively admitted before retention. For each candidate leaf, F4A checks
-the next count, UTF-8-byte, and scan/admission-work totals against
-`maxFacts`, `maxDiagnostics`, `maxEncodedBytes`, and `maxWorkSteps`; a failure
-returns the existing atomic `F4_LIMIT` before that candidate or any later leaf
-is retained. Only already-admitted bounded arrays may be buffered. Fold-copy
-work is deliberately not charged before leaf retention: the generic,
-Map-owned `f4balancedtapefold(parts, baseWorkSteps, maxWorkSteps)` first
-dry-runs its exact scalar-copy work and fails atomically before concatenation,
-then performs the same deterministic pairwise fold and returns its checked tape
-and work. The helper is required for eligibility facts/public diagnostics and
-for downstream diagnostic phase/final merges, so `O(N²)` work cannot merely be
-displaced. This permits bounded `O(N log N)` finalization while forbidding
-repeated growing-prefix concatenation. The root stays arity 109, document `.2`,
-and policy `.4`.
+**[M1.1-C13-LOCAL DECIDED]** C13-LOCAL owns every fact constructed directly by
+F4A semantic/presence execution: bare token, malformed decorator, missing
+property, unknown node, unknown property, property-admission rejection, invalid
+child, and invalid module root. Before retention, each exact six-field row must
+pass one KERN-owned prospective admission operation: exact `i<len>:` framing,
+field-local UTF-8 facts-tape bytes, count, and admission work are checked against
+`maxFacts`, `maxEncodedBytes`, and `maxWorkSteps`. A crossing is atomic
+`F4_LIMIT`; an invalid constructed row is `F4_AUTHORITY_DRIFT`. Before the fact
+fold, the root first checks `factCount > maxFacts`, then checks
+`factBytes > maxEncodedBytes` only if the count passed; either failure is
+`F4_LIMIT`, so no over-cap facts tape can be copied. Fact and diagnostic ledgers are
+independent: C14 continues to count complete framed diagnostic rows separately.
+No total document/envelope byte rule is introduced. Root arity remains 109,
+document remains `.2`, and policy remains `.4`. See the dedicated C13-LOCAL
+satellite at `.Codex/specs/kern-5-f4-m1-1-c13-closure/spec.md`.
+
+**[M1.1-C13-GLOBAL DECIDED | OPEN M3 WORK]** Expression and path facts are
+imported framed tapes (`expressionResult[3]` and `pathBindings[2]`), not
+constructed-here C13-LOCAL rows. M3 must consume each with an advancing cursor,
+validate frame and six-field row before retention or limit debit, then charge
+framed count, field-local UTF-8 bytes, and work. Malformed expression transport
+wins as `F4_F2B_DRIFT`; malformed path/internal provenance wins as
+`F4_AUTHORITY_DRIFT`; only a valid next candidate crossing a cap is `F4_LIMIT`.
+This preserves F4-R4 drift precedence and forbids re-scan/growing-prefix
+accumulation. Evidence: `examples/kern-frontend/f4-declarations-semantic-tail.kernpart:1-18,72-91`
+and parent F4-R1/R2 at `kern-5-f4-declarations-modules/spec.md:343-352`.
 
 **[M1.1-C13 IMPLEMENTATION / ACCEPTANCE PARTIAL]** Current implementation and
-focused acceptance cover prospective admission for bare-token, malformed-
-decorator, and required-missing facts, their eligibility diagnostics, and E18's
-property-phase cap precedence. They do not yet close C13 universally: the
-pre-existing unknown-node, unknown-property, rejected-value, expression, child,
-path, and root fact families remain outside that prospective-admission path.
-M1.1 is merged but not accepted or closed while those families lack the same
-end-to-end C13 admission proof.
+focused acceptance cover bare-token, malformed-decorator, required-missing,
+their eligibility diagnostics, and E18 property-phase cap precedence. C13-LOCAL
+is the current unimplemented M1.1 closure slice; C13-GLOBAL remains named M3
+work. Neither status claims that the eight local branches or imported expression/
+path tapes have current end-to-end admission proof.
 
 ## Implementation options
 
