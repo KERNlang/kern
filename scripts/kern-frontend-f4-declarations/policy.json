@@ -1,7 +1,31 @@
 {
-  "format": "kern.frontend.f4-declarations-policy.1",
-  "documentResultFormat": "kern.frontend.f4-document.1",
-  "moduleSetResultFormat": "kern.frontend.f4-module-set.1",
+  "format": "kern.frontend.f4-declarations-policy.4",
+  "documentResultFormat": "kern.frontend.f4-document.2",
+  "moduleSetResultFormat": "kern.frontend.f4-module-set.3",
+  "documentPrivateAbi": {
+    "arity": 109,
+    "stateOrder": ["f1", "f2b", "f3"],
+    "states": ["available", "failed", "not-attempted"],
+    "legalVectors": ["AAA", "FNN", "AFN", "AAF"],
+    "payloadCounts": [5, 10, 27],
+    "unavailableString": "",
+    "unavailableArrays": "empty"
+  },
+  "moduleSetPrivateAbi": {
+    "arity": 18,
+    "argumentOrder": [
+      "moduleIds", "mode", "resourceKind", "f4aModuleIds", "f4aFormats", "f4aStatuses",
+      "f4aSeals", "interfaceBlocks", "maxModules", "maxSymbols", "maxBindings", "maxWorkSteps",
+      "forceLateFailure", "maxModuleIdScalars", "maxModuleIdSegments", "maxImportSpecifierScalars",
+      "maxImportSpecifierSegments", "maxEncodedBytes"
+    ],
+    "argumentTypes": [
+      "string[]", "string", "string", "string[]", "string[]", "string[]", "string[]", "string[]",
+      "number", "number", "number", "number", "boolean", "number", "number", "number", "number", "number"
+    ],
+    "modes": ["full", "resource-prefix"],
+    "resourceKinds": ["maxModules", "maxSymbols", "maxBindings"]
+  },
   "authorities": [
     {
       "path": "scripts/kern-frontend-builtin-node-type-attestation/catalog.json",
@@ -11,7 +35,9 @@
     {
       "path": "scripts/kir-structural/constitution.json",
       "sha256": "d62b8b0ce021240f0eb432bff0303107d157578dea6314012c143a911272d271",
-      "rows": 1451
+      "rows": 1451,
+      "nodeRows": 302,
+      "propertyRows": 1149
     },
     {
       "path": "scripts/kern-frontend-closure/closure-ledger.json",
@@ -20,10 +46,126 @@
     {
       "path": "scripts/kern-frontend-closure/static-goldens.json",
       "sha256": "cd2ce58285f6cee4dc00cc26fb4a9371023d3b8cc20aab5f8b47d95c6e5a0a2a"
+    },
+    {
+      "path": "scripts/kern-frontend-keyword-handlers/policy.json",
+      "sha256": "719b41e55035783e497f46aa77f645273c9999836b40f36080128eab8291c092",
+      "rows": 26
+    }
+  ],
+  "f1Policy": {
+    "path": "scripts/kern-frontend-f1-scan/policy.json",
+    "sha256": "71caa968ffa537c46e4474edda28469428ac44bea096d20d1eabe0a82aa42c4a"
+  },
+  "f2Policy": {
+    "path": "scripts/kern-frontend-f2-expression/policy.json",
+    "sha256": "eff693596860818152cbdbd51d4ce96f98da92816f5c5a96be0ef13534bd5122"
+  },
+  "f2bPolicy": {
+    "path": "scripts/kern-frontend-f2-batch/policy.json",
+    "sha256": "083c8e7bb493711aca030a36230380edb05b84972d5747ad4af4ad3b647ca86a"
+  },
+  "f3Policy": {
+    "path": "scripts/kern-frontend-f3-line-tree/policy.json",
+    "sha256": "89ffef0f9c81e6b259fd9a65971c8047e58d4928239268dd849e1cae88e2f8d1"
+  },
+  "composition": [
+    {
+      "path": "examples/kern-frontend/builtin-node-types.generated.kern",
+      "sha256": "40642fc318ffc49b4fc46c0a14fbc5fe2ca7f61086f8c43467691570f9d7ecf3"
+    },
+    {
+      "path": "examples/kern-frontend/f3-line-tree-collection-helpers.kern",
+      "sha256": "9b47c83840ff02bb0affdd096557034bd26d17bf9c9ab76ff5ac4dd756be32f5"
+    },
+    {
+      "path": "examples/kern-frontend/f3-line-tree-main.kern",
+      "sha256": "16cc8d1d42bef6cef21feb3194adc021d3abad0534a73c0dbd2090d28cc948c4"
+    },
+    {
+      "path": "examples/kern-frontend/f2-expression-catalog.kern",
+      "sha256": "85aa6c25886d26033628c30d6fae6136bc59f75f5d65f9dc13cfab1468ab3e88"
+    },
+    {
+      "path": "examples/kern-frontend/f2-expression-lexer.kernpart",
+      "sha256": "7b79e0608309c0afd06b7962d5f0543c0ad2263141aaf9a1a30888e1437c7206"
+    },
+    {
+      "path": "examples/kern-frontend/f2-expression-main.kern",
+      "sha256": "b4dfbc9684a3a2434357f6afd9140c2801672c752ba5f57886a2627460fef3e0"
+    },
+    {
+      "path": "examples/kern-frontend/f2-expression-parser-01.kernpart",
+      "sha256": "049d4e468f3307381641d451dd85f9363bc72d85763265ea3edbc1742042fcf3"
+    },
+    {
+      "path": "examples/kern-frontend/f2-expression-parser-02.kernpart",
+      "sha256": "1b920dfad53b05b795e40ec9bf1e0e5259cf55c285790a264d41ea20064d18e0"
+    },
+    {
+      "path": "examples/kern-frontend/f2-expression-parser-03.kernpart",
+      "sha256": "6784fab0ce974745037accb18fc61742eae201cc5d9baa5e62c14f96c8fc902b"
+    },
+    {
+      "path": "examples/kern-frontend/f2-batch-main.kern",
+      "sha256": "e3481d8af52d562c4434c861839902aec34d17bdd4361994f90a42de44d7ae3b"
+    },
+    {
+      "path": "examples/kern-frontend/f4-authority.generated.kern",
+      "sha256": "361244bf082608707dd534887ae8ac267a6bed98b9fa38325fdb92f6a4111559"
+    },
+    {
+      "path": "examples/kern-frontend/f4-declarations-helpers.kern",
+      "sha256": "414620f096f38e323464a988cfdafe53e1dacc42dcc0d4e575c60a2bcb810886"
+    },
+    {
+      "path": "examples/kern-frontend/f4-path-contract.kern",
+      "sha256": "19b41f26fefba87a0bd2a3335cfaa0a4451b16745cdadb1cb466c22435fbbda3"
+    },
+    {
+      "path": "examples/kern-frontend/f4-expression-evidence.kern",
+      "sha256": "20de73880c2b1c510a40e94ee39cfca7bb18627a1e54083ba393042d670162d8"
+    },
+    {
+      "path": "examples/kern-frontend/f4-diagnostic-merge.kern",
+      "sha256": "6cdbbae8bde286ac3ae8b46b1ec1711f0a57f7e8c58538d12ae6361c1922e932"
+    },
+    {
+      "path": "examples/kern-frontend/f4-prerequisite-envelope.kern",
+      "sha256": "df1e5c8f68f462b5c1e13682622e51125033a526c8543c4602bd7d57fd9fe304"
+    },
+    {
+      "path": "examples/kern-frontend/f4-declarations-semantic.kern",
+      "sha256": "4386ba808852e03321c0a762487f3db3222030401f183ea5a3d0cc6a1ccb614d"
+    },
+    {
+      "path": "examples/kern-frontend/f4-declarations-main.kern",
+      "sha256": "1a610ebde35b9aeefbcf9eb8366158aa8cc51265f34221cbc37a2dbed299eae7"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-f2-helpers.kern",
+      "sha256": "6387f66bcad0ec7de2e95312d424c62c94a706eec2cd143c537f2a378a862830"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-output.kern",
+      "sha256": "e29e5e83e81fedb137286812221f193a55731b959cef096ff857741555e83a37"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-prefix.kern",
+      "sha256": "abf5194779217bd80263cb19a5f7f9bb6ba623a1f737a9502518ed2e72f5cbdf"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-graph.kern",
+      "sha256": "49e4adcb0d49868b61f0d9de5b3475cb88dbe2610946d9208e131f221a734210"
+    },
+    {
+      "path": "examples/kern-frontend/f4-module-set-main.kern",
+      "sha256": "d10e67d8c4dd310b35a62c7cb25dcac20647f6ce650275371aebb3de39277e2e"
     }
   ],
   "prerequisites": [
     "kern.frontend.f1.record-tape.1",
+    "kern.frontend.f2-expression.1",
     "kern.frontend.f2.document-batch.1",
     "kern.frontend.f3-line-tree.1"
   ],
@@ -40,6 +182,17 @@
     "maxBindings": 262144,
     "maxDiagnostics": 262144,
     "maxFacts": 262144,
+    "maxExpressionEvidence": 1048576,
+    "maxF4LocalF2Calls": 10000,
+    "maxAggregateExpressionScalars": 65536,
+    "maxAggregateExpressionNodes": 65536,
+    "maxExpressionAbsoluteSpans": 65536,
+    "maxExpressionBoundaryEntries": 65546,
+    "maxExpressionReceiptScalars": 16000000,
+    "maxModuleIdScalars": 4194304,
+    "maxModuleIdSegments": 4194304,
+    "maxImportSpecifierScalars": 4194304,
+    "maxImportSpecifierSegments": 4194304,
     "maxWorkSteps": 16777216,
     "maxEncodedBytes": 67108864
   },

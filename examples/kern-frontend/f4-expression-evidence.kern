@@ -1,0 +1,476 @@
+fn name=f4tapeitemat returns=string
+  param name=tape type=string
+  param name=target type=number
+  handler lang="kern"
+    let name=cursor value=0
+    let name=ordinal value=0
+    while cond="cursor < Text.length(tape)"
+      let name=item value="f2batchmarked(tape, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0"
+        return value="\"\""
+      if cond="ordinal == target"
+        return value="item[0]"
+      assign target=cursor value=next
+      assign target=ordinal value="ordinal + 1"
+    return value="\"\""
+
+fn name=f4tapefield returns=string
+  param name=row type=string
+  param name=target type=number
+  handler lang="kern"
+    return value="f4tapeitemat(row, target)"
+
+fn name=f4tapecount returns=number
+  param name=tape type=string
+  handler lang="kern"
+    let name=cursor value=0
+    let name=count value=0
+    while cond="cursor < Text.length(tape)"
+      let name=item value="f2batchmarked(tape, cursor, \"i\")"
+      if cond="f2uint(item[1]) < 0"
+        return value=-1
+      assign target=cursor value="f2uint(item[1])"
+      assign target=count value="count + 1"
+    return value=count
+
+fn name=f4row12 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  param name=d type=string
+  param name=e type=string
+  param name=f type=string
+  param name=g type=string
+  param name=h type=string
+  param name=i type=string
+  param name=j type=string
+  param name=k type=string
+  param name=l type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c) + f4item(d) + f4item(e) + f4item(f) + f4item(g) + f4item(h) + f4item(i) + f4item(j) + f4item(k) + f4item(l)"
+
+fn name=f4identifiervalid returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    if cond="Text.length(value) == 0 || (!f2identstart(Text.charAt(value, 0)))"
+      return value=false
+    let name=index value=1
+    while cond="index < Text.length(value)"
+      if cond="!f2identnext(Text.charAt(value, index))"
+        return value=false
+      assign target=index value="index + 1"
+    return value=true
+
+fn name=f4numbervalid returns=boolean
+  param name=value type=string
+  handler lang="kern"
+    let name=n value="Text.length(value)"
+    if cond="n == 0"
+      return value=false
+    let name=cursor value=0
+    if cond="Text.charAt(value, cursor) == \"-\""
+      assign target=cursor value="cursor + 1"
+    let name=digits value=0
+    while cond="cursor < n && f2digit(Text.charAt(value, cursor))"
+      assign target=cursor value="cursor + 1"
+      assign target=digits value="digits + 1"
+    if cond="cursor < n && Text.charAt(value, cursor) == \".\""
+      assign target=cursor value="cursor + 1"
+      let name=fractionDigits value=0
+      while cond="cursor < n && f2digit(Text.charAt(value, cursor))"
+        assign target=cursor value="cursor + 1"
+        assign target=fractionDigits value="fractionDigits + 1"
+      if cond="fractionDigits == 0"
+        return value=false
+    return value="digits > 0 && cursor == n"
+
+fn name=f4enumvalid returns=boolean
+  param name=value type=string
+  param name=valueTape type=string
+  handler lang="kern"
+    if cond="valueTape == \"\""
+      return value=true
+    if cond="Text.indexOf(value, \",\") >= 0"
+      return value=false
+    return value="Text.indexOf(\",\" + valueTape + \",\", \",\" + value + \",\") >= 0"
+
+fn name=f4propertyadmission returns="string[]"
+  param name=schemaKind type=string
+  param name=disposition type=string
+  param name=valueTape type=string
+  param name=representation type=string
+  param name=value type=string
+  handler lang="kern"
+    if cond="disposition == \"excluded-host-expression\""
+      return value="[\"reject\", \"\", \"FRONTEND_EXCLUDED_HOST_EXPRESSION\", \"excluded-host-payload\"]"
+    if cond="disposition == \"excluded-host-type\""
+      return value="[\"reject\", \"\", \"FRONTEND_EXCLUDED_HOST_TYPE\", \"excluded-host-payload\"]"
+    if cond="disposition == \"excluded-raw-block\""
+      return value="[\"reject\", \"\", \"FRONTEND_EXCLUDED_RAW_BLOCK\", \"excluded-host-payload\"]"
+    let name=valid value=true
+    let name=fact value="\"invalid-property\""
+    if cond="schemaKind == \"boolean\""
+      assign target=valid value="value == \"true\" || value == \"false\""
+    else
+      if cond="schemaKind == \"number\""
+        assign target=valid value="f4numbervalid(value)"
+      else
+        if cond="schemaKind == \"identifier\""
+          assign target=valid value="f4identifiervalid(value)"
+        else
+          if cond="schemaKind == \"importPath\""
+            assign target=valid value="Text.length(value) > 0 && Text.indexOf(value, \"\\0\") < 0 && Text.indexOf(value, \"\\n\") < 0"
+            assign target=fact value="\"invalid-import-path\""
+          else
+            if cond="schemaKind == \"string\""
+              assign target=valid value="representation != \"expression\""
+            else
+              if cond="schemaKind == \"typeAnnotation\""
+                assign target=valid value="Text.length(value) > 0 && representation != \"expression\""
+                assign target=fact value="\"invalid-type\""
+              else
+                if cond="schemaKind == \"expression\""
+                  assign target=valid value="representation == \"expression\" || representation == \"quoted\""
+                  assign target=fact value="\"invalid-expression\""
+                else
+                  if cond="schemaKind == \"rawExpr\""
+                    assign target=valid value="Text.length(value) > 0"
+                  else
+                    if cond="schemaKind == \"rawBlock\""
+                      assign target=valid value=false
+                    else
+                      assign target=valid value=false
+    if cond="valid"
+      assign target=valid value="f4enumvalid(value, valueTape)"
+    if cond="!valid"
+      return value="[\"reject\", \"\", \"UNEXPECTED_TOKEN\", fact]"
+    return value="[\"admit\", value, \"\", \"\"]"
+
+fn name=f4quoteddecode returns="string[]"
+  param name=raw type=string
+  param name=absoluteStart type=number
+  param name=maxBoundaryEntries type=number
+  handler lang="kern"
+    let name=n value="Text.length(raw)"
+    if cond="n < 2"
+      return value="[\"invalid\", \"\", \"\"]"
+    let name=quote value="Text.charAt(raw, 0)"
+    if cond="(quote != \"\\\"\" && quote != \"'\") || Text.charAt(raw, n - 1) != quote"
+      return value="[\"invalid\", \"\", \"\"]"
+    let name=decoded value="\"\""
+    let name=boundaries value="new Map()"
+    let name=decodedCount value=0
+    let name=boundaryLimitExceeded value="maxBoundaryEntries < 1"
+    if cond="!boundaryLimitExceeded"
+      do value="Map.set(boundaries, \"0\", absoluteStart + 1)"
+    let name=cursor value=1
+    while cond="cursor < n - 1"
+      let name=point value="Text.charAt(raw, cursor)"
+      if cond="point != \"\\\\\""
+        assign target=decoded value="decoded + point"
+        assign target=decodedCount value="decodedCount + 1"
+        assign target=cursor value="cursor + 1"
+        if cond="decodedCount + 1 <= maxBoundaryEntries"
+          do value="Map.set(boundaries, String(decodedCount), absoluteStart + cursor)"
+        else
+          assign target=boundaryLimitExceeded value=true
+        continue
+      if cond="cursor + 1 >= n - 1"
+        return value="[\"invalid\", \"\", \"\"]"
+      let name=escape value="Text.charAt(raw, cursor + 1)"
+      if cond="escape == \"\\n\""
+        assign target=cursor value="cursor + 2"
+        if cond="decodedCount + 1 <= maxBoundaryEntries"
+          do value="Map.set(boundaries, String(decodedCount), absoluteStart + cursor)"
+        else
+          assign target=boundaryLimitExceeded value=true
+        continue
+      if cond="escape == \"\\r\""
+        assign target=cursor value="cursor + 2"
+        if cond="cursor < n - 1 && Text.charAt(raw, cursor) == \"\\n\""
+          assign target=cursor value="cursor + 1"
+        if cond="decodedCount + 1 <= maxBoundaryEntries"
+          do value="Map.set(boundaries, String(decodedCount), absoluteStart + cursor)"
+        else
+          assign target=boundaryLimitExceeded value=true
+        continue
+      let name=replacement value="\"\""
+      let name=advance value=2
+      if cond="escape == \"\\\\\""
+        assign target=replacement value="\"\\\\\""
+      else
+        if cond="escape == \"\\\"\""
+          assign target=replacement value="\"\\\"\""
+        else
+          if cond="escape == \"'\""
+            assign target=replacement value="\"'\""
+          else
+            if cond="escape == \"0\""
+              assign target=replacement value="\"\\0\""
+            else
+              if cond="escape == \"b\""
+                assign target=replacement value="\"\\b\""
+              else
+                if cond="escape == \"f\""
+                  assign target=replacement value="\"\\f\""
+                else
+                  if cond="escape == \"n\""
+                    assign target=replacement value="\"\\n\""
+                  else
+                    if cond="escape == \"r\""
+                      assign target=replacement value="\"\\r\""
+                    else
+                      if cond="escape == \"t\""
+                        assign target=replacement value="\"\\t\""
+                      else
+                        if cond="escape == \"v\""
+                          assign target=replacement value="\"\\v\""
+                        else
+                          let name=scalar value=-1
+                          if cond="escape == \"x\""
+                            if cond="cursor + 3 >= n - 1 || f2hex(Text.charAt(raw, cursor + 2)) < 0 || f2hex(Text.charAt(raw, cursor + 3)) < 0"
+                              return value="[\"invalid\", \"\", \"\"]"
+                            assign target=scalar value="f2hex(Text.charAt(raw, cursor + 2)) * 16 + f2hex(Text.charAt(raw, cursor + 3))"
+                            assign target=advance value=4
+                          else
+                            if cond="escape == \"u\""
+                              if cond="cursor + 2 < n - 1 && Text.charAt(raw, cursor + 2) == \"{\""
+                                let name=hexCursor value="cursor + 3"
+                                let name=digits value=0
+                                assign target=scalar value=0
+                                while cond="hexCursor < n - 1 && Text.charAt(raw, hexCursor) != \"}\""
+                                  let name=hexDigit value="f2hex(Text.charAt(raw, hexCursor))"
+                                  if cond="hexDigit < 0 || digits >= 6"
+                                    return value="[\"invalid\", \"\", \"\"]"
+                                  assign target=scalar value="scalar * 16 + hexDigit"
+                                  assign target=digits value="digits + 1"
+                                  assign target=hexCursor value="hexCursor + 1"
+                                if cond="digits == 0 || hexCursor >= n - 1"
+                                  return value="[\"invalid\", \"\", \"\"]"
+                                assign target=advance value="hexCursor - cursor + 1"
+                              else
+                                if cond="cursor + 5 >= n - 1"
+                                  return value="[\"invalid\", \"\", \"\"]"
+                                assign target=scalar value=0
+                                for name=hexIndex from=2 to=6
+                                  let name=hexDigit value="f2hex(Text.charAt(raw, cursor + hexIndex))"
+                                  if cond="hexDigit < 0"
+                                    return value="[\"invalid\", \"\", \"\"]"
+                                  assign target=scalar value="scalar * 16 + hexDigit"
+                                assign target=advance value=6
+                          if cond="scalar < 0 || scalar > 1114111 || (scalar >= 55296 && scalar <= 57343)"
+                            return value="[\"invalid\", \"\", \"\"]"
+                          assign target=replacement value="KernInternal.textFromScalar(scalar)"
+      assign target=decoded value="decoded + replacement"
+      assign target=decodedCount value="decodedCount + 1"
+      assign target=cursor value="cursor + advance"
+      if cond="decodedCount + 1 <= maxBoundaryEntries"
+        do value="Map.set(boundaries, String(decodedCount), absoluteStart + cursor)"
+      else
+        assign target=boundaryLimitExceeded value=true
+    if cond=boundaryLimitExceeded
+      return value="[\"limit\", decoded, \"\"]"
+    let name=boundaryTape value="\"\""
+    let name=boundaryLimit value="decodedCount + 1"
+    for name=boundary from=0 to=boundaryLimit
+      if cond="!Map.has(boundaries, String(boundary))"
+        return value="[\"invalid\", \"\", \"\"]"
+      assign target=boundaryTape value="boundaryTape + f4item(String(Map.get(boundaries, String(boundary))))"
+    return value="[\"decoded\", decoded, boundaryTape]"
+
+fn name=f4localabsolutespans returns="string[]"
+  param name=nodeTape type=string
+  param name=nodeCount type=number
+  param name=boundaryTape type=string
+  handler lang="kern"
+    let name=tapeCursor value=0
+    let name=expectedNode value=0
+    let name=spans value="\"\""
+    while cond="tapeCursor < Text.length(nodeTape)"
+      if cond="Text.charAt(nodeTape, tapeCursor) != \"c\""
+        return value="[\"invalid\", \"\"]"
+      let name=chunkOrdinal value="f2batchreadto(nodeTape, tapeCursor + 1, \",\")"
+      let name=firstNode value="f2batchreadto(nodeTape, f2uint(chunkOrdinal[1]), \",\")"
+      let name=chunkCount value="f2batchreadto(nodeTape, f2uint(firstNode[1]), \",\")"
+      let name=payloadLength value="f2batchreadto(nodeTape, f2uint(chunkCount[1]), \":\")"
+      let name=payloadEnd value="f2uint(payloadLength[1]) + f2uint(payloadLength[0])"
+      assign target=tapeCursor value="f2uint(payloadLength[1])"
+      let name=chunkNodes value="f2uint(chunkCount[0])"
+      for name=chunkNode from=0 to=chunkNodes
+        if cond="Text.charAt(nodeTape, tapeCursor) != \"n\""
+          return value="[\"invalid\", \"\"]"
+        let name=nodeLength value="f2batchreadto(nodeTape, tapeCursor + 1, \":\")"
+        let name=fieldCursor value="f2uint(nodeLength[1])"
+        let name=nodeEnd value="fieldCursor + f2uint(nodeLength[0])"
+        let name=nodeId value=-1
+        let name=relativeStart value=-1
+        let name=relativeEnd value=-1
+        for name=field from=0 to=8
+          if cond="Text.charAt(nodeTape, fieldCursor) != \"f\""
+            return value="[\"invalid\", \"\"]"
+          let name=fieldIndex value="f2batchreadto(nodeTape, fieldCursor + 1, \",\")"
+          let name=fieldLength value="f2batchreadto(nodeTape, f2uint(fieldIndex[1]), \":\")"
+          let name=valueStart value="f2uint(fieldLength[1])"
+          let name=valueEnd value="valueStart + f2uint(fieldLength[0])"
+          if cond="field == 0"
+            assign target=nodeId value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
+          if cond="field == 2"
+            assign target=relativeStart value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
+          if cond="field == 3"
+            assign target=relativeEnd value="f2uint(Text.slice(nodeTape, valueStart, valueEnd))"
+          assign target=fieldCursor value=valueEnd
+        let name=absoluteStart value="f2uint(f4tapeitemat(boundaryTape, relativeStart))"
+        let name=absoluteEnd value="f2uint(f4tapeitemat(boundaryTape, relativeEnd))"
+        if cond="fieldCursor != nodeEnd || nodeId != expectedNode || absoluteStart < 0 || absoluteEnd <= absoluteStart"
+          return value="[\"invalid\", \"\"]"
+        assign target=spans value="f4append(spans, f4row3(String(nodeId), String(absoluteStart), String(absoluteEnd)))"
+        assign target=expectedNode value="expectedNode + 1"
+        assign target=tapeCursor value=nodeEnd
+      if cond="tapeCursor != payloadEnd || Text.charAt(nodeTape, tapeCursor) != \"s\""
+        return value="[\"invalid\", \"\"]"
+      let name=seal value="f2batchreaddigits(nodeTape, tapeCursor + 1)"
+      assign target=tapeCursor value="f2uint(seal[1])"
+    if cond="expectedNode != nodeCount"
+      return value="[\"invalid\", \"\"]"
+    return value="[\"valid\", spans]"
+
+fn name=f4batchspans returns=string
+  param name=spanTape type=string
+  param name=segmentOrdinal type=number
+  handler lang="kern"
+    let name=cursor value=0
+    let name=out value="\"\""
+    while cond="cursor < Text.length(spanTape)"
+      let name=item value="f2batchmarked(spanTape, cursor, \"i\")"
+      let name=rowSegment value="f2uint(f4tapefield(item[0], 0))"
+      if cond="rowSegment == segmentOrdinal"
+        let name=row value="f4row3(f4tapefield(item[0], 1), f4tapefield(item[0], 2), f4tapefield(item[0], 3))"
+        assign target=out value="f4append(out, row)"
+      assign target=cursor value="f2uint(item[1])"
+    return value=out
+
+fn name=f4expressionevidence returns="string[]"
+  param name=source type=string
+  param name=occurrenceDispositions type="string[]"
+  param name=occurrenceRepresentations type="string[]"
+  param name=occurrenceSegments type="number[]"
+  param name=occurrenceValueStarts type="number[]"
+  param name=occurrenceValueEnds type="number[]"
+  param name=occurrenceRawValues type="string[]"
+  param name=segmentBodies type="string[]"
+  param name=segmentBodyStarts type="number[]"
+  param name=segmentBodyEnds type="number[]"
+  param name=f2bFields type="string[]"
+  param name=maxExpressionEvidence type=number
+  param name=maxF4LocalF2Calls type=number
+  param name=maxAggregateExpressionScalars type=number
+  param name=maxAggregateExpressionNodes type=number
+  param name=maxExpressionAbsoluteSpans type=number
+  param name=maxExpressionBoundaryEntries type=number
+  param name=maxExpressionReceiptScalars type=number
+  param name=maxSourceScalars type=number
+  param name=maxTokens type=number
+  param name=maxNodes type=number
+  param name=nodesPerChunk type=number
+  param name=maxChunks type=number
+  param name=maxTapeScalars type=number
+  param name=maxNestingDepth type=number
+  param name=maxExpressionWorkSteps type=number
+  handler lang="kern"
+    let name=evidence value="\"\""
+    let name=diagnostics value="\"\""
+    let name=facts value="\"\""
+    let name=evidenceCount value=0
+    let name=localCalls value=0
+    let name=aggregateScalars value=0
+    let name=aggregateNodes value=0
+    let name=aggregateSpans value=0
+    let name=aggregateBoundaries value=0
+    let name=aggregateReceiptScalars value=0
+    let name=workSteps value=0
+    let name=segmentBodyMap value="new Map()"
+    let name=segmentStartMap value="new Map()"
+    let name=segmentEndMap value="new Map()"
+    for name=segmentIndex from=0 to=segmentBodies.length
+      do value="Map.set(segmentBodyMap, String(segmentIndex), segmentBodies[segmentIndex])"
+      do value="Map.set(segmentStartMap, String(segmentIndex), segmentBodyStarts[segmentIndex])"
+      do value="Map.set(segmentEndMap, String(segmentIndex), segmentBodyEnds[segmentIndex])"
+    for name=occurrence from=0 to=occurrenceDispositions.length
+      if cond="occurrenceDispositions[occurrence] == \"lowered-expression\""
+        let name=origin value="\"\""
+        let name=segment value="occurrenceSegments[occurrence]"
+        let name=expressionStart value=-1
+        let name=expressionEnd value=-1
+        let name=decoded value="\"\""
+        let name=boundaryTape value="\"\""
+        let name=receiptRow value="\"\""
+        let name=spanTape value="\"\""
+        let name=nodeCount value=0
+        let name=boundaryLimited value=false
+        if cond="occurrenceRepresentations[occurrence] == \"expression\" && segment >= 0"
+          assign target=origin value="\"f2b\""
+          assign target=decoded value="Map.get(segmentBodyMap, String(segment))"
+          assign target=expressionStart value="Map.get(segmentStartMap, String(segment))"
+          assign target=expressionEnd value="Map.get(segmentEndMap, String(segment))"
+          assign target=receiptRow value="f4tapeitemat(f2bFields[8], segment)"
+          assign target=spanTape value="f4batchspans(f2bFields[7], segment)"
+          assign target=nodeCount value="f2uint(f4tapefield(receiptRow, 4))"
+        else
+          if cond="occurrenceRepresentations[occurrence] == \"quoted\""
+            assign target=origin value="\"f4-local\""
+            assign target=localCalls value="localCalls + 1"
+            let name=quoted value="f4quoteddecode(occurrenceRawValues[occurrence], occurrenceValueStarts[occurrence], maxExpressionBoundaryEntries - aggregateBoundaries)"
+            if cond="quoted[0] == \"invalid\""
+              if cond="localCalls > maxF4LocalF2Calls"
+                return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+              let name=quoteDiagnostic value="f4row5(\"FRONTEND_INVALID_EXPRESSION\", \"error\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\")"
+              assign target=diagnostics value="f4append(diagnostics, quoteDiagnostic)"
+              let name=quoteFact value="f4row6(\"structural\", \"invalid-expression\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\", String(occurrence))"
+              assign target=facts value="f4append(facts, quoteFact)"
+              continue
+            assign target=decoded value="quoted[1]"
+            assign target=boundaryTape value="quoted[2]"
+            assign target=boundaryLimited value="quoted[0] == \"limit\""
+            let name=result value="parsef2expression(decoded, maxSourceScalars, maxTokens, maxNodes, nodesPerChunk, maxChunks, maxTapeScalars, maxNestingDepth, maxExpressionWorkSteps, false)"
+            if cond="result.length != 9 || result[0] != \"kern.frontend.f2-expression.1\""
+              return value="[\"drift\", \"\", \"\", \"\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\"]"
+            if cond="result[1] != \"parsed\""
+              if cond="localCalls > maxF4LocalF2Calls"
+                return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+              let name=invalidDiagnostic value="f4row5(\"FRONTEND_INVALID_EXPRESSION\", \"error\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\")"
+              assign target=diagnostics value="f4append(diagnostics, invalidDiagnostic)"
+              let name=invalidFact value="f4row6(\"structural\", \"invalid-expression\", String(occurrenceValueStarts[occurrence]), String(occurrenceValueEnds[occurrence]), \"-1\", String(occurrence))"
+              assign target=facts value="f4append(facts, invalidFact)"
+              continue
+            if cond="aggregateScalars + Text.length(decoded) > maxAggregateExpressionScalars"
+              return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+            if cond="localCalls > maxF4LocalF2Calls"
+              return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+            if cond=boundaryLimited
+              return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+            assign target=expressionStart value="f2uint(f4tapeitemat(boundaryTape, 0))"
+            assign target=expressionEnd value="f2uint(f4tapeitemat(boundaryTape, Text.length(decoded)))"
+            assign target=receiptRow value="f2batchreceipt(result)"
+            assign target=nodeCount value="f2uint(result[4])"
+            let name=localSpans value="f4localabsolutespans(result[7], nodeCount, boundaryTape)"
+            if cond="localSpans[0] != \"valid\""
+              return value="[\"drift\", \"\", \"\", \"\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\", \"0\"]"
+            assign target=spanTape value="localSpans[1]"
+        if cond="origin != \"\""
+          let name=boundaryCount value="origin == \"f4-local\" ? Text.length(decoded) + 1 : 0"
+          if cond="aggregateScalars + Text.length(decoded) > maxAggregateExpressionScalars"
+            return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+          assign target=evidenceCount value="evidenceCount + 1"
+          assign target=aggregateScalars value="aggregateScalars + Text.length(decoded)"
+          assign target=aggregateNodes value="aggregateNodes + nodeCount"
+          assign target=aggregateSpans value="aggregateSpans + nodeCount"
+          assign target=aggregateBoundaries value="aggregateBoundaries + boundaryCount"
+          assign target=aggregateReceiptScalars value="aggregateReceiptScalars + Text.length(receiptRow)"
+          assign target=workSteps value="workSteps + Text.length(decoded) + nodeCount * 2 + boundaryCount + 1"
+          let name=rowSeal value="\"expression:\" + String(evidenceCount - 1) + \":\" + String(occurrence) + \":\" + origin + \":\" + String(Text.length(decoded)) + \":\" + String(nodeCount) + \":\" + String(Text.length(boundaryTape)) + \":\" + String(Text.length(receiptRow)) + \":\" + String(Text.length(spanTape)) + \":closed\""
+          let name=evidenceRow value="f4row12(String(evidenceCount - 1), String(occurrence), origin, String(segment), String(expressionStart), String(expressionEnd), decoded, boundaryTape, receiptRow, spanTape, String(nodeCount), rowSeal)"
+          assign target=evidence value="f4append(evidence, evidenceRow)"
+    if cond="evidenceCount > maxExpressionEvidence || aggregateNodes > maxAggregateExpressionNodes || aggregateSpans > maxExpressionAbsoluteSpans || aggregateReceiptScalars > maxExpressionReceiptScalars"
+      return value="[\"limit\", \"\", \"\", \"\", String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"
+    return value="[\"ok\", evidence, diagnostics, facts, String(localCalls), String(aggregateScalars), String(aggregateNodes), String(aggregateSpans), String(aggregateBoundaries), String(aggregateReceiptScalars), String(workSteps)]"

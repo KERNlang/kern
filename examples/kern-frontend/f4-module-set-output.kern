@@ -1,0 +1,123 @@
+fn name=f4bframebytes returns=number
+  param name=value type=string
+  handler lang="kern"
+    let name=scalarLength value="Text.length(value)"
+    return value="2 + Text.length(String(scalarLength)) + Text.utf8Length(value)"
+
+fn name=f4bframescalars returns=number
+  param name=value type=string
+  handler lang="kern"
+    let name=scalarLength value="Text.length(value)"
+    return value="2 + Text.length(String(scalarLength)) + scalarLength"
+
+fn name=f4btenbytes returns=number
+  param name=field0 type=string
+  param name=field1 type=string
+  param name=field2 type=string
+  param name=field3 type=string
+  param name=field4 type=string
+  param name=field5 type=string
+  param name=field6 type=string
+  param name=field7 type=string
+  param name=field8 type=string
+  param name=field9 type=string
+  handler lang="kern"
+    return value="Text.utf8Length(field0) + Text.utf8Length(field1) + Text.utf8Length(field2) + Text.utf8Length(field3) + Text.utf8Length(field4) + Text.utf8Length(field5) + Text.utf8Length(field6) + Text.utf8Length(field7) + Text.utf8Length(field8) + Text.utf8Length(field9)"
+
+fn name=f4bnonprooffailure returns="string[]"
+  param name=code type=string
+  handler lang="kern"
+    let name=fact value="f4item(code) + f4item(\"\") + f4item(\"\")"
+    let name=facts value="f4item(fact)"
+    return value="[\"kern.frontend.f4-module-set.3\", \"fatal\", \"\", \"\", facts, \"\", \"\", \"\", \"\", \"failure\"]"
+
+fn name=f4bproofresult returns="string[]"
+  param name=kind type=string
+  param name=moduleCount type=number
+  param name=prefixCount type=number
+  param name=priorSymbols type=number
+  param name=priorBindings type=number
+  param name=crossingSymbols type=number
+  param name=crossingBindings type=number
+  param name=maxEncodedBytes type=number
+  handler lang="kern"
+    let name=fact value="f4item(\"F4_LIMIT\") + f4item(\"\") + f4item(\"\")"
+    let name=facts value="f4item(fact)"
+    let name=witnessRow value="f4item(\"resource-prefix\") + f4item(kind) + f4item(String(moduleCount)) + f4item(String(prefixCount)) + f4item(String(priorSymbols)) + f4item(String(priorBindings)) + f4item(String(crossingSymbols)) + f4item(String(crossingBindings))"
+    let name=witness value="f4item(witnessRow)"
+    let name=terminal value="\"module-set:fatal:\" + String(moduleCount) + \":0:0:1:0:0:0:\" + String(Text.length(witness)) + \":\" + kind + \":closed\""
+    let name=bytes value="f4btenbytes(\"kern.frontend.f4-module-set.3\", \"fatal\", \"\", \"\", facts, \"\", \"\", \"\", witness, terminal)"
+    if cond="bytes > maxEncodedBytes"
+      let name=overflow value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=overflow
+    return value="[\"kern.frontend.f4-module-set.3\", \"fatal\", \"\", \"\", facts, \"\", \"\", \"\", witness, terminal]"
+
+fn name=f4bfullresult returns="string[]"
+  param name=status type=string
+  param name=moduleCount type=number
+  param name=rejectedRows type="string[]"
+  param name=blockedRows type="string[]"
+  param name=linkFacts type="string[]"
+  param name=componentRows type="string[]"
+  param name=resolvedBindings type="string[]"
+  param name=identityRows type="string[]"
+  param name=maxEncodedBytes type=number
+  handler lang="kern"
+    let name=rejectedScalars value=0
+    let name=rejectedBytes value=0
+    for name=index from=0 to=rejectedRows.length
+      assign target=rejectedScalars value="rejectedScalars + f4bframescalars(rejectedRows[index])"
+      assign target=rejectedBytes value="rejectedBytes + f4bframebytes(rejectedRows[index])"
+    let name=blockedScalars value=0
+    let name=blockedBytes value=0
+    for name=index from=0 to=blockedRows.length
+      assign target=blockedScalars value="blockedScalars + f4bframescalars(blockedRows[index])"
+      assign target=blockedBytes value="blockedBytes + f4bframebytes(blockedRows[index])"
+    let name=factScalars value=0
+    let name=factBytes value=0
+    for name=index from=0 to=linkFacts.length
+      assign target=factScalars value="factScalars + f4bframescalars(linkFacts[index])"
+      assign target=factBytes value="factBytes + f4bframebytes(linkFacts[index])"
+    let name=componentScalars value=0
+    let name=componentBytes value=0
+    for name=index from=0 to=componentRows.length
+      assign target=componentScalars value="componentScalars + f4bframescalars(componentRows[index])"
+      assign target=componentBytes value="componentBytes + f4bframebytes(componentRows[index])"
+    let name=bindingScalars value=0
+    let name=bindingBytes value=0
+    let name=bindingOutputCount value=0
+    if cond="status == \"linked\""
+      assign target=bindingOutputCount value=resolvedBindings.length
+      for name=index from=0 to=resolvedBindings.length
+        assign target=bindingScalars value="bindingScalars + f4bframescalars(resolvedBindings[index])"
+        assign target=bindingBytes value="bindingBytes + f4bframebytes(resolvedBindings[index])"
+    let name=identityScalars value=0
+    let name=identityBytes value=0
+    for name=index from=0 to=identityRows.length
+      assign target=identityScalars value="identityScalars + f4bframescalars(identityRows[index])"
+      assign target=identityBytes value="identityBytes + f4bframebytes(identityRows[index])"
+    let name=terminal value="\"module-set:\" + status + \":\" + String(moduleCount) + \":\" + String(rejectedRows.length) + \":\" + String(blockedRows.length) + \":\" + String(linkFacts.length) + \":\" + String(componentRows.length) + \":\" + String(bindingOutputCount) + \":\" + String(identityScalars) + \":0:full:closed\""
+    let name=totalBytes value="Text.utf8Length(\"kern.frontend.f4-module-set.3\") + Text.utf8Length(status) + rejectedBytes + blockedBytes + factBytes + componentBytes + bindingBytes + identityBytes + Text.utf8Length(terminal)"
+    if cond="totalBytes > maxEncodedBytes"
+      let name=overflow value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=overflow
+    let name=rejectedTape value="\"\""
+    for name=index from=0 to=rejectedRows.length
+      assign target=rejectedTape value="rejectedTape + f4item(rejectedRows[index])"
+    let name=blockedTape value="\"\""
+    for name=index from=0 to=blockedRows.length
+      assign target=blockedTape value="blockedTape + f4item(blockedRows[index])"
+    let name=factTape value="\"\""
+    for name=index from=0 to=linkFacts.length
+      assign target=factTape value="factTape + f4item(linkFacts[index])"
+    let name=componentTape value="\"\""
+    for name=index from=0 to=componentRows.length
+      assign target=componentTape value="componentTape + f4item(componentRows[index])"
+    let name=bindingTape value="\"\""
+    if cond="status == \"linked\""
+      for name=index from=0 to=resolvedBindings.length
+        assign target=bindingTape value="bindingTape + f4item(resolvedBindings[index])"
+    let name=identityTape value="\"\""
+    for name=index from=0 to=identityRows.length
+      assign target=identityTape value="identityTape + f4item(identityRows[index])"
+    return value="[\"kern.frontend.f4-module-set.3\", status, rejectedTape, blockedTape, factTape, componentTape, bindingTape, identityTape, \"\", terminal]"

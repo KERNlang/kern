@@ -1,0 +1,458 @@
+fn name=f4diagrankvalid returns=boolean
+  param name=row type=string
+  param name=phase type=number
+  param name=rule type=number
+  handler lang="kern"
+    let name=code value="f4tapefield(row, 0)"
+    if cond="phase == 0"
+      if cond="rule == 0"
+        return value="code == \"DUPLICATE_PROP\""
+      if cond="rule == 1"
+        return value="code == \"UNEXPECTED_TOKEN\""
+      if cond="rule == 2"
+        return value="code == \"FRONTEND_EXCLUDED_HOST_EXPRESSION\""
+      if cond="rule == 3"
+        return value="code == \"FRONTEND_EXCLUDED_HOST_TYPE\""
+      if cond="rule == 4"
+        return value="code == \"FRONTEND_EXCLUDED_RAW_BLOCK\""
+      return value=false
+    if cond="phase == 1"
+      return value="rule == 0 && code == \"FRONTEND_INVALID_EXPRESSION\""
+    if cond="phase == 2"
+      return value="rule == 0 && code == \"DROPPED_DECORATOR\""
+    if cond="phase == 3"
+      return value="rule == 0 && code == \"FRONTEND_UNSUPPORTED_MODULE_ROOT\""
+    return value=false
+
+fn name=f4diagstateappend returns="string[]"
+  param name=status type=string
+  param name=tape type=string
+  param name=count type=number
+  param name=bytes type=number
+  param name=work type=number
+  param name=lastStart type=number
+  param name=lastPhase type=number
+  param name=lastRule type=number
+  param name=row type=string
+  param name=start type=number
+  param name=phase type=number
+  param name=rule type=number
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="status != \"ok\""
+      return value="[status, tape, String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    if cond="f4tapecount(row) != 5"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    if cond="start < 0"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    if cond="f2uint(f4tapefield(row, 2)) != start"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    if cond="!f4diagrankvalid(row, phase, rule)"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=increasing value="start > lastStart"
+    if cond="start == lastStart && phase > lastPhase"
+      assign target=increasing value=true
+    if cond="start == lastStart && phase == lastPhase && rule > lastRule"
+      assign target=increasing value=true
+    if cond="lastStart >= 0 && !increasing"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=entry value="f4item(String(start)) + f4item(String(phase)) + f4item(String(rule)) + f4item(row)"
+    let name=framedEntry value="f4item(entry)"
+    let name=framedRow value="f4item(row)"
+    let name=nextCount value="count + 1"
+    let name=nextBytes value="bytes + Text.utf8Length(framedRow)"
+    let name=nextWork value="work + Text.length(framedEntry) + Text.length(framedRow) + 1"
+    if cond="nextCount > maxDiagnostics || nextBytes > maxEncodedBytes || baseWorkSteps + nextWork > maxWorkSteps"
+      return value="[\"limit\", \"\", String(nextCount), String(nextBytes), String(nextWork), String(lastStart), String(lastPhase), String(lastRule)]"
+    return value="[\"ok\", tape + framedEntry, String(nextCount), String(nextBytes), String(nextWork), String(start), String(phase), String(rule)]"
+
+fn name=f4diagphasefrompublic returns="string[]"
+  param name=publicTape type=string
+  param name=phase type=number
+  param name=rule type=number
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=status value="\"ok\""
+    let name=tape value="\"\""
+    let name=count value=0
+    let name=bytes value=0
+    let name=work value=0
+    let name=lastStart value=-1
+    let name=lastPhase value=-1
+    let name=lastRule value=-1
+    let name=cursor value=0
+    while cond="cursor < Text.length(publicTape) && status == \"ok\""
+      let name=item value="f2batchmarked(publicTape, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0"
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      let name=appended value="f4diagstateappend(status, tape, count, bytes, work, lastStart, lastPhase, lastRule, item[0], f2uint(f4tapefield(item[0], 2)), phase, rule, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
+      assign target=status value="appended[0]"
+      assign target=tape value="appended[1]"
+      assign target=count value="f2uint(appended[2])"
+      assign target=bytes value="f2uint(appended[3])"
+      assign target=work value="f2uint(appended[4])"
+      assign target=lastStart value="appended[5] == \"-1\" ? -1 : f2uint(appended[5])"
+      assign target=lastPhase value="appended[6] == \"-1\" ? -1 : f2uint(appended[6])"
+      assign target=lastRule value="appended[7] == \"-1\" ? -1 : f2uint(appended[7])"
+      assign target=cursor value=next
+    return value="[status, tape, String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+
+fn name=f4diagpropertyphase returns="string[]"
+  param name=occurrences type=string
+  param name=occurrenceRawValues type="string[]"
+  param name=occurrenceValueStarts type="number[]"
+  param name=propertyValueTapes type="string[]"
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=status value="\"ok\""
+    let name=tape value="\"\""
+    let name=count value=0
+    let name=bytes value=0
+    let name=work value=0
+    let name=lastStart value=-1
+    let name=lastPhase value=-1
+    let name=lastRule value=-1
+    let name=effective value="new Map()"
+    let name=propertyValueTapeByOrdinal value="new Map()"
+    for name=authorityIndex from=0 to=propertyValueTapes.length
+      do value="Map.set(propertyValueTapeByOrdinal, String(authorityIndex), propertyValueTapes[authorityIndex])"
+      assign target=work value="work + 1"
+      if cond="baseWorkSteps + work > maxWorkSteps"
+        return value="[\"limit\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=cursor value=0
+    for name=ordinal from=0 to=occurrenceRawValues.length
+      if cond="status != \"ok\""
+        break
+      let name=item value="f2batchmarked(occurrences, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0 || f4tapecount(item[0]) != 13 || occurrenceValueStarts.length != occurrenceRawValues.length"
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      let name=owner value="f4tapefield(item[0], 1)"
+      let name=propertyName value="f4tapefield(item[0], 3)"
+      let name=propertyOrdinal value="f2uint(f4tapefield(item[0], 4))"
+      let name=start value="f2uint(f4tapefield(item[0], 10))"
+      let name=end value="f2uint(f4tapefield(item[0], 11))"
+      let name=effectiveKey value="owner + \".\" + propertyName"
+      if cond="Map.has(effective, String(effectiveKey))"
+        let name=duplicate value="f4row5(\"DUPLICATE_PROP\", \"warning\", String(start), String(end), owner)"
+        let name=appendedDuplicate value="f4diagstateappend(status, tape, count, bytes, work, lastStart, lastPhase, lastRule, duplicate, start, 0, 0, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
+        assign target=status value="appendedDuplicate[0]"
+        assign target=tape value="appendedDuplicate[1]"
+        assign target=count value="f2uint(appendedDuplicate[2])"
+        assign target=bytes value="f2uint(appendedDuplicate[3])"
+        assign target=work value="f2uint(appendedDuplicate[4])"
+        assign target=lastStart value="appendedDuplicate[5] == \"-1\" ? -1 : f2uint(appendedDuplicate[5])"
+        assign target=lastPhase value="appendedDuplicate[6] == \"-1\" ? -1 : f2uint(appendedDuplicate[6])"
+        assign target=lastRule value="appendedDuplicate[7] == \"-1\" ? -1 : f2uint(appendedDuplicate[7])"
+      if cond="propertyOrdinal < 0"
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      if cond="propertyOrdinal >= propertyValueTapes.length"
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      let name=valueTape value="Map.get(propertyValueTapeByOrdinal, String(propertyOrdinal))"
+      let name=admission value="f4propertyadmission(f4tapefield(item[0], 5), f4tapefield(item[0], 7), valueTape, f4tapefield(item[0], 8), f4unquote(occurrenceRawValues[ordinal]))"
+      if cond="status == \"ok\" && admission[0] != \"admit\""
+        let name=valueStart value="occurrenceValueStarts[ordinal]"
+        let name=rejectionCode value="admission[2]"
+        let name=rejectionRule value=-1
+        if cond="rejectionCode == \"UNEXPECTED_TOKEN\""
+          assign target=rejectionRule value=1
+        if cond="rejectionCode == \"FRONTEND_EXCLUDED_HOST_EXPRESSION\""
+          assign target=rejectionRule value=2
+        if cond="rejectionCode == \"FRONTEND_EXCLUDED_HOST_TYPE\""
+          assign target=rejectionRule value=3
+        if cond="rejectionCode == \"FRONTEND_EXCLUDED_RAW_BLOCK\""
+          assign target=rejectionRule value=4
+        if cond="rejectionRule < 0"
+          return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+        let name=rejected value="f4row5(rejectionCode, \"error\", String(valueStart), String(end), owner)"
+        let name=appendedRejected value="f4diagstateappend(status, tape, count, bytes, work, lastStart, lastPhase, lastRule, rejected, valueStart, 0, rejectionRule, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
+        assign target=status value="appendedRejected[0]"
+        assign target=tape value="appendedRejected[1]"
+        assign target=count value="f2uint(appendedRejected[2])"
+        assign target=bytes value="f2uint(appendedRejected[3])"
+        assign target=work value="f2uint(appendedRejected[4])"
+        assign target=lastStart value="appendedRejected[5] == \"-1\" ? -1 : f2uint(appendedRejected[5])"
+        assign target=lastPhase value="appendedRejected[6] == \"-1\" ? -1 : f2uint(appendedRejected[6])"
+        assign target=lastRule value="appendedRejected[7] == \"-1\" ? -1 : f2uint(appendedRejected[7])"
+      do value="Map.set(effective, String(effectiveKey), ordinal)"
+      assign target=cursor value=next
+    if cond="cursor != Text.length(occurrences)"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    return value="[status, tape, String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+
+fn name=f4diagdecoratorphase returns="string[]"
+  param name=decorators type=string
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=publicTape value="\"\""
+    let name=cursor value=0
+    while cond="cursor < Text.length(decorators)"
+      let name=item value="f2batchmarked(decorators, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0 || f4tapecount(item[0]) != 6"
+        return value="[\"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
+      if cond="f4tapefield(item[0], 1) == \"dropped\""
+        let name=row value="f4row5(\"DROPPED_DECORATOR\", \"warning\", f4tapefield(item[0], 4), f4tapefield(item[0], 5), f4tapefield(item[0], 0))"
+        assign target=publicTape value="f4append(publicTape, row)"
+      assign target=cursor value=next
+    let name=phaseState value="f4diagphasefrompublic(publicTape, 2, 0, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
+    return value=phaseState
+
+fn name=f4diagrootphase returns="string[]"
+  param name=facts type=string
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=publicTape value="\"\""
+    let name=cursor value=0
+    while cond="cursor < Text.length(facts)"
+      let name=item value="f2batchmarked(facts, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0 || f4tapecount(item[0]) != 6"
+        return value="[\"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
+      if cond="f4tapefield(item[0], 0) == \"module\" && f4tapefield(item[0], 1) == \"invalid-module-root\""
+        let name=row value="f4row5(\"FRONTEND_UNSUPPORTED_MODULE_ROOT\", \"error\", f4tapefield(item[0], 2), f4tapefield(item[0], 3), f4tapefield(item[0], 4))"
+        assign target=publicTape value="f4append(publicTape, row)"
+      assign target=cursor value=next
+    let name=phaseState value="f4diagphasefrompublic(publicTape, 3, 0, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
+    return value=phaseState
+
+fn name=f4diaghead returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  handler lang="kern"
+    if cond="cursor == Text.length(tape)"
+      return value="[\"empty\", String(cursor), \"-1\", \"-1\", \"-1\", \"\", \"0\"]"
+    let name=item value="f2batchmarked(tape, cursor, \"i\")"
+    let name=next value="f2uint(item[1])"
+    if cond="next < 0 || f4tapecount(item[0]) != 4"
+      return value="[\"drift\", String(cursor), \"-1\", \"-1\", \"-1\", \"\", \"0\"]"
+    let name=start value="f2uint(f4tapefield(item[0], 0))"
+    let name=phase value="f2uint(f4tapefield(item[0], 1))"
+    let name=rule value="f2uint(f4tapefield(item[0], 2))"
+    let name=row value="f4tapefield(item[0], 3)"
+    if cond="start < 0 || f4tapecount(row) != 5 || f2uint(f4tapefield(row, 2)) != start"
+      return value="[\"drift\", String(cursor), \"-1\", \"-1\", \"-1\", \"\", \"0\"]"
+    if cond="!f4diagrankvalid(row, phase, rule)"
+      return value="[\"drift\", String(cursor), \"-1\", \"-1\", \"-1\", \"\", \"0\"]"
+    return value="[\"head\", String(next), String(start), String(phase), String(rule), row, String(next - cursor)]"
+
+fn name=f4diagpick returns=number
+  param name=aStatus type=string
+  param name=aStartText type=string
+  param name=aPhaseText type=string
+  param name=aRuleText type=string
+  param name=bStatus type=string
+  param name=bStartText type=string
+  param name=bPhaseText type=string
+  param name=bRuleText type=string
+  param name=cStatus type=string
+  param name=cStartText type=string
+  param name=cPhaseText type=string
+  param name=cRuleText type=string
+  param name=dStatus type=string
+  param name=dStartText type=string
+  param name=dPhaseText type=string
+  param name=dRuleText type=string
+  handler lang="kern"
+    let name=selected value=-1
+    let name=bestStart value=-1
+    let name=bestPhase value=-1
+    let name=bestRule value=-1
+    if cond="aStatus == \"head\""
+      assign target=selected value=0
+      assign target=bestStart value="f2uint(aStartText)"
+      assign target=bestPhase value="f2uint(aPhaseText)"
+      assign target=bestRule value="f2uint(aRuleText)"
+    if cond="bStatus == \"head\""
+      let name=bStart value="f2uint(bStartText)"
+      let name=bPhase value="f2uint(bPhaseText)"
+      let name=bRule value="f2uint(bRuleText)"
+      let name=bWins value="selected < 0 || bStart < bestStart || (bStart == bestStart && bPhase < bestPhase) || (bStart == bestStart && bPhase == bestPhase && bRule < bestRule)"
+      if cond=bWins
+        assign target=selected value=1
+        assign target=bestStart value=bStart
+        assign target=bestPhase value=bPhase
+        assign target=bestRule value=bRule
+    if cond="cStatus == \"head\""
+      let name=cStart value="f2uint(cStartText)"
+      let name=cPhase value="f2uint(cPhaseText)"
+      let name=cRule value="f2uint(cRuleText)"
+      let name=cWins value="selected < 0 || cStart < bestStart || (cStart == bestStart && cPhase < bestPhase) || (cStart == bestStart && cPhase == bestPhase && cRule < bestRule)"
+      if cond=cWins
+        assign target=selected value=2
+        assign target=bestStart value=cStart
+        assign target=bestPhase value=cPhase
+        assign target=bestRule value=cRule
+    if cond="dStatus == \"head\""
+      let name=dStart value="f2uint(dStartText)"
+      let name=dPhase value="f2uint(dPhaseText)"
+      let name=dRule value="f2uint(dRuleText)"
+      let name=dWins value="selected < 0 || dStart < bestStart || (dStart == bestStart && dPhase < bestPhase) || (dStart == bestStart && dPhase == bestPhase && dRule < bestRule)"
+      if cond=dWins
+        assign target=selected value=3
+    return value=selected
+
+fn name=f4diagmutationguard returns=boolean
+  param name=mutation type=string
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="mutation == \"\""
+      return value=true
+    if cond="mutation != \"equal\" && mutation != \"decreasing\""
+      return value=false
+    let name=firstStart value="mutation == \"equal\" ? 1 : 2"
+    let name=firstRow value="f4row5(\"DROPPED_DECORATOR\", \"warning\", String(firstStart), String(firstStart), \"-1\")"
+    let name=first value="f4diagstateappend(\"ok\", \"\", 0, 0, 0, -1, -1, -1, firstRow, firstStart, 2, 0, maxDiagnostics, maxEncodedBytes, 0, maxWorkSteps)"
+    let name=secondRow value="f4row5(\"DROPPED_DECORATOR\", \"warning\", \"1\", \"1\", \"-1\")"
+    let name=second value="f4diagstateappend(first[0], first[1], f2uint(first[2]), f2uint(first[3]), f2uint(first[4]), f2uint(first[5]), f2uint(first[6]), f2uint(first[7]), secondRow, 1, 2, 0, maxDiagnostics, maxEncodedBytes, 0, maxWorkSteps)"
+    return value="second[0] == \"drift\""
+
+fn name=f4diagmerge returns="string[]"
+  param name=propertyState type="string[]"
+  param name=expressionState type="string[]"
+  param name=decoratorState type="string[]"
+  param name=rootState type="string[]"
+  param name=testMutation type=string
+  param name=baseWorkSteps type=number
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="propertyState.length != 8 || expressionState.length != 8 || decoratorState.length != 8 || rootState.length != 8"
+      return value="[\"drift\", \"\", \"0\"]"
+    if cond="propertyState[0] != \"ok\" || expressionState[0] != \"ok\" || decoratorState[0] != \"ok\" || rootState[0] != \"ok\""
+      let name=limited value="propertyState[0] == \"limit\" || expressionState[0] == \"limit\" || decoratorState[0] == \"limit\" || rootState[0] == \"limit\""
+      return value="[limited ? \"limit\" : \"drift\", \"\", \"0\"]"
+    let name=mutationValid value="f4diagmutationguard(testMutation, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
+    if cond="!mutationValid"
+      return value="[\"drift\", \"\", \"0\"]"
+    if cond="testMutation != \"\""
+      return value="[\"drift\", \"\", \"0\"]"
+    let name=cursorA value=0
+    let name=cursorB value=0
+    let name=cursorC value=0
+    let name=cursorD value=0
+    let name=initialA value="f4diaghead(propertyState[1], cursorA)"
+    let name=initialB value="f4diaghead(expressionState[1], cursorB)"
+    let name=initialC value="f4diaghead(decoratorState[1], cursorC)"
+    let name=initialD value="f4diaghead(rootState[1], cursorD)"
+    let name=statusA value="initialA[0]"
+    let name=statusB value="initialB[0]"
+    let name=statusC value="initialC[0]"
+    let name=statusD value="initialD[0]"
+    let name=nextA value="f2uint(initialA[1])"
+    let name=nextB value="f2uint(initialB[1])"
+    let name=nextC value="f2uint(initialC[1])"
+    let name=nextD value="f2uint(initialD[1])"
+    let name=startA value="initialA[2]"
+    let name=startB value="initialB[2]"
+    let name=startC value="initialC[2]"
+    let name=startD value="initialD[2]"
+    let name=phaseA value="initialA[3]"
+    let name=phaseB value="initialB[3]"
+    let name=phaseC value="initialC[3]"
+    let name=phaseD value="initialD[3]"
+    let name=ruleA value="initialA[4]"
+    let name=ruleB value="initialB[4]"
+    let name=ruleC value="initialC[4]"
+    let name=ruleD value="initialD[4]"
+    let name=rowA value="initialA[5]"
+    let name=rowB value="initialB[5]"
+    let name=rowC value="initialC[5]"
+    let name=rowD value="initialD[5]"
+    let name=work value="f2uint(propertyState[4]) + f2uint(expressionState[4]) + f2uint(decoratorState[4]) + f2uint(rootState[4]) + f2uint(initialA[6]) + f2uint(initialB[6]) + f2uint(initialC[6]) + f2uint(initialD[6])"
+    let name=diagnostics value="\"\""
+    let name=count value=0
+    let name=bytes value=0
+    while cond="statusA == \"head\" || statusB == \"head\" || statusC == \"head\" || statusD == \"head\""
+      if cond="statusA == \"drift\" || statusB == \"drift\" || statusC == \"drift\" || statusD == \"drift\""
+        return value="[\"drift\", \"\", String(work)]"
+      let name=selected value="f4diagpick(statusA, startA, phaseA, ruleA, statusB, startB, phaseB, ruleB, statusC, startC, phaseC, ruleC, statusD, startD, phaseD, ruleD)"
+      let name=selectedRow value="\"\""
+      if cond="selected == 0"
+        assign target=selectedRow value=rowA
+      if cond="selected == 1"
+        assign target=selectedRow value=rowB
+      if cond="selected == 2"
+        assign target=selectedRow value=rowC
+      if cond="selected == 3"
+        assign target=selectedRow value=rowD
+      if cond="selected < 0"
+        return value="[\"drift\", \"\", String(work)]"
+      let name=framedRow value="f4item(selectedRow)"
+      let name=nextCount value="count + 1"
+      let name=nextBytes value="bytes + Text.utf8Length(framedRow)"
+      let name=nextWork value="work + 4 + Text.length(framedRow)"
+      if cond="nextCount > maxDiagnostics || nextBytes > maxEncodedBytes || baseWorkSteps + nextWork > maxWorkSteps"
+        return value="[\"limit\", \"\", String(nextWork)]"
+      assign target=diagnostics value="diagnostics + framedRow"
+      assign target=count value=nextCount
+      assign target=bytes value=nextBytes
+      assign target=work value=nextWork
+      if cond="selected == 0"
+        assign target=cursorA value=nextA
+        let name=nextHeadA value="f4diaghead(propertyState[1], cursorA)"
+        assign target=statusA value="nextHeadA[0]"
+        assign target=nextA value="f2uint(nextHeadA[1])"
+        assign target=startA value="nextHeadA[2]"
+        assign target=phaseA value="nextHeadA[3]"
+        assign target=ruleA value="nextHeadA[4]"
+        assign target=rowA value="nextHeadA[5]"
+        assign target=work value="work + f2uint(nextHeadA[6])"
+      if cond="selected == 1"
+        assign target=cursorB value=nextB
+        let name=nextHeadB value="f4diaghead(expressionState[1], cursorB)"
+        assign target=statusB value="nextHeadB[0]"
+        assign target=nextB value="f2uint(nextHeadB[1])"
+        assign target=startB value="nextHeadB[2]"
+        assign target=phaseB value="nextHeadB[3]"
+        assign target=ruleB value="nextHeadB[4]"
+        assign target=rowB value="nextHeadB[5]"
+        assign target=work value="work + f2uint(nextHeadB[6])"
+      if cond="selected == 2"
+        assign target=cursorC value=nextC
+        let name=nextHeadC value="f4diaghead(decoratorState[1], cursorC)"
+        assign target=statusC value="nextHeadC[0]"
+        assign target=nextC value="f2uint(nextHeadC[1])"
+        assign target=startC value="nextHeadC[2]"
+        assign target=phaseC value="nextHeadC[3]"
+        assign target=ruleC value="nextHeadC[4]"
+        assign target=rowC value="nextHeadC[5]"
+        assign target=work value="work + f2uint(nextHeadC[6])"
+      if cond="selected == 3"
+        assign target=cursorD value=nextD
+        let name=nextHeadD value="f4diaghead(rootState[1], cursorD)"
+        assign target=statusD value="nextHeadD[0]"
+        assign target=nextD value="f2uint(nextHeadD[1])"
+        assign target=startD value="nextHeadD[2]"
+        assign target=phaseD value="nextHeadD[3]"
+        assign target=ruleD value="nextHeadD[4]"
+        assign target=rowD value="nextHeadD[5]"
+        assign target=work value="work + f2uint(nextHeadD[6])"
+      if cond="baseWorkSteps + work > maxWorkSteps"
+        return value="[\"limit\", \"\", String(work)]"
+    if cond="statusA != \"empty\" || statusB != \"empty\" || statusC != \"empty\" || statusD != \"empty\""
+      return value="[\"drift\", \"\", String(work)]"
+    let name=expectedCount value="f2uint(propertyState[2]) + f2uint(expressionState[2]) + f2uint(decoratorState[2]) + f2uint(rootState[2])"
+    let name=expectedBytes value="f2uint(propertyState[3]) + f2uint(expressionState[3]) + f2uint(decoratorState[3]) + f2uint(rootState[3])"
+    if cond="count != expectedCount || bytes != expectedBytes"
+      return value="[\"drift\", \"\", String(work)]"
+    return value="[\"ok\", diagnostics, String(work)]"

@@ -1,0 +1,393 @@
+fn name=f4bfullgraph returns="string[]"
+  param name=moduleIds type="string[]"
+  param name=f4aModuleIds type="string[]"
+  param name=f4aFormats type="string[]"
+  param name=f4aStatuses type="string[]"
+  param name=f4aSeals type="string[]"
+  param name=interfaceBlocks type="string[]"
+  param name=baseWork type=number
+  param name=maxSymbols type=number
+  param name=maxBindings type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxEncodedBytes type=number
+  handler lang="kern"
+    let name=moduleCount value=moduleIds.length
+    let name=symbolModuleIds value="[]"
+    let name=symbolKinds value="[]"
+    let name=symbolNames value="[]"
+    let name=symbolExported value="[]"
+    let name=bindingModuleIds value="[]"
+    let name=bindingSpecifiers value="[]"
+    let name=bindingImported value="[]"
+    let name=bindingLocals value="[]"
+    let name=bindingKinds value="[]"
+    let name=bindingReexports value="[]"
+    let name=workSteps value=baseWork
+    let name=invalidTransport value=false
+    let name=pathLimit value=false
+    for name=blockIndex from=0 to=interfaceBlocks.length
+      let name=parts value="f4bblockparts(interfaceBlocks[blockIndex])"
+      if cond="parts[0] != \"ok\""
+        assign target=invalidTransport value=true
+      if cond="parts[0] == \"ok\""
+        let name=symbolTape value="parts[1]"
+        let name=bindingTape value="parts[2]"
+        if cond="f4aStatuses[blockIndex] != \"classified\""
+          if cond="symbolTape != \"\""
+            assign target=invalidTransport value=true
+          if cond="bindingTape != \"\""
+            assign target=invalidTransport value=true
+        let name=symbolCursor value=0
+        while cond="symbolCursor < Text.length(symbolTape)"
+          let name=item value="f2batchmarked(symbolTape, symbolCursor, \"i\")"
+          let name=next value="f2uint(item[1])"
+          if cond="next <= symbolCursor"
+            assign target=invalidTransport value=true
+            assign target=symbolCursor value="Text.length(symbolTape)"
+          else
+            let name=row value="item[0]"
+            if cond="f4browcount(row) != 4"
+              assign target=invalidTransport value=true
+            if cond="f4browcount(row) == 4"
+              let name=owner value="f4browfield(row, 0)"
+              let name=kind value="f4browfield(row, 1)"
+              let name=name value="f4browfield(row, 2)"
+              let name=exported value="f4browfield(row, 3)"
+              if cond="owner != f4aModuleIds[blockIndex]"
+                assign target=invalidTransport value=true
+              if cond="kind != \"class\" && kind != \"fn\""
+                assign target=invalidTransport value=true
+              if cond="name == \"\""
+                assign target=invalidTransport value=true
+              if cond="exported != \"true\" && exported != \"false\""
+                assign target=invalidTransport value=true
+              do value="symbolModuleIds.push(owner)"
+              do value="symbolKinds.push(kind)"
+              do value="symbolNames.push(name)"
+              do value="symbolExported.push(exported)"
+            assign target=workSteps value="workSteps + 1"
+            assign target=symbolCursor value=next
+        let name=bindingCursor value=0
+        while cond="bindingCursor < Text.length(bindingTape)"
+          let name=item value="f2batchmarked(bindingTape, bindingCursor, \"i\")"
+          let name=next value="f2uint(item[1])"
+          if cond="next <= bindingCursor"
+            assign target=invalidTransport value=true
+            assign target=bindingCursor value="Text.length(bindingTape)"
+          else
+            let name=row value="item[0]"
+            if cond="f4browcount(row) != 6"
+              assign target=invalidTransport value=true
+            if cond="f4browcount(row) == 6"
+              let name=owner value="f4browfield(row, 0)"
+              let name=target value="f4browfield(row, 1)"
+              let name=imported value="f4browfield(row, 2)"
+              let name=localName value="f4browfield(row, 3)"
+              let name=requestedKind value="f4browfield(row, 4)"
+              let name=reexport value="f4browfield(row, 5)"
+              if cond="owner != f4aModuleIds[blockIndex]"
+                assign target=invalidTransport value=true
+              if cond="reexport != \"true\" && reexport != \"false\""
+                assign target=invalidTransport value=true
+              let name=targetPath value="f4pathmoduleid(target, maxModuleIdScalars, maxModuleIdSegments)"
+              let name=targetWork value="f2uint(targetPath[2])"
+              assign target=workSteps value="workSteps + targetWork"
+              if cond="targetPath[0] == \"limit\""
+                assign target=pathLimit value=true
+              if cond="targetPath[0] != \"ok\" && targetPath[0] != \"limit\""
+                assign target=invalidTransport value=true
+              do value="bindingModuleIds.push(owner)"
+              do value="bindingSpecifiers.push(target)"
+              do value="bindingImported.push(imported)"
+              do value="bindingLocals.push(localName)"
+              do value="bindingKinds.push(requestedKind)"
+              do value="bindingReexports.push(reexport)"
+            assign target=workSteps value="workSteps + 1"
+            assign target=bindingCursor value=next
+    if cond=invalidTransport
+      let name=transportFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=transportFailure
+    if cond=pathLimit
+      let name=pathFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=pathFailure
+    if cond="workSteps > maxWorkSteps"
+      let name=parseWorkFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=parseWorkFailure
+    if cond="symbolModuleIds.length > maxSymbols"
+      let name=symbolOverflow value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=symbolOverflow
+    if cond="bindingModuleIds.length > maxBindings"
+      let name=bindingOverflow value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=bindingOverflow
+
+    let name=moduleSet value="new Map()"
+    let name=sealMap value="new Map()"
+    let name=rejectedSet value="new Map()"
+    let name=rejectedReason value="new Map()"
+    let name=quarantineQueue value="[]"
+    let name=identityRows value="[]"
+    for name=moduleIndex from=0 to=moduleCount
+      let name=moduleId value="f4aModuleIds[moduleIndex]"
+      let name=identityRow value="f4item(moduleId) + f4item(f4aFormats[moduleIndex]) + f4item(f4aStatuses[moduleIndex]) + f4item(f4aSeals[moduleIndex])"
+      do value="identityRows.push(identityRow)"
+      do value="Map.set(moduleSet, String(moduleId), moduleIndex)"
+      do value="Map.set(sealMap, String(moduleId), f4aSeals[moduleIndex])"
+      if cond="f4aStatuses[moduleIndex] != \"classified\""
+        do value="Map.set(rejectedSet, String(moduleId), true)"
+        do value="Map.set(rejectedReason, String(moduleId), moduleId)"
+        do value="quarantineQueue.push(moduleId)"
+      assign target=workSteps value="workSteps + 1"
+
+    let name=exportKinds value="new Map()"
+    let name=declaredLocals value="new Map()"
+    let name=exportQueue value="[]"
+    for name=symbolIndex from=0 to=symbolModuleIds.length
+      let name=symbolModule value="symbolModuleIds[symbolIndex]"
+      let name=symbolKind value="symbolKinds[symbolIndex]"
+      let name=symbolName value="symbolNames[symbolIndex]"
+      let name=symbolKey value="f4item(symbolModule) + f4item(symbolName)"
+      if cond="Map.has(declaredLocals, String(symbolKey))"
+        let name=symbolDuplicateFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=symbolDuplicateFailure
+      do value="Map.set(declaredLocals, String(symbolKey), symbolKind)"
+      if cond="symbolExported[symbolIndex] == \"true\""
+        do value="Map.set(exportKinds, String(symbolKey), symbolKind)"
+        do value="exportQueue.push(symbolKey)"
+      assign target=workSteps value="workSteps + 1"
+
+    let name=resolvedTargets value="[]"
+    let name=reverseEdges value="new Map()"
+    let name=outgoingEdges value="new Map()"
+    for name=bindingIndex from=0 to=bindingModuleIds.length
+      let name=bindingModule value="bindingModuleIds[bindingIndex]"
+      let name=target value="bindingSpecifiers[bindingIndex]"
+      do value="resolvedTargets.push(target)"
+      let name=priorReverse value="Map.has(reverseEdges, String(target)) ? Map.get(reverseEdges, String(target)) : \"\""
+      let name=priorOutgoing value="Map.has(outgoingEdges, String(bindingModule)) ? Map.get(outgoingEdges, String(bindingModule)) : \"\""
+      do value="Map.set(reverseEdges, String(target), priorReverse + f4item(bindingModule))"
+      do value="Map.set(outgoingEdges, String(bindingModule), priorOutgoing + f4item(target))"
+      assign target=workSteps value="workSteps + 1"
+
+    let name=blockedSet value="new Map()"
+    let name=blockedReason value="new Map()"
+    for name=queueIndex from=0 to=moduleCount
+      if cond="queueIndex < quarantineQueue.length"
+        let name=quarantined value="quarantineQueue[queueIndex]"
+        let name=reason value="Map.get(rejectedReason, String(quarantined))"
+        let name=reverseTape value="Map.has(reverseEdges, String(quarantined)) ? Map.get(reverseEdges, String(quarantined)) : \"\""
+        let name=reverseCursor value=0
+        while cond="reverseCursor < Text.length(reverseTape)"
+          let name=reverseItem value="f2batchmarked(reverseTape, reverseCursor, \"i\")"
+          let name=reverseNext value="f2uint(reverseItem[1])"
+          if cond="reverseNext < 0"
+            let name=reverseFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+            return value=reverseFailure
+          let name=importer value="reverseItem[0]"
+          if cond="!Map.has(rejectedSet, String(importer)) && !Map.has(blockedSet, String(importer))"
+            do value="Map.set(blockedSet, String(importer), true)"
+            do value="Map.set(blockedReason, String(importer), reason)"
+            do value="Map.set(rejectedReason, String(importer), reason)"
+            do value="quarantineQueue.push(importer)"
+          assign target=reverseCursor value=reverseNext
+          assign target=workSteps value="workSteps + 1"
+
+    let name=linkFacts value="[]"
+    let name=resolvedBindings value="[]"
+    let name=localNames value="new Map()"
+    for name=symbolIndex from=0 to=symbolModuleIds.length
+      let name=localKey value="f4item(symbolModuleIds[symbolIndex]) + f4item(symbolNames[symbolIndex])"
+      do value="Map.set(localNames, String(localKey), symbolKinds[symbolIndex])"
+
+    let name=firstBindingLocals value="new Map()"
+    for name=bindingIndex from=0 to=bindingModuleIds.length
+      let name=localKey value="f4item(bindingModuleIds[bindingIndex]) + f4item(bindingLocals[bindingIndex])"
+      if cond="!Map.has(firstBindingLocals, String(localKey))"
+        do value="Map.set(firstBindingLocals, String(localKey), String(bindingIndex))"
+      assign target=workSteps value="workSteps + 1"
+
+    let name=pendingExports value="new Map()"
+    for name=bindingIndex from=0 to=bindingModuleIds.length
+      let name=bindingModule value="bindingModuleIds[bindingIndex]"
+      let name=bindingEligible value=true
+      if cond="Map.has(rejectedSet, String(bindingModule))"
+        assign target=bindingEligible value=false
+      if cond="Map.has(blockedSet, String(bindingModule))"
+        assign target=bindingEligible value=false
+      if cond="bindingEligible && bindingReexports[bindingIndex] == \"true\" && bindingImported[bindingIndex] != \"\""
+        let name=target value="resolvedTargets[bindingIndex]"
+        if cond="Map.has(moduleSet, String(target))"
+          let name=exportKey value="f4item(target) + f4item(bindingImported[bindingIndex])"
+          let name=pendingTape value="Map.has(pendingExports, String(exportKey)) ? Map.get(pendingExports, String(exportKey)) : \"\""
+          let name=pendingRow value="f4item(bindingModule) + f4item(bindingLocals[bindingIndex]) + f4item(bindingKinds[bindingIndex]) + f4item(String(bindingIndex))"
+          do value="Map.set(pendingExports, String(exportKey), pendingTape + f4item(pendingRow))"
+      assign target=workSteps value="workSteps + 1"
+
+    let name=resolvedReexports value="new Map()"
+    let name=exportQueueLimit value="symbolModuleIds.length + bindingModuleIds.length"
+    for name=queueIndex from=0 to=exportQueueLimit
+      if cond="queueIndex < exportQueue.length"
+        let name=exportKey value="exportQueue[queueIndex]"
+        let name=pendingTape value="Map.has(pendingExports, String(exportKey)) ? Map.get(pendingExports, String(exportKey)) : \"\""
+        let name=pendingCursor value=0
+        while cond="pendingCursor < Text.length(pendingTape)"
+          let name=pendingItem value="f2batchmarked(pendingTape, pendingCursor, \"i\")"
+          let name=pendingNext value="f2uint(pendingItem[1])"
+          if cond="pendingNext <= pendingCursor"
+            let name=pendingFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+            return value=pendingFailure
+          let name=pendingRow value="pendingItem[0]"
+          if cond="f4browcount(pendingRow) != 4"
+            let name=pendingFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+            return value=pendingFailure
+          if cond="f4browcount(pendingRow) == 4"
+            let name=bindingModule value="f4browfield(pendingRow, 0)"
+            let name=localName value="f4browfield(pendingRow, 1)"
+            let name=requestedKind value="f4browfield(pendingRow, 2)"
+            let name=bindingKey value="f4browfield(pendingRow, 3)"
+            let name=actualKind value="Map.get(exportKinds, String(exportKey))"
+            let name=effectiveKind value="requestedKind == \"\" ? actualKind : requestedKind"
+            let name=localKey value="f4item(bindingModule) + f4item(localName)"
+            let name=firstBindingIndex value="Map.get(firstBindingLocals, String(localKey))"
+            if cond="effectiveKind == actualKind && firstBindingIndex == bindingKey && !Map.has(declaredLocals, String(localKey)) && !Map.has(exportKinds, String(localKey))"
+              do value="Map.set(exportKinds, String(localKey), effectiveKind)"
+              do value="Map.set(resolvedReexports, bindingKey, true)"
+              do value="exportQueue.push(localKey)"
+          assign target=pendingCursor value=pendingNext
+          assign target=workSteps value="workSteps + 1"
+
+    for name=bindingIndex from=0 to=bindingModuleIds.length
+      let name=bindingModule value="bindingModuleIds[bindingIndex]"
+      let name=bindingEligible value=true
+      if cond="Map.has(rejectedSet, String(bindingModule))"
+        assign target=bindingEligible value=false
+      if cond="Map.has(blockedSet, String(bindingModule))"
+        assign target=bindingEligible value=false
+      if cond=bindingEligible
+        let name=target value="resolvedTargets[bindingIndex]"
+        let name=imported value="bindingImported[bindingIndex]"
+        let name=localName value="bindingLocals[bindingIndex]"
+        let name=requestedKind value="bindingKinds[bindingIndex]"
+        let name=reexport value="bindingReexports[bindingIndex]"
+        if cond="!Map.has(moduleSet, String(target))"
+          let name=missingModuleFact value="f4item(\"missing-module\") + f4item(target) + f4item(bindingModule)"
+          do value="linkFacts.push(missingModuleFact)"
+        else
+          if cond="imported != \"\""
+            let name=exportKey value="f4item(target) + f4item(imported)"
+            if cond="!Map.has(exportKinds, String(exportKey))"
+              let name=missingExportFact value="f4item(\"missing-export\") + f4item(imported) + f4item(bindingModule)"
+              do value="linkFacts.push(missingExportFact)"
+            else
+              let name=actualKind value="Map.get(exportKinds, String(exportKey))"
+              let name=effectiveKind value="requestedKind == \"\" ? actualKind : requestedKind"
+              let name=bindingExportable value=true
+              if cond="effectiveKind != actualKind"
+                let name=kindFact value="f4item(\"kind-mismatch\") + f4item(imported) + f4item(bindingModule)"
+                do value="linkFacts.push(kindFact)"
+                assign target=bindingExportable value=false
+              let name=localKey value="f4item(bindingModule) + f4item(localName)"
+              if cond="Map.has(localNames, String(localKey))"
+                let name=duplicateLocalFact value="f4item(\"duplicate-local-binding\") + f4item(localName) + f4item(bindingModule)"
+                do value="linkFacts.push(duplicateLocalFact)"
+                assign target=bindingExportable value=false
+              else
+                do value="Map.set(localNames, String(localKey), effectiveKind)"
+              if cond="reexport == \"true\""
+                if cond="bindingExportable && !Map.has(resolvedReexports, String(bindingIndex))"
+                  if cond="Map.has(exportKinds, String(localKey))"
+                    let name=duplicateExportFact value="f4item(\"duplicate-export\") + f4item(localName) + f4item(bindingModule)"
+                    do value="linkFacts.push(duplicateExportFact)"
+                  else
+                    do value="Map.set(exportKinds, String(localKey), effectiveKind)"
+              let name=resolvedBinding value="f4item(target) + f4item(imported) + f4item(localName) + f4item(effectiveKind) + f4item(reexport) + f4item(bindingModule)"
+              do value="resolvedBindings.push(resolvedBinding)"
+      assign target=workSteps value="workSteps + 1"
+
+    let name=indegree value="new Map()"
+    let name=validCount value=0
+    for name=moduleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[moduleIndex]"
+      let name=moduleEligible value=true
+      if cond="Map.has(rejectedSet, String(moduleId))"
+        assign target=moduleEligible value=false
+      if cond="Map.has(blockedSet, String(moduleId))"
+        assign target=moduleEligible value=false
+      if cond=moduleEligible
+        do value="Map.set(indegree, String(moduleId), 0)"
+        assign target=validCount value="validCount + 1"
+    for name=bindingIndex from=0 to=bindingModuleIds.length
+      let name=source value="bindingModuleIds[bindingIndex]"
+      let name=target value="resolvedTargets[bindingIndex]"
+      if cond="Map.has(indegree, String(source)) && Map.has(indegree, String(target))"
+        do value="Map.set(indegree, String(target), Map.get(indegree, String(target)) + 1)"
+    let name=topologyQueue value="[]"
+    for name=moduleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[moduleIndex]"
+      if cond="Map.has(indegree, String(moduleId)) && Map.get(indegree, String(moduleId)) == 0"
+        do value="topologyQueue.push(moduleId)"
+    let name=processed value="new Map()"
+    let name=processedCount value=0
+    for name=queueIndex from=0 to=moduleCount
+      if cond="queueIndex < topologyQueue.length"
+        let name=current value="topologyQueue[queueIndex]"
+        if cond="!Map.has(processed, String(current))"
+          do value="Map.set(processed, String(current), true)"
+          assign target=processedCount value="processedCount + 1"
+          let name=outgoingTape value="Map.has(outgoingEdges, String(current)) ? Map.get(outgoingEdges, String(current)) : \"\""
+          let name=outgoingCursor value=0
+          while cond="outgoingCursor < Text.length(outgoingTape)"
+            let name=outgoingItem value="f2batchmarked(outgoingTape, outgoingCursor, \"i\")"
+            let name=outgoingNext value="f2uint(outgoingItem[1])"
+            if cond="outgoingNext < 0"
+              let name=outgoingFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+              return value=outgoingFailure
+            let name=target value="outgoingItem[0]"
+            if cond="Map.has(indegree, String(target))"
+              let name=nextDegree value="Map.get(indegree, String(target)) - 1"
+              do value="Map.set(indegree, String(target), nextDegree)"
+              if cond="nextDegree == 0"
+                do value="topologyQueue.push(target)"
+            assign target=outgoingCursor value=outgoingNext
+            assign target=workSteps value="workSteps + 1"
+    if cond="processedCount != validCount"
+      let name=cycleFact value="f4item(\"module-cycle\") + f4item(\"\") + f4item(\"\")"
+      do value="linkFacts.push(cycleFact)"
+    if cond="workSteps > maxWorkSteps"
+      let name=workFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=workFailure
+    if cond=forceLateFailure
+      let name=lateFailure value="f4bnonprooffailure(\"FORCED_LATE_FAILURE\")"
+      return value=lateFailure
+
+    let name=rejectedRows value="[]"
+    let name=blockedRows value="[]"
+    let name=componentRows value="[]"
+    for name=moduleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[moduleIndex]"
+      if cond="Map.has(rejectedSet, String(moduleId))"
+        let name=rejectedRow value="f4item(moduleId) + f4item(Map.get(sealMap, String(moduleId)))"
+        do value="rejectedRows.push(rejectedRow)"
+      else
+        if cond="!Map.has(blockedSet, String(moduleId))"
+          let name=componentRow value="f4item(moduleId) + f4item(Map.get(sealMap, String(moduleId)))"
+          do value="componentRows.push(componentRow)"
+    let name=emittedBlocked value="new Map()"
+    for name=blockedPass from=0 to=moduleCount
+      let name=minimumBlocked value="\"\""
+      for name=moduleIndex from=0 to=moduleCount
+        let name=moduleId value="moduleIds[moduleIndex]"
+        if cond="Map.has(blockedSet, String(moduleId)) && !Map.has(emittedBlocked, String(moduleId))"
+          if cond="minimumBlocked == \"\" || moduleId < minimumBlocked"
+            assign target=minimumBlocked value=moduleId
+      if cond="minimumBlocked != \"\""
+        let name=blockedRow value="f4item(minimumBlocked) + f4item(Map.get(blockedReason, String(minimumBlocked)))"
+        do value="blockedRows.push(blockedRow)"
+        do value="Map.set(emittedBlocked, String(minimumBlocked), true)"
+    let name=status value="\"linked\""
+    if cond="rejectedRows.length > 0 || blockedRows.length > 0 || linkFacts.length > 0"
+      assign target=status value="\"rejected\""
+    let name=result value="f4bfullresult(status, moduleCount, rejectedRows, blockedRows, linkFacts, componentRows, resolvedBindings, identityRows, maxEncodedBytes)"
+    return value=result

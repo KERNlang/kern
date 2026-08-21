@@ -1,0 +1,380 @@
+fn name=f4frame returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="String(Text.length(value)) + \"\u003a\" + value"
+
+fn name=f4row returns=string
+  param name=values type="string[]"
+  handler lang="kern"
+    let name=out value="\"\""
+    for name=index from=0 to=values.length
+      assign target=out value="out + \"i\" + f4frame(values[index])"
+    return value=out
+
+fn name=f4append returns=string
+  param name=tape type=string
+  param name=row type=string
+  handler lang="kern"
+    return value="tape + \"i\" + f4frame(row)"
+
+fn name=f4item returns=string
+  param name=value type=string
+  handler lang="kern"
+    return value="\"i\" + f4frame(value)"
+
+fn name=f4row1 returns=string
+  param name=a type=string
+  handler lang="kern"
+    return value="f4item(a)"
+
+fn name=f4row3 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c)"
+
+fn name=f4row5 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  param name=d type=string
+  param name=e type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c) + f4item(d) + f4item(e)"
+
+fn name=f4row6 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  param name=d type=string
+  param name=e type=string
+  param name=f type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c) + f4item(d) + f4item(e) + f4item(f)"
+
+fn name=f4row8 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  param name=d type=string
+  param name=e type=string
+  param name=f type=string
+  param name=g type=string
+  param name=h type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c) + f4item(d) + f4item(e) + f4item(f) + f4item(g) + f4item(h)"
+
+fn name=f4row10 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  param name=d type=string
+  param name=e type=string
+  param name=f type=string
+  param name=g type=string
+  param name=h type=string
+  param name=i type=string
+  param name=j type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c) + f4item(d) + f4item(e) + f4item(f) + f4item(g) + f4item(h) + f4item(i) + f4item(j)"
+
+fn name=f4row13 returns=string
+  param name=a type=string
+  param name=b type=string
+  param name=c type=string
+  param name=d type=string
+  param name=e type=string
+  param name=f type=string
+  param name=g type=string
+  param name=h type=string
+  param name=i type=string
+  param name=j type=string
+  param name=k type=string
+  param name=l type=string
+  param name=m type=string
+  handler lang="kern"
+    return value="f4item(a) + f4item(b) + f4item(c) + f4item(d) + f4item(e) + f4item(f) + f4item(g) + f4item(h) + f4item(i) + f4item(j) + f4item(k) + f4item(l) + f4item(m)"
+
+fn name=f4samefields returns=boolean
+  param name=left type="string[]"
+  param name=right type="string[]"
+  handler lang="kern"
+    if cond="left.length != right.length"
+      return value=false
+    for name=index from=0 to=left.length
+      if cond="left[index] != right[index]"
+        return value=false
+    return value=true
+
+fn name=f4contains returns=boolean
+  param name=values type="string[]"
+  param name=needle type=string
+  handler lang="kern"
+    for name=index from=0 to=values.length
+      if cond="values[index] == needle"
+        return value=true
+    return value=false
+
+fn name=f4trim returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=left value=0
+    let name=right value="Text.length(value)"
+    while cond="left < right && (Text.charAt(value, left) == \" \" || Text.charAt(value, left) == \"\\t\" || Text.charAt(value, left) == \"\\n\" || Text.charAt(value, left) == \"\\r\")"
+      assign target=left value="left + 1"
+    while cond="right > left && (Text.charAt(value, right - 1) == \" \" || Text.charAt(value, right - 1) == \"\\t\" || Text.charAt(value, right - 1) == \"\\n\" || Text.charAt(value, right - 1) == \"\\r\")"
+      assign target=right value="right - 1"
+    return value="Text.slice(value, left, right)"
+
+fn name=f4unquote returns=string
+  param name=value type=string
+  handler lang="kern"
+    let name=n value="Text.length(value)"
+    if cond="n >= 2 && ((Text.charAt(value, 0) == \"\\\"\" && Text.charAt(value, n - 1) == \"\\\"\") || (Text.charAt(value, 0) == \"'\" && Text.charAt(value, n - 1) == \"'\"))"
+      return value="Text.slice(value, 1, n - 1)"
+    return value=value
+
+fn name=f4propertyrangesvalid returns=boolean
+  param name=nodeIds type="string[]"
+  param name=propertyNodes type="string[]"
+  param name=nodePropertyStarts type="number[]"
+  param name=nodePropertyCounts type="number[]"
+  handler lang="kern"
+    if cond="nodePropertyStarts.length != nodeIds.length || nodePropertyCounts.length != nodeIds.length"
+      return value=false
+    let name=nextPropertyIndex value=0
+    for name=nodeIndex from=0 to=nodeIds.length
+      let name=start value="nodePropertyStarts[nodeIndex]"
+      let name=count value="nodePropertyCounts[nodeIndex]"
+      let name=currentNodeId value="nodeIds[nodeIndex]"
+      if cond="start != nextPropertyIndex || count < 0 || start + count > propertyNodes.length"
+        return value=false
+      let name=end value="start + count"
+      for name=propertyIndex from=start to=end
+        if cond="propertyNodes[propertyIndex] != currentNodeId"
+          return value=false
+      assign target=nextPropertyIndex value=end
+    return value="nextPropertyIndex == propertyNodes.length"
+
+fn name=f4childtapesvalid returns=boolean
+  param name=nodeIds type="string[]"
+  param name=nodeChildTapes type="string[]"
+  handler lang="kern"
+    if cond="nodeIds.length != nodeChildTapes.length"
+      return value=false
+    let name=known value="new Map()"
+    for name=nodeIndex from=0 to=nodeIds.length
+      let name=nodeId value="nodeIds[nodeIndex]"
+      if cond="nodeId == \"\" || Text.indexOf(nodeId, \"|\") >= 0 || Map.has(known, String(nodeId))"
+        return value=false
+      do value="Map.set(known, String(nodeId), true)"
+    for name=tapeIndex from=0 to=nodeChildTapes.length
+      let name=tape value="nodeChildTapes[tapeIndex]"
+      let name=cursor value=0
+      while cond="cursor < Text.length(tape)"
+        let name=suffix value="Text.slice(tape, cursor, Text.length(tape))"
+        let name=separator value="Text.indexOf(suffix, \"|\")"
+        let name=end value="separator < 0 ? Text.length(tape) : cursor + separator"
+        let name=child value="Text.slice(tape, cursor, end)"
+        if cond="child == \"\""
+          return value=false
+        assign target=cursor value="end + 1"
+    return value=true
+
+fn name=f4authoritiesmatch returns=boolean
+  param name=nodeIds type="string[]"
+  param name=nodeSchemaStatuses type="string[]"
+  param name=nodeAllowedModes type="string[]"
+  param name=nodeChildTapes type="string[]"
+  param name=frozenNodeRows type="string[]"
+  param name=propertyNodes type="string[]"
+  param name=propertyNames type="string[]"
+  param name=propertyKinds type="string[]"
+  param name=propertyRequired type="string[]"
+  param name=propertyValueTapes type="string[]"
+  param name=propertyDispositions type="string[]"
+  param name=propertyReasonIds type="string[]"
+  param name=frozenPropertyRows type="string[]"
+  param name=keywordForms type="string[]"
+  param name=keywordSourceProfiles type="string[]"
+  param name=frozenKeywordRows type="string[]"
+  handler lang="kern"
+    if cond="frozenNodeRows.length != nodeIds.length || frozenPropertyRows.length != propertyNodes.length || frozenKeywordRows.length != keywordForms.length || keywordSourceProfiles.length != keywordForms.length"
+      return value=false
+    for name=nodeIndex from=0 to=nodeIds.length
+      let name=row value="String(nodeIndex) + \"|\" + nodeIds[nodeIndex] + \"|\" + nodeSchemaStatuses[nodeIndex] + \"|\" + nodeAllowedModes[nodeIndex] + \"|\" + nodeChildTapes[nodeIndex]"
+      if cond="row != frozenNodeRows[nodeIndex]"
+        return value=false
+    for name=propertyIndex from=0 to=propertyNodes.length
+      let name=row value="String(propertyIndex) + \"|\" + propertyNodes[propertyIndex] + \"|\" + propertyNames[propertyIndex] + \"|\" + propertyKinds[propertyIndex] + \"|\" + propertyRequired[propertyIndex] + \"|\" + propertyValueTapes[propertyIndex] + \"|\" + propertyDispositions[propertyIndex] + \"|\" + propertyReasonIds[propertyIndex]"
+      if cond="row != frozenPropertyRows[propertyIndex]"
+        return value=false
+    for name=keywordIndex from=0 to=keywordForms.length
+      let name=row value="String(keywordIndex) + \"|\" + keywordForms[keywordIndex] + \"|\" + keywordSourceProfiles[keywordIndex]"
+      if cond="row != frozenKeywordRows[keywordIndex]"
+        return value=false
+    return value=true
+
+fn name=f4f2bdrift returns=boolean
+  param name=source type=string
+  param name=segmentFirstRecords type="number[]"
+  param name=segmentLastRecords type="number[]"
+  param name=segmentOuterStarts type="number[]"
+  param name=segmentOuterEnds type="number[]"
+  param name=segmentBodyStarts type="number[]"
+  param name=segmentBodyEnds type="number[]"
+  param name=segmentBodies type="string[]"
+  param name=segmentBodyDigests type="string[]"
+  param name=segmentRecordDigests type="string[]"
+  param name=f2bExpectedFields type="string[]"
+  param name=maxSegments type=number
+  param name=maxAggregateBodyScalars type=number
+  param name=maxAggregateBatchNodes type=number
+  param name=maxBatchAbsoluteSpans type=number
+  param name=maxBatchWorkSteps type=number
+  param name=maxExpressionSourceScalars type=number
+  param name=maxExpressionTokens type=number
+  param name=maxExpressionNodes type=number
+  param name=expressionNodesPerChunk type=number
+  param name=maxExpressionChunks type=number
+  param name=maxExpressionTapeScalars type=number
+  param name=maxExpressionNestingDepth type=number
+  param name=maxExpressionWorkSteps type=number
+  handler lang="kern"
+    let name=f2bActual value="parsef2batch(source, segmentBodies, segmentFirstRecords, segmentLastRecords, segmentOuterStarts, segmentOuterEnds, segmentBodyStarts, segmentBodyEnds, segmentBodyDigests, segmentRecordDigests, maxSegments, maxAggregateBodyScalars, maxAggregateBatchNodes, maxBatchAbsoluteSpans, maxBatchWorkSteps, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps, false)"
+    return value="!f4samefields(f2bActual, f2bExpectedFields) || f2bActual.length != 10 || f2bActual[1] != \"batched\""
+
+fn name=f4classifyline returns="string[]"
+  param name=rawLine type=string
+  handler lang="kern"
+    let name=cursor value=0
+    while cond="cursor < Text.length(rawLine) && Text.charAt(rawLine, cursor) != \" \" && Text.charAt(rawLine, cursor) != \"\\t\" && Text.charAt(rawLine, cursor) != \"\\n\" && Text.charAt(rawLine, cursor) != \"\\r\""
+      assign target=cursor value="cursor + 1"
+    let name=kind value="Text.slice(rawLine, 0, cursor)"
+    let name=explicitDecoratorExport value=false
+    if cond="kind == \"export\""
+      let name=afterExport value=cursor
+      while cond="afterExport < Text.length(rawLine) && (Text.charAt(rawLine, afterExport) == \" \" || Text.charAt(rawLine, afterExport) == \"\\t\")"
+        assign target=afterExport value="afterExport + 1"
+      if cond="Text.charAt(rawLine, afterExport) == \"@\""
+        assign target=kind value="\"decorator\""
+        assign target=explicitDecoratorExport value=true
+      else
+        assign target=cursor value=afterExport
+        while cond="cursor < Text.length(rawLine) && Text.charAt(rawLine, cursor) != \" \" && Text.charAt(rawLine, cursor) != \"\\t\""
+          assign target=cursor value="cursor + 1"
+        assign target=kind value="Text.slice(rawLine, afterExport, cursor)"
+    if cond="Text.charAt(rawLine, 0) == \"@\""
+      assign target=kind value="\"decorator\""
+    return value="[kind, String(cursor), explicitDecoratorExport ? \"true\" : \"false\"]"
+
+fn name=f4f3sidecartapes returns="string[]"
+  param name=lineFirstRecords type="number[]"
+  param name=lineLastRecords type="number[]"
+  param name=lineStarts type="number[]"
+  param name=lineEnds type="number[]"
+  param name=lineFirstPhysical type="number[]"
+  param name=lineLastPhysical type="number[]"
+  param name=lineIndents type="number[]"
+  param name=lineContentStarts type="number[]"
+  param name=lineRoles type="string[]"
+  param name=lineFirstSegments type="number[]"
+  param name=lineSegmentCounts type="number[]"
+  param name=edgeChildren type="number[]"
+  param name=edgeParents type="number[]"
+  param name=edgeChildIndents type="number[]"
+  param name=edgeParentIndents type="number[]"
+  param name=decoratorFirsts type="number[]"
+  param name=decoratorLasts type="number[]"
+  param name=decoratorSuccessors type="number[]"
+  param name=decoratorDispositions type="string[]"
+  param name=rawOwners type="number[]"
+  param name=rawOpeners type="number[]"
+  param name=rawClosers type="number[]"
+  param name=rawBodyStarts type="number[]"
+  param name=rawBodyEnds type="number[]"
+  param name=rawInlineFlags type="string[]"
+  param name=rawTypes type="string[]"
+  handler lang="kern"
+    let name=lineCount value=lineStarts.length
+    let name=edgeCount value=edgeChildren.length
+    let name=decoratorRunCount value=decoratorFirsts.length
+    let name=rawCount value=rawOwners.length
+    let name=logicalTape value="\"\""
+    for name=lineTapeIndex from=0 to=lineCount
+      let name=lineRow value="f3logicalrow(lineTapeIndex, lineFirstRecords[lineTapeIndex], lineLastRecords[lineTapeIndex], lineStarts[lineTapeIndex], lineEnds[lineTapeIndex], lineFirstPhysical[lineTapeIndex], lineLastPhysical[lineTapeIndex], lineIndents[lineTapeIndex], lineContentStarts[lineTapeIndex], lineRoles[lineTapeIndex], lineFirstSegments[lineTapeIndex], lineSegmentCounts[lineTapeIndex])"
+      assign target=logicalTape value="logicalTape + f3item(lineRow)"
+    let name=edgeTape value="\"\""
+    for name=edgeTapeIndex from=0 to=edgeCount
+      let name=edgeRow value="f3parentrow(edgeChildren[edgeTapeIndex], edgeParents[edgeTapeIndex], edgeChildIndents[edgeTapeIndex], edgeParentIndents[edgeTapeIndex])"
+      assign target=edgeTape value="edgeTape + f3item(edgeRow)"
+    let name=decoratorTape value="\"\""
+    for name=decoratorTapeIndex from=0 to=decoratorRunCount
+      let name=decoratorRow value="f3decoratorrunrow(decoratorTapeIndex, decoratorFirsts[decoratorTapeIndex], decoratorLasts[decoratorTapeIndex], decoratorSuccessors[decoratorTapeIndex], decoratorDispositions[decoratorTapeIndex])"
+      assign target=decoratorTape value="decoratorTape + f3item(decoratorRow)"
+    let name=rawTape value="\"\""
+    for name=raw from=0 to=rawCount
+      let name=rawRow value="f3rawblockrow(raw, rawOwners[raw], rawOpeners[raw], rawClosers[raw], rawBodyStarts[raw], rawBodyEnds[raw], rawInlineFlags[raw], rawTypes[raw])"
+      assign target=rawTape value="rawTape + f3item(rawRow)"
+    return value="[logicalTape, edgeTape, decoratorTape, rawTape]"
+
+fn name=f4authoritydrift returns=boolean
+  param name=nodeIds type="string[]"
+  param name=nodeSchemaStatuses type="string[]"
+  param name=nodeAllowedModes type="string[]"
+  param name=nodeChildTapes type="string[]"
+  param name=nodePropertyStarts type="number[]"
+  param name=nodePropertyCounts type="number[]"
+  param name=propertyNodes type="string[]"
+  param name=propertyNames type="string[]"
+  param name=propertyKinds type="string[]"
+  param name=propertyRequired type="string[]"
+  param name=propertyValueTapes type="string[]"
+  param name=propertyDispositions type="string[]"
+  param name=propertyReasonIds type="string[]"
+  param name=keywordForms type="string[]"
+  param name=keywordSourceProfiles type="string[]"
+  handler lang="kern"
+    let name=frozenNodes value="builtinnodetypes()"
+    let name=frozenNodeRows value="f4frozennodeauthorityrows()"
+    let name=frozenPropertyRows value="f4frozenpropertyauthorityrows()"
+    let name=frozenKeywordRows value="f4frozenkeywordauthorityrows()"
+    if cond="nodeIds.length != 302 || frozenNodes.length != nodeIds.length || nodeSchemaStatuses.length != nodeIds.length || nodeAllowedModes.length != nodeIds.length || nodeChildTapes.length != nodeIds.length || nodePropertyStarts.length != nodeIds.length || nodePropertyCounts.length != nodeIds.length || propertyNodes.length != 1149 || propertyNames.length != 1149 || propertyKinds.length != 1149 || propertyRequired.length != 1149 || propertyValueTapes.length != 1149 || propertyDispositions.length != 1149 || propertyReasonIds.length != 1149 || keywordForms.length != 26 || keywordSourceProfiles.length != 26"
+      return value=true
+    if cond="!f4authoritiesmatch(nodeIds, nodeSchemaStatuses, nodeAllowedModes, nodeChildTapes, frozenNodeRows, propertyNodes, propertyNames, propertyKinds, propertyRequired, propertyValueTapes, propertyDispositions, propertyReasonIds, frozenPropertyRows, keywordForms, keywordSourceProfiles, frozenKeywordRows)"
+      return value=true
+    if cond="!f4propertyrangesvalid(nodeIds, propertyNodes, nodePropertyStarts, nodePropertyCounts) || !f4childtapesvalid(nodeIds, nodeChildTapes)"
+      return value=true
+    return value=false
+
+fn name=f4fatal returns="string[]"
+  param name=code type=string
+  param name=sourceScalars type=number
+  handler lang="kern"
+    let name=sourceText value="String(sourceScalars)"
+    let name=diagnosticRow value="\"i\" + String(Text.length(code)) + \":\" + code + \"i5:errori1:0i\" + String(Text.length(sourceText)) + \":\" + sourceText + \"i2:-1\""
+    let name=diagnostic value="\"i\" + String(Text.length(diagnosticRow)) + \":\" + diagnosticRow"
+    return value="[\"kern.frontend.f4-document.2\", \"fatal\", \"\", String(sourceScalars), \"\", \"\", \"\", \"\", \"\", \"\", \"\", diagnostic, \"\", \"\", \"\", \"0\", \"failure\"]"
+
+fn name=f4terminal returns=string
+  param name=status type=string
+  param name=declarations type=string
+  param name=occurrences type=string
+  param name=presence type=string
+  param name=attachments type=string
+  param name=decorators type=string
+  param name=symbols type=string
+  param name=bindings type=string
+  param name=diagnostics type=string
+  param name=facts type=string
+  param name=detached type=string
+  param name=expressionEvidence type=string
+  param name=f4LocalF2Calls type=string
+  param name=aggregateExpressionScalars type=string
+  param name=aggregateExpressionNodes type=string
+  param name=expressionAbsoluteSpans type=string
+  param name=expressionBoundaryEntries type=string
+  param name=expressionReceiptScalars type=string
+  handler lang="kern"
+    return value="\"document:\" + status + \":\" + String(Text.length(declarations)) + \":\" + String(Text.length(occurrences)) + \":\" + String(Text.length(presence)) + \":\" + String(Text.length(attachments)) + \":\" + String(Text.length(decorators)) + \":\" + String(Text.length(symbols)) + \":\" + String(Text.length(bindings)) + \":\" + String(Text.length(diagnostics)) + \":\" + String(Text.length(facts)) + \":\" + String(Text.length(detached)) + \":\" + String(Text.length(expressionEvidence)) + \":\" + f4LocalF2Calls + \":\" + aggregateExpressionScalars + \":\" + aggregateExpressionNodes + \":\" + expressionAbsoluteSpans + \":\" + expressionBoundaryEntries + \":\" + expressionReceiptScalars + \":closed\""

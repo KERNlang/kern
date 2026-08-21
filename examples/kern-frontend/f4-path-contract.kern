@@ -1,0 +1,231 @@
+fn name=f4pathmoduleid returns="string[]"
+  param name=moduleId type=string
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  handler lang="kern"
+    let name=length value="Text.length(moduleId)"
+    if cond="length == 0"
+      return value="[\"invalid\", \"\", \"0\"]"
+    if cond="length > maxModuleIdScalars || maxModuleIdSegments < 1"
+      return value="[\"limit\", \"\", \"0\"]"
+    if cond="Text.charAt(moduleId, 0) == \"/\""
+      return value="[\"invalid\", \"\", \"0\"]"
+    let name=segmentStart value=0
+    let name=segmentCount value=1
+    let name=lastSlash value=-1
+    let name=work value=1
+    for name=index from=0 to=length
+      let name=character value="Text.charAt(moduleId, index)"
+      assign target=work value="work + 1"
+      if cond="character == \"\\\\\" || character == \":\""
+        return value="[\"invalid\", \"\", String(work)]"
+      if cond="character == \"/\""
+        if cond="index == segmentStart"
+          return value="[\"invalid\", \"\", String(work)]"
+        let name=segment value="Text.slice(moduleId, segmentStart, index)"
+        if cond="segment == \".\" || segment == \"..\""
+          return value="[\"invalid\", \"\", String(work)]"
+        assign target=segmentCount value="segmentCount + 1"
+        assign target=work value="work + 1"
+        if cond="segmentCount > maxModuleIdSegments"
+          return value="[\"limit\", \"\", String(work)]"
+        assign target=lastSlash value=index
+        assign target=segmentStart value="index + 1"
+    let name=finalSegment value="Text.slice(moduleId, segmentStart, length)"
+    if cond="finalSegment == \"\" || finalSegment == \".\" || finalSegment == \"..\""
+      return value="[\"invalid\", \"\", String(work)]"
+    if cond="length < 5"
+      return value="[\"invalid\", \"\", String(work)]"
+    if cond="Text.slice(moduleId, length - 5, length) != \".kern\""
+      return value="[\"invalid\", \"\", String(work)]"
+    let name=directory value="lastSlash < 0 ? \"\" : Text.slice(moduleId, 0, lastSlash)"
+    return value="[\"ok\", directory, String(work)]"
+
+fn name=f4pathresolve returns="string[]"
+  param name=moduleDirectory type=string
+  param name=specifier type=string
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxImportSpecifierScalars type=number
+  param name=maxImportSpecifierSegments type=number
+  handler lang="kern"
+    let name=length value="Text.length(specifier)"
+    if cond="length == 0"
+      return value="[\"invalid\", \"\", \"0\"]"
+    if cond="length > maxImportSpecifierScalars || maxImportSpecifierSegments < 1"
+      return value="[\"limit\", \"\", \"0\"]"
+    let name=segmentStart value=0
+    let name=segmentCount value=1
+    let name=work value=1
+    let name=sawPrefix value=false
+    let name=leadingParents value=0
+    let name=leading value=true
+    for name=index from=0 to=length
+      let name=character value="Text.charAt(specifier, index)"
+      assign target=work value="work + 1"
+      if cond="character == \"\\\\\" || character == \":\""
+        return value="[\"invalid\", \"\", String(work)]"
+      if cond="character == \"/\""
+        if cond="index == segmentStart"
+          return value="[\"invalid\", \"\", String(work)]"
+        let name=segment value="Text.slice(specifier, segmentStart, index)"
+        if cond="!sawPrefix"
+          if cond="segment == \".\""
+            assign target=sawPrefix value=true
+            assign target=leading value=false
+          else
+            if cond="segment == \"..\""
+              assign target=sawPrefix value=true
+              assign target=leadingParents value=1
+            else
+              return value="[\"invalid\", \"\", String(work)]"
+        else
+          if cond=leading
+            if cond="segment == \"..\""
+              assign target=leadingParents value="leadingParents + 1"
+            else
+              if cond="segment == \".\""
+                return value="[\"invalid\", \"\", String(work)]"
+              assign target=leading value=false
+          else
+            if cond="segment == \".\" || segment == \"..\""
+              return value="[\"invalid\", \"\", String(work)]"
+        assign target=segmentCount value="segmentCount + 1"
+        assign target=work value="work + 1"
+        if cond="segmentCount > maxImportSpecifierSegments"
+          return value="[\"limit\", \"\", String(work)]"
+        assign target=segmentStart value="index + 1"
+    if cond="!sawPrefix"
+      return value="[\"invalid\", \"\", String(work)]"
+    let name=tailSegment value="Text.slice(specifier, segmentStart, length)"
+    if cond="tailSegment == \"\" || tailSegment == \".\" || tailSegment == \"..\""
+      return value="[\"invalid\", \"\", String(work)]"
+    let name=tailStart value=2
+    if cond="leadingParents > 0"
+      assign target=tailStart value="leadingParents * 3"
+    let name=tail value="Text.slice(specifier, tailStart, length)"
+    let name=baseLength value="Text.length(moduleDirectory)"
+    let name=directorySegments value=0
+    if cond="baseLength > 0"
+      assign target=directorySegments value=1
+    for name=baseIndex from=0 to=baseLength
+      assign target=work value="work + 1"
+      if cond="Text.charAt(moduleDirectory, baseIndex) == \"/\""
+        assign target=directorySegments value="directorySegments + 1"
+    if cond="leadingParents > directorySegments"
+      return value="[\"invalid\", \"\", String(work)]"
+    let name=retainedSegments value="directorySegments - leadingParents"
+    let name=base value=moduleDirectory
+    if cond="retainedSegments == 0"
+      assign target=base value="\"\""
+    else
+      if cond="leadingParents > 0"
+        let name=seenSegments value=0
+        let name=prefixEnd value=-1
+        for name=baseIndex from=0 to=baseLength
+          assign target=work value="work + 1"
+          if cond="Text.charAt(moduleDirectory, baseIndex) == \"/\""
+            assign target=seenSegments value="seenSegments + 1"
+            if cond="seenSegments == retainedSegments"
+              assign target=prefixEnd value=baseIndex
+        if cond="prefixEnd < 0"
+          return value="[\"invalid\", \"\", String(work)]"
+        assign target=base value="Text.slice(moduleDirectory, 0, prefixEnd)"
+    let name=candidate value="base == \"\" ? tail : base + \"/\" + tail"
+    let name=candidateLength value="Text.length(candidate)"
+    if cond="candidateLength < 5 || Text.slice(candidate, candidateLength - 5, candidateLength) != \".kern\""
+      assign target=candidate value="candidate + \".kern\""
+    let name=canonical value="f4pathmoduleid(candidate, maxModuleIdScalars, maxModuleIdSegments)"
+    let name=canonicalWork value="f2uint(canonical[2])"
+    assign target=work value="work + canonicalWork"
+    if cond="canonical[0] != \"ok\""
+      return value="[canonical[0], \"\", String(work)]"
+    return value="[\"ok\", candidate, String(work)]"
+
+fn name=f4pathbindings returns="string[]"
+  param name=moduleId type=string
+  param name=moduleDirectory type=string
+  param name=occurrences type=string
+  param name=detached type=string
+  param name=lineStarts type="number[]"
+  param name=lineEnds type="number[]"
+  param name=kinds type="string[]"
+  param name=edgeChildren type="number[]"
+  param name=edgeParents type="number[]"
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxImportSpecifierScalars type=number
+  param name=maxImportSpecifierSegments type=number
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    let name=effective value="new Map()"
+    let name=occurrenceCursor value=0
+    while cond="occurrenceCursor < Text.length(occurrences)"
+      let name=item value="f2batchmarked(occurrences, occurrenceCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0 || f4tapecount(item[0]) != 13"
+        return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
+      let name=line value="f4tapefield(item[0], 1)"
+      let name=kind value="f4tapefield(item[0], 2)"
+      let name=property value="f4tapefield(item[0], 3)"
+      if cond="kind == \"use\" || kind == \"from\""
+        let name=effectiveValue value="f4tapefield(item[0], 12)"
+        let name=effectiveKey value="String(line) + \".\" + property"
+        do value="Map.set(effective, String(effectiveKey), effectiveValue)"
+      assign target=occurrenceCursor value=next
+    let name=detachedByLine value="new Map()"
+    let name=detachedCursor value=0
+    while cond="detachedCursor < Text.length(detached)"
+      let name=item value="f2batchmarked(detached, detachedCursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0 || f4tapecount(item[0]) != 1"
+        return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
+      let name=detachedLine value="f4tapefield(item[0], 0)"
+      do value="Map.set(detachedByLine, String(detachedLine), true)"
+      assign target=detachedCursor value=next
+    if cond="edgeChildren.length != edgeParents.length"
+      return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
+    let name=parentByLine value="new Map()"
+    for name=edgeIndex from=0 to=edgeChildren.length
+      do value="Map.set(parentByLine, String(edgeChildren[edgeIndex]), edgeParents[edgeIndex])"
+    let name=targets value="new Map()"
+    let name=bindings value="\"\""
+    let name=facts value="\"\""
+    let name=factCount value=0
+    let name=work value=0
+    for name=lineIndex from=0 to=kinds.length
+      let name=kind value="kinds[lineIndex]"
+      let name=isDetached value="Map.has(detachedByLine, String(lineIndex))"
+      if cond="kind == \"use\" && !isDetached"
+        let name=pathKey value="String(lineIndex) + \".path\""
+        if cond="Map.has(effective, pathKey)"
+          let name=resolved value="f4pathresolve(moduleDirectory, Map.get(effective, pathKey), maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments)"
+          let name=resolvedWork value="f2uint(resolved[2])"
+          assign target=work value="work + resolvedWork"
+          if cond="baseWorkSteps + work > maxWorkSteps || resolved[0] == \"limit\""
+            return value="[\"limit\", \"\", \"\", \"0\", String(work)]"
+          if cond="resolved[0] == \"invalid\""
+            let name=fact value="f4row6(\"structural\", \"invalid-import-path\", String(lineStarts[lineIndex]), String(lineEnds[lineIndex]), String(lineIndex), \"path\")"
+            assign target=facts value="f4append(facts, fact)"
+            assign target=factCount value="factCount + 1"
+          else
+            if cond="resolved[0] != \"ok\""
+              return value="[\"drift\", \"\", \"\", \"0\", String(work)]"
+            do value="Map.set(targets, String(lineIndex), resolved[1])"
+            let name=dependency value="f4row8(moduleId, resolved[1], \"\", \"\", \"\", \"false\", String(lineIndex), String(lineStarts[lineIndex]))"
+            assign target=bindings value="f4append(bindings, dependency)"
+      if cond="kind == \"from\" && !isDetached"
+        let name=parent value="Map.has(parentByLine, String(lineIndex)) ? Map.get(parentByLine, String(lineIndex)) : -1"
+        let name=importedKey value="String(lineIndex) + \".name\""
+        if cond="Map.has(targets, String(parent)) && Map.has(effective, importedKey)"
+          let name=imported value="Map.get(effective, importedKey)"
+          let name=aliasKey value="String(lineIndex) + \".as\""
+          let name=kindKey value="String(lineIndex) + \".kind\""
+          let name=exportKey value="String(lineIndex) + \".export\""
+          let name=localName value="Map.has(effective, aliasKey) ? Map.get(effective, aliasKey) : imported"
+          let name=requestedKind value="Map.has(effective, kindKey) ? Map.get(effective, kindKey) : \"\""
+          let name=reexport value="Map.has(effective, exportKey) && Map.get(effective, exportKey) == \"true\""
+          let name=binding value="f4row8(moduleId, Map.get(targets, String(parent)), imported, localName, requestedKind, reexport ? \"true\" : \"false\", String(lineIndex), String(lineStarts[lineIndex]))"
+          assign target=bindings value="f4append(bindings, binding)"
+    return value="[\"ok\", bindings, facts, String(factCount), String(work)]"

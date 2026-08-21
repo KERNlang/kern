@@ -1,0 +1,208 @@
+fn name=f4bsealshapevalid returns=boolean
+  param name=seal type=string
+  handler lang="kern"
+    if cond="Text.length(seal) != 64"
+      return value=false
+    for name=index from=0 to=64
+      let name=character value="Text.charAt(seal, index)"
+      let name=valid value=false
+      if cond="character >= \"0\""
+        if cond="character <= \"9\""
+          assign target=valid value=true
+      if cond="character >= \"a\""
+        if cond="character <= \"f\""
+          assign target=valid value=true
+      if cond="!valid"
+        return value=false
+    return value=true
+
+fn name=linkf4moduleset returns="string[]" export=true
+  param name=moduleIds type="string[]"
+  param name=mode type=string
+  param name=resourceKind type=string
+  param name=f4aModuleIds type="string[]"
+  param name=f4aFormats type="string[]"
+  param name=f4aStatuses type="string[]"
+  param name=f4aSeals type="string[]"
+  param name=interfaceBlocks type="string[]"
+  param name=maxModules type=number
+  param name=maxSymbols type=number
+  param name=maxBindings type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxImportSpecifierScalars type=number
+  param name=maxImportSpecifierSegments type=number
+  param name=maxEncodedBytes type=number
+  handler lang="kern"
+    let name=numericInvalid value=false
+    if cond="f2uint(String(maxModules)) != maxModules"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxSymbols)) != maxSymbols"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxBindings)) != maxBindings"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxWorkSteps)) != maxWorkSteps"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxModuleIdScalars)) != maxModuleIdScalars"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxModuleIdSegments)) != maxModuleIdSegments"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxImportSpecifierScalars)) != maxImportSpecifierScalars"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxImportSpecifierSegments)) != maxImportSpecifierSegments"
+      assign target=numericInvalid value=true
+    if cond="f2uint(String(maxEncodedBytes)) != maxEncodedBytes"
+      assign target=numericInvalid value=true
+    if cond="maxModules < 1"
+      assign target=numericInvalid value=true
+    if cond="maxSymbols < 0"
+      assign target=numericInvalid value=true
+    if cond="maxBindings < 0"
+      assign target=numericInvalid value=true
+    if cond="maxWorkSteps < 1"
+      assign target=numericInvalid value=true
+    if cond="maxModuleIdScalars < 1"
+      assign target=numericInvalid value=true
+    if cond="maxModuleIdSegments < 1"
+      assign target=numericInvalid value=true
+    if cond="maxImportSpecifierScalars < 1"
+      assign target=numericInvalid value=true
+    if cond="maxImportSpecifierSegments < 1"
+      assign target=numericInvalid value=true
+    if cond="maxEncodedBytes < 1"
+      assign target=numericInvalid value=true
+    if cond=numericInvalid
+      let name=numericFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=numericFailure
+
+    let name=moduleCount value=moduleIds.length
+    let name=manifestSeen value="new Map()"
+    let name=manifestLengths value="new Map()"
+    let name=manifestSegments value="new Map()"
+    let name=manifestWork value="new Map()"
+    let name=manifestInvalid value=false
+    for name=moduleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[moduleIndex]"
+      let name=grammar value="f4bgrammar(moduleId)"
+      if cond="grammar[0] != \"ok\""
+        assign target=manifestInvalid value=true
+      if cond="Map.has(manifestSeen, String(moduleId))"
+        assign target=manifestInvalid value=true
+      do value="Map.set(manifestSeen, String(moduleId), true)"
+      do value="Map.set(manifestLengths, String(moduleIndex), f2uint(grammar[1]))"
+      do value="Map.set(manifestSegments, String(moduleIndex), f2uint(grammar[2]))"
+      do value="Map.set(manifestWork, String(moduleIndex), f2uint(grammar[3]))"
+    if cond=manifestInvalid
+      let name=manifestFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=manifestFailure
+
+    let name=modeInvalid value=false
+    if cond="mode == \"full\""
+      if cond="resourceKind != \"\""
+        assign target=modeInvalid value=true
+    else
+      if cond="mode != \"resource-prefix\""
+        assign target=modeInvalid value=true
+      if cond="mode == \"resource-prefix\""
+        if cond="resourceKind != \"maxModules\""
+          if cond="resourceKind != \"maxSymbols\""
+            if cond="resourceKind != \"maxBindings\""
+              assign target=modeInvalid value=true
+    if cond=modeInvalid
+      let name=modeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=modeFailure
+
+    let name=preflightWork value=0
+    let name=pathLimit value=false
+    for name=moduleIndex from=0 to=moduleCount
+      let name=length value="Map.get(manifestLengths, String(moduleIndex))"
+      let name=segments value="Map.get(manifestSegments, String(moduleIndex))"
+      let name=debit value="Map.get(manifestWork, String(moduleIndex))"
+      assign target=preflightWork value="preflightWork + debit"
+      if cond="length > maxModuleIdScalars"
+        assign target=pathLimit value=true
+      if cond="segments > maxModuleIdSegments"
+        assign target=pathLimit value=true
+    if cond=pathLimit
+      let name=pathFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=pathFailure
+    if cond="preflightWork > maxWorkSteps"
+      let name=workFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=workFailure
+
+    if cond="mode == \"resource-prefix\""
+      if cond="resourceKind == \"maxModules\""
+        let name=maxModuleShapeInvalid value=false
+        if cond="f4aModuleIds.length != 0"
+          assign target=maxModuleShapeInvalid value=true
+        if cond="f4aFormats.length != 0"
+          assign target=maxModuleShapeInvalid value=true
+        if cond="f4aStatuses.length != 0"
+          assign target=maxModuleShapeInvalid value=true
+        if cond="f4aSeals.length != 0"
+          assign target=maxModuleShapeInvalid value=true
+        if cond="interfaceBlocks.length != 0"
+          assign target=maxModuleShapeInvalid value=true
+        if cond=maxModuleShapeInvalid
+          let name=maxModuleShapeFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+          return value=maxModuleShapeFailure
+        if cond="moduleCount <= maxModules"
+          let name=maxModuleUnderFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+          return value=maxModuleUnderFailure
+        let name=maxModuleProof value="f4bproofresult(\"maxModules\", moduleCount, 0, 0, 0, 0, 0, maxEncodedBytes)"
+        return value=maxModuleProof
+
+    if cond="moduleCount > maxModules"
+      let name=moduleOverflowFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=moduleOverflowFailure
+
+    let name=transportCount value=moduleCount
+    if cond="mode == \"resource-prefix\""
+      assign target=transportCount value=interfaceBlocks.length
+      if cond="transportCount == 0"
+        let name=emptyPrefixFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=emptyPrefixFailure
+      if cond="transportCount > moduleCount"
+        let name=longPrefixFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=longPrefixFailure
+    if cond="f4aModuleIds.length != transportCount"
+      let name=moduleIdCountFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=moduleIdCountFailure
+    if cond="f4aFormats.length != transportCount"
+      let name=formatCountFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=formatCountFailure
+    if cond="f4aStatuses.length != transportCount"
+      let name=statusCountFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=statusCountFailure
+    if cond="f4aSeals.length != transportCount"
+      let name=sealCountFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=sealCountFailure
+    if cond="interfaceBlocks.length != transportCount"
+      let name=blockCountFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=blockCountFailure
+
+    for name=moduleIndex from=0 to=transportCount
+      if cond="f4aModuleIds[moduleIndex] != moduleIds[moduleIndex]"
+        let name=moduleIdentityFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=moduleIdentityFailure
+      if cond="f4aFormats[moduleIndex] != \"kern.frontend.f4-document.2\""
+        let name=formatFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=formatFailure
+      let name=status value="f4aStatuses[moduleIndex]"
+      if cond="status != \"classified\""
+        if cond="status != \"rejected\""
+          if cond="status != \"fatal\""
+            let name=statusFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+            return value=statusFailure
+      if cond="!f4bsealshapevalid(f4aSeals[moduleIndex])"
+        let name=sealFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+        return value=sealFailure
+
+    if cond="mode == \"resource-prefix\""
+      let name=prefixResult value="f4bprefixresult(resourceKind, moduleCount, f4aModuleIds, f4aStatuses, interfaceBlocks, maxSymbols, maxBindings, maxWorkSteps, maxModuleIdScalars, maxModuleIdSegments, maxEncodedBytes, preflightWork)"
+      return value=prefixResult
+
+    let name=fullResult value="f4bfullgraph(moduleIds, f4aModuleIds, f4aFormats, f4aStatuses, f4aSeals, interfaceBlocks, preflightWork, maxSymbols, maxBindings, maxWorkSteps, forceLateFailure, maxModuleIdScalars, maxModuleIdSegments, maxEncodedBytes)"
+    return value=fullResult

@@ -1,0 +1,188 @@
+fn name=classifyf4document returns="string[]" export=true
+  param name=moduleId type=string
+  param name=source type=string
+  param name=recordKinds type="number[]"
+  param name=recordFlags type="number[]"
+  param name=recordStarts type="number[]"
+  param name=recordEnds type="number[]"
+  param name=f1RecordTape type=string
+  param name=segmentFirstRecords type="number[]"
+  param name=segmentLastRecords type="number[]"
+  param name=segmentOuterStarts type="number[]"
+  param name=segmentOuterEnds type="number[]"
+  param name=segmentBodyStarts type="number[]"
+  param name=segmentBodyEnds type="number[]"
+  param name=f3ExpectedFields type="string[]"
+  param name=rawOpenerTypes type="string[]"
+  param name=segmentBodies type="string[]"
+  param name=segmentBodyDigests type="string[]"
+  param name=segmentRecordDigests type="string[]"
+  param name=f2bExpectedFields type="string[]"
+  param name=maxSegments type=number
+  param name=maxAggregateBodyScalars type=number
+  param name=maxAggregateBatchNodes type=number
+  param name=maxBatchAbsoluteSpans type=number
+  param name=maxBatchWorkSteps type=number
+  param name=maxExpressionSourceScalars type=number
+  param name=maxExpressionTokens type=number
+  param name=maxExpressionNodes type=number
+  param name=expressionNodesPerChunk type=number
+  param name=maxExpressionChunks type=number
+  param name=maxExpressionTapeScalars type=number
+  param name=maxExpressionNestingDepth type=number
+  param name=maxExpressionWorkSteps type=number
+  param name=maxRecords type=number
+  param name=maxLogicalLines type=number
+  param name=maxParentEdges type=number
+  param name=maxDecoratorRuns type=number
+  param name=maxRawBlocks type=number
+  param name=maxStructuralDiagnostics type=number
+  param name=maxF3WorkSteps type=number
+  param name=lineFirstRecords type="number[]"
+  param name=lineLastRecords type="number[]"
+  param name=lineStarts type="number[]"
+  param name=lineEnds type="number[]"
+  param name=lineFirstPhysical type="number[]"
+  param name=lineLastPhysical type="number[]"
+  param name=lineIndents type="number[]"
+  param name=lineContentStarts type="number[]"
+  param name=lineRoles type="string[]"
+  param name=lineFirstSegments type="number[]"
+  param name=lineSegmentCounts type="number[]"
+  param name=edgeChildren type="number[]"
+  param name=edgeParents type="number[]"
+  param name=edgeChildIndents type="number[]"
+  param name=edgeParentIndents type="number[]"
+  param name=decoratorFirsts type="number[]"
+  param name=decoratorLasts type="number[]"
+  param name=decoratorSuccessors type="number[]"
+  param name=decoratorDispositions type="string[]"
+  param name=rawOwners type="number[]"
+  param name=rawOpeners type="number[]"
+  param name=rawClosers type="number[]"
+  param name=rawBodyStarts type="number[]"
+  param name=rawBodyEnds type="number[]"
+  param name=rawInlineFlags type="string[]"
+  param name=rawTypes type="string[]"
+  param name=nodeIds type="string[]"
+  param name=nodeSchemaStatuses type="string[]"
+  param name=nodeAllowedModes type="string[]"
+  param name=nodeChildTapes type="string[]"
+  param name=nodePropertyStarts type="number[]"
+  param name=nodePropertyCounts type="number[]"
+  param name=propertyNodes type="string[]"
+  param name=propertyNames type="string[]"
+  param name=propertyKinds type="string[]"
+  param name=propertyRequired type="string[]"
+  param name=propertyValueTapes type="string[]"
+  param name=propertyDispositions type="string[]"
+  param name=propertyReasonIds type="string[]"
+  param name=keywordForms type="string[]"
+  param name=keywordSourceProfiles type="string[]"
+  param name=maxDeclarations type=number
+  param name=maxOccurrences type=number
+  param name=maxAttachments type=number
+  param name=maxDecorators type=number
+  param name=maxSymbols type=number
+  param name=maxBindings type=number
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=maxFacts type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  param name=maxExpressionEvidence type=number
+  param name=maxF4LocalF2Calls type=number
+  param name=maxAggregateExpressionScalars type=number
+  param name=maxAggregateExpressionNodes type=number
+  param name=maxExpressionAbsoluteSpans type=number
+  param name=maxExpressionBoundaryEntries type=number
+  param name=maxExpressionReceiptScalars type=number
+  param name=testPhaseKeyMutation type=string
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxImportSpecifierScalars type=number
+  param name=maxImportSpecifierSegments type=number
+  param name=f1State type=string
+  param name=f2bState type=string
+  param name=f3State type=string
+  param name=f4MaxSourceScalars type=number
+  param name=f4MaxRecords type=number
+  param name=f4MaxLogicalLines type=number
+  handler lang="kern"
+    let name=sourceScalars value="Text.length(source)"
+    let name=requestPath value="f4pathmoduleid(moduleId, maxModuleIdScalars, maxModuleIdSegments)"
+    if cond="requestPath[0] == \"invalid\""
+      let name=requestPathFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=requestPathFailure
+    if cond="!f4legalprerequisitevector(f1State, f2bState, f3State)"
+      let name=vectorFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=vectorFailure
+    if cond="!f4f1payloadvalid(f1State, recordKinds, recordFlags, recordStarts, recordEnds, f1RecordTape)"
+      let name=f1PayloadFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=f1PayloadFailure
+    if cond="!f4f2bpayloadvalid(f2bState, segmentFirstRecords, segmentLastRecords, segmentOuterStarts, segmentOuterEnds, segmentBodyStarts, segmentBodyEnds, segmentBodies, segmentBodyDigests, segmentRecordDigests, f2bExpectedFields)"
+      let name=f2bPayloadFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=f2bPayloadFailure
+    if cond="!f4f3payloadvalid(f3State, f3ExpectedFields, lineFirstRecords, lineLastRecords, lineStarts, lineEnds, lineFirstPhysical, lineLastPhysical, lineIndents, lineContentStarts, lineRoles, lineFirstSegments, lineSegmentCounts, edgeChildren, edgeParents, edgeChildIndents, edgeParentIndents, decoratorFirsts, decoratorLasts, decoratorSuccessors, decoratorDispositions, rawOwners, rawOpeners, rawClosers, rawBodyStarts, rawBodyEnds, rawInlineFlags, rawTypes)"
+      let name=f3PayloadFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=f3PayloadFailure
+    if cond="f4MaxSourceScalars <= 0"
+      let name=sourceCapFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=sourceCapFailure
+    if cond="f4MaxRecords <= 0"
+      let name=recordCapFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=recordCapFailure
+    if cond="f4MaxLogicalLines <= 0"
+      let name=lineCapFailure value="f4fatal(\"F4_INVALID_REQUEST\", sourceScalars)"
+      return value=lineCapFailure
+    if cond="requestPath[0] != \"ok\""
+      let name=requestPathLimit value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=requestPathLimit
+    if cond="sourceScalars > f4MaxSourceScalars"
+      let name=sourceLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=sourceLimitFailure
+    if cond="recordKinds.length > f4MaxRecords"
+      let name=recordLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=recordLimitFailure
+    if cond="lineStarts.length > f4MaxLogicalLines"
+      let name=lineLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=lineLimitFailure
+    if cond="f4authoritydrift(nodeIds, nodeSchemaStatuses, nodeAllowedModes, nodeChildTapes, nodePropertyStarts, nodePropertyCounts, propertyNodes, propertyNames, propertyKinds, propertyRequired, propertyValueTapes, propertyDispositions, propertyReasonIds, keywordForms, keywordSourceProfiles)"
+      let name=authorityFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=authorityFailure
+    if cond="f1State != \"available\""
+      let name=f1StateFailure value="f4fatal(\"F4_F1_DRIFT\", sourceScalars)"
+      return value=f1StateFailure
+    if cond="f4f1drift(source, recordKinds, recordFlags, recordStarts, recordEnds, f1RecordTape)"
+      let name=f1DriftFailure value="f4fatal(\"F4_F1_DRIFT\", sourceScalars)"
+      return value=f1DriftFailure
+    if cond="f2bState != \"available\""
+      let name=f2bStateFailure value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+      return value=f2bStateFailure
+    if cond="f4f2bdrift(source, segmentFirstRecords, segmentLastRecords, segmentOuterStarts, segmentOuterEnds, segmentBodyStarts, segmentBodyEnds, segmentBodies, segmentBodyDigests, segmentRecordDigests, f2bExpectedFields, maxSegments, maxAggregateBodyScalars, maxAggregateBatchNodes, maxBatchAbsoluteSpans, maxBatchWorkSteps, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps)"
+      let name=f2bDriftFailure value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+      return value=f2bDriftFailure
+    if cond="f3State != \"available\""
+      let name=f3StateFailure value="f4fatal(\"F4_F3_DRIFT\", sourceScalars)"
+      return value=f3StateFailure
+    let name=f3Actual value="structuref3document(source, recordKinds, recordFlags, recordStarts, recordEnds, f1RecordTape, segmentFirstRecords, segmentLastRecords, segmentOuterStarts, segmentOuterEnds, segmentBodyStarts, segmentBodyEnds, rawOpenerTypes, maxRecords, maxLogicalLines, maxParentEdges, maxDecoratorRuns, maxRawBlocks, maxStructuralDiagnostics, maxF3WorkSteps, false)"
+    if cond="!f4samefields(f3Actual, f3ExpectedFields)"
+      let name=f3DriftFailure value="f4fatal(\"F4_F3_DRIFT\", sourceScalars)"
+      return value=f3DriftFailure
+    let name=f3SidecarTapes value="f4f3sidecartapes(lineFirstRecords, lineLastRecords, lineStarts, lineEnds, lineFirstPhysical, lineLastPhysical, lineIndents, lineContentStarts, lineRoles, lineFirstSegments, lineSegmentCounts, edgeChildren, edgeParents, edgeChildIndents, edgeParentIndents, decoratorFirsts, decoratorLasts, decoratorSuccessors, decoratorDispositions, rawOwners, rawOpeners, rawClosers, rawBodyStarts, rawBodyEnds, rawInlineFlags, rawTypes)"
+    if cond="f3SidecarTapes[0] != f3ExpectedFields[8]"
+      let name=f3LineTapeFailure value="f4fatal(\"F4_F3_DRIFT\", sourceScalars)"
+      return value=f3LineTapeFailure
+    if cond="f3SidecarTapes[1] != f3ExpectedFields[9]"
+      let name=f3EdgeTapeFailure value="f4fatal(\"F4_F3_DRIFT\", sourceScalars)"
+      return value=f3EdgeTapeFailure
+    if cond="f3SidecarTapes[2] != f3ExpectedFields[10]"
+      let name=f3DecoratorTapeFailure value="f4fatal(\"F4_F3_DRIFT\", sourceScalars)"
+      return value=f3DecoratorTapeFailure
+    if cond="f3SidecarTapes[3] != f3ExpectedFields[11]"
+      let name=f3RawTapeFailure value="f4fatal(\"F4_F3_DRIFT\", sourceScalars)"
+      return value=f3RawTapeFailure
+    let name=moduleDirectory value="requestPath[1]"
+    let name=pathWorkSteps value="f2uint(requestPath[2])"
+    let name=availableResult value="classifyf4available(moduleId, source, recordKinds, recordFlags, recordStarts, recordEnds, f1RecordTape, segmentFirstRecords, segmentLastRecords, segmentOuterStarts, segmentOuterEnds, segmentBodyStarts, segmentBodyEnds, f3ExpectedFields, rawOpenerTypes, segmentBodies, segmentBodyDigests, segmentRecordDigests, f2bExpectedFields, maxSegments, maxAggregateBodyScalars, maxAggregateBatchNodes, maxBatchAbsoluteSpans, maxBatchWorkSteps, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps, maxRecords, maxLogicalLines, maxParentEdges, maxDecoratorRuns, maxRawBlocks, maxStructuralDiagnostics, maxF3WorkSteps, lineFirstRecords, lineLastRecords, lineStarts, lineEnds, lineFirstPhysical, lineLastPhysical, lineIndents, lineContentStarts, lineRoles, lineFirstSegments, lineSegmentCounts, edgeChildren, edgeParents, edgeChildIndents, edgeParentIndents, decoratorFirsts, decoratorLasts, decoratorSuccessors, decoratorDispositions, rawOwners, rawOpeners, rawClosers, rawBodyStarts, rawBodyEnds, rawInlineFlags, rawTypes, nodeIds, nodeSchemaStatuses, nodeAllowedModes, nodeChildTapes, nodePropertyStarts, nodePropertyCounts, propertyNodes, propertyNames, propertyKinds, propertyRequired, propertyValueTapes, propertyDispositions, propertyReasonIds, keywordForms, keywordSourceProfiles, maxDeclarations, maxOccurrences, maxAttachments, maxDecorators, maxSymbols, maxBindings, maxDiagnostics, maxEncodedBytes, maxFacts, maxWorkSteps, forceLateFailure, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, testPhaseKeyMutation, maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments, moduleDirectory, pathWorkSteps)"
+    return value=availableResult

@@ -1,0 +1,457 @@
+fn name=classifyf4available returns="string[]"
+  param name=moduleId type=string
+  param name=source type=string
+  param name=recordKinds type="number[]"
+  param name=recordFlags type="number[]"
+  param name=recordStarts type="number[]"
+  param name=recordEnds type="number[]"
+  param name=f1RecordTape type=string
+  param name=segmentFirstRecords type="number[]"
+  param name=segmentLastRecords type="number[]"
+  param name=segmentOuterStarts type="number[]"
+  param name=segmentOuterEnds type="number[]"
+  param name=segmentBodyStarts type="number[]"
+  param name=segmentBodyEnds type="number[]"
+  param name=f3ExpectedFields type="string[]"
+  param name=rawOpenerTypes type="string[]"
+  param name=segmentBodies type="string[]"
+  param name=segmentBodyDigests type="string[]"
+  param name=segmentRecordDigests type="string[]"
+  param name=f2bExpectedFields type="string[]"
+  param name=maxSegments type=number
+  param name=maxAggregateBodyScalars type=number
+  param name=maxAggregateBatchNodes type=number
+  param name=maxBatchAbsoluteSpans type=number
+  param name=maxBatchWorkSteps type=number
+  param name=maxExpressionSourceScalars type=number
+  param name=maxExpressionTokens type=number
+  param name=maxExpressionNodes type=number
+  param name=expressionNodesPerChunk type=number
+  param name=maxExpressionChunks type=number
+  param name=maxExpressionTapeScalars type=number
+  param name=maxExpressionNestingDepth type=number
+  param name=maxExpressionWorkSteps type=number
+  param name=maxRecords type=number
+  param name=maxLogicalLines type=number
+  param name=maxParentEdges type=number
+  param name=maxDecoratorRuns type=number
+  param name=maxRawBlocks type=number
+  param name=maxStructuralDiagnostics type=number
+  param name=maxF3WorkSteps type=number
+  param name=lineFirstRecords type="number[]"
+  param name=lineLastRecords type="number[]"
+  param name=lineStarts type="number[]"
+  param name=lineEnds type="number[]"
+  param name=lineFirstPhysical type="number[]"
+  param name=lineLastPhysical type="number[]"
+  param name=lineIndents type="number[]"
+  param name=lineContentStarts type="number[]"
+  param name=lineRoles type="string[]"
+  param name=lineFirstSegments type="number[]"
+  param name=lineSegmentCounts type="number[]"
+  param name=edgeChildren type="number[]"
+  param name=edgeParents type="number[]"
+  param name=edgeChildIndents type="number[]"
+  param name=edgeParentIndents type="number[]"
+  param name=decoratorFirsts type="number[]"
+  param name=decoratorLasts type="number[]"
+  param name=decoratorSuccessors type="number[]"
+  param name=decoratorDispositions type="string[]"
+  param name=rawOwners type="number[]"
+  param name=rawOpeners type="number[]"
+  param name=rawClosers type="number[]"
+  param name=rawBodyStarts type="number[]"
+  param name=rawBodyEnds type="number[]"
+  param name=rawInlineFlags type="string[]"
+  param name=rawTypes type="string[]"
+  param name=nodeIds type="string[]"
+  param name=nodeSchemaStatuses type="string[]"
+  param name=nodeAllowedModes type="string[]"
+  param name=nodeChildTapes type="string[]"
+  param name=nodePropertyStarts type="number[]"
+  param name=nodePropertyCounts type="number[]"
+  param name=propertyNodes type="string[]"
+  param name=propertyNames type="string[]"
+  param name=propertyKinds type="string[]"
+  param name=propertyRequired type="string[]"
+  param name=propertyValueTapes type="string[]"
+  param name=propertyDispositions type="string[]"
+  param name=propertyReasonIds type="string[]"
+  param name=keywordForms type="string[]"
+  param name=keywordSourceProfiles type="string[]"
+  param name=maxDeclarations type=number
+  param name=maxOccurrences type=number
+  param name=maxAttachments type=number
+  param name=maxDecorators type=number
+  param name=maxSymbols type=number
+  param name=maxBindings type=number
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=maxFacts type=number
+  param name=maxWorkSteps type=number
+  param name=forceLateFailure type=boolean
+  param name=maxExpressionEvidence type=number
+  param name=maxF4LocalF2Calls type=number
+  param name=maxAggregateExpressionScalars type=number
+  param name=maxAggregateExpressionNodes type=number
+  param name=maxExpressionAbsoluteSpans type=number
+  param name=maxExpressionBoundaryEntries type=number
+  param name=maxExpressionReceiptScalars type=number
+  param name=testPhaseKeyMutation type=string
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxImportSpecifierScalars type=number
+  param name=maxImportSpecifierSegments type=number
+  param name=moduleDirectory type=string
+  param name=pathWorkSteps type=number
+  handler lang="kern"
+    let name=sourceScalars value="Text.length(source)"
+    let name=workSteps value=pathWorkSteps
+    let name=frozenNodes value="builtinnodetypes()"
+    let name=nodeMap value="new Map()"
+    let name=nodeStatusMap value="new Map()"
+    let name=nodeModeMap value="new Map()"
+    let name=nodeChildTapeMap value="new Map()"
+    let name=propertyMap value="new Map()"
+    let name=propertyKindMap value="new Map()"
+    let name=propertyRequiredMap value="new Map()"
+    let name=propertyValuesMap value="new Map()"
+    let name=propertyDispositionMap value="new Map()"
+    let name=nodePropertyTapeMap value="new Map()"
+    for name=nodeAuthorityIndex from=0 to=nodeIds.length
+      let name=currentNodeId value="nodeIds[nodeAuthorityIndex]"
+      if cond="currentNodeId != frozenNodes[nodeAuthorityIndex]"
+        let name=nodeOrderFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+        return value=nodeOrderFailure
+      if cond="Map.has(nodeMap, String(currentNodeId))"
+        let name=nodeDuplicateFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+        return value=nodeDuplicateFailure
+      if cond="nodeAllowedModes[nodeAuthorityIndex] != \"unrestricted\" && nodeAllowedModes[nodeAuthorityIndex] != \"closed\" && nodeAllowedModes[nodeAuthorityIndex] != \"explicit\""
+        let name=nodeAuthorityFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+        return value=nodeAuthorityFailure
+      do value="Map.set(nodeMap, String(currentNodeId), nodeAuthorityIndex)"
+      do value="Map.set(nodeStatusMap, String(currentNodeId), nodeSchemaStatuses[nodeAuthorityIndex])"
+      do value="Map.set(nodeModeMap, String(currentNodeId), nodeAllowedModes[nodeAuthorityIndex])"
+      do value="Map.set(nodeChildTapeMap, String(currentNodeId), nodeChildTapes[nodeAuthorityIndex])"
+    for name=property from=0 to=propertyNodes.length
+      let name=currentPropertyNode value="propertyNodes[property]"
+      let name=currentPropertyName value="propertyNames[property]"
+      let name=propertyKey value="currentPropertyNode + \".\" + currentPropertyName"
+      if cond="!Map.has(nodeMap, String(currentPropertyNode)) || Map.has(propertyMap, String(propertyKey)) || (propertyRequired[property] != \"true\" && propertyRequired[property] != \"false\") || Text.indexOf(currentPropertyName, \"|\") >= 0 || Text.indexOf(currentPropertyName, \":\") >= 0"
+        let name=propertyAuthorityFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+        return value=propertyAuthorityFailure
+      do value="Map.set(propertyMap, String(propertyKey), property)"
+      do value="Map.set(propertyKindMap, String(propertyKey), propertyKinds[property])"
+      do value="Map.set(propertyRequiredMap, String(propertyKey), propertyRequired[property])"
+      do value="Map.set(propertyValuesMap, String(propertyKey), propertyValueTapes[property])"
+      do value="Map.set(propertyDispositionMap, String(propertyKey), propertyDispositions[property])"
+      let name=priorPropertyTape value="Map.has(nodePropertyTapeMap, String(currentPropertyNode)) ? Map.get(nodePropertyTapeMap, String(currentPropertyNode)) : \"\""
+      let name=nextPropertyTape value="priorPropertyTape + currentPropertyName + (propertyRequired[property] == \"true\" ? \":1|\" : \":0|\")"
+      do value="Map.set(nodePropertyTapeMap, String(currentPropertyNode), nextPropertyTape)"
+    let name=kinds value="[]"
+    let name=declarations value="\"\""
+    let name=occurrences value="\"\""
+    let name=presence value="\"\""
+    let name=attachments value="\"\""
+    let name=decorators value="\"\""
+    let name=symbols value="\"\""
+    let name=bindings value="\"\""
+    let name=facts value="\"\""
+    let name=detached value="\"\""
+    let name=effectiveValues value="new Map()"
+    let name=effectiveOrdinals value="new Map()"
+    let name=rejectedByLine value="new Map()"
+    let name=occurrenceDispositions value="[]"
+    let name=occurrenceRepresentations value="[]"
+    let name=occurrenceSegments value="[]"
+    let name=occurrenceValueStarts value="[]"
+    let name=occurrenceValueEnds value="[]"
+    let name=occurrenceRawValues value="[]"
+    let name=parentByLine value="new Map()"
+    let name=detachedByLine value="new Map()"
+    let name=kindByLine value="new Map()"
+    let name=startByLine value="new Map()"
+    let name=endByLine value="new Map()"
+    let name=indentByLine value="new Map()"
+    let name=occurrenceCount value=0
+    let name=declarationCount value=0
+    let name=factCount value=0
+    for name=classifyLine from=0 to=lineStarts.length
+      let name=rawLine value="Text.slice(source, lineContentStarts[classifyLine], lineEnds[classifyLine])"
+      let name=lineClassification value="f4classifyline(rawLine)"
+      let name=kind value="lineClassification[0]"
+      let name=cursor value="f2uint(lineClassification[1])"
+      do value="kinds.push(kind)"
+      do value="Map.set(kindByLine, String(classifyLine), kind)"
+      do value="Map.set(startByLine, String(classifyLine), lineStarts[classifyLine])"
+      do value="Map.set(endByLine, String(classifyLine), lineEnds[classifyLine])"
+      do value="Map.set(indentByLine, String(classifyLine), lineIndents[classifyLine])"
+      let name=catalogOrdinal value="Map.has(nodeMap, kind) ? Map.get(nodeMap, kind) : -1"
+      let name=catalogStatus value="Map.has(nodeStatusMap, kind) ? Map.get(nodeStatusMap, kind) : \"\""
+      if cond="catalogOrdinal < 0 || catalogStatus != \"bound\""
+        let name=unknownFact value="f4row6(\"structural\", \"unknown-node-kind\", String(lineStarts[classifyLine]), String(lineEnds[classifyLine]), String(classifyLine), kind)"
+        assign target=facts value="f4append(facts, unknownFact)"
+        assign target=factCount value="factCount + 1"
+      else
+        let name=declarationRow value="f4row10(String(declarationCount), String(classifyLine), kind, String(catalogOrdinal), catalogStatus, \"source\", String(lineStarts[classifyLine]), String(lineEnds[classifyLine]), \"-1\", \"false\")"
+        assign target=declarations value="f4append(declarations, declarationRow)"
+        assign target=declarationCount value="declarationCount + 1"
+      if cond="kind == \"decorator\""
+        let name=decoratorAt value="Text.indexOf(rawLine, \"@\")"
+        let name=decoratorNameStart value="decoratorAt + 1"
+        let name=decoratorNameEnd value=decoratorNameStart
+        while cond="decoratorNameEnd < Text.length(rawLine) && Text.charAt(rawLine, decoratorNameEnd) != \"(\" && Text.charAt(rawLine, decoratorNameEnd) != \" \" && Text.charAt(rawLine, decoratorNameEnd) != \"\\t\""
+          assign target=decoratorNameEnd value="decoratorNameEnd + 1"
+        if cond="decoratorAt >= 0 && decoratorNameEnd > decoratorNameStart"
+          let name=decoratorName value="Text.slice(rawLine, decoratorNameStart, decoratorNameEnd)"
+          if cond="!Map.has(propertyMap, \"decorator.name\")"
+            let name=decoratorAuthorityFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=decoratorAuthorityFailure
+          let name=decoratorPropertyOrdinal value="Map.get(propertyMap, \"decorator.name\")"
+          let name=decoratorPropertyKind value="Map.has(propertyKindMap, \"decorator.name\") ? Map.get(propertyKindMap, \"decorator.name\") : \"\""
+          let name=decoratorPropertyRequired value="Map.has(propertyRequiredMap, \"decorator.name\") ? Map.get(propertyRequiredMap, \"decorator.name\") : \"\""
+          let name=decoratorPropertyDisposition value="Map.has(propertyDispositionMap, \"decorator.name\") ? Map.get(propertyDispositionMap, \"decorator.name\") : \"\""
+          let name=decoratorOccurrenceRow value="f4row13(String(occurrenceCount), String(classifyLine), \"decorator\", \"name\", String(decoratorPropertyOrdinal), decoratorPropertyKind, decoratorPropertyRequired, decoratorPropertyDisposition, \"bare\", \"-1\", String(lineContentStarts[classifyLine] + decoratorNameStart), String(lineContentStarts[classifyLine] + decoratorNameEnd), decoratorName)"
+          assign target=occurrences value="f4append(occurrences, decoratorOccurrenceRow)"
+          do value="occurrenceDispositions.push(decoratorPropertyDisposition)"
+          do value="occurrenceRepresentations.push(\"bare\")"
+          do value="occurrenceSegments.push(-1)"
+          do value="occurrenceValueStarts.push(lineContentStarts[classifyLine] + decoratorNameStart)"
+          do value="occurrenceValueEnds.push(lineContentStarts[classifyLine] + decoratorNameEnd)"
+          do value="occurrenceRawValues.push(decoratorName)"
+          do value="Map.set(effectiveValues, String(classifyLine) + \".name\", decoratorName)"
+          do value="Map.set(effectiveOrdinals, String(classifyLine) + \".name\", occurrenceCount)"
+          assign target=occurrenceCount value="occurrenceCount + 1"
+      let name=tokenStart value="kind == \"decorator\" ? Text.length(rawLine) : cursor"
+      while cond="tokenStart < Text.length(rawLine)"
+        while cond="tokenStart < Text.length(rawLine) && (Text.charAt(rawLine, tokenStart) == \" \" || Text.charAt(rawLine, tokenStart) == \"\\t\" || Text.charAt(rawLine, tokenStart) == \"\\n\" || Text.charAt(rawLine, tokenStart) == \"\\r\")"
+          assign target=tokenStart value="tokenStart + 1"
+        if cond="tokenStart >= Text.length(rawLine)"
+          break
+        let name=tokenEnd value=tokenStart
+        let name=quote value="\"\""
+        let name=expressionDepth value=0
+        while cond="tokenEnd < Text.length(rawLine)"
+          let name=character value="Text.charAt(rawLine, tokenEnd)"
+          if cond="quote != \"\" && character == \"\\\\\" && tokenEnd + 1 < Text.length(rawLine)"
+            assign target=tokenEnd value="tokenEnd + 2"
+            continue
+          if cond="quote == \"\" && (character == \"\\\"\" || character == \"'\")"
+            assign target=quote value=character
+          else
+            if cond="quote != \"\" && character == quote"
+              assign target=quote value="\"\""
+          if cond="quote == \"\" && tokenEnd + 1 < Text.length(rawLine) && Text.slice(rawLine, tokenEnd, tokenEnd + 2) == \"{{\""
+            assign target=expressionDepth value="expressionDepth + 1"
+          if cond="quote == \"\" && tokenEnd + 1 < Text.length(rawLine) && Text.slice(rawLine, tokenEnd, tokenEnd + 2) == \"}}\""
+            assign target=expressionDepth value="expressionDepth - 1"
+          if cond="quote == \"\" && expressionDepth == 0 && (character == \" \" || character == \"\\t\" || character == \"\\n\" || character == \"\\r\")"
+            break
+          assign target=tokenEnd value="tokenEnd + 1"
+        let name=token value="Text.slice(rawLine, tokenStart, tokenEnd)"
+        let name=equals value="Text.indexOf(token, \"=\")"
+        if cond="equals > 0"
+          let name=propertyName value="Text.slice(token, 0, equals)"
+          let name=authorityKey value="kind + \".\" + propertyName"
+          let name=absoluteStart value="lineContentStarts[classifyLine] + tokenStart"
+          let name=absoluteEnd value="lineContentStarts[classifyLine] + tokenEnd"
+          if cond="!Map.has(propertyMap, authorityKey)"
+            let name=unknownPropertyFact value="f4row6(\"structural\", \"unknown-property\", String(absoluteStart), String(absoluteEnd), String(classifyLine), propertyName)"
+            assign target=facts value="f4append(facts, unknownPropertyFact)"
+            assign target=factCount value="factCount + 1"
+          else
+            let name=propertyOrdinal value="Map.get(propertyMap, authorityKey)"
+            let name=rawValue value="Text.slice(token, equals + 1, Text.length(token))"
+            let name=representation value="\"bare\""
+            if cond="Text.length(rawValue) >= 2"
+              if cond="Text.slice(rawValue, 0, 2) == \"{{\""
+                assign target=representation value="\"expression\""
+            if cond="representation == \"bare\""
+              if cond="Text.length(rawValue) > 0"
+                let name=firstValueCharacter value="Text.charAt(rawValue, 0)"
+                if cond="firstValueCharacter == \"\\\"\" || firstValueCharacter == \"'\""
+                  assign target=representation value="\"quoted\""
+            let name=segmentOrdinal value=-1
+            for name=segment from=0 to=segmentOuterStarts.length
+              if cond="segmentOuterStarts[segment] >= absoluteStart && segmentOuterEnds[segment] <= absoluteEnd"
+                assign target=segmentOrdinal value=segment
+            let name=unquotedValue value="f4unquote(rawValue)"
+            let name=propertyKind value="Map.get(propertyKindMap, authorityKey)"
+            let name=required value="Map.get(propertyRequiredMap, authorityKey)"
+            let name=disposition value="Map.get(propertyDispositionMap, authorityKey)"
+            let name=admission value="f4propertyadmission(propertyKind, disposition, Map.get(propertyValuesMap, authorityKey), representation, unquotedValue)"
+            let name=emittedValue value="admission[1]"
+            let name=valueStart value="absoluteStart + equals + 1"
+            let name=occurrenceRow value="f4row13(String(occurrenceCount), String(classifyLine), kind, propertyName, String(propertyOrdinal), propertyKind, required, disposition, representation, String(segmentOrdinal), String(absoluteStart), String(absoluteEnd), emittedValue)"
+            assign target=occurrences value="f4append(occurrences, occurrenceRow)"
+            do value="occurrenceDispositions.push(disposition)"
+            do value="occurrenceRepresentations.push(representation)"
+            do value="occurrenceSegments.push(segmentOrdinal)"
+            do value="occurrenceValueStarts.push(valueStart)"
+            do value="occurrenceValueEnds.push(absoluteEnd)"
+            do value="occurrenceRawValues.push(rawValue)"
+            let name=effectiveKey value="String(classifyLine) + \".\" + propertyName"
+            if cond="admission[0] == \"admit\""
+              do value="Map.set(effectiveValues, String(effectiveKey), emittedValue)"
+            else
+              let name=admissionFact value="f4row6(\"structural\", admission[3], String(valueStart), String(absoluteEnd), String(classifyLine), propertyName)"
+              assign target=facts value="f4append(facts, admissionFact)"
+              assign target=factCount value="factCount + 1"
+              do value="Map.set(rejectedByLine, String(classifyLine), true)"
+            do value="Map.set(effectiveOrdinals, String(effectiveKey), occurrenceCount)"
+            assign target=occurrenceCount value="occurrenceCount + 1"
+        assign target=tokenStart value=tokenEnd
+      assign target=workSteps value="workSteps + 1"
+    for name=presenceLine from=0 to=lineStarts.length
+      let name=presenceKind value="kinds[presenceLine]"
+      if cond="Map.has(nodePropertyTapeMap, String(presenceKind))"
+        let name=propertyTape value="Map.get(nodePropertyTapeMap, String(presenceKind))"
+        let name=propertyCursor value=0
+        while cond="propertyCursor < Text.length(propertyTape)"
+          let name=propertySuffix value="Text.slice(propertyTape, propertyCursor, Text.length(propertyTape))"
+          let name=colonRelative value="Text.indexOf(propertySuffix, \":\")"
+          if cond="colonRelative <= 0"
+            let name=propertyTapeFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=propertyTapeFailure
+          let name=propertyColon value="propertyCursor + colonRelative"
+          let name=propertyName value="Text.slice(propertyTape, propertyCursor, propertyColon)"
+          let name=requiredFlag value="Text.charAt(propertyTape, propertyColon + 1)"
+          if cond="Text.charAt(propertyTape, propertyColon + 2) != \"|\" || (requiredFlag != \"0\" && requiredFlag != \"1\")"
+            let name=propertyFlagFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+            return value=propertyFlagFailure
+          let name=presenceKey value="String(presenceLine) + \".\" + propertyName"
+          let name=effectiveOrdinal value="Map.has(effectiveOrdinals, presenceKey) ? String(Map.get(effectiveOrdinals, presenceKey)) : \"-1\""
+          let name=presenceRow value="f4row3(String(presenceLine), propertyName, effectiveOrdinal)"
+          assign target=presence value="f4append(presence, presenceRow)"
+          if cond="requiredFlag == \"1\" && effectiveOrdinal == \"-1\""
+            let name=missingFact value="f4row6(\"structural\", \"missing-property\", String(lineStarts[presenceLine]), String(lineEnds[presenceLine]), String(presenceLine), propertyName)"
+            assign target=facts value="f4append(facts, missingFact)"
+            assign target=factCount value="factCount + 1"
+          assign target=propertyCursor value="propertyColon + 3"
+    let name=propertyDiagnosticState value="f4diagpropertyphase(occurrences, occurrenceRawValues, occurrenceValueStarts, propertyValueTapes, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=expressionResult value="f4expressionevidence(source, occurrenceDispositions, occurrenceRepresentations, occurrenceSegments, occurrenceValueStarts, occurrenceValueEnds, occurrenceRawValues, segmentBodies, segmentBodyStarts, segmentBodyEnds, f2bExpectedFields, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps)"
+    if cond="expressionResult[0] == \"drift\""
+      return value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+    if cond="expressionResult[0] == \"limit\""
+      let name=expressionLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=expressionLimitFailure
+    let name=expressionEvidence value="expressionResult[1]"
+    let name=expressionDiagnosticState value="f4diagphasefrompublic(expressionResult[2], 1, 0, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    assign target=facts value="facts + expressionResult[3]"
+    assign target=factCount value="factCount + f4tapecount(expressionResult[3])"
+    assign target=workSteps value="workSteps + f2uint(expressionResult[10])"
+    for name=attachmentEdge from=0 to=edgeChildren.length
+      let name=child value=edgeChildren[attachmentEdge]
+      let name=parent value=edgeParents[attachmentEdge]
+      do value="Map.set(parentByLine, String(child), parent)"
+      if cond="parent >= 0"
+        let name=allowed value=false
+        let name=parentKind value="Map.has(kindByLine, String(parent)) ? Map.get(kindByLine, String(parent)) : \"\""
+        let name=childKind value="Map.has(kindByLine, String(child)) ? Map.get(kindByLine, String(child)) : \"\""
+        if cond="Map.has(nodeModeMap, String(parentKind))"
+          let name=parentMode value="Map.get(nodeModeMap, String(parentKind))"
+          if cond="parentMode == \"unrestricted\""
+            assign target=allowed value=true
+          if cond="Text.indexOf(childKind, \"|\") < 0"
+            if cond="parentMode == \"explicit\" && Text.indexOf(\"|\" + Map.get(nodeChildTapeMap, String(parentKind)) + \"|\", \"|\" + childKind + \"|\") >= 0"
+              assign target=allowed value=true
+        let name=parentDetached value="Map.has(detachedByLine, String(parent)) && Map.get(detachedByLine, String(parent))"
+        if cond="allowed && !parentDetached"
+          let name=attachmentRow value="f4row3(String(parent), String(child), \"attached\")"
+          assign target=attachments value="f4append(attachments, attachmentRow)"
+        if cond="allowed && parentDetached"
+          do value="Map.set(detachedByLine, String(child), true)"
+          let name=localAttachmentRow value="f4row3(String(parent), String(child), \"detached-local\")"
+          assign target=attachments value="f4append(attachments, localAttachmentRow)"
+        else
+          if cond="!allowed"
+            do value="Map.set(detachedByLine, String(child), true)"
+            let name=detachedRow value="f4row1(String(child))"
+            assign target=detached value="f4append(detached, detachedRow)"
+            let name=childFact value="f4row6(\"structural\", \"invalid-child\", String(Map.get(startByLine, String(child))), String(Map.get(endByLine, String(child))), String(child), childKind)"
+            assign target=facts value="f4append(facts, childFact)"
+            assign target=factCount value="factCount + 1"
+    let name=decoratorLastByFirst value="new Map()"
+    let name=decoratorSuccessorByFirst value="new Map()"
+    let name=decoratorDispositionByFirst value="new Map()"
+    for name=decoratorRun from=0 to=decoratorFirsts.length
+      let name=firstDecorator value="decoratorFirsts[decoratorRun]"
+      let name=lastDecorator value="decoratorLasts[decoratorRun]"
+      let name=runSuccessor value="decoratorSuccessors[decoratorRun]"
+      let name=runDisposition value="decoratorDispositions[decoratorRun]"
+      do value="Map.set(decoratorLastByFirst, String(firstDecorator), lastDecorator)"
+      do value="Map.set(decoratorSuccessorByFirst, String(firstDecorator), runSuccessor)"
+      do value="Map.set(decoratorDispositionByFirst, String(firstDecorator), runDisposition)"
+    let name=activeDecoratorLast value=-1
+    let name=activeDecoratorSuccessor value=-1
+    let name=activeDecoratorDisposition value="\"\""
+    for name=decoratorLine from=0 to=lineStarts.length
+      if cond="Map.has(decoratorLastByFirst, String(decoratorLine))"
+        assign target=activeDecoratorLast value="Map.get(decoratorLastByFirst, String(decoratorLine))"
+        assign target=activeDecoratorSuccessor value="Map.get(decoratorSuccessorByFirst, String(decoratorLine))"
+        assign target=activeDecoratorDisposition value="Map.get(decoratorDispositionByFirst, String(decoratorLine))"
+      let name=decoratorKind value="Map.has(kindByLine, String(decoratorLine)) ? Map.get(kindByLine, String(decoratorLine)) : \"\""
+      if cond="decoratorKind == \"decorator\""
+        let name=inAuthenticatedRun value="decoratorLine <= activeDecoratorLast"
+        let name=successor value="inAuthenticatedRun ? activeDecoratorSuccessor : decoratorLine + 1"
+        let name=disposition value="inAuthenticatedRun ? activeDecoratorDisposition : \"candidate\""
+        let name=successorKind value="Map.has(kindByLine, String(successor)) ? Map.get(kindByLine, String(successor)) : \"\""
+        let name=successorIndent value="Map.has(indentByLine, String(successor)) ? Map.get(indentByLine, String(successor)) : -1"
+        let name=decoratorIndent value="Map.get(indentByLine, String(decoratorLine))"
+        let name=attach value="disposition == \"candidate\" && successor >= 0 && successor < lineStarts.length && successorKind == \"fn\" && successorIndent == decoratorIndent"
+        let name=decoratorText value="f4trim(Text.slice(source, lineContentStarts[decoratorLine], lineEnds[decoratorLine]))"
+        let name=explicitExport value=false
+        if cond="Text.length(decoratorText) >= 7"
+          assign target=explicitExport value="Text.slice(decoratorText, 0, 7) == \"export \""
+        let name=decoratorRow value="f4row6(String(decoratorLine), attach ? \"attached\" : \"dropped\", attach ? String(successor) : \"-1\", explicitExport ? \"true\" : \"false\", String(lineStarts[decoratorLine]), String(lineEnds[decoratorLine]))"
+        assign target=decorators value="f4append(decorators, decoratorRow)"
+        if cond="attach && explicitExport"
+          do value="Map.set(effectiveValues, String(successor) + \".export\", \"true\")"
+    let name=decoratorDiagnosticState value="f4diagdecoratorphase(decorators, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=pathBindings value="f4pathbindings(moduleId, moduleDirectory, occurrences, detached, lineStarts, lineEnds, kinds, edgeChildren, edgeParents, maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments, workSteps, maxWorkSteps)"
+    if cond="pathBindings[0] == \"limit\""
+      let name=pathLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=pathLimitFailure
+    if cond="pathBindings[0] != \"ok\""
+      let name=pathDriftFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=pathDriftFailure
+    assign target=bindings value="pathBindings[1]"
+    assign target=facts value="facts + pathBindings[2]"
+    let name=pathFactCount value="f2uint(pathBindings[3])"
+    let name=pathWork value="f2uint(pathBindings[4])"
+    assign target=factCount value="factCount + pathFactCount"
+    assign target=workSteps value="workSteps + pathWork"
+    for name=rootLine from=0 to=lineStarts.length
+      let name=parent value="Map.has(parentByLine, String(rootLine)) ? Map.get(parentByLine, String(rootLine)) : -1"
+      let name=isDetached value="Map.has(detachedByLine, String(rootLine)) && Map.get(detachedByLine, String(rootLine))"
+      let name=rootKind value="kinds[rootLine]"
+      if cond="!isDetached"
+        if cond="parent == -1"
+          if cond="rootKind != \"decorator\""
+            if cond="rootKind != \"class\" && rootKind != \"fn\" && rootKind != \"from\" && rootKind != \"module\" && rootKind != \"use\" && !Map.has(rejectedByLine, String(rootLine))"
+              let name=rootFact value="f4row6(\"module\", \"invalid-module-root\", String(lineStarts[rootLine]), String(lineEnds[rootLine]), String(rootLine), rootKind)"
+              assign target=facts value="f4append(facts, rootFact)"
+              assign target=factCount value="factCount + 1"
+            if cond="rootKind == \"fn\" || rootKind == \"class\""
+              if cond="Map.has(effectiveValues, String(rootLine) + \".name\")"
+                let name=symbolRow value="f4row5(rootKind, Map.get(effectiveValues, String(rootLine) + \".name\"), Map.has(effectiveValues, String(rootLine) + \".export\") && Map.get(effectiveValues, String(rootLine) + \".export\") == \"true\" ? \"true\" : \"false\", String(rootLine), String(lineStarts[rootLine]))"
+                assign target=symbols value="f4append(symbols, symbolRow)"
+    let name=status value="factCount == 0 ? \"classified\" : \"rejected\""
+    if cond="status == \"rejected\""
+      assign target=symbols value="\"\""
+      assign target=bindings value="\"\""
+    if cond="declarationCount > maxDeclarations || occurrenceCount > maxOccurrences || Text.length(attachments) > maxAttachments * 256 || Text.length(decorators) > maxDecorators * 512 || Text.length(symbols) > maxSymbols * 512 || Text.length(bindings) > maxBindings * 512 || factCount > maxFacts || workSteps > maxWorkSteps"
+      return value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+    let name=rootDiagnosticState value="f4diagrootphase(facts, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=diagnosticMerge value="f4diagmerge(propertyDiagnosticState, expressionDiagnosticState, decoratorDiagnosticState, rootDiagnosticState, testPhaseKeyMutation, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
+    if cond="diagnosticMerge[0] != \"ok\""
+      let name=diagnosticFailureCode value="diagnosticMerge[0] == \"drift\" ? \"F4_AUTHORITY_DRIFT\" : \"F4_LIMIT\""
+      let name=diagnosticFailure value="f4fatal(diagnosticFailureCode, sourceScalars)"
+      return value=diagnosticFailure
+    let name=diagnostics value="diagnosticMerge[1]"
+    assign target=workSteps value="workSteps + f2uint(diagnosticMerge[2])"
+    if cond=forceLateFailure
+      let name=forcedLateFailure value="f4fatal(\"FORCED_LATE_FAILURE\", sourceScalars)"
+      return value=forcedLateFailure
+    let name=seal value="f4terminal(status, declarations, occurrences, presence, attachments, decorators, symbols, bindings, diagnostics, facts, detached, expressionEvidence, expressionResult[4], expressionResult[5], expressionResult[6], expressionResult[7], expressionResult[8], expressionResult[9])"
+    return value="[\"kern.frontend.f4-document.2\", status, moduleId, String(sourceScalars), declarations, occurrences, presence, attachments, decorators, symbols, bindings, diagnostics, facts, detached, expressionEvidence, String(workSteps), seal]"

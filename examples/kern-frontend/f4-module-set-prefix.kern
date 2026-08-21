@@ -1,0 +1,220 @@
+fn name=f4bgrammar returns="string[]"
+  param name=moduleId type=string
+  handler lang="kern"
+    let name=length value="Text.length(moduleId)"
+    if cond="length == 0"
+      return value="[\"invalid\", \"0\", \"0\", \"0\"]"
+    let name=invalid value=false
+    if cond="Text.charAt(moduleId, 0) == \"/\""
+      assign target=invalid value=true
+    let name=segmentStart value=0
+    let name=segments value=1
+    let name=work value=1
+    for name=index from=0 to=length
+      let name=character value="Text.charAt(moduleId, index)"
+      assign target=work value="work + 1"
+      if cond="character == \"\\\\\""
+        assign target=invalid value=true
+      if cond="character == \":\""
+        assign target=invalid value=true
+      if cond="character == \"/\""
+        if cond="index == segmentStart"
+          assign target=invalid value=true
+        if cond="index > segmentStart"
+          let name=segment value="Text.slice(moduleId, segmentStart, index)"
+          if cond="segment == \".\""
+            assign target=invalid value=true
+          if cond="segment == \"..\""
+            assign target=invalid value=true
+        assign target=segments value="segments + 1"
+        assign target=segmentStart value="index + 1"
+        assign target=work value="work + 1"
+    let name=finalSegment value="Text.slice(moduleId, segmentStart, length)"
+    if cond="finalSegment == \"\""
+      assign target=invalid value=true
+    if cond="finalSegment == \".\""
+      assign target=invalid value=true
+    if cond="finalSegment == \"..\""
+      assign target=invalid value=true
+    if cond="length < 5"
+      assign target=invalid value=true
+    if cond="length >= 5"
+      if cond="Text.slice(moduleId, length - 5, length) != \".kern\""
+        assign target=invalid value=true
+    if cond=invalid
+      return value="[\"invalid\", String(length), String(segments), String(work)]"
+    return value="[\"ok\", String(length), String(segments), String(work)]"
+
+fn name=f4browcount returns=number
+  param name=row type=string
+  handler lang="kern"
+    let name=cursor value=0
+    let name=count value=0
+    while cond="cursor < Text.length(row)"
+      let name=item value="f2batchmarked(row, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= cursor"
+        return value=-1
+      assign target=cursor value=next
+      assign target=count value="count + 1"
+    if cond="cursor != Text.length(row)"
+      return value=-1
+    return value=count
+
+fn name=f4browfield returns=string
+  param name=row type=string
+  param name=ordinal type=number
+  handler lang="kern"
+    let name=cursor value=0
+    let name=index value=0
+    while cond="cursor < Text.length(row)"
+      let name=item value="f2batchmarked(row, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next <= cursor"
+        return value="\"\""
+      if cond="index == ordinal"
+        return value="item[0]"
+      assign target=cursor value=next
+      assign target=index value="index + 1"
+    return value="\"\""
+
+fn name=f4bblockparts returns="string[]"
+  param name=block type=string
+  handler lang="kern"
+    if cond="Text.length(block) == 0"
+      return value="[\"invalid\", \"\", \"\"]"
+    let name=outer value="f2batchmarked(block, 0, \"i\")"
+    let name=outerNext value="f2uint(outer[1])"
+    if cond="outerNext != Text.length(block)"
+      return value="[\"invalid\", \"\", \"\"]"
+    let name=row value="outer[0]"
+    if cond="f4browcount(row) != 2"
+      return value="[\"invalid\", \"\", \"\"]"
+    let name=symbolTape value="f4browfield(row, 0)"
+    let name=bindingTape value="f4browfield(row, 1)"
+    return value="[\"ok\", symbolTape, bindingTape]"
+
+fn name=f4bprefixresult returns="string[]"
+  param name=resourceKind type=string
+  param name=moduleCount type=number
+  param name=f4aModuleIds type="string[]"
+  param name=f4aStatuses type="string[]"
+  param name=interfaceBlocks type="string[]"
+  param name=maxSymbols type=number
+  param name=maxBindings type=number
+  param name=maxWorkSteps type=number
+  param name=maxModuleIdScalars type=number
+  param name=maxModuleIdSegments type=number
+  param name=maxEncodedBytes type=number
+  param name=baseWork type=number
+  handler lang="kern"
+    let name=prefixCount value=interfaceBlocks.length
+    if cond="prefixCount == 0"
+      let name=emptyFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=emptyFailure
+    let name=symbols value=0
+    let name=bindings value=0
+    let name=priorSymbols value=0
+    let name=priorBindings value=0
+    let name=work value=baseWork
+    let name=invalid value=false
+    let name=pathLimit value=false
+    let name=earlyCrossing value=false
+    for name=blockIndex from=0 to=prefixCount
+      assign target=priorSymbols value=symbols
+      assign target=priorBindings value=bindings
+      let name=parts value="f4bblockparts(interfaceBlocks[blockIndex])"
+      if cond="parts[0] != \"ok\""
+        assign target=invalid value=true
+      if cond="parts[0] == \"ok\""
+        let name=symbolTape value="parts[1]"
+        let name=bindingTape value="parts[2]"
+        if cond="f4aStatuses[blockIndex] != \"classified\""
+          if cond="symbolTape != \"\""
+            assign target=invalid value=true
+          if cond="bindingTape != \"\""
+            assign target=invalid value=true
+        let name=symbolCursor value=0
+        while cond="symbolCursor < Text.length(symbolTape)"
+          let name=item value="f2batchmarked(symbolTape, symbolCursor, \"i\")"
+          let name=next value="f2uint(item[1])"
+          if cond="next <= symbolCursor"
+            assign target=invalid value=true
+            assign target=symbolCursor value="Text.length(symbolTape)"
+          else
+            let name=row value="item[0]"
+            if cond="f4browcount(row) != 4"
+              assign target=invalid value=true
+            if cond="f4browcount(row) == 4"
+              if cond="f4browfield(row, 0) != f4aModuleIds[blockIndex]"
+                assign target=invalid value=true
+              let name=kind value="f4browfield(row, 1)"
+              if cond="kind != \"class\" && kind != \"fn\""
+                assign target=invalid value=true
+              if cond="f4browfield(row, 2) == \"\""
+                assign target=invalid value=true
+              let name=exported value="f4browfield(row, 3)"
+              if cond="exported != \"true\" && exported != \"false\""
+                assign target=invalid value=true
+            assign target=symbols value="symbols + 1"
+            assign target=work value="work + 1"
+            assign target=symbolCursor value=next
+        let name=bindingCursor value=0
+        while cond="bindingCursor < Text.length(bindingTape)"
+          let name=item value="f2batchmarked(bindingTape, bindingCursor, \"i\")"
+          let name=next value="f2uint(item[1])"
+          if cond="next <= bindingCursor"
+            assign target=invalid value=true
+            assign target=bindingCursor value="Text.length(bindingTape)"
+          else
+            let name=row value="item[0]"
+            if cond="f4browcount(row) != 6"
+              assign target=invalid value=true
+            if cond="f4browcount(row) == 6"
+              if cond="f4browfield(row, 0) != f4aModuleIds[blockIndex]"
+                assign target=invalid value=true
+              let name=target value="f4browfield(row, 1)"
+              let name=targetPath value="f4pathmoduleid(target, maxModuleIdScalars, maxModuleIdSegments)"
+              let name=targetWork value="f2uint(targetPath[2])"
+              assign target=work value="work + targetWork"
+              if cond="targetPath[0] == \"limit\""
+                assign target=pathLimit value=true
+              if cond="targetPath[0] != \"ok\" && targetPath[0] != \"limit\""
+                assign target=invalid value=true
+              let name=reexport value="f4browfield(row, 5)"
+              if cond="reexport != \"true\" && reexport != \"false\""
+                assign target=invalid value=true
+            assign target=bindings value="bindings + 1"
+            assign target=work value="work + 1"
+            assign target=bindingCursor value=next
+      if cond="blockIndex + 1 < prefixCount"
+        if cond="symbols > maxSymbols"
+          assign target=earlyCrossing value=true
+        if cond="bindings > maxBindings"
+          assign target=earlyCrossing value=true
+    if cond=invalid
+      let name=invalidFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=invalidFailure
+    if cond=pathLimit
+      let name=pathFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=pathFailure
+    if cond="work > maxWorkSteps"
+      let name=workFailure value="f4bnonprooffailure(\"F4_LIMIT\")"
+      return value=workFailure
+    if cond=earlyCrossing
+      let name=lateFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=lateFailure
+    let name=actualKind value="\"\""
+    if cond="symbols > maxSymbols"
+      assign target=actualKind value="\"maxSymbols\""
+    else
+      if cond="bindings > maxBindings"
+        assign target=actualKind value="\"maxBindings\""
+    if cond="actualKind == \"\""
+      let name=underFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=underFailure
+    if cond="actualKind != resourceKind"
+      let name=kindFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
+      return value=kindFailure
+    let name=proof value="f4bproofresult(actualKind, moduleCount, prefixCount, priorSymbols, priorBindings, symbols, bindings, maxEncodedBytes)"
+    return value=proof

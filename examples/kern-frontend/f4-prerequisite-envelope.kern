@@ -1,0 +1,292 @@
+fn name=f4legalprerequisitevector returns=boolean
+  param name=f1State type=string
+  param name=f2bState type=string
+  param name=f3State type=string
+  handler lang="kern"
+    if cond="f1State == \"available\" && f2bState == \"available\" && f3State == \"available\""
+      return value=true
+    if cond="f1State == \"failed\" && f2bState == \"not-attempted\" && f3State == \"not-attempted\""
+      return value=true
+    if cond="f1State == \"available\" && f2bState == \"failed\" && f3State == \"not-attempted\""
+      return value=true
+    if cond="f1State == \"available\" && f2bState == \"available\" && f3State == \"failed\""
+      return value=true
+    return value=false
+
+fn name=f4f1payloadvalid returns=boolean
+  param name=state type=string
+  param name=recordKinds type="number[]"
+  param name=recordFlags type="number[]"
+  param name=recordStarts type="number[]"
+  param name=recordEnds type="number[]"
+  param name=f1RecordTape type=string
+  handler lang="kern"
+    if cond="state != \"available\""
+      if cond="recordKinds.length != 0"
+        return value=false
+      if cond="recordFlags.length != 0"
+        return value=false
+      if cond="recordStarts.length != 0"
+        return value=false
+      if cond="recordEnds.length != 0"
+        return value=false
+      if cond="f1RecordTape != \"\""
+        return value=false
+      return value=true
+    if cond="recordFlags.length != recordKinds.length"
+      return value=false
+    if cond="recordStarts.length != recordKinds.length"
+      return value=false
+    if cond="recordEnds.length != recordKinds.length"
+      return value=false
+    return value=true
+
+fn name=f4f2bpayloadvalid returns=boolean
+  param name=state type=string
+  param name=segmentFirstRecords type="number[]"
+  param name=segmentLastRecords type="number[]"
+  param name=segmentOuterStarts type="number[]"
+  param name=segmentOuterEnds type="number[]"
+  param name=segmentBodyStarts type="number[]"
+  param name=segmentBodyEnds type="number[]"
+  param name=segmentBodies type="string[]"
+  param name=segmentBodyDigests type="string[]"
+  param name=segmentRecordDigests type="string[]"
+  param name=f2bExpectedFields type="string[]"
+  handler lang="kern"
+    if cond="state != \"available\""
+      if cond="segmentFirstRecords.length != 0"
+        return value=false
+      if cond="segmentLastRecords.length != 0"
+        return value=false
+      if cond="segmentOuterStarts.length != 0"
+        return value=false
+      if cond="segmentOuterEnds.length != 0"
+        return value=false
+      if cond="segmentBodyStarts.length != 0"
+        return value=false
+      if cond="segmentBodyEnds.length != 0"
+        return value=false
+      if cond="segmentBodies.length != 0"
+        return value=false
+      if cond="segmentBodyDigests.length != 0"
+        return value=false
+      if cond="segmentRecordDigests.length != 0"
+        return value=false
+      if cond="f2bExpectedFields.length != 0"
+        return value=false
+      return value=true
+    let name=segmentCount value="segmentFirstRecords.length"
+    if cond="segmentLastRecords.length != segmentCount"
+      return value=false
+    if cond="segmentOuterStarts.length != segmentCount"
+      return value=false
+    if cond="segmentOuterEnds.length != segmentCount"
+      return value=false
+    if cond="segmentBodyStarts.length != segmentCount"
+      return value=false
+    if cond="segmentBodyEnds.length != segmentCount"
+      return value=false
+    if cond="segmentBodies.length != segmentCount"
+      return value=false
+    if cond="segmentBodyDigests.length != segmentCount"
+      return value=false
+    if cond="segmentRecordDigests.length != segmentCount"
+      return value=false
+    if cond="f2bExpectedFields.length != 10"
+      return value=false
+    if cond="f2bExpectedFields[1] != \"batched\""
+      return value=false
+    return value=true
+
+fn name=f4f3payloadvalid returns=boolean
+  param name=state type=string
+  param name=f3ExpectedFields type="string[]"
+  param name=lineFirstRecords type="number[]"
+  param name=lineLastRecords type="number[]"
+  param name=lineStarts type="number[]"
+  param name=lineEnds type="number[]"
+  param name=lineFirstPhysical type="number[]"
+  param name=lineLastPhysical type="number[]"
+  param name=lineIndents type="number[]"
+  param name=lineContentStarts type="number[]"
+  param name=lineRoles type="string[]"
+  param name=lineFirstSegments type="number[]"
+  param name=lineSegmentCounts type="number[]"
+  param name=edgeChildren type="number[]"
+  param name=edgeParents type="number[]"
+  param name=edgeChildIndents type="number[]"
+  param name=edgeParentIndents type="number[]"
+  param name=decoratorFirsts type="number[]"
+  param name=decoratorLasts type="number[]"
+  param name=decoratorSuccessors type="number[]"
+  param name=decoratorDispositions type="string[]"
+  param name=rawOwners type="number[]"
+  param name=rawOpeners type="number[]"
+  param name=rawClosers type="number[]"
+  param name=rawBodyStarts type="number[]"
+  param name=rawBodyEnds type="number[]"
+  param name=rawInlineFlags type="string[]"
+  param name=rawTypes type="string[]"
+  handler lang="kern"
+    if cond="state != \"available\""
+      if cond="f3ExpectedFields.length != 0"
+        return value=false
+      if cond="lineFirstRecords.length != 0"
+        return value=false
+      if cond="lineLastRecords.length != 0"
+        return value=false
+      if cond="lineStarts.length != 0"
+        return value=false
+      if cond="lineEnds.length != 0"
+        return value=false
+      if cond="lineFirstPhysical.length != 0"
+        return value=false
+      if cond="lineLastPhysical.length != 0"
+        return value=false
+      if cond="lineIndents.length != 0"
+        return value=false
+      if cond="lineContentStarts.length != 0"
+        return value=false
+      if cond="lineRoles.length != 0"
+        return value=false
+      if cond="lineFirstSegments.length != 0"
+        return value=false
+      if cond="lineSegmentCounts.length != 0"
+        return value=false
+      if cond="edgeChildren.length != 0"
+        return value=false
+      if cond="edgeParents.length != 0"
+        return value=false
+      if cond="edgeChildIndents.length != 0"
+        return value=false
+      if cond="edgeParentIndents.length != 0"
+        return value=false
+      if cond="decoratorFirsts.length != 0"
+        return value=false
+      if cond="decoratorLasts.length != 0"
+        return value=false
+      if cond="decoratorSuccessors.length != 0"
+        return value=false
+      if cond="decoratorDispositions.length != 0"
+        return value=false
+      if cond="rawOwners.length != 0"
+        return value=false
+      if cond="rawOpeners.length != 0"
+        return value=false
+      if cond="rawClosers.length != 0"
+        return value=false
+      if cond="rawBodyStarts.length != 0"
+        return value=false
+      if cond="rawBodyEnds.length != 0"
+        return value=false
+      if cond="rawInlineFlags.length != 0"
+        return value=false
+      if cond="rawTypes.length != 0"
+        return value=false
+      return value=true
+    if cond="f3ExpectedFields.length != 13"
+      return value=false
+    if cond="f3ExpectedFields[1] != \"structured\""
+      return value=false
+    let name=lineCount value="lineStarts.length"
+    if cond="lineFirstRecords.length != lineCount"
+      return value=false
+    if cond="lineLastRecords.length != lineCount"
+      return value=false
+    if cond="lineEnds.length != lineCount"
+      return value=false
+    if cond="lineFirstPhysical.length != lineCount"
+      return value=false
+    if cond="lineLastPhysical.length != lineCount"
+      return value=false
+    if cond="lineIndents.length != lineCount"
+      return value=false
+    if cond="lineContentStarts.length != lineCount"
+      return value=false
+    if cond="lineRoles.length != lineCount"
+      return value=false
+    if cond="lineFirstSegments.length != lineCount"
+      return value=false
+    if cond="lineSegmentCounts.length != lineCount"
+      return value=false
+    let name=edgeCount value="edgeChildren.length"
+    if cond="edgeParents.length != edgeCount"
+      return value=false
+    if cond="edgeChildIndents.length != edgeCount"
+      return value=false
+    if cond="edgeParentIndents.length != edgeCount"
+      return value=false
+    let name=decoratorCount value="decoratorFirsts.length"
+    if cond="decoratorLasts.length != decoratorCount"
+      return value=false
+    if cond="decoratorSuccessors.length != decoratorCount"
+      return value=false
+    if cond="decoratorDispositions.length != decoratorCount"
+      return value=false
+    let name=rawCount value="rawOwners.length"
+    if cond="rawOpeners.length != rawCount"
+      return value=false
+    if cond="rawClosers.length != rawCount"
+      return value=false
+    if cond="rawBodyStarts.length != rawCount"
+      return value=false
+    if cond="rawBodyEnds.length != rawCount"
+      return value=false
+    if cond="rawInlineFlags.length != rawCount"
+      return value=false
+    if cond="rawTypes.length != rawCount"
+      return value=false
+    return value=true
+
+fn name=f4f1drift returns=boolean
+  param name=source type=string
+  param name=recordKinds type="number[]"
+  param name=recordFlags type="number[]"
+  param name=recordStarts type="number[]"
+  param name=recordEnds type="number[]"
+  param name=f1RecordTape type=string
+  handler lang="kern"
+    let name=sourceScalars value="Text.length(source)"
+    let name=recordCount value="recordKinds.length"
+    let name=expectedStart value=0
+    let name=chunkPayload value="\"\""
+    let name=chunkRecordCount value=0
+    let name=chunkOrdinal value=0
+    let name=chunkFirstRecord value=0
+    let name=tapeCursor value=0
+    for name=record from=0 to=recordCount
+      if cond="recordStarts[record] != expectedStart"
+        return value=true
+      if cond="recordEnds[record] <= recordStarts[record]"
+        return value=true
+      let name=className value="recordKinds[record] <= 9 ? \"token\" : \"trivia\""
+      let name=raw value="Text.slice(source, recordStarts[record], recordEnds[record])"
+      let name=kindCode value="f3f1kindcode(recordKinds[record], recordFlags[record])"
+      if cond="kindCode == \"\""
+        return value=true
+      let name=encodedRecord value="f3f1record(record, className, kindCode, recordStarts[record], recordEnds[record], raw)"
+      assign target=chunkPayload value="chunkPayload + encodedRecord"
+      assign target=chunkRecordCount value="chunkRecordCount + 1"
+      if cond="chunkRecordCount == 256"
+        let name=encodedChunk value="\"c\" + String(chunkOrdinal) + \",\" + String(chunkFirstRecord) + \",\" + String(chunkRecordCount) + \",\" + String(Text.length(chunkPayload)) + \":\" + chunkPayload + \"s\" + String(chunkOrdinal)"
+        let name=encodedChunkScalars value="Text.length(encodedChunk)"
+        if cond="Text.slice(f1RecordTape, tapeCursor, tapeCursor + encodedChunkScalars) != encodedChunk"
+          return value=true
+        assign target=tapeCursor value="tapeCursor + encodedChunkScalars"
+        assign target=chunkOrdinal value="chunkOrdinal + 1"
+        assign target=chunkFirstRecord value="record + 1"
+        assign target=chunkPayload value="\"\""
+        assign target=chunkRecordCount value=0
+      assign target=expectedStart value="recordEnds[record]"
+    if cond="expectedStart != sourceScalars"
+      return value=true
+    if cond="chunkRecordCount > 0"
+      let name=finalChunk value="\"c\" + String(chunkOrdinal) + \",\" + String(chunkFirstRecord) + \",\" + String(chunkRecordCount) + \",\" + String(Text.length(chunkPayload)) + \":\" + chunkPayload + \"s\" + String(chunkOrdinal)"
+      let name=finalChunkScalars value="Text.length(finalChunk)"
+      if cond="Text.slice(f1RecordTape, tapeCursor, tapeCursor + finalChunkScalars) != finalChunk"
+        return value=true
+      assign target=tapeCursor value="tapeCursor + finalChunkScalars"
+    if cond="tapeCursor != Text.length(f1RecordTape)"
+      return value=true
+    return value=false

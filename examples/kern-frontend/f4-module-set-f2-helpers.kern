@@ -1,0 +1,41 @@
+fn name=f2uint returns=number
+  param name=value type=string
+  handler lang="kern"
+    if cond="Text.length(value) == 0"
+      return value="-1"
+    let name=out value="0"
+    let name=n value="Text.length(value)"
+    for name=index from=0 to="n"
+      let name=digit value="Text.indexOf(\"0123456789\", Text.charAt(value, index))"
+      if cond="digit < 0"
+        return value="-1"
+      assign target=out value="out * 10 + digit"
+    return value="out"
+
+fn name=f2batchreadto returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  param name=delimiter type=string
+  handler lang="kern"
+    let name=n value="Text.length(tape)"
+    let name=end value=cursor
+    while cond="end < n && Text.charAt(tape, end) != delimiter"
+      assign target=end value="end + 1"
+    if cond="end >= n"
+      return value="[\"\", \"-1\"]"
+    return value="[Text.slice(tape, cursor, end), String(end + 1)]"
+
+fn name=f2batchmarked returns="string[]"
+  param name=tape type=string
+  param name=cursor type=number
+  param name=marker type=string
+  handler lang="kern"
+    if cond="Text.charAt(tape, cursor) != marker"
+      return value="[\"\", \"-1\"]"
+    let name=lengthPart value="f2batchreadto(tape, cursor + 1, \":\")"
+    let name=width value="f2uint(lengthPart[0])"
+    let name=start value="f2uint(lengthPart[1])"
+    let name=end value="start + width"
+    if cond="width < 0 || start < 0 || end > Text.length(tape)"
+      return value="[\"\", \"-1\"]"
+    return value="[Text.slice(tape, start, end), String(end)]"
