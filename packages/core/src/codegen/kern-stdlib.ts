@@ -77,7 +77,12 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // three-leg architecture and the per-leg helper wiring in `stdlib-preamble.ts`
     // and `registerStdlibRequirementPython`. KERN 4.6.0 adds exact RFC 3629 `utf8Length`.
     length: { arity: 1, ts: '__kern_text_length($0)', py: '_kern_text_length($0)', requires: { py: 'text-ops' } },
-    utf8Length: { arity: 1, ts: '__kern_text_utf8_length($0)', py: '_kern_text_utf8_length($0)', requires: { py: 'text-ops' } },
+    utf8Length: {
+      arity: 1,
+      ts: '__kern_text_utf8_length($0)',
+      py: '_kern_text_utf8_length($0)',
+      requires: { py: 'text-ops' },
+    },
     charAt: {
       arity: 2,
       ts: '__kern_text_char_at($0, $1)',

@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs';
 import {
-  makeEnv,
   KERN_VERSION,
+  makeEnv,
   ReferenceRunnerError,
   referenceRunSequence,
   registerAllContracts,
 } from '../src/index.js';
-import { assertPortableMachineScalarShape } from '../src/ir/semantics/portable-machine-shape.js';
 import { evalPortableValue } from '../src/ir/semantics/portable-machine-evaluator.js';
-import { executeKernSource, KernRunnerError } from '../src/runner.js';
+import { assertPortableMachineScalarShape } from '../src/ir/semantics/portable-machine-shape.js';
 import { parseExpression } from '../src/parser-expression.js';
+import { executeKernSource, KernRunnerError } from '../src/runner.js';
 import type { IRNode } from '../src/types.js';
 
 beforeAll(() => {
@@ -92,15 +92,9 @@ describe('Text.utf8Length — portable machine admission and values', () => {
   });
 
   test('rejects wrong arity, non-string receivers, and a shadowed Text binding', () => {
-    expect(() => evaluate('Text.utf8Length()')).toThrow(
-      'portable: Text.utf8Length expects exactly 1 argument',
-    );
-    expect(() => evaluate('Text.utf8Length("x", "y")')).toThrow(
-      'portable: Text.utf8Length expects exactly 1 argument',
-    );
-    expect(() => evaluate('Text.utf8Length(1)')).toThrow(
-      'portable: Text.utf8Length requires a string',
-    );
+    expect(() => evaluate('Text.utf8Length()')).toThrow('portable: Text.utf8Length expects exactly 1 argument');
+    expect(() => evaluate('Text.utf8Length("x", "y")')).toThrow('portable: Text.utf8Length expects exactly 1 argument');
+    expect(() => evaluate('Text.utf8Length(1)')).toThrow('portable: Text.utf8Length requires a string');
     expect(() => evaluate('Text.utf8Length("x")', new Map([['Text', 1]]))).toThrow();
   });
 
@@ -124,10 +118,7 @@ describe('Text.utf8Length — ReferenceRunner and public runner', () => {
     expect(() => runReference(['Text.utf8Length(1)'])).toThrow(ReferenceRunnerError);
     expect(() =>
       referenceRunSequence(
-        [
-          { type: 'let', props: { name: 'Text', value: '1' } },
-          print('Text.utf8Length("x")'),
-        ],
+        [{ type: 'let', props: { name: 'Text', value: '1' } }, print('Text.utf8Length("x")')],
         makeEnv(),
       ),
     ).toThrow(ReferenceRunnerError);

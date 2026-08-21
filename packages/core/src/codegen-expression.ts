@@ -9,7 +9,12 @@ import {
   decimalBareConstructionFailMessage,
   decimalNonStringLiteralFailMessage,
 } from './codegen/decimal-contract.js';
-import { assertNoOptionalKernStdlibCall, assertNoOptionalKernStdlibMember, isHostNamespaceRoot, unmappedHostNamespaceMessage } from './codegen/host-namespace.js';
+import {
+  assertNoOptionalKernStdlibCall,
+  assertNoOptionalKernStdlibMember,
+  isHostNamespaceRoot,
+  unmappedHostNamespaceMessage,
+} from './codegen/host-namespace.js';
 import type { StdlibCallEntry } from './codegen/kern-stdlib.js';
 import {
   applyTemplate,

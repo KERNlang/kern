@@ -44,9 +44,9 @@
 import type { ExprObject, IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  assertNoDecimalOperator,
   assertNoOptionalKernStdlibCall,
   assertNoOptionalKernStdlibMember,
-  assertNoDecimalOperator,
   assertNotPortablePowerHelperBinding,
   assertPortablePowerOperand,
   classifyRegexLiteralIndexReadFailClose,

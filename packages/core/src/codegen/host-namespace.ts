@@ -14,8 +14,9 @@
  * generic `Module.member` machinery does not cover live next to the regex
  * lowerings (see `REGEX_HOST_REGEXP_FAILCLOSE` in regex-normalize.ts).
  */
-import { KERN_STDLIB_MODULES } from './kern-stdlib.js';
+
 import type { ValueIR } from '../value-ir.js';
+import { KERN_STDLIB_MODULES } from './kern-stdlib.js';
 
 export const OPTIONAL_KERN_STDLIB_ACCESS_FAILCLOSE =
   'is optional, but KERN stdlib namespaces are compile-time authorities rather than nullable runtime objects';

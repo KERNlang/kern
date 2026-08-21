@@ -6,7 +6,12 @@ import { moduleAmbientRuntimeBindingNames } from '../semantic-validator.js';
 import { type IRNode, isExprObject } from '../types.js';
 import { typescriptClosureClassifier, validateClosureBlockHostNamespacesTS } from '../typescript-closure-classifier.js';
 import type { ValueIR } from '../value-ir.js';
-import { assertNoOptionalKernStdlibCall, assertNoOptionalKernStdlibMember, isHostNamespaceRoot, unmappedHostNamespaceMessage } from './host-namespace.js';
+import {
+  assertNoOptionalKernStdlibCall,
+  assertNoOptionalKernStdlibMember,
+  isHostNamespaceRoot,
+  unmappedHostNamespaceMessage,
+} from './host-namespace.js';
 import { isPortableStdlibMember, KERN_STDLIB_MODULES, suggestStdlibMember } from './kern-stdlib.js';
 import {
   classifyRegexLiteralIndexReadFailClose,

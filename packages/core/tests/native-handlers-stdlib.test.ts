@@ -5,9 +5,9 @@
  *  the same KERN source emits idiomatic TS via `emitExpression` and the
  *  per-target lowering table picks the right shape (method / prop / freeFn). */
 
+import { beginIRHostNamespacesValidatedTS, endIRHostNamespacesValidatedTS } from '../src/codegen/host-namespace-ir.js';
 import { KERN_STDLIB, KERN_STDLIB_MODULES, lookupStdlib, suggestStdlibMethod } from '../src/codegen/kern-stdlib.js';
 import { emittedCodeUsesTextOps } from '../src/codegen/stdlib-preamble.js';
-import { beginIRHostNamespacesValidatedTS, endIRHostNamespacesValidatedTS } from '../src/codegen/host-namespace-ir.js';
 import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
@@ -46,19 +46,18 @@ describe('KERN_STDLIB table — Text module slice 2a', () => {
 });
 
 describe('emitExpression — TS — KERN-stdlib dispatch', () => {
-  test.each([
-    'Text?.utf8Length("x")',
-    'Text.utf8Length?.("x")',
-    'Number?.floor(1)',
-  ])('optional known-stdlib access fails closed before lowering: %s', (source) => {
-    expect(() => emitExpression(parseExpression(source))).toThrow(/optional KERN-stdlib access/u);
-    const handler: IRNode = {
-      type: 'handler',
-      props: { lang: 'kern' },
-      children: [{ type: 'return', props: { value: source } }],
-    };
-    expect(() => beginIRHostNamespacesValidatedTS(handler)).toThrow(/optional KERN-stdlib access/u);
-  });
+  test.each(['Text?.utf8Length("x")', 'Text.utf8Length?.("x")', 'Number?.floor(1)'])(
+    'optional known-stdlib access fails closed before lowering: %s',
+    (source) => {
+      expect(() => emitExpression(parseExpression(source))).toThrow(/optional KERN-stdlib access/u);
+      const handler: IRNode = {
+        type: 'handler',
+        props: { lang: 'kern' },
+        children: [{ type: 'return', props: { value: source } }],
+      };
+      expect(() => beginIRHostNamespacesValidatedTS(handler)).toThrow(/optional KERN-stdlib access/u);
+    },
+  );
 
   test('optional user-shadowed Text access remains authored code', () => {
     const ctx = { isUserBinding: (name: string) => name === 'Text' };

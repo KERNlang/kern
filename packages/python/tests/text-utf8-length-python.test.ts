@@ -106,26 +106,25 @@ describe('Text.utf8Length — generated lowering and helper injection', () => {
     expect(() => emitPyExpression(parseExpression('Text.utf8Length("x", "y")'))).toThrow(/takes 1 arg/u);
   });
 
-  test.each([
-    'Text?.utf8Length("x")',
-    'Text.utf8Length?.("x")',
-    'Number?.floor(1)',
-  ])('both target lowerings reject optional known-stdlib access identically: %s', (source) => {
-    let tsMessage = '';
-    let pyMessage = '';
-    try {
-      emitTsProgram(source);
-    } catch (error) {
-      tsMessage = error instanceof Error ? error.message : String(error);
-    }
-    try {
-      emitPyExpression(parseExpression(source));
-    } catch (error) {
-      pyMessage = error instanceof Error ? error.message : String(error);
-    }
-    expect(tsMessage).toMatch(/optional KERN-stdlib access/u);
-    expect(pyMessage).toBe(tsMessage);
-  });
+  test.each(['Text?.utf8Length("x")', 'Text.utf8Length?.("x")', 'Number?.floor(1)'])(
+    'both target lowerings reject optional known-stdlib access identically: %s',
+    (source) => {
+      let tsMessage = '';
+      let pyMessage = '';
+      try {
+        emitTsProgram(source);
+      } catch (error) {
+        tsMessage = error instanceof Error ? error.message : String(error);
+      }
+      try {
+        emitPyExpression(parseExpression(source));
+      } catch (error) {
+        pyMessage = error instanceof Error ? error.message : String(error);
+      }
+      expect(tsMessage).toMatch(/optional KERN-stdlib access/u);
+      expect(pyMessage).toBe(tsMessage);
+    },
+  );
 
   test('a user-shadowed optional Text member stays authored and injects no helper', () => {
     const shadowSetup: IRNode[] = [{ type: 'let', props: { name: 'Text', value: '1' } }];
