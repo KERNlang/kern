@@ -70,19 +70,19 @@ fn name=f4bfullresult returns="string[]"
       assign target=rejectedBytes value="rejectedBytes + f4bframebytes(rejectedRows[index])"
     let name=blockedScalars value=0
     let name=blockedBytes value=0
-    for name=index from=0 to=blockedRows.length
-      assign target=blockedScalars value="blockedScalars + f4bframescalars(blockedRows[index])"
-      assign target=blockedBytes value="blockedBytes + f4bframebytes(blockedRows[index])"
+    for name=blockedMeasureIndex from=0 to=blockedRows.length
+      assign target=blockedScalars value="blockedScalars + f4bframescalars(blockedRows[blockedMeasureIndex])"
+      assign target=blockedBytes value="blockedBytes + f4bframebytes(blockedRows[blockedMeasureIndex])"
     let name=factScalars value=0
     let name=factBytes value=0
-    for name=index from=0 to=linkFacts.length
-      assign target=factScalars value="factScalars + f4bframescalars(linkFacts[index])"
-      assign target=factBytes value="factBytes + f4bframebytes(linkFacts[index])"
+    for name=factMeasureIndex from=0 to=linkFacts.length
+      assign target=factScalars value="factScalars + f4bframescalars(linkFacts[factMeasureIndex])"
+      assign target=factBytes value="factBytes + f4bframebytes(linkFacts[factMeasureIndex])"
     let name=componentScalars value=0
     let name=componentBytes value=0
-    for name=index from=0 to=componentRows.length
-      assign target=componentScalars value="componentScalars + f4bframescalars(componentRows[index])"
-      assign target=componentBytes value="componentBytes + f4bframebytes(componentRows[index])"
+    for name=componentMeasureIndex from=0 to=componentRows.length
+      assign target=componentScalars value="componentScalars + f4bframescalars(componentRows[componentMeasureIndex])"
+      assign target=componentBytes value="componentBytes + f4bframebytes(componentRows[componentMeasureIndex])"
     let name=bindingScalars value=0
     let name=bindingBytes value=0
     let name=bindingOutputCount value=0
@@ -93,31 +93,31 @@ fn name=f4bfullresult returns="string[]"
         assign target=bindingBytes value="bindingBytes + f4bframebytes(resolvedBindings[index])"
     let name=identityScalars value=0
     let name=identityBytes value=0
-    for name=index from=0 to=identityRows.length
-      assign target=identityScalars value="identityScalars + f4bframescalars(identityRows[index])"
-      assign target=identityBytes value="identityBytes + f4bframebytes(identityRows[index])"
+    for name=identityMeasureIndex from=0 to=identityRows.length
+      assign target=identityScalars value="identityScalars + f4bframescalars(identityRows[identityMeasureIndex])"
+      assign target=identityBytes value="identityBytes + f4bframebytes(identityRows[identityMeasureIndex])"
     let name=terminal value="\"module-set:\" + status + \":\" + String(moduleCount) + \":\" + String(rejectedRows.length) + \":\" + String(blockedRows.length) + \":\" + String(linkFacts.length) + \":\" + String(componentRows.length) + \":\" + String(bindingOutputCount) + \":\" + String(identityScalars) + \":0:full:closed\""
     let name=totalBytes value="Text.utf8Length(\"kern.frontend.f4-module-set.3\") + Text.utf8Length(status) + rejectedBytes + blockedBytes + factBytes + componentBytes + bindingBytes + identityBytes + Text.utf8Length(terminal)"
     if cond="totalBytes > maxEncodedBytes"
       let name=overflow value="f4bnonprooffailure(\"F4_LIMIT\")"
       return value=overflow
     let name=rejectedTape value="\"\""
-    for name=index from=0 to=rejectedRows.length
-      assign target=rejectedTape value="rejectedTape + f4item(rejectedRows[index])"
+    for name=rejectedTapeIndex from=0 to=rejectedRows.length
+      assign target=rejectedTape value="rejectedTape + f4item(rejectedRows[rejectedTapeIndex])"
     let name=blockedTape value="\"\""
-    for name=index from=0 to=blockedRows.length
-      assign target=blockedTape value="blockedTape + f4item(blockedRows[index])"
+    for name=blockedTapeIndex from=0 to=blockedRows.length
+      assign target=blockedTape value="blockedTape + f4item(blockedRows[blockedTapeIndex])"
     let name=factTape value="\"\""
-    for name=index from=0 to=linkFacts.length
-      assign target=factTape value="factTape + f4item(linkFacts[index])"
+    for name=factTapeIndex from=0 to=linkFacts.length
+      assign target=factTape value="factTape + f4item(linkFacts[factTapeIndex])"
     let name=componentTape value="\"\""
-    for name=index from=0 to=componentRows.length
-      assign target=componentTape value="componentTape + f4item(componentRows[index])"
+    for name=componentTapeIndex from=0 to=componentRows.length
+      assign target=componentTape value="componentTape + f4item(componentRows[componentTapeIndex])"
     let name=bindingTape value="\"\""
     if cond="status == \"linked\""
       for name=index from=0 to=resolvedBindings.length
         assign target=bindingTape value="bindingTape + f4item(resolvedBindings[index])"
     let name=identityTape value="\"\""
-    for name=index from=0 to=identityRows.length
-      assign target=identityTape value="identityTape + f4item(identityRows[index])"
+    for name=identityTapeIndex from=0 to=identityRows.length
+      assign target=identityTape value="identityTape + f4item(identityRows[identityTapeIndex])"
     return value="[\"kern.frontend.f4-module-set.3\", status, rejectedTape, blockedTape, factTape, componentTape, bindingTape, identityTape, \"\", terminal]"

@@ -116,10 +116,10 @@ fn name=linkf4moduleset returns="string[]" export=true
 
     let name=preflightWork value=0
     let name=pathLimit value=false
-    for name=moduleIndex from=0 to=moduleCount
-      let name=length value="Map.get(manifestLengths, String(moduleIndex))"
-      let name=segments value="Map.get(manifestSegments, String(moduleIndex))"
-      let name=debit value="Map.get(manifestWork, String(moduleIndex))"
+    for name=pathModuleIndex from=0 to=moduleCount
+      let name=length value="Map.get(manifestLengths, String(pathModuleIndex))"
+      let name=segments value="Map.get(manifestSegments, String(pathModuleIndex))"
+      let name=debit value="Map.get(manifestWork, String(pathModuleIndex))"
       assign target=preflightWork value="preflightWork + debit"
       if cond="length > maxModuleIdScalars"
         assign target=pathLimit value=true
@@ -183,20 +183,20 @@ fn name=linkf4moduleset returns="string[]" export=true
       let name=blockCountFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
       return value=blockCountFailure
 
-    for name=moduleIndex from=0 to=transportCount
-      if cond="f4aModuleIds[moduleIndex] != moduleIds[moduleIndex]"
+    for name=transportIndex from=0 to=transportCount
+      if cond="f4aModuleIds[transportIndex] != moduleIds[transportIndex]"
         let name=moduleIdentityFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
         return value=moduleIdentityFailure
-      if cond="f4aFormats[moduleIndex] != \"kern.frontend.f4-document.2\""
+      if cond="f4aFormats[transportIndex] != \"kern.frontend.f4-document.2\""
         let name=formatFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
         return value=formatFailure
-      let name=status value="f4aStatuses[moduleIndex]"
+      let name=status value="f4aStatuses[transportIndex]"
       if cond="status != \"classified\""
         if cond="status != \"rejected\""
           if cond="status != \"fatal\""
             let name=statusFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
             return value=statusFailure
-      if cond="!f4bsealshapevalid(f4aSeals[moduleIndex])"
+      if cond="!f4bsealshapevalid(f4aSeals[transportIndex])"
         let name=sealFailure value="f4bnonprooffailure(\"F4_INVALID_REQUEST\")"
         return value=sealFailure
 

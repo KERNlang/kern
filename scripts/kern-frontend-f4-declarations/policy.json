@@ -148,7 +148,7 @@
     },
     {
       "path": "examples/kern-frontend/f4-module-set-output.kern",
-      "sha256": "e29e5e83e81fedb137286812221f193a55731b959cef096ff857741555e83a37"
+      "sha256": "984d55d0c9c2e03296e5f271fd9a14c4889b7e6df98400d187a626f538a16642"
     },
     {
       "path": "examples/kern-frontend/f4-module-set-prefix.kern",
@@ -156,11 +156,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-module-set-graph.kern",
-      "sha256": "49e4adcb0d49868b61f0d9de5b3475cb88dbe2610946d9208e131f221a734210"
+      "sha256": "53230fb3065de27897e2f53e3ae0bb479d77e88df601ad410b29ed1b06350945"
     },
     {
       "path": "examples/kern-frontend/f4-module-set-main.kern",
-      "sha256": "d10e67d8c4dd310b35a62c7cb25dcac20647f6ce650275371aebb3de39277e2e"
+      "sha256": "4c7e534580b7306adf970d01b5c3d3ef9c1d1438294f6ab0924dfcb50e61afa4"
     }
   ],
   "prerequisites": [

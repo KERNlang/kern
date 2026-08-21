@@ -197,39 +197,39 @@ fn name=f4bfullgraph returns="string[]"
     let name=linkFacts value="[]"
     let name=resolvedBindings value="[]"
     let name=localNames value="new Map()"
-    for name=symbolIndex from=0 to=symbolModuleIds.length
-      let name=localKey value="f4item(symbolModuleIds[symbolIndex]) + f4item(symbolNames[symbolIndex])"
-      do value="Map.set(localNames, String(localKey), symbolKinds[symbolIndex])"
+    for name=localSymbolIndex from=0 to=symbolModuleIds.length
+      let name=localKey value="f4item(symbolModuleIds[localSymbolIndex]) + f4item(symbolNames[localSymbolIndex])"
+      do value="Map.set(localNames, String(localKey), symbolKinds[localSymbolIndex])"
 
     let name=firstBindingLocals value="new Map()"
-    for name=bindingIndex from=0 to=bindingModuleIds.length
-      let name=localKey value="f4item(bindingModuleIds[bindingIndex]) + f4item(bindingLocals[bindingIndex])"
+    for name=firstLocalBindingIndex from=0 to=bindingModuleIds.length
+      let name=localKey value="f4item(bindingModuleIds[firstLocalBindingIndex]) + f4item(bindingLocals[firstLocalBindingIndex])"
       if cond="!Map.has(firstBindingLocals, String(localKey))"
-        do value="Map.set(firstBindingLocals, String(localKey), String(bindingIndex))"
+        do value="Map.set(firstBindingLocals, String(localKey), String(firstLocalBindingIndex))"
       assign target=workSteps value="workSteps + 1"
 
     let name=pendingExports value="new Map()"
-    for name=bindingIndex from=0 to=bindingModuleIds.length
-      let name=bindingModule value="bindingModuleIds[bindingIndex]"
+    for name=reexportCandidateIndex from=0 to=bindingModuleIds.length
+      let name=bindingModule value="bindingModuleIds[reexportCandidateIndex]"
       let name=bindingEligible value=true
       if cond="Map.has(rejectedSet, String(bindingModule))"
         assign target=bindingEligible value=false
       if cond="Map.has(blockedSet, String(bindingModule))"
         assign target=bindingEligible value=false
-      if cond="bindingEligible && bindingReexports[bindingIndex] == \"true\" && bindingImported[bindingIndex] != \"\""
-        let name=target value="resolvedTargets[bindingIndex]"
+      if cond="bindingEligible && bindingReexports[reexportCandidateIndex] == \"true\" && bindingImported[reexportCandidateIndex] != \"\""
+        let name=target value="resolvedTargets[reexportCandidateIndex]"
         if cond="Map.has(moduleSet, String(target))"
-          let name=exportKey value="f4item(target) + f4item(bindingImported[bindingIndex])"
+          let name=exportKey value="f4item(target) + f4item(bindingImported[reexportCandidateIndex])"
           let name=pendingTape value="Map.has(pendingExports, String(exportKey)) ? Map.get(pendingExports, String(exportKey)) : \"\""
-          let name=pendingRow value="f4item(bindingModule) + f4item(bindingLocals[bindingIndex]) + f4item(bindingKinds[bindingIndex]) + f4item(String(bindingIndex))"
+          let name=pendingRow value="f4item(bindingModule) + f4item(bindingLocals[reexportCandidateIndex]) + f4item(bindingKinds[reexportCandidateIndex]) + f4item(String(reexportCandidateIndex))"
           do value="Map.set(pendingExports, String(exportKey), pendingTape + f4item(pendingRow))"
       assign target=workSteps value="workSteps + 1"
 
     let name=resolvedReexports value="new Map()"
     let name=exportQueueLimit value="symbolModuleIds.length + bindingModuleIds.length"
-    for name=queueIndex from=0 to=exportQueueLimit
-      if cond="queueIndex < exportQueue.length"
-        let name=exportKey value="exportQueue[queueIndex]"
+    for name=exportQueueIndex from=0 to=exportQueueLimit
+      if cond="exportQueueIndex < exportQueue.length"
+        let name=exportKey value="exportQueue[exportQueueIndex]"
         let name=pendingTape value="Map.has(pendingExports, String(exportKey)) ? Map.get(pendingExports, String(exportKey)) : \"\""
         let name=pendingCursor value=0
         while cond="pendingCursor < Text.length(pendingTape)"
@@ -258,19 +258,19 @@ fn name=f4bfullgraph returns="string[]"
           assign target=pendingCursor value=pendingNext
           assign target=workSteps value="workSteps + 1"
 
-    for name=bindingIndex from=0 to=bindingModuleIds.length
-      let name=bindingModule value="bindingModuleIds[bindingIndex]"
+    for name=resolvedBindingIndex from=0 to=bindingModuleIds.length
+      let name=bindingModule value="bindingModuleIds[resolvedBindingIndex]"
       let name=bindingEligible value=true
       if cond="Map.has(rejectedSet, String(bindingModule))"
         assign target=bindingEligible value=false
       if cond="Map.has(blockedSet, String(bindingModule))"
         assign target=bindingEligible value=false
       if cond=bindingEligible
-        let name=target value="resolvedTargets[bindingIndex]"
-        let name=imported value="bindingImported[bindingIndex]"
-        let name=localName value="bindingLocals[bindingIndex]"
-        let name=requestedKind value="bindingKinds[bindingIndex]"
-        let name=reexport value="bindingReexports[bindingIndex]"
+        let name=target value="resolvedTargets[resolvedBindingIndex]"
+        let name=imported value="bindingImported[resolvedBindingIndex]"
+        let name=localName value="bindingLocals[resolvedBindingIndex]"
+        let name=requestedKind value="bindingKinds[resolvedBindingIndex]"
+        let name=reexport value="bindingReexports[resolvedBindingIndex]"
         if cond="!Map.has(moduleSet, String(target))"
           let name=missingModuleFact value="f4item(\"missing-module\") + f4item(target) + f4item(bindingModule)"
           do value="linkFacts.push(missingModuleFact)"
@@ -296,7 +296,7 @@ fn name=f4bfullgraph returns="string[]"
               else
                 do value="Map.set(localNames, String(localKey), effectiveKind)"
               if cond="reexport == \"true\""
-                if cond="bindingExportable && !Map.has(resolvedReexports, String(bindingIndex))"
+                if cond="bindingExportable && !Map.has(resolvedReexports, String(resolvedBindingIndex))"
                   if cond="Map.has(exportKinds, String(localKey))"
                     let name=duplicateExportFact value="f4item(\"duplicate-export\") + f4item(localName) + f4item(bindingModule)"
                     do value="linkFacts.push(duplicateExportFact)"
@@ -308,8 +308,8 @@ fn name=f4bfullgraph returns="string[]"
 
     let name=indegree value="new Map()"
     let name=validCount value=0
-    for name=moduleIndex from=0 to=moduleCount
-      let name=moduleId value="moduleIds[moduleIndex]"
+    for name=eligibleModuleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[eligibleModuleIndex]"
       let name=moduleEligible value=true
       if cond="Map.has(rejectedSet, String(moduleId))"
         assign target=moduleEligible value=false
@@ -318,21 +318,21 @@ fn name=f4bfullgraph returns="string[]"
       if cond=moduleEligible
         do value="Map.set(indegree, String(moduleId), 0)"
         assign target=validCount value="validCount + 1"
-    for name=bindingIndex from=0 to=bindingModuleIds.length
-      let name=source value="bindingModuleIds[bindingIndex]"
-      let name=target value="resolvedTargets[bindingIndex]"
+    for name=indegreeBindingIndex from=0 to=bindingModuleIds.length
+      let name=source value="bindingModuleIds[indegreeBindingIndex]"
+      let name=target value="resolvedTargets[indegreeBindingIndex]"
       if cond="Map.has(indegree, String(source)) && Map.has(indegree, String(target))"
         do value="Map.set(indegree, String(target), Map.get(indegree, String(target)) + 1)"
     let name=topologyQueue value="[]"
-    for name=moduleIndex from=0 to=moduleCount
-      let name=moduleId value="moduleIds[moduleIndex]"
+    for name=topologySeedModuleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[topologySeedModuleIndex]"
       if cond="Map.has(indegree, String(moduleId)) && Map.get(indegree, String(moduleId)) == 0"
         do value="topologyQueue.push(moduleId)"
     let name=processed value="new Map()"
     let name=processedCount value=0
-    for name=queueIndex from=0 to=moduleCount
-      if cond="queueIndex < topologyQueue.length"
-        let name=current value="topologyQueue[queueIndex]"
+    for name=topologyQueueIndex from=0 to=moduleCount
+      if cond="topologyQueueIndex < topologyQueue.length"
+        let name=current value="topologyQueue[topologyQueueIndex]"
         if cond="!Map.has(processed, String(current))"
           do value="Map.set(processed, String(current), true)"
           assign target=processedCount value="processedCount + 1"
@@ -365,8 +365,8 @@ fn name=f4bfullgraph returns="string[]"
     let name=rejectedRows value="[]"
     let name=blockedRows value="[]"
     let name=componentRows value="[]"
-    for name=moduleIndex from=0 to=moduleCount
-      let name=moduleId value="moduleIds[moduleIndex]"
+    for name=resultModuleIndex from=0 to=moduleCount
+      let name=moduleId value="moduleIds[resultModuleIndex]"
       if cond="Map.has(rejectedSet, String(moduleId))"
         let name=rejectedRow value="f4item(moduleId) + f4item(Map.get(sealMap, String(moduleId)))"
         do value="rejectedRows.push(rejectedRow)"
