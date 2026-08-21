@@ -1378,12 +1378,15 @@ rather than a new host-owned F4 semantic path:
 
 ## Acceptance
 
-- **[F4-A1 PROPOSED]** RED at the F3 baseline is semantic: F3 produces identical
+- **[F4-A1 IMPLEMENTED | VERIFIED]** F3 produces identical
   geometry for `fn` and non-`fn` decorator targets and cannot emit the required
-  F4 declaration/diagnostic rows.
-- **[F4-A2 PROPOSED]** All 302 source node rows and all 1,149 property rows have
+  F4 declaration/diagnostic rows. The exact equal-F3 `fn`/`type` witness and
+  divergent KERN-owned F4 projection are pinned by
+  `a1-a2-a11-evidence.test.mjs`.
+- **[F4-A2 IMPLEMENTED | VERIFIED]** All 302 source node rows and all 1,149 property rows have
   direct full-table admission evidence; row deletion, reorder, duplicate,
-  disposition drift, and same-length substitution reject.
+  disposition drift, and same-length substitution reject. The exhaustive cyclic
+  matrix invokes real F4 once per mutated row and retains structural loop canaries.
 - **[F4-A3 PROPOSED]** Every closed keyword/source form has positive, malformed,
   fallback, multiline, quoted, astral, and trailing-property evidence where
   applicable, with exact parity to hand-authored expectations.
@@ -1411,11 +1414,13 @@ rather than a new host-owned F4 semantic path:
 - **[F4-A10 PROPOSED]** Focused F1/F2/F2B/F3/F4, runtime ABI, canonicalizer,
   checker, formatter, lint, and cumulative KERN 5 gates pass before acceptance;
   independent automatic-risk Agon review has no unresolved verified blocker.
-- **[F4-A11 PROPOSED]** Relational policy tests accept both valid endpoints and
+- **[F4-A11 IMPLEMENTED | VERIFIED]** Relational policy tests accept both valid endpoints and
   reject values immediately outside them. A safely scaled runtime pair passes
   immediately below the independent `B` ceiling and fails on the next local
   success while `S` and `L` remain valid. Decoder mutations that change sealed
-  `S` or `B` without changing evidence reject.
+  `S` or `B` without changing evidence reject. Zero, failed-local, F2B-origin,
+  overflow, and independent seal evidence are pinned by
+  `a1-a2-a11-evidence.test.mjs`.
 
 ## Kill Switches
 

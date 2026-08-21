@@ -5,8 +5,9 @@ CANDIDATE AWAITING ACCEPTANCE
 
 **Goal confidence:** 0.96
 
-**Current `origin/main` source:** `4.6.0` at `ab360354` (source baseline only;
-not a KERN 5 release, tag, or publication claim)
+**Integrated source baseline:** `4.6.0`; pre-slice `origin/main` was verified at
+`d0631aff` and includes C13-LOCAL. This is historical slice provenance, not an
+assertion about the current remote ref or a KERN 5 release, tag, or publication.
 **Authoritative spec:**
 `.Codex/specs/kern-5-post-m4-171-completion/spec.md`
 
@@ -103,8 +104,9 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 
 ## Current state — 2026-08-21
 
-- **[K5-CS1 VERIFIED]** `origin/main` is `ab360354` with the integrated `4.6.0`
-  source baseline. M0 candidate integration is landed. This source fact is not
+- **[K5-CS1 VERIFIED]** The integrated `4.6.0` source baseline contains M0,
+  M1.1 eligibility, and C13-LOCAL; `d0631aff` is the pinned pre-slice ancestor.
+  This source fact is not
   KERN 5 acceptance, terminal promotion, release, tag, or publication.
 - **[K5-CS2 VERIFIED]** F0, P0, F1, F2, F2B, and F3 form an implemented,
   current-gated *candidate* internal frontend substrate. Their authenticated
@@ -119,7 +121,10 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
   constructed-here admission families and its pre-integration candidate passed the focused
   32/32 oracle plus the full 362/362 F4 declarations wall. That bounded local
   evidence is not a durable merged/CI receipt. C13-GLOBAL imported expression/
-  path admission remains M3/open. The remaining F4-A1–A6/A11 corpus, canonical
+  path admission remains M3/open. F4-A1, F4-A2, and F4-A11 now have local
+  candidate evidence: the focused matrix passed `8/8`, the complete F4 wall
+  passed `370/370`, and automatic-risk Agon review left no verified blocker.
+  F4-A3–A6, canonical
   C15 graph ordering, and full-scale closure are unfinished. F4 is neither
   accepted nor promoted; the F4 specification remains authoritative for
   slice-level status, and no candidate result changes the terminal-gate ledger.
@@ -153,8 +158,8 @@ its stated dependency is complete.
 
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
-| **M0 — candidate integration (source landed; acceptance receipt not attached)** | `origin/main` `ab360354` contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
-| **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; C13-LOCAL's eight constructed-here facts are implemented and locally verified in this slice, while the remaining M1 closure stays open; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
+| **M0 — candidate integration (source landed; acceptance receipt not attached)** | The integrated source baseline contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
+| **M1 — F4A semantic closure** | F4-A1, F4-A2, and F4-A11 have locally verified candidate evidence. Close F4-A3–A6 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; C13-LOCAL's eight constructed-here facts are implemented and locally verified, while M1 remains open; dependency: M0. | New F4A binary/mutation oracles prove each remaining acceptance claim; no evidence slice alone promotes F4. |
 | **M2 — F4B canonical graph closure** | Close F4-A7 and canonical C15: deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Permutation, cycle, malformed, and multi-hop re-export oracles; exact canonical receipt/decoder evidence. |
 | **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, C13-GLOBAL imported expression/path admission, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
 | **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |

@@ -1,6 +1,6 @@
 # KERN 5 M1 — F4A A1/A2/A11 Evidence Closure
 
-**Status:** READY TO BUILD — evidence slice only; F4 acceptance remains pending
+**Status:** IMPLEMENTED AND LOCALLY VERIFIED — evidence slice only; F4 acceptance remains pending
 **Date:** 2026-08-21
 **Confidence:** 0.97
 
@@ -39,17 +39,18 @@ private root ABI, or 17-field document `.2` wire format.
 only the scale and adversarial closure around it; this slice must not relabel A3 as
 an M3-only requirement or accept it by counting the 26 authority rows.
 
-**[EA-S7 VERIFIED]** The intentional pinned baseline is `d0631aff`, including the
-landed C13-LOCAL work. This evidence slice is evaluated against that current tree;
-it neither reopens C13 nor attributes its behavior to a historical checkout.
+**[EA-S7 VERIFIED]** The intentional pre-slice `origin/main` baseline was
+`d0631aff`, including the landed C13-LOCAL work. This evidence slice is evaluated
+from that pinned ancestor; it neither reopens C13 nor attributes its behavior to a
+historical fixture checkout.
 
-## Current state and evidence gap
+## Current state and recorded evidence
 
-| Parent claim | Current verified implementation | Missing acceptance-quality evidence |
+| Parent claim | Current verified implementation | Recorded acceptance-quality evidence |
 | --- | --- | --- |
-| F4-A1 | F3 can preserve complete geometry for equal-width role substitutions; F4 attaches a decorator only when its immediate same-indent successor kind is `fn`. | One in-tree test must prove the independently probed `fn`/`type` pair has equal F3 fields plus the required different F4 projection. |
-| F4-A2 | The worker validates 302/1,149/26 source authorities, transports their ordered columns, and F4 compares every framed frozen row. Existing tests compare generated text and a small first-row mutation set. | Full executable 302/1,149 traversal and delete/duplicate/reorder/same-length-substitution witnesses, including a guard against a shortened comparison loop. |
-| F4-A11 | The policy accepts `S + 1 <= B <= S + L`; the decoder recomputes local boundary entries from authenticated evidence. Existing test has endpoints, one small crossing, and two seal mutations. | Isolated interior/endpoints/crossing coverage, zero contribution, arithmetic overflow, and explicit independent decoder mutations for `S` and `B`. |
+| F4-A1 | F3 can preserve complete geometry for equal-width role substitutions; F4 attaches a decorator only when its immediate same-indent successor kind is `fn`. | `a1-a2-a11-evidence.test.mjs` proves the exact equal-F3 `fn`/`type` pair and its required different F4 projection. |
+| F4-A2 | The worker validates 302/1,149/26 source authorities, transports their ordered columns, and F4 compares every framed frozen row. | The evidence test executes all 302 node and 1,149 property cyclic substitutions through real F4A, plus delete/duplicate/swap/same-length substitution and structural loop controls. |
+| F4-A11 | The policy accepts `S + 1 <= B <= S + L`; the decoder recomputes local boundary entries from authenticated evidence. | The evidence test covers interior/endpoints/crossings, zero/failed-local/F2B contributions, safe-integer overflow, and independent sealed `S`/`B` mutations. |
 
 **[EA-R1 VERIFIED]** The committed F3 role-substitution test establishes the
 appropriate evidence pattern: equal scalar width and byte-for-byte equal F3 fields
@@ -86,11 +87,11 @@ the sealed scalar aggregate and boundary aggregate, and rejects mismatch. Eviden
 
 | Surface | Frozen behavior | Evidence |
 | --- | --- | --- |
-| Public F4A | `runDocument(moduleId, source)` performs one F4A KERN invocation; it exposes no options or mutation capability. | `scripts/kern-frontend-f4-declarations/worker.mjs:274-276` |
-| Private test seam | `__test` owns explicit mutation/profile helpers and is not reachable through the public entry point. | `scripts/kern-frontend-f4-declarations/worker.mjs:278-359` |
+| Public F4A | `runDocument(moduleId, source)` performs one F4A KERN invocation; it exposes no options or mutation capability. | `scripts/kern-frontend-f4-declarations/worker.mjs: runDocument` |
+| Private test seam | `__test` owns explicit mutation/profile helpers and is not reachable through the public entry point. | `scripts/kern-frontend-f4-declarations/worker.mjs: __test` |
 | Authority | The worker may load/hash/order/frame authorities; F4 authenticates them before F1/F2B/F3 drift checks. | Parent F4-C2/C3 at `kern-5-f4-declarations-modules/spec.md:99-108`; `f4-declarations-main.kern:150-184` |
 | Result | F4A remains a 17-string `kern.frontend.f4-document.2` receipt. Fatal results have exactly one fatal diagnostic and no ordinary rows. | `scripts/kern-frontend-f4-declarations/decoder.mjs:283-350` |
-| Policy and ABI | Policy remains `kern.frontend.f4-declarations-policy.4`; F4A private ABI remains 109. | `scripts/kern-frontend-f4-declarations/policy-validation.mjs:114-141`; `worker.mjs:201-246` |
+| Policy and ABI | Policy remains `kern.frontend.f4-declarations-policy.4`; F4A private ABI remains 109. | `scripts/kern-frontend-f4-declarations/policy-validation.mjs: validatePolicy`; `worker.mjs: execute` |
 
 **[EA-C1 DECIDED]** The evidence implementation may add a narrowly named
 `__test`-only authority-vector mutator or observer if the existing string mutation
@@ -185,6 +186,9 @@ expression aggregate drift. No reseal, host repair, or changed evidence is allow
 
 ## File plan and blast radius
 
+The table below records the executed slice plan; prospective verbs are retained as
+the pre-implementation contract against which the final diff was checked.
+
 | Path | Change | Contract effect |
 | --- | --- | --- |
 | `scripts/kern-frontend-f4-declarations/a1-a2-a11-evidence.test.mjs` | Add focused executable A1/A2/A11 witness matrix and structural positive controls. | Test only. |
@@ -247,8 +251,8 @@ it does not change C6's status/severity vocabulary or prescribe unrelated rows.
 
 **[EA-D1 VERIFIED]** The worker pins all F4 composition SHA-256 descriptors before
 runtime execution, and the policy validator pins the exact policy/ABI/result-format
-identity. Evidence: `scripts/kern-frontend-f4-declarations/worker.mjs:49-85,201-251`
-and `scripts/kern-frontend-f4-declarations/policy-validation.mjs:114-196`.
+identity. Evidence: `scripts/kern-frontend-f4-declarations/worker.mjs: loadComposition; execute`
+and `scripts/kern-frontend-f4-declarations/policy-validation.mjs: validatePolicy`.
 
 **[EA-D2 DECIDED]** Test-only changes deploy atomically with their tests. No
 supported production skew, policy bump, receipt migration, source regeneration, or
@@ -268,6 +272,16 @@ remaining-gates ledger, fitness policy, `scripts/kern-frontend-f4-declarations/p
 generated authority, F0–F3, or production KERN. A production KERN change is allowed
 only after a focused RED traces a real defect and an explicitly separate defect branch
 is opened; it is not an evidence-slice completion shortcut.
+
+**[EA-G3 VERIFIED]** The final candidate passed the focused evidence matrix `8/8`,
+the complete F4 declarations wall `370/370`, focused F3 role substitution `1/1`,
+the authority/resource/document/decoder wall `148/148`, the new-test syntax check,
+the forced core TypeScript build, lint, repository consistency, exact policy/source
+validation `34/34`, deterministic authority regeneration with zero diff, and
+`git diff --check`. Automatic-risk Agon review used two independent reviewers and
+left no verified blocker; receipt:
+`~/.agon/runs/review-1787336003740-zz4mvt-f4-a1-a2-a11-evidence`.
+These are local candidate receipts, not terminal-gate promotion or release evidence.
 
 ## Goal-truth correction (follow-up documentation only)
 
