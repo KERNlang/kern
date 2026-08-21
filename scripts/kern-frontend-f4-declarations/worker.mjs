@@ -290,6 +290,14 @@ export const __test = Object.freeze({
     prepared.policyState = { ...prepared.policyState, policy };
     return runPrepared(prepared);
   },
+  runDocumentWithMutationAndProfileLimits(moduleId, source, mutation, profileLimits) {
+    const prepared = prepare(moduleId, source);
+    const policy = structuredClone(prepared.policyState.policy);
+    Object.assign(policy.profileLimits, profileLimits);
+    validatePolicy(policy);
+    prepared.policyState = { ...prepared.policyState, policy };
+    return runPrepared(prepared, mutation);
+  },
   runDocumentWithPhaseKeyMutation(moduleId, source, mutation) {
     if (mutation !== 'equal' && mutation !== 'decreasing') fail('phase key mutation');
     return runPrepared(prepare(moduleId, source), undefined, mutation);
@@ -331,6 +339,22 @@ export const __test = Object.freeze({
     if (envelope.outcome !== 'success' || envelope.completion.kind !== 'return' ||
         envelope.result.presence !== 'value' || envelope.result.value.tag !== 'list' || envelope.events.length !== 0) {
       fail(`diagnostic rank runtime envelope ${JSON.stringify(envelope)}`);
+    }
+    return materialize(envelope.result.value);
+  },
+  runEligibilityLeafAdmission(row, fieldCount, factCount, factBytes, workSteps, profileLimits = {}) {
+    const { policy } = loadPolicy();
+    const limits = { ...policy.profileLimits, ...profileLimits };
+    const envelope = executeKernRuntimeHandlerSync({
+      abi: KERN_RUNTIME_HANDLER_ABI,
+      arguments: [row, fieldCount, factCount, factBytes, workSteps, limits.maxFacts,
+        limits.maxEncodedBytes, limits.maxWorkSteps],
+      identity: { handlerName: 'f4eligibilityleafadmit', sourcePath: 'examples/kern-frontend/f4-line-eligibility.kern' },
+      source: loadComposition(policy).composition,
+    }, { enabled: true, limits: policy.runtimeLimits, scheduler: policy.scheduler });
+    if (envelope.outcome !== 'success' || envelope.completion.kind !== 'return' ||
+        envelope.result.presence !== 'value' || envelope.result.value.tag !== 'list' || envelope.events.length !== 0) {
+      fail(`eligibility admission runtime envelope ${JSON.stringify(envelope)}`);
     }
     return materialize(envelope.result.value);
   },
