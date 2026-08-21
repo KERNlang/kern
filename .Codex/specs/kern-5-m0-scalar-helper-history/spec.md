@@ -7,12 +7,13 @@
 ## Executive Summary
 
 **[M0-SH1 VERIFIED]** The cold canonicalizer wall fails because the live
-compiled 4.6 `Text.utf8Length` bytes no longer match the successor endpoint of
-the immutable scalar-helper history edge. The repair adds one exact aggregate
-reverse-reconstruction stage from the post-format `91f794dc` compiled endpoint
-to the existing `8a453a44` endpoint, for exactly five affected compiled files.
-Evidence: `scalar-helper-history-transition.mjs:9-16,106-116` and the
-2026-08-21 live compiled-byte probe recorded in M0-SH5.
+compiled 4.6 bytes no longer replay to the frozen M4.145 core identity. The
+repair is an atomic, path-disjoint composition across the post-format
+`91f794dc` to `8a453a44` edge: preserve the already-pinned five-row scalar
+4.6 stage byte-for-byte, add a new five-row host/compiler companion, and apply
+all ten substitutions before the single 305-path terminal digest. Evidence:
+the two-stage tribunal `tribunal-1787283386416-0eql9e/agy-output.txt:3-5,54-72`
+and the pinned endpoint measurement in M0-SH5b.
 
 **[M0-SH2 VERIFIED]** This is byte-provenance repair only: no `Text.utf8Length`
 runtime, generated-lowering, public API, F4 policy, or receipt behavior changes.
@@ -35,9 +36,10 @@ formatting commit `91f794dc31ebe11a9d29a8b25479f03900141950`. Evidence:
 `scalar-helper-history-transition.mjs:9-16`; `git show --name-status f125ea61`
 and `git show --name-status 91f794dc` on 2026-08-21.
 
-**[M0-SH5 VERIFIED]** A read-only post-build probe of `packages/core/dist`
-found exactly five mismatches against the old scalar edge; the other three of
-its eight rows still match. The probe was:
+**[M0-SH5 VERIFIED]** A read-only post-build probe of the *eight-row old scalar
+edge* found exactly five mismatches and three matching rows. That result proves
+the scalar stage's scope only; it is not a complete 4.6 historical closure.
+The probe was:
 
 ```text
 node --input-type=module -e "... sha256(packages/core/dist/<row.path>) ..."
@@ -51,7 +53,29 @@ node --input-type=module -e "... sha256(packages/core/dist/<row.path>) ..."
 | `ir/semantics/portable-machine-shape.js` | `c6411ab25f326941796c4a53d059357a0fecacb5f6741431e1f068f4d971a3f4` | `2be299ff05b84d9926c3d1fd032432a2e9008c8f` | `50b1e2fbcc23f6eff1bbe33485ca48160af11a180297896b2347ae7689391dc2` | `e409228be23a3488fbe047276c86c36e9531637b` |
 | `ir/semantics/portable-string.js` | `cb07234c90aca9e810cf0f1a9f6338da4d74d54ffbc7f36b6e5ecee8ac479c13` | `8cec79728f70144fe33bf5bdff19c68a0dc3e413` | `111aeaae14c8544723334994d6c2faaed6a7acde85da19edad150a857320ec57` | `d7b33e942702a6d9d3209321a435aace94c1942d` |
 
-**[M0-SH6 VERIFIED]** The failure is fail-closed before the M4.145 digest:
+**[M0-SH5b VERIFIED]** The pinned `8a453a44` core compilation was validated by
+matching all eight frozen scalar-stage successor hashes, then compared with the
+current built core. Five additional, previously unowned compiled-byte deltas
+are required. Each row is current `91f794dc`/HEAD bytes followed by its exact
+`8a453a44` bytes:
+
+| Compiled path | current SHA-256 | current blob SHA-1 | 8a SHA-256 | 8a blob SHA-1 |
+|---|---|---|---|---|
+| `codegen-expression.js` | `56af9d434d88043b31b125bb301d1f5abfb0d987c0e34a6ce5c8196a505b9b78` | `22e865bddb7cf1539a00533eac17492e49505f74` | `150054725ff4bdaf3cddcc61d24862be7878e14bec239ffdaf12e94e7ce82ae5` | `41dadce3c8121de457f5e28640de83c3de183a7e` |
+| `codegen/host-namespace-ir.js` | `4af8ce4e7470666550cb87f5694f0ba24a09492dc9f24f30ed0e06f2aaac3b9b` | `775c6a44191b32ae418814dd0968717a36b3c263` | `2e8979f84018466b86d9779af741fdb9bb10df71ba72c4cfa6eb6bd75a0df9e0` | `6146087f56a7984bb31408c5e047acb2a711c809` |
+| `codegen/host-namespace.js` | `74ac078b291cc52180f9d7d771aca595c6eaff94f0287e2c3a27971e524dca48` | `2e6a77f997f54817de75aa90412167e6b14efe6e` | `266f9f9af2cc01eaf8d3fdd789b9a4d0cfc3b05e40fbd00565bcfeae3dad2fa1` | `9eb266b0db994275876f84fc8205434212837dec` |
+| `index.js` | `0635fed286667cfd20545c63f0e7c556885176cf5a54dd42bdbda498f98b05f2` | `31fdc2dcc63b305b05182f47c0070e26878af9eb` | `e1b337b34ead99e499247cd972c4787347805090b2afbe722689c885b11bf37b` | `0c0c522a74d49892dbc8ac7b8559a8b49d8b3962` |
+| `spec.js` | `42c96c1da248f1257d403ebfcc424dd75de0b32e14373da7fd4eb86b197d5f5f` | `7d26f0b1b3103639e6fd0aecd2e0e7ffeeb0cb34` | `bd8f84c3e89a2a62284e687e35aafa86d367aa472bd2529eb0adf5d4d6176e2a` | `131899c581c2741807ff10d92cfd8417c7028aa9` |
+
+The command was an out-of-tree `8a453a44` TypeScript build followed by direct
+SHA-256/Git-blob hashes of those five files and `packages/core/dist`; its scalar
+row cross-check was `8/8` before these five values were accepted. Applying the
+five scalar substitutions plus these five companion substitutions to the real
+305-path M4.145 reconstruction yielded exactly
+`29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2`.
+
+**[M0-SH6 VERIFIED]** The original five-row failure is fail-closed before the
+M4.145 digest:
 `scalar helper history predecessor compiled codegen/kern-stdlib.js ... broken
 or misordered successor edge`. `historical-transition-chain.mjs:69-87` checks
 each incoming SHA-256 before replacement; `historical-source.mjs:19-44` accepts
@@ -80,11 +104,13 @@ namespace shadowing, and TS/Python helper injection. Evidence:
 
 | Field / behavior | Frozen contract | Evidence | Tag |
 |---|---|---|---|
-| Aggregate provenance endpoint | Chronological metadata is `predecessorCommit=8a453a44...`, `successorCommit=91f794dc...`; reverse replay is live successor to predecessor. | `scalar-helper-history-transition.mjs:9-16,45-55`; `historical-transition-chain.mjs:69-87` | **VERIFIED** |
-| Aggregate manifest | Exactly the five M0-SH5 paths, in one frozen deterministic order, with exact current/expected SHA-256, Git blob SHA-1, and exact UTF-8 replacement bytes generated from pinned compiled endpoints. | M0-SH5; `scalar-helper-history-transition.test.mjs:78-119` | **VERIFIED** |
-| Stage acceptance | A stage accepts only its exact successor bytes, applies only unique literal replacement text, and produces its exact predecessor digest. No regex, normalization, fuzzy match, or fallback is legal. | `historical-transition-chain.mjs:69-87`; `historical-source.mjs:19-44` | **VERIFIED** |
-| Composition | New aggregate stage runs first; its output is then passed unchanged to immutable scalar-helper stage `kern.runtime.scalar-helper-history.r0`. | `scalar-helper-history-coverage-adapter.mjs:10-19`; `scalar-helper-history-transition.mjs:106-116` | **VERIFIED** |
-| Old edge | Existing eight rows, claim, commits, inventory/manifest/endpoints/rows digests, and replacement bytes are immutable. | `scalar-helper-history-transition.mjs:62-92`; `scalar-helper-history-transition.test.mjs:121-161` | **VERIFIED** |
+| Edge provenance | Both path-disjoint 4.6 stages bind `predecessorCommit=8a453a44...`, `successorCommit=91f794dc...`; reverse replay is successor bytes to predecessor bytes. | M0-SH4–5b; `historical-transition-chain.mjs:69-87` | **VERIFIED** |
+| Preserved scalar stage | `kern.runtime.scalar-helper-history-4-6.r0` retains exactly its existing five paths, manifest/row/endpoint digests, blob identities, and validator. It maps the M0-SH5 paths to the old scalar stage's successor bytes. | `scalar-helper-history-4-6-transition-module.mjs:9-37,115-133`; tribunal `agy-output.txt:54-55,68-72` | **VERIFIED** |
+| New companion stage | `kern.compiler.host-companion-history-4-6.r0` owns only the five M0-SH5b paths in their table order and maps each current byte string directly to its exact 8a byte string. It has independent manifest, row, endpoint, and blob identities. | M0-SH5b; tribunal `agy-output.txt:54-56,68-72` | **DECIDED** |
+| Existing owners | `internal-effect-machine-helper-runtime.js` and `portable-reference-evaluator.js` remain runner-call-cache reconstructions; `internal-text-code-point-cache.js` remains runtime-text-cache/inventory history; `runner-call-cache.js` remains a removal transition; diagnostics, types, semantic-env ownership, and semantic-env are excluded because compiled bytes are unchanged. | `runner-call-cache-historical-transition.mjs:23,35-49`; `runtime-text-cache-historical-transition.mjs:12-22`; pinned 8a/current byte probe in M0-SH5b | **VERIFIED** |
+| Stage acceptance | Each stage accepts only exact successor bytes, applies only unique literal replacement text, and yields its exact predecessor digest. No regex, normalization, fuzzy match, or fallback is legal. | `historical-transition-chain.mjs:69-87`; `historical-source.mjs:19-44` | **VERIFIED** |
+| Composition and terminal | The scalar and companion path sets are disjoint, so their application order is observationally commutative; the only historical acceptance point is the composed 305-path M4.145 digest. A companion path bypasses the old scalar stage unchanged. | tribunal `agy-output.txt:22-29,43-45`; `scalar-helper-history-transition.mjs:106-116`; M0-SH5b | **DECIDED** |
+| Old edge | The original eight-row scalar transition is immutable. The five-row scalar 4.6 transition is specified/pinned by b425988d and generated in the current uncommitted coherent patch; companion repair must not alter its identity or bytes. | `scalar-helper-history-transition.mjs:62-92`; `scalar-helper-history-4-6-transition-module.mjs:115-133`; tribunal `agy-output.txt:9-16,68-72` | **VERIFIED** |
 | Historical receipt | M4.145 compiled-core digest remains `29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2`; `combined-headroom-m4-145.json` remains byte-identical. | `coverage-integrity.test.mjs:358-400`; `combined-headroom-m4-145.json:50`; `combined-headroom-m4-145.test.mjs:29-38` | **VERIFIED** |
 | Current summaries | Current compiled identity is regenerated from the rebuilt 4.6 core; it is not backdated to M4.145. The present stale pin is `ddd0992e...`; the live probe is `0d1c4eaa6dbe30baafaed48c9561c194e045dc1ee46af7910394a10eb671fff4`. | `coverage-summary.json:138`; `coverage-prerequisite-summary.json:7`; `coverage-dependencies.mjs:871-903`; M0-SH5 probe | **VERIFIED** |
 
@@ -97,45 +123,50 @@ rm -rf packages/core/dist && pnpm --filter @kernlang/core exec tsc -b --force
 
 and exited `0`. After each build, `digestCompiledCoreJavaScript()` returned
 `0d1c4eaa6dbe30baafaed48c9561c194e045dc1ee46af7910394a10eb671fff4`; the
-five authoritative file SHA-256 values were identical to the five live values
-in M0-SH5, in that same ordered path list. Measurement uses
-`coverage-dependencies.mjs:871-903` plus direct SHA-256 of the five
-`packages/core/dist` files; the exact observed hashes are retained in M0-SH5.
+five scalar authoritative SHA-256 values were identical to M0-SH5. The full
+ten-substitution closure is instead bound by M0-SH5 plus M0-SH5b and the
+305-path terminal digest; a five-row-only focused green is insufficient.
 
 ## Decided Design
 
-**[M0-SH9 DECIDED]** Add one additive aggregate transition module/data pair and
-one focused test. It reconstructs each of the five current compiled files to
-the exact `8a453a44` bytes stored as the old scalar stage's current endpoint,
-then invokes the old stage without altering it. The aggregate module must
-validate its own exact five-path manifest, row order, endpoint digests, blobs,
-and rows digest before returning any reconstruction.
+**[M0-SH9 DECIDED]** Preserve the b425988d-pinned scalar 4.6 module/data/test
+generated in the current uncommitted coherent patch byte-for-byte. Add one
+companion module/data/test pair for the five M0-SH5b
+paths, with claim `kern.compiler.host-companion-history-4-6.r0`. It
+reconstructs those current compiled files to their exact `8a453a44` bytes and
+does not invoke, absorb, or mutate the scalar 4.6 manifest. Both stages must
+validate their own exact ordered manifests, endpoint digests, blobs, and row
+digests before returning any reconstruction.
 
-**[M0-SH10 DECIDED]** The aggregate transition is a byte-reconstruction
+**[M0-SH10 DECIDED]** The two-stage composition is a byte-reconstruction
 contract, not an AST or semantic-causality contract. It records the two Git
-endpoints and may cite `f125ea61` as explanatory provenance, but it does not
-create a frozen compiled intermediate endpoint for `f125ea61`.
+endpoints and may cite `04c0bbe5`, `f125ea61`, and `91f794dc` as explanatory
+provenance, but it creates no frozen intermediate receipt between 91f and 8a.
 
 **[M0-SH11 DECIDED]** The adapter reads each historical compiled path once,
-applies aggregate reconstruction when its path is one of the five, then passes
-that byte buffer to `atScalarHelperHistoryCompiledPredecessor`. Unaffected paths
-must bypass the aggregate unchanged and retain current old-stage behavior.
+applies the scalar 4.6 stage only to its five paths and the companion only to
+its five paths, then invokes the immutable old scalar stage only where that
+stage owns the path. All other paths retain their existing transition owners or
+unchanged-byte behavior. The stages must compose atomically before M4.145
+hashing; no partial five-row success is a terminal result.
 
 ## Implementation Plan
 
-1. Add generated aggregate transition data holding only the five exact rows and
-   base64-encoded current/predecessor bytes; derive decoded byte strings,
-   manifest and endpoint digests in the companion module. Generation must use
-   pinned builds at `91f794dc` and `8a453a44`, SHA-256, and
-   `git hash-object --stdin`; no literal may be guessed from source diffs.
-2. Add a transition module that validates exact object keys, five-row order,
-   SHA-256 and blob syntax, manifest/endpoint/rows identities, then uses the
-   existing literal-reconstruction primitive.
-3. Update only the scalar-history coverage adapter to prepend this transition
-   before the immutable scalar stage. Do not change the old transition data or
-   the generic reconstruction primitive.
-4. Add focused aggregate-history tests and extend composition tests only where
-   necessary to prove ordering and unchanged old-edge identity.
+1. Preserve the current b425988d-pinned scalar 4.6 data/module/test exactly.
+   Generate a new companion data file from pinned `91f794dc` and `8a453a44` builds, holding
+   only M0-SH5b's five base64-encoded current/predecessor rows; derive decoded
+   byte strings, manifest and endpoint digests in its module. Use SHA-256 and
+   `git hash-object --stdin`; no literal may be guessed from a source diff.
+2. Add the companion transition module with exact key order, five-row order,
+   SHA-256/blob syntax, manifest/endpoint/row identities, and the existing
+   literal-reconstruction primitive. Its claim is distinct from the scalar
+   stage's claim.
+3. Update only the scalar-history coverage adapter to compose both disjoint 4.6
+   stages before prior history. Do not change old scalar data, current pinned
+   scalar 4.6 data, or the generic reconstruction primitive.
+4. Correct the first focused five-row false green into a full terminal oracle;
+   add companion and composed 305-path tests, including leave-one-out of every
+   one of the ten substitutions.
 5. Rebuild core, regenerate the two current coverage summaries, and update the
    single literal current-digest oracle in `coverage-prerequisite.test.mjs` from
    generated measurement—not manual editing.
@@ -144,10 +175,10 @@ must bypass the aggregate unchanged and retain current old-stage behavior.
 
 | File / area | Action | Reason |
 |---|---|---|
-| `scripts/kern-canonicalizer/scalar-helper-history-4-6-transition-data.mjs` | add | Exact generated five-row aggregate endpoint bytes. |
-| `scripts/kern-canonicalizer/scalar-helper-history-4-6-transition-module.mjs` | add | Validate and expose only aggregate reverse reconstruction. |
-| `scripts/kern-canonicalizer/scalar-helper-history-4-6-transition.test.mjs` | add | Exact endpoint, ordering, and mutation oracle. |
-| `scripts/kern-canonicalizer/scalar-helper-history-coverage-adapter.mjs` | modify | Compose aggregate before immutable old edge. |
+| `scalar-helper-history-4-6-transition-{data,module,test}.mjs` | add, preserve current generated bytes | The b425988d-pinned five-row scalar 4.6 contract is generated in the current uncommitted patch and is immutable during companion repair. |
+| New host-companion 4.6 data/module/test | add | Exact five-row M0-SH5b endpoint bytes, independent validation, and mutation oracle. |
+| `scripts/kern-canonicalizer/text-utf8-length-history-bridge.test.mjs` | modify | Replace the scalar-only false-green target with ten-substitution/305-path closure. |
+| `scripts/kern-canonicalizer/scalar-helper-history-coverage-adapter.mjs` | modify | Compose companion and immutable scalar stage before prior history. |
 | `scripts/kern-canonicalizer/coverage-summary.json` | regenerate | Bind live rebuilt compiled-core digest. |
 | `scripts/kern-canonicalizer/coverage-prerequisite-summary.json` | regenerate | Bind the same live compiled-core digest. |
 | `scripts/kern-canonicalizer/coverage-prerequisite.test.mjs` | modify | Pin the regenerated current digest. |
@@ -155,11 +186,11 @@ must bypass the aggregate unchanged and retain current old-stage behavior.
 
 ## Acceptance Criteria
 
-- [ ] **[M0-SH-A1]** Before implementation, rebuilt current core fails
-  aggregate admission on the exact five M0-SH5 paths and no others; after
-  implementation all five reconstruct to their exact listed `8a453a44` SHA-256
-  and blob endpoints. The existing three matching scalar rows remain unchanged.
-- [ ] **[M0-SH-A2]** Each aggregate row rejects a one-byte mutation of
+- [ ] **[M0-SH-A1]** The current b425988d-pinned scalar 4.6 transition serializes byte-for-byte
+  as its current five-row identity. The new companion serializes as exactly the
+  five M0-SH5b paths in table order. Together they perform exactly ten
+  substitutions; the three matching old scalar rows remain byte-identical.
+- [ ] **[M0-SH-A2]** Each scalar or companion row rejects a one-byte mutation of
   successor bytes before replacement, a one-byte mutation of predecessor text
   after replacement, an absent current literal, and a duplicate current literal.
   Expected failures are the existing broken/misordered-edge, unique-occurrence,
@@ -167,25 +198,30 @@ must bypass the aggregate unchanged and retain current old-stage behavior.
   `historical-transition-chain.mjs:75-86`; `historical-source.mjs:30-42`.
 - [ ] **[M0-SH-A3]** Omission, addition, reorder, duplicate path, wrong exact
   key set, non-canonical key serialization, wrong deterministic row order,
-  wrong row digest, wrong SHA-256, and wrong blob in the new
-  five-row manifest fail closed before coverage hashing; the old eight-row
-  immutable transition continues to reject the same mutations.
-- [ ] **[M0-SH-A4]** Reversing aggregate and old stages, or passing an
-  `8a453a44` endpoint directly into the aggregate stage, fails on successor
-  identity. No aggregate stage runs for a non-five path.
-- [ ] **[M0-SH-A5]** Full replay yields unchanged M4.145 compiled-core
+  wrong row digest, wrong SHA-256, and wrong blob in either new five-row
+  manifest fail closed before coverage hashing; both existing scalar identities
+  continue to reject the same mutations.
+- [ ] **[M0-SH-A4]** The path-disjoint scalar and companion stages compose in
+  either order to the same byte map; passing `8a453a44` bytes into either stage
+  fails successor identity. Neither stage runs for a path it does not own.
+- [ ] **[M0-SH-A5]** Full replay over the exact 305-path historical inventory
+  yields unchanged M4.145 compiled-core
   digest `29daa6ca4f8017ea214b72434c92b00b33a92f328a9f49798264f5c94e51f5b2`
   and unchanged `combined-headroom-m4-145.json` receipt SHA-256.
-- [ ] **[M0-SH-A6]** Regenerated `coverage-summary.json`,
+- [ ] **[M0-SH-A6]** Leave-one-out of each of the ten substitutions, including
+  `index.js` and `spec.js`, yields a digest other than `29daa6ca...`; the
+  existing scalar five alone remains the known nonterminal
+  `2bcf1a6cb9d97a07cccd9e157d4d8dcda6696c7b3f6b960e38fc660b18040bd8`.
+- [ ] **[M0-SH-A7]** Regenerated `coverage-summary.json`,
   `coverage-prerequisite-summary.json`, and `coverage-prerequisite.test.mjs`
   equal the same freshly measured current compiled-core digest; no historical
-  receipt or old scalar identity changes.
-- [ ] **[M0-SH-A7]** The 4.6 Text contract remains discriminated by
+  receipt, old scalar identity, or current pinned scalar 4.6 identity changes.
+- [ ] **[M0-SH-A8]** The 4.6 Text contract remains discriminated by
   mixed-width `A¢€🌍 -> 10`, width boundaries, malformed surrogate fail-close,
   unshadowed one-argument admission, and generated TS/Python helper injection.
   Evidence: `text-utf8-length.test.ts:73-134` and
   `text-utf8-length-python.test.ts:75-107`.
-- [ ] **[M0-SH-A8]** `pnpm test:kern-canonicalizer` passes from a cold
+- [ ] **[M0-SH-A9]** `pnpm test:kern-canonicalizer` passes from a cold
   build. Its defined order rebuilds core and CLI before composition, semantic
   check, canonicalizer tests, and final check scripts. Evidence: `package.json:64`.
 
@@ -193,7 +229,7 @@ must bypass the aggregate unchanged and retain current old-stage behavior.
 
 **[M0-SH12 VERIFIED]** This is an internal local candidate only. The repair is
 activated atomically by the repository's build-and-test command; there is no
-supported mixed version because the new adapter and generated aggregate data
+supported mixed version because the new adapter and generated companion data
 must ship together. No push, tag, package publication, or release authority is
 granted by this spec. Evidence: `package.json:64` and
 `.Codex/goals/KERN-5-COMPLETION-GOAL.md:104-125`.
@@ -213,6 +249,7 @@ granted by this spec. Evidence: `package.json:64` and
 | Original claim | Correction | Evidence / impact |
 |---|---|---|
 | `0a4d41c6` caused the scalar-history failure. | `0a4d41c6` contains only F4B changes; the mismatching core bytes arise from `f125ea61` and `91f794dc`. | M0-SH3–4. |
-| The tribunal's initial five-path list named `codegen-expression.js` and host-namespace files. | The live compiled probe identifies the authoritative five M0-SH5 paths; those tribunal paths are not scalar-edge mismatches. | `~/.agon/runs/tribunal-1787281386040-b584yv/agy-output.txt` versus M0-SH5. |
-| Two replay stages are necessary because feature and formatter commits differ. | Rejected: the canonicalizer authenticates exact endpoint bytes, and a frozen `f125ea61` compiled intermediate expands the permanent contract without strengthening current-to-8a proof. One exact aggregate stage is minimal and fail-closed. | Tribunal decision `~/.agon/runs/tribunal-1787281386040-b584yv/tribunal_da0cae4e.jsonl`; `historical-transition-chain.mjs:58-87`. |
+| The first focused five-row reconstruction green established full history closure. | False: it exercised only the current b425988d-pinned scalar 4.6 stage and did not hash the full 305-path M4.145 inventory; scalar-only replay is `2bcf1a6...`, not the frozen terminal. | M0-SH5b; tribunal `tribunal-1787283386416-0eql9e/kimi-for-coding-k3-output.txt:19-27`. |
+| The five M0-SH5b paths may be merged into the current scalar 4.6 manifest. | Rejected: the b425988d-pinned five-row scalar stage has a pinned claim, path list, rows digest, endpoint digests, and validator; expanding it violates its immutable contract. A disjoint companion owns the unowned bytes. | `scalar-helper-history-4-6-transition-module.mjs:9-37,115-133`; tribunal `agy-output.txt:9-16,54-72`. |
+| Two stages fabricate an intermediate historical receipt. | Rejected: the stages are path-disjoint, share one 91f-to-8a edge, and compose atomically. The only historical acceptance receipt is the 305-path terminal digest. | tribunal `kimi-for-coding-k3-output.txt:11-15,23-27`. |
 | Updating the old scalar rows' current digests would fix the wall. | Rejected: it rewrites the immutable `7efa4c3a -> 8a453a44` edge and masks the provenance break. | `scalar-helper-history-transition.test.mjs:121-161`. |
