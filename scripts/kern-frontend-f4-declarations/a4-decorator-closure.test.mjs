@@ -24,6 +24,7 @@ function f3(source) {
 }
 
 function decoratorRows(receipt) {
+  // F4 scalar spans include indentation, exclude the physical newline, and use an exclusive end.
   return receipt.decorators.map((row) => [
     row.logicalOrdinal, row.disposition, row.targetLogicalOrdinal, row.explicitExport,
     row.startScalar, row.endScalar,
@@ -52,26 +53,30 @@ function functionBlock(source, name) {
   return source.slice(start, end < 0 ? source.length : end);
 }
 
-function projectionShape(eligibilitySource, diagnosticSource) {
+function projectionFailures(eligibilitySource, diagnosticSource) {
   const projection = functionBlock(eligibilitySource, 'f4decoratorrows');
   const diagnostic = functionBlock(diagnosticSource, 'f4diagdecoratorphase');
-  return projection.includes('for name=eligibilityDecoratorRun from=0 to=decoratorFirsts.length') &&
-    projection.includes('for name=eligibilityDecoratorLine from=0 to=lineStarts.length') &&
-    projection.includes('let name=inRun value="eligibilityDecoratorLine <= activeLast"') &&
-    projection.includes('let name=disposition value="inRun ? activeDisposition : \\"candidate\\""') &&
-    projection.includes('disposition == \\"candidate\\" && successorInRange && successorKind == \\"fn\\"') &&
-    projection.includes('successorIndent == decoratorIndent && !successorDetached') &&
-    projection.includes('attach ? \\"attached\\" : \\"dropped\\"') &&
-    projection.includes('if cond="attach && explicit"') &&
-    diagnostic.includes('while cond="cursor < Text.length(decorators)"') &&
-    diagnostic.includes('if cond="f4tapefield(item[0], 1) == \\"dropped\\""') &&
-    diagnostic.includes('publicParts.push(f4item(row))');
+  return [
+    ['transport run loop', projection.includes('for name=eligibilityDecoratorRun from=0 to=decoratorFirsts.length')],
+    ['per-line row loop', projection.includes('for name=eligibilityDecoratorLine from=0 to=lineStarts.length')],
+    ['run membership', projection.includes('let name=inRun value="eligibilityDecoratorLine <= activeLast"')],
+    ['transported disposition', projection.includes('let name=disposition value="inRun ? activeDisposition : \\"candidate\\""')],
+    ['candidate fn predicate', projection.includes('disposition == \\"candidate\\" && successorInRange && successorKind == \\"fn\\"')],
+    ['indent and detached predicate', projection.includes('successorIndent == decoratorIndent && !successorDetached')],
+    ['row disposition', projection.includes('attach ? \\"attached\\" : \\"dropped\\"')],
+    ['explicit export predicate', projection.includes('if cond="attach && explicit"')],
+    ['diagnostic row loop', diagnostic.includes('while cond="cursor < Text.length(decorators)"')],
+    ['dropped warning predicate', diagnostic.includes('if cond="f4tapefield(item[0], 1) == \\"dropped\\""')],
+    ['warning append', diagnostic.includes('publicParts.push(f4item(row))')],
+  ].filter(([, passes]) => !passes).map(([name]) => name);
 }
 
 function mutateDecoratorTransport(input, operation) {
   const keys = ['decoratorFirsts', 'decoratorLasts', 'decoratorSuccessors', 'decoratorDispositions'];
   const vectors = keys.map((key) => input[key]);
-  assert.ok(vectors.every((vector) => vector.length >= 2), `${operation}: needs two runs`);
+  const minimum = operation === 'swap' || operation === 'successor' ? 2 : 1;
+  assert.ok(vectors.every((vector) => vector.length >= minimum),
+    `${operation}: needs ${minimum} run(s), got ${vectors.map((vector) => vector.length).join('/')}`);
   if (operation === 'delete') {
     for (const vector of vectors) vector.splice(0, 1);
   } else if (operation === 'duplicate') {
@@ -118,6 +123,7 @@ test('A4-D1: a plain decorator run attaches in order and explicit export is an i
 
 test('A4-D2/D7: explicit non-fn and detached targets drop without export effects', () => {
   const nonFn = f4('a4-explicit-drop.kern', 'export @trace\ntype name=Alias alias=string\n');
+  assert.equal(nonFn.status, 'rejected');
   assert.deepEqual(decoratorRows(nonFn), [[0, 'dropped', -1, true, 0, 13]]);
   assert.equal(nonFn.symbols.some((row) => row.exported), false);
   assert.equal(nonFn.diagnostics.filter((row) => row.code === 'DROPPED_DECORATOR').length, 1);
@@ -252,7 +258,7 @@ test('A4-D10: decorator-run transport mutations fail atomically before semantic 
 });
 
 test('A4-D11/D12: structural canaries kill per-run, disposition, target-kind, and warning suppression', () => {
-  assert.equal(projectionShape(ELIGIBILITY_SOURCE, DIAGNOSTIC_SOURCE), true, 'current source is complete');
+  assert.deepEqual(projectionFailures(ELIGIBILITY_SOURCE, DIAGNOSTIC_SOURCE), [], 'current source is complete');
   for (const [name, eligibility, diagnostic] of [
     ['per-run emission', ELIGIBILITY_SOURCE.replace(
       'for name=eligibilityDecoratorLine from=0 to=lineStarts.length',
@@ -267,5 +273,5 @@ test('A4-D11/D12: structural canaries kill per-run, disposition, target-kind, an
       'if cond="f4tapefield(item[0], 1) == \\"attached\\""')],
     ['warning append removed', ELIGIBILITY_SOURCE, DIAGNOSTIC_SOURCE.replace(
       'do value="publicParts.push(f4item(row))"', 'do value="String(row)"')],
-  ]) assert.equal(projectionShape(eligibility, diagnostic), false, name);
+  ]) assert.notDeepEqual(projectionFailures(eligibility, diagnostic), [], name);
 });

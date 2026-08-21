@@ -96,7 +96,7 @@ and the vocabulary is frozen.
 | File | Action | Reason |
 | --- | --- | --- |
 | `.Codex/specs/kern-5-f4-m1-a4-decorator-closure/spec.md` | Add | Freeze A4 scope and acceptance. |
-| `scripts/kern-frontend-f4-declarations/a4-decorator-closure.test.mjs` | Add | Public-path D1-D10 evidence and source mutation guards. |
+| `scripts/kern-frontend-f4-declarations/a4-decorator-closure.test.mjs` | Add | Public-path D1-D12 evidence and source mutation guards; D7 shares the D2 compatibility case. |
 | `scripts/kern-frontend-f4-declarations/worker.mjs` | Test-only change if required | Private, descriptor-shaped F3 transport mutation seam for D10; public `runDocument` stays unchanged. |
 | `examples/kern-frontend/f4-line-eligibility.kern` | Conditional | Only if a semantic RED proves row/attachment behavior wrong. |
 | `examples/kern-frontend/f4-diagnostic-merge.kern` | Conditional | Only if a semantic RED proves warning multiplicity/order wrong. |
@@ -145,9 +145,12 @@ and the vocabulary is frozen.
   decorator; the diagnostic loop emits one warning per dropped row. Canaries
   that change “per row” to “per run,” ignore disposition, attach regardless of
   target kind, or suppress the dropped-row loop must fail.
-- **[A4-D12] Mutation strength.** Before any production edit, isolated source
-  mutations corresponding to D3, D4, D5, D8, and D10 must be killed by at least
-  three distinct semantic families. If fewer than three families discriminate,
+- **[A4-D12] Mutation strength.** On the evidence-only baseline, isolated
+  structural mutations must break the per-row projection, disposition, target-
+  kind, and warning-emission source oracle, while D10 executes real transported
+  mutations through one F4 invocation each. If a future baseline exposes a
+  production RED, add runtime composition mutations that are killed by at
+  least three distinct semantic families before editing production; otherwise
   strengthen the oracle and do not implement.
 - Focused A4, adjacent A6/C13/document/line-eligibility, and the complete F4
   declarations wall pass with zero fail/skip. Lint, repository consistency,
@@ -199,3 +202,4 @@ Stop and respec if the slice requires:
 | The whole 26-form A3 corpus can move to M3. | Semantic coverage remains an M1 dependency; scale/adversarial expansion belongs in M3. | Sequence A4, A5 remainder, A3 semantic, then M2/M3. |
 | One dropped diagnostic per run is sufficient. | The frozen F4 contract maps each grammar-valid decorator row independently; every dropped row requires its own warning. | D3/D4/D8 assert row cardinality and spans. |
 | `export @name` can be placed inside the same authenticated F3 run as plain `@name`. | A real F3/F4 probe on 2026-08-22 showed `@first\nexport @second\nfn name=main\n` produces an F3 run only for ordinal 0; F4 independently recognizes ordinal 1 as an explicit decorator. | Split D1 into a plain multi-row run and a separate explicit-export control. |
+| Structural substring canaries alone prove three runtime semantic mutation families. | They prove source coupling only; real transported mutation execution is D10. Runtime composition mutation is required only if a future production RED authorizes a KERN edit. | Narrow D12 and avoid claiming evidence that was not run. |
