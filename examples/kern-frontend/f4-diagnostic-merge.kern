@@ -64,10 +64,10 @@ fn name=f4diagstateappend returns="string[]"
     let name=framedRow value="f4item(row)"
     let name=nextCount value="count + 1"
     let name=nextBytes value="bytes + Text.utf8Length(framedRow)"
-    let name=nextWork value="work + Text.length(framedEntry) + Text.length(framedRow) + 1"
+    let name=nextWork value="work + Text.length(framedRow) + 1"
     if cond="nextCount > maxDiagnostics || nextBytes > maxEncodedBytes || baseWorkSteps + nextWork > maxWorkSteps"
       return value="[\"limit\", \"\", String(nextCount), String(nextBytes), String(nextWork), String(lastStart), String(lastPhase), String(lastRule)]"
-    return value="[\"ok\", tape + framedEntry, String(nextCount), String(nextBytes), String(nextWork), String(start), String(phase), String(rule)]"
+    return value="[\"ok\", tape, String(nextCount), String(nextBytes), String(nextWork), String(start), String(phase), String(rule), framedEntry]"
 
 fn name=f4diagphasefrompublic returns="string[]"
   param name=publicTape type=string
@@ -80,6 +80,7 @@ fn name=f4diagphasefrompublic returns="string[]"
   handler lang="kern"
     let name=status value="\"ok\""
     let name=tape value="\"\""
+    let name=parts value="[]"
     let name=count value=0
     let name=bytes value=0
     let name=work value=0
@@ -101,8 +102,14 @@ fn name=f4diagphasefrompublic returns="string[]"
       assign target=lastStart value="appended[5] == \"-1\" ? -1 : f2uint(appended[5])"
       assign target=lastPhase value="appended[6] == \"-1\" ? -1 : f2uint(appended[6])"
       assign target=lastRule value="appended[7] == \"-1\" ? -1 : f2uint(appended[7])"
+      if cond="status == \"ok\""
+        do value="parts.push(appended[8])"
       assign target=cursor value=next
-    return value="[status, tape, String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    if cond="status != \"ok\""
+      return value="[status, \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=folded value="f4balancedtapefold(parts, baseWorkSteps + work, maxWorkSteps)"
+    let name=foldWork value="f2uint(folded[2]) - baseWorkSteps"
+    return value="[folded[0], folded[0] == \"ok\" ? folded[1] : \"\", String(count), String(bytes), String(foldWork), String(lastStart), String(lastPhase), String(lastRule)]"
 
 fn name=f4diagpropertyphase returns="string[]"
   param name=occurrences type=string
@@ -116,6 +123,7 @@ fn name=f4diagpropertyphase returns="string[]"
   handler lang="kern"
     let name=status value="\"ok\""
     let name=tape value="\"\""
+    let name=parts value="[]"
     let name=count value=0
     let name=bytes value=0
     let name=work value=0
@@ -154,6 +162,8 @@ fn name=f4diagpropertyphase returns="string[]"
         assign target=lastStart value="appendedDuplicate[5] == \"-1\" ? -1 : f2uint(appendedDuplicate[5])"
         assign target=lastPhase value="appendedDuplicate[6] == \"-1\" ? -1 : f2uint(appendedDuplicate[6])"
         assign target=lastRule value="appendedDuplicate[7] == \"-1\" ? -1 : f2uint(appendedDuplicate[7])"
+        if cond="status == \"ok\""
+          do value="parts.push(appendedDuplicate[8])"
       if cond="propertyOrdinal < 0"
         return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
       if cond="propertyOrdinal >= propertyValueTapes.length"
@@ -184,11 +194,17 @@ fn name=f4diagpropertyphase returns="string[]"
         assign target=lastStart value="appendedRejected[5] == \"-1\" ? -1 : f2uint(appendedRejected[5])"
         assign target=lastPhase value="appendedRejected[6] == \"-1\" ? -1 : f2uint(appendedRejected[6])"
         assign target=lastRule value="appendedRejected[7] == \"-1\" ? -1 : f2uint(appendedRejected[7])"
+        if cond="status == \"ok\""
+          do value="parts.push(appendedRejected[8])"
       do value="Map.set(effective, String(effectiveKey), ordinal)"
       assign target=cursor value=next
+    if cond="status != \"ok\""
+      return value="[status, \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
     if cond="cursor != Text.length(occurrences)"
       return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
-    return value="[status, tape, String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=folded value="f4balancedtapefold(parts, baseWorkSteps + work, maxWorkSteps)"
+    let name=foldWork value="f2uint(folded[2]) - baseWorkSteps"
+    return value="[folded[0], folded[0] == \"ok\" ? folded[1] : \"\", String(count), String(bytes), String(foldWork), String(lastStart), String(lastPhase), String(lastRule)]"
 
 fn name=f4diagdecoratorphase returns="string[]"
   param name=decorators type=string
@@ -197,7 +213,7 @@ fn name=f4diagdecoratorphase returns="string[]"
   param name=baseWorkSteps type=number
   param name=maxWorkSteps type=number
   handler lang="kern"
-    let name=publicTape value="\"\""
+    let name=publicParts value="[]"
     let name=cursor value=0
     while cond="cursor < Text.length(decorators)"
       let name=item value="f2batchmarked(decorators, cursor, \"i\")"
@@ -206,10 +222,14 @@ fn name=f4diagdecoratorphase returns="string[]"
         return value="[\"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
       if cond="f4tapefield(item[0], 1) == \"dropped\""
         let name=row value="f4row5(\"DROPPED_DECORATOR\", \"warning\", f4tapefield(item[0], 4), f4tapefield(item[0], 5), f4tapefield(item[0], 0))"
-        assign target=publicTape value="f4append(publicTape, row)"
+        do value="publicParts.push(f4item(row))"
       assign target=cursor value=next
-    let name=phaseState value="f4diagphasefrompublic(publicTape, 2, 0, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
-    return value=phaseState
+    let name=publicFold value="f4balancedtapefold(publicParts, baseWorkSteps, maxWorkSteps)"
+    if cond="publicFold[0] != \"ok\""
+      return value="[publicFold[0] == \"limit\" ? \"limit\" : \"drift\", \"\", \"0\", \"0\", String(f2uint(publicFold[2]) - baseWorkSteps), \"-1\", \"-1\", \"-1\"]"
+    let name=phaseState value="f4diagphasefrompublic(publicFold[1], 2, 0, maxDiagnostics, maxEncodedBytes, f2uint(publicFold[2]), maxWorkSteps)"
+    let name=combinedWork value="f2uint(publicFold[2]) - baseWorkSteps + f2uint(phaseState[4])"
+    return value="[phaseState[0], phaseState[1], phaseState[2], phaseState[3], String(combinedWork), phaseState[5], phaseState[6], phaseState[7]]"
 
 fn name=f4diagrootphase returns="string[]"
   param name=facts type=string
@@ -218,7 +238,7 @@ fn name=f4diagrootphase returns="string[]"
   param name=baseWorkSteps type=number
   param name=maxWorkSteps type=number
   handler lang="kern"
-    let name=publicTape value="\"\""
+    let name=publicParts value="[]"
     let name=cursor value=0
     while cond="cursor < Text.length(facts)"
       let name=item value="f2batchmarked(facts, cursor, \"i\")"
@@ -227,10 +247,14 @@ fn name=f4diagrootphase returns="string[]"
         return value="[\"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
       if cond="f4tapefield(item[0], 0) == \"module\" && f4tapefield(item[0], 1) == \"invalid-module-root\""
         let name=row value="f4row5(\"FRONTEND_UNSUPPORTED_MODULE_ROOT\", \"error\", f4tapefield(item[0], 2), f4tapefield(item[0], 3), f4tapefield(item[0], 4))"
-        assign target=publicTape value="f4append(publicTape, row)"
+        do value="publicParts.push(f4item(row))"
       assign target=cursor value=next
-    let name=phaseState value="f4diagphasefrompublic(publicTape, 3, 0, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
-    return value=phaseState
+    let name=publicFold value="f4balancedtapefold(publicParts, baseWorkSteps, maxWorkSteps)"
+    if cond="publicFold[0] != \"ok\""
+      return value="[publicFold[0] == \"limit\" ? \"limit\" : \"drift\", \"\", \"0\", \"0\", String(f2uint(publicFold[2]) - baseWorkSteps), \"-1\", \"-1\", \"-1\"]"
+    let name=phaseState value="f4diagphasefrompublic(publicFold[1], 3, 0, maxDiagnostics, maxEncodedBytes, f2uint(publicFold[2]), maxWorkSteps)"
+    let name=combinedWork value="f2uint(publicFold[2]) - baseWorkSteps + f2uint(phaseState[4])"
+    return value="[phaseState[0], phaseState[1], phaseState[2], phaseState[3], String(combinedWork), phaseState[5], phaseState[6], phaseState[7]]"
 
 fn name=f4diaghead returns="string[]"
   param name=tape type=string
@@ -379,7 +403,7 @@ fn name=f4diagmerge returns="string[]"
     let name=rowC value="initialC[5]"
     let name=rowD value="initialD[5]"
     let name=work value="f2uint(propertyState[4]) + f2uint(expressionState[4]) + f2uint(decoratorState[4]) + f2uint(rootState[4]) + f2uint(initialA[6]) + f2uint(initialB[6]) + f2uint(initialC[6]) + f2uint(initialD[6])"
-    let name=diagnostics value="\"\""
+    let name=diagnosticParts value="[]"
     let name=count value=0
     let name=bytes value=0
     while cond="statusA == \"head\" || statusB == \"head\" || statusC == \"head\" || statusD == \"head\""
@@ -400,10 +424,10 @@ fn name=f4diagmerge returns="string[]"
       let name=framedRow value="f4item(selectedRow)"
       let name=nextCount value="count + 1"
       let name=nextBytes value="bytes + Text.utf8Length(framedRow)"
-      let name=nextWork value="work + 4 + Text.length(framedRow)"
+      let name=nextWork value="work + 4"
       if cond="nextCount > maxDiagnostics || nextBytes > maxEncodedBytes || baseWorkSteps + nextWork > maxWorkSteps"
         return value="[\"limit\", \"\", String(nextWork)]"
-      assign target=diagnostics value="diagnostics + framedRow"
+      do value="diagnosticParts.push(framedRow)"
       assign target=count value=nextCount
       assign target=bytes value=nextBytes
       assign target=work value=nextWork
@@ -455,4 +479,6 @@ fn name=f4diagmerge returns="string[]"
     let name=expectedBytes value="f2uint(propertyState[3]) + f2uint(expressionState[3]) + f2uint(decoratorState[3]) + f2uint(rootState[3])"
     if cond="count != expectedCount || bytes != expectedBytes"
       return value="[\"drift\", \"\", String(work)]"
-    return value="[\"ok\", diagnostics, String(work)]"
+    let name=diagnosticFold value="f4balancedtapefold(diagnosticParts, baseWorkSteps + work, maxWorkSteps)"
+    let name=diagnosticWork value="f2uint(diagnosticFold[2]) - baseWorkSteps"
+    return value="[diagnosticFold[0], diagnosticFold[0] == \"ok\" ? diagnosticFold[1] : \"\", String(diagnosticWork)]"

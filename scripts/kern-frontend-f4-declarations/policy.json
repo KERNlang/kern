@@ -128,7 +128,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-diagnostic-merge.kern",
-      "sha256": "6cdbbae8bde286ac3ae8b46b1ec1711f0a57f7e8c58538d12ae6361c1922e932"
+      "sha256": "ac03ab4e0a8f05a087aa062b8420e7c0340694948cdc35ec92e6719c272f3751"
+    },
+    {
+      "path": "examples/kern-frontend/f4-line-eligibility.kern",
+      "sha256": "86dcacd41479a6bf543dbd78ff6a3d1e3b37cbf244c03e5527c50dee1756f442"
     },
     {
       "path": "examples/kern-frontend/f4-prerequisite-envelope.kern",
@@ -136,7 +140,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic.kern",
-      "sha256": "4386ba808852e03321c0a762487f3db3222030401f183ea5a3d0cc6a1ccb614d"
+      "sha256": "7d39656a31128aa8e84685bd9e6238a4137e3cf41eafc04f583dad7efbbfae83"
+    },
+    {
+      "path": "examples/kern-frontend/f4-declarations-semantic-tail.kernpart",
+      "sha256": "3c15796774f53c3b8b0e7b3365bb873c4f23d372adec1e55b45b6eb8dc997d90"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-main.kern",

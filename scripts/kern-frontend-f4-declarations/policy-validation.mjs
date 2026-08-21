@@ -20,8 +20,10 @@ export const F4_COMPOSITION_PATHS = [
   'examples/kern-frontend/f4-path-contract.kern',
   'examples/kern-frontend/f4-expression-evidence.kern',
   'examples/kern-frontend/f4-diagnostic-merge.kern',
+  'examples/kern-frontend/f4-line-eligibility.kern',
   'examples/kern-frontend/f4-prerequisite-envelope.kern',
   'examples/kern-frontend/f4-declarations-semantic.kern',
+  'examples/kern-frontend/f4-declarations-semantic-tail.kernpart',
   'examples/kern-frontend/f4-declarations-main.kern',
 ];
 export const COMPOSITION_PATHS = [...F3_COMPOSITION_PATHS, ...F2_COMPOSITION_PATHS, ...F4_COMPOSITION_PATHS];

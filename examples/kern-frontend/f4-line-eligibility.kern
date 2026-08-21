@@ -1,0 +1,446 @@
+fn name=f4linehorizontal returns=boolean
+  param name=character type=string
+  handler lang="kern"
+    return value="character == \" \" || character == \"\\t\""
+
+fn name=f4lineecmascriptspace returns=boolean
+  param name=character type=string
+  handler lang="kern"
+    if cond="character == \"\\u0009\" || character == \"\\u000a\" || character == \"\\u000b\" || character == \"\\u000c\" || character == \"\\u000d\" || character == \" \""
+      return value=true
+    if cond="character == \"\\u00a0\" || character == \"\\u1680\" || (character >= \"\\u2000\" && character <= \"\\u200a\")"
+      return value=true
+    return value="character == \"\\u2028\" || character == \"\\u2029\" || character == \"\\u202f\" || character == \"\\u205f\" || character == \"\\u3000\" || character == \"\\ufeff\""
+
+fn name=f4lineidentstart returns=boolean
+  param name=character type=string
+  handler lang="kern"
+    return value="Text.indexOf(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$\", character) >= 0"
+
+fn name=f4lineidentcontinue returns=boolean
+  param name=character type=string
+  handler lang="kern"
+    return value="Text.indexOf(\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$0123456789\", character) >= 0"
+
+fn name=f4lineeligibility returns="string[]"
+  param name=rawLine type=string
+  handler lang="kern"
+    let name=length value="Text.length(rawLine)"
+    let name=scan value=0
+    let name=end value=length
+    let name=quote value="\"\""
+    let name=expressionDepth value=0
+    let name=styleDepth value=0
+    let name=work value=0
+    let name=commentFound value=false
+    while cond="scan < length && !commentFound"
+      let name=character value="Text.charAt(rawLine, scan)"
+      assign target=work value="work + 1"
+      if cond="quote != \"\""
+        if cond="character == \"\\\\\" && scan + 1 < length"
+          assign target=scan value="scan + 2"
+          assign target=work value="work + 1"
+          continue
+        if cond="character == quote"
+          assign target=quote value="\"\""
+        assign target=scan value="scan + 1"
+        continue
+      if cond="character == \"\\\"\" || character == \"'\""
+        assign target=quote value=character
+        assign target=scan value="scan + 1"
+        continue
+      if cond="scan + 1 < length && Text.slice(rawLine, scan, scan + 2) == \"{{\""
+        assign target=expressionDepth value="expressionDepth + 1"
+        assign target=scan value="scan + 2"
+        assign target=work value="work + 1"
+        continue
+      if cond="scan + 1 < length && Text.slice(rawLine, scan, scan + 2) == \"}}\" && expressionDepth > 0"
+        assign target=expressionDepth value="expressionDepth - 1"
+        assign target=scan value="scan + 2"
+        assign target=work value="work + 1"
+        continue
+      if cond="expressionDepth > 0"
+        assign target=scan value="scan + 1"
+        continue
+      if cond="character == \"{\""
+        assign target=styleDepth value="styleDepth + 1"
+        assign target=scan value="scan + 1"
+        continue
+      if cond="character == \"}\" && styleDepth > 0"
+        assign target=styleDepth value="styleDepth - 1"
+        assign target=scan value="scan + 1"
+        continue
+      if cond="styleDepth > 0"
+        assign target=scan value="scan + 1"
+        continue
+      let name=preceded value="scan == 0"
+      if cond="scan > 0"
+        let name=previous value="Text.charAt(rawLine, scan - 1)"
+        assign target=preceded value="f4linehorizontal(previous)"
+      if cond="preceded && character == \"#\""
+        assign target=end value=scan
+        assign target=commentFound value=true
+        continue
+      if cond="preceded && character == \"/\" && scan + 1 < length && Text.charAt(rawLine, scan + 1) == \"/\""
+        assign target=end value=scan
+        assign target=commentFound value=true
+        continue
+      assign target=scan value="scan + 1"
+    while cond="end > 0 && f4lineecmascriptspace(Text.charAt(rawLine, end - 1))"
+      assign target=end value="end - 1"
+      assign target=work value="work + 1"
+    let name=left value=0
+    while cond="left < end && f4lineecmascriptspace(Text.charAt(rawLine, left))"
+      assign target=left value="left + 1"
+      assign target=work value="work + 1"
+    let name=at value=-1
+    let name=explicitExport value=false
+    if cond="left < end && Text.charAt(rawLine, left) == \"@\""
+      assign target=at value=left
+    if cond="at < 0 && left + 6 < end && Text.slice(rawLine, left, left + 6) == \"export\""
+      let name=afterExport value="left + 6"
+      if cond="f4lineecmascriptspace(Text.charAt(rawLine, afterExport))"
+        while cond="afterExport < end && f4lineecmascriptspace(Text.charAt(rawLine, afterExport))"
+          assign target=afterExport value="afterExport + 1"
+          assign target=work value="work + 1"
+        if cond="afterExport < end && Text.charAt(rawLine, afterExport) == \"@\""
+          assign target=at value=afterExport
+          assign target=explicitExport value=true
+    if cond="at < 0"
+      return value="[\"ordinary\", String(left), String(end), \"false\", \"\", \"-1\", \"-1\", \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    let name=nameStart value="at + 1"
+    if cond="nameStart >= end"
+      return value="[\"decorator-invalid\", String(left), String(end), explicitExport ? \"true\" : \"false\", \"\", \"-1\", \"-1\", \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    if cond="!f4lineidentstart(Text.charAt(rawLine, nameStart))"
+      return value="[\"decorator-invalid\", String(left), String(end), explicitExport ? \"true\" : \"false\", \"\", \"-1\", \"-1\", \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    let name=nameEnd value="nameStart + 1"
+    while cond="nameEnd < end && f4lineidentcontinue(Text.charAt(rawLine, nameEnd))"
+      assign target=nameEnd value="nameEnd + 1"
+      assign target=work value="work + 1"
+    let name=pathValid value=true
+    while cond="nameEnd < end && Text.charAt(rawLine, nameEnd) == \".\" && pathValid"
+      let name=segmentStart value="nameEnd + 1"
+      if cond="segmentStart >= end"
+        assign target=pathValid value=false
+      else
+        if cond="!f4lineidentstart(Text.charAt(rawLine, segmentStart))"
+          assign target=pathValid value=false
+        else
+          assign target=nameEnd value="segmentStart + 1"
+          while cond="nameEnd < end && f4lineidentcontinue(Text.charAt(rawLine, nameEnd))"
+            assign target=nameEnd value="nameEnd + 1"
+            assign target=work value="work + 1"
+    if cond="!pathValid"
+      return value="[\"decorator-invalid\", String(left), String(end), explicitExport ? \"true\" : \"false\", \"\", \"-1\", \"-1\", \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    let name=decoratorName value="Text.slice(rawLine, nameStart, nameEnd)"
+    if cond="nameEnd == end"
+      return value="[\"decorator-valid\", String(left), String(end), explicitExport ? \"true\" : \"false\", decoratorName, String(nameStart), String(nameEnd), \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    if cond="Text.charAt(rawLine, nameEnd) != \"(\""
+      return value="[\"decorator-invalid\", String(left), String(end), explicitExport ? \"true\" : \"false\", \"\", \"-1\", \"-1\", \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    if cond="Text.charAt(rawLine, end - 1) != \")\""
+      return value="[\"decorator-invalid\", String(left), String(end), explicitExport ? \"true\" : \"false\", \"\", \"-1\", \"-1\", \"false\", \"\", \"-1\", \"-1\", String(work)]"
+    let name=argsStart value="nameEnd + 1"
+    let name=argsEnd value="end - 1"
+    while cond="argsStart < argsEnd && f4lineecmascriptspace(Text.charAt(rawLine, argsStart))"
+      assign target=argsStart value="argsStart + 1"
+      assign target=work value="work + 1"
+    while cond="argsEnd > argsStart && f4lineecmascriptspace(Text.charAt(rawLine, argsEnd - 1))"
+      assign target=argsEnd value="argsEnd - 1"
+      assign target=work value="work + 1"
+    let name=args value="Text.slice(rawLine, argsStart, argsEnd)"
+    return value="[\"decorator-valid\", String(left), String(end), explicitExport ? \"true\" : \"false\", decoratorName, String(nameStart), String(nameEnd), \"true\", args, String(argsStart), String(argsEnd), String(work)]"
+
+fn name=f4decoratorrows returns="string[]"
+  param name=lineStarts type="number[]"
+  param name=lineEnds type="number[]"
+  param name=lineIndents type="number[]"
+  param name=kinds type="string[]"
+  param name=explicitExports type="string[]"
+  param name=decoratorFirsts type="number[]"
+  param name=decoratorLasts type="number[]"
+  param name=decoratorSuccessors type="number[]"
+  param name=decoratorDispositions type="string[]"
+  handler lang="kern"
+    if cond="kinds.length != lineStarts.length || explicitExports.length != lineStarts.length || lineEnds.length != lineStarts.length || lineIndents.length != lineStarts.length"
+      return value="[\"drift\", \"\", \"\", \"0\"]"
+    if cond="decoratorLasts.length != decoratorFirsts.length || decoratorSuccessors.length != decoratorFirsts.length || decoratorDispositions.length != decoratorFirsts.length"
+      return value="[\"drift\", \"\", \"\", \"0\"]"
+    let name=lastByFirst value="new Map()"
+    let name=successorByFirst value="new Map()"
+    let name=dispositionByFirst value="new Map()"
+    let name=kindByOrdinal value="new Map()"
+    let name=indentByOrdinal value="new Map()"
+    let name=work value=0
+    for name=eligibilityLineOrdinal from=0 to=lineStarts.length
+      let name=ordinalKey value="String(eligibilityLineOrdinal)"
+      let name=ordinalKind value="kinds[eligibilityLineOrdinal]"
+      let name=ordinalIndent value="lineIndents[eligibilityLineOrdinal]"
+      do value="Map.set(kindByOrdinal, String(ordinalKey), ordinalKind)"
+      do value="Map.set(indentByOrdinal, String(ordinalKey), ordinalIndent)"
+      assign target=work value="work + 2"
+    for name=eligibilityDecoratorRun from=0 to=decoratorFirsts.length
+      let name=first value="decoratorFirsts[eligibilityDecoratorRun]"
+      do value="Map.set(lastByFirst, String(first), decoratorLasts[eligibilityDecoratorRun])"
+      do value="Map.set(successorByFirst, String(first), decoratorSuccessors[eligibilityDecoratorRun])"
+      do value="Map.set(dispositionByFirst, String(first), decoratorDispositions[eligibilityDecoratorRun])"
+      assign target=work value="work + 1"
+    let name=activeLast value=-1
+    let name=activeSuccessor value=-1
+    let name=activeDisposition value="\"\""
+    let name=decorators value="\"\""
+    let name=exportTargets value="\"\""
+    for name=eligibilityDecoratorLine from=0 to=lineStarts.length
+      let name=decoratorOrdinalKey value="String(eligibilityDecoratorLine)"
+      if cond="!Map.has(kindByOrdinal, String(decoratorOrdinalKey))"
+        return value="[\"drift\", \"\", \"\", String(work)]"
+      if cond="!Map.has(indentByOrdinal, String(decoratorOrdinalKey))"
+        return value="[\"drift\", \"\", \"\", String(work)]"
+      let name=decoratorKind value="Map.get(kindByOrdinal, String(decoratorOrdinalKey))"
+      let name=decoratorIndent value="Map.get(indentByOrdinal, String(decoratorOrdinalKey))"
+      if cond="Map.has(lastByFirst, String(eligibilityDecoratorLine))"
+        assign target=activeLast value="Map.get(lastByFirst, String(eligibilityDecoratorLine))"
+        assign target=activeSuccessor value="Map.get(successorByFirst, String(eligibilityDecoratorLine))"
+        assign target=activeDisposition value="Map.get(dispositionByFirst, String(eligibilityDecoratorLine))"
+      if cond="decoratorKind == \"decorator\""
+        let name=inRun value="eligibilityDecoratorLine <= activeLast"
+        let name=successor value="inRun ? activeSuccessor : eligibilityDecoratorLine + 1"
+        let name=disposition value="inRun ? activeDisposition : \"candidate\""
+        let name=successorInRange value="successor >= 0 && successor < lineStarts.length"
+        let name=successorKind value="\"\""
+        let name=successorIndent value=-1
+        if cond=successorInRange
+          let name=successorOrdinalKey value="String(successor)"
+          if cond="!Map.has(kindByOrdinal, String(successorOrdinalKey))"
+            return value="[\"drift\", \"\", \"\", String(work)]"
+          if cond="!Map.has(indentByOrdinal, String(successorOrdinalKey))"
+            return value="[\"drift\", \"\", \"\", String(work)]"
+          assign target=successorKind value="Map.get(kindByOrdinal, String(successorOrdinalKey))"
+          assign target=successorIndent value="Map.get(indentByOrdinal, String(successorOrdinalKey))"
+        let name=attach value="disposition == \"candidate\" && successorInRange && successorKind == \"fn\" && successorIndent == decoratorIndent"
+        let name=explicit value="explicitExports[eligibilityDecoratorLine] == \"true\""
+        let name=row value="f4row6(String(eligibilityDecoratorLine), attach ? \"attached\" : \"dropped\", attach ? String(successor) : \"-1\", explicit ? \"true\" : \"false\", String(lineStarts[eligibilityDecoratorLine]), String(lineEnds[eligibilityDecoratorLine]))"
+        assign target=decorators value="f4append(decorators, row)"
+        if cond="attach && explicit"
+          assign target=exportTargets value="f4append(exportTargets, f4row1(String(successor)))"
+        assign target=work value="work + 1"
+    return value="[\"ok\", decorators, exportTargets, String(work)]"
+
+fn name=f4eligibilityleafadmit returns="string[]"
+  param name=row type=string
+  param name=fieldCount type=number
+  param name=count type=number
+  param name=bytes type=number
+  param name=work type=number
+  param name=maxCount type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="f4tapecount(row) != fieldCount"
+      return value="[\"drift\", String(count), String(bytes), String(work), \"\"]"
+    let name=framed value="f4item(row)"
+    let name=nextCount value="count + 1"
+    let name=nextBytes value="bytes + Text.utf8Length(framed)"
+    let name=nextWork value="work + 1"
+    if cond="nextCount > maxCount"
+      return value="[\"limit\", String(nextCount), String(nextBytes), String(nextWork), \"\"]"
+    if cond="nextBytes > maxEncodedBytes"
+      return value="[\"limit\", String(nextCount), String(nextBytes), String(nextWork), \"\"]"
+    if cond="nextWork > maxWorkSteps"
+      return value="[\"limit\", String(nextCount), String(nextBytes), String(nextWork), \"\"]"
+    return value="[\"ok\", String(nextCount), String(nextBytes), String(nextWork), framed]"
+
+fn name=f4framedtapeparts returns="string[]"
+  param name=tape type=string
+  param name=fieldCount type=number
+  handler lang="kern"
+    let name=parts value="[]"
+    do value="parts.push(\"ok\")"
+    let name=cursor value=0
+    while cond="cursor < Text.length(tape)"
+      let name=item value="f2batchmarked(tape, cursor, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next < 0"
+        return value="[\"drift\"]"
+      if cond="f4tapecount(item[0]) != fieldCount"
+        return value="[\"drift\"]"
+      do value="parts.push(f4item(item[0]))"
+      assign target=cursor value=next
+    if cond="cursor != Text.length(tape)"
+      return value="[\"drift\"]"
+    return value=parts
+
+fn name=f4balancedtapefold returns="string[]"
+  param name=parts type="string[]"
+  param name=baseWorkSteps type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="baseWorkSteps < 0"
+      return value="[\"drift\", \"\", String(baseWorkSteps)]"
+    if cond="maxWorkSteps < baseWorkSteps"
+      return value="[\"limit\", \"\", String(baseWorkSteps)]"
+    let name=partByIndex value="new Map()"
+    let name=lengthByIndex value="new Map()"
+    for name=foldPartIndex from=0 to=parts.length
+      let name=part value="parts[foldPartIndex]"
+      let name=partLength value="Text.length(part)"
+      let name=item value="f2batchmarked(part, 0, \"i\")"
+      let name=next value="f2uint(item[1])"
+      if cond="next != partLength"
+        return value="[\"drift\", \"\", String(baseWorkSteps)]"
+      if cond="f4tapecount(part) != 1"
+        return value="[\"drift\", \"\", String(baseWorkSteps)]"
+      do value="Map.set(partByIndex, String(foldPartIndex), part)"
+      do value="Map.set(lengthByIndex, String(foldPartIndex), partLength)"
+    let name=copyWork value=0
+    let name=activeCount value=parts.length
+    while cond="activeCount > 1"
+      let name=inputIndex value=0
+      let name=outputIndex value=0
+      while cond="inputIndex < activeCount"
+        let name=leftKey value="String(inputIndex)"
+        if cond="!Map.has(lengthByIndex, String(leftKey))"
+          return value="[\"drift\", \"\", String(baseWorkSteps)]"
+        let name=leftLength value="Map.get(lengthByIndex, String(leftKey))"
+        if cond="inputIndex + 1 < activeCount"
+          let name=rightIndex value="inputIndex + 1"
+          let name=rightKey value="String(rightIndex)"
+          if cond="!Map.has(lengthByIndex, String(rightKey))"
+            return value="[\"drift\", \"\", String(baseWorkSteps)]"
+          let name=rightLength value="Map.get(lengthByIndex, String(rightKey))"
+          let name=combinedLength value="leftLength + rightLength"
+          assign target=copyWork value="copyWork + combinedLength"
+          do value="Map.set(lengthByIndex, String(outputIndex), combinedLength)"
+        else
+          do value="Map.set(lengthByIndex, String(outputIndex), leftLength)"
+        assign target=inputIndex value="inputIndex + 2"
+        assign target=outputIndex value="outputIndex + 1"
+      assign target=activeCount value=outputIndex
+    let name=checkedWork value="baseWorkSteps + copyWork"
+    if cond="checkedWork > maxWorkSteps"
+      return value="[\"limit\", \"\", String(checkedWork)]"
+    assign target=activeCount value=parts.length
+    while cond="activeCount > 1"
+      let name=inputIndex value=0
+      let name=outputIndex value=0
+      while cond="inputIndex < activeCount"
+        let name=leftKey value="String(inputIndex)"
+        if cond="!Map.has(partByIndex, String(leftKey))"
+          return value="[\"drift\", \"\", String(baseWorkSteps)]"
+        let name=left value="Map.get(partByIndex, String(leftKey))"
+        if cond="inputIndex + 1 < activeCount"
+          let name=rightIndex value="inputIndex + 1"
+          let name=rightKey value="String(rightIndex)"
+          if cond="!Map.has(partByIndex, String(rightKey))"
+            return value="[\"drift\", \"\", String(baseWorkSteps)]"
+          let name=right value="Map.get(partByIndex, String(rightKey))"
+          let name=combined value="left + right"
+          do value="Map.set(partByIndex, String(outputIndex), combined)"
+        else
+          do value="Map.set(partByIndex, String(outputIndex), left)"
+        assign target=inputIndex value="inputIndex + 2"
+        assign target=outputIndex value="outputIndex + 1"
+      assign target=activeCount value=outputIndex
+    let name=tape value="\"\""
+    if cond="parts.length > 0"
+      if cond="!Map.has(partByIndex, \"0\")"
+        return value="[\"drift\", \"\", String(baseWorkSteps)]"
+      assign target=tape value="Map.get(partByIndex, \"0\")"
+    return value="[\"ok\", tape, String(checkedWork)]"
+
+fn name=f4diagtwomerge returns="string[]"
+  param name=leftState type="string[]"
+  param name=rightState type="string[]"
+  param name=baseWorkSteps type=number
+  param name=maxDiagnostics type=number
+  param name=maxEncodedBytes type=number
+  param name=maxWorkSteps type=number
+  handler lang="kern"
+    if cond="leftState.length != 8"
+      return value="[\"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
+    if cond="rightState.length != 8"
+      return value="[\"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
+    if cond="leftState[0] != \"ok\""
+      return value="[leftState[0] == \"limit\" ? \"limit\" : \"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
+    if cond="rightState[0] != \"ok\""
+      return value="[rightState[0] == \"limit\" ? \"limit\" : \"drift\", \"\", \"0\", \"0\", \"0\", \"-1\", \"-1\", \"-1\"]"
+    let name=cursorLeft value=0
+    let name=cursorRight value=0
+    let name=initialLeft value="f4diaghead(leftState[1], cursorLeft)"
+    let name=initialRight value="f4diaghead(rightState[1], cursorRight)"
+    let name=statusLeft value="initialLeft[0]"
+    let name=statusRight value="initialRight[0]"
+    let name=nextLeft value="f2uint(initialLeft[1])"
+    let name=nextRight value="f2uint(initialRight[1])"
+    let name=startLeft value="initialLeft[2]"
+    let name=startRight value="initialRight[2]"
+    let name=phaseLeft value="initialLeft[3]"
+    let name=phaseRight value="initialRight[3]"
+    let name=ruleLeft value="initialLeft[4]"
+    let name=ruleRight value="initialRight[4]"
+    let name=rowLeft value="initialLeft[5]"
+    let name=rowRight value="initialRight[5]"
+    let name=status value="\"ok\""
+    let name=tape value="\"\""
+    let name=parts value="[]"
+    let name=count value=0
+    let name=bytes value=0
+    let name=lastStart value=-1
+    let name=lastPhase value=-1
+    let name=lastRule value=-1
+    let name=work value="f2uint(leftState[4]) + f2uint(rightState[4]) + f2uint(initialLeft[6]) + f2uint(initialRight[6])"
+    while cond="statusLeft == \"head\" || statusRight == \"head\""
+      if cond="statusLeft == \"drift\""
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      if cond="statusRight == \"drift\""
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      let name=selected value="f4diagpick(statusLeft, startLeft, phaseLeft, ruleLeft, statusRight, startRight, phaseRight, ruleRight, \"empty\", \"-1\", \"-1\", \"-1\", \"empty\", \"-1\", \"-1\", \"-1\")"
+      let name=selectedRow value="selected == 0 ? rowLeft : rowRight"
+      let name=selectedStart value="selected == 0 ? f2uint(startLeft) : f2uint(startRight)"
+      let name=selectedPhase value="selected == 0 ? f2uint(phaseLeft) : f2uint(phaseRight)"
+      let name=selectedRule value="selected == 0 ? f2uint(ruleLeft) : f2uint(ruleRight)"
+      if cond="selected < 0"
+        return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+      let name=appended value="f4diagstateappend(status, tape, count, bytes, work, lastStart, lastPhase, lastRule, selectedRow, selectedStart, selectedPhase, selectedRule, maxDiagnostics, maxEncodedBytes, baseWorkSteps, maxWorkSteps)"
+      assign target=status value="appended[0]"
+      assign target=tape value="appended[1]"
+      assign target=count value="f2uint(appended[2])"
+      assign target=bytes value="f2uint(appended[3])"
+      assign target=work value="f2uint(appended[4])"
+      assign target=lastStart value="appended[5] == \"-1\" ? -1 : f2uint(appended[5])"
+      assign target=lastPhase value="appended[6] == \"-1\" ? -1 : f2uint(appended[6])"
+      assign target=lastRule value="appended[7] == \"-1\" ? -1 : f2uint(appended[7])"
+      if cond="status == \"ok\""
+        do value="parts.push(appended[8])"
+      if cond="status != \"ok\""
+        break
+      if cond="selected == 0"
+        assign target=cursorLeft value=nextLeft
+        let name=followingLeft value="f4diaghead(leftState[1], cursorLeft)"
+        assign target=statusLeft value="followingLeft[0]"
+        assign target=nextLeft value="f2uint(followingLeft[1])"
+        assign target=startLeft value="followingLeft[2]"
+        assign target=phaseLeft value="followingLeft[3]"
+        assign target=ruleLeft value="followingLeft[4]"
+        assign target=rowLeft value="followingLeft[5]"
+        assign target=work value="work + f2uint(followingLeft[6])"
+      if cond="selected == 1"
+        assign target=cursorRight value=nextRight
+        let name=followingRight value="f4diaghead(rightState[1], cursorRight)"
+        assign target=statusRight value="followingRight[0]"
+        assign target=nextRight value="f2uint(followingRight[1])"
+        assign target=startRight value="followingRight[2]"
+        assign target=phaseRight value="followingRight[3]"
+        assign target=ruleRight value="followingRight[4]"
+        assign target=rowRight value="followingRight[5]"
+        assign target=work value="work + f2uint(followingRight[6])"
+    if cond="status != \"ok\""
+      return value="[status, tape, String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    if cond="statusLeft != \"empty\" || statusRight != \"empty\""
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=expectedCount value="f2uint(leftState[2]) + f2uint(rightState[2])"
+    let name=expectedBytes value="f2uint(leftState[3]) + f2uint(rightState[3])"
+    if cond="count != expectedCount || bytes != expectedBytes"
+      return value="[\"drift\", \"\", String(count), String(bytes), String(work), String(lastStart), String(lastPhase), String(lastRule)]"
+    let name=folded value="f4balancedtapefold(parts, baseWorkSteps + work, maxWorkSteps)"
+    let name=foldWork value="f2uint(folded[2]) - baseWorkSteps"
+    return value="[folded[0], folded[0] == \"ok\" ? folded[1] : \"\", String(count), String(bytes), String(foldWork), String(lastStart), String(lastPhase), String(lastRule)]"

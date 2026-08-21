@@ -1,0 +1,136 @@
+    let name=expressionResult value="f4expressionevidence(source, occurrenceDispositions, occurrenceRepresentations, occurrenceSegments, occurrenceValueStarts, occurrenceValueEnds, occurrenceRawValues, segmentBodies, segmentBodyStarts, segmentBodyEnds, f2bExpectedFields, maxExpressionEvidence, maxF4LocalF2Calls, maxAggregateExpressionScalars, maxAggregateExpressionNodes, maxExpressionAbsoluteSpans, maxExpressionBoundaryEntries, maxExpressionReceiptScalars, maxExpressionSourceScalars, maxExpressionTokens, maxExpressionNodes, expressionNodesPerChunk, maxExpressionChunks, maxExpressionTapeScalars, maxExpressionNestingDepth, maxExpressionWorkSteps)"
+    if cond="expressionResult[0] == \"drift\""
+      return value="f4fatal(\"F4_F2B_DRIFT\", sourceScalars)"
+    if cond="expressionResult[0] == \"limit\""
+      let name=expressionLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=expressionLimitFailure
+    let name=expressionEvidence value="expressionResult[1]"
+    let name=expressionDiagnosticState value="f4diagphasefrompublic(expressionResult[2], 1, 0, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=expressionFactParts value="f4framedtapeparts(expressionResult[3], 6)"
+    if cond="expressionFactParts[0] != \"ok\""
+      let name=expressionFactFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=expressionFactFailure
+    for name=expressionFactIndex from=1 to=expressionFactParts.length
+      let name=expressionFactPart value="expressionFactParts[expressionFactIndex]"
+      do value="factParts.push(expressionFactPart)"
+      assign target=factBytes value="factBytes + Text.utf8Length(expressionFactPart)"
+    assign target=factCount value="factCount + expressionFactParts.length - 1"
+    assign target=workSteps value="workSteps + f2uint(expressionResult[10])"
+    for name=attachmentEdge from=0 to=edgeChildren.length
+      let name=child value=edgeChildren[attachmentEdge]
+      let name=parent value=edgeParents[attachmentEdge]
+      do value="Map.set(parentByLine, String(child), parent)"
+      if cond="parent >= 0"
+        let name=allowed value=false
+        let name=parentKind value="Map.has(kindByLine, String(parent)) ? Map.get(kindByLine, String(parent)) : \"\""
+        let name=childKind value="Map.has(kindByLine, String(child)) ? Map.get(kindByLine, String(child)) : \"\""
+        if cond="Map.has(nodeModeMap, String(parentKind))"
+          let name=parentMode value="Map.get(nodeModeMap, String(parentKind))"
+          if cond="parentMode == \"unrestricted\""
+            assign target=allowed value=true
+          if cond="Text.indexOf(childKind, \"|\") < 0"
+            if cond="parentMode == \"explicit\" && Text.indexOf(\"|\" + Map.get(nodeChildTapeMap, String(parentKind)) + \"|\", \"|\" + childKind + \"|\") >= 0"
+              assign target=allowed value=true
+        let name=parentDetached value="Map.has(detachedByLine, String(parent)) && Map.get(detachedByLine, String(parent))"
+        if cond="allowed && !parentDetached"
+          let name=attachmentRow value="f4row3(String(parent), String(child), \"attached\")"
+          assign target=attachments value="f4append(attachments, attachmentRow)"
+        if cond="allowed && parentDetached"
+          do value="Map.set(detachedByLine, String(child), true)"
+          let name=localAttachmentRow value="f4row3(String(parent), String(child), \"detached-local\")"
+          assign target=attachments value="f4append(attachments, localAttachmentRow)"
+        else
+          if cond="!allowed"
+            do value="Map.set(detachedByLine, String(child), true)"
+            let name=detachedRow value="f4row1(String(child))"
+            assign target=detached value="f4append(detached, detachedRow)"
+            if cond="!Map.has(lineSpanByOrdinal, String(child))"
+              let name=childSpanFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+              return value=childSpanFailure
+            let name=childSpan value="Map.get(lineSpanByOrdinal, String(child))"
+            let name=childFact value="f4row6(\"structural\", \"invalid-child\", f4tapefield(childSpan, 0), f4tapefield(childSpan, 1), String(child), childKind)"
+            do value="factParts.push(f4item(childFact))"
+            assign target=factBytes value="factBytes + Text.utf8Length(f4item(childFact))"
+            assign target=factCount value="factCount + 1"
+    let name=decoratorResult value="f4decoratorrows(lineStarts, lineEnds, lineIndents, kinds, decoratorExplicitExports, decoratorFirsts, decoratorLasts, decoratorSuccessors, decoratorDispositions)"
+    if cond="decoratorResult[0] != \"ok\""
+      let name=decoratorDriftFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=decoratorDriftFailure
+    assign target=decorators value="decoratorResult[1]"
+    let name=exportCursor value=0
+    while cond="exportCursor < Text.length(decoratorResult[2])"
+      let name=exportItem value="f2batchmarked(decoratorResult[2], exportCursor, \"i\")"
+      let name=exportNext value="f2uint(exportItem[1])"
+      if cond="exportNext < 0 || f4tapecount(exportItem[0]) != 1"
+        let name=exportDriftFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+        return value=exportDriftFailure
+      let name=exportTarget value="f4tapefield(exportItem[0], 0)"
+      do value="Map.set(effectiveValues, String(exportTarget) + \".export\", \"true\")"
+      assign target=exportCursor value=exportNext
+    assign target=workSteps value="workSteps + f2uint(decoratorResult[3])"
+    let name=decoratorDiagnosticState value="f4diagdecoratorphase(decorators, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=pathBindings value="f4pathbindings(moduleId, moduleDirectory, occurrences, detached, lineStarts, lineEnds, kinds, edgeChildren, edgeParents, maxModuleIdScalars, maxModuleIdSegments, maxImportSpecifierScalars, maxImportSpecifierSegments, workSteps, maxWorkSteps)"
+    if cond="pathBindings[0] == \"limit\""
+      let name=pathLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=pathLimitFailure
+    if cond="pathBindings[0] != \"ok\""
+      let name=pathDriftFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=pathDriftFailure
+    assign target=bindings value="pathBindings[1]"
+    let name=pathFactParts value="f4framedtapeparts(pathBindings[2], 6)"
+    if cond="pathFactParts[0] != \"ok\""
+      let name=pathFactFailure value="f4fatal(\"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=pathFactFailure
+    for name=pathFactIndex from=1 to=pathFactParts.length
+      let name=pathFactPart value="pathFactParts[pathFactIndex]"
+      do value="factParts.push(pathFactPart)"
+      assign target=factBytes value="factBytes + Text.utf8Length(pathFactPart)"
+    let name=pathFactCount value="f2uint(pathBindings[3])"
+    let name=pathWork value="f2uint(pathBindings[4])"
+    assign target=factCount value="factCount + pathFactCount"
+    assign target=workSteps value="workSteps + pathWork"
+    for name=rootLine from=0 to=lineStarts.length
+      let name=parent value="Map.has(parentByLine, String(rootLine)) ? Map.get(parentByLine, String(rootLine)) : -1"
+      let name=isDetached value="Map.has(detachedByLine, String(rootLine)) && Map.get(detachedByLine, String(rootLine))"
+      let name=rootKind value="kinds[rootLine]"
+      if cond="!isDetached"
+        if cond="parent == -1"
+          if cond="rootKind != \"decorator\""
+            if cond="rootKind != \"class\" && rootKind != \"fn\" && rootKind != \"from\" && rootKind != \"module\" && rootKind != \"use\" && !Map.has(rejectedByLine, String(rootLine))"
+              let name=rootFact value="f4row6(\"module\", \"invalid-module-root\", String(lineStarts[rootLine]), String(lineEnds[rootLine]), String(rootLine), rootKind)"
+              do value="factParts.push(f4item(rootFact))"
+              assign target=factBytes value="factBytes + Text.utf8Length(f4item(rootFact))"
+              assign target=factCount value="factCount + 1"
+            if cond="rootKind == \"fn\" || rootKind == \"class\""
+              if cond="Map.has(effectiveValues, String(rootLine) + \".name\")"
+                let name=symbolRow value="f4row5(rootKind, Map.get(effectiveValues, String(rootLine) + \".name\"), Map.has(effectiveValues, String(rootLine) + \".export\") && Map.get(effectiveValues, String(rootLine) + \".export\") == \"true\" ? \"true\" : \"false\", String(rootLine), String(lineStarts[rootLine]))"
+                assign target=symbols value="f4append(symbols, symbolRow)"
+    let name=factFold value="f4balancedtapefold(factParts, workSteps, maxWorkSteps)"
+    if cond="factFold[0] != \"ok\""
+      let name=factFoldFailure value="f4fatal(factFold[0] == \"limit\" ? \"F4_LIMIT\" : \"F4_AUTHORITY_DRIFT\", sourceScalars)"
+      return value=factFoldFailure
+    let name=facts value="factFold[1]"
+    assign target=workSteps value="f2uint(factFold[2])"
+    let name=status value="factCount == 0 ? \"classified\" : \"rejected\""
+    if cond="status == \"rejected\""
+      assign target=symbols value="\"\""
+      assign target=bindings value="\"\""
+    if cond="factCount > maxFacts"
+      let name=factLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=factLimitFailure
+    if cond="declarationCount > maxDeclarations || occurrenceCount > maxOccurrences || Text.length(attachments) > maxAttachments * 256 || Text.length(decorators) > maxDecorators * 512 || Text.length(symbols) > maxSymbols * 512 || Text.length(bindings) > maxBindings * 512 || workSteps > maxWorkSteps"
+      let name=semanticLimitFailure value="f4fatal(\"F4_LIMIT\", sourceScalars)"
+      return value=semanticLimitFailure
+    let name=rootDiagnosticState value="f4diagrootphase(facts, maxDiagnostics, maxEncodedBytes, workSteps, maxWorkSteps)"
+    let name=diagnosticMerge value="f4diagmerge(combinedPropertyDiagnosticState, expressionDiagnosticState, decoratorDiagnosticState, rootDiagnosticState, testPhaseKeyMutation, workSteps, maxDiagnostics, maxEncodedBytes, maxWorkSteps)"
+    if cond="diagnosticMerge[0] != \"ok\""
+      let name=diagnosticFailureCode value="diagnosticMerge[0] == \"drift\" ? \"F4_AUTHORITY_DRIFT\" : \"F4_LIMIT\""
+      let name=diagnosticFailure value="f4fatal(diagnosticFailureCode, sourceScalars)"
+      return value=diagnosticFailure
+    let name=diagnostics value="diagnosticMerge[1]"
+    assign target=workSteps value="workSteps + f2uint(diagnosticMerge[2])"
+    if cond=forceLateFailure
+      let name=forcedLateFailure value="f4fatal(\"FORCED_LATE_FAILURE\", sourceScalars)"
+      return value=forcedLateFailure
+    let name=seal value="f4terminal(status, declarations, occurrences, presence, attachments, decorators, symbols, bindings, diagnostics, facts, detached, expressionEvidence, expressionResult[4], expressionResult[5], expressionResult[6], expressionResult[7], expressionResult[8], expressionResult[9])"
+    return value="[\"kern.frontend.f4-document.2\", status, moduleId, String(sourceScalars), declarations, occurrences, presence, attachments, decorators, symbols, bindings, diagnostics, facts, detached, expressionEvidence, String(workSteps), seal]"
