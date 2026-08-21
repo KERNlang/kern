@@ -21,6 +21,7 @@ export const F4_COMPOSITION_PATHS = [
   'examples/kern-frontend/f4-expression-evidence.kern',
   'examples/kern-frontend/f4-diagnostic-merge.kern',
   'examples/kern-frontend/f4-line-eligibility.kern',
+  'examples/kern-frontend/f4-attachment-closure.kern',
   'examples/kern-frontend/f4-prerequisite-envelope.kern',
   'examples/kern-frontend/f4-declarations-semantic.kern',
   'examples/kern-frontend/f4-declarations-semantic-tail.kernpart',

@@ -120,11 +120,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-path-contract.kern",
-      "sha256": "19b41f26fefba87a0bd2a3335cfaa0a4451b16745cdadb1cb466c22435fbbda3"
+      "sha256": "dc0e43f0c0a98eeeef150bee32020d4c6e1524e2ca7441f2bc5dd83ee3f83094"
     },
     {
       "path": "examples/kern-frontend/f4-expression-evidence.kern",
-      "sha256": "20de73880c2b1c510a40e94ee39cfca7bb18627a1e54083ba393042d670162d8"
+      "sha256": "54a6375192d7b58621c2e09546ac49ebc10870fbdc94fb9e69aa326805ad5c64"
     },
     {
       "path": "examples/kern-frontend/f4-diagnostic-merge.kern",
@@ -132,7 +132,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-line-eligibility.kern",
-      "sha256": "86dcacd41479a6bf543dbd78ff6a3d1e3b37cbf244c03e5527c50dee1756f442"
+      "sha256": "20dfdf0fae2f4990e577d8945c726f10cdd9fc6f6410da526a23fa9c300c4a33"
+    },
+    {
+      "path": "examples/kern-frontend/f4-attachment-closure.kern",
+      "sha256": "4544653a9256531a3237de8ec12ae7201af7ad8437ba8ca2d89ae92a27228096"
     },
     {
       "path": "examples/kern-frontend/f4-prerequisite-envelope.kern",
@@ -140,11 +144,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic.kern",
-      "sha256": "ec9fa36f17078f738a8659cdd88ae283e5ba417e617bdccc7d3214467d806ba9"
+      "sha256": "1fc0780241d7b0ea29eb2bc119ecd470345d1342f2fb99f5d49831530a566bd7"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic-tail.kernpart",
-      "sha256": "e8a304b5c6e0f37ff551f6a9fe2b4699d85c7c09e98246d2e194e4057ab86701"
+      "sha256": "07482e8484b51fa7cef85ddce48502582ed1e4c0ae9637dd8ab41e2df4c22a73"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-main.kern",

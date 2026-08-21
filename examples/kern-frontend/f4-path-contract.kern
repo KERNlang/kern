@@ -146,7 +146,7 @@ fn name=f4pathbindings returns="string[]"
   param name=moduleId type=string
   param name=moduleDirectory type=string
   param name=occurrences type=string
-  param name=detached type=string
+  param name=detachedFlags type="string[]"
   param name=lineStarts type="number[]"
   param name=lineEnds type="number[]"
   param name=kinds type="string[]"
@@ -159,6 +159,8 @@ fn name=f4pathbindings returns="string[]"
   param name=baseWorkSteps type=number
   param name=maxWorkSteps type=number
   handler lang="kern"
+    if cond="detachedFlags.length != kinds.length"
+      return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
     let name=effective value="new Map()"
     let name=occurrenceCursor value=0
     while cond="occurrenceCursor < Text.length(occurrences)"
@@ -174,16 +176,6 @@ fn name=f4pathbindings returns="string[]"
         let name=effectiveKey value="String(line) + \".\" + property"
         do value="Map.set(effective, String(effectiveKey), effectiveValue)"
       assign target=occurrenceCursor value=next
-    let name=detachedByLine value="new Map()"
-    let name=detachedCursor value=0
-    while cond="detachedCursor < Text.length(detached)"
-      let name=item value="f2batchmarked(detached, detachedCursor, \"i\")"
-      let name=next value="f2uint(item[1])"
-      if cond="next < 0 || f4tapecount(item[0]) != 1"
-        return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
-      let name=detachedLine value="f4tapefield(item[0], 0)"
-      do value="Map.set(detachedByLine, String(detachedLine), true)"
-      assign target=detachedCursor value=next
     if cond="edgeChildren.length != edgeParents.length"
       return value="[\"drift\", \"\", \"\", \"0\", \"0\"]"
     let name=parentByLine value="new Map()"
@@ -196,7 +188,10 @@ fn name=f4pathbindings returns="string[]"
     let name=work value=0
     for name=lineIndex from=0 to=kinds.length
       let name=kind value="kinds[lineIndex]"
-      let name=isDetached value="Map.has(detachedByLine, String(lineIndex))"
+      let name=detachedFlag value="detachedFlags[lineIndex]"
+      if cond="detachedFlag != \"true\" && detachedFlag != \"false\""
+        return value="[\"drift\", \"\", \"\", \"0\", String(work)]"
+      let name=isDetached value="detachedFlag == \"true\""
       if cond="kind == \"use\" && !isDetached"
         let name=pathKey value="String(lineIndex) + \".path\""
         if cond="Map.has(effective, pathKey)"
