@@ -187,6 +187,57 @@ function applyMutation(input, mutation) {
   } else fail(`unknown mutation ${mutation}`);
 }
 
+const AUTHORITY_MUTATION_KEYS = Object.freeze({
+  node: Object.freeze(['nodeIds', 'nodeSchemaStatuses', 'nodeAllowedModes', 'nodeChildTapes', 'nodePropertyStarts', 'nodePropertyCounts']),
+  property: Object.freeze(['propertyNodes', 'propertyNames', 'propertyKinds', 'propertyRequired', 'propertyValueTapes',
+    'propertyDispositions', 'propertyReasonIds']),
+});
+const AUTHORITY_MUTATION_COUNTS = Object.freeze({ node: 302, property: 1149 });
+
+function validateAuthorityVectorMutation(descriptor) {
+  if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor) ||
+      Object.keys(descriptor).length !== 3 || !Object.hasOwn(descriptor, 'family') ||
+      !Object.hasOwn(descriptor, 'operation') || !Object.hasOwn(descriptor, 'ordinal') ||
+      (descriptor.family !== 'node' && descriptor.family !== 'property') ||
+      !['cyclic', 'delete', 'duplicate', 'swap', 'substitute'].includes(descriptor.operation) ||
+      !Number.isSafeInteger(descriptor.ordinal)) fail('authority mutation descriptor');
+  if (descriptor.ordinal < 0 || descriptor.ordinal >= AUTHORITY_MUTATION_COUNTS[descriptor.family]) {
+    fail('authority mutation bounds');
+  }
+  return descriptor;
+}
+
+function applyAuthorityVectorMutation(input, descriptor) {
+  validateAuthorityVectorMutation(descriptor);
+  const keys = AUTHORITY_MUTATION_KEYS[descriptor.family];
+  const vectors = keys.map((key) => input.authorities[key]);
+  const length = vectors[0].length;
+  if (length !== AUTHORITY_MUTATION_COUNTS[descriptor.family] || vectors.some((vector) => vector.length !== length)) {
+    fail('authority mutation bounds');
+  }
+  const index = descriptor.ordinal;
+  const other = (index + 1) % length;
+  if (descriptor.operation === 'delete') {
+    for (const vector of vectors) vector.splice(index, 1);
+  } else if (descriptor.operation === 'duplicate') {
+    for (const vector of vectors) vector.splice(index, 0, vector[index]);
+  } else if (descriptor.operation === 'swap') {
+    if (!vectors.some((vector) => vector[index] !== vector[other])) fail('authority mutation non-noop');
+    for (const vector of vectors) [vector[index], vector[other]] = [vector[other], vector[index]];
+  } else if (descriptor.operation === 'cyclic') {
+    if (!vectors.some((vector) => vector[index] !== vector[other])) fail('authority mutation non-noop');
+    for (const vector of vectors) vector[index] = vector[(index + 1) % length];
+  } else {
+    const vector = descriptor.family === 'node' ? input.authorities.nodeSchemaStatuses : input.authorities.propertyNames;
+    const value = vector[index];
+    const points = Array.from(value);
+    const tail = points.at(-1);
+    const next = points.length === 0 ? 'x' : `${points.slice(0, -1).join('')}${tail === 'x' ? 'y' : 'x'}`;
+    if (next === value || Array.from(next).length !== Array.from(value).length) fail('authority mutation substitute');
+    vector[index] = next;
+  }
+}
+
 function execute(prepared, mutation, testPhaseKeyMutation = '', suppliedInput = undefined, observe = undefined, captureArguments = undefined, testArgumentCount = undefined) {
   if (testPhaseKeyMutation !== '' && testPhaseKeyMutation !== 'equal' &&
       testPhaseKeyMutation !== 'decreasing') fail('phase key mutation');
@@ -281,6 +332,24 @@ export const __test = Object.freeze({
   },
   runDocumentWithMutation(moduleId, source, mutation) {
     return runPrepared(prepare(moduleId, source), mutation);
+  },
+  runDocumentWithAuthorityMutation(moduleId, source, descriptor) {
+    validateAuthorityVectorMutation(descriptor);
+    const prepared = prepare(moduleId, source);
+    const input = buildPrerequisiteInput(prepared);
+    applyAuthorityVectorMutation(input, descriptor);
+    return runPrepared(prepared, undefined, '', input);
+  },
+  runDocumentWithAuthorityMutations(moduleId, source, descriptors) {
+    if (!Array.isArray(descriptors) || descriptors.length === 0) fail('authority mutation descriptors');
+    for (const descriptor of descriptors) validateAuthorityVectorMutation(descriptor);
+    const prepared = prepare(moduleId, source);
+    const baseInput = buildPrerequisiteInput(prepared);
+    return descriptors.map((descriptor) => {
+      const input = structuredClone(baseInput);
+      applyAuthorityVectorMutation(input, descriptor);
+      return runPrepared(prepared, undefined, '', input);
+    });
   },
   runDocumentWithProfileLimits(moduleId, source, profileLimits) {
     const prepared = prepare(moduleId, source);
