@@ -1397,9 +1397,15 @@ rather than a new host-owned F4 semantic path:
   duplicate/unknown, every value representation, expression binding, raw/host
   exclusions, link-time `from.as`/`reexport` normalization, and property names
   that collide with object prototypes.
-- **[F4-A6 PROPOSED]** Attachment tests cover unrestricted, empty, and explicit
-  child catalogs plus reordered/duplicated/missing F3 edges without semantic
-  reparenting.
+- **[F4-A6 IMPLEMENTED | VERIFIED]** KERN computes the full detached-descendant
+  closure before projection, preserves authenticated F3 geometry, suppresses
+  detached declaration/interface/path/export/evidence effects, retains the
+  frozen intrinsic-validation boundary, and charges exact prospective closure
+  work. The E1-E10 matrix covers unrestricted/explicit controls, nested invalid
+  edges, detached expressions/decorators, aligned F3 reorder/duplicate/delete/
+  swap drift, ABI/version identity, exact/cap-minus-one work, and structural
+  source canaries in `a6-detached-closure.test.mjs`; the expanded complete F4
+  declarations wall passed `383/383` on the final candidate.
 - **[F4-A7 PROPOSED]** Module-set tests cover the immutable valid/malformed F0
   goldens, forward/backward imports, aliases, reexports, duplicates, missing
   modules/symbols, wrong kinds, cycles, unsupported roots, and deterministic

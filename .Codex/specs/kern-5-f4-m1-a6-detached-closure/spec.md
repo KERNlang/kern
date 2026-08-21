@@ -1,8 +1,8 @@
 # KERN 5 F4A — A6/C8 Detached-Subtree Closure
 
-**Status:** IMPLEMENTATION SPEC — not accepted, promoted, released, or published
+**Status:** IMPLEMENTED AND LOCALLY VERIFIED — A6 slice only; F4 remains unaccepted and unpromoted
 **Scope:** F4A declaration/attachment projection only
-**Base:** `origin/main` `4c0ade6305b374d273550df686b827877417dc46`
+**Base:** historical RED baseline `origin/main` `4c0ade6305b374d273550df686b827877417dc46`
 **Owner:** M1 F4A A6/C8 closure slice
 
 ## 1. Problem and claim ledger
@@ -99,13 +99,22 @@ the C8/C9 boundary without suppressing C9's mandated reporting.
    charged at `f4-declarations-semantic.kern:198`. It then debits exactly one
    scalar unit for each authenticated edge validation (`E`), one for each
    closure-propagation edge inspection (`P`), and one for each first detached
-   ordinal admission (`A`). Thus the prepass advances the incoming meter by
-   `sum_i f2uint(eligibility[i][11]) + E + P + A`, with `P <= E` and `A <= L`.
-   Before retaining an eligibility result, validating/propagating an edge, or
-   appending a first detached ordinal, it checks the next meter; the first
-   excess returns atomic `F4_LIMIT` before projection. Later semantic code
-   reuses retained eligibility results and must not debit slot `[11]` again.
-   This pass is O(L+E), not a second eligibility scan.
+   ordinal admission (`A`). Before projection it also folds the five mutable
+   preprojection part arrays—eligibility, attachments, detached, invalid-edge
+   inputs, and parents—using `f4balancedtapefold` in that canonical order. Let
+   `F` be the exact scalar-copy work returned by those five successful folds.
+   Invalid-edge inputs contain only the child span, ordinal, and kind; they are
+   not six-field facts and are not C13-admitted in the prepass. Thus the
+   prepass advances the incoming meter by
+   `sum_i f2uint(eligibility[i][11]) + E + P + A + F`, with `P <= E` and
+   `A <= L`. The fold's existing dry-run/checked-copy path is prospective: a
+   fold limit returns atomic `F4_LIMIT` before any semantic projection.
+   Before retaining an eligibility result, validating/propagating an edge,
+   appending a first detached ordinal, or committing a balanced fold, it checks
+   the next meter; the first excess returns atomic `F4_LIMIT` before projection.
+   Later semantic code reuses retained eligibility results and must not debit
+   slot `[11]` again. This pass is O(L+E), plus bounded balanced-fold copying;
+   it is not a second eligibility scan or a growing-prefix construction.
 4. Otherwise all local validation is scanned in source order, closure projection
    is applied, and the regular F4 status/seal rules apply.
 
@@ -142,11 +151,17 @@ property validation while forbidding only the named declaration/interface
 effects. The existing semantic loop calls `f4lineeligibility` and immediately
 debits `eligibility[11]` at `f4-declarations-semantic.kern:185-200`; a tail-only
 closure cannot both decide projection early and reuse that exact work result.
-This is a KERN source defect, not a decoder limitation.
+Nor can portable KERN use a mutable-array `List.join` shortcut: the five
+preprojection arrays, including bounded invalid-edge inputs rather than
+constructed facts, require the existing balanced fold's exact scalar-copy
+accounting before projection. The existing attachment-fact phase alone builds
+each six-field `invalid-child` fact and immediately passes it through
+`f4eligibilityleafadmit`, preserving its current phase/order. This is a KERN
+source defect, not a decoder limitation.
 
 | Surface | Required bounded change |
 |---|---|
-| `examples/kern-frontend/f4-attachment-closure.kern` (new, under 500 lines) | Portable preprojection eligibility/edge traversal returning retained eligibility results, full closure membership, ordered detached tape, admitted attachment geometry, every intrinsic invalid-edge input, and checked `sum eligibility[11] + E + P + A` work. It must use scalar/map/tape patterns accepted by the portable evaluator; no dynamic host normalization. |
+| `examples/kern-frontend/f4-attachment-closure.kern` (new, under 500 lines) | Portable preprojection eligibility/edge traversal returning retained eligibility results, full closure membership, ordered detached tape, admitted attachment geometry, every bounded intrinsic invalid-edge input `[start,end,ordinal,kind]`, and checked `sum eligibility[11] + E + P + A + F` work, where F is the actual five-fold scalar-copy result. It never constructs or pre-admits facts. It must use scalar/map/tape patterns accepted by the portable evaluator; no dynamic host normalization. |
 | `f4-declarations-semantic.kern` / `f4-declarations-semantic-tail.kernpart` | Consume cached eligibility/closure before declaration/interface projection; retain intrinsic property occurrence/presence provenance and local validation facts, but gate declarations, path binding, attached decorator/export, and expression evidence through the closure result. Keep handwritten files below 500 lines by extracting, not growing. |
 | `scripts/kern-frontend-f4-declarations/policy.json` and composition validation | Add the helper in deterministic composition order and update every pinned SHA plus the full policy identity atomically. |
 | focused tests | Add only public/explicit-private transport mutation oracles; never fabricate a receipt or host-side closure result. |
@@ -160,11 +175,11 @@ receipt-shape validation. Exactness tests therefore mutate the KERN closure
 helper's dedupe/order branch and require the real-output/source canary to fail,
 not a fabricated raw receipt mutation that the decoder cannot semantically
 adjudicate. The helper may construct parent/child membership maps and a
-source-ordered worklist, but must charge every traversal and never use a
-repeated growing-prefix tape concatenation or a host graph API. A child visited
-more than once is ignored after its first source-order admission; F3's
-authenticated tree geometry normally gives one parent per non-decorator logical
-line.
+source-ordered worklist, but must charge every traversal and its five
+balanced-fold copy result; it never uses a mutable-array join, repeated
+growing-prefix tape concatenation, or a host graph API. A child visited more
+than once is ignored after its first source-order admission; F3's authenticated
+tree geometry normally gives one parent per non-decorator logical line.
 
 ## 4. Acceptance matrix (RED before production repair)
 
@@ -174,12 +189,12 @@ line.
 | E2 | Same shape with a valid quoted expression owned by detached `text` | It makes one actual local-F2 attempt and charges parser work, but no detached expression-evidence row escapes. Assert C20: `L_attempted` includes that attempt, while `S_total` and `B` equal the retained-evidence recomputation and the detached attempt contributes zero to both. A local expression failure retains its existing fact and C14 diagnostic. |
 | E3 | `module -> list -> text -> @trace export -> fn`, with `list -> text` invalid | Current base is RED. F3 decorator geometry remains authenticated; the valid candidate is exactly one row `[trace,dropped,-1,true,start,end]` plus one ordered `DROPPED_DECORATOR`, never attached/exported; detached declaration is absent, intrinsic occurrence/presence provenance remains, and direct `invalid-child` remains. |
 | E4 | Unrestricted and explicit valid-catalog controls | Classified receipts retain every declaration/occurrence/presence/decorator/expression row and all attachments as `attached`; detached tape and facts are empty. |
-| E5 | Nested `invalid parent -> child -> invalid grandchild -> descendant` catalog fixture | Both intrinsically invalid edges emit their own `invalid-child` fact in existing emission order; no invalid edge gets an attachment row; closure ordinals deduplicate and include the complete descendant chain in F3 source-edge order. |
+| E5 | Nested `invalid parent -> child -> invalid grandchild -> descendant` catalog fixture | The prepass returns one bounded invalid-edge input for each intrinsically invalid edge. The existing attachment-fact phase constructs and immediately C13-admits both `invalid-child` facts in its existing emission order; no invalid edge gets an attachment row; closure ordinals deduplicate and include the complete descendant chain in F3 source-edge order. |
 | E6 | Real well-shaped aligned `edgeChildren`, `edgeParents`, `edgeChildIndents`, `edgeParentIndents` reorder, duplicate insertion, deletion, and swap | Each runs exactly one real F4 invocation and returns atomic `F4_F3_DRIFT`; all ordinary sections are empty. A malformed/non-aligned shape is instead atomic `F4_INVALID_REQUEST`. Valid unmutated geometry remains a green control. |
 | E7 | Mixed invalid edge plus malformed/missing/unknown local detached line | Facts retain exact existing phase/emission order and spans; diagnostics retain C14 order/spans; no forbidden declaration/interface/evidence row from its closure owner escapes. |
-| E8 | Closure fixture with captured eligibility results and multiple descendants | Compute the preprojection boundary from the real retained `sum eligibility[11] + E + P + A`: one less is atomic `F4_LIMIT` before projection, and the exact boundary proves every eligibility result is reused with no second slot-`[11]` debit. C13 fact/diagnostic limits remain atomic with no partial public projection. |
+| E8 | Closure fixture with captured eligibility results and multiple descendants | Compute the preprojection boundary from the real retained `sum eligibility[11] + E + P + A + F`, where F is the actual scalar-copy work of the ordered five `f4balancedtapefold` calls including invalid-edge inputs: one less is atomic `F4_LIMIT` before projection, and the exact boundary proves every eligibility result is reused with no second slot-`[11]` debit or growing-prefix/join substitution. C13 fact/diagnostic limits remain atomic with no partial public projection. |
 | E9 | Capture actual private runtime args and result | Exactly 109 args, policy `.4`, document `.2`, exactly 17 receipt fields. An old composition pin/policy skew rejects before acceptance. |
-| E10 | KERN integrity mutations and structural canary | KERN tests prove exact-once source-edge closure membership and the incremental `sum eligibility[11] + E + P + A` cap boundary before projection; canaries mutate the retained-eligibility reuse/debit branch or closure dedupe/order branch and fail if slot `[11]` is replayed, only direct invalid children are recorded, any intrinsic invalid descendant edge loses its fact, a forbidden declaration/path/attached-decorator/export/expression-evidence push bypasses closure disposition, or F3 edges are rewritten/dropped. The decoder is intentionally not assigned closure semantic validation without trusted F3 context. Mutation controls must alter source before evaluation. |
+| E10 | KERN integrity mutations and structural canary | KERN tests prove exact-once source-edge closure membership and the incremental `sum eligibility[11] + E + P + A + F` cap boundary before projection; canaries mutate the retained-eligibility reuse/debit branch, one of the five ordered balanced-fold paths, or the closure dedupe/order branch and fail if slot `[11]` is replayed, a fold/join/growing-prefix substitute omits prospective copy charging, only direct invalid children are recorded, an invalid-edge input is omitted or becomes a pre-admitted fact, the attachment-fact phase fails to immediately admit it, a forbidden declaration/path/attached-decorator/export/expression-evidence push bypasses closure disposition, or F3 edges are rewritten/dropped. The decoder is intentionally not assigned closure semantic validation without trusted F3 context. Mutation controls must alter source before evaluation. |
 
 The E1/E3 current behavior is the discriminating base RED: current code exposes
 descendant declaration/interface rows and attaches/exports a detached decorator
@@ -216,6 +231,15 @@ review routed by the actual primary implementation identity. Broader F4/KERN-5
 fitness remains a separate acceptance gate; passing this slice does not close
 A3-A5 or promote F4.
 
+The implemented slice has direct local evidence for E1-E10 in
+`a6-detached-closure.test.mjs`: the focused A6 matrix passed `10/10`, and the
+adjacent C13/document/eligibility/expression/path wall passed `119/119`. The
+expanded complete F4 declarations wall passed `383/383` on the final candidate.
+The automatic-risk Agon review found no verified blocker after the preprojection,
+work-accounting, portable-runtime, and C13 admission repairs. These results are
+bounded candidate evidence, not a terminal F4 acceptance, release, or
+publication claim.
+
 ## 7. Corrections log
 
 | Date | Correction |
@@ -223,3 +247,4 @@ A3-A5 or promote F4.
 | 2026-08-21 | Replaced the direct-child interpretation exposed by the current tail with the parent-spec's full descendant closure requirement. |
 | 2026-08-21 | Corrected the C8/C9 boundary: valid detached-target decorators remain ordered C9 `dropped` rows with `DROPPED_DECORATOR`; only attachment/export is suppressed. |
 | 2026-08-21 | Distinguished retained intrinsic validation from forbidden detached import/path/binding projection, preventing detached path facts from leaking as semantic work. |
+| 2026-08-22 | Recorded the implemented preprojection closure, exact five-fold work accounting, prospective invalid-child admission, and bounded E1-E10 evidence without promoting F4. |
