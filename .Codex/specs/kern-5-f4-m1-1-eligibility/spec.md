@@ -1,6 +1,6 @@
 # KERN 5 M1.1 — F4A Line Eligibility
 
-**Status:** DECIDED — implementation and acceptance review pending
+**Status:** PARTIALLY IMPLEMENTED — broader acceptance review pending
 **Date:** 2026-08-21
 **Confidence:** 0.97
 
@@ -200,12 +200,13 @@ This preserves F4-R4 drift precedence and forbids re-scan/growing-prefix
 accumulation. Evidence: `examples/kern-frontend/f4-declarations-semantic-tail.kernpart:1-18,72-91`
 and parent F4-R1/R2 at `kern-5-f4-declarations-modules/spec.md:343-352`.
 
-**[M1.1-C13 IMPLEMENTATION / ACCEPTANCE PARTIAL]** Current implementation and
-focused acceptance cover bare-token, malformed-decorator, required-missing,
-their eligibility diagnostics, and E18 property-phase cap precedence. C13-LOCAL
-is the current unimplemented M1.1 closure slice; C13-GLOBAL remains named M3
-work. Neither status claims that the eight local branches or imported expression/
-path tapes have current end-to-end admission proof.
+**[M1.1-C13 IMPLEMENTATION / ACCEPTANCE PARTIAL]** This slice implements
+prospective admission for all eight C13-LOCAL families.
+`scripts/kern-frontend-f4-declarations/c13-local-facts.test.mjs` passed 32/32
+locally, and the full F4 declarations wall passed 362/362 with all 34 policy
+pins and deterministic authority regeneration verified. This is bounded local
+candidate evidence rather than a durable CI acceptance receipt. C13-GLOBAL remains
+named M3 work, and broader M1.1/F4 acceptance remains open.
 
 ## Implementation options
 

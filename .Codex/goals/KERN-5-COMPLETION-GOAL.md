@@ -115,12 +115,14 @@ public export is a separate consumer-contract decision, not a KERN 5 blocker.
 - **[K5-CS3 VERIFIED]** F4 is a substantial, independently scoped
   review-clean *candidate* (declarations, expression evidence, request verdict,
   path/ID, resource-prefix, UTF-8, and merged M1.1 eligibility slices). M1.1
-  acceptance remains open: C13-LOCAL is the current unimplemented eight-family
-  constructed-here admission slice, while C13-GLOBAL imported expression/path
-  admission remains M3/open. The remaining F4-A1–A6/A11 corpus, canonical C15
-  graph ordering, and full-scale closure are unfinished. F4 is neither accepted
-  nor promoted; the F4 specification remains authoritative for slice-level
-  status, and no candidate result changes the terminal-gate ledger.
+  acceptance remains open: this slice implements all eight C13-LOCAL
+  constructed-here admission families and its pre-integration candidate passed the focused
+  32/32 oracle plus the full 362/362 F4 declarations wall. That bounded local
+  evidence is not a durable merged/CI receipt. C13-GLOBAL imported expression/
+  path admission remains M3/open. The remaining F4-A1–A6/A11 corpus, canonical
+  C15 graph ordering, and full-scale closure are unfinished. F4 is neither
+  accepted nor promoted; the F4 specification remains authoritative for
+  slice-level status, and no candidate result changes the terminal-gate ledger.
 - **[K5-CS4 VERIFIED]** The machine ledger still has exactly eight terminal
   rows: two current (`test:kern-checker`, `test:kern-formatter`) and six planned
   (`test:kern-frontend`, compiler, fixed-point, interpreter-shadow, canonical
@@ -152,7 +154,7 @@ its stated dependency is complete.
 | Milestone | Bounded deliverable and dependency | Acceptance gate(s) |
 | --- | --- | --- |
 | **M0 — candidate integration (source landed; acceptance receipt not attached)** | `origin/main` `ab360354` contains landed M0 integration and M1.1; dependency: K5-CS1. Aggregate M0 integration head `eaff1992` is provenance only. | Required M0 acceptance gates remain `git diff --check`; `pnpm test:kern-frontend-f4-declarations`; and `pnpm --filter @kernlang/core exec tsc -b --force`. This goal row attaches no durable M0 gate receipt; source landing alone is not terminal-promotion or release evidence. |
-| **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; current C13 work is C13-LOCAL's eight constructed-here facts; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
+| **M1 — F4A semantic closure** | Close F4-A1–A6 and A11 across all frozen F0 source forms, properties, raw blocks, decorators, attachments, diagnostics, and decoder ownership; C13-LOCAL's eight constructed-here facts are implemented and locally verified in this slice, while the remaining M1 closure stays open; dependency: M0. | New F4A binary/mutation oracles prove each acceptance claim; F4-A1–A6/A11 may move only with their evidence. |
 | **M2 — F4B canonical graph closure** | Close F4-A7 and canonical C15: deterministic R/T/facts, binding positions, normalized resolution, re-export fixed point, rejected/blocked order, and actual SCC/component rows; dependency: M1. | Permutation, cycle, malformed, and multi-hop re-export oracles; exact canonical receipt/decoder evidence. |
 | **M3 — F4 scale and adversarial closure** | Close F4-A8–A10, including complete 26-form coverage, declared scale caps, resource/work/byte boundaries, C13-GLOBAL imported expression/path admission, and full-slice independent review; dependency: M2. | Focused F4 suite plus mutation/scaling oracle matrix; no unclassified source form or quadratic authority scan remains. |
 | **M4 — F5 KIR projection** | Produce the KERN-owned projection from accepted F4 facts to frozen KIR without TypeScript semantic delegation; dependency: M3. | F5 spec and binary oracle prove canonical KIR rows, provenance, malformed atomicity, and static-golden parity. |

@@ -1,24 +1,26 @@
 # KERN 5 M1.1 — F4A C13-LOCAL Fact Admission Closure
 
-**Status:** READY TO BUILD
+**Status:** IMPLEMENTED AND LOCALLY VERIFIED — C13-LOCAL ONLY; broader F4 acceptance pending
 **Date:** 2026-08-21
 **Confidence:** 0.97
 
 ## Executive summary
 
-**[C13L-S1 VERIFIED]** M1.1 already prospectively admits bare-token, malformed-decorator, and required-missing facts. Five more facts constructed by the same F4A invocation bypass that boundary: unknown node, unknown property, property-admission rejection, invalid child, and invalid module root. The current final aggregate check can only observe them after retention and folding. Evidence: `examples/kern-frontend/f4-declarations-semantic.kern:208-225,231-234,312-316,352-355,363-380,410-428` and `examples/kern-frontend/f4-declarations-semantic-tail.kernpart:51-54,100-120`.
+**[C13L-S1 BASELINE VERIFIED | CLOSED LOCALLY]** At the pre-implementation baseline, M1.1 already prospectively admitted bare-token, malformed-decorator, and required-missing facts, while five more facts constructed by the same F4A invocation bypassed that boundary: unknown node, unknown property, property-admission rejection, invalid child, and invalid module root. The current candidate now routes all five through the same prospective admission boundary before retention and folds only after count/byte invariants. Evidence: `examples/kern-frontend/f4-declarations-semantic.kern`, `examples/kern-frontend/f4-declarations-semantic-tail.kernpart`, and `scripts/kern-frontend-f4-declarations/c13-local-facts.test.mjs`.
 
-**[C13L-S2 DECIDED]** C13-LOCAL owns exactly eight constructed-here families: bare token, malformed decorator, missing property, unknown node, unknown property, property-admission rejection, invalid child, and invalid module root. Each is admitted before retention with one KERN-owned, field-local facts ledger. No fact/diagnostic vocabulary, 109-input root field, document `.2` field, or public worker option changes.
+**[C13L-S2 IMPLEMENTED]** C13-LOCAL owns exactly eight constructed-here families: bare token, malformed decorator, missing property, unknown node, unknown property, property-admission rejection, invalid child, and invalid module root. Each is admitted before retention with one KERN-owned, field-local facts ledger. No fact/diagnostic vocabulary, 109-input root field, document `.2` field, or public worker option changes.
 
 **[C13L-S3 DECIDED]** F2B-derived expression facts and path-helper fact tapes are C13-GLOBAL, not C13-LOCAL. They need streaming authenticated admission with frame validation before a limit verdict, preserving F4_F2B/F4_AUTHORITY drift precedence. That remains M3/F4-R1 work.
 
-## Current state and root cause
+**[C13L-S4 LOCALLY VERIFIED]** Before integration, `scripts/kern-frontend-f4-declarations/c13-local-facts.test.mjs` passed 32/32 and the full `pnpm test:kern-frontend-f4-declarations` wall passed 362/362. Lint, repository consistency, all 34 F4 authority/prerequisite/composition path-order-SHA pins, and deterministic authority regeneration were also green. This is local candidate evidence, not a durable CI acceptance receipt; it does not accept C13-GLOBAL, promote F4, or change the KERN 5 terminal ledger.
+
+## Baseline root cause and current closure
 
 **[C13L-R1 VERIFIED]** `f4eligibilityleafadmit` validates a six-field row, frames it as `i<len>:`, calculates framed UTF-8 bytes, and rejects prospective count/bytes/work before returning a value to push. Bare, malformed-decorator, and missing-property paths already call it. Evidence: `examples/kern-frontend/f4-line-eligibility.kern:228-250` and `examples/kern-frontend/f4-declarations-semantic.kern:208-225,363-380,410-428`.
 
-**[C13L-R2 VERIFIED]** Unknown node/property, property-admission rejection, invalid child, and invalid root directly mutate `factParts`, `factBytes`, and `factCount`. Evidence: `examples/kern-frontend/f4-declarations-semantic.kern:231-234,312-316,352-355` and `examples/kern-frontend/f4-declarations-semantic-tail.kernpart:51-54,100-103`.
+**[C13L-R2 BASELINE VERIFIED | CLOSED LOCALLY]** Unknown node/property, property-admission rejection, invalid child, and invalid root previously mutated `factParts`, `factBytes`, and `factCount` directly. The current candidate admits each row through `f4eligibilityleafadmit` before pushing its returned framed value. Evidence: `examples/kern-frontend/f4-declarations-semantic.kern`, `examples/kern-frontend/f4-declarations-semantic-tail.kernpart`, and the direct-push canaries in `scripts/kern-frontend-f4-declarations/c13-local-facts.test.mjs`.
 
-**[C13L-R3 VERIFIED]** The final `factCount > maxFacts` check follows the fact fold. Public low-cap tests can therefore get the right fatal for the wrong reason. E17 rejects growing-prefix concatenation but cannot prove every branch used prospective admission. Evidence: `examples/kern-frontend/f4-declarations-semantic-tail.kernpart:108-120` and `scripts/kern-frontend-f4-declarations/line-eligibility.test.mjs:281-334`.
+**[C13L-R3 BASELINE VERIFIED | CLOSED LOCALLY]** The final `factCount > maxFacts` check previously followed the fact fold, so public low-cap tests could get the right fatal for the wrong reason. The current candidate checks count and fact bytes before folding, while structural canaries require successful prospective admission to dominate every local push. Evidence: `examples/kern-frontend/f4-declarations-semantic-tail.kernpart` and `scripts/kern-frontend-f4-declarations/c13-local-facts.test.mjs`.
 
 **[C13L-R4 VERIFIED]** Profile limits must be safe integers at least one, so an oracle needs a positive preceding fact count; it cannot use `maxFacts=0`. Evidence: `scripts/kern-frontend-f4-declarations/policy-validation.mjs:169-175`.
 
@@ -68,7 +70,7 @@
 | `examples/kern-frontend/f4-declarations-semantic.kern` | Modify or extract | Admit unknown-node/property/admission-rejection facts. |
 | `examples/kern-frontend/f4-declarations-semantic-tail.kernpart` | Modify | Admit child/root facts and pre-fold count/bytes invariant. |
 | `f4-line-eligibility.kern` or small helper | Modify if needed | Own the common portable operation. |
-| `line-eligibility.test.mjs` | Extend | Add cap, precedence, and structural no-direct-push tests. |
+| `scripts/kern-frontend-f4-declarations/c13-local-facts.test.mjs` | Add | Cover caps, precedence, and structural no-direct-push invariants. |
 | `policy.json` | Regenerate pins | Changed composition requires exact policy/cache identity. |
 | Worker API, decoder, F4B, F5 | No behavior change | 109/.2 contract remains stable. |
 
