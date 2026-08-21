@@ -105,10 +105,13 @@ and the vocabulary is frozen.
 
 ## Acceptance Criteria
 
-- **[A4-D1] Attached run.** Two same-indent decorators followed immediately by
-  a same-indent `fn` yield two ordered `attached` rows targeting that function,
-  exact scalar spans, zero dropped warnings, and one target export if exactly
-  one row is explicit.
+- **[A4-D1] Attached run and explicit control.** Two plain same-indent
+  decorators followed immediately by a same-indent `fn` yield two ordered
+  `attached` rows targeting that function, exact scalar spans, and zero dropped
+  warnings. Separately, one `export @name` decorator followed by a same-indent
+  `fn` attaches, retains `explicitExport=true`, and exports that target. F3 does
+  not classify the export-prefixed line as a decorator-run member, so the two
+  controls must not be conflated.
 - **[A4-D2] Explicit dropped isolation.** An explicit decorator followed by a
   non-`fn` or detached `fn` is `dropped`, target `-1`, emits no export/symbol
   effect, and produces exactly one warning.
@@ -195,3 +198,4 @@ Stop and respec if the slice requires:
 | A5 must precede A4 because property behavior is broadly absent. | Many high-risk A5 behaviors already have tests; A5 needs a subtraction audit before its bounded remainder is specified. | A4 is the sharper immediate slice. |
 | The whole 26-form A3 corpus can move to M3. | Semantic coverage remains an M1 dependency; scale/adversarial expansion belongs in M3. | Sequence A4, A5 remainder, A3 semantic, then M2/M3. |
 | One dropped diagnostic per run is sufficient. | The frozen F4 contract maps each grammar-valid decorator row independently; every dropped row requires its own warning. | D3/D4/D8 assert row cardinality and spans. |
+| `export @name` can be placed inside the same authenticated F3 run as plain `@name`. | A real F3/F4 probe on 2026-08-22 showed `@first\nexport @second\nfn name=main\n` produces an F3 run only for ordinal 0; F4 independently recognizes ordinal 1 as an explicit decorator. | Split D1 into a plain multi-row run and a separate explicit-export control. |
