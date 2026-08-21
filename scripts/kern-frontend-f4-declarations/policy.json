@@ -140,11 +140,11 @@
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic.kern",
-      "sha256": "7d39656a31128aa8e84685bd9e6238a4137e3cf41eafc04f583dad7efbbfae83"
+      "sha256": "ec9fa36f17078f738a8659cdd88ae283e5ba417e617bdccc7d3214467d806ba9"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-semantic-tail.kernpart",
-      "sha256": "3c15796774f53c3b8b0e7b3365bb873c4f23d372adec1e55b45b6eb8dc997d90"
+      "sha256": "e8a304b5c6e0f37ff551f6a9fe2b4699d85c7c09e98246d2e194e4057ab86701"
     },
     {
       "path": "examples/kern-frontend/f4-declarations-main.kern",
