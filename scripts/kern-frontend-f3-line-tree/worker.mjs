@@ -114,15 +114,15 @@ function loadF3Composition(policyState) {
   return { composition, f3Source, helperSource };
 }
 
-function prepareDocument(source, options = {}) {
+function prepareBase(source, options) {
   if (typeof source !== 'string') fail('source type');
   const policyState = loadPolicy();
   const limits = effectiveLimits(policyState.policy.profileLimits, options.profileLimits);
-  const scan = runScan(source);
-  if (scan.decoded.status !== 'scanned') fail(`F1 rejected source: ${scan.decoded.diagnostic.code}`);
-  const batch = runBatchWithScan(source, scan);
-  if (batch.receipt.status !== 'batched') fail(`F2B rejected source: ${batch.receipt.diagnostic.code}`);
+  return { limits, policyState };
+}
 
+function prepareAvailableDocument(source, options, base, scan, batch) {
+  const { limits, policyState } = base;
   const loaded = loadF3Composition(policyState);
   const records = scan.decoded.records;
   const segments = batch.receipt.segments;
@@ -144,6 +144,37 @@ function prepareDocument(source, options = {}) {
   };
 
   return { context, limits, loaded, policyState, request, scan, batch };
+}
+
+function collectPrerequisites(source, options = {}, observe = undefined) {
+  const base = prepareBase(source, options);
+  observe?.('f1');
+  const scan = runScan(source);
+  if (scan.decoded.status !== 'scanned') {
+    return { prerequisiteStates: ['failed', 'not-attempted', 'not-attempted'], scan };
+  }
+  observe?.('f2b');
+  const batch = runBatchWithScan(source, scan);
+  if (batch.receipt.status !== 'batched') {
+    return { prerequisiteStates: ['available', 'failed', 'not-attempted'], scan, batch };
+  }
+  return {
+    prerequisiteStates: ['available', 'available', 'not-attempted'],
+    prepared: prepareAvailableDocument(source, options, base, scan, batch),
+    scan,
+    batch,
+  };
+}
+
+function prepareDocument(source, options = {}, observe = undefined) {
+  const outcome = collectPrerequisites(source, options, observe);
+  if (outcome.prerequisiteStates[0] === 'failed') {
+    fail(`F1 rejected source: ${outcome.scan.decoded.diagnostic.code}`);
+  }
+  if (outcome.prerequisiteStates[1] === 'failed') {
+    fail(`F2B rejected source: ${outcome.batch.receipt.diagnostic.code}`);
+  }
+  return outcome.prepared;
 }
 
 function executePreparedFields(source, prepared, options) {
@@ -190,11 +221,27 @@ function executePreparedFields(source, prepared, options) {
   return materialize(envelope.result.value);
 }
 
-function executePreparedDocument(source, prepared, options) {
+function executePreparedDocument(source, prepared, options, observe = undefined) {
+  observe?.('f3');
   const fields = executePreparedFields(source, prepared, options);
   const { batch, context, request, scan } = prepared;
   const decoded = decodeDocument(fields, source, request, context);
   return { ...decoded, batch, fields, runtimeInvocations: 1, scan };
+}
+
+function collectDocumentOutcome(source, options = {}, observe = undefined) {
+  const outcome = collectPrerequisites(source, options, observe);
+  if (outcome.prepared === undefined) return outcome;
+  const { batch, prepared, scan } = outcome;
+  const document = executePreparedDocument(source, prepared, options, observe);
+  const prerequisiteStates = document.receipt.status === 'structured'
+    ? ['available', 'available', 'available']
+    : ['available', 'available', 'failed'];
+  return { prerequisiteStates, scan, batch, document };
+}
+
+export function runDocumentOutcome(source, options = {}) {
+  return collectDocumentOutcome(source, options);
 }
 
 export function runDocument(source, options = {}) {
@@ -216,4 +263,14 @@ function runWithRequestMutation(source, mutate) {
   return executePreparedDocument(source, prepared, options);
 }
 
-export const __test = { runWithRequestMutation };
+export const __test = {
+  runWithRequestMutation,
+  runDocumentOutcomeWithObserver(source, options, observe) {
+    if (typeof observe !== 'function') fail('observer');
+    return collectDocumentOutcome(source, options, observe);
+  },
+  runDocumentWithObserver(source, options, observe) {
+    if (typeof observe !== 'function') fail('observer');
+    return executePreparedDocument(source, prepareDocument(source, options, observe), options, observe);
+  },
+};
